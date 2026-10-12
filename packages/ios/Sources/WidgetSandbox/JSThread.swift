@@ -18,31 +18,57 @@ public final class JSThread {
     public static let jsStackLimit = 6 << 20
 
     private let thread: Thread
-    private var runLoop: CFRunLoop!
-    private let ready = DispatchSemaphore(value: 0)
+    private let state = State()
 
-    public init(name: String, qos: QualityOfService = .userInitiated) {
-        var loop: CFRunLoop!
-        let ready = self.ready
-        thread = Thread {
-            loop = CFRunLoopGetCurrent()
+    private final class State {
+        let lock = NSLock()
+        var runLoop: CFRunLoop?
+        var early: [() -> Void] = []
+        var stopped = false
+
+        func enter() {
             // A port keeps the run loop alive while there is nothing scheduled.
             RunLoop.current.add(Port(), forMode: .default)
-            ready.signal()
-            CFRunLoopRun()
+            let loop = CFRunLoopGetCurrent()!
+            lock.lock()
+            runLoop = loop
+            lock.unlock()
+            runEarly()
+            if !stopped { CFRunLoopRun() }
         }
+
+        private func runEarly() {
+            lock.lock()
+            var queued = early
+            early = []
+            lock.unlock()
+            for i in queued.indices {
+                autoreleasepool { queued[i]() }
+                queued[i] = {}
+            }
+        }
+    }
+
+    public init(name: String, qos: QualityOfService = .userInitiated) {
+        let state = self.state
+        thread = Thread { state.enter() }
         thread.name = name
         thread.stackSize = Self.stackSize
         thread.qualityOfService = qos
         thread.start()
-        ready.wait()
-        runLoop = loop
     }
 
     public var isCurrent: Bool { Thread.current === thread }
 
     /// Runs `block` on the thread, after everything queued before it.
     public func async(_ block: @escaping () -> Void) {
+        state.lock.lock()
+        guard let runLoop = state.runLoop else {
+            state.early.append(block)
+            state.lock.unlock()
+            return
+        }
+        state.lock.unlock()
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, block)
         CFRunLoopWakeUp(runLoop)
     }
@@ -62,27 +88,40 @@ public final class JSThread {
 
     public final class Scheduled {
         fileprivate var cancelled = false
-        fileprivate var timer: Timer?
+        fileprivate weak var timer: Timer?
+        fileprivate weak var owner: JSThread?
         /// Safe from any thread; the block will not run after this returns.
-        public func cancel() { cancelled = true }
+        public func cancel() {
+            cancelled = true
+            guard let owner else { return }
+            if owner.isCurrent {
+                timer?.invalidate()
+            } else {
+                owner.async { [weak self] in self?.timer?.invalidate() }
+            }
+        }
     }
 
     /// Runs `block` on the thread after `delay` seconds unless cancelled.
     public func after(_ delay: TimeInterval, _ block: @escaping () -> Void) -> Scheduled {
         let handle = Scheduled()
-        async { [runLoop] in
+        handle.owner = self
+        async {
             if handle.cancelled { return }
             let t = Timer(timeInterval: max(0, delay), repeats: false) { _ in
                 if !handle.cancelled { block() }
             }
             handle.timer = t
-            CFRunLoopAddTimer(runLoop, t, CFRunLoopMode.defaultMode)
+            CFRunLoopAddTimer(CFRunLoopGetCurrent(), t, CFRunLoopMode.defaultMode)
         }
         return handle
     }
 
     /// Stops the run loop once queued work has run; the thread then exits.
     public func stop() {
-        async { [runLoop] in CFRunLoopStop(runLoop) }
+        async { [state] in
+            state.stopped = true
+            CFRunLoopStop(CFRunLoopGetCurrent())
+        }
     }
 }
