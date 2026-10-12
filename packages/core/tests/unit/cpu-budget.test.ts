@@ -1,0 +1,57 @@
+// The CPU quota policy against the fixture shared with CpuBudget.swift and
+// CpuBudget.kt (tests/fixtures/cpu-budget.json), plus edge cases.
+
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, it } from 'node:test';
+import { CpuBudget, FLOOR_MS } from '../../src/host/cpu-budget.ts';
+
+interface Step { at: number; decide?: string; record?: string; cpuMs?: number; expect?: unknown; kill?: boolean }
+const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'fixtures', 'cpu-budget.json'), 'utf8')) as {
+  cases: { name: string; config: ConstructorParameters<typeof CpuBudget>[0]; steps: Step[] }[];
+};
+
+describe('cpu-budget: shared fixture', () => {
+  for (const c of fixture.cases) {
+    it(c.name, () => {
+      const b = new CpuBudget(c.config);
+      c.steps.forEach((s, i) => {
+        const where = `step ${i} @${s.at}`;
+        if (s.decide !== undefined) assert.deepEqual(b.decide(s.decide, s.at), s.expect, where);
+        else if (s.record !== undefined) b.record(s.record, s.cpuMs!, s.at);
+        else if (s.kill !== undefined) assert.equal(b.shouldKill(s.at), s.kill, where);
+        else assert.fail(`${where}: unknown step`);
+      });
+    });
+  }
+});
+
+describe('cpu-budget: edge cases', () => {
+  const cfg = { cpuLimitMs: 500, cpuQuotaMs: 300, cpuQuotaWindowMs: 1000, cpuKillAfterMs: 0 };
+  it('an empty window runs everything with the full quota', () => {
+    const b = new CpuBudget(cfg);
+    assert.equal(b.used(123_456), 0);
+    assert.deepEqual(b.decide('frame', 123_456), { run: true, sliceMs: 300 });
+    assert.equal(b.throttledFor(123_456), 0);
+  });
+  it('time spent long ago is forgotten', () => {
+    const b = new CpuBudget(cfg);
+    b.record('timer', 1000, 10);
+    assert.equal(b.used(10), 1000);
+    assert.equal(b.used(10_000), 0);
+    assert.deepEqual(b.decide('timer', 10_000), { run: true, sliceMs: 300 });
+  });
+  it('events get at least the floor even with the quota spent many times over', () => {
+    const b = new CpuBudget(cfg);
+    b.record('timer', 50_000, 0);
+    assert.deepEqual(b.decide('event', 1), { run: true, sliceMs: FLOOR_MS });
+    assert.deepEqual(b.decide('timer', 1), { run: false, retryAt: 1000 });
+  });
+  it('negative or NaN durations are ignored', () => {
+    const b = new CpuBudget(cfg);
+    b.record('timer', -5, 0);
+    b.record('timer', NaN, 0);
+    assert.equal(b.used(0), 0);
+  });
+});

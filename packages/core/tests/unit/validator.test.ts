@@ -1,0 +1,295 @@
+// Unit tests for the host-side validator / sanitizer (security-critical).
+// Run with: pnpm test:unit
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet } from '../../src/host/css-sanitizer.ts';
+import { checkUrl } from '../../src/host/url-policy.ts';
+import { Validator } from '../../src/host/validator.ts';
+import type { RenderOp } from '../../src/shared/protocol.ts';
+
+const CANARY = 'http://127.0.0.1:9999/hit/unit';
+const noDiag = () => {};
+
+function run(ops: unknown[], diags: string[] = []): RenderOp[] {
+  const v = new Validator((kind, detail) => diags.push(`${kind}: ${detail}`));
+  // Minimal document skeleton so inserts under <body> are rendered.
+  const base = [
+    { op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null },
+    { op: 'el', id: 3, tag: 'body' }, { op: 'ins', parent: 2, id: 3, before: null },
+  ];
+  v.processOps(base);
+  return v.processOps(ops);
+}
+const attrsOf = (ops: RenderOp[], id: number) => Object.fromEntries((ops.find((o) => o.op === 'el' && o.id === id) as any)?.attrs ?? []);
+const json = (ops: RenderOp[]) => JSON.stringify(ops);
+
+describe('url policy', () => {
+  it('allows only data: images / fonts, host blobs and fragments', () => {
+    assert.equal(checkUrl('data:image/png;base64,AAAA', 'image'), 'data:image/png;base64,AAAA');
+    // No font or media kind exists any more: only images may be data: URLs.
+    assert.equal(checkUrl('data:font/woff2;base64,AAAA', 'image'), null);
+    assert.equal(checkUrl('data:video/mp4;base64,AAAA', 'image'), null);
+    assert.equal(checkUrl('data:text/html,<img src=x>', 'image'), null);
+    assert.equal(checkUrl('data:image/svg+xml,<svg/>', 'image'), 'data:image/svg+xml,<svg/>');
+    assert.equal(checkUrl('#frag', 'image'), '#frag');
+    assert.equal(checkUrl('#frag', 'fragment-only'), '#frag');
+    assert.equal(checkUrl(CANARY, 'image'), null);
+    assert.equal(checkUrl('//127.0.0.1:9999/x', 'image'), null);
+    assert.equal(checkUrl('HTTP://127.0.0.1:9999/x', 'image'), null);
+    assert.equal(checkUrl('\t\nhttp://127.0.0.1:9999/x', 'image'), null);
+    assert.equal(checkUrl('javascript:alert(1)', 'image'), null);
+    assert.equal(checkUrl('blob:http://127.0.0.1:5173/abc', 'image'), null);
+    assert.equal(checkUrl('relative.png', 'image'), null);
+    assert.equal(checkUrl('', 'image'), null);
+  });
+});
+
+describe('css sanitizer', () => {
+  it('drops url() that is not data:, keeps data: and fragments', () => {
+    const d: string[] = [];
+    const css = sanitizeStylesheet(`p{background:url(${CANARY});color:red} b{background:url("data:image/png;base64,AA")} i{filter:url(#f)}`, (k, x) => d.push(k + x));
+    assert.ok(!css.includes('127.0.0.1'));
+    assert.ok(css.includes('color:red'));
+    assert.ok(css.includes('data:image/png'));
+    assert.ok(css.includes('url(#f)'));
+    assert.ok(d.some((x) => x.startsWith('url-blocked')));
+  });
+  it('drops @import, every @font-face (system fonts only), @namespace and unknown at-rules', () => {
+    const css = sanitizeStylesheet(`@import url(${CANARY}); @import "${CANARY}"; @namespace svg url(${CANARY}); @font-face{font-family:L;src:url(${CANARY}) format("woff2")} @font-face{font-family:M;src:url(data:font/woff2;base64,AA)} @document url(${CANARY}){p{color:red}} p{color:blue;font-family:M,system-ui}`, noDiag);
+    assert.ok(!css.includes('127.0.0.1'), css);
+    assert.ok(!css.includes('@import'));
+    assert.ok(!css.includes('@font-face'), css);
+    assert.ok(!css.includes('data:font'), css);
+    // font-family itself is fine: without @font-face it can only resolve to installed fonts.
+    assert.ok(css.includes('font-family:M,system-ui'));
+    assert.ok(css.includes('color:blue'));
+  });
+  it('handles image-set, strings in url functions, var() inside url functions, escapes and nesting', () => {
+    const css = sanitizeStylesheet(
+      `p{background-image:image-set("${CANARY}" 1x)} q{background:-webkit-image-set(url(${CANARY}) 1x)} r{background:image-set(var(--x) 1x)}` +
+        ` s{background:u\\72 l(${CANARY})} t{background:url(\\68 ttp://127.0.0.1:9999/x)} u{background:URL( ${CANARY} )}` +
+        ` @media screen{v{background:url(${CANARY})} @supports (display:grid){w{background:url(${CANARY})}}} @keyframes k{from{background:url(${CANARY})}}` +
+        ` :root{--leak:url(${CANARY})} x{background:var(--leak)} y{color:green}`,
+      noDiag,
+    );
+    assert.ok(!css.includes('127.0.0.1'), css);
+    assert.ok(!/image-set\(var/.test(css));
+    assert.ok(css.includes('color:green'));
+  });
+  it('style attributes and single properties', () => {
+    assert.ok(!sanitizeStyleAttribute(`color:red;background:url(${CANARY});cursor:url(${CANARY}),auto`, noDiag).includes('127'));
+    assert.ok(sanitizeStyleAttribute(`color:red;background:url(${CANARY})`, noDiag).includes('color:red'));
+    assert.equal(sanitizeStyleProperty('background-image', `url(${CANARY})`, noDiag), null);
+    assert.deepEqual(sanitizeStyleProperty('color', 'red', noDiag), { name: 'color', value: 'red' });
+    assert.equal(sanitizeStyleProperty('behavior', 'url(x.htc)', noDiag), null);
+    assert.equal(sanitizeStyleProperty('bad name', 'red', noDiag), null);
+    assert.equal(sanitizeStyleProperty('--leak', `url(${CANARY})`, noDiag), null);
+  });
+});
+
+describe('css sanitizer: host-owned colour scheme', () => {
+  it('evaluates prefers-color-scheme, color-scheme and light-dark() against the host theme', () => {
+    const css = '@media (prefers-color-scheme: dark){p{color:red}} @media screen and (prefers-color-scheme: light){p{color:blue}} :root{color-scheme:light dark} b{background:light-dark(#fff,#000)}';
+    const dark = sanitizeStylesheet(css, noDiag, { colorScheme: 'dark' });
+    assert.ok(dark.includes('@media (min-width: 0px){p{color:red}}'), dark);
+    assert.ok(dark.includes('screen and (min-width: 99999px)'), dark);
+    assert.ok(dark.includes('color-scheme:dark'), dark);
+    assert.ok(dark.includes('background:#000'), dark);
+    const light = sanitizeStylesheet(css, noDiag, { colorScheme: 'light' });
+    assert.ok(light.includes('@media (min-width: 99999px){p{color:red}}'), light);
+    assert.ok(light.includes('color-scheme:light') && light.includes('background:#fff'), light);
+  });
+  it('re-emits stylesheets when the validator theme changes', () => {
+    const v = new Validator(noDiag, { colorScheme: 'light' });
+    v.processOps([{ op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null }, { op: 'el', id: 3, tag: 'style' }, { op: 'ins', parent: 2, id: 3, before: null }, { op: 'text', id: 4, data: '@media (prefers-color-scheme: dark){p{color:red}}' }, { op: 'ins', parent: 3, id: 4, before: null }]);
+    const ops = v.setTheme('dark');
+    assert.deepEqual(ops, [{ op: 'css', id: 3, text: '@media (min-width: 0px){p{color:red}}' }]);
+    assert.equal(v.rewriteMediaQuery('(prefers-color-scheme: dark)'), '(min-width: 0px)');
+  });
+});
+
+describe('validator: elements and attributes', () => {
+  it('drops script/iframe/object/embed/link/meta/base and their subtrees, keeps the model consistent', () => {
+    const ops = run([
+      { op: 'el', id: 10, tag: 'iframe', attrs: { src: CANARY } }, { op: 'ins', parent: 3, id: 10, before: null },
+      { op: 'el', id: 11, tag: 'script', attrs: { src: CANARY } }, { op: 'ins', parent: 3, id: 11, before: null },
+      { op: 'el', id: 12, tag: 'link', attrs: { rel: 'stylesheet', href: CANARY } }, { op: 'ins', parent: 3, id: 12, before: null },
+      { op: 'el', id: 13, tag: 'object', attrs: { data: CANARY } }, { op: 'ins', parent: 3, id: 13, before: null },
+      { op: 'el', id: 14, tag: 'embed', attrs: { src: CANARY } }, { op: 'ins', parent: 3, id: 14, before: null },
+      { op: 'el', id: 15, tag: 'meta', attrs: { 'http-equiv': 'refresh', content: '0;url=' + CANARY } }, { op: 'ins', parent: 3, id: 15, before: null },
+      { op: 'el', id: 16, tag: 'base', attrs: { href: CANARY } }, { op: 'ins', parent: 3, id: 16, before: null },
+      { op: 'el', id: 17, tag: 'img', attrs: { src: 'data:image/gif;base64,AA' } }, { op: 'ins', parent: 10, id: 17, before: null },
+      { op: 'el', id: 18, tag: 'p' }, { op: 'ins', parent: 3, id: 18, before: null },
+    ]);
+    assert.ok(!json(ops).includes('127.0.0.1'));
+    assert.deepEqual(ops.filter((o) => o.op === 'el').map((o: any) => o.tag), ['img', 'p']);
+    // img under the dropped iframe is created but never attached
+    assert.ok(!ops.some((o) => o.op === 'ins' && o.id === 17));
+    assert.ok(ops.some((o) => o.op === 'ins' && o.id === 18 && o.parent === 3));
+  });
+  it('strips on* handlers, srcset, ping, formaction, background; rewrites external hrefs and img src', () => {
+    const ops = run([
+      { op: 'el', id: 10, tag: 'a', attrs: { href: CANARY, ping: CANARY, onclick: 'x()', target: '_blank', ONMOUSEOVER: 'y()' } },
+      { op: 'el', id: 11, tag: 'img', attrs: { src: CANARY, srcset: CANARY + ' 2x', onerror: 'z()' } },
+      { op: 'el', id: 12, tag: 'button', attrs: { formaction: CANARY } },
+      { op: 'el', id: 13, tag: 'body', attrs: { background: CANARY } },
+      { op: 'el', id: 14, tag: 'a', attrs: { href: '#top' } },
+      { op: 'el', id: 15, tag: 'a', attrs: { href: 'javascript:alert(1)' } },
+      { op: 'el', id: 16, tag: 'img', attrs: { src: 'data:image/png;base64,AA' } },
+    ]);
+    assert.ok(!json(ops).includes('127.0.0.1'));
+    assert.ok(!json(ops).toLowerCase().includes('onclick'));
+    assert.deepEqual(attrsOf(ops, 10), { href: '#', 'data-tg-link': '' });
+    assert.equal(attrsOf(ops, 11).src.slice(0, 19), 'data:image/svg+xml,');
+    assert.ok(!('srcset' in attrsOf(ops, 11)));
+    assert.deepEqual(attrsOf(ops, 12), {});
+    assert.deepEqual(attrsOf(ops, 14), { href: '#top' });
+    assert.deepEqual(attrsOf(ops, 15), { href: '#', 'data-tg-link': '' });
+    assert.deepEqual(attrsOf(ops, 16), { src: 'data:image/png;base64,AA' });
+  });
+  it('attribute updates: rejected values clear the attribute', () => {
+    const ops = run([
+      { op: 'el', id: 10, tag: 'img', attrs: { src: 'data:image/png;base64,AA' } },
+      { op: 'attr', id: 10, name: 'src', value: CANARY },
+      { op: 'attr', id: 10, name: 'onload', value: 'x()' },
+      { op: 'attr', id: 10, name: 'style', value: `background:url(${CANARY})` },
+    ]);
+    const after = ops.slice(1);
+    assert.ok(!json(after).includes('127.0.0.1'));
+    // external img src → placeholder image (not removed), so the layout keeps its slot
+    assert.ok(after.some((o) => o.op === 'attr' && o.name === 'src' && o.value.startsWith('data:image/svg+xml')));
+    assert.ok(!after.some((o) => o.op === 'attr' && o.name === 'onload'));
+    // Media elements are dropped outright, even with data: sources; nothing about them reaches the renderer.
+    const ops2 = run([
+      { op: 'el', id: 10, tag: 'video', attrs: { poster: 'data:image/png;base64,AA', src: 'data:video/mp4;base64,AA', autoplay: '' } },
+      { op: 'el', id: 11, tag: 'source', attrs: { src: 'data:video/mp4;base64,AA' } },
+      { op: 'ins', parent: 10, id: 11, before: null },
+      { op: 'el', id: 12, tag: 'audio', attrs: { src: CANARY } },
+      { op: 'attr', id: 10, name: 'poster', value: CANARY },
+    ]);
+    assert.ok(!json(ops2).includes('127.0.0.1'));
+    assert.ok(!ops2.some((o) => o.op === 'el' && ['video', 'source', 'audio'].includes((o as any).tag)), json(ops2));
+    assert.ok(!json(ops2).includes('poster'));
+  });
+  it('SVG: href only as fragment except image/feImage data:, no URL animation, fill url() checked', () => {
+    const ops = run([
+      { op: 'el', id: 10, tag: 'image', ns: 'svg', attrs: { href: CANARY } },
+      { op: 'el', id: 11, tag: 'image', ns: 'svg', attrs: { 'xlink:href': 'data:image/png;base64,AA' } },
+      { op: 'el', id: 12, tag: 'use', ns: 'svg', attrs: { href: CANARY + '#i' } },
+      { op: 'el', id: 13, tag: 'use', ns: 'svg', attrs: { 'xlink:href': '#i' } },
+      { op: 'el', id: 14, tag: 'animate', ns: 'svg', attrs: { attributeName: 'href', to: CANARY } },
+      { op: 'el', id: 15, tag: 'animate', ns: 'svg', attrs: { attributeName: 'fill', values: `url(${CANARY}#g);red` } },
+      { op: 'el', id: 16, tag: 'set', ns: 'svg', attrs: { attributeName: 'href', to: CANARY } },
+      { op: 'el', id: 17, tag: 'rect', ns: 'svg', attrs: { fill: `url(${CANARY}#g)`, stroke: 'url(#g)', viewbox: '0 0 1 1' } },
+      { op: 'el', id: 18, tag: 'a', ns: 'svg', attrs: { 'xlink:href': CANARY } },
+      { op: 'el', id: 19, tag: 'feImage', ns: 'svg', attrs: { href: CANARY } },
+    ]);
+    assert.ok(!json(ops).includes('127.0.0.1'), json(ops));
+    assert.deepEqual(attrsOf(ops, 10), {});
+    assert.deepEqual(attrsOf(ops, 11), { href: 'data:image/png;base64,AA' });
+    assert.deepEqual(attrsOf(ops, 12), {});
+    assert.deepEqual(attrsOf(ops, 13), { href: '#i' });
+    assert.ok(!('attributeName' in attrsOf(ops, 14)));
+    assert.ok(!('values' in attrsOf(ops, 15)));
+    assert.ok(!ops.some((o) => o.op === 'el' && o.id === 16));
+    assert.deepEqual(attrsOf(ops, 17), { stroke: 'url(#g)', viewBox: '0 0 1 1' });
+    assert.deepEqual(attrsOf(ops, 18), { href: '#', 'data-tg-link': '' });
+    assert.deepEqual(attrsOf(ops, 19), {});
+  });
+  it('style elements: text is sanitized as a stylesheet and re-emitted on change', () => {
+    const ops = run([
+      { op: 'el', id: 10, tag: 'style' }, { op: 'ins', parent: 3, id: 10, before: null },
+      { op: 'text', id: 11, data: `@import url(${CANARY}); p{color:red;background:url(${CANARY})}` }, { op: 'ins', parent: 10, id: 11, before: null },
+    ]);
+    const css = ops.find((o) => o.op === 'css') as any;
+    assert.ok(css && !css.text.includes('127.0.0.1') && css.text.includes('color:red'));
+    assert.ok(!ops.some((o) => o.op === 'ins' && o.id === 11));
+    // the raw text node is forgotten in the renderer: only the sanitized css op survives
+    assert.ok(ops.some((o) => o.op === 'rm' && o.id === 11));
+    assert.ok(!JSON.stringify(ops.filter((o) => o.op !== 'text')).includes('127.0.0.1'));
+  });
+  it('unknown elements become inert spans; html/head/body are adopted once', () => {
+    const ops = run([{ op: 'el', id: 10, tag: 'x-foo', attrs: { src: CANARY } }, { op: 'el', id: 11, tag: 'body' }, { op: 'el', id: 12, tag: 'portal', attrs: { src: CANARY } }]);
+    assert.equal((ops[0] as any).tag, 'span');
+    assert.deepEqual(attrsOf(ops, 10), { 'data-tg-tag': 'x-foo' });
+    assert.equal((ops[1] as any).tag, 'div');
+    assert.ok(!ops.some((o) => o.op === 'el' && o.id === 12));
+  });
+});
+
+describe('validator: protocol strictness', () => {
+  it('rejects malformed ops, cycles, unknown ids and bad props/calls', () => {
+    const diags: string[] = [];
+    const ops = run([
+      'nonsense', { op: 'el' }, { op: 'el', id: 1, tag: 'div' }, { op: 'el', id: 10, tag: 'div<script>' }, { op: 'el', id: 10, tag: 'div' },
+      { op: 'ins', parent: 10, id: 10, before: null }, { op: 'ins', parent: 999, id: 10, before: null },
+      { op: 'prop', id: 10, name: 'innerHTML', value: '<img src=x>' }, { op: 'prop', id: 10, name: '__proto__', value: 1 },
+      { op: 'call', id: 10, method: 'remove' }, { op: 'call', id: 10, method: 'constructor' },
+      { op: 'style', id: 10, name: 'color', value: 'red' },
+      { op: 'canvas', id: 10, cmds: [['c', 'fillRect', 0, 0, 1, 1]] },
+    ], diags);
+    assert.deepEqual(ops.map((o) => o.op), ['el', 'style']);
+    assert.ok(diags.filter((d) => d.startsWith('protocol-violation')).length >= 8);
+  });
+  it('queries are validated against rendered elements and an allowlist', () => {
+    const v = new Validator(noDiag);
+    v.processOps([{ op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null }, { op: 'el', id: 10, tag: 'canvas' }, { op: 'el', id: 11, tag: 'script' }]);
+    assert.deepEqual(v.validateQuery({ q: 'rect', id: 10 }), { q: 'rect', id: 10 });
+    assert.equal(v.validateQuery({ q: 'rect', id: 11 }), null);
+    assert.equal(v.validateQuery({ q: 'rect', id: 1 }), null);
+    assert.equal(v.validateQuery({ q: 'svg', id: 10, method: 'innerHTML' }), null);
+    assert.deepEqual(v.validateQuery({ q: 'canvasCall', id: 10, method: 'toDataURL', args: ['image/png'] }), { q: 'canvasCall', id: 10, method: 'toDataURL', args: ['image/png'] });
+    assert.equal(v.validateQuery({ q: 'imageData', id: 10, x: 0, y: 0, w: 1e9, h: 1e9 }), null);
+    assert.equal(v.validateQuery({ q: 'eval', code: '1' }), null);
+    assert.deepEqual(v.validateListen(['click', 'install', 1]), ['click']);
+    assert.deepEqual(v.validatePreventDefault(['12:click', 'x:y', '12:keydown:Enter']), ['12:click', '12:keydown:Enter']);
+  });
+  it('canvas commands: allowlisted methods, props and object refs only; filter is CSS-sanitized', () => {
+    const diags: string[] = [];
+    const ops = run([
+      { op: 'el', id: 10, tag: 'canvas' },
+      { op: 'canvas', id: 10, cmds: [
+        ['c', 'fillRect', 0, 0, 1, 1], ['s', 'fillStyle', 'red'], ['c', 'drawImage', { n: 10 }, 0, 0], ['c', 'drawImage', { n: 3 }, 0, 0],
+        ['s', 'filter', `url(${CANARY}#f)`], ['s', 'filter', 'blur(2px)'], ['c', 'eval', '1'], ['s', 'canvas', 1], ['r', 100, 50], ['r', -1, 1e9],
+        ['g', 1, 'linear', 0, 0, 1, 1], ['gs', 1, 0, 'red'], ['pn', 2, 'M0 0L1 1'], ['pc', 2, 'lineTo', 1, 2], ['pc', 2, 'eval', 1],
+      ] },
+    ], diags);
+    const cmds = (ops.find((o) => o.op === 'canvas') as any).cmds;
+    assert.deepEqual(cmds, [
+      ['c', 'fillRect', 0, 0, 1, 1], ['s', 'fillStyle', 'red'], ['c', 'drawImage', { n: 10 }, 0, 0], ['s', 'filter', 'blur(2px)'], ['r', 100, 50],
+      ['g', 1, 'linear', 0, 0, 1, 1], ['gs', 1, 0, 'red'], ['pn', 2, 'M0 0L1 1'], ['pc', 2, 'lineTo', 1, 2],
+    ]);
+  });
+});
+
+describe('css sanitizer: shadow scope (ShadowDomRenderer prototype)', () => {
+  const shadow = { colorScheme: 'light' as const, scope: 'shadow' as const };
+  it('drops selectors that could reach the host page, keeps the rest of the list', () => {
+    const d: string[] = [];
+    const css = sanitizeStylesheet(':host{color:red} :host(.x) p{color:red} :host-context(.dark) b{color:red} ::slotted(span){color:red} i::part(x){color:red} :scope{color:red} p, :host{color:blue} q{color:green}', (k, x) => d.push(k + ':' + x), shadow);
+    assert.equal(css, 'p{color:blue}q{color:green}');
+    // Five rules lost every selector; `p, :host` kept `p` without a diagnostic.
+    assert.equal(d.filter((x) => x.includes('shadow-host')).length, 5);
+  });
+  it(':root becomes the renderer root attribute with the same specificity; :is(:root) too', () => {
+    const css = sanitizeStylesheet(':root{--a:1} :is(:root) b{color:red} :root.dark{color:red}', noDiag, shadow);
+    assert.equal(css, '[data-tw-root]{--a:1}:is([data-tw-root]) b{color:red}[data-tw-root].dark{color:red}');
+  });
+  it('width/height media queries become container queries on the bubble; others stay media queries', () => {
+    const css = sanitizeStylesheet(
+      '@media (max-width:480px){p{color:red}} @media screen and (min-width: 600px) and (orientation: landscape){p{color:red}} @media only screen{p{color:red}} @media (hover:hover){p{color:red}} @media print{p{color:red}} @media (width >= 400px), (max-height: 20px){p{color:red}} @media (prefers-color-scheme: dark){p{color:red}}',
+      noDiag, shadow);
+    assert.equal(css,
+      '@container tw (max-width:480px){p{color:red}}@container tw (min-width:600px) and (orientation:landscape){p{color:red}}@container tw (min-width: 0px){p{color:red}}@media (hover:hover){p{color:red}}@media print{p{color:red}}@container tw (width>=400px) or (max-height:20px){p{color:red}}@container tw (min-width: 99999px){p{color:red}}');
+  });
+  it('viewport units become container units (stylesheets, style attributes, properties)', () => {
+    assert.equal(sanitizeStylesheet('p{width:50vw;height:100vh;font-size:2vmin;margin:1dvh 3svw}', noDiag, shadow), 'p{width:50cqw;height:100cqh;font-size:2cqmin;margin:1cqh 3cqw}');
+    assert.equal(sanitizeStyleAttribute('width:10vw', noDiag, shadow), 'width:10cqw');
+    assert.deepEqual(sanitizeStyleProperty('height', '100vh', noDiag, shadow), { name: 'height', value: '100cqh' });
+  });
+  it('document scope (default) is untouched', () => {
+    const css = ':root{--a:1} :host{color:red} @media (max-width:480px){p{width:50vw}}';
+    assert.equal(sanitizeStylesheet(css, noDiag), ':root{--a:1}:host{color:red}@media (max-width:480px){p{width:50vw}}');
+  });
+});

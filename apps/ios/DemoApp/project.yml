@@ -1,0 +1,49 @@
+name: TwidgetDemo
+options:
+  bundleIdPrefix: org.telegram.widgetsandbox
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "26.0"
+packages:
+  WidgetSandbox:
+    path: ../../..   # the repo root holds Package.swift (packages/ios)
+targets:
+  TwidgetDemo:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Corpus
+        type: folder
+        buildPhase: resources
+    preBuildScripts:
+      - name: Build the Blitz renderer (cargo)
+        script: "\"$SRCROOT/../../renderer-blitz/build-apple.sh\""
+        basedOnDependencyAnalysis: false
+      - name: Build the litehtml renderer (cmake)
+        script: "\"$SRCROOT/../../renderer-litehtml/build-apple.sh\""
+        basedOnDependencyAnalysis: false
+    dependencies:
+      - package: WidgetSandbox
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        # Native renderer prototypes (dev tooling): the Rust static library from
+        # renderer-blitz/ and the C++ one from renderer-litehtml/ (both built by
+        # the pre-build script phases) and their C headers.
+        SWIFT_OBJC_BRIDGING_HEADER: BridgingHeader.h
+        LIBRARY_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/../../renderer-blitz/target/apple/$(PLATFORM_NAME)", "$(SRCROOT)/../../renderer-litehtml/target/apple/$(PLATFORM_NAME)"]
+        OTHER_LDFLAGS: ["$(inherited)", "-ltwidget_blitz", "-ltwidget_litehtml", "-lc++", "-framework", "CoreText", "-framework", "CoreGraphics", "-framework", "ImageIO", "-liconv"]
+        # Simulator builds from the CLI pass CODE_SIGNING_ALLOWED=NO. For a real
+        # iPhone pick your team in Xcode (Signing & Capabilities) or run
+        # `xcodegen generate` with TWIDGET_TEAM=<your 10-char Team ID> exported.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "${TWIDGET_TEAM}"
+        PRODUCT_BUNDLE_IDENTIFIER: org.telegram.widgetsandbox.TwidgetDemo

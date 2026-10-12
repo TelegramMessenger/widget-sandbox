@@ -1,0 +1,460 @@
+// Mutation capture: turns changes to the in-sandbox DOM into protocol ops.
+//
+// Approach: reconciliation against a mirror of what the host has been told.
+//   - DOM mutators are wrapped only to MARK nodes dirty (cheap, no semantics).
+//   - flush() re-reads each dirty node (attributes, child list, text) and emits
+//     the difference as ops. Because ops are derived from the actual tree, they
+//     are correct no matter which linkedom code path performed the mutation.
+//   - A periodic full walk catches mutations made through paths that are not
+//     wrapped; such misses are counted and shown in diagnostics.
+// linkedom's own MutationObserver is not used (it misses text nodes, style
+// writes and several insertion paths); the widget-facing MutationObserver below
+// is implemented on top of the same reconciliation.
+
+import { DOCUMENT_ID } from '../shared/protocol';
+import { document, SVG_NS } from './dom';
+import { counters, host, invalidateLayout } from './host';
+import { parseDeclarations } from './style';
+
+export const ID = Symbol('tw.id');
+
+interface Mirror {
+  parent: number;
+  kids: number[];
+  attrs: Map<string, string> | null;
+  data: string | null;
+}
+
+let nextId = DOCUMENT_ID + 1;
+const byId = new Map<number, any>();
+const mirror = new Map<number, Mirror>();
+const dirty = new Set<any>();
+let ops: any[] = [];
+/** Ops that must follow the DOM ops of the same flush (method calls, property sets on new nodes). */
+let postOps: any[] = [];
+
+export interface Hooks {
+  /** A new element entered the mirror (first time the host hears about it). */
+  elementCreated(el: any, id: number): void;
+  attributeChanged(el: any, name: string, value: string | null): void;
+  /** Extra ops for an element being synced (form control properties). */
+  elementSynced(el: any, id: number, push: (op: any) => void, isNew: boolean): void;
+  /** Called at the end of flush to append canvas command batches. */
+  flushExtra(push: (op: any) => void): void;
+}
+let hooks: Hooks;
+export function setHooks(h: Hooks) {
+  hooks = h;
+}
+
+document[ID] = DOCUMENT_ID;
+byId.set(DOCUMENT_ID, document);
+mirror.set(DOCUMENT_ID, { parent: 0, kids: [], attrs: null, data: null });
+
+export function markDirty(node: any): void {
+  if (node) dirty.add(node);
+}
+export function idOf(node: any): number {
+  return node[ID] ?? (node[ID] = nextId++);
+}
+export function nodeById(id: number): any {
+  return byId.get(id) ?? null;
+}
+/** Id of a node the host knows about, or 0. */
+export function mirroredId(node: any): number {
+  const id = node?.[ID];
+  return id !== undefined && mirror.has(id) ? id : 0;
+}
+
+const renderable = (n: any) => n.nodeType === 1 || n.nodeType === 3 || n.nodeType === 8;
+
+/**
+ * Renderable children of a node. The Document is special-cased: linkedom's
+ * doctype node is not linked to <html> through nextSibling, and the doctype is
+ * never mirrored anyway.
+ */
+function* childrenOf(node: any): Generator<any> {
+  if (node.nodeType === 9) {
+    if (node.documentElement) yield node.documentElement;
+    return;
+  }
+  for (let c = node.firstChild; c; c = c.nextSibling) if (renderable(c)) yield c;
+}
+
+function readAttrs(el: any): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const a of el.attributes) out.set(a.name, String(a.value ?? ''));
+  return out;
+}
+
+export function hasPendingRecords(): boolean {
+  return records.length > 0;
+}
+
+/** Queue a renderer-side property set (scrollTop, …) for an element. */
+export function pushProp(node: any, name: string, value: string | number | boolean) {
+  dirty.add(node);
+  postOps.push({ op: 'prop', node, name, value });
+}
+
+// ───────────────────────── widget-facing MutationObserver ─────────────────────────
+
+interface Observation { target: any; options: any }
+const observers = new Set<MutationObserverImpl>();
+let records: any[] = [];
+
+function record(rec: any) {
+  if (observers.size) records.push({ addedNodes: [], removedNodes: [], attributeName: null, oldValue: null, previousSibling: null, nextSibling: null, ...rec });
+}
+
+class MutationObserverImpl {
+  _cb: (records: any[], observer: any) => void;
+  _obs: Observation[] = [];
+  _queue: any[] = [];
+  constructor(cb: (records: any[], observer: any) => void) {
+    this._cb = cb;
+  }
+  observe(target: any, options: any = {}) {
+    const o = { ...options };
+    if (o.attributeFilter || o.attributeOldValue) o.attributes = o.attributes ?? true;
+    this._obs = this._obs.filter((x) => x.target !== target);
+    this._obs.push({ target, options: o });
+    observers.add(this);
+  }
+  disconnect() {
+    this._obs = [];
+    this._queue = [];
+    observers.delete(this);
+  }
+  takeRecords() {
+    return this._queue.splice(0);
+  }
+}
+export { MutationObserverImpl as MutationObserver };
+
+function wants(o: Observation, rec: any): boolean {
+  const { target, options } = o;
+  if (rec.target !== target && !(options.subtree && target.contains?.(rec.target))) return false;
+  if (rec.type === 'childList') return !!options.childList;
+  if (rec.type === 'attributes') return !!options.attributes && (!options.attributeFilter || options.attributeFilter.includes(rec.attributeName));
+  return !!options.characterData;
+}
+
+/** Deliver queued records. Returns true if any callback ran (it may have mutated the DOM). */
+export function deliverMutationRecords(report: (e: unknown) => void): boolean {
+  if (!records.length) return false;
+  const batch = records;
+  records = [];
+  let ran = false;
+  for (const obs of [...observers]) {
+    const mine = batch.filter((rec) => obs._obs.some((o) => wants(o, rec)));
+    if (!mine.length) continue;
+    ran = true;
+    try {
+      obs._cb(mine, obs);
+    } catch (e) {
+      report(e);
+    }
+  }
+  return ran;
+}
+
+// ───────────────────────── reconciliation ─────────────────────────
+
+function createNode(node: any): number {
+  const id = idOf(node);
+  byId.set(id, node);
+  if (node.nodeType === 1) {
+    const attrs = readAttrs(node);
+    const m: Mirror = { parent: 0, kids: [], attrs, data: null };
+    mirror.set(id, m);
+    const op: any = { op: 'el', id, tag: node.localName };
+    if (node.namespaceURI === SVG_NS) op.ns = 'svg';
+    if (attrs.size) op.attrs = Object.fromEntries(attrs);
+    ops.push(op);
+    hooks.elementCreated(node, id);
+    for (const [name, value] of attrs) hooks.attributeChanged(node, name, value);
+    hooks.elementSynced(node, id, (o) => postOps.push(o), true);
+    for (const c of childrenOf(node)) {
+      const cid = createNode(c);
+      mirror.get(cid)!.parent = id;
+      m.kids.push(cid);
+      ops.push({ op: 'ins', parent: id, id: cid, before: null });
+    }
+  } else {
+    const data = String(node.data ?? '');
+    mirror.set(id, { parent: 0, kids: [], attrs: null, data });
+    ops.push({ op: node.nodeType === 3 ? 'text' : 'comment', id, data });
+  }
+  return id;
+}
+
+/** Make sure the host knows a (possibly detached) element, e.g. an offscreen canvas. */
+export function ensureCreated(node: any): number {
+  return mirroredId(node) || createNode(node);
+}
+
+function purge(id: number) {
+  const m = mirror.get(id);
+  if (!m) return;
+  mirror.delete(id);
+  byId.delete(id);
+  for (const k of m.kids) if (mirror.get(k)?.parent === id) purge(k);
+}
+
+function syncAttrs(el: any, id: number, m: Mirror) {
+  const attrs = m.attrs!;
+  const seen = new Set<string>();
+  for (const a of el.attributes) {
+    const name: string = a.name;
+    const value = String(a.value ?? '');
+    seen.add(name);
+    const old = attrs.get(name);
+    if (old === value) continue;
+    attrs.set(name, value);
+    record({ type: 'attributes', target: el, attributeName: name, oldValue: old ?? null });
+    if (name === 'style' && old !== undefined) emitStyleDiff(id, old, value);
+    else ops.push({ op: 'attr', id, name, value });
+    hooks.attributeChanged(el, name, value);
+  }
+  for (const [name, old] of attrs) {
+    if (seen.has(name)) continue;
+    attrs.delete(name);
+    record({ type: 'attributes', target: el, attributeName: name, oldValue: old });
+    ops.push({ op: 'rattr', id, name });
+    hooks.attributeChanged(el, name, null);
+  }
+}
+
+/** Express a change of the style attribute as individual property ops (CSSOM-like). */
+function emitStyleDiff(id: number, oldText: string, newText: string) {
+  const before = parseDeclarations(oldText);
+  const after = parseDeclarations(newText);
+  for (const [name, d] of after) {
+    const o = before.get(name);
+    if (!o || o.value !== d.value || o.important !== d.important) ops.push({ op: 'style', id, name, value: d.value, important: d.important || undefined });
+  }
+  for (const name of before.keys()) if (!after.has(name)) ops.push({ op: 'style', id, name, value: '' });
+}
+
+function syncChildren(node: any, id: number, m: Mirror) {
+  const live: number[] = [];
+  const added: any[] = [];
+  for (const c of childrenOf(node)) {
+    let cid = c[ID];
+    if (cid === undefined || !mirror.has(cid)) {
+      cid = createNode(c);
+      added.push(c);
+    }
+    live.push(cid);
+  }
+  const liveSet = new Set(live);
+  const old = m.kids.filter((k) => mirror.get(k)?.parent === id);
+  const kept: number[] = [];
+  const removed: any[] = [];
+  for (const k of old) {
+    if (liveSet.has(k)) {
+      kept.push(k);
+      continue;
+    }
+    const kn = byId.get(k);
+    removed.push(kn);
+    // Still in the document → it moved; its new parent emits the insert.
+    if (!kn || !kn.isConnected) {
+      ops.push({ op: 'rm', id: k });
+      purge(k);
+    }
+  }
+  let j = kept.length - 1;
+  const moved = new Set<number>();
+  let before: number | null = null;
+  for (let i = live.length - 1; i >= 0; i--) {
+    const cid = live[i];
+    while (j >= 0 && moved.has(kept[j])) j--;
+    if (j >= 0 && kept[j] === cid) j--;
+    else {
+      ops.push({ op: 'ins', parent: id, id: cid, before });
+      const cm = mirror.get(cid)!;
+      if (cm.parent === id) moved.add(cid);
+      else if (cm.parent !== 0 && !added.includes(byId.get(cid))) added.push(byId.get(cid));
+      cm.parent = id;
+    }
+    before = cid;
+  }
+  m.kids = live;
+  if (added.length || removed.length) record({ type: 'childList', target: node, addedNodes: added, removedNodes: removed });
+}
+
+function syncNode(node: any) {
+  const id = node[ID];
+  const m = id === undefined ? undefined : mirror.get(id);
+  if (!m) return;
+  if (node.nodeType === 1) {
+    syncAttrs(node, id, m);
+    syncChildren(node, id, m);
+    hooks.elementSynced(node, id, (o) => postOps.push(o), false);
+  } else if (id === DOCUMENT_ID) {
+    syncChildren(node, id, m);
+  } else {
+    const data = String(node.data ?? '');
+    if (data !== m.data) {
+      record({ type: 'characterData', target: node, oldValue: m.data });
+      m.data = data;
+      ops.push({ op: 'data', id, data });
+    }
+  }
+}
+
+function walkAll(node: any) {
+  syncNode(node);
+  for (const c of childrenOf(node)) walkAll(c);
+}
+
+/** Queue a renderer-side method call (focus, scrollIntoView, …) for an element. */
+export function callMethod(node: any, method: string, args: unknown[] = []) {
+  dirty.add(node);
+  postOps.push({ op: 'call', node, method, args });
+}
+
+let lastFullSync = 0;
+
+/** Emit ops for everything that changed since the last flush. */
+export function flush(full = false): void {
+  if (!dirty.size && !postOps.length && !full) {
+    hooks.flushExtra((o) => ops.push(o));
+    if (ops.length) send();
+    return;
+  }
+  // New dirty nodes can appear while syncing (hooks); loop until stable.
+  for (let i = 0; i < 8 && dirty.size; i++) {
+    const batch = [...dirty];
+    dirty.clear();
+    for (const node of batch) if (node) syncNode(node);
+  }
+  if (full) {
+    const before = ops.length;
+    walkAll(document);
+    counters.missed += ops.length - before;
+    dirty.clear();
+  }
+  for (const o of postOps) {
+    if (o.node) {
+      const id = mirroredId(o.node);
+      if (id) {
+        const { node: _n, ...rest } = o;
+        ops.push({ ...rest, id });
+      }
+    } else ops.push(o);
+  }
+  postOps = [];
+  hooks.flushExtra((o) => ops.push(o));
+  if (ops.length) send();
+}
+
+function send() {
+  const batch = ops;
+  ops = [];
+  invalidateLayout();
+  host('ops', JSON.stringify(batch));
+}
+
+/** End-of-task flush, with the periodic full walk as a safety net. */
+export function flushTick(): void {
+  const now = Date.now();
+  const full = now - lastFullSync > 500;
+  if (full) lastFullSync = now;
+  flush(full);
+}
+
+// ───────────────────────── dirty marking (prototype wrappers) ─────────────────────────
+
+const SELF_METHODS = [
+  'appendChild', 'insertBefore', 'removeChild', 'replaceChild', 'append', 'prepend', 'replaceChildren', 'normalize',
+  'setAttribute', 'setAttributeNS', 'removeAttribute', 'removeAttributeNS', 'toggleAttribute', 'setAttributeNode',
+  'removeAttributeNode', 'insertAdjacentElement', 'insertAdjacentText', 'insertAdjacentHTML',
+];
+const PARENT_METHODS = ['before', 'after', 'replaceWith', 'remove', 'insertAdjacentElement', 'insertAdjacentText', 'insertAdjacentHTML'];
+/** Accessors that hand out live objects through which the element can be mutated later. */
+const LIVE_GETTERS = ['classList', 'dataset', 'relList', 'part'];
+const SKIP_SETTERS = new Set(['scrollTop', 'scrollLeft', 'value', 'checked', 'selectedIndex', 'selected', 'indeterminate', 'onclick']);
+
+function markArgs(args: any[]) {
+  for (const a of args) if (a && typeof a === 'object' && a.nodeType) dirty.add(a.parentNode);
+}
+
+export function collectPrototypes(samples: any[]): any[] {
+  const protos = new Set<any>();
+  for (const s of samples) {
+    for (let p = Object.getPrototypeOf(s); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) protos.add(p);
+  }
+  return [...protos];
+}
+
+export function installDirtyTracking(protos: any[], tokenListProto: any) {
+  const tokenOwner = new WeakMap<object, any>();
+  for (const proto of protos) {
+    for (const name of Object.getOwnPropertyNames(proto)) {
+      const d = Object.getOwnPropertyDescriptor(proto, name)!;
+      if (!d.configurable) continue;
+      if (typeof d.value === 'function') {
+        const self = SELF_METHODS.includes(name);
+        const parent = PARENT_METHODS.includes(name);
+        if (!self && !parent) continue;
+        const orig = d.value;
+        Object.defineProperty(proto, name, {
+          ...d,
+          value: function (this: any, ...args: any[]) {
+            if (self) dirty.add(this);
+            if (parent) dirty.add(this.parentNode);
+            markArgs(args);
+            return orig.apply(this, args);
+          },
+        });
+      } else if (d.set && !SKIP_SETTERS.has(name) && !name.startsWith('on')) {
+        const set = d.set;
+        const live = LIVE_GETTERS.includes(name) && d.get;
+        const get = d.get;
+        Object.defineProperty(proto, name, {
+          ...d,
+          get: live
+            ? function (this: any) {
+                dirty.add(this);
+                const v = get!.call(this);
+                if (v && typeof v === 'object') tokenOwner.set(v, this);
+                return v;
+              }
+            : get,
+          set: function (this: any, v: any) {
+            dirty.add(this);
+            // CharacterData and Attr setters affect what their owner renders.
+            if (this.nodeType === 2) dirty.add(this.ownerElement);
+            if (name === 'outerHTML') dirty.add(this.parentNode);
+            set.call(this, v);
+          },
+        });
+      } else if (d.get && LIVE_GETTERS.includes(name)) {
+        const get = d.get;
+        Object.defineProperty(proto, name, {
+          ...d,
+          get: function (this: any) {
+            dirty.add(this);
+            const v = get.call(this);
+            if (v && typeof v === 'object') tokenOwner.set(v, this);
+            return v;
+          },
+        });
+      }
+    }
+  }
+  // A classList reference kept across ticks still marks its element.
+  if (tokenListProto) {
+    for (const name of ['add', 'remove', 'toggle', 'replace']) {
+      const orig = tokenListProto[name];
+      if (typeof orig !== 'function') continue;
+      tokenListProto[name] = function (this: any, ...args: any[]) {
+        dirty.add(tokenOwner.get(this));
+        return orig.apply(this, args);
+      };
+    }
+  }
+}

@@ -1,0 +1,247 @@
+package org.telegram.widgetsandbox
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+/** Collects everything the engine emits; answers layout queries with canned values. */
+class RecordingDelegate : SandboxEngine.Delegate {
+    val loaded = CountDownLatch(1)
+    val ops: MutableList<String> = Collections.synchronizedList(ArrayList())
+    val logs: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())
+    val diags: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())
+    val queries: MutableList<String> = Collections.synchronizedList(ArrayList())
+    val bridge: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())
+    @Volatile var died: String? = null
+    @Volatile var frameRequests = 0
+
+    override fun onOps(engine: SandboxEngine, json: String) { ops.add(json) }
+    override fun onQuery(engine: SandboxEngine, json: String): SandboxEngine.QueryAnswer {
+        queries.add(json)
+        if (json.contains("\"rect\"")) return SandboxEngine.QueryAnswer("{\"x\":0,\"y\":0,\"width\":100,\"height\":20,\"top\":0,\"left\":0,\"right\":100,\"bottom\":20}", null)
+        if (json.contains("\"matchMedia\"")) return SandboxEngine.QueryAnswer("{\"matches\":false}", null)
+        return SandboxEngine.QueryAnswer("{}", null)
+    }
+    override fun onListen(engine: SandboxEngine, json: String) {}
+    override fun onPreventDefault(engine: SandboxEngine, json: String) {}
+    override fun onRequestFrame(engine: SandboxEngine) { frameRequests++ }
+    override fun onLog(engine: SandboxEngine, level: String, text: String) { logs.add(level to text) }
+    override fun onDiag(engine: SandboxEngine, kind: String, detail: String) { diags.add(kind to detail) }
+    override fun onBridge(engine: SandboxEngine, method: String, argsJson: String) { bridge.add(method to argsJson) }
+    override fun onLoaded(engine: SandboxEngine) { loaded.countDown() }
+    override fun onStats(engine: SandboxEngine, stats: SandboxStats) {}
+    override fun onDied(engine: SandboxEngine, reason: String) { died = reason; loaded.countDown() }
+}
+
+@RunWith(AndroidJUnit4::class)
+class SandboxEngineTest {
+    private val canary = "http://10.0.2.2:9999/hit/android-unit"
+    private val resources = SandboxResources.get(InstrumentationRegistry.getInstrumentation().targetContext)
+
+    private fun run(html: String, cpuLimitMs: Double = 2000.0, memoryLimitBytes: Long = 64L shl 20, timeoutS: Long = 20, configure: (SandboxConfig) -> Unit = {}): Pair<RecordingDelegate, SandboxEngine> {
+        val d = RecordingDelegate()
+        val config = SandboxConfig(innerWidth = 400.0, innerHeight = 300.0, devicePixelRatio = 2.0, theme = "light", memoryLimitBytes = memoryLimitBytes, cpuLimitMs = cpuLimitMs)
+        configure(config)
+        val engine = SandboxEngine(html, config, resources)
+        engine.delegate = d
+        engine.start()
+        assertTrue("engine did not load in time", d.loaded.await(timeoutS, TimeUnit.SECONDS))
+        return d to engine
+    }
+
+    /** The shipped .qbc blobs load against the .js next to them (a stale pair fails here, not on a phone). */
+    @Test
+    fun shippedBytecodeIsUsedForBundlesAndLibraries() {
+        assertNotNull("pnpm build:android ships sandbox-bundle.qbc", resources.sandboxBytecode)
+        assertNotNull("pnpm build:android ships validator-bundle.qbc", resources.validatorBytecode)
+        val (d, engine) = run("<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>")
+        engine.thread.sync {}
+        assertNull(d.died)
+        assertTrue(d.diags.toString(), d.diags.any { it.first == "boot" && it.second.contains("(bytecode)") })
+        assertTrue(d.diags.toString(), d.diags.any { it.first == "library" && it.second.contains("bytecode") })
+        assertFalse("fell back to source: ${d.diags}", d.diags.any { it.first == "bytecode" })
+        assertTrue(d.logs.toString(), d.logs.any { it.second == "function" })
+        val vdiags = ArrayList<Pair<String, String>>()
+        TrustedValidator("light", resources) { k, v -> vdiags.add(k to v) }.use { }
+        assertFalse("validator fell back to source: $vdiags", vdiags.any { it.first == "bytecode" })
+    }
+
+    @Test
+    fun bootsAndEmitsInitialTree() {
+        val (d, engine) = run("<p id=\"a\">hi</p><script>document.getElementById('a').textContent = 'changed by script'; console.log('hello from quickjs');</script>")
+        engine.thread.sync {}
+        assertNull(d.died)
+        val all = d.ops.joinToString()
+        assertTrue("initial tree should be sent", all.contains("\"tag\":\"p\""))
+        assertTrue("script mutation should be sent", all.contains("changed by script"))
+        assertTrue(d.logs.any { it.first == "log" && it.second == "hello from quickjs" })
+        assertFalse("no errors: ${d.logs}", d.logs.any { it.first == "error" })
+        assertTrue("boot diag: ${d.diags}", d.diags.any { it.first == "boot" })
+        engine.terminate()
+    }
+
+    @Test
+    fun networkApisAreStubbed() {
+        val (d, engine) = run("<script>var r = []; try { new WebSocket('ws://x') } catch (e) { r.push(e.name) } fetch('$canary').catch(e => r.push(e.name)).then(() => console.log(r.join(',')));</script>")
+        engine.thread.sync {}
+        assertTrue("${d.logs}", d.logs.any { it.second == "NetworkDisabledError,NetworkDisabledError" })
+        assertTrue(d.diags.any { it.first == "network-blocked" })
+        engine.terminate()
+    }
+
+    @Test
+    fun cpuLimitKillsInfiniteLoop() {
+        val (d, engine) = run("<script>for(;;){}</script>", cpuLimitMs = 200.0)
+        engine.thread.sync {}
+        assertNotNull(d.died)
+        assertTrue(d.died ?: "", d.died!!.contains("CPU limit"))
+        engine.terminate()
+    }
+
+    @Test
+    fun memoryLimitKillsAllocationLoop() {
+        val (d, engine) = run("<p>mem</p><script>var a = []; for (;;) a.push(new Array(100000).fill(1));</script>", memoryLimitBytes = 24L shl 20, cpuLimitMs = 10_000.0)
+        engine.thread.sync {}
+        assertTrue("bundle should have booted: ${d.diags}", d.diags.any { it.first == "boot" })
+        assertNotNull("widget should be dead: ${d.logs}", d.died)
+        assertTrue(d.died ?: "", d.died!!.contains("Memory limit"))
+        engine.terminate()
+    }
+
+    @Test
+    fun layoutQueryRoundTrip() {
+        val (d, engine) = run("<div id=\"d\">x</div><script>console.log('w=' + document.getElementById('d').getBoundingClientRect().width);</script>")
+        engine.thread.sync {}
+        assertTrue(d.queries.any { it.contains("\"rect\"") })
+        assertTrue("${d.logs}", d.logs.any { it.second == "w=100" })
+        engine.terminate()
+    }
+
+    @Test
+    fun inputsBeforeStartAreBufferedNotCrashing() {
+        // The renderer reports its size before `ready`; WidgetHost forwards it before start().
+        val d = RecordingDelegate()
+        val engine = SandboxEngine("<script>console.log('w=' + innerWidth + ' theme=' + TelegramWidget.theme);</script>", SandboxConfig(400.0, 300.0, 2.0, "light"), resources)
+        engine.delegate = d
+        engine.viewport(360.0, 200.0, 3.0)
+        engine.theme("dark")
+        engine.frame(1.0)
+        engine.start()
+        assertTrue(d.loaded.await(20, TimeUnit.SECONDS))
+        engine.thread.sync {}
+        assertNull(d.died)
+        assertTrue("boot sees the initial config: ${d.logs}", d.logs.any { it.second == "w=400 theme=light" })
+        engine.terminate()
+    }
+
+    /** `maxTimers` reaches the shim through the boot config: the 9th timer throws RangeError inside the widget, the first 8 still fire, the engine backstop is never needed. */
+    @Test
+    fun timerLimitIsEnforced() {
+        val (d, engine) = run(
+            "<script>var fired = 0, err = ''; for (var i = 0; i < 8; i++) setTimeout(function () { if (++fired === 8) console.log('fired=' + fired); }, 5);" +
+                "try { setTimeout(function () {}, 5); } catch (e) { err = e.name; } try { setInterval(function () {}, 10); } catch (e) { err += ',' + e.name; } console.log('err=' + err);</script>",
+        ) { it.maxTimers = 8 }
+        val deadline = System.nanoTime() + 3_000_000_000L
+        while (System.nanoTime() < deadline && !d.logs.any { it.second == "fired=8" }) Thread.sleep(50)
+        assertTrue("${d.logs}", d.logs.any { it.second == "err=RangeError,RangeError" })
+        assertTrue("${d.logs}", d.logs.any { it.second == "fired=8" })
+        assertTrue("${d.diags}", d.diags.count { it.first == "timer-limit" } == 1)
+        assertFalse("the engine backstop must not be needed: ${d.diags}", d.diags.any { it.first == "timer-limit-enforced" })
+        assertNull(d.died)
+        engine.terminate()
+    }
+
+    /** A 100 ms interval burning 40 ms per tick is legal under cpuLimitMs alone; the quota (100 ms/s here) defers ticks instead of killing, reports `cpu-throttled`, and a click still gets through. */
+    @Test
+    fun cpuQuotaThrottlesGreedyTimer() {
+        val (d, engine) = run(
+            "<p id=\"p\">x</p><script>var ticks = 0; setInterval(function () { var t = performance.now(); while (performance.now() - t < 40) {} ticks++; }, 100);" +
+                "document.addEventListener('click', function () { console.log('click at tick ' + ticks); });</script>",
+        ) { it.cpuQuotaMs = 100.0 }
+        Thread.sleep(2500)
+        engine.event("{\"type\":\"click\",\"targetId\":2}")
+        engine.thread.sync {}
+        assertNull(d.died)
+        assertTrue("${d.diags}", d.diags.any { it.first == "cpu-throttled" })
+        val click = d.logs.lastOrNull { it.second.startsWith("click at tick") }
+        assertNotNull("events run under throttling: ${d.logs}", click)
+        val ticks = click!!.second.substringAfterLast(' ').toInt()
+        // Unthrottled the interval would tick ~25 times in 2.5 s; 100 ms/s allows 2–3 per second.
+        assertTrue("$ticks ticks: ${d.logs}", ticks in 2..11)
+        engine.terminate()
+    }
+
+    /** Hidden: frames are neither requested nor delivered; on return the one pending request is made and the shim saw `visibilitychange` both ways. */
+    @Test
+    fun hiddenEngineDeliversNoFrames() {
+        val (d, engine) = run(
+            "<script>var n = 0; function step() { n++; console.log('frame ' + n); requestAnimationFrame(step); } requestAnimationFrame(step);" +
+                "document.addEventListener('visibilitychange', function () { console.log('vis=' + document.visibilityState); });</script>",
+        )
+        engine.thread.sync {}
+        assertEquals(1, d.frameRequests)
+        engine.frame(1.0)
+        engine.thread.sync {}
+        assertEquals(2, d.frameRequests)
+        assertTrue(d.logs.any { it.second == "frame 1" })
+        engine.setVisible(false)
+        engine.frame(2.0) // in flight when the widget was hidden: dropped
+        engine.thread.sync {}
+        assertEquals(2, d.frameRequests)
+        assertFalse(d.logs.any { it.second == "frame 2" })
+        assertTrue("${d.logs}", d.logs.any { it.second == "vis=hidden" })
+        engine.setVisible(true)
+        engine.thread.sync {}
+        assertEquals("the pending request is made on return", 3, d.frameRequests)
+        assertTrue("${d.logs}", d.logs.any { it.second == "vis=visible" })
+        engine.frame(3.0)
+        engine.thread.sync {}
+        assertTrue(d.logs.any { it.second == "frame 2" })
+        assertNull(d.died)
+        engine.terminate()
+    }
+
+    /** Hidden: a 50 ms interval ticks at most once per second; visible again it runs at full rate. */
+    @Test
+    fun hiddenTimersAreCoalescedToOneHertz() {
+        val (d, engine) = run("<script>var t = 0; setInterval(function () { t++; console.log('tick ' + t); }, 50);</script>")
+        engine.setVisible(false)
+        Thread.sleep(1600)
+        val hiddenTicks = engine.thread.sync { d.logs.count { it.second.startsWith("tick") } }
+        assertTrue("$hiddenTicks ticks while hidden: ${d.logs}", hiddenTicks in 1..2)
+        engine.setVisible(true)
+        Thread.sleep(1600)
+        val visibleTicks = engine.thread.sync { d.logs.count { it.second.startsWith("tick") } } - hiddenTicks
+        assertTrue("$visibleTicks ticks after return: ${d.logs}", visibleTicks >= 5)
+        assertNull(d.died)
+        engine.terminate()
+    }
+
+    @Test
+    fun bridgeAndTimers() {
+        val (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>")
+        val deadline = System.nanoTime() + 3_000_000_000L
+        while (System.nanoTime() < deadline && !d.bridge.any { it.first == "sendMessage" }) Thread.sleep(50)
+        assertTrue(d.bridge.any { it.first == "ready" })
+        assertTrue("${d.bridge}", d.bridge.any { it.first == "sendMessage" && it.second.contains("later") })
+        engine.terminate()
+    }
+
+    @Test
+    fun intlGoesThroughTheHost() {
+        val (d, engine) = run("<script>console.log([new Intl.NumberFormat('en-US').format(1234567.891), (1234.5).toLocaleString('de-DE'), new Intl.PluralRules('en').select(1), new Intl.ListFormat('en').format(['a','b','c'])].join('|'));</script>")
+        engine.thread.sync {}
+        val line = d.logs.firstOrNull { it.first == "log" }?.second ?: ""
+        assertTrue(line, line.startsWith("1,234,567.891|1.234,5|one|a, b, and c"))
+        engine.terminate()
+    }
+}
