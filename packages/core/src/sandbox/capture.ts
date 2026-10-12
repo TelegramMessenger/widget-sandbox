@@ -204,23 +204,26 @@ function purge(id: number) {
 
 function syncAttrs(el: any, id: number, m: Mirror) {
   const attrs = m.attrs!;
-  const seen = new Set<string>();
+  let count = 0;
   for (const a of el.attributes) {
     const name: string = a.name;
     const value = String(a.value ?? '');
-    seen.add(name);
+    count++;
     const old = attrs.get(name);
     if (old === value) continue;
     attrs.set(name, value);
-    record({ type: 'attributes', target: el, attributeName: name, oldValue: old ?? null });
+    if (observers.size) record({ type: 'attributes', target: el, attributeName: name, oldValue: old ?? null });
     if (name === 'style' && old !== undefined) emitStyleDiff(id, old, value);
     else ops.push({ op: 'attr', id, name, value });
     hooks.attributeChanged(el, name, value);
   }
+  if (attrs.size <= count) return;
+  const seen = new Set<string>();
+  for (const a of el.attributes) seen.add(a.name);
   for (const [name, old] of attrs) {
     if (seen.has(name)) continue;
     attrs.delete(name);
-    record({ type: 'attributes', target: el, attributeName: name, oldValue: old });
+    if (observers.size) record({ type: 'attributes', target: el, attributeName: name, oldValue: old });
     ops.push({ op: 'rattr', id, name });
     hooks.attributeChanged(el, name, null);
   }
@@ -247,6 +250,30 @@ function emitStyleDiff(id: number, oldText: string, newText: string) {
   for (const name of before.keys()) if (!after.has(name)) ops.push({ op: 'style', id, name, value: '' });
 }
 
+/**
+ * The only child, a text node, was replaced by a new text node (textContent,
+ * innerText, replaceChildren with a string): the new node takes over the old
+ * one's id and the host gets one `data` op instead of `text`, `rm` and `ins`.
+ */
+function reuseSoleText(node: any, id: number, oldId: number): boolean {
+  const old = byId.get(oldId);
+  const next = node.firstChild;
+  const m = mirror.get(oldId);
+  if (!old || !next || old === next || old.nodeType !== 3 || next.nodeType !== 3 || next.nextSibling || old.isConnected) return false;
+  if (!m || m.parent !== id) return false;
+  if (next[ID] !== undefined && mirror.has(next[ID])) return false;
+  delete old[ID];
+  next[ID] = oldId;
+  byId.set(oldId, next);
+  record({ type: 'childList', target: node, addedNodes: [next], removedNodes: [old] });
+  const data = String(next.data ?? '');
+  if (data !== m.data) {
+    m.data = data;
+    ops.push({ op: 'data', id: oldId, data });
+  }
+  return true;
+}
+
 function syncChildren(node: any, id: number, m: Mirror) {
   if (node.nodeType !== 9) {
     let i = 0;
@@ -258,6 +285,7 @@ function syncChildren(node: any, id: number, m: Mirror) {
       i++;
     }
     if (!c && i === m.kids.length) return;
+    if (m.kids.length === 1 && reuseSoleText(node, id, m.kids[0])) return;
   }
   const live: number[] = [];
   const added: any[] = [];
@@ -431,11 +459,22 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
         const orig = d.value;
         Object.defineProperty(proto, name, {
           ...d,
-          value: function (this: any, ...args: any[]) {
+          // Arity-specialized: most DOM calls take one or two arguments, so no
+          // rest array is allocated for them. Strict, so `arguments` is not a
+          // mapped object (quickjs-ng < 0.13 frees mapped arguments' var refs
+          // too early, issue #1400).
+          value: function (this: any, a?: any, b?: any) {
+            'use strict';
+            const n = arguments.length;
             if (self) dirty.add(this);
             if (parent) dirty.add(this.parentNode);
-            markArgs(args);
-            return orig.apply(this, args);
+            if (n > 2) {
+              markArgs(arguments as unknown as any[]);
+              return orig.apply(this, arguments);
+            }
+            if (n > 0 && a && typeof a === 'object' && a.nodeType) dirty.add(a.parentNode);
+            if (n > 1 && b && typeof b === 'object' && b.nodeType) dirty.add(b.parentNode);
+            return n === 0 ? orig.call(this) : n === 1 ? orig.call(this, a) : orig.call(this, a, b);
           },
         });
       } else if (d.set && !SKIP_SETTERS.has(name) && !name.startsWith('on')) {
