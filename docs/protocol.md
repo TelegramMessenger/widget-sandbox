@@ -77,6 +77,19 @@ Same shapes as above, after validation:
 - `ins` with `parent: 0` detaches a node but keeps it alive (used when a
   subtree moves under an unrendered parent).
 
+### Typed delivery (Swift, in-process renderers)
+
+A native renderer living in the host process may set `acceptsTypedOps` and
+receive the same validated batch as `[WidgetOp]` through `send(ops:)`
+(`WidgetSandboxProtocol`, a dependency-free target of the Swift package), so
+neither side formats or parses JSON. `WidgetOp` has typed kinds for `el`,
+`text`, `data`, `ins`, `rm`, `attr`, `rattr`, `style`, `css` and canvas word
+batches; every other op stays a generic field map. It is a different encoding
+of the same `RenderOp`s, not a protocol change: `WidgetOp.json` renders the
+batch back to this document's JSON, and the default `send(ops:)` sends exactly
+that as `{type:'ops'}`, so the WebView renderer and every other port are
+unaffected.
+
 ### Validation rules (summary — see `allowlist.ts`, `validator.ts`, `css-sanitizer.ts`, `url-policy.ts`)
 
 - Tags: allowlist of HTML and SVG elements. `script iframe frame frameset

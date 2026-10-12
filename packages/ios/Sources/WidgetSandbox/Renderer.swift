@@ -7,6 +7,7 @@
 // Mirrors Renderer.kt on Android.
 
 import Foundation
+import WidgetSandboxProtocol
 
 public protocol Renderer: AnyObject {
     var view: PlatformView { get }
@@ -18,6 +19,10 @@ public protocol Renderer: AnyObject {
     func load()
     /// Host → renderer message (JSON).
     func send(_ json: String)
+    /// True for an in-process renderer that takes validated ops already parsed (`send(ops:)`); the host then skips the JSON text.
+    var acceptsTypedOps: Bool { get }
+    /// Validated ops as typed values, the same batch `send(_:)` would get as `{type:'ops'}`.
+    func send(ops: [WidgetOp])
     /// The chat theme changed (`prefers-color-scheme` inside the renderer).
     func setTheme(_ theme: String)
     /// Trusted script evaluated in the renderer (tests / diagnostics only); renderers without script answer `nil`.
@@ -28,6 +33,8 @@ public protocol Renderer: AnyObject {
 }
 
 public extension Renderer {
+    var acceptsTypedOps: Bool { false }
+    func send(ops: [WidgetOp]) { send("{\"type\":\"ops\",\"ops\":\(WidgetOp.json(ops))}") }
     func snapshot(completion: @escaping (PlatformImage?) -> Void) { completion(nil) }
 }
 

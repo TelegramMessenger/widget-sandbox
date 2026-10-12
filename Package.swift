@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.iOS(.v16), .macOS(.v10_13)],
     products: [
         .library(name: "WidgetSandbox", targets: ["WidgetSandbox"]),
+        .library(name: "WidgetSandboxProtocol", targets: ["WidgetSandboxProtocol"]),
     ],
     targets: [
         // quickjs-ng v0.17.0 (MIT) vendored unmodified + a tiny shim for Swift.
@@ -22,9 +23,14 @@ let package = Package(
                 .define("QUICKJS_NG_BUILD"),
             ]
         ),
+        // Typed host -> renderer ops for in-process native renderers; no dependencies.
+        .target(
+            name: "WidgetSandboxProtocol",
+            path: "packages/ios/Sources/WidgetSandboxProtocol"
+        ),
         .target(
             name: "WidgetSandbox",
-            dependencies: ["CQuickJS"],
+            dependencies: ["CQuickJS", "WidgetSandboxProtocol"],
             path: "packages/ios/Sources/WidgetSandbox",
             resources: [.copy("WidgetJS")]
         ),
