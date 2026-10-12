@@ -125,6 +125,13 @@ public final class SandboxEngine {
     /// Inputs that arrived before the runtime existed (the renderer reports its
     /// size before it announces `ready`); replayed after boot, like the web worker does.
     private var pendingBeforeBoot: [(String, String)] = []
+    /// The user gesture whose event task is running, 0 outside one; a gesture unlocks one privileged bridge call, made in its own tasks.
+    private var activeGesture = 0
+    private var consumedGesture = 0
+    private var blockedBridgeReported = 0
+    /// Bridge methods a widget may call without a user gesture.
+    static let unprivilegedBridgeMethods: Set<String> = ["ready"]
+    private static let activationPrefix = "activation:"
 
     public init(html: String, config: SandboxConfig, resources: SandboxResources = .shared) {
         self.html = html
@@ -245,6 +252,8 @@ public final class SandboxEngine {
     // MARK: inputs from the host (all asynchronous)
 
     public func event(json: String) { enqueue("event", json) }
+    /// A real user input event from the renderer (press, click, key press); every event of one physical gesture carries the same increasing `gesture` number.
+    public func activationEvent(json: String, gesture: Int) { enqueue(Self.activationPrefix + String(gesture), json) }
     public func frame(time: Double) { enqueue("frame", String(time)) }
     public func viewport(innerWidth: Double, innerHeight: Double, dpr: Double) {
         enqueue("viewport", Self.json(["innerWidth": innerWidth, "innerHeight": innerHeight, "dpr": dpr]))
@@ -282,6 +291,12 @@ public final class SandboxEngine {
     @discardableResult
     private func dispatch(_ kind: String, _ arg: String) -> Bool {
         if dead { return true }
+        if kind.hasPrefix(Self.activationPrefix) {
+            let gesture = Int(kind.dropFirst(Self.activationPrefix.count)) ?? 0
+            activeGesture = visible && gesture > consumedGesture ? gesture : 0
+            defer { activeGesture = 0 }
+            return dispatch("event", arg)
+        }
         let now = Self.nowMs()
         switch budget.decide(kind, now: now) {
         case .defer_(let retryAt):
@@ -399,7 +414,19 @@ public final class SandboxEngine {
         case "bridge":
             if let pair = Self.parse(arg) as? [Any], pair.count == 2, let method = pair[0] as? String,
                let argsData = try? JSONSerialization.data(withJSONObject: pair[1], options: [.fragmentsAllowed]) {
-                delegate?.engine(self, bridge: String(method.prefix(64)), argsJson: String(decoding: argsData, as: UTF8.self))
+                let name = String(method.prefix(64))
+                if !Self.unprivilegedBridgeMethods.contains(name) {
+                    guard activeGesture > consumedGesture, visible else {
+                        if blockedBridgeReported < 20 {
+                            blockedBridgeReported += 1
+                            delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the \(currentKind) task)")
+                        }
+                        return .undefined
+                    }
+                    consumedGesture = activeGesture
+                    activeGesture = 0
+                }
+                delegate?.engine(self, bridge: name, argsJson: String(decoding: argsData, as: UTF8.self))
             }
             return .undefined
         case "intl":

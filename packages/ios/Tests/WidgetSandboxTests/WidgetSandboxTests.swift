@@ -169,12 +169,20 @@ final class SandboxEngineTests: XCTestCase {
         XCTAssertNil(d.died)
     }
 
+    /// `ready` needs no gesture; a privileged call from a timer is refused and reported,
+    /// the same call from the handler of a trusted click goes through once.
     func testBridgeAndTimers() {
-        let (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>")
+        let (d, engine) = run("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30); document.getElementById('b').addEventListener('click', () => { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });</script>")
         let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline, !(engine.queue.sync { d.bridge.contains { $0.0 == "sendMessage" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        while Date() < deadline, !(engine.queue.sync { d.diags.contains { $0.0 == "activation-blocked" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         XCTAssertTrue(d.bridge.contains { $0.0 == "ready" })
-        XCTAssertTrue(d.bridge.contains { $0.0 == "sendMessage" && $0.1.contains("later") })
+        XCTAssertFalse(d.bridge.contains { $0.0 == "sendMessage" })
+        XCTAssertTrue(engine.queue.sync { d.diags.contains { $0.0 == "activation-blocked" && $0.1.contains("timer") } })
+        engine.activationEvent(json: "{\"type\":\"click\",\"targetId\":5}", gesture: 1)
+        let clicked = Date().addingTimeInterval(3)
+        while Date() < clicked, !(engine.queue.sync { d.bridge.contains { $0.0 == "sendMessage" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        engine.queue.sync {}
+        XCTAssertEqual(engine.queue.sync { d.bridge.filter { $0.0 == "sendMessage" }.map { $0.1 } }, ["[\"clicked\"]"])
     }
 }
 

@@ -382,7 +382,13 @@ public final class WidgetHost: SandboxEngineDelegate {
                 engine.start(html: html, config: config)
             }
         case "event":
-            if let ev = msg["ev"] { engine.event(json: Self.json(ev)) }
+            if let ev = msg["ev"] {
+                if let gesture = gesture(for: ev) {
+                    engine.activationEvent(json: Self.json(ev), gesture: gesture)
+                } else {
+                    engine.event(json: Self.json(ev))
+                }
+            }
         case "result":
             guard let id = (msg["qid"] as? NSNumber)?.intValue else { return }
             if id == Self.renderAckQid {
@@ -452,6 +458,38 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
 
     static func json(_ value: Any) -> String { SandboxEngine.json(value) }
+
+    static let activationEventTypes: Set<String> = ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown"]
+    private var gestureNumber = 0
+    private var pressOpen = false
+    private var lastActivationType = ""
+
+    /// One physical press (pointerdown, mousedown, pointerup, mouseup, click, dblclick) or one key press is one gesture.
+    private func gesture(for ev: Any) -> Int? {
+        guard Self.isUserActivation(ev), let type = (ev as? [String: Any])?["type"] as? String else { return nil }
+        let continues: Bool
+        switch type {
+        case "pointerdown": continues = false
+        case "mousedown": continues = lastActivationType == "pointerdown"
+        case "pointerup", "mouseup", "click": continues = pressOpen
+        case "dblclick": continues = lastActivationType == "click"
+        default: continues = false
+        }
+        if !continues { gestureNumber += 1 }
+        pressOpen = type != "click" && type != "dblclick" && type != "keydown"
+        lastActivationType = type
+        return gestureNumber
+    }
+
+    /// Renderer events that count as a user gesture: clicks and key presses (not Escape, not a repeat, not a Command shortcut).
+    static func isUserActivation(_ ev: Any) -> Bool {
+        guard let ev = ev as? [String: Any], let type = ev["type"] as? String, activationEventTypes.contains(type) else { return false }
+        if type == "keydown" {
+            let modifiers = (ev["modifiers"] as? NSNumber)?.intValue ?? 0
+            return ev["key"] as? String != "Escape" && (ev["repeat"] as? Bool) != true && modifiers & 4 == 0
+        }
+        return true
+    }
     /// Embeds already-serialized JSON inside a dictionary passed to `json(_:)`.
     private static func raw(_ json: String) -> Any { SandboxEngine.parse(json) ?? [] }
 }

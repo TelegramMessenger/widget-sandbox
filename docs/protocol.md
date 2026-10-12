@@ -214,6 +214,21 @@ Inside the worker the QuickJS context has exactly one capability,
 `ops query now timer clearTimer raf log diag listen pd bridge intl random stat`,
 plus `__hostBinary()` to fetch the binary part of the last query answer.
 
+### User activation for privileged bridge calls
+
+`bridge` methods other than `ready` (`openLink`, `sendMessage`, anchors the
+shim turns into `openLink`) are privileged: the glue forwards one only while
+the task of a trusted user gesture runs on a visible widget, and one gesture
+unlocks one call. A gesture is one physical press (`pointerdown`, `mousedown`,
+`pointerup`, `mouseup`, `click`, `dblclick` of the same press) or one key press
+(`keydown`, not Escape, not a repeat, not a Command shortcut), as reported by
+the renderer; the host numbers gestures and hands them to the engine with the
+event. Calls from timers, frames, promises after the task, scripted
+`click()`/`dispatchEvent` or a hidden widget are dropped with an
+`activation-blocked` diag (at most 20). Swift glue only so far
+(`SandboxEngine.activationEvent`, `WidgetHost`); the worker, Node harness,
+Kotlin and C++ copies still forward every bridge call.
+
 ### `config` (SandboxConfig, same fields on iOS and Android)
 
 | field | default | meaning |
