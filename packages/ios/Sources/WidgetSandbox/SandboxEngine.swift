@@ -153,8 +153,24 @@ public final class SandboxEngine {
     public func prewarm() {
         if prewarmRequested { return }
         prewarmRequested = true
-        queue.async { if !self.started && !self.dead { self.createRuntime() } }
+        queue.async {
+            guard !self.started && !self.dead else { return }
+            // A prewarm that hits a limit (a busy machine) must not leave a dead
+            // engine in the pool: drop the runtime and let start() build a fresh one.
+            self.prewarming = true
+            self.createRuntime()
+            self.prewarming = false
+            if self.prewarmFailed {
+                self.prewarmFailed = false
+                self.js = nil
+                self.prewarmed = false
+                self.bundleEval = nil
+            }
+        }
     }
+
+    private var prewarming = false
+    private var prewarmFailed = false
 
     public var isPrewarmed: Bool { queue.sync { self.prewarmed } }
 
@@ -420,6 +436,10 @@ public final class SandboxEngine {
     // MARK: running code
 
     private func kill(_ reason: String) {
+        if prewarming {
+            prewarmFailed = true
+            return
+        }
         if dead { return }
         dead = true
         pendingBeforeBoot.removeAll()
