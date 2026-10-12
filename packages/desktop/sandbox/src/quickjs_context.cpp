@@ -100,9 +100,10 @@ JSError QuickJSContext::takeException() {
 static JSResult readResult(JSContext* ctx, JSValue v) {
     JSResult r;
     if (qjs_is_string(v)) {
-        const char* c = qjs_to_cstring(ctx, v);
-        r.string = std::string(c ? c : "");
-        if (c) qjs_free_cstring(ctx, c);
+        size_t length = 0;
+        const char* c = JS_ToCStringLen2(ctx, &length, v, false);
+        r.string = c ? std::string(c, length) : std::string();
+        if (c) JS_FreeCString(ctx, c);
     } else if (qjs_is_number(v)) {
         r.number = qjs_to_float64(ctx, v);
     }
