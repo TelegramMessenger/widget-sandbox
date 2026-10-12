@@ -61,7 +61,21 @@ public protocol SandboxEngineDelegate: AnyObject {
 public final class SandboxEngine {
     /// Everything below runs on this thread (see JSThread for why not a DispatchQueue).
     public let queue = JSThread(name: "widget.sandbox")
-    public weak var delegate: SandboxEngineDelegate?
+    private let delegateLock = NSLock()
+    private weak var _delegate: SandboxEngineDelegate?
+    /// Set on the owner's thread, read on the JS thread.
+    public var delegate: SandboxEngineDelegate? {
+        get {
+            delegateLock.lock()
+            defer { delegateLock.unlock() }
+            return _delegate
+        }
+        set {
+            delegateLock.lock()
+            _delegate = newValue
+            delegateLock.unlock()
+        }
+    }
 
     private var html = ""
     public private(set) var config: SandboxConfig

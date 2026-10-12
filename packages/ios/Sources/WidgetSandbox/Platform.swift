@@ -25,13 +25,20 @@ enum PlatformScreen {
     /// The widget is created before it is in a window; the main screen's scale
     /// is the best guess and the renderer reports the real `devicePixelRatio`
     /// with its first `size` message anyway.
+    private static let lock = NSLock()
     private static var cached: Double = 2
 
     /// NSScreen is main-thread only; other threads get the last scale the main thread saw.
     static var scale: Double {
         if Thread.isMainThread {
-            cached = Double(NSScreen.main?.backingScaleFactor ?? 2)
+            let scale = Double(NSScreen.main?.backingScaleFactor ?? 2)
+            lock.lock()
+            cached = scale
+            lock.unlock()
+            return scale
         }
+        lock.lock()
+        defer { lock.unlock() }
         return cached
     }
 }
