@@ -79,6 +79,15 @@ public final class QuickJSContext {
     /// A prewarmed runtime adopts the limit of the host that takes it.
     public func setMemoryLimit(_ bytes: Int) { JS_SetMemoryLimit(runtime, bytes) }
 
+    /// `JS_ComputeMemoryUsage` in bytes, for diagnostics and memory tests.
+    public var memoryUsage: [String: Int] {
+        var u = JSMemoryUsage()
+        JS_ComputeMemoryUsage(runtime, &u)
+        return ["malloc": Int(u.malloc_size), "used": Int(u.memory_used_size), "atoms": Int(u.atom_size), "strings": Int(u.str_size), "objects": Int(u.obj_size), "properties": Int(u.prop_size), "shapes": Int(u.shape_size), "functions": Int(u.js_func_size), "bytecode": Int(u.js_func_code_size), "pc2line": Int(u.js_func_pc2line_size), "binary": Int(u.binary_object_size)]
+    }
+
+    public func collectGarbage() { JS_RunGC(runtime) }
+
     // MARK: host functions
 
     /// Exposes `name(...)` to the sandbox. Arguments arrive as strings (numbers are formatted).
@@ -122,9 +131,11 @@ public final class QuickJSContext {
 
     private func readResult(_ v: JSValue) -> JSResult {
         defer { qjs_free_value(context, v) }
-        if qjs_is_string(v), let c = qjs_to_cstring(context, v) {
-            defer { qjs_free_cstring(context, c) }
-            return .string(String(cString: c))
+        if qjs_is_string(v) {
+            var length = 0
+            guard let c = JS_ToCStringLen2(context, &length, v, false) else { return .undefined }
+            defer { JS_FreeCString(context, c) }
+            return .string(String(decoding: UnsafeRawBufferPointer(start: c, count: length), as: UTF8.self))
         }
         if qjs_is_number(v) { return .number(qjs_to_float64(context, v)) }
         return .undefined
@@ -180,7 +191,10 @@ public final class QuickJSContext {
         let fn = qjs_get_global_prop(context, name)
         defer { qjs_free_value(context, fn) }
         guard qjs_is_function(context, fn) else { throw QuickJSError.notAFunction(name) }
-        var argv = args.map { $0.withCString { qjs_new_string(context, $0) } }
+        var argv = args.map { arg -> JSValue in
+            var arg = arg
+            return arg.withUTF8 { b in b.withMemoryRebound(to: CChar.self) { qjs_new_string_len(context, $0.baseAddress, $0.count) } }
+        }
         defer { for v in argv { qjs_free_value(context, v) } }
         let r = argv.withUnsafeMutableBufferPointer { buf in qjs_call(context, fn, Int32(buf.count), buf.baseAddress) }
         if qjs_is_exception(r) { throw takeException() }
