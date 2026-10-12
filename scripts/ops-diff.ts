@@ -143,13 +143,13 @@ interface Outcome {
 const CLICKABLE = /^(button|a|input|select|label|summary|li|td|th|span|div|svg:rect|svg:circle|svg:path|canvas)$/;
 const MAX_CLICKS = 24;
 
-function clickTargets(n: Node, out: number[] = []): number[] {
+export function clickTargets(n: Node, out: number[] = []): number[] {
   if (n.kind === 'el' && n.id !== ROOT_ID && (CLICKABLE.test(n.tag) || n.attrs.has('onclick') || n.attrs.has('role') || n.attrs.has('tabindex'))) out.push(n.id);
   for (const c of n.children) clickTargets(c, out);
   return out;
 }
 
-const DETERMINISM = `(function () {
+export const DETERMINISM = `(function () {
   var seed = 42;
   Math.random = function () { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return seed / 0x80000000; };
   var NativeDate = Date, fixed = 1767225600000;
@@ -170,7 +170,7 @@ function deterministic() {
   };
 }
 
-async function run(html: string, bundle: string, timerRounds: number): Promise<Outcome> {
+export async function run(html: string, bundle: string, timerRounds: number): Promise<Outcome> {
   const unknown: string[] = [];
   const first = await runWidget(html, { bundle, timerRounds: 1, ...deterministic() });
   const targets = clickTargets(applyOps(first.renderOps)).slice(0, MAX_CLICKS);
