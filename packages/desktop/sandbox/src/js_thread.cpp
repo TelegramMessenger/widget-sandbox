@@ -26,7 +26,7 @@ JSThread::JSThread(std::string name) : name_(std::move(name)) {
         delete b;
         self->run();
         return 0;
-    }, boot, 0, nullptr);
+    }, boot, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     handle_ = h;
 #else
     pthread_attr_t attr;
