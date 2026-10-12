@@ -113,3 +113,11 @@ describe('engine: quickjs-ng mapped arguments (issue #1400)', () => {
     assert.equal(r.probes[0], '600');
   });
 });
+
+describe('harness: fail closed', () => {
+  it('a sandbox bundle that throws while loading never runs the widget', async () => {
+    let ran = false;
+    await assert.rejects(runWidget('<script>TelegramWidget.ready()</script>', { bundle: 'globalThis.__twDispatch = function () { return null; }; throw new Error("half-loaded shim");', unknownHost: () => { ran = true; } }), /sandbox bundle failed to load/);
+    assert.equal(ran, false);
+  });
+});

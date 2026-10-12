@@ -326,10 +326,14 @@ function settle() {
   }
 }
 
-function evalScript(code: string, filename: string, type: 'global' | 'module') {
+function evalScript(code: string, filename: string, type: 'global' | 'module'): boolean {
   const r = vm.evalCode(code, filename, { type });
-  if (r.error) handleError(r.error, filename);
-  else r.value.dispose();
+  if (r.error) {
+    handleError(r.error, filename);
+    return false;
+  }
+  r.value.dispose();
+  return true;
 }
 
 function fetchLibrary(file: string): string | null {
@@ -514,8 +518,12 @@ async function warm(msg: Extract<HostToWorker, { type: 'warm' | 'init' }>) {
     const t0 = performance.now();
     // Generous one-off budget for evaluating our own bundle; its time is ours, not the widget's.
     deadline = performance.now() + Math.max(config.cpuLimitMs, 5000);
-    evalScript(msg.sandboxBundle, 'sandbox-bundle.js', 'global');
+    const loaded = evalScript(msg.sandboxBundle, 'sandbox-bundle.js', 'global');
     excludeMs = performance.now() - t0;
+    if (dead) return;
+    // Fail closed: a runtime whose shim did not load completely (its network
+    // stubs and DOM capture may be missing) never runs widget code.
+    if (!loaded) return kill('sandbox bundle failed to load');
     const fn = vm.getProp(vm.global, '__twDispatch');
     if (vm.typeof(fn) !== 'function') {
       fn.dispose();

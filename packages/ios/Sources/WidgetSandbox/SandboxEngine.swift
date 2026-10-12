@@ -214,8 +214,14 @@ public final class SandboxEngine {
         // Generous one-off budget for our own bundle; its time is ours, not the widget's.
         js.deadline = ProcessInfo.processInfo.systemUptime + max(config.cpuLimitMs, 5000) / 1000
         let how = evalBundle(resources.sandboxBundle, bytecode: resources.sandboxBytecode, filename: "sandbox-bundle.js")
-        bundleEval = ((CACurrentMediaTime() - t0) * 1000, how)
         js.deadline = .infinity
+        // Fail closed: a runtime whose shim did not load completely (its network
+        // stubs and DOM capture may be missing) never runs widget code.
+        if how == "failed" {
+            if !dead && !prewarmFailed { kill("sandbox bundle failed to load") }
+            return
+        }
+        bundleEval = ((CACurrentMediaTime() - t0) * 1000, how)
         prewarmed = true
     }
 
@@ -224,6 +230,7 @@ public final class SandboxEngine {
         started = true
         let wasPrewarmed = js != nil
         createRuntime()
+        if dead { return }
         js.setMemoryLimit(config.memoryLimitBytes)
         if let bundleEval {
             delegate?.engine(self, diag: "boot", detail: String(format: "sandbox bundle eval %.0f ms (%@%@)", bundleEval.ms, bundleEval.how, wasPrewarmed ? ", prewarmed" : ""))
@@ -524,7 +531,12 @@ public final class SandboxEngine {
                 delegate?.engine(self, diag: "bytecode", detail: "\(filename): falling back to source — \("\(error)".split(separator: "\n").first ?? "")")
             }
         }
-        evalScript(source, filename: filename)
+        do {
+            try js.evaluate(source, filename: filename)
+        } catch {
+            handleError(error, where: filename)
+            return "failed"
+        }
         return "source"
     }
 

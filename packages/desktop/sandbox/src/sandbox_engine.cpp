@@ -97,6 +97,12 @@ void SandboxEngine::boot() {
         js_->deadline = nowSeconds() + std::max(config_.cpuLimitMs, 5000.0) / 1000;
         std::string how = evalBundle(resources_->sandboxBundle, resources_->sandboxBytecode, "sandbox-bundle.js");
         excludeMs_ = nowMs() - t0;
+        // Fail closed: a runtime whose shim did not load completely (its network
+        // stubs and DOM capture may be missing) never runs widget code.
+        if (how == "failed") {
+            if (!dead_) kill("sandbox bundle failed to load");
+            return;
+        }
         if (delegate_) delegate_->onDiag(*this, "boot", "sandbox bundle eval " + std::to_string(int(excludeMs_)) + " ms (" + how + ")");
         resetDeadline();
         Json config = Json::object();
@@ -420,7 +426,12 @@ std::string SandboxEngine::evalBundle(const std::string& source, const std::vect
             if (delegate_) delegate_->onDiag(*this, "bytecode", filename + ": falling back to source — " + msg.substr(0, msg.find('\n')));
         }
     }
-    evalScript(source, filename);
+    try {
+        js_->evaluate(source, filename, false);
+    } catch (const JSError& e) {
+        handleError(e.what(), filename);
+        return "failed";
+    }
     return "source";
 }
 

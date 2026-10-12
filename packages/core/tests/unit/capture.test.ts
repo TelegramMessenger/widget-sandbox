@@ -18,7 +18,7 @@ describe('capture: sole text child', () => {
       function tick() { t.textContent = String(++n); if (n < 3) setTimeout(tick, 1); }
       setTimeout(tick, 1);</script>`);
     assert.deepEqual(later.map((o) => `${o.op}:${o.data ?? ''}`), ['data:1', 'data:2', 'data:3']);
-    const textId = r.ops[0].find((o: any) => o.op === 'text' && o.data === '0')?.id;
+    const textId = (r.ops[0] as any[]).find((o: any) => o.op === 'text' && o.data === '0')?.id;
     assert.ok(later.every((o) => o.id === textId));
   });
 

@@ -52,9 +52,11 @@ public final class QuickJSContext {
     /// real one. A debug build of quickjs-ng needs ~10 KB of C stack per JS call.
     public init(memoryLimitBytes: Int, maxStackBytes: Int = 384 << 10) {
         runtime = JS_NewRuntime()
-        JS_SetMemoryLimit(runtime, memoryLimitBytes)
         JS_SetMaxStackSize(runtime, maxStackBytes)
+        // The limit applies once the context exists: a limit too small for the
+        // context itself must fail the first evaluation, not the initializer.
         context = JS_NewContext(runtime)
+        JS_SetMemoryLimit(runtime, memoryLimitBytes)
         let opaque = Unmanaged.passUnretained(self).toOpaque()
         JS_SetContextOpaque(context, opaque)
         // No module loader is installed: `import()` of anything fails inside the sandbox.

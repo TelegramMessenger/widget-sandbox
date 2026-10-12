@@ -144,7 +144,14 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     if (r.error) fail(r.error, name);
     else r.value.dispose();
   };
-  evalCode(bundle, 'sandbox-bundle.js');
+  const bundleResult = vm.evalCode(bundle, 'sandbox-bundle.js', { type: 'global' });
+  if (bundleResult.error) {
+    fail(bundleResult.error, 'sandbox-bundle.js');
+    vm.dispose();
+    rt.dispose();
+    throw new Error('sandbox bundle failed to load');
+  }
+  bundleResult.value.dispose();
   const dispatch = vm.getProp(vm.global, '__twDispatch');
   if (vm.typeof(dispatch) !== 'function') throw new Error('bundle did not define __twDispatch');
   const tw = (kind: string, arg = ''): string | null => {

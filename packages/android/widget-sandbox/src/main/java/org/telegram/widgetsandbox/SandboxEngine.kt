@@ -150,6 +150,12 @@ class SandboxEngine(
             ctx.deadlineNanos = nowNs() + (maxOf(config.cpuLimitMs, 5000.0) * 1e6).toLong()
             val how = evalBundle(resources.sandboxBundle, resources.sandboxBytecode, "sandbox-bundle.js")
             excludeMs = msSince(t0)
+            // Fail closed: a runtime whose shim did not load completely (its network
+            // stubs and DOM capture may be missing) never runs widget code.
+            if (how == "failed") {
+                if (!dead) kill("sandbox bundle failed to load")
+                return@task
+            }
             delegate?.onDiag(this, "boot", "sandbox bundle eval ${excludeMs.toInt()} ms ($how)")
             resetDeadline()
             val bootArg = JSONObject()
@@ -434,7 +440,13 @@ class SandboxEngine(
                 delegate?.onDiag(this, "bytecode", "$filename: falling back to source — ${e.message?.lineSequence()?.firstOrNull()}")
             }
         }
-        evalScript(source, filename)
+        if (ctx == null) return "failed"
+        try {
+            ctx.evaluate(source, filename, false)
+        } catch (e: QuickJSException) {
+            handleError(e, filename)
+            return "failed"
+        }
         return "source"
     }
 
