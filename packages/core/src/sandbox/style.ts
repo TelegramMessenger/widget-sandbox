@@ -18,7 +18,7 @@ export function parseDeclarations(text: string): Map<string, Decl> {
       const name = decl.slice(0, colon).trim();
       let value = decl.slice(colon + 1).trim();
       let important = false;
-      const m = /!\s*important\s*$/i.exec(value);
+      const m = value.includes('!') ? /!\s*important\s*$/i.exec(value) : null;
       if (m) {
         important = true;
         value = value.slice(0, m.index).trim();
@@ -31,6 +31,27 @@ export function parseDeclarations(text: string): Map<string, Decl> {
     }
     start = end + 1;
   };
+  if (text.indexOf('"') < 0 && text.indexOf("'") < 0 && text.indexOf('\\') < 0) {
+    // No quotes or escapes: jump between the only characters that matter.
+    let open = text.indexOf('('), close = text.indexOf(')'), semi = text.indexOf(';');
+    for (;;) {
+      let at = open < 0 ? close : close < 0 ? open : Math.min(open, close);
+      if (semi >= 0 && (at < 0 || semi < at)) at = semi;
+      if (at < 0) break;
+      if (at === open) {
+        depth++;
+        open = text.indexOf('(', at + 1);
+      } else if (at === close) {
+        depth = Math.max(0, depth - 1);
+        close = text.indexOf(')', at + 1);
+      } else {
+        if (depth === 0) push(at);
+        semi = text.indexOf(';', at + 1);
+      }
+    }
+    push(text.length);
+    return out;
+  }
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === '\\') i++;
@@ -51,7 +72,18 @@ export function serializeDeclarations(map: Map<string, Decl>): string {
   return out;
 }
 
+const kebabCache = new Map<string, string>();
+
 export function toKebab(prop: string): string {
+  let k = kebabCache.get(prop);
+  if (k === undefined) {
+    if (kebabCache.size > 1024) kebabCache.clear();
+    kebabCache.set(prop, (k = kebabOf(prop)));
+  }
+  return k;
+}
+
+function kebabOf(prop: string): string {
   if (prop.startsWith('--') || prop.includes('-')) return prop;
   if (prop === 'cssFloat') return 'float';
   const k = prop.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());

@@ -14,7 +14,7 @@
 import { DOCUMENT_ID } from '../shared/protocol';
 import { document, SVG_NS } from './dom';
 import { counters, host, invalidateLayout } from './host';
-import { parseDeclarations } from './style';
+import { parseDeclarations, type Decl } from './style';
 
 export const ID = Symbol('tw.id');
 
@@ -226,10 +226,20 @@ function syncAttrs(el: any, id: number, m: Mirror) {
   }
 }
 
+// Parsed style attributes of this flush and the previous one: an animated
+// element's new text is next flush's old text, so each text is parsed once.
+let parsedNow = new Map<string, Map<string, Decl>>();
+let parsedBefore = new Map<string, Map<string, Decl>>();
+
+function parsedStyle(text: string): Map<string, Decl> {
+  return parsedNow.get(text) ?? parsedBefore.get(text) ?? parseDeclarations(text);
+}
+
 /** Express a change of the style attribute as individual property ops (CSSOM-like). */
 function emitStyleDiff(id: number, oldText: string, newText: string) {
-  const before = parseDeclarations(oldText);
-  const after = parseDeclarations(newText);
+  const before = parsedStyle(oldText);
+  const after = parsedStyle(newText);
+  parsedNow.set(newText, after);
   for (const [name, d] of after) {
     const o = before.get(name);
     if (!o || o.value !== d.value || o.important !== d.important) ops.push({ op: 'style', id, name, value: d.value, important: d.important || undefined });
@@ -238,6 +248,17 @@ function emitStyleDiff(id: number, oldText: string, newText: string) {
 }
 
 function syncChildren(node: any, id: number, m: Mirror) {
+  if (node.nodeType !== 9) {
+    let i = 0;
+    let c = node.firstChild;
+    for (; c; c = c.nextSibling) {
+      if (!renderable(c)) continue;
+      const cid = c[ID];
+      if (cid === undefined || cid !== m.kids[i] || mirror.get(cid)?.parent !== id) break;
+      i++;
+    }
+    if (!c && i === m.kids.length) return;
+  }
   const live: number[] = [];
   const added: any[] = [];
   for (const c of childrenOf(node)) {
@@ -348,6 +369,10 @@ export function flush(full = false): void {
   }
   postOps = [];
   hooks.flushExtra((o) => ops.push(o));
+  if (parsedNow.size) {
+    parsedBefore = parsedNow;
+    parsedNow = new Map();
+  }
   if (ops.length) send();
 }
 
@@ -379,7 +404,10 @@ const LIVE_GETTERS = ['classList', 'dataset', 'relList', 'part'];
 const SKIP_SETTERS = new Set(['scrollTop', 'scrollLeft', 'value', 'checked', 'selectedIndex', 'selected', 'indeterminate', 'onclick']);
 
 function markArgs(args: any[]) {
-  for (const a of args) if (a && typeof a === 'object' && a.nodeType) dirty.add(a.parentNode);
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a && typeof a === 'object' && a.nodeType) dirty.add(a.parentNode);
+  }
 }
 
 export function collectPrototypes(samples: any[]): any[] {
