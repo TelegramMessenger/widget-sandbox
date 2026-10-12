@@ -98,3 +98,18 @@ describe('harness: cpu quota', () => {
     assert.equal(r2.throttled, 0);
   });
 });
+
+describe('engine: quickjs-ng mapped arguments (issue #1400)', () => {
+  // quickjs-ng < 0.13 frees a mapped arguments object's var refs too early; a
+  // non-strict widget function that reads `arguments` and allocates enough to
+  // run the GC trips the gc_scan ref_count assertion and kills the wasm runtime.
+  it('a sloppy-mode wrapper reading arguments survives garbage collection', { todo: 'the npm wasm build vendors quickjs-ng 0.12.1; needs a wasm build of quickjs-ng >= 0.13 or the TelegramMessenger/quickjs fork' }, async () => {
+    const r = await runWidget(`<script>
+      function wrap(c) { return function (a, b) { var n = arguments.length; return n === 0 ? c.call(this) : n === 1 ? c.call(this, a) : c.call(this, a, b); }; }
+      var keep = [];
+      var f = wrap(function (x, y) { var t = []; for (var k = 0; k < 2000; k++) { var o = { k: k, x: x, y: y }; o.self = o; t.push(o); } keep.push(t.length); return [x, y]; });
+      for (var i = 0; i < 300; i++) { f({ i: i }); f({ i: i }, { j: i }); }
+      var done = keep.length;</script>`, { timerRounds: 0, probes: ['done'] });
+    assert.equal(r.probes[0], '600');
+  });
+});
