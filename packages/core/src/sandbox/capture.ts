@@ -14,7 +14,7 @@
 import { DOCUMENT_ID } from '../shared/protocol';
 import { document, SVG_NS } from './dom';
 import { counters, host, invalidateLayout } from './host';
-import { parseDeclarations, type Decl } from './style';
+import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
 
 export const ID = Symbol('tw.id');
 
@@ -165,6 +165,7 @@ function createNode(node: any): number {
   const id = idOf(node);
   byId.set(id, node);
   if (node.nodeType === 1) {
+    forgetSentStyle(node);
     const attrs = readAttrs(node);
     const m: Mirror = { parent: 0, kids: [], attrs, data: null };
     mirror.set(id, m);
@@ -213,8 +214,11 @@ function syncAttrs(el: any, id: number, m: Mirror) {
     if (old === value) continue;
     attrs.set(name, value);
     if (observers.size) record({ type: 'attributes', target: el, attributeName: name, oldValue: old ?? null });
-    if (name === 'style' && old !== undefined) emitStyleDiff(id, old, value);
-    else ops.push({ op: 'attr', id, name, value });
+    if (name === 'style' && old !== undefined) emitStyleDiff(id, old, value, el);
+    else {
+      if (name === 'style') forgetSentStyle(el);
+      ops.push({ op: 'attr', id, name, value });
+    }
     hooks.attributeChanged(el, name, value);
   }
   if (attrs.size <= count) return;
@@ -223,6 +227,7 @@ function syncAttrs(el: any, id: number, m: Mirror) {
   for (const [name, old] of attrs) {
     if (seen.has(name)) continue;
     attrs.delete(name);
+    if (name === 'style') forgetSentStyle(el);
     if (observers.size) record({ type: 'attributes', target: el, attributeName: name, oldValue: old });
     ops.push({ op: 'rattr', id, name });
     hooks.attributeChanged(el, name, null);
@@ -239,8 +244,9 @@ function parsedStyle(text: string): Map<string, Decl> {
 }
 
 /** Express a change of the style attribute as individual property ops (CSSOM-like). */
-function emitStyleDiff(id: number, oldText: string, newText: string) {
-  const before = parsedStyle(oldText);
+function emitStyleDiff(id: number, oldText: string, newText: string, el: any) {
+  const impl = styleImplOf(el);
+  const before = impl && impl._sent !== null && impl._sentText === oldText ? impl._sent : parsedStyle(oldText);
   const after = parsedStyle(newText);
   parsedNow.set(newText, after);
   for (const [name, d] of after) {
@@ -248,6 +254,71 @@ function emitStyleDiff(id: number, oldText: string, newText: string) {
     if (!o || o.value !== d.value || o.important !== d.important) ops.push({ op: 'style', id, name, value: d.value, important: d.important || undefined });
   }
   for (const name of before.keys()) if (!after.has(name)) ops.push({ op: 'style', id, name, value: '' });
+  if (impl) {
+    impl._keys = null;
+    if (impl._text === newText && !impl._reparsed && canonicalMap(impl._map)) {
+      impl._sent = new Map(after);
+      impl._sentText = newText;
+    } else {
+      impl._sent = null;
+      impl._sentText = null;
+      impl._reparsed = false;
+    }
+  }
+}
+
+function keyStillCanonical(name: string, map: Map<string, Decl>): boolean {
+  const d = map.get(name);
+  return d === undefined || (canonicalKey(name) && canonicalValue(d.value));
+}
+
+function sendStyleKey(id: number, name: string, map: Map<string, Decl>, sent: Map<string, Decl>) {
+  const d = map.get(name);
+  const was = sent.get(name);
+  if (d !== undefined) {
+    if (was === undefined || was.value !== d.value || was.important !== d.important) {
+      ops.push({ op: 'style', id, name, value: d.value, important: d.important || undefined });
+      sent.set(name, d);
+    }
+  } else if (was !== undefined) {
+    ops.push({ op: 'style', id, name, value: '' });
+    sent.delete(name);
+  }
+}
+
+/** Style properties written through element.style's fast path: one op per changed property, or the attribute path when anything is off. */
+function syncPendingStyles() {
+  const pending = [...pendingStyles];
+  pendingStyles.clear();
+  for (const impl of pending) {
+    const el = impl._el;
+    const keys = impl._keys;
+    impl._keys = null;
+    if (keys === null || dirty.has(el)) continue;
+    const id = el[ID];
+    const m = id === undefined ? undefined : mirror.get(id);
+    const text = impl._attrText();
+    const told = m?.attrs?.get('style');
+    let fallback = !m || text === null || text !== impl._text || told !== impl._sentText || impl._reparsed || impl._sent === null;
+    if (!fallback) {
+      if (typeof keys === 'string') fallback = !keyStillCanonical(keys, impl._map);
+      else for (const k of keys) if (!keyStillCanonical(k, impl._map)) { fallback = true; break; }
+    }
+    if (fallback) {
+      impl._sentText = null;
+      if (m) dirty.add(el);
+      continue;
+    }
+    if (told === text) continue;
+    m!.attrs!.set('style', text!);
+    if (observers.size) record({ type: 'attributes', target: el, attributeName: 'style', oldValue: told ?? null });
+    const sent = impl._sent!;
+    if (typeof keys === 'string') sendStyleKey(id, keys, impl._map, sent);
+    else for (const k of keys) sendStyleKey(id, k, impl._map, sent);
+    impl._sentText = text;
+    hooks.attributeChanged(el, 'style', text);
+    hooks.elementSynced(el, id, (o) => postOps.push(o), false);
+  }
 }
 
 /**
@@ -369,11 +440,12 @@ let lastFullSync = 0;
 
 /** Emit ops for everything that changed since the last flush. */
 export function flush(full = false): void {
-  if (!dirty.size && !postOps.length && !full) {
+  if (!dirty.size && !postOps.length && !full && !pendingStyles.size) {
     hooks.flushExtra((o) => ops.push(o));
     if (ops.length) send();
     return;
   }
+  if (pendingStyles.size) syncPendingStyles();
   // New dirty nodes can appear while syncing (hooks); loop until stable.
   for (let i = 0; i < 8 && dirty.size; i++) {
     const batch = [...dirty];
@@ -448,6 +520,12 @@ export function collectPrototypes(samples: any[]): any[] {
 
 export function installDirtyTracking(protos: any[], tokenListProto: any) {
   const tokenOwner = new WeakMap<object, any>();
+  const attrProto = Object.getPrototypeOf(document.createAttribute('x'));
+  const attrValue = Object.getOwnPropertyDescriptor(attrProto, 'value');
+  if (attrValue?.set) {
+    const set = attrValue.set;
+    setRawAttrValueSetter((attr, value) => set.call(attr, value));
+  }
   for (const proto of protos) {
     for (const name of Object.getOwnPropertyNames(proto)) {
       const d = Object.getOwnPropertyDescriptor(proto, name)!;

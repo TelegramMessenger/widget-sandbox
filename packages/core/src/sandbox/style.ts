@@ -3,6 +3,8 @@
 // source of truth: every write re-serializes into it, and capture.ts turns the
 // attribute change into per-property ops.
 
+import { document } from './dom';
+
 export interface Decl { value: string; important: boolean }
 
 /** Split a declaration list, respecting quotes, parentheses and escapes. */
@@ -91,25 +93,110 @@ function kebabOf(prop: string): string {
 }
 
 const styles = new WeakMap<object, any>();
+const impls = new WeakMap<object, StyleImpl>();
 
-class StyleImpl {
+// Fast path for element.style writes (capture.ts `syncPendingStyles`): once the
+// host has been told an element's style as a canonical property map, a write
+// through element.style updates the attribute value in place, without marking
+// the element dirty, and records which properties changed; the next flush sends
+// one `style` op per changed property from that record instead of re-parsing
+// and diffing the attribute. Anything unusual takes the attribute path.
+
+/** Style declarations written through the fast path since the last flush. */
+export const pendingStyles = new Set<StyleImpl>();
+
+/** Attr.prototype.value's own setter, handed over before dirty tracking wraps it. */
+let setAttrValue: ((attr: any, value: string) => void) | null = null;
+export function setRawAttrValueSetter(set: (attr: any, value: string) => void) {
+  setAttrValue = set;
+}
+
+const SVG = 'http://www.w3.org/2000/svg';
+const canonicalKeys = new Map<string, boolean>();
+const KEY = /^(--[A-Za-z0-9_-]+|[a-z][a-z0-9-]*)$/;
+const VALUE_FLAT = /[;!\\"']/;
+const VALUE_PARENS = /^[^;!\\"'()]*(\([^;!\\"'()]*\)[^;!\\"'()]*)*$/;
+
+/** A property name the parser returns unchanged. */
+export function canonicalKey(name: string): boolean {
+  let ok = canonicalKeys.get(name);
+  if (ok === undefined) {
+    if (canonicalKeys.size > 1024) canonicalKeys.clear();
+    canonicalKeys.set(name, (ok = KEY.test(name)));
+  }
+  return ok;
+}
+
+/** A value that serializes and re-parses to itself: no `;`, `!`, quotes or escapes, flat balanced parentheses. */
+export function canonicalValue(value: string): boolean {
+  return value.indexOf('(') < 0 && value.indexOf(')') < 0 ? !VALUE_FLAT.test(value) : VALUE_PARENS.test(value);
+}
+
+export function canonicalMap(map: Map<string, Decl>): boolean {
+  for (const [name, d] of map) if (!canonicalKey(name) || !canonicalValue(d.value)) return false;
+  return true;
+}
+
+export function styleImplOf(el: any): StyleImpl | undefined {
+  return impls.get(el);
+}
+
+/** The host's copy of this element's style no longer comes from a fast-path record. */
+export function forgetSentStyle(el: any) {
+  const impl = impls.get(el);
+  if (impl) impl._sentText = null;
+}
+
+export class StyleImpl {
   _el: any;
   _text: string | null = null;
   _map = new Map<string, Decl>();
+  /** The element's style Attr while it is owned by the element. */
+  _attr: any = null;
+  /** The property map and attribute text the host was last told, when canonical. */
+  _sent: Map<string, Decl> | null = null;
+  _sentText: string | null = null;
+  /** Properties written through the fast path since the last flush. */
+  _keys: string | Set<string> | null = null;
+  /** The map was re-parsed from a text written some other way since the host was told. */
+  _reparsed = false;
   constructor(el: any) {
     this._el = el;
   }
+  _attrText(): string | null {
+    const a = this._attr;
+    return a !== null && a.ownerElement === this._el ? String(a.value) : null;
+  }
   _read(): Map<string, Decl> {
-    const text = this._el.getAttribute('style') ?? '';
+    let text = this._attrText();
+    if (text === null) {
+      text = this._el.getAttribute('style') ?? '';
+      this._attr = this._el.ownerDocument === document ? this._el.getAttributeNode('style') : null;
+    }
     if (text !== this._text) {
       this._text = text;
-      this._map = parseDeclarations(text);
+      this._map = parseDeclarations(text!);
+      this._reparsed = true;
     }
     return this._map;
   }
-  _write() {
+  _write(key?: string) {
+    const el = this._el;
+    const a = this._attr;
     this._text = serializeDeclarations(this._map);
-    this._el.setAttribute('style', this._text);
+    if (key !== undefined && setAttrValue !== null && this._sentText !== null && !this._reparsed && a !== null && a.ownerElement === el && el.namespaceURI !== SVG) {
+      setAttrValue(a, this._text);
+      const k = this._keys;
+      if (k === null) {
+        this._keys = key;
+        pendingStyles.add(this);
+      } else if (typeof k === 'string') {
+        if (k !== key) this._keys = new Set([k, key]);
+      } else k.add(key);
+      return;
+    }
+    this._keys = null;
+    el.setAttribute('style', this._text);
   }
   getPropertyValue(name: string): string {
     return this._read().get(toKebab(String(name)))?.value ?? '';
@@ -130,13 +217,13 @@ class StyleImpl {
       map.delete(key); // re-append: the latest declaration wins, like CSSOM
       map.set(key, { value: v, important });
     }
-    this._write();
+    this._write(key);
   }
   removeProperty(name: string): string {
     const key = toKebab(String(name));
     const map = this._read();
     const old = map.get(key)?.value ?? '';
-    if (map.delete(key)) this._write();
+    if (map.delete(key)) this._write(key);
     return old;
   }
   item(i: number): string {
@@ -177,6 +264,10 @@ const handler: ProxyHandler<StyleImpl> = {
 
 export function styleOf(el: any): any {
   let s = styles.get(el);
-  if (!s) styles.set(el, (s = new Proxy(new StyleImpl(el), handler)));
+  if (!s) {
+    const impl = new StyleImpl(el);
+    impls.set(el, impl);
+    styles.set(el, (s = new Proxy(impl, handler)));
+  }
   return s;
 }
