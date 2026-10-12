@@ -65,6 +65,9 @@ export interface RunOptions {
   bundle?: string;
   /** `__host` kinds the harness does not know, with their argument. */
   unknownHost?: (kind: string, arg: string) => void;
+  /** Host clock (`now`) and random bytes (`random`) instead of performance.now / Math.random, for reproducible runs. */
+  now?: () => number;
+  random?: (count: number) => number[];
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
@@ -107,7 +110,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         log('query', JSON.stringify(q), '→', JSON.stringify(answer));
         return vm.newString(JSON.stringify(answer));
       }
-      case 'now': return vm.newNumber(performance.now());
+      case 'now': return vm.newNumber(opts.now ? opts.now() : performance.now());
       case 'timer': {
         const [id, delay] = JSON.parse(arg);
         if (timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }
@@ -119,7 +122,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'diag': { const i = arg.indexOf(':'); res.diags.push({ kind: arg.slice(0, i), detail: arg.slice(i + 1) }); log('[diag]', arg); return vm.undefined; }
       case 'bridge': res.bridge.push(JSON.parse(arg)); log('[bridge]', arg); return vm.undefined;
       case 'intl': return vm.newString(String(intl(JSON.parse(arg))));
-      case 'random': return vm.newString(JSON.stringify(Array.from({ length: Number(arg) | 0 }, () => (Math.random() * 256) | 0)));
+      case 'random': return vm.newString(JSON.stringify(opts.random ? opts.random(Number(arg) | 0) : Array.from({ length: Number(arg) | 0 }, () => (Math.random() * 256) | 0)));
       default: opts.unknownHost?.(kind, arg); return vm.undefined;
     }
   });
