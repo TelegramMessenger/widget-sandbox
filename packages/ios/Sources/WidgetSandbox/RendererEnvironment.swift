@@ -51,7 +51,9 @@ public final class RendererEnvironment: NSObject, WKScriptMessageHandler {
         config.allowsInlineMediaPlayback = true
         #endif
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        if #available(macOS 11.0, iOS 14.0, *) {
+            config.defaultWebpagePreferences.allowsContentJavaScript = true
+        }
         config.setURLSchemeHandler(schemeHandler, forURLScheme: RendererWebView.scheme)
         return config
     }

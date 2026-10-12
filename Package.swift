@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "WidgetSandbox",
-    platforms: [.iOS(.v16), .macOS(.v13)],
+    platforms: [.iOS(.v16), .macOS(.v10_13)],
     products: [
         .library(name: "WidgetSandbox", targets: ["WidgetSandbox"]),
     ],

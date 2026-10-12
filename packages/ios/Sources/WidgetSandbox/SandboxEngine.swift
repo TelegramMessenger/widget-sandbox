@@ -703,6 +703,9 @@ enum IntlBridge {
         case "plural":
             return value == 1 ? "one" : "other"
         case "relative":
+            guard #available(macOS 10.15, iOS 13.0, *) else {
+                return ""
+            }
             let f = RelativeDateTimeFormatter()
             f.locale = locale
             let unit = req["unit"] as? String ?? "second"
@@ -710,6 +713,9 @@ enum IntlBridge {
             return f.localizedString(fromTimeInterval: value * seconds)
         case "list":
             let items = (req["value"] as? [Any])?.map { "\($0)" } ?? []
+            guard #available(macOS 10.15, iOS 13.0, *) else {
+                return items.joined(separator: ", ")
+            }
             return ListFormatter.localizedString(byJoining: items)
         case "compare":
             let a = req["a"] as? String ?? "", b = req["b"] as? String ?? ""

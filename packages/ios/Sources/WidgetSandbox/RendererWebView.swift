@@ -64,7 +64,9 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
             config.allowsInlineMediaPlayback = true
             #endif
             config.preferences.javaScriptCanOpenWindowsAutomatically = false
-            config.defaultWebpagePreferences.allowsContentJavaScript = true
+            if #available(macOS 11.0, iOS 14.0, *) {
+                config.defaultWebpagePreferences.allowsContentJavaScript = true
+            }
             let handler = RendererSchemeHandler(documentURL: documentURL, html: html, csp: csp)
             schemeHandler = handler
             config.setURLSchemeHandler(handler, forURLScheme: Self.scheme)
@@ -106,7 +108,9 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
         webView.overrideUserInterfaceStyle = theme == "dark" ? .dark : .light
         #elseif os(macOS)
         // Drives `prefers-color-scheme` inside the page, like overrideUserInterfaceStyle on iOS.
-        webView.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
+        if #available(macOS 10.14, *) {
+            webView.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
+        }
         #endif
     }
 
@@ -133,14 +137,13 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
 
     /// Host → renderer. Must be called on the main thread.
     public func send(_ json: String) {
-        switch Self.transport {
-        case .evaluate:
-            webView.evaluateJavaScript("__twReceive(\(Self.jsStringLiteral(json)));undefined") { [weak self] _, error in
-                if let error { self?.onDiag?("renderer", "evaluateJavaScript failed: \(error.localizedDescription)") }
-            }
-        case .callAsync:
+        if Self.transport == .callAsync, #available(macOS 11.0, iOS 14.0, *) {
             webView.callAsyncJavaScript("__twReceive(json)", arguments: ["json": json], in: nil, in: .page) { [weak self] result in
                 if case .failure(let error) = result { self?.onDiag?("renderer", "callAsyncJavaScript failed: \(error.localizedDescription)") }
+            }
+        } else {
+            webView.evaluateJavaScript("__twReceive(\(Self.jsStringLiteral(json)));undefined") { [weak self] _, error in
+                if let error { self?.onDiag?("renderer", "evaluateJavaScript failed: \(error.localizedDescription)") }
             }
         }
     }
@@ -148,7 +151,9 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
     /// The page as an image (the last render, for a bubble whose runtime is being dropped). nil when WebKit cannot snapshot.
     public func snapshot(completion: @escaping (PlatformImage?) -> Void) {
         let config = WKSnapshotConfiguration()
-        config.afterScreenUpdates = false
+        if #available(macOS 10.15, iOS 13.0, *) {
+            config.afterScreenUpdates = false
+        }
         // Two pixels per point is enough for a still of a bubble and a third of the 3× bitmap's bytes.
         #if os(iOS)
         if UIScreen.main.scale > 2 { config.snapshotWidth = NSNumber(value: Double(webView.bounds.width) * 2 / Double(UIScreen.main.scale)) }
