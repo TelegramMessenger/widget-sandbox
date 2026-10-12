@@ -163,7 +163,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         self.theme = theme
         renderer.setTheme(theme)
         if options.asyncValidation {
-            validator.perform { [self] in
+            validate { [self] in
                 let ops = validator.setTheme(theme)
                 DispatchQueue.main.async { self.toRenderer(Self.json(["type": "ops", "ops": Self.raw(ops)])) }
             }
@@ -204,6 +204,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         engine.terminate()
         renderer.destroy()
         resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
+        validatorLock.lock()
+        validatorReleased = true
+        validatorLock.unlock()
         if options.pools, validator.thread === TrustedValidator.sharedThread { ValidatorPool.shared.recycle(validator) }
     }
 
@@ -212,8 +215,23 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// Validation runs where the options say: inline on the main thread, or on
     /// the validator's thread with only the renderer call on main. Both keep the
     /// order of ops and queries: one serial validator, one serial main queue.
+    /// Work queued before destroy() must not run on a validator that went back
+    /// to the pool: it would feed this widget's ops into the next widget's model.
+    private let validatorLock = NSLock()
+    private var validatorReleased = false
+
     private func validate(_ work: @escaping () -> Void) {
-        if options.asyncValidation { validator.perform(work) } else { DispatchQueue.main.async(execute: work) }
+        guard options.asyncValidation else {
+            DispatchQueue.main.async(execute: work)
+            return
+        }
+        validator.perform { [weak self] in
+            guard let self else { return }
+            self.validatorLock.lock()
+            let released = self.validatorReleased
+            self.validatorLock.unlock()
+            if !released { work() }
+        }
     }
 
     public func engine(_ engine: SandboxEngine, ops json: String) {
