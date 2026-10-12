@@ -2,8 +2,12 @@
 // through packages/core/scripts/sandbox-node.ts with bundle A and bundle B (B is
 // the one built from packages/core/src unless --b is given), the validated ops of
 // each run are applied to a small document model, and the resulting trees are
-// compared without node ids (a shim may reuse or renumber ids). Inline style is
-// compared as a property map whether it arrived as a `style` attribute or as
+// compared without node ids (a shim may reuse or renumber ids). Each widget
+// first runs once to find clickable elements in document order, then runs
+// again with pointerdown/up + click on each of them (at most 24) before the
+// timer rounds, so event paths are diffed too. `adopt` elements (html, head,
+// body) are attached where the renderer maps them; the validator sends no `ins`
+// for them. Inline style is compared as a property map whether it arrived as a `style` attribute or as
 // `style` ops. Every widget also runs twice on A; a widget whose two A runs
 // differ (random, time) is reported as nondeterministic, not as a difference.
 //
@@ -14,6 +18,7 @@ import path from 'node:path';
 import { runWidget, type RunResult } from '../packages/core/scripts/sandbox-node.ts';
 
 interface Node {
+  id: number;
   kind: 'el' | 'text' | 'comment';
   tag: string;
   attrs: Map<string, string>;
@@ -53,9 +58,9 @@ function parseStyle(text: string): Map<string, string> {
 
 export function applyOps(ops: any[]): Node {
   const nodes = new Map<number, Node>();
-  const root: Node = { kind: 'el', tag: '#document', attrs: new Map(), style: new Map(), data: '', css: null, canvas: [], parent: null, children: [] };
+  const root: Node = { id: ROOT_ID, kind: 'el', tag: '#document', attrs: new Map(), style: new Map(), data: '', css: null, canvas: [], parent: null, children: [] };
   nodes.set(ROOT_ID, root);
-  const make = (kind: Node['kind'], tag: string): Node => ({ kind, tag, attrs: new Map(), style: new Map(), data: '', css: null, canvas: [], parent: null, children: [] });
+  const make = (id: number, kind: Node['kind'], tag: string): Node => ({ id, kind, tag, attrs: new Map(), style: new Map(), data: '', css: null, canvas: [], parent: null, children: [] });
   const detach = (n: Node) => {
     if (!n.parent) return;
     const list = n.parent.children;
@@ -71,13 +76,17 @@ export function applyOps(ops: any[]): Node {
     const n = nodes.get(op.id);
     switch (op.op) {
       case 'el': {
-        const e = make('el', (op.ns === 'svg' ? 'svg:' : '') + op.tag);
+        const e = make(op.id, 'el', (op.ns === 'svg' ? 'svg:' : '') + op.tag);
         for (const [k, v] of op.attrs ?? []) setAttr(e, k, v);
         nodes.set(op.id, e);
+        if (op.adopt) {
+          const parent = op.adopt === 'html' ? root : root.children.find((c) => c.tag === 'html');
+          if (parent) { e.parent = parent; parent.children.push(e); }
+        }
         break;
       }
-      case 'text': { const t = make('text', '#text'); t.data = op.data; nodes.set(op.id, t); break; }
-      case 'comment': { const t = make('comment', '#comment'); t.data = op.data; nodes.set(op.id, t); break; }
+      case 'text': { const t = make(op.id, 'text', '#text'); t.data = op.data; nodes.set(op.id, t); break; }
+      case 'comment': { const t = make(op.id, 'comment', '#comment'); t.data = op.data; nodes.set(op.id, t); break; }
       case 'data': if (n) n.data = op.data; break;
       case 'attr': if (n) setAttr(n, op.name, op.value); break;
       case 'rattr': if (n) { if (op.name === 'style') n.style.clear(); else n.attrs.delete(op.name); } break;
@@ -129,9 +138,21 @@ interface Outcome {
   unknown: string[];
 }
 
+const CLICKABLE = /^(button|a|input|select|label|summary|li|td|th|span|div|svg:rect|svg:circle|svg:path|canvas)$/;
+const MAX_CLICKS = 24;
+
+function clickTargets(n: Node, out: number[] = []): number[] {
+  if (n.kind === 'el' && n.id !== ROOT_ID && (CLICKABLE.test(n.tag) || n.attrs.has('onclick') || n.attrs.has('role') || n.attrs.has('tabindex'))) out.push(n.id);
+  for (const c of n.children) clickTargets(c, out);
+  return out;
+}
+
 async function run(html: string, bundle: string | undefined, timerRounds: number): Promise<Outcome> {
   const unknown: string[] = [];
-  const r: RunResult = await runWidget(html, { bundle, timerRounds, unknownHost: (kind) => { if (!PROTOCOL_HOST_KINDS.has(kind)) unknown.push(kind); } });
+  const first = await runWidget(html, { bundle, timerRounds: 1 });
+  const targets = clickTargets(applyOps(first.renderOps)).slice(0, MAX_CLICKS);
+  const events = targets.flatMap((targetId) => [{ type: 'pointerdown', targetId }, { type: 'pointerup', targetId }, { type: 'click', targetId }]);
+  const r: RunResult = await runWidget(html, { bundle, timerRounds, events, unknownHost: (kind) => { if (!PROTOCOL_HOST_KINDS.has(kind)) unknown.push(kind); } });
   return {
     tree: serialize(applyOps(r.renderOps)),
     diags: r.diags.map((d) => d.kind).sort(),
