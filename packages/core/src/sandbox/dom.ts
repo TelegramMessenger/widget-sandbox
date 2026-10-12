@@ -20,6 +20,60 @@ const lw: any = parseHTML('<!DOCTYPE html><html><head></head><body></body></html
 export const document: any = lw.document;
 export const linkedomWindow: any = lw;
 
+function ownerOf(proto: any, name: string): any {
+  for (let p = proto; p; p = Object.getPrototypeOf(p)) if (Object.prototype.hasOwnProperty.call(p, name)) return p;
+  return null;
+}
+
+// Fast setters for the two writes tickers make every frame. Both keep linkedom's
+// semantics; capture.ts's dirty tracking wraps them like any other setter.
+{
+  const sample = document.createElement('div');
+  const tokens = sample.classList;
+  const classListKey = Object.getOwnPropertySymbols(sample).find((k) => sample[k] === tokens);
+  const addToken = Set.prototype.add;
+  const classProto = ownerOf(sample, 'className');
+  const className = classProto && Object.getOwnPropertyDescriptor(classProto, 'className');
+  if (className?.set && classListKey) {
+    const set = className.set;
+    const SINGLE = /^\S+$/;
+    // One class token on an element that already has a class attribute: set
+    // the attribute and the classList cache directly instead of clear + split + add.
+    Object.defineProperty(classProto, 'className', {
+      ...className,
+      set(this: any, v: any) {
+        const s = String(v);
+        const a = s.length <= 256 && SINGLE.test(s) ? this.getAttributeNode('class') : null;
+        if (!a) return set.call(this, v);
+        const list = this[classListKey];
+        if (list && a.value !== s) {
+          list.clear();
+          addToken.call(list, s);
+        }
+        a.value = s;
+      },
+    });
+  }
+  const textProto = ownerOf(sample, 'textContent');
+  const textContent = textProto && Object.getOwnPropertyDescriptor(textProto, 'textContent');
+  if (textContent?.set) {
+    const set = textContent.set;
+    // Replacing an element's sole text child: one replaceChild instead of
+    // replaceChildren + appendChild (capture.ts then keeps the node id).
+    Object.defineProperty(textProto, 'textContent', {
+      ...textContent,
+      set(this: any, v: any) {
+        const first = this.nodeType === 1 ? this.firstChild : null;
+        if (typeof v === 'string' && v !== '' && first && first.nodeType === 3 && !first.nextSibling) {
+          this.replaceChild(document.createTextNode(v), first);
+          return;
+        }
+        set.call(this, v);
+      },
+    });
+  }
+}
+
 function setAttrs(el: any, attrs: { name: string; value: string; prefix?: string }[]) {
   for (const a of attrs) {
     try {

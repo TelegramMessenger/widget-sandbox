@@ -66,3 +66,34 @@ describe('capture: attributes and wrappers', () => {
     assert.equal(r.probes[0], '2000');
   });
 });
+
+describe('dom: className and textContent setters', () => {
+  it('className keeps classList, the attribute and the host in step on every path', async () => {
+    const r = await runWidget(`<p id="p" class="x y"></p><p id="q"></p><script>
+      var p = document.getElementById('p'), q = document.getElementById('q'), out = [];
+      var cl = p.classList; cl.contains('x');
+      p.className = 'solo'; out.push(p.getAttribute('class'), cl.contains('solo'), cl.contains('x'), cl.length);
+      p.className = 'a b'; out.push(p.getAttribute('class'), cl.contains('b'), cl.length);
+      p.className = 'c'; out.push(p.className, p.classList.value);
+      q.className = 'first'; out.push(q.getAttribute('class'));
+      p.className = ''; out.push(JSON.stringify(p.getAttribute('class')));
+      var res = out.join('|');</script>`, { timerRounds: 0, probes: ['res'] });
+    assert.equal(r.probes[0], 'solo|true|false|1|a b|true|2|c|c|first|""');
+    const ops = r.ops.flat() as any[];
+    const pid = ops.find((o) => o.op === 'el' && o.attrs?.id === 'p').id;
+    const told = ops.filter((o) => o.id === pid && (o.op === 'attr' || o.op === 'el')).map((o) => (o.op === 'el' ? o.attrs.class : o.value));
+    assert.equal(told[told.length - 1], '');
+  });
+
+  it('textContent replaces a sole text child and still handles every other shape', async () => {
+    const r = await runWidget(`<p id="a">old</p><p id="b"><i>x</i>y</p><p id="c">z</p><p id="d"></p><script>
+      var g = function (id) { return document.getElementById(id); }, out = [];
+      var old = g('a').firstChild; g('a').textContent = 'new'; out.push(g('a').innerHTML, old.parentNode === null, g('a').childNodes.length);
+      g('b').textContent = 'flat'; out.push(g('b').innerHTML);
+      g('c').textContent = ''; out.push(g('c').childNodes.length);
+      g('d').textContent = 5; out.push(g('d').textContent);
+      g('a').textContent = null; out.push(g('a').childNodes.length);
+      var res = out.join('|');</script>`, { timerRounds: 0, probes: ['res'] });
+    assert.equal(r.probes[0], 'new|true|1|flat|0|5|0');
+  });
+});
