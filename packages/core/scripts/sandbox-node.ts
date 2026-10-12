@@ -61,10 +61,14 @@ export interface RunOptions {
   cssScope?: 'document' | 'shadow';
   /** Runtime heap cap (default LIMIT_DEFAULTS.memoryLimitBytes), enforced like the worker does: wasm Memory maximum + setMemoryLimit. */
   memoryLimitBytes?: number;
+  /** Sandbox bundle source to run instead of the one built from packages/core/src (scripts/ops-diff.ts). */
+  bundle?: string;
+  /** `__host` kinds the harness does not know, with their argument. */
+  unknownHost?: (kind: string, arg: string) => void;
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
-  cachedBundle ??= await bundleSandbox();
+  const bundle = opts.bundle ?? (cachedBundle ??= await bundleSandbox());
   // Same memory cap as src/host/worker.ts: the emscripten build cannot count its
   // heap, so the wasm Memory's maximum is the limit (see the comment there).
   const memoryLimitBytes = opts.memoryLimitBytes ?? LIMIT_DEFAULTS.memoryLimitBytes;
@@ -116,7 +120,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'bridge': res.bridge.push(JSON.parse(arg)); log('[bridge]', arg); return vm.undefined;
       case 'intl': return vm.newString(String(intl(JSON.parse(arg))));
       case 'random': return vm.newString(JSON.stringify(Array.from({ length: Number(arg) | 0 }, () => (Math.random() * 256) | 0)));
-      default: return vm.undefined;
+      default: opts.unknownHost?.(kind, arg); return vm.undefined;
     }
   });
   vm.setProp(vm.global, '__host', hostFn);
@@ -137,7 +141,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     if (r.error) fail(r.error, name);
     else r.value.dispose();
   };
-  evalCode(cachedBundle, 'sandbox-bundle.js');
+  evalCode(bundle, 'sandbox-bundle.js');
   const dispatch = vm.getProp(vm.global, '__twDispatch');
   if (vm.typeof(dispatch) !== 'function') throw new Error('bundle did not define __twDispatch');
   const tw = (kind: string, arg = ''): string | null => {

@@ -1,0 +1,198 @@
+// Compares what two sandbox bundles render for the same widgets: each widget runs
+// through packages/core/scripts/sandbox-node.ts with bundle A and bundle B (B is
+// the one built from packages/core/src unless --b is given), the validated ops of
+// each run are applied to a small document model, and the resulting trees are
+// compared without node ids (a shim may reuse or renumber ids). Inline style is
+// compared as a property map whether it arrived as a `style` attribute or as
+// `style` ops. Every widget also runs twice on A; a widget whose two A runs
+// differ (random, time) is reported as nondeterministic, not as a difference.
+//
+// Usage: pnpm tsx scripts/ops-diff.ts --a path/to/sandbox-bundle.js [--b other.js]
+//          [--timers N] [--json out.json] corpus/compat corpus/generated/… file.html
+import fs from 'node:fs';
+import path from 'node:path';
+import { runWidget, type RunResult } from '../packages/core/scripts/sandbox-node.ts';
+
+interface Node {
+  kind: 'el' | 'text' | 'comment';
+  tag: string;
+  attrs: Map<string, string>;
+  style: Map<string, string>;
+  data: string;
+  css: string | null;
+  canvas: string[];
+  parent: Node | null;
+  children: Node[];
+}
+
+const ROOT_ID = 1;
+const PROTOCOL_HOST_KINDS = new Set(['listen', 'pd', 'raf', 'stat']);
+
+function parseStyle(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let depth = 0, quote = '', start = 0;
+  const parts: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; continue; }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '(') depth++;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === ';' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+  }
+  parts.push(text.slice(start));
+  for (const part of parts) {
+    const i = part.indexOf(':');
+    if (i < 0) continue;
+    const name = part.slice(0, i).trim().toLowerCase();
+    const value = part.slice(i + 1).trim().replace(/\s+/g, ' ');
+    if (name) out.set(name, value);
+  }
+  return out;
+}
+
+export function applyOps(ops: any[]): Node {
+  const nodes = new Map<number, Node>();
+  const root: Node = { kind: 'el', tag: '#document', attrs: new Map(), style: new Map(), data: '', css: null, canvas: [], parent: null, children: [] };
+  nodes.set(ROOT_ID, root);
+  const make = (kind: Node['kind'], tag: string): Node => ({ kind, tag, attrs: new Map(), style: new Map(), data: '', css: null, canvas: [], parent: null, children: [] });
+  const detach = (n: Node) => {
+    if (!n.parent) return;
+    const list = n.parent.children;
+    const i = list.indexOf(n);
+    if (i >= 0) list.splice(i, 1);
+    n.parent = null;
+  };
+  const setAttr = (n: Node, name: string, value: string) => {
+    if (name === 'style') { n.style = parseStyle(value); return; }
+    n.attrs.set(name, value);
+  };
+  for (const op of ops) {
+    const n = nodes.get(op.id);
+    switch (op.op) {
+      case 'el': {
+        const e = make('el', (op.ns === 'svg' ? 'svg:' : '') + op.tag);
+        for (const [k, v] of op.attrs ?? []) setAttr(e, k, v);
+        nodes.set(op.id, e);
+        break;
+      }
+      case 'text': { const t = make('text', '#text'); t.data = op.data; nodes.set(op.id, t); break; }
+      case 'comment': { const t = make('comment', '#comment'); t.data = op.data; nodes.set(op.id, t); break; }
+      case 'data': if (n) n.data = op.data; break;
+      case 'attr': if (n) setAttr(n, op.name, op.value); break;
+      case 'rattr': if (n) { if (op.name === 'style') n.style.clear(); else n.attrs.delete(op.name); } break;
+      case 'style':
+        if (n) { if (op.value === '') n.style.delete(op.name); else n.style.set(op.name, op.value + (op.important ? ' !important' : '')); }
+        break;
+      case 'css': if (n) n.css = op.text; break;
+      case 'canvas': if (n) for (const c of op.cmds ?? []) n.canvas.push(JSON.stringify(c)); break;
+      case 'ins': {
+        if (!n) break;
+        detach(n);
+        if (op.parent === 0) break;
+        const p = op.parent === ROOT_ID ? root : nodes.get(op.parent);
+        if (!p) break;
+        n.parent = p;
+        const before = op.before == null ? null : nodes.get(op.before);
+        const i = before ? p.children.indexOf(before) : -1;
+        if (i >= 0) p.children.splice(i, 0, n); else p.children.push(n);
+        break;
+      }
+      case 'rm': if (n) { detach(n); nodes.delete(op.id); } break;
+      default: if (n) n.attrs.set(`#${op.op}:${op.name ?? op.method ?? ''}`, JSON.stringify(op.value ?? op.args ?? null)); break;
+    }
+  }
+  return root;
+}
+
+export function serialize(n: Node, indent = ''): string {
+  if (n.kind !== 'el') return `${indent}${n.tag} ${JSON.stringify(n.data)}\n`;
+  const attrs = [...n.attrs].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => ` ${k}=${JSON.stringify(v)}`).join('');
+  const style = n.style.size ? ` {${[...n.style].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${k}:${v}`).join(';')}}` : '';
+  let out = `${indent}<${n.tag}${attrs}${style}>\n`;
+  if (n.css !== null) out += `${indent}  css ${JSON.stringify(n.css)}\n`;
+  if (n.canvas.length) out += `${indent}  canvas ${n.canvas.length} ${hash(n.canvas.join('\n'))}\n`;
+  for (const c of n.children) out += serialize(c, indent + '  ');
+  return out;
+}
+
+function hash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16);
+}
+
+interface Outcome {
+  tree: string;
+  diags: string[];
+  errors: string[];
+  unknown: string[];
+}
+
+async function run(html: string, bundle: string | undefined, timerRounds: number): Promise<Outcome> {
+  const unknown: string[] = [];
+  const r: RunResult = await runWidget(html, { bundle, timerRounds, unknownHost: (kind) => { if (!PROTOCOL_HOST_KINDS.has(kind)) unknown.push(kind); } });
+  return {
+    tree: serialize(applyOps(r.renderOps)),
+    diags: r.diags.map((d) => d.kind).sort(),
+    errors: r.logs.filter((l) => l.level === 'error').map((l) => l.text.split('\n')[0]),
+    unknown: [...new Set(unknown)].sort(),
+  };
+}
+
+function firstDifference(a: string, b: string): string {
+  const la = a.split('\n'), lb = b.split('\n');
+  for (let i = 0; i < Math.max(la.length, lb.length); i++) {
+    if (la[i] !== lb[i]) return `line ${i + 1}:\n    A: ${(la[i] ?? '<end>').slice(0, 300)}\n    B: ${(lb[i] ?? '<end>').slice(0, 300)}`;
+  }
+  return '';
+}
+
+function widgets(args: string[]): string[] {
+  const out: string[] = [];
+  for (const a of args) {
+    const st = fs.statSync(a);
+    if (st.isDirectory()) {
+      for (const f of fs.readdirSync(a).sort()) {
+        const p = path.join(a, f);
+        if (fs.statSync(p).isDirectory()) out.push(...widgets([p]));
+        else if (f.endsWith('.html')) out.push(p);
+      }
+    } else out.push(a);
+  }
+  return out;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+  const argv = process.argv.slice(2);
+  const opt = (name: string) => { const i = argv.indexOf(name); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
+  const aPath = opt('--a');
+  const bPath = opt('--b');
+  const jsonOut = opt('--json');
+  const timerRounds = Number(opt('--timers') ?? 3);
+  if (!aPath || !argv.length) { console.error('usage: tsx scripts/ops-diff.ts --a bundle.js [--b bundle.js] [--timers N] [--json out.json] <widget.html | dir>…'); process.exit(2); }
+  const a = fs.readFileSync(aPath, 'utf8');
+  const b = bPath ? fs.readFileSync(bPath, 'utf8') : undefined;
+  const report: { file: string; status: string; detail?: string }[] = [];
+  for (const file of widgets(argv)) {
+    const html = fs.readFileSync(file, 'utf8');
+    let status = 'same', detail = '';
+    try {
+      const [ra, ra2, rb] = [await run(html, a, timerRounds), await run(html, a, timerRounds), await run(html, b, timerRounds)];
+      if (ra.tree !== ra2.tree) status = 'nondeterministic';
+      else if (ra.tree !== rb.tree) { status = 'tree'; detail = firstDifference(ra.tree, rb.tree); }
+      else if (ra.errors.join('\n') !== rb.errors.join('\n')) { status = 'errors'; detail = `A: ${ra.errors.join(' | ')}\n    B: ${rb.errors.join(' | ')}`; }
+      else if (ra.diags.join() !== rb.diags.join()) { status = 'diags'; detail = `A: ${ra.diags.join(',')}\n    B: ${rb.diags.join(',')}`; }
+      if (ra.unknown.length || rb.unknown.length) detail += `${detail ? '\n    ' : ''}unknown host kinds A: ${ra.unknown.join(',') || '-'} B: ${rb.unknown.join(',') || '-'}`;
+    } catch (e) {
+      status = 'crash';
+      detail = String(e);
+    }
+    report.push({ file, status, detail: detail || undefined });
+    console.log(`${status.padEnd(16)} ${file}${detail ? '\n    ' + detail : ''}`);
+  }
+  const counts = report.reduce<Record<string, number>>((m, r) => ((m[r.status] = (m[r.status] ?? 0) + 1), m), {});
+  console.log('\n' + Object.entries(counts).map(([k, v]) => `${k}: ${v}`).join(', '));
+  if (jsonOut) fs.writeFileSync(jsonOut, JSON.stringify(report, null, 1));
+  process.exit(report.some((r) => r.status !== 'same' && r.status !== 'nondeterministic') ? 1 : 0);
+}
