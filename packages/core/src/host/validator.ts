@@ -739,7 +739,6 @@ export class Validator {
 
   private liveAnims = new Set<number>();
 
-  /** Web Animations records from the sandbox (`anim`): clean copies for the renderer, `remove` records for ones that became invalid. */
   validateAnim(list: unknown): AnimRecord[] {
     if (!Array.isArray(list) || list.length > MAX_ANIM_RECORDS) {
       this.diag('protocol-violation', 'anim batch is not an array or too large');

@@ -307,7 +307,7 @@ public final class TrustedValidator {
     public func validateListen(_ json: String) -> String { str("__v_validateListen", [json]).nilIfEmpty ?? "[]" }
     public func validatePreventDefault(_ json: String) -> String { str("__v_validatePreventDefault", [json]).nilIfEmpty ?? "[]" }
     public func validateAnim(_ json: String) -> String {
-        if json.utf16.count > 4 << 20 { return "[]" }
+        if json.utf8.count > 4 << 20, json.utf16.count > 4 << 20 { return "[]" }
         if let native = thread.sync({ [self] in self.native }) {
             return thread.sync { [self] in
                 guard let value = JSONText.parse(json) else {

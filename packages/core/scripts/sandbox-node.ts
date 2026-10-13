@@ -38,9 +38,7 @@ export interface RunResult {
   canvasWordBatches: number;
   /** Ops batches that arrived as binary records (`binaryOps`). */
   binaryBatches: number;
-  /** Raw `anim` payloads from the shim (Web Animations), in order. */
   anims: unknown[][];
-  /** The same batches after validator.validateAnim. */
   animOps: unknown[][];
 }
 
@@ -121,9 +119,7 @@ export interface RunOptions {
   canvasWords?: boolean;
   /** Advertise `binaryOps` and install `__hostOps`; batches are decoded back into JSON ops before validation. */
   binaryOps?: boolean;
-  /** Advertise `webAnimations`: Element.animate and the Web Animations API run in the shim and send `anim` batches. */
   webAnimations?: boolean;
-  /** Extra frames (with timer rounds) after the timer rounds. */
   frames?: number;
 }
 
