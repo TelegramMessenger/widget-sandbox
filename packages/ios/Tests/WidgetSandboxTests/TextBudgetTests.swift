@@ -109,6 +109,21 @@ final class TextBudgetTests: XCTestCase {
         }
     }
 
+    func testLatinTickerOf400CellsNeverHitsTheChurnLimitOnBothValidatorPaths() {
+        for native in [true, false] {
+            let rig = NativeValidatorDifferentialTests.Rig(native: native, policy: .strict)
+            let cells = 0..<400
+            _ = rig.json("[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null}," + cells.map { "{\"op\":\"text\",\"id\":\(20 + $0),\"data\":\"0.00\"},{\"op\":\"ins\",\"parent\":3,\"id\":\(20 + $0),\"before\":null}" }.joined(separator: ",") + "]")
+            var accepted = 0
+            for frame in 0..<60 {
+                let arrow = frame % 2 == 0 ? "\u{25B2}" : "\u{25BC}"
+                accepted += rig.json("[" + cells.map { "{\"op\":\"data\",\"id\":\(20 + $0),\"data\":\"\(100 + $0 + frame).\(frame % 100) \(arrow) \(frame % 9 - 4).0%\"}" }.joined(separator: ",") + "]").0.count
+            }
+            XCTAssertEqual(accepted, 400 * 60, "native \(native)")
+            XCTAssertFalse(rig.diags.contains { $0.hasPrefix("text-churn") }, "native \(native)")
+        }
+    }
+
     func testTextWorkCountsBreaksAcrossScripts() {
         XCTAssertEqual(NativeValidator.textWork("BTC $60000 \u{25B2}"), 3)
         XCTAssertEqual(NativeValidator.textWork("\u{4E2D}\u{6587}\u{5B57} hello \u{092E}\u{0947}\u{0930}\u{093E} \u{0928}\u{093E}\u{092E}"), 6)

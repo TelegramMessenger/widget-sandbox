@@ -49,6 +49,19 @@ describe('text churn', () => {
     assert.deepEqual(r.diags.filter((d) => d.startsWith('text-churn')), []);
   });
 
+  it('never limits a 400-cell latin ticker updating every frame', () => {
+    const r = rig();
+    const cells = Array.from({ length: 400 }, (_, i) => 20 + i);
+    r.v.processOps(cells.flatMap((id) => [{ op: 'text', id, data: '0.00' }, { op: 'ins', parent: 3, id, before: null }]));
+    let accepted = 0;
+    for (let frame = 0; frame < 300; frame++) {
+      r.advance(1 / 60);
+      accepted += r.v.processOps(cells.map((id, i) => ({ op: 'data', id, data: `${(100 + i + frame / 7).toFixed(2)} ${frame % 2 ? '\u25b2' : '\u25bc'} ${(frame % 9) - 4}.0%` }))).length;
+    }
+    assert.equal(accepted, 400 * 300);
+    assert.deepEqual(r.diags.filter((d) => d.startsWith('text-churn')), []);
+  });
+
   it('rejects a fresh complex text node over the churn budget even when the document budget allows it', () => {
     const r = rig();
     r.v.processOps([{ op: 'text', id: 20, data: cjk(4000) }, { op: 'ins', parent: 3, id: 20, before: null }, { op: 'rm', id: 20 }]);

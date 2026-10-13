@@ -50,6 +50,17 @@ export function textWork(text: string): number {
   return Math.max(count, Math.ceil(text.length / 1024));
 }
 
+const SMALL_TEXT = 256;
+
+export function chargesChurn(text: string): boolean {
+  if (text.length > SMALL_TEXT) return true;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if ((c >= 0x0590 && c < 0x2000) || (c >= 0x2e80 && c <= 0xd7ff) || (c >= 0xf900 && c <= 0xffef)) return true;
+  }
+  return false;
+}
+
 function complexUnits(text: string): number {
   let n = 0;
   for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) >= 0x0590) n++;
@@ -370,7 +381,7 @@ export class Validator {
       this.diag('text-budget', `document complex-script text over ${this.limits.complexTextBudget} units`);
       return false;
     }
-    if (this.limits.textBudget && !this.takeChurn(textWork(data))) return this.overChurn();
+    if (this.limits.textBudget && chargesChurn(data) && !this.takeChurn(textWork(data))) return this.overChurn();
     // Comments are tracked for tree consistency but never rendered.
     const node = this.newNode(id, { kind, data, rendered: kind === 'text', complex });
     if (!node) return false;
@@ -396,7 +407,7 @@ export class Validator {
       this.diag('text-budget', `document complex-script text over ${this.limits.complexTextBudget} units`);
       return false;
     }
-    if (this.limits.textBudget && !this.takeChurn(textWork(data))) return this.overChurn();
+    if (this.limits.textBudget && chargesChurn(data) && !this.takeChurn(textWork(data))) return this.overChurn();
     this.complexText += growth;
     this.totalText += textGrowth;
     node.complex = complex;

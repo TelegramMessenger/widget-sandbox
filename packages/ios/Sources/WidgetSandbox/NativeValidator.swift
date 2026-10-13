@@ -473,6 +473,16 @@ final class NativeValidator {
     private var churnAt: Double?
     var clock: () -> Double = { Date().timeIntervalSince1970 }
 
+    static let smallText = 256
+
+    static func chargesChurn(_ s: String) -> Bool {
+        if s.utf16.count > smallText { return true }
+        for c in s.utf16 {
+            if (c >= 0x0590 && c < 0x2000) || (c >= 0x2e80 && c <= 0xd7ff) || (c >= 0xf900 && c <= 0xffef) { return true }
+        }
+        return false
+    }
+
     static func textWork(_ s: String) -> Int {
         var count = 0
         var run = false
@@ -531,7 +541,7 @@ final class NativeValidator {
         }
         let units = text ? Self.complexUnits(data) : 0
         if units > 0, tables.complexTextBudget > 0, complexText + units > tables.complexTextBudget { return overTextBudget() }
-        if tables.textBudget > 0, !takeChurn(Self.textWork(data)) { return overChurn() }
+        if tables.textBudget > 0, Self.chargesChurn(data), !takeChurn(Self.textWork(data)) { return overChurn() }
         let seq = nextSeq()
         guard let node = newNode(id, { Node(id: id, kind: text ? .text : .comment, rendered: text, data: data, seq: seq) }) else { return false }
         node.complex = units
@@ -551,7 +561,7 @@ final class NativeValidator {
         let units = node.kind == .text ? Self.complexUnits(data) : 0
         let delta = units - node.complex
         if delta > 0, tables.complexTextBudget > 0, complexText + delta > tables.complexTextBudget { return overTextBudget() }
-        if tables.textBudget > 0, !takeChurn(Self.textWork(data)) { return overChurn() }
+        if tables.textBudget > 0, Self.chargesChurn(data), !takeChurn(Self.textWork(data)) { return overChurn() }
         complexText += delta
         totalText += textDelta
         node.complex = units
