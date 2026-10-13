@@ -54,6 +54,7 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const std::st
     c.devicePixelRatio = o.devicePixelRatio;
     c.theme = theme;
     c.policy = o.policy;
+    c.features = o.features;
     return c;
 }
 

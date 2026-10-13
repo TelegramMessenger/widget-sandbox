@@ -136,6 +136,9 @@ void SandboxEngine::boot() {
         viewport.set("dpr", config_.devicePixelRatio);
         config.set("viewport", viewport);
         config.set("theme", config_.theme);
+        Json features = Json::array();
+        for (const std::string& feature : config_.features) features.push(Json(feature));
+        config.set("features", features);
         Json boot = Json::object();
         boot.set("html", html_);
         boot.set("config", config);

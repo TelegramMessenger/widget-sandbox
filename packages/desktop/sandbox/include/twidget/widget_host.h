@@ -46,6 +46,8 @@ struct WidgetHostOptions {
     double devicePixelRatio = 1;
     /// "compat" (default) or "strict": the gesture gate, 64 KB text caps and the complex-script budget.
     std::string policy = "compat";
+    /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
+    std::vector<std::string> features;
 };
 
 struct WidgetDiagnostics {

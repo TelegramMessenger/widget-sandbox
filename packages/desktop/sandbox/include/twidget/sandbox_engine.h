@@ -44,6 +44,8 @@ struct SandboxConfig {
     std::string theme = "light";
     /// "compat" (default) or "strict": strict gates privileged bridge calls on a user gesture.
     std::string policy = "compat";
+    /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
+    std::vector<std::string> features;
 };
 
 struct SandboxStats {
