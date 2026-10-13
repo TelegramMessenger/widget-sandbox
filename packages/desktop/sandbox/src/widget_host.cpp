@@ -323,7 +323,10 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
             engine_.start();
         }
     } else if (type == "event") {
-        if (const Json* ev = msg.find("ev")) engine_.event(ev->dump());
+        if (const Json* ev = msg.find("ev")) {
+            if (int gesture = gestureFor(*ev)) engine_.activationEvent(ev->dump(), gesture);
+            else engine_.event(ev->dump());
+        }
     } else if (type == "result") {
         if (!msg["qid"].isNumber()) return;
         int id = msg["qid"].asInt();
@@ -401,6 +404,30 @@ void WidgetHost::diag(const std::string& kind, const std::string& detail) {
 void WidgetHost::changed() {
     cv_.notify_all();
     if (onChange) onChange(diagnostics());
+}
+
+bool WidgetHost::isUserActivation(const Json& ev) {
+    if (!ev.isObject()) return false;
+    const std::string& type = ev["type"].asString();
+    static const char* types[] = {"click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown"};
+    bool known = false;
+    for (const char* t : types) known = known || type == t;
+    if (!known) return false;
+    if (type == "keydown") return ev["key"].asString() != "Escape" && !ev["repeat"].asBool() && (ev["modifiers"].asInt() & 4) == 0;
+    return true;
+}
+
+int WidgetHost::gestureFor(const Json& ev) {
+    if (!isUserActivation(ev)) return 0;
+    const std::string& type = ev["type"].asString();
+    bool continues = false;
+    if (type == "mousedown") continues = lastActivationType_ == "pointerdown";
+    else if (type == "pointerup" || type == "mouseup" || type == "click") continues = pressOpen_;
+    else if (type == "dblclick") continues = lastActivationType_ == "click";
+    if (!continues) gestureNumber_++;
+    pressOpen_ = type != "click" && type != "dblclick" && type != "keydown";
+    lastActivationType_ = type;
+    return gestureNumber_;
 }
 
 } // namespace twidget

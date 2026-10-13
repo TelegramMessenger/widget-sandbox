@@ -323,15 +323,44 @@ TEST(hidden_timers_are_coalesced_to_one_hertz) {
     CHECK(!r.host.died);
 }
 
+/// `ready` needs no gesture; a privileged call from a timer is refused and reported,
+/// the same call from the handler of a trusted click goes through once.
 TEST(bridge_and_timers) {
-    Run r("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>");
+    Run r("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);"
+          "document.getElementById('b').addEventListener('click', () => { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });</script>");
+    r.host.waitUntil([&] { for (auto& d : r.host.diags) if (d.first == "activation-blocked") return true; return false; }, 3);
+    {
+        auto l = r.host.lock();
+        bool ready = false, sent = false;
+        for (auto& b : r.host.bridge) { if (b.first == "ready") ready = true; if (b.first == "sendMessage") sent = true; }
+        CHECK(ready);
+        CHECK(!sent);
+    }
+    r.engine.event("{\"type\":\"click\",\"targetId\":5}");
+    r.barrier();
+    r.engine.activationEvent("{\"type\":\"click\",\"targetId\":5}", 1);
     r.host.waitUntil([&] { for (auto& b : r.host.bridge) if (b.first == "sendMessage") return true; return false; }, 3);
+    r.barrier();
+    r.engine.activationEvent("{\"type\":\"click\",\"targetId\":5}", 1);
+    r.barrier();
     auto l = r.host.lock();
-    bool ready = false, later = false;
-    for (auto& b : r.host.bridge) { if (b.first == "ready") ready = true; if (b.first == "sendMessage" && b.second.find("later") != std::string::npos) later = true; }
-    CHECK(ready);
-    CHECK(later);
+    std::vector<std::string> sent;
+    for (auto& b : r.host.bridge) if (b.first == "sendMessage") sent.push_back(b.second);
+    CHECK_MSG(sent.size() == 1 && sent[0].find("clicked") != std::string::npos, std::to_string(sent.size()) + " sendMessage calls");
 }
+
+#if defined(TW_HAVE_BLITZ) || defined(TW_HAVE_LITEHTML)
+TEST(user_gestures_are_numbered_per_physical_press) {
+    auto ev = [](const char* json) { return *Json::parse(json); };
+    CHECK(WidgetHost::isUserActivation(ev("{\"type\":\"click\"}")));
+    CHECK(WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\"a\"}")));
+    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\"Escape\"}")));
+    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\"a\",\"repeat\":true}")));
+    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\"c\",\"modifiers\":4}")));
+    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"mousemove\"}")));
+    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"scroll\"}")));
+}
+#endif
 
 TEST(intl_fallback_formats_through_the_host) {
     Run r("<script>console.log((1234.5).toLocaleString() + '|' + new Intl.PluralRules('en').select(1) + '|' + new Intl.NumberFormat('en', {style:'percent'}).format(0.25));</script>");

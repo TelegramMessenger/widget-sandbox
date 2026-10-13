@@ -59,8 +59,13 @@ public:
     /// Set by the interrupt handler when the deadline fired; reset by the caller.
     bool interrupted = false;
 
+    /// Interrupt deadline in `threadCpuTime()` seconds of the thread running JS; +inf disables it.
+    double cpuDeadline = std::numeric_limits<double>::infinity();
+
     /// Monotonic seconds (steady clock), the clock `deadline` is measured on.
     static double now();
+    /// CPU seconds consumed by the calling thread; unaffected by how busy the machine is.
+    static double threadCpuTime();
 
     size_t memoryUsed() const;
 

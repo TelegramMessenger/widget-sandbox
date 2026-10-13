@@ -87,6 +87,7 @@ class WidgetHost(
 
     private val main = Handler(Looper.getMainLooper())
     private val engine: SandboxEngine
+    private val gestures = GestureCounter()
     private val validator: TrustedValidator
     private val renderer: Renderer
     private val options = options
@@ -281,7 +282,10 @@ class WidgetHost(
                 queued.forEach(renderer::send)
                 engine.start()
             }
-            "event" -> msg.opt("ev")?.let { engine.event(it.toString()) }
+            "event" -> (msg.opt("ev") as? JSONObject)?.let { ev ->
+                val gesture = gestures.gestureFor(ev.optString("type"), ev.optString("key").ifEmpty { null }, ev.optBoolean("repeat", false), ev.optInt("modifiers", 0))
+                if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
+            }
             "gesture" -> renderer.gestureDecision(msg.optBoolean("wants", false))
             "result" -> {
                 val id = msg.optInt("qid", -1)

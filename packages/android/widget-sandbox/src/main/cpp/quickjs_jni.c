@@ -25,6 +25,7 @@ typedef struct {
     JNIEnv *env;          // valid only while a native entry point is executing
     jobject self;         // global ref to the owning QuickJSContext
     int64_t deadline_ns;  // CLOCK_BOOTTIME nanoseconds (= SystemClock.elapsedRealtimeNanos)
+    int64_t cpu_deadline_ns;  // CLOCK_THREAD_CPUTIME_ID nanoseconds of the thread running JS
     int interrupted;
 } Ctx;
 
@@ -44,10 +45,16 @@ static int64_t now_ns(void) {
     return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 
+static int64_t thread_cpu_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
 static int interrupt_handler(JSRuntime *rt, void *opaque) {
     (void)rt;
     Ctx *c = (Ctx *)opaque;
-    if (now_ns() > c->deadline_ns) {
+    if (now_ns() > c->deadline_ns || (c->cpu_deadline_ns != INT64_MAX && thread_cpu_ns() > c->cpu_deadline_ns)) {
         c->interrupted = 1;
         return 1;
     }
@@ -169,6 +176,7 @@ static jlong n_create(JNIEnv *env, jobject thiz, jlong memory_limit, jlong max_s
     JS_SetContextOpaque(c->ctx, c);
     c->self = (*env)->NewGlobalRef(env, thiz);
     c->deadline_ns = INT64_MAX;
+    c->cpu_deadline_ns = INT64_MAX;
     // No module loader is installed: `import()` of anything fails inside the sandbox.
     JS_SetInterruptHandler(c->rt, interrupt_handler, c);
     return (jlong)(intptr_t)c;
@@ -278,6 +286,14 @@ static void n_set_deadline(JNIEnv *env, jobject thiz, jlong handle, jlong ns) {
     (void)env; (void)thiz;
     ctx_of(handle)->deadline_ns = ns;
 }
+static void n_set_cpu_deadline(JNIEnv *env, jobject thiz, jlong handle, jlong ns) {
+    (void)env; (void)thiz;
+    ctx_of(handle)->cpu_deadline_ns = ns;
+}
+static jlong n_thread_cpu_nanos(JNIEnv *env, jobject thiz) {
+    (void)env; (void)thiz;
+    return thread_cpu_ns();
+}
 static jlong n_get_deadline(JNIEnv *env, jobject thiz, jlong handle) {
     (void)env; (void)thiz;
     return ctx_of(handle)->deadline_ns;
@@ -352,6 +368,8 @@ static const JNINativeMethod METHODS[] = {
     {"nativeMemoryUsed", "(J)J", (void *)n_memory_used},
     {"nativeSetDeadline", "(JJ)V", (void *)n_set_deadline},
     {"nativeGetDeadline", "(J)J", (void *)n_get_deadline},
+    {"nativeSetCpuDeadline", "(JJ)V", (void *)n_set_cpu_deadline},
+    {"nativeThreadCpuNanos", "()J", (void *)n_thread_cpu_nanos},
     {"nativeInterrupted", "(J)Z", (void *)n_interrupted},
     {"nativeResetInterrupted", "(J)V", (void *)n_reset_interrupted},
     {"nativeNow", "()J", (void *)n_now},

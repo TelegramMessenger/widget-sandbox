@@ -648,7 +648,7 @@ function onEvent(e: Event) {
     if (!moveFrame) {
       moveFrame = requestAnimationFrame(() => {
         moveFrame = 0;
-        for (const m of pendingMoves.values()) post({ type: 'event', ev: m });
+        for (const m of pendingMoves.values()) post({ type: 'event', ev: m, trusted: false });
         pendingMoves.clear();
       });
     }
@@ -656,10 +656,10 @@ function onEvent(e: Event) {
   }
   // Keep ordering: a queued move must not arrive after the up/click that followed it.
   if (pendingMoves.size) {
-    for (const m of pendingMoves.values()) post({ type: 'event', ev: m });
+    for (const m of pendingMoves.values()) post({ type: 'event', ev: m, trusted: false });
     pendingMoves.clear();
   }
-  post({ type: 'event', ev });
+  post({ type: 'event', ev, trusted: e.isTrusted });
 }
 
 // ───────────────────────── size reporting ─────────────────────────

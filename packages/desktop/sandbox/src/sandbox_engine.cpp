@@ -6,6 +6,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -21,6 +22,9 @@
 namespace twidget {
 
 static constexpr double kInf = std::numeric_limits<double>::infinity();
+static constexpr const char* kActivationPrefix = "activation:";
+static constexpr double kWallBackstopFactor = 10.0;
+static constexpr double kWallBackstopMinMs = 5000.0;
 
 double SandboxEngine::nowSeconds() { return QuickJSContext::now(); }
 double SandboxEngine::nowMs() { return QuickJSContext::now() * 1000; }
@@ -95,6 +99,7 @@ void SandboxEngine::boot() {
         double t0 = nowMs();
         // Generous one-off budget for our own bundle; its time is ours, not the widget's.
         js_->deadline = nowSeconds() + std::max(config_.cpuLimitMs, 5000.0) / 1000;
+        js_->cpuDeadline = kInf;
         std::string how = evalBundle(resources_->sandboxBundle, resources_->sandboxBytecode, "sandbox-bundle.js");
         excludeMs_ = nowMs() - t0;
         // Fail closed: a runtime whose shim did not load completely (its network
@@ -135,6 +140,7 @@ void SandboxEngine::boot() {
 // MARK: inputs from the host (all asynchronous)
 
 void SandboxEngine::event(const std::string& json) { enqueue("event", json); }
+void SandboxEngine::activationEvent(const std::string& json, int gesture) { enqueue(kActivationPrefix + std::to_string(gesture), json); }
 void SandboxEngine::frame(double time) { enqueue("frame", Json::number(time)); }
 void SandboxEngine::viewport(double innerWidth, double innerHeight, double dpr) {
     Json v = Json::object();
@@ -188,6 +194,13 @@ void SandboxEngine::enqueue(const std::string& kind, const std::string& arg) {
 /// allows, otherwise defers it (returns false). Events and visibility always run.
 bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
     if (dead_) return true;
+    if (kind.rfind(kActivationPrefix, 0) == 0) {
+        int gesture = std::atoi(kind.c_str() + std::strlen(kActivationPrefix));
+        activeGesture_ = visible_ && gesture > consumedGesture_ ? gesture : 0;
+        bool ran = dispatch("event", arg);
+        activeGesture_ = 0;
+        return ran;
+    }
     double now = nowMs();
     CpuDecision d = budget_.decide(kind, now);
     if (!d.run) {
@@ -321,8 +334,20 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
     if (kind == "pd") { if (delegate_) delegate_->onPreventDefault(*this, arg); return HostReturn::undefined(); }
     if (kind == "bridge") {
         auto pair = Json::parse(arg);
-        if (pair && pair->isArray() && pair->size() == 2 && (*pair)[0].isString() && delegate_)
-            delegate_->onBridge(*this, truncate((*pair)[0].asString(), 64), (*pair)[1].dump());
+        if (!pair || !pair->isArray() || pair->size() != 2 || !pair->arr()[0].isString()) return HostReturn::undefined();
+        std::string name = truncate(pair->arr()[0].asString(), 64);
+        if (name != "ready") {
+            if (!(activeGesture_ > consumedGesture_ && visible_)) {
+                if (blockedBridgeReported_ < 20 && delegate_) {
+                    blockedBridgeReported_++;
+                    delegate_->onDiag(*this, "activation-blocked", name + " ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the " + currentKind_ + " task)");
+                }
+                return HostReturn::undefined();
+            }
+            consumedGesture_ = activeGesture_;
+            activeGesture_ = 0;
+        }
+        if (delegate_) delegate_->onBridge(*this, name, pair->arr()[1].dump());
         return HostReturn::undefined();
     }
     if (kind == "intl") {
@@ -469,9 +494,12 @@ void SandboxEngine::pumpScripts() {
     }
 }
 
+/// The slice is measured in the JS thread's CPU time, so a busy machine does not
+/// kill widgets; wall-clock time is only a backstop for a thread that never runs.
 void SandboxEngine::resetDeadline() {
     js_->interrupted = false;
-    js_->deadline = nowSeconds() + currentSliceMs_ / 1000;
+    js_->cpuDeadline = QuickJSContext::threadCpuTime() + currentSliceMs_ / 1000;
+    js_->deadline = nowSeconds() + std::max(currentSliceMs_ * kWallBackstopFactor, kWallBackstopMinMs) / 1000;
 }
 
 /// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
@@ -480,14 +508,13 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     currentKind_ = kind;
     currentSliceMs_ = sliceMs;
     excludeMs_ = 0;
-    double t0 = nowMs();
-    double q0 = stats_.queryMs;
+    double c0 = QuickJSContext::threadCpuTime();
     resetDeadline();
     body();
     if (!dead_) settle();
     if (!dead_) pumpScripts();
     stats_.tasks++;
-    double cpuMs = (nowMs() - t0) - (stats_.queryMs - q0) - excludeMs_;
+    double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;
     budget_.record(kind, cpuMs, nowMs());
     stats_.cpuWindowMs = budget_.used(nowMs());

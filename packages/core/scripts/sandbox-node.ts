@@ -13,6 +13,7 @@ import variant from '@jitl/quickjs-ng-wasmfile-release-sync';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CpuBudget } from '../src/host/cpu-budget.ts';
+import { UNPRIVILEGED_BRIDGE_METHODS } from '../src/host/user-activation.ts';
 import { Validator } from '../src/host/validator.ts';
 import { LIMIT_DEFAULTS, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
 import { libraryPath, sandboxBuildOptions } from './sandbox-build.ts';
@@ -43,7 +44,7 @@ let cachedBundle: string | null = null;
 
 export interface RunOptions {
   verbose?: boolean;
-  /** Events to inject after load: [{type:'click', targetId: 5}] etc. */
+  /** Events to inject after load: [{type:'click', targetId: 5}] etc. `gesture: n` marks a trusted user gesture (the web host's number), as for user activation. */
   events?: Record<string, unknown>[];
   /** How many rounds of pending timers to fire after load. */
   timerRounds?: number;
@@ -88,6 +89,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const timers = new Map<number, number>();
+  let activeGesture = 0;
+  let consumedGesture = 0;
   const log = (...a: unknown[]) => opts.verbose && console.log(...a);
 
   const hostFn = vm.newFunction('__host', (k: QuickJSHandle, a?: QuickJSHandle) => {
@@ -120,7 +123,21 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'clearTimer': timers.delete(Number(arg)); return vm.undefined;
       case 'log': { const i = arg.indexOf(':'); res.logs.push({ level: arg.slice(0, i), text: arg.slice(i + 1) }); log('[' + arg.slice(0, i) + ']', arg.slice(i + 1)); return vm.undefined; }
       case 'diag': { const i = arg.indexOf(':'); res.diags.push({ kind: arg.slice(0, i), detail: arg.slice(i + 1) }); log('[diag]', arg); return vm.undefined; }
-      case 'bridge': res.bridge.push(JSON.parse(arg)); log('[bridge]', arg); return vm.undefined;
+      case 'bridge': {
+        const call = JSON.parse(arg);
+        const method = String(call?.[0] ?? '');
+        if (!UNPRIVILEGED_BRIDGE_METHODS.has(method)) {
+          if (!(activeGesture > consumedGesture)) {
+            res.diags.push({ kind: 'activation-blocked', detail: `${method} ignored outside a user gesture` });
+            return vm.undefined;
+          }
+          consumedGesture = activeGesture;
+          activeGesture = 0;
+        }
+        res.bridge.push(call);
+        log('[bridge]', arg);
+        return vm.undefined;
+      }
       case 'intl': return vm.newString(String(intl(JSON.parse(arg))));
       case 'random': return vm.newString(JSON.stringify(opts.random ? opts.random(Number(arg) | 0) : Array.from({ length: Number(arg) | 0 }, () => (Math.random() * 256) | 0)));
       default: opts.unknownHost?.(kind, arg); return vm.undefined;
@@ -195,7 +212,17 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
 
   task('boot', () => tw('boot', JSON.stringify({ html, config })));
   task('boot', () => tw('loaded'));
-  for (const ev of opts.events ?? []) task('event', () => tw('event', JSON.stringify(ev)));
+  for (const ev of opts.events ?? []) {
+    const { gesture, ...event } = ev as Record<string, unknown> & { gesture?: number };
+    task('event', () => {
+      activeGesture = typeof gesture === 'number' ? gesture : 0;
+      try {
+        tw('event', JSON.stringify(event));
+      } finally {
+        activeGesture = 0;
+      }
+    });
+  }
   for (let round = 0; round < (opts.timerRounds ?? 2); round++) {
     const due = [...timers.keys()];
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }

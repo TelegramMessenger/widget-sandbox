@@ -58,6 +58,16 @@ class QuickJSContext(memoryLimitBytes: Long, maxStackBytes: Long = DEFAULT_MAX_S
         get() = nativeGetDeadline(handle)
         set(value) = nativeSetDeadline(handle, value)
 
+    /** Interrupt deadline in CPU nanoseconds of the thread running JS (`threadCpuNanos`); Long.MAX_VALUE disables it. */
+    var cpuDeadlineNanos: Long = Long.MAX_VALUE
+        set(value) {
+            field = value
+            nativeSetCpuDeadline(handle, value)
+        }
+
+    /** CPU time consumed by the calling thread; unaffected by how busy the device is. */
+    fun threadCpuNanos(): Long = nativeThreadCpuNanos()
+
     /** Set by the interrupt handler when the deadline fired; reset by the caller. */
     val interrupted: Boolean get() = nativeInterrupted(handle)
     fun resetInterrupted() = nativeResetInterrupted(handle)
@@ -162,6 +172,8 @@ class QuickJSContext(memoryLimitBytes: Long, maxStackBytes: Long = DEFAULT_MAX_S
     private external fun nativeMemoryUsed(handle: Long): Long
     private external fun nativeSetDeadline(handle: Long, nanos: Long)
     private external fun nativeGetDeadline(handle: Long): Long
+    private external fun nativeSetCpuDeadline(handle: Long, nanos: Long)
+    private external fun nativeThreadCpuNanos(): Long
     private external fun nativeInterrupted(handle: Long): Boolean
     private external fun nativeResetInterrupted(handle: Long)
 }

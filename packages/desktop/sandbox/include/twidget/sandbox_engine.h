@@ -101,6 +101,8 @@ public:
 
     // Inputs from the host (all asynchronous).
     void event(const std::string& json);
+    /// A real user input event from the renderer (press, click, key press); every event of one physical gesture carries the same increasing `gesture` number.
+    void activationEvent(const std::string& json, int gesture);
     void frame(double time);
     void viewport(double innerWidth, double innerHeight, double dpr);
     void resize(const std::string& entriesJson);
@@ -174,6 +176,11 @@ private:
     std::map<std::string, int> throttledSinceDiag_;
     std::vector<std::pair<std::string, std::string>> pendingBeforeBoot_;
     std::shared_ptr<JSThread::Scheduled> trailingStats_;
+
+    // User activation: the gesture whose event task is running (0 outside one); one gesture unlocks one privileged bridge call.
+    int activeGesture_ = 0;
+    int consumedGesture_ = 0;
+    int blockedBridgeReported_ = 0;
 };
 
 } // namespace twidget

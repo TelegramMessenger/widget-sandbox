@@ -1,5 +1,11 @@
 #include "twidget/quickjs_context.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <time.h>
+#endif
+
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -47,7 +53,7 @@ struct QuickJSTrampoline {
     static int interrupt(JSRuntime* /*rt*/, void* opaque) {
         auto* self = static_cast<QuickJSContext*>(opaque);
         if (!self) return 0;
-        if (QuickJSContext::now() > self->deadline) {
+        if (QuickJSContext::now() > self->deadline || (self->cpuDeadline != std::numeric_limits<double>::infinity() && QuickJSContext::threadCpuTime() > self->cpuDeadline)) {
             self->interrupted = true;
             return 1;
         }
@@ -58,6 +64,19 @@ struct QuickJSTrampoline {
 double QuickJSContext::now() {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+double QuickJSContext::threadCpuTime() {
+#ifdef _WIN32
+    FILETIME creation, exit, kernel, user;
+    if (!GetThreadTimes(GetCurrentThread(), &creation, &exit, &kernel, &user)) return now();
+    auto ticks = [](const FILETIME& f) { return (uint64_t(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+    return double(ticks(kernel) + ticks(user)) / 1e7;
+#else
+    timespec t{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
+    return double(t.tv_sec) + double(t.tv_nsec) / 1e9;
+#endif
 }
 
 QuickJSContext::QuickJSContext(size_t memoryLimitBytes, size_t maxStackBytes) {

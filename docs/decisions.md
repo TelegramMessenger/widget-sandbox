@@ -519,6 +519,21 @@ information.
   demo and the native tests use a wider quota (1000 ms/s, or 100 ms/s where a
   test wants throttling quickly); the product default stays 300.
 
+### CPU time, not wall-clock time (Oct 2026)
+
+- The slice and the quota count the JS thread's own CPU time
+  (`CLOCK_THREAD_CPUTIME_ID` in Swift, C++ and the Android JNI layer,
+  `GetThreadTimes` on Windows), not wall-clock time. On a loaded machine (a
+  build, a busy chat list, other widgets) wall-clock slices killed widgets that
+  had used a fraction of their budget. Waiting for a sync query no longer needs
+  subtracting: a blocked thread uses no CPU.
+- Wall-clock time stays as a backstop, `max(10 x slice, 5 s)`, for a thread
+  that is starved or stuck outside JS.
+- The web worker and the Node harness keep wall-clock slices: browsers and
+  Node expose no per-thread CPU clock to a worker. A loaded browser can still
+  throttle or kill a widget early there; the quota policy (`cpu-budget.ts` and
+  its twins) is unchanged, only what the native glue feeds it.
+
 ### 256 timers, and an error instead of a hang
 
 - Telegram allows 16 timers; browsers have no limit. D3 transitions and
@@ -599,6 +614,33 @@ information.
   with the owner's call. Snapshot-and-drop after N minutes hidden
   (`native-port-notes.md`, Lifecycle) is still open; the hidden state it needs
   now exists.
+
+## User activation for privileged bridge calls (Oct 2026)
+
+- `openLink`, `sendMessage` and any future privileged bridge method act for the
+  user, so a widget may only call them from the handler of a real gesture: one
+  physical press (`pointerdown` … `click`/`dblclick`) or one key press (not
+  Escape, not a repeat, not a Command shortcut) on the visible widget unlocks
+  one call. Timers, frames, promise jobs after the task, scripted
+  `click()`/`dispatchEvent` and hidden widgets get an `activation-blocked`
+  diag instead. `ready` stays free.
+- Native glue (Swift, Kotlin, C++): the host numbers gestures from renderer
+  events and hands the number to the engine with the event; the engine opens
+  the gesture for that event's task only and consumes it with the first
+  privileged call. The renderer is trusted code and the only source of events.
+- Web: the worker shares a thread with nothing trusted, but it is a separate
+  realm whose glue we would rather not have to trust with this decision, so
+  the main-thread host decides. The renderer marks an event `trusted` only
+  when the DOM event's `isTrusted` is true; the host numbers gestures from
+  trusted events only, sends the number with the event, and accepts a
+  privileged `bridge` message only when it carries a gesture the host issued,
+  has not consumed and issued within 5 s. A worker that lies can at most spend
+  a real gesture once, which is what the gesture allowed anyway.
+- One policy in four copies: `packages/core/src/host/user-activation.ts`,
+  `UserActivation.kt`, `WidgetHost.gesture(for:)` + `SandboxEngine` in Swift,
+  `WidgetHost::gestureFor` + `SandboxEngine` in C++, each with its tests
+  (`user-activation.test.ts`, `UserActivationTest.kt`, `UserActivationTests`,
+  `bridge_and_timers`); attack widgets `corpus/attacks/activation-*.html`.
 
 ## Desktop C++ core (`packages/desktop/`, Oct 2026)
 

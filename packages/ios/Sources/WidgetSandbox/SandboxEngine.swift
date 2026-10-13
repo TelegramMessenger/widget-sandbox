@@ -215,6 +215,7 @@ public final class SandboxEngine {
         js.deadline = ProcessInfo.processInfo.systemUptime + max(config.cpuLimitMs, 5000) / 1000
         let how = evalBundle(resources.sandboxBundle, bytecode: resources.sandboxBytecode, filename: "sandbox-bundle.js")
         js.deadline = .infinity
+        js.cpuDeadline = .infinity
         // Fail closed: a runtime whose shim did not load completely (its network
         // stubs and DOM capture may be missing) never runs widget code.
         if how == "failed" {
@@ -569,10 +570,16 @@ public final class SandboxEngine {
         }
     }
 
+    /// The slice is measured in the JS thread's CPU time, so a busy machine does not
+    /// kill widgets; wall-clock time is only a backstop for a thread that never runs.
     private func resetDeadline() {
         js.interrupted = false
-        js.deadline = ProcessInfo.processInfo.systemUptime + currentSliceMs / 1000
+        js.cpuDeadline = QuickJSContext.threadCPUTime() + currentSliceMs / 1000
+        js.deadline = ProcessInfo.processInfo.systemUptime + max(currentSliceMs * Self.wallBackstopFactor, Self.wallBackstopMinMs) / 1000
     }
+
+    static let wallBackstopFactor = 10.0
+    static let wallBackstopMinMs = 5000.0
 
     /// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
     private func task(_ kind: String, sliceMs: Double, _ body: () -> Void) {
@@ -580,14 +587,13 @@ public final class SandboxEngine {
         currentKind = kind
         currentSliceMs = sliceMs
         excludeMs = 0
-        let t0 = CACurrentMediaTime()
-        let q0 = stats.queryMs
+        let c0 = QuickJSContext.threadCPUTime()
         resetDeadline()
         body()
         if !dead { settle() }
         if !dead { pumpScripts() }
         stats.tasks += 1
-        let cpuMs = (CACurrentMediaTime() - t0) * 1000 - (stats.queryMs - q0) - excludeMs
+        let cpuMs = (QuickJSContext.threadCPUTime() - c0) * 1000 - excludeMs
         stats.jsMs += cpuMs
         budget.record(kind, cpuMs: cpuMs, now: Self.nowMs())
         stats.cpuWindowMs = budget.used(Self.nowMs())

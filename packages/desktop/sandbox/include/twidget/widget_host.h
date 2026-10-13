@@ -131,7 +131,15 @@ public:
     void onStats(SandboxEngine&, const SandboxStats& stats) override;
     void onDied(SandboxEngine&, const std::string& reason) override;
 
+    /// Renderer events that count as a user gesture: clicks and key presses (not Escape, not a repeat, not a Command shortcut).
+    static bool isUserActivation(const Json& ev);
+
 private:
+    /// One physical press (pointerdown, mousedown, pointerup, mouseup, click, dblclick) or one key press is one gesture; 0 for other events.
+    int gestureFor(const Json& ev);
+    int gestureNumber_ = 0;
+    bool pressOpen_ = false;
+    std::string lastActivationType_;
     struct PendingQuery {
         int id = 0;
         bool done = false;

@@ -121,7 +121,7 @@ export type HostToRenderer =
 
 export type RendererToHost =
   | { type: 'ready' }
-  | { type: 'event'; ev: WidgetEvent }
+  | { type: 'event'; ev: WidgetEvent; trusted?: boolean }
   | { type: 'result'; qid: number; result: unknown; binary?: ArrayBuffer; binaryBase64?: string }
   | { type: 'size'; width: number; height: number; innerWidth: number; innerHeight: number; dpr: number }
   | { type: 'resize'; entries: { id: NodeId; width: number; height: number }[] }
@@ -185,7 +185,7 @@ export type HostToWorker =
   | { type: 'warm'; sab: SharedArrayBuffer; config: SandboxConfig; sandboxBundle: string }
   /** Pool: load the widget into a warmed worker (`config` is the real one). */
   | { type: 'start'; html: string; config: SandboxConfig }
-  | { type: 'event'; ev: WidgetEvent }
+  | { type: 'event'; ev: WidgetEvent; gesture?: number }
   | { type: 'frame'; time: number }
   | { type: 'viewport'; viewport: SandboxConfig['viewport'] }
   | { type: 'resize'; entries: { id: NodeId; width: number; height: number }[] }
@@ -217,7 +217,7 @@ export type WorkerToHost =
   | { type: 'raf' }
   | { type: 'log'; level: string; text: string }
   | { type: 'diag'; kind: string; detail: string }
-  | { type: 'bridge'; method: string; args: unknown }
+  | { type: 'bridge'; method: string; args: unknown; gesture?: number }
   // Messages produced by the trusted worker glue:
   /** The sandbox bundle is evaluated; a `start` can follow at no boot cost (pool). */
   | { type: 'warmed'; bootMs: number }

@@ -49,6 +49,10 @@ data class SandboxStats(
     var cpuWindowMs: Double = 0.0,
 )
 
+private const val ACTIVATION_PREFIX = "activation:"
+private const val WALL_BACKSTOP_FACTOR = 10.0
+private const val WALL_BACKSTOP_MIN_MS = 5000.0
+
 class SandboxEngine(
     private val html: String,
     private val config: SandboxConfig,
@@ -148,6 +152,7 @@ class SandboxEngine(
             val t0 = nowNs()
             // Generous one-off budget for our own bundle; its time is ours, not the widget's.
             ctx.deadlineNanos = nowNs() + (maxOf(config.cpuLimitMs, 5000.0) * 1e6).toLong()
+            ctx.cpuDeadlineNanos = Long.MAX_VALUE
             val how = evalBundle(resources.sandboxBundle, resources.sandboxBytecode, "sandbox-bundle.js")
             excludeMs = msSince(t0)
             // Fail closed: a runtime whose shim did not load completely (its network
@@ -186,6 +191,12 @@ class SandboxEngine(
     // MARK: inputs from the host (all asynchronous)
 
     fun event(json: String) = enqueue("event", json)
+
+    /** A real user input event from the renderer (press, click, key press); every event of one physical gesture carries the same increasing `gesture` number. */
+    fun activationEvent(json: String, gesture: Int) = enqueue(ACTIVATION_PREFIX + gesture, json)
+
+    private val activation = ActivationGate()
+    private var blockedBridgeReported = 0
     fun frame(time: Double) = enqueue("frame", time.toString())
     fun viewport(innerWidth: Double, innerHeight: Double, dpr: Double) =
         enqueue("viewport", JSONObject().put("innerWidth", innerWidth).put("innerHeight", innerHeight).put("dpr", dpr).toString())
@@ -223,6 +234,14 @@ class SandboxEngine(
     /** Runs one task for an input (event, timer, frame, …) if the CPU quota allows, otherwise defers it (returns false). Events and visibility always run. */
     private fun dispatch(kind: String, arg: String): Boolean {
         if (dead) return true
+        if (kind.startsWith(ACTIVATION_PREFIX)) {
+            activation.begin(kind.removePrefix(ACTIVATION_PREFIX).toIntOrNull() ?: 0, visible)
+            try {
+                return dispatch("event", arg)
+            } finally {
+                activation.end()
+            }
+        }
         val now = nowMs()
         when (val d = budget.decide(kind, now)) {
             is CpuDecision.Defer -> {
@@ -341,7 +360,15 @@ class SandboxEngine(
                 if (pair != null && pair.length() == 2 && pair.opt(0) is String) {
                     val args = pair.opt(1)
                     val argsJson = if (args == null || args == JSONObject.NULL) "null" else JSONObject.wrap(args)?.toString() ?: "null"
-                    delegate?.onBridge(this, pair.getString(0).take(64), argsJson)
+                    val name = pair.getString(0).take(64)
+                    if (name !in UserActivation.UNPRIVILEGED_BRIDGE_METHODS && !activation.consume(visible)) {
+                        if (blockedBridgeReported < 20) {
+                            blockedBridgeReported += 1
+                            delegate?.onDiag(this, "activation-blocked", "$name ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the $currentKind task)")
+                        }
+                        return HostReturn.Undefined
+                    }
+                    delegate?.onBridge(this, name, argsJson)
                 }
             }
             "intl" -> return HostReturn.Str(IntlBridge.format(arg))
@@ -490,10 +517,15 @@ class SandboxEngine(
         }
     }
 
+    /**
+     * The slice is measured in the JS thread's CPU time, so a busy device does not
+     * kill widgets; wall-clock time is only a backstop for a thread that never runs.
+     */
     private fun resetDeadline() {
         val ctx = js ?: return
         ctx.resetInterrupted()
-        ctx.deadlineNanos = nowNs() + (currentSliceMs * 1e6).toLong()
+        ctx.cpuDeadlineNanos = ctx.threadCpuNanos() + (currentSliceMs * 1e6).toLong()
+        ctx.deadlineNanos = nowNs() + (maxOf(currentSliceMs * WALL_BACKSTOP_FACTOR, WALL_BACKSTOP_MIN_MS) * 1e6).toLong()
     }
 
     /** One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota. */
@@ -502,14 +534,13 @@ class SandboxEngine(
         currentKind = kind
         currentSliceMs = sliceMs
         excludeMs = 0.0
-        val t0 = nowNs()
-        val q0 = stats.queryMs
+        val c0 = js?.threadCpuNanos() ?: 0L
         resetDeadline()
         body()
         if (!dead) settle()
         if (!dead) pumpScripts()
         stats.tasks += 1
-        val cpuMs = msSince(t0) - (stats.queryMs - q0) - excludeMs
+        val cpuMs = ((js?.threadCpuNanos() ?: c0) - c0) / 1e6 - excludeMs
         stats.jsMs += cpuMs
         budget.record(kind, cpuMs, nowMs())
         stats.cpuWindowMs = budget.used(nowMs())

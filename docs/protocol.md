@@ -225,9 +225,13 @@ unlocks one call. A gesture is one physical press (`pointerdown`, `mousedown`,
 the renderer; the host numbers gestures and hands them to the engine with the
 event. Calls from timers, frames, promises after the task, scripted
 `click()`/`dispatchEvent` or a hidden widget are dropped with an
-`activation-blocked` diag (at most 20). Swift glue only so far
-(`SandboxEngine.activationEvent`, `WidgetHost`); the worker, Node harness,
-Kotlin and C++ copies still forward every bridge call.
+`activation-blocked` diag (at most 20). On the web the main-thread host
+decides: the renderer's `event` message carries `trusted` (the DOM event's
+`isTrusted`), the host's `event` to the worker carries `gesture: n` for
+trusted gestures, the worker tags `bridge` messages made in that task with
+`gesture`, and the host accepts each issued gesture once, within 5 s. Native
+glue gates in the engine (`activationEvent(json, gesture)`). See decisions.md,
+"User activation".
 
 ### `config` (SandboxConfig, same fields on iOS and Android)
 

@@ -10,6 +10,7 @@
 
 import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
+import { GestureCounter, HostActivationGate, UNPRIVILEGED_BRIDGE_METHODS } from './user-activation';
 import type { Renderer, RendererFactory } from './renderer';
 import type { PooledWorker, WorkerPool } from './worker-pool';
 import { Validator } from './validator';
@@ -68,6 +69,9 @@ export class WidgetHost {
   private viewport: SandboxConfig['viewport'] | undefined;
   private theme: 'light' | 'dark';
   private visible: boolean;
+  private gestures = new GestureCounter();
+  private activation = new HostActivationGate();
+  private blockedBridgeReported = 0;
 
   constructor(container: HTMLElement, html: string, private opts: WidgetHostOptions) {
     const diag = (kind: string, detail: string) => opts.onDiag?.(kind, detail);
@@ -209,9 +213,18 @@ export class WidgetHost {
       case 'diag':
         this.opts.onDiag?.(String(msg.kind), String(msg.detail));
         break;
-      case 'bridge':
-        this.opts.onBridge?.(String(msg.method), Array.isArray(msg.args) ? msg.args : []);
+      case 'bridge': {
+        const method = String(msg.method);
+        if (!UNPRIVILEGED_BRIDGE_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
+          if (this.blockedBridgeReported < 20) {
+            this.blockedBridgeReported++;
+            this.opts.onDiag?.('activation-blocked', `${method.slice(0, 64)} ignored: it needs a user click or key press on the visible widget and runs in that event's handler`);
+          }
+          break;
+        }
+        this.opts.onBridge?.(method, Array.isArray(msg.args) ? msg.args : []);
         break;
+      }
       case 'warmed':
         break;
       case 'loaded':
@@ -248,9 +261,12 @@ export class WidgetHost {
 
   private onRenderer(msg: RendererToHost) {
     switch (msg.type) {
-      case 'event':
-        this.toWorker({ type: 'event', ev: msg.ev });
+      case 'event': {
+        const gesture = msg.trusted === true ? this.gestures.gestureFor(msg.ev) : 0;
+        if (gesture) this.activation.issue(gesture, performance.now());
+        this.toWorker(gesture ? { type: 'event', ev: msg.ev, gesture } : { type: 'event', ev: msg.ev });
         break;
+      }
       case 'result':
         if (msg.qid === this.pendingQuery) this.answerQuery(msg.result, msg.binary);
         break;

@@ -43,6 +43,15 @@ public final class QuickJSContext {
 
     /// Interrupt deadline in `ProcessInfo.systemUptime` seconds; `.infinity` disables it.
     public var deadline: TimeInterval = .infinity
+    /// Interrupt deadline in CPU seconds of the thread running JS (`threadCPUTime`); `.infinity` disables it.
+    public var cpuDeadline: TimeInterval = .infinity
+
+    /// CPU time consumed by the calling thread, in seconds; unaffected by how busy the machine is.
+    public static func threadCPUTime() -> TimeInterval {
+        var t = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t)
+        return TimeInterval(t.tv_sec) + TimeInterval(t.tv_nsec) / 1e9
+    }
     /// Set by the interrupt handler when the deadline fired; reset by the caller.
     public internal(set) var interrupted = false
 
@@ -63,7 +72,7 @@ public final class QuickJSContext {
         JS_SetInterruptHandler(runtime, { _, opaque in
             guard let opaque else { return 0 }
             let ctx = Unmanaged<QuickJSContext>.fromOpaque(opaque).takeUnretainedValue()
-            if ProcessInfo.processInfo.systemUptime > ctx.deadline {
+            if ProcessInfo.processInfo.systemUptime > ctx.deadline || (ctx.cpuDeadline != .infinity && QuickJSContext.threadCPUTime() > ctx.cpuDeadline) {
                 ctx.interrupted = true
                 return 1
             }

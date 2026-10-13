@@ -234,7 +234,7 @@ function hostCall(kind: string, arg: string): string | number | undefined {
     case 'bridge':
       try {
         const [method, args] = JSON.parse(arg);
-        post({ type: 'bridge', method: String(method).slice(0, 64), args });
+        post(activeGesture ? { type: 'bridge', method: String(method).slice(0, 64), args, gesture: activeGesture } : { type: 'bridge', method: String(method).slice(0, 64), args });
       } catch {}
       return;
     case 'intl':
@@ -553,11 +553,21 @@ function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
 }
 
 let ready = false;
+let activeGesture = 0;
 
 function handle(msg: HostToWorker) {
   if (dead) return;
   switch (msg.type) {
-    case 'event': dispatch('event', msg.ev); return;
+    case 'event':
+      // The host's gesture number (trusted input only) rides along with bridge
+      // calls made in this event's task; the host decides whether to honour them.
+      activeGesture = typeof msg.gesture === 'number' ? msg.gesture : 0;
+      try {
+        dispatch('event', msg.ev);
+      } finally {
+        activeGesture = 0;
+      }
+      return;
     case 'frame':
       // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
       if (!visible) { frameWanted = true; return; }
