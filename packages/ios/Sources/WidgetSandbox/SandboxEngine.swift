@@ -193,7 +193,7 @@ public final class SandboxEngine {
         }
     }
 
-    static let hostGlobals = ["__host", "__hostBinary", "__hostCanvas", "__twDispatch"]
+    static let hostGlobals = ["__host", "__hostBinary", "__hostCanvas", "__hostOps", "__twDispatch"]
     static let hideHostGlobals = "(function(g){" + hostGlobals.map { "if(!delete g.\($0))throw new Error('\($0)');" }.joined() + "})(globalThis);"
 
     /// The optional host functions this engine's runtime was built with (fixed at init).

@@ -10,6 +10,9 @@ const hostFn = __host;
 const hostBin = __hostBinary;
 /** Optional binary channel for canvas command words (docs/protocol.md, "Canvas words"); only when the glue installs it. */
 export const hostCanvas = typeof __hostCanvas === 'function' ? __hostCanvas : null;
+declare const __hostOps: ((words: Int32Array, strings: string) => void) | undefined;
+/** Optional binary channel for DOM ops (docs/protocol.md, "Binary DOM ops"); only when the glue installs it. */
+export const hostOps = typeof __hostOps === 'function' ? __hostOps : null;
 
 let stagedCanvas: { words: Float64Array; strings: string }[] = [];
 

@@ -24,7 +24,7 @@ namespace twidget {
 static constexpr double kInf = std::numeric_limits<double>::infinity();
 static constexpr const char* kActivationPrefix = "activation:";
 static constexpr const char* kHideHostGlobals =
-    "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
+    "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
 static constexpr double kWallBackstopFactor = 10.0;
 static constexpr double kWallBackstopMinMs = 5000.0;
 

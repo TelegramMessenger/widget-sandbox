@@ -13,7 +13,8 @@
 
 import { DOCUMENT_ID } from '../shared/protocol';
 import { document, SVG_NS } from './dom';
-import { counters, host, invalidateLayout, sendStagedCanvas } from './host';
+import { OpWriter } from './binary-ops';
+import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './host';
 import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
 
 export const ID = Symbol('tw.id');
@@ -29,7 +30,12 @@ let nextId = DOCUMENT_ID + 1;
 const byId = new Map<number, any>();
 const mirror = new Map<number, Mirror>();
 const dirty = new Set<any>();
-let ops: any[] = [];
+let ops: { push(op: any): void; readonly length: number } = [];
+
+/** Switch the op stream to binary records (`binaryOps` feature); a no-op unless the glue installed `__hostOps`. */
+export function enableBinaryOps(on: boolean) {
+  if (on && hostOps && Array.isArray(ops) && !ops.length) ops = new OpWriter(hostOps);
+}
 /** Ops that must follow the DOM ops of the same flush (method calls, property sets on new nodes). */
 let postOps: any[] = [];
 
@@ -477,6 +483,12 @@ export function flush(full = false): void {
 }
 
 function send() {
+  if (ops instanceof OpWriter) {
+    invalidateLayout();
+    sendStagedCanvas();
+    ops.flush();
+    return;
+  }
   const batch = ops;
   ops = [];
   invalidateLayout();

@@ -339,6 +339,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
     const { html, config } = JSON.parse(arg);
     globals.configureLimits({ maxTimers: Number(config.maxTimers) });
     enableCanvasWords(Array.isArray(config.features) && config.features.includes('canvasWords'));
+    capture.enableBinaryOps(Array.isArray(config.features) && config.features.includes('binaryOps'));
     globals.setHidden(config.visible === false);
     globals.setTheme(config.theme, false);
     globals.setViewport(config.viewport);

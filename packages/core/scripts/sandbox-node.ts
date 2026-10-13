@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CpuBudget } from '../src/host/cpu-budget.ts';
 import { UNPRIVILEGED_BRIDGE_METHODS } from '../src/host/user-activation.ts';
+import { decodeBinaryOps } from '../src/sandbox/binary-ops.ts';
 import { Validator } from '../src/host/validator.ts';
 import { LIMIT_DEFAULTS, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
 import { libraryPath, sandboxBuildOptions } from './sandbox-build.ts';
@@ -35,6 +36,8 @@ export interface RunResult {
   wasmBytes: number;
   /** Canvas ops that arrived as word payloads (`canvasWords`). */
   canvasWordBatches: number;
+  /** Ops batches that arrived as binary records (`binaryOps`). */
+  binaryBatches: number;
 }
 
 /** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */
@@ -108,6 +111,8 @@ export interface RunOptions {
   random?: (count: number) => number[];
   /** Advertise `canvasWords` and install `__hostCanvas`; payloads are decoded back into JSON commands before validation. */
   canvasWords?: boolean;
+  /** Advertise `binaryOps` and install `__hostOps`; batches are decoded back into JSON ops before validation. */
+  binaryOps?: boolean;
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
@@ -123,8 +128,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0 };
-  const config = { ...LIMIT_DEFAULTS, features: opts.canvasWords ? ['canvasWords'] : [], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0 };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const timers = new Map<number, number>();
@@ -137,13 +142,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     const arg = a ? vm.getString(a) : '';
     switch (kind) {
       case 'ops': {
-        const ops = JSON.parse(arg);
-        for (const op of ops) if (op && op.op === 'canvas' && typeof op.bin === 'number') { op.cmds = canvasPayloads[op.bin] ?? []; delete op.bin; res.canvasWordBatches++; }
-        canvasPayloads.length = 0;
-        res.ops.push(ops);
-        const out = validator.processOps(ops);
-        res.renderOps.push(...out);
-        log(`ops (${ops.length}) →`, JSON.stringify(out).slice(0, 2000));
+        acceptOps(JSON.parse(arg));
         return vm.undefined;
       }
       case 'query': {
@@ -187,6 +186,45 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   vm.setProp(vm.global, '__host', hostFn);
   hostFn.dispose();
   const canvasPayloads: any[][][] = [];
+  // vm.getString stops at a NUL; strings handed over by length go through encodeURIComponent instead.
+  const encoder = vm.unwrapResult(vm.evalCode('(s) => encodeURIComponent(s)', 'harness-encode.js'));
+  const fullString = (h: QuickJSHandle): string => {
+    const r = vm.callFunction(encoder, vm.undefined, h);
+    if (r.error) { r.error.dispose(); return vm.getString(h); }
+    const text = decodeURIComponent(vm.getString(r.value));
+    r.value.dispose();
+    return text;
+  };
+  const acceptOps = (ops: any[]) => {
+    for (const op of ops) if (op && op.op === 'canvas' && typeof op.bin === 'number') { op.cmds = canvasPayloads[op.bin] ?? []; delete op.bin; res.canvasWordBatches++; }
+    canvasPayloads.length = 0;
+    res.ops.push(ops);
+    const out = validator.processOps(ops);
+    res.renderOps.push(...out);
+    log(`ops (${ops.length}) →`, JSON.stringify(out).slice(0, 2000));
+  };
+  if (opts.binaryOps) {
+    const internTable: string[] = [];
+    const opsFn = vm.newFunction('__hostOps', (w: QuickJSHandle, s: QuickJSHandle) => {
+      const num = (name: string) => { const h = vm.getProp(w, name); const v = vm.getNumber(h); h.dispose(); return v; };
+      const bufferHandle = vm.getProp(w, 'buffer');
+      const bytes = vm.getArrayBuffer(bufferHandle);
+      const copy = bytes.value.slice();
+      bytes.dispose();
+      bufferHandle.dispose();
+      const start = num('byteOffset') / 4;
+      const words = new Int32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4).subarray(start, start + num('length'));
+      try {
+        acceptOps(decodeBinaryOps(words, fullString(s), internTable));
+        res.binaryBatches++;
+      } catch (e) {
+        res.diags.push({ kind: 'protocol-violation', detail: 'malformed binary ops batch (' + (e as Error).message + ')' });
+      }
+      return vm.undefined;
+    });
+    vm.setProp(vm.global, '__hostOps', opsFn);
+    opsFn.dispose();
+  }
   if (opts.canvasWords) {
     const canvasFn = vm.newFunction('__hostCanvas', (k: QuickJSHandle, w: QuickJSHandle, s: QuickJSHandle) => {
       const key = vm.getNumber(k);
@@ -198,7 +236,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       bufferHandle.dispose();
       const start = num('byteOffset') / 8;
       const words = Array.from(new Float64Array(copy.buffer, copy.byteOffset, copy.byteLength / 8).subarray(start, start + num('length')));
-      canvasPayloads[key] = decodeCanvasWords(words, vm.getString(s));
+      canvasPayloads[key] = decodeCanvasWords(words, fullString(s));
       return vm.undefined;
     });
     vm.setProp(vm.global, '__hostCanvas', canvasFn);
@@ -223,6 +261,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const bundleResult = vm.evalCode(bundle, 'sandbox-bundle.js', { type: 'global' });
   if (bundleResult.error) {
     fail(bundleResult.error, 'sandbox-bundle.js');
+    encoder.dispose();
     vm.dispose();
     rt.dispose();
     throw new Error('sandbox bundle failed to load');
@@ -230,7 +269,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   bundleResult.value.dispose();
   const dispatch = vm.getProp(vm.global, '__twDispatch');
   if (vm.typeof(dispatch) !== 'function') throw new Error('bundle did not define __twDispatch');
-  const hide = vm.evalCode("(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);", 'hide-host.js');
+  const hide = vm.evalCode("(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);", 'hide-host.js');
   if (hide.error) {
     fail(hide.error, 'hide-host.js');
     throw new Error('sandbox bundle failed to load');
@@ -306,6 +345,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   for (const code of opts.probes ?? []) probe(code);
   res.wasmBytes = wasmMemory.buffer.byteLength;
   dispatch.dispose();
+  encoder.dispose();
   vm.dispose();
   rt.dispose();
   return res;

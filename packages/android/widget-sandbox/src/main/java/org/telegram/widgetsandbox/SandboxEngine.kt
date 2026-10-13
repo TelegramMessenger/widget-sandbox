@@ -53,7 +53,7 @@ private const val ACTIVATION_PREFIX = "activation:"
 
 /** Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets. */
 internal fun coarseNowMs(ms: Double): Double = kotlin.math.floor(ms / 0.1) * 0.1
-private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
+private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
 private const val WALL_BACKSTOP_FACTOR = 10.0
 private const val WALL_BACKSTOP_MIN_MS = 5000.0
 

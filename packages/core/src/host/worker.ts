@@ -555,7 +555,7 @@ function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
   for (const m of queue.splice(0)) handle(m);
 }
 
-const HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
+const HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
 /** Widget clocks tick in 100 µs steps (a worker's own performance.now() can be finer in a cross-origin-isolated page), so they cannot time cache or pool effects of other widgets. */
 const coarseNowMs = (ms: number) => Math.floor(ms / 0.1) * 0.1;
 let ready = false;
