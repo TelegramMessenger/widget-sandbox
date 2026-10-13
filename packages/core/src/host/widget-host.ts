@@ -8,6 +8,7 @@
 // Nothing from the worker is forwarded to the renderer without passing through
 // the Validator.
 
+import { finiteNumber, isTypedMessage } from './message-guards';
 import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate, UNPRIVILEGED_BRIDGE_METHODS } from './user-activation';
@@ -83,7 +84,7 @@ export class WidgetHost {
     this.element = this.renderer.element;
     this.validator = new Validator(diag, { colorScheme: opts.theme, scope: this.renderer.cssScope ?? 'document' });
     this.validator.setPolicy(opts.policy === 'strict' ? 'strict' : 'compat');
-    this.renderer.onMessage = (msg) => this.onRenderer(msg);
+    this.renderer.onMessage = (msg) => { if (isTypedMessage(msg)) this.onRenderer(msg as RendererToHost); };
     this.renderer.onDiag = diag;
     this.renderer.load();
 
@@ -115,7 +116,7 @@ export class WidgetHost {
     }
     this.header = new Int32Array(this.sab, 0, SAB_HEADER / 4);
     this.payload = new Uint8Array(this.sab, SAB_HEADER);
-    this.worker.onmessage = (e) => this.onWorker(e.data as WorkerToHost);
+    this.worker.onmessage = (e) => { if (isTypedMessage(e.data)) this.onWorker(e.data as WorkerToHost); };
     this.worker.onerror = (e) => this.die('worker error: ' + e.message);
     // What the pooled worker said while idle (the shim's document skeleton) comes first, in order.
     if (pooled) for (const m of pooled.pending.splice(0)) this.onWorker(m);
@@ -206,7 +207,8 @@ export class WidgetHost {
         break;
       case 'anim': {
         const anims = this.validator.validateAnim(msg.anims);
-        if (anims.length) this.toRenderer({ type: 'anim', now: msg.now, anims });
+        const now = finiteNumber(msg.now);
+        if (anims.length && now !== undefined) this.toRenderer({ type: 'anim', now, anims });
         break;
       }
       case 'raf':
@@ -239,6 +241,7 @@ export class WidgetHost {
         this.opts.onLoaded?.();
         break;
       case 'stats':
+        if (typeof msg.stats !== 'object' || msg.stats === null) break;
         this.opts.onStats?.({ ...msg.stats, nodes: this.validator.nodeCount });
         break;
       case 'dead':
@@ -279,10 +282,12 @@ export class WidgetHost {
         if (msg.qid === this.pendingQuery) this.answerQuery(msg.result, msg.binary);
         break;
       case 'size': {
-        const height = Math.min(Math.max(msg.height, MIN_HEIGHT), MAX_HEIGHT);
+        const h = finiteNumber(msg.height), iw = finiteNumber(msg.innerWidth), ih = finiteNumber(msg.innerHeight), dpr = finiteNumber(msg.dpr);
+        if (h === undefined || iw === undefined || ih === undefined || dpr === undefined) break;
+        const height = Math.min(Math.max(h, MIN_HEIGHT), MAX_HEIGHT);
         this.element.style.height = height + 'px';
         this.opts.onResize?.(height);
-        const vp = { innerWidth: msg.innerWidth, innerHeight: msg.innerHeight, dpr: msg.dpr };
+        const vp = { innerWidth: iw, innerHeight: ih, dpr };
         if (JSON.stringify(vp) !== JSON.stringify(this.viewport)) {
           this.viewport = vp;
           this.toWorker({ type: 'viewport', viewport: vp });
@@ -292,15 +297,18 @@ export class WidgetHost {
       case 'resize':
         this.toWorker({ type: 'resize', entries: msg.entries });
         break;
-      case 'frame':
-        this.toWorker({ type: 'frame', time: msg.time });
+      case 'frame': {
+        const time = finiteNumber(msg.time);
+        if (time !== undefined) this.toWorker({ type: 'frame', time });
+        break;
+      }
         break;
       case 'media':
         // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
         this.toWorker({ type: 'theme', theme: this.theme });
         break;
       case 'violation':
-        this.opts.onDiag?.('renderer-violation', msg.detail);
+        this.opts.onDiag?.('renderer-violation', String(msg.detail).slice(0, 4000));
         break;
     }
   }
