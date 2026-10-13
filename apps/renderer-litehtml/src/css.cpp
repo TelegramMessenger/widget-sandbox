@@ -509,4 +509,213 @@ Font parse_font(std::string_view font) {
     return f;
 }
 
+// ── transforms ──
+
+namespace {
+
+constexpr double PI = 3.14159265358979323846;
+
+/// A number with its unit, lowercased: `12.5px` → (12.5, "px").
+std::optional<std::pair<double, std::string>> dimension(std::string_view text) {
+    std::string t = trim(text);
+    size_t i = 0;
+    if (i < t.size() && (t[i] == '+' || t[i] == '-')) i++;
+    while (i < t.size() && (digit(t[i]) || t[i] == '.')) i++;
+    if (i < t.size() && (t[i] == 'e' || t[i] == 'E') && i + 1 < t.size() && (digit(t[i + 1]) || t[i + 1] == '-' || t[i + 1] == '+')) {
+        i += 2;
+        while (i < t.size() && digit(t[i])) i++;
+    }
+    auto value = number(std::string_view(t).substr(0, i));
+    if (!value) return std::nullopt;
+    return std::make_pair(*value, lower(t.substr(i)));
+}
+
+std::optional<double> length(std::string_view text, double percent_of) {
+    auto d = dimension(text);
+    if (!d) return std::nullopt;
+    if (d->second == "px" || (d->second.empty() && d->first == 0)) return d->first;
+    if (d->second == "%") return d->first * percent_of / 100;
+    return std::nullopt;
+}
+
+std::optional<double> angle(std::string_view text) {
+    auto d = dimension(text);
+    if (!d) return std::nullopt;
+    const std::string& u = d->second;
+    if (u == "deg" || (u.empty() && d->first == 0)) return d->first * PI / 180;
+    if (u == "rad") return d->first;
+    if (u == "grad") return d->first * PI / 200;
+    if (u == "turn") return d->first * 2 * PI;
+    return std::nullopt;
+}
+
+std::optional<double> scalar(std::string_view text) {
+    auto d = dimension(text);
+    if (!d) return std::nullopt;
+    if (d->second.empty()) return d->first;
+    if (d->second == "%") return d->first / 100;
+    return std::nullopt;
+}
+
+std::vector<std::string> arguments(std::string_view inner) {
+    std::vector<std::string> out;
+    for (const std::string& part : split_top_level(inner, ',')) {
+        std::string token;
+        for (char c : part) {
+            if (space(c)) {
+                if (!token.empty()) out.push_back(std::move(token));
+                token.clear();
+            } else token.push_back(c);
+        }
+        if (!token.empty()) out.push_back(std::move(token));
+    }
+    return out;
+}
+
+Affine rotation(double radians) {
+    float c = float(std::cos(radians)), s = float(std::sin(radians));
+    return Affine{c, s, -s, c, 0, 0};
+}
+
+std::optional<Affine> function(const std::string& name, const std::vector<std::string>& args, float w, float h) {
+    size_t n = args.size();
+    if (name == "matrix") {
+        if (n != 6) return std::nullopt;
+        float v[6];
+        for (size_t i = 0; i < 6; i++) {
+            auto x = number(args[i]);
+            if (!x) return std::nullopt;
+            v[i] = float(*x);
+        }
+        return Affine{v[0], v[1], v[2], v[3], v[4], v[5]};
+    }
+    if (name == "translate" || name == "translate3d") {
+        if (n < 1 || n > (name == "translate" ? 2u : 3u)) return std::nullopt;
+        auto x = length(args[0], w);
+        auto y = n > 1 ? length(args[1], h) : std::optional<double>(0);
+        if (!x || !y || (n == 3 && length(args[2], 0) != 0.0)) return std::nullopt;
+        return Affine::translate(float(*x), float(*y));
+    }
+    if (name == "translatex" || name == "translatey") {
+        if (n != 1) return std::nullopt;
+        auto v = length(args[0], name == "translatex" ? w : h);
+        if (!v) return std::nullopt;
+        return name == "translatex" ? Affine::translate(float(*v), 0) : Affine::translate(0, float(*v));
+    }
+    if (name == "translatez") return n == 1 && length(args[0], 0) == 0.0 ? std::optional<Affine>(Affine{}) : std::nullopt;
+    if (name == "scale" || name == "scale3d") {
+        if (n < 1 || n > (name == "scale" ? 2u : 3u)) return std::nullopt;
+        auto x = scalar(args[0]);
+        auto y = n > 1 ? scalar(args[1]) : x;
+        if (!x || !y || (n == 3 && scalar(args[2]) != 1.0)) return std::nullopt;
+        return Affine{float(*x), 0, 0, float(*y), 0, 0};
+    }
+    if (name == "scalex" || name == "scaley") {
+        auto v = n == 1 ? scalar(args[0]) : std::nullopt;
+        if (!v) return std::nullopt;
+        return name == "scalex" ? Affine{float(*v), 0, 0, 1, 0, 0} : Affine{1, 0, 0, float(*v), 0, 0};
+    }
+    if (name == "rotate" || name == "rotatez") {
+        auto a = n == 1 ? angle(args[0]) : std::nullopt;
+        if (!a) return std::nullopt;
+        return rotation(*a);
+    }
+    if (name == "skew" || name == "skewx" || name == "skewy") {
+        if (n < 1 || n > (name == "skew" ? 2u : 1u)) return std::nullopt;
+        auto ax = name == "skewy" ? std::optional<double>(0) : angle(args[0]);
+        auto ay = name == "skewy" ? angle(args[0]) : n > 1 ? angle(args[1]) : std::optional<double>(0);
+        if (!ax || !ay) return std::nullopt;
+        return Affine{1, float(std::tan(*ay)), float(std::tan(*ax)), 1, 0, 0};
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+std::optional<Affine> parse_transform(std::string_view text, float w, float h) {
+    std::string t = trim(text);
+    if (t.empty() || iequals(t, "none")) return Affine{};
+    Affine result;
+    size_t pos = 0;
+    while (true) {
+        while (pos < t.size() && space(t[pos])) pos++;
+        if (pos == t.size()) break;
+        size_t open = t.find('(', pos);
+        if (open == std::string::npos) return std::nullopt;
+        size_t close = t.find(')', open);
+        if (close == std::string::npos) return std::nullopt;
+        std::string name = lower(trim(std::string_view(t).substr(pos, open - pos)));
+        auto args = arguments(std::string_view(t).substr(open + 1, close - open - 1));
+        auto m = function(name, args, w, h);
+        if (!m) return std::nullopt;
+        result = result * *m;
+        pos = close + 1;
+    }
+    return result;
+}
+
+std::optional<Affine> parse_translate(std::string_view text, float w, float h) {
+    std::string t = trim(text);
+    if (t.empty() || iequals(t, "none")) return Affine{};
+    auto args = arguments(t);
+    if (args.empty() || args.size() > 3) return std::nullopt;
+    auto x = length(args[0], w);
+    auto y = args.size() > 1 ? length(args[1], h) : std::optional<double>(0);
+    if (!x || !y || (args.size() == 3 && length(args[2], 0) != 0.0)) return std::nullopt;
+    return Affine::translate(float(*x), float(*y));
+}
+
+std::optional<Affine> parse_rotate(std::string_view text) {
+    std::string t = trim(text);
+    if (t.empty() || iequals(t, "none")) return Affine{};
+    auto args = arguments(t);
+    if (args.size() == 2 && iequals(args[0], "z")) args.erase(args.begin());
+    auto a = args.size() == 1 ? angle(args[0]) : std::nullopt;
+    if (!a) return std::nullopt;
+    return rotation(*a);
+}
+
+std::optional<Affine> parse_scale(std::string_view text) {
+    std::string t = trim(text);
+    if (t.empty() || iequals(t, "none")) return Affine{};
+    auto args = arguments(t);
+    if (args.empty() || args.size() > 3) return std::nullopt;
+    auto x = scalar(args[0]);
+    auto y = args.size() > 1 ? scalar(args[1]) : x;
+    if (!x || !y || (args.size() == 3 && scalar(args[2]) != 1.0)) return std::nullopt;
+    return Affine{float(*x), 0, 0, float(*y), 0, 0};
+}
+
+std::optional<std::pair<float, float>> parse_origin(std::string_view text, float w, float h) {
+    auto args = arguments(trim(text));
+    if (args.empty()) return std::make_pair(w / 2, h / 2);
+    if (args.size() > 3 || (args.size() == 3 && length(args[2], 0) != 0.0)) return std::nullopt;
+    // A vertical keyword first (`top left`) means the same as the other order.
+    if (args.size() >= 2) {
+        std::string a = lower(args[0]), b = lower(args[1]);
+        if (a == "top" || a == "bottom" || b == "left" || b == "right") std::swap(args[0], args[1]);
+    } else {
+        std::string a = lower(args[0]);
+        if (a == "top" || a == "bottom") args = {"center", args[0]};
+    }
+    auto axis = [](const std::string& v, float size, bool horizontal) -> std::optional<float> {
+        std::string k = lower(v);
+        if (k == "center") return size / 2;
+        if (horizontal ? k == "left" : k == "top") return 0.0f;
+        if (horizontal ? k == "right" : k == "bottom") return size;
+        auto l = length(v, size);
+        return l ? std::optional<float>(float(*l)) : std::nullopt;
+    };
+    auto x = axis(args[0], w, true);
+    auto y = args.size() > 1 ? axis(args[1], h, false) : std::optional<float>(h / 2);
+    if (!x || !y) return std::nullopt;
+    return std::make_pair(*x, *y);
+}
+
+std::optional<float> parse_opacity(std::string_view text) {
+    auto v = scalar(text);
+    if (!v) return std::nullopt;
+    return float(std::clamp(*v, 0.0, 1.0));
+}
+
 } // namespace twlite::css
