@@ -11,14 +11,18 @@ public struct Widget3DBytes {
         case other
     }
 
-    public let pointer: UnsafeRawPointer
+    public let borrowedPointer: UnsafeRawPointer
     public let length: Int
     public let kind: Kind
 
-    public init(pointer: UnsafeRawPointer, length: Int, kind: Kind) {
-        self.pointer = pointer
+    public init(borrowedPointer: UnsafeRawPointer, length: Int, kind: Kind) {
+        self.borrowedPointer = borrowedPointer
         self.length = length
         self.kind = kind
+    }
+
+    public func copy() -> Data {
+        Data(bytes: borrowedPointer, count: length)
     }
 }
 
@@ -66,9 +70,12 @@ public protocol Widget3DBackend: AnyObject {
 }
 
 public final class Widget3DChannel: WidgetSideChannel {
-    public static var maxSurfaces = 4
+    public static let defaultMaxSurfaces = 4
     public static let maxArguments = 16
-    public static var maxBytesPerCall = 64 << 20
+    public static let defaultMaxBytesPerCall = 64 << 20
+    public let maxSurfaces: Int
+    public let maxBytesPerCall: Int
+    private let callLock = NSRecursiveLock()
     public static let maxToken = 1_000_000
 
     public var onDiag: ((String, String) -> Void)?
@@ -81,8 +88,10 @@ public final class Widget3DChannel: WidgetSideChannel {
     private var magic: Int32 = -1
     private weak var renderer: SurfaceHostingRenderer?
 
-    public init(backend: Widget3DBackend) {
+    public init(backend: Widget3DBackend, maxSurfaces: Int = Widget3DChannel.defaultMaxSurfaces, maxBytesPerCall: Int = Widget3DChannel.defaultMaxBytesPerCall) {
         self.backend = backend
+        self.maxSurfaces = max(0, min(maxSurfaces, Widget3DChannel.defaultMaxSurfaces * 4))
+        self.maxBytesPerCall = max(0, min(maxBytesPerCall, Widget3DChannel.defaultMaxBytesPerCall))
     }
 
     deinit {
@@ -143,14 +152,16 @@ public final class Widget3DChannel: WidgetSideChannel {
             return .undefined
         }
         let total = args.reduce(0) { $0 + ($1.bytes?.length ?? 0) }
-        guard total <= Self.maxBytesPerCall else {
+        guard total <= maxBytesPerCall else {
             onDiag?("3d-rejected", "\(op): \(total) bytes in one call")
             return .undefined
         }
         if op == "bind" {
             return .number(bind(token) ? 1 : 0)
         }
-        guard let surface = surface(token) else {
+        callLock.lock()
+        defer { callLock.unlock() }
+        guard !isDestroyed, let surface = surface(token) else {
             return .undefined
         }
         return surface.call(op, args)
@@ -168,7 +179,7 @@ public final class Widget3DChannel: WidgetSideChannel {
         if surfaces[token] != nil {
             return true
         }
-        if surfaces.count >= Widget3DChannel.maxSurfaces {
+        if surfaces.count >= maxSurfaces {
             return false
         }
         let surface = backend.makeSurface()
@@ -266,6 +277,8 @@ public final class Widget3DChannel: WidgetSideChannel {
         self.renderer = nil
         lock.unlock()
         Widget3DChannel.unregister(magic)
+        callLock.lock()
+        defer { callLock.unlock() }
         for surface in all {
             surface.onDiag = nil
             surface.stop("destroyed")
@@ -340,7 +353,7 @@ private func widget3DTrampoline(_ ctx: OpaquePointer?, _ this: JSValue, _ argc: 
             let type = qjs_typed_array_bytes(ctx, value, &pointer, &length)
             if type >= 0, let pointer {
                 let kind: Widget3DBytes.Kind = type == Int32(JS_TYPED_ARRAY_FLOAT32.rawValue) ? .float32 : type == Int32(JS_TYPED_ARRAY_UINT16.rawValue) ? .uint16 : type == Int32(JS_TYPED_ARRAY_UINT32.rawValue) ? .uint32 : .other
-                args.append(.bytes(Widget3DBytes(pointer: UnsafeRawPointer(pointer), length: length, kind: kind)))
+                args.append(.bytes(Widget3DBytes(borrowedPointer: UnsafeRawPointer(pointer), length: length, kind: kind)))
             } else {
                 if type < 0, let pending = qjs_take_exception_description(ctx) { free(pending) }
                 args.append(.none)

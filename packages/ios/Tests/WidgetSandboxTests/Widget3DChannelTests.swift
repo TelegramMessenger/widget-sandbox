@@ -92,9 +92,9 @@ final class Widget3DChannelTests: XCTestCase {
         }
     }
 
-    private func host(_ html: String, backend: FakeBackend = FakeBackend(), pools: Bool = false) -> (WidgetHost, SurfaceRenderer, Widget3DChannel) {
+    private func host(_ html: String, backend: FakeBackend = FakeBackend(), pools: Bool = false, maxBytesPerCall: Int = Widget3DChannel.defaultMaxBytesPerCall) -> (WidgetHost, SurfaceRenderer, Widget3DChannel) {
         let renderer = SurfaceRenderer()
-        let channel = Widget3DChannel(backend: backend)
+        let channel = Widget3DChannel(backend: backend, maxBytesPerCall: maxBytesPerCall)
         var options = WidgetHost.Options()
         options.sideChannels = [{ channel }]
         options.pools = pools
@@ -150,8 +150,8 @@ final class Widget3DChannelTests: XCTestCase {
         """)
         defer { host.destroy() }
         wait { logs(host).contains("bound:") }
-        XCTAssertTrue(logs(host).contains("bound:\(Widget3DChannel.maxSurfaces) ignored:,,,,,"), logs(host))
-        XCTAssertEqual(channel.surfaceCount, Widget3DChannel.maxSurfaces)
+        XCTAssertTrue(logs(host).contains("bound:\(Widget3DChannel.defaultMaxSurfaces) ignored:,,,,,"), logs(host))
+        XCTAssertEqual(channel.surfaceCount, Widget3DChannel.defaultMaxSurfaces)
         for forged in ["999", "0", "-1", "01", "1e0", " 1", "1 ", "+1", "", "99999999"] {
             XCTAssertNil(renderer.surfaceLayer?(forged), forged)
         }
@@ -159,9 +159,6 @@ final class Widget3DChannelTests: XCTestCase {
     }
 
     func testHugeBuffersAndTooManyArgumentsAreRejected() {
-        let saved = Widget3DChannel.maxBytesPerCall
-        Widget3DChannel.maxBytesPerCall = 1 << 20
-        defer { Widget3DChannel.maxBytesPerCall = saved }
         let backend = FakeBackend()
         let (host, _, _) = host("""
         <script>
@@ -175,7 +172,7 @@ final class Widget3DChannelTests: XCTestCase {
         gl3d.call({ toString() { return 'frame' } }, 1);
         console.log('done');
         </script>
-        """, backend: backend)
+        """, backend: backend, maxBytesPerCall: 1 << 20)
         defer { host.destroy() }
         wait { logs(host).contains("done") && host.diagnostics.diags["3d-rejected"] != nil }
         let surface = backend.lock.withLock { backend.made.first }
@@ -259,6 +256,15 @@ final class Widget3DChannelTests: XCTestCase {
         renderer.surfaceLayout?("3", CGSize(width: 10, height: 10), 2, true)
         XCTAssertEqual(surface?.paused, false)
         channel.destroy()
+    }
+
+    func testBorrowedBytesCopyAndPerChannelLimits() {
+        let values: [UInt8] = [1, 2, 3, 4]
+        let copied = values.withUnsafeBytes { Widget3DBytes(borrowedPointer: $0.baseAddress!, length: $0.count, kind: .other).copy() }
+        XCTAssertEqual(Array(copied), values)
+        let channel = Widget3DChannel(backend: FakeBackend(), maxSurfaces: 1000, maxBytesPerCall: Int.max)
+        XCTAssertEqual(channel.maxSurfaces, Widget3DChannel.defaultMaxSurfaces * 4)
+        XCTAssertEqual(channel.maxBytesPerCall, Widget3DChannel.defaultMaxBytesPerCall)
     }
 
     func testUnavailableBackendInstallsNothing() {

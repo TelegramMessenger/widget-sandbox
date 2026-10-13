@@ -810,7 +810,12 @@ public final class SandboxResources {
     private var provided: [String: ProvidedLibrary] = [:]
     private var providedLibraries: [BundledLibrary] = []
     private var rejectedSources: Set<String> = []
-    public private(set) var compiledLibraries = 0
+    public var compiledLibraries: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return compiledCount
+    }
+    private var compiledCount = 0
     public static let maxURLLength = 2048
     public static var maxProvidedSourceBytes = 8 << 20
     public static var maxProvidedBytecodeBytes = 32 << 20
@@ -843,15 +848,51 @@ public final class SandboxResources {
         return true
     }
 
+    private let provideLock = NSRecursiveLock()
+
     private func providedSource(_ library: ProvidedLibrary) -> String? {
-        if let s = libraryCache[library.file] { return s }
-        if rejectedSources.contains(library.file) { return nil }
-        guard let s = library.source(), s.utf8.count <= Self.maxProvidedSourceBytes else {
+        provideLock.lock()
+        defer { provideLock.unlock() }
+        lock.lock()
+        let cached = libraryCache[library.file]
+        let rejected = rejectedSources.contains(library.file)
+        lock.unlock()
+        if let cached { return cached }
+        if rejected { return nil }
+        let source = library.source()
+        lock.lock()
+        defer { lock.unlock() }
+        guard let source, source.utf8.count <= Self.maxProvidedSourceBytes else {
             rejectedSources.insert(library.file)
             return nil
         }
-        libraryCache[library.file] = s
-        return s
+        libraryCache[library.file] = source
+        return source
+    }
+
+    private func providedBytecode(_ library: ProvidedLibrary) -> Data? {
+        provideLock.lock()
+        defer { provideLock.unlock() }
+        lock.lock()
+        if let cached = bytecodeCache[library.file] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        var data: Data?
+        if let given = library.bytecode {
+            data = given().flatMap { $0.count <= Self.maxProvidedBytecodeBytes ? $0 : nil }
+        } else if let source = providedSource(library) {
+            lock.lock()
+            compiledCount += 1
+            lock.unlock()
+            data = try? QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit).compileBytecode(source, filename: library.file)
+            if let d = data, d.count > Self.maxProvidedBytecodeBytes { data = nil }
+        }
+        lock.lock()
+        bytecodeCache[library.file] = data
+        lock.unlock()
+        return data
     }
 
     /// `bundle` defaults to the package's resource bundle.
@@ -895,8 +936,12 @@ public final class SandboxResources {
     }
 
     public func librarySource(_ lib: BundledLibrary) -> String? {
-        lock.lock(); defer { lock.unlock() }
-        if let library = provided[lib.name], library.file == lib.file { return providedSource(library) }
+        lock.lock()
+        if let library = provided[lib.name], library.file == lib.file {
+            lock.unlock()
+            return providedSource(library)
+        }
+        defer { lock.unlock() }
         if let s = libraryCache[lib.file] { return s }
         let name = (lib.file as NSString).deletingPathExtension
         let ext = (lib.file as NSString).pathExtension
@@ -907,20 +952,13 @@ public final class SandboxResources {
 
     /// Precompiled bytecode of a bundled library (`WidgetJS/libs/<file>.qbc`), cached; nil when not shipped.
     public func libraryBytecode(_ lib: BundledLibrary) -> Data? {
-        lock.lock(); defer { lock.unlock() }
-        if let cached = bytecodeCache[lib.file] { return cached }
+        lock.lock()
         if let library = provided[lib.name], library.file == lib.file {
-            var data: Data?
-            if let given = library.bytecode {
-                data = given().flatMap { $0.count <= Self.maxProvidedBytecodeBytes ? $0 : nil }
-            } else if let source = providedSource(library) {
-                compiledLibraries += 1
-                data = try? QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit).compileBytecode(source, filename: library.file)
-                if let d = data, d.count > Self.maxProvidedBytecodeBytes { data = nil }
-            }
-            bytecodeCache[lib.file] = data
-            return data
+            lock.unlock()
+            return providedBytecode(library)
         }
+        defer { lock.unlock() }
+        if let cached = bytecodeCache[lib.file] { return cached }
         let name = (lib.file as NSString).deletingPathExtension
         let data = bundle.url(forResource: name, withExtension: "qbc", subdirectory: "WidgetJS/libs").flatMap { try? Data(contentsOf: $0) }
         bytecodeCache[lib.file] = data

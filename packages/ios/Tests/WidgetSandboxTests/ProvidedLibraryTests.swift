@@ -158,4 +158,18 @@ final class ProvidedLibraryTests: XCTestCase {
         XCTAssertEqual(d.lock.withLock { d.diags.filter { $0.0 == "script-skipped" }.count }, 2)
         XCTAssertEqual(resources.compiledLibraries, 0)
     }
+
+    func testProvidersRunOutsideTheResourcesLock() {
+        let resources = SandboxResources()
+        var seen: String?
+        XCTAssertTrue(resources.provide(ProvidedLibrary(name: "x", file: "x.js", patterns: ["app:x"], source: {
+            seen = resources.library(for: "https://cdn.jsdelivr.net/npm/d3@7")?.name
+            return "globalThis.X = 1;"
+        })))
+        let lib = resources.library(for: "app:x")!
+        XCTAssertEqual(resources.librarySource(lib), "globalThis.X = 1;")
+        XCTAssertNotNil(resources.libraryBytecode(lib))
+        XCTAssertEqual(seen, "d3")
+        XCTAssertEqual(resources.compiledLibraries, 1)
+    }
 }
