@@ -109,11 +109,11 @@ final class TextBudgetTests: XCTestCase {
         }
     }
 
-    func testComplexWordsCountsWordsNotUnits() {
-        XCTAssertEqual(NativeValidator.complexWords("BTC $60000 \u{25B2}"), 1)
-        XCTAssertEqual(NativeValidator.complexWords("\u{4E2D}\u{6587}\u{5B57} hello \u{092E}\u{0947}\u{0930}\u{093E} \u{0928}\u{093E}\u{092E}"), 5)
-        XCTAssertEqual(NativeValidator.complexWords("\u{3042}\u{3044}\u{3046}\u{3048}\u{304A}\u{304B}\u{304D}\u{304F}\u{3051}\u{3053}\u{3002}\u{3055}\u{3057}\u{3059}"), 1)
-        XCTAssertEqual(NativeValidator.complexWords(""), 0)
+    func testTextWorkCountsBreaksAcrossScripts() {
+        XCTAssertEqual(NativeValidator.textWork("BTC $60000 \u{25B2}"), 3)
+        XCTAssertEqual(NativeValidator.textWork("\u{4E2D}\u{6587}\u{5B57} hello \u{092E}\u{0947}\u{0930}\u{093E} \u{0928}\u{093E}\u{092E}"), 6)
+        XCTAssertEqual(NativeValidator.textWork("\u{3042}\u{3044}\u{3046}\u{3048}\u{304A}\u{304B}\u{304D}\u{304F}\u{3051}\u{3053}\u{3002}\u{3055}\u{3057}\u{3059}"), 14)
+        XCTAssertEqual(NativeValidator.textWork(""), 0)
     }
 
     func testChurnRefillsWithTheClockInTheNativeModel() {
@@ -146,4 +146,31 @@ final class TextBudgetTests: XCTestCase {
             XCTAssertFalse(rig.diags.contains { $0.hasPrefix("text-churn") }, "native \(native)")
         }
     }
+    func testHostileTextFloodsOnBothValidatorPaths() {
+        for native in [true, false] {
+            for unit in ["a ", "a-", "x?", "\u{3400}", "\u{ac00}", "\u{30a2}", "\u{ff21}", "\u{20000}"] {
+                let rig = NativeValidatorDifferentialTests.Rig(native: native, policy: .strict)
+                let data = String(repeating: unit, count: 3000)
+                var accepted = 0
+                var limited = false
+                for i in 20..<30 {
+                    accepted += rig.json("[{\"op\":\"text\",\"id\":\(i),\"data\":\"\(data)\"}]").0.count
+                    limited = limited || rig.diags.contains { $0.hasPrefix("text-churn") }
+                    _ = rig.json("[{\"op\":\"rm\",\"id\":\(i)}]")
+                }
+                XCTAssertEqual(accepted, 2, "native \(native), unit \(unit)")
+                XCTAssertTrue(limited)
+            }
+        }
+    }
+
+    func testNativeResetRefundsTextBudgets() {
+        let rig = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict)
+        let data = String(repeating: "中", count: 8000)
+        let op = "[{\"op\":\"text\",\"id\":20,\"data\":\"\(data)\"}]"
+        XCTAssertEqual(rig.json(op).0.count, 1)
+        rig.validator.thread.sync { rig.validator.nativeModel?.reset() }
+        XCTAssertEqual(rig.json(op).0.count, 1)
+    }
+
 }

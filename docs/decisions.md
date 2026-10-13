@@ -519,6 +519,14 @@ information.
   demo and the native tests use a wider quota (1000 ms/s, or 100 ms/s where a
   test wants throttling quickly); the product default stays 300.
 
+### Strict-policy text limits
+
+Strict validators allow at most 64 Ki UTF-16 units per text value, 256 Ki units across tracked text and comment nodes, and 8192 complex-script units across text nodes. Removal and shrinking release the document budget; resetting a pooled native validator clears it.
+
+Text mutations also consume a shared token bucket with an 8192-work-unit burst and a 1024-unit-per-second refill. Work counts words separated by whitespace, hyphens, question marks, slashes, or zero-width spaces, and counts CJK, Kana, Hangul, fullwidth and supplementary characters individually. Long unbroken runs cost at least one unit per 1024 UTF-16 units. Creating, replacing, splitting, or removing nodes cannot refund mutation work. Rejected mutations preserve the last accepted text. Compatibility policy keeps its existing limits.
+
+The TypeScript validator and Swift native validator enforce the same accounting. The native JS bundles and matching QuickJS bytecode are regenerated for iOS/macOS, Android, and desktop together.
+
 ### CPU time, not wall-clock time (Oct 2026)
 
 - The slice and the quota count the JS thread's own CPU time

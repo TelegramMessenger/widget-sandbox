@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { complexWords, Validator } from '../../src/host/validator.ts';
+import { textWork, Validator } from '../../src/host/validator.ts';
 
 const BASE = [
   { op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null },
@@ -19,12 +19,12 @@ function rig(policy: 'compat' | 'strict' = 'strict') {
 
 const cjk = (n: number, c = 0x4e2d) => String.fromCharCode(c).repeat(n);
 
-describe('complex-script text churn', () => {
+describe('text churn', () => {
   it('counts words, not units', () => {
-    assert.equal(complexWords('BTC $60000 ▲'), 1);
-    assert.equal(complexWords('中文字 hello मेरा नाम'), 5);
-    assert.equal(complexWords('あいうえおかきくけこ。さしす'), 1);
-    assert.equal(complexWords(''), 0);
+    assert.equal(textWork('BTC $60000 ▲'), 3);
+    assert.equal(textWork('中文字 hello मेरा नाम'), 6);
+    assert.equal(textWork('あいうえおかきくけこ。さしす'), 14);
+    assert.equal(textWork(''), 0);
   });
 
   it('rate-limits complex-script changes and refills with time', () => {
@@ -38,14 +38,13 @@ describe('complex-script text churn', () => {
     assert.equal(r.v.processOps([{ op: 'data', id: 20, data: cjk(2999) }]).length, 1);
   });
 
-  it('never limits tickers, typewriters or latin text', () => {
+  it('allows ordinary tickers and typewriters', () => {
     const r = rig();
     r.v.processOps([{ op: 'text', id: 20, data: 'x' }, { op: 'ins', parent: 3, id: 20, before: null }]);
     const line = 'मेरा नाम है सैम';
     for (let n = 0; n < 5000; n++) {
       r.advance(0.01);
       r.v.processOps([{ op: 'data', id: 20, data: `BTC $${60000 + n} ▲ ETH ${line.slice(0, n % line.length)}` }]);
-      r.v.processOps([{ op: 'data', id: 20, data: 'x'.repeat(n % 4000) }]);
     }
     assert.deepEqual(r.diags.filter((d) => d.startsWith('text-churn')), []);
   });
@@ -67,5 +66,35 @@ describe('complex-script text churn', () => {
     for (let i = 0; i < 4; i++) accepted += r.v.processOps([{ op: 'data', id: 20, data: cjk(2999) }, { op: 'data', id: 20, data: cjk(3000) }]).length;
     assert.equal(accepted, 8);
     assert.deepEqual(r.diags, []);
+  });
+});
+
+describe('hostile text floods', () => {
+  for (const unit of ['a ', 'a-', 'x?', '\u3400', '\uac00', '\u30a2', '\uff21', '\u{20000}']) {
+    it(`limits repeated ${JSON.stringify(unit)} text across updates and replacements`, () => {
+      const r = rig();
+      const data = unit.repeat(3000);
+      let accepted = 0;
+      for (let i = 0; i < 20; i++) {
+        accepted += r.v.processOps([{ op: 'text', id: 20 + i, data }]).length;
+        r.v.processOps([{ op: 'rm', id: 20 + i }]);
+      }
+      assert.equal(accepted, 2);
+      r.advance(3);
+      assert.equal(r.v.processOps([{ op: 'text', id: 100, data }]).length, 1);
+      assert.equal(r.v.processOps([{ op: 'data', id: 100, data }]).length, 0);
+    });
+  }
+
+  it('caps total text, refunds removals, and does not charge rejected duplicate ids', () => {
+    const r = rig();
+    const data = 'x'.repeat(65536);
+    for (let id = 20; id < 24; id++) assert.equal(r.v.processOps([{ op: 'text', id, data }]).length, 1);
+    assert.equal(r.v.processOps([{ op: 'text', id: 24, data: 'a' }]).length, 0);
+    r.v.processOps([{ op: 'rm', id: 20 }]);
+    assert.equal(r.v.processOps([{ op: 'text', id: 24, data }]).length, 1);
+    assert.equal(r.v.processOps([{ op: 'data', id: 24, data: '' }]).length, 1);
+    for (let i = 0; i < 100; i++) r.v.processOps([{ op: 'text', id: 24, data }]);
+    assert.equal(r.v.processOps([{ op: 'data', id: 24, data }]).length, 1);
   });
 });

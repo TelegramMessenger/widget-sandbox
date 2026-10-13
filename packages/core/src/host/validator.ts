@@ -29,23 +29,25 @@ const COMPAT_MAX_TEXT = 2 * 1024 * 1024;
  */
 const COMPLEX_TEXT_BUDGET = 8192;
 const COMPLEX_CHURN_PER_SECOND = 1024;
+const TEXT_BUDGET = 256 * 1024;
 
-export function complexWords(text: string): number {
+export function textWork(text: string): number {
   let count = 0;
   let run = false;
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
-    if (c >= 0x4e00 && c <= 0x9fcc) {
+    if ((c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7ff) || c >= 0xf900 || (c >= 0xd800 && c <= 0xdbff)) {
       if (run) count++;
       run = false;
       count++;
-    } else if (c <= 0x20) {
+      if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length && text.charCodeAt(i + 1) >= 0xdc00 && text.charCodeAt(i + 1) <= 0xdfff) i++;
+    } else if (c <= 0x20 || c === 0x2d || c === 0x3f || c === 0x2f || c === 0x200b) {
       if (run) count++;
       run = false;
-    } else if (c >= 0x0590) run = true;
+    } else run = true;
   }
   if (run) count++;
-  return count;
+  return Math.max(count, Math.ceil(text.length / 1024));
 }
 
 function complexUnits(text: string): number {
@@ -95,8 +97,8 @@ export type ValidatorPolicy = 'compat' | 'strict';
 
 export function policyLimits(policy: ValidatorPolicy) {
   return policy === 'strict'
-    ? { maxText: MAX_TEXT, maxCanvasString: MAX_TEXT, complexTextBudget: COMPLEX_TEXT_BUDGET }
-    : { maxText: COMPAT_MAX_TEXT, maxCanvasString: MAX_ATTR, complexTextBudget: 0 };
+    ? { maxText: MAX_TEXT, maxCanvasString: MAX_TEXT, complexTextBudget: COMPLEX_TEXT_BUDGET, textBudget: TEXT_BUDGET }
+    : { maxText: COMPAT_MAX_TEXT, maxCanvasString: MAX_ATTR, complexTextBudget: 0, textBudget: 0 };
 }
 
 export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
@@ -109,6 +111,7 @@ export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
     events: [...EVENT_TYPE_SET], mime: [...IMAGE_MIME], placeholder: PLACEHOLDER_IMAGE,
     limits: [MAX_NODES, limits.maxText, MAX_ATTR, MAX_OPS_PER_BATCH, MAX_CANVAS_CMDS, LIMBO],
     complexTextBudget: limits.complexTextBudget,
+    textBudget: limits.textBudget,
   };
 }
 
@@ -130,6 +133,7 @@ export class Validator {
   private adopted = { html: false, head: false, body: false };
   private dirtyStyles = new Set<NodeId>();
   private complexText = 0;
+  private totalText = 0;
   private churnTokens = COMPLEX_TEXT_BUDGET;
   private churnAt: number | null = null;
   private clock: () => number = () => Date.now() / 1000;
@@ -148,7 +152,7 @@ export class Validator {
   }
 
   private overChurn(): boolean {
-    this.diag('text-churn', `complex-script text changes over ${COMPLEX_CHURN_PER_SECOND} units per second`);
+    this.diag('text-churn', `text changes over ${COMPLEX_CHURN_PER_SECOND} units per second`);
     return false;
   }
 
@@ -355,17 +359,23 @@ export class Validator {
   private opCharData(op: Record<string, unknown>): boolean {
     const { id, data } = op;
     if (!isId(id) || !isStr(data, this.limits.maxText)) return false;
+    if (this.nodes.has(id) || this.nodes.size >= MAX_NODES) return false;
+    if (this.limits.textBudget && this.totalText + data.length > this.limits.textBudget) {
+      this.diag('text-budget', `document text over ${this.limits.textBudget} units`);
+      return false;
+    }
     const kind = op.op === 'text' ? 'text' : 'comment';
     const complex = kind === 'text' ? complexUnits(data) : 0;
     if (complex && this.limits.complexTextBudget && this.complexText + complex > this.limits.complexTextBudget) {
       this.diag('text-budget', `document complex-script text over ${this.limits.complexTextBudget} units`);
       return false;
     }
-    if (complex && this.limits.complexTextBudget && !this.takeChurn(complexWords(data))) return this.overChurn();
+    if (this.limits.textBudget && !this.takeChurn(textWork(data))) return this.overChurn();
     // Comments are tracked for tree consistency but never rendered.
     const node = this.newNode(id, { kind, data, rendered: kind === 'text', complex });
     if (!node) return false;
     this.complexText += complex;
+    this.totalText += data.length;
     if (kind === 'text') this.out.push({ op: 'text', id, data });
     return true;
   }
@@ -375,14 +385,20 @@ export class Validator {
     if (!isId(id) || !isStr(data, this.limits.maxText)) return false;
     const node = this.nodes.get(id);
     if (!node || node.kind === 'el' || node.kind === 'doc') return false;
+    const textGrowth = data.length - node.data.length;
+    if (textGrowth > 0 && this.limits.textBudget && this.totalText + textGrowth > this.limits.textBudget) {
+      this.diag('text-budget', `document text over ${this.limits.textBudget} units`);
+      return false;
+    }
     const complex = node.kind === 'text' ? complexUnits(data) : 0;
     const growth = complex - (node.complex ?? 0);
     if (growth > 0 && this.limits.complexTextBudget && this.complexText + growth > this.limits.complexTextBudget) {
       this.diag('text-budget', `document complex-script text over ${this.limits.complexTextBudget} units`);
       return false;
     }
-    if (complex && this.limits.complexTextBudget && !this.takeChurn(complexWords(data))) return this.overChurn();
+    if (this.limits.textBudget && !this.takeChurn(textWork(data))) return this.overChurn();
     this.complexText += growth;
+    this.totalText += textGrowth;
     node.complex = complex;
     node.data = data;
     const parent = node.parent !== null ? this.nodes.get(node.parent) : null;
@@ -473,6 +489,7 @@ export class Validator {
     while (stack.length) {
       const n = stack.pop()!;
       this.complexText -= n.complex ?? 0;
+      this.totalText -= n.data.length;
       this.nodes.delete(n.id);
       this.dirtyStyles.delete(n.id);
       for (const c of n.children) {

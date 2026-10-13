@@ -33,6 +33,7 @@ struct NativeValidatorTables {
     var maxCanvasCommands = 500_000
     var limbo = 0
     var complexTextBudget = 0
+    var textBudget = 0
 
     init?(json: String) {
         guard let root = JSONText.parse(json)?.object else { return nil }
@@ -90,6 +91,7 @@ struct NativeValidatorTables {
         maxCanvasCommands = Int(numbers[4])
         limbo = Int(numbers[5])
         complexTextBudget = Int(root["complexTextBudget"]?.number ?? 0)
+        textBudget = Int(root["textBudget"]?.number ?? 0)
     }
 }
 
@@ -163,6 +165,8 @@ final class NativeValidator {
         liveAnims.removeAll()
         churnTokens = Double(Self.complexTextBudget)
         churnAt = nil
+        complexText = 0
+        totalText = 0
         intern.reset()
         nodeSeq = 0
         nodes[Self.documentId] = Node(id: Self.documentId, kind: .document, rendered: false, seq: nextSeq())
@@ -464,27 +468,31 @@ final class NativeValidator {
     static let complexTextBudget = 8192
     static let complexChurnPerSecond = 1024.0
     private var complexText = 0
+    private var totalText = 0
     private var churnTokens = Double(NativeValidator.complexTextBudget)
     private var churnAt: Double?
     var clock: () -> Double = { Date().timeIntervalSince1970 }
 
-    static func complexWords(_ s: String) -> Int {
+    static func textWork(_ s: String) -> Int {
         var count = 0
         var run = false
-        for unit in s.utf16 {
-            if unit >= 0x4E00 && unit <= 0x9FCC {
+        var units = 0
+        for scalar in s.unicodeScalars {
+            let c = scalar.value
+            units += c > 0xffff ? 2 : 1
+            if (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7ff) || c >= 0xf900 {
                 if run { count += 1 }
                 run = false
                 count += 1
-            } else if unit <= 0x20 {
+            } else if c <= 0x20 || c == 0x2d || c == 0x3f || c == 0x2f || c == 0x200b {
                 if run { count += 1 }
                 run = false
-            } else if unit >= 0x0590 {
+            } else {
                 run = true
             }
         }
         if run { count += 1 }
-        return count
+        return max(count, (units + 1023) / 1024)
     }
 
     private func takeChurn(_ words: Int) -> Bool {
@@ -499,7 +507,7 @@ final class NativeValidator {
     }
 
     private func overChurn() -> Bool {
-        diag("text-churn", "complex-script text changes over \(Int(Self.complexChurnPerSecond)) units per second")
+        diag("text-churn", "text changes over \(Int(Self.complexChurnPerSecond)) units per second")
         return false
     }
 
@@ -515,24 +523,37 @@ final class NativeValidator {
     }
 
     private func characterData(_ id: Int, _ data: String, text: Bool) -> Bool {
+        guard nodes[id] == nil, nodes.count < tables.maxNodes else { return false }
+        let length = data.utf16.count
+        if tables.textBudget > 0, totalText + length > tables.textBudget {
+            diag("text-budget", "document text over \(tables.textBudget) units")
+            return false
+        }
         let units = text ? Self.complexUnits(data) : 0
         if units > 0, tables.complexTextBudget > 0, complexText + units > tables.complexTextBudget { return overTextBudget() }
-        if units > 0, tables.complexTextBudget > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
+        if tables.textBudget > 0, !takeChurn(Self.textWork(data)) { return overChurn() }
         let seq = nextSeq()
         guard let node = newNode(id, { Node(id: id, kind: text ? .text : .comment, rendered: text, data: data, seq: seq) }) else { return false }
         node.complex = units
         complexText += units
+        totalText += length
         if text { out.append(WidgetOp(text: id, data: data)) }
         return true
     }
 
     private func setData(_ id: Int, _ data: String) -> Bool {
         guard let node = nodes[id], node.kind != .element, node.kind != .document else { return false }
+        let textDelta = data.utf16.count - node.data.utf16.count
+        if textDelta > 0, tables.textBudget > 0, totalText + textDelta > tables.textBudget {
+            diag("text-budget", "document text over \(tables.textBudget) units")
+            return false
+        }
         let units = node.kind == .text ? Self.complexUnits(data) : 0
         let delta = units - node.complex
         if delta > 0, tables.complexTextBudget > 0, complexText + delta > tables.complexTextBudget { return overTextBudget() }
-        if units > 0, tables.complexTextBudget > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
+        if tables.textBudget > 0, !takeChurn(Self.textWork(data)) { return overChurn() }
         complexText += delta
+        totalText += textDelta
         node.complex = units
         node.data = data
         let parent = node.parent.flatMap { nodes[$0] }
@@ -613,6 +634,7 @@ final class NativeValidator {
         var stack = [node]
         while let n = stack.popLast() {
             complexText -= n.complex
+            totalText -= n.data.utf16.count
             nodes[n.id] = nil
             dirtyStyles[n.id] = nil
             for c in n.children {
