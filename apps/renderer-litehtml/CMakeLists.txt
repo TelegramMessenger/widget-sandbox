@@ -29,7 +29,7 @@ set(LITEHTML_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(LITEHTML_ENABLE_LINT OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/litehtml EXCLUDE_FROM_ALL)
 
-add_library(twidget_litehtml_core STATIC src/renderer.cpp)
+add_library(twidget_litehtml_core STATIC src/renderer.cpp src/css.cpp src/animations.cpp src/canvas.cpp)
 target_include_directories(twidget_litehtml_core PUBLIC src "${TW_JSON_INCLUDE}")
 target_link_libraries(twidget_litehtml_core PUBLIC litehtml)
 if(NOT MSVC)

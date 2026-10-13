@@ -10,7 +10,9 @@
 // guarantees it), so the document needs no lock. Coordinates are CSS px.
 #pragma once
 
+#include "animations.h"
 #include "backend.h"
+#include "canvas.h"
 #include "display_list.h"
 #include "twidget/json.h"
 
@@ -31,9 +33,11 @@ struct BuildStats {
     int passes = 0;
     size_t html_bytes = 0;
     int builds = 0;
+    /// Builds that patched the previous document instead of parsing a new one (TW_LITEHTML_TWIDGET).
+    int patched = 0;
 };
 
-class Renderer {
+class Renderer : private CanvasHost {
 public:
     /// `backend` is owned by the platform layer and must outlive the renderer.
     Renderer(double width, double dpr, bool dark, Backend& backend);
@@ -46,8 +50,20 @@ public:
     void set_width(double width, std::vector<twidget::Json>& out);
     /// The chat theme changed: `prefers-color-scheme` inside the document follows.
     void set_theme(bool dark, std::vector<twidget::Json>& out);
-    /// A touch from the host view, in CSS px. `action`: 0 down, 1 move, 2 up, 3 cancel.
-    std::vector<twidget::Json> touch(int action, double x, double y, int pointer, bool primary);
+    /// A pointer from the host view, in CSS px. `action`: 0 down, 1 move, 2 up, 3 cancel. A mouse
+    /// sends no touch events; `modifiers` is bit0 alt, bit1 ctrl, bit2 meta, bit3 shift.
+    std::vector<twidget::Json> touch(int action, double x, double y, int pointer, bool primary, bool mouse = false, int modifiers = 0);
+    /// A mouse over the view with no button down (`action` 0), or leaving it (1): hover state and
+    /// the over/out/enter/leave events.
+    std::vector<twidget::Json> hover(int action, double x, double y, int modifiers = 0);
+    /// A wheel or trackpad scroll over the view. `mode`: 0 pixels, 1 lines, 2 pages.
+    std::vector<twidget::Json> wheel(double x, double y, double dx, double dy, int mode, int modifiers = 0);
+    /// `type` keydown or keyup, with DOM `key` and `code`; the target is the body (no focus model).
+    std::vector<twidget::Json> key(const std::string& type, const std::string& key, const std::string& code, bool repeat, int modifiers);
+    /// One display frame: coalesced move events go out and animations advance. Returns renderer → host messages.
+    std::vector<twidget::Json> tick();
+    /// Something waits for the next frame: a running animation or a coalesced move.
+    bool wants_tick() const;
     /// A backend that decodes images asynchronously (the web) reports the size of image `id` here;
     /// the document is rebuilt with it. Returns renderer → host messages (a `size`, when it changed).
     std::vector<twidget::Json> image_ready(int id, float w, float h);
@@ -75,6 +91,19 @@ private:
         bool moved;
         bool primary;
         int pointer;
+        bool mouse;
+        int modifiers;
+    };
+    /// What an input event carries besides its type and target.
+    struct Input {
+        double x = 0, y = 0;
+        int pointer = 0;
+        bool primary = true;
+        bool mouse = false;
+        int buttons = 0;
+        int modifiers = 0;
+        int detail = 0;
+        int64_t related = 0;
     };
 
     // ops → shadow tree
@@ -94,9 +123,34 @@ private:
     int64_t widget_id_at(double x, double y, Rect* placement) const;
     bool wants_gesture(int64_t target) const;
     void emit_event(const char* type, int64_t target, const Rect& target_rect, const Touch& t, int action, std::vector<twidget::Json>& out);
+    twidget::Json event_json(const char* type, int64_t target, const Rect& target_rect, const Input& in) const;
+    /// Sends `ev` if the sandbox listens for its type; move-type events wait for the next tick, the
+    /// latest one per type and pointer.
+    void dispatch(twidget::Json ev, std::vector<twidget::Json>& out);
+    void flush_moves(std::vector<twidget::Json>& out);
+    void flush_pending(std::vector<twidget::Json>& out);
+    bool is_ancestor(int64_t ancestor, int64_t id) const;
+    std::vector<int64_t> chain(int64_t id) const;
+    // shadow tree → style attribute, with animation overrides
+    void write_style(const Node* n, std::string& out) const;
+    // animations
+    static double now_s();
+    void build_document();
+    void animate();
+    void apply_overrides(StyleOverrides sampled);
+    void queue_animation_events();
+    // canvas
+    Canvas* canvas_for(Node* n);
+    void run_canvas(Canvas& canvas, const twidget::Json& cmds);
+    void forget_canvas(int64_t id);
+    int canvas_font(const std::string& css, FontMetrics& metrics) override;
+    float canvas_text_width(int font, const std::string& text) override;
+    bool canvas_source(int64_t node, int& image, int& canvas, float& w, float& h) override;
+    int64_t canvas_allowance(int id) override;
     void freeze(const std::string& reason, bool fatal);
 
     std::unique_ptr<Container> container_;
+    Backend& backend_;
     double width_;
     double dpr_;
     bool dark_;
@@ -118,6 +172,21 @@ private:
     bool frozen_fatal_ = false;
     std::string last_size_;
     std::unordered_map<int, Touch> touches_;
+    int64_t hover_ = 0;
+    double hover_x_ = 0, hover_y_ = 0;
+    int click_count_ = 0;
+    double last_click_ms_ = -1e9, last_click_x_ = 0, last_click_y_ = 0;
+    std::vector<std::pair<std::string, twidget::Json>> pending_moves_;  // key "type:pointer", latest event
+    std::vector<twidget::Json> pending_events_;
+
+    Animator animator_;
+    StyleOverrides overrides_;
+    std::string sheets_key_;
+    bool animating_ = false;  // inside animate(): its own rebuild must not re-enter
+
+    std::unordered_map<int64_t, std::unique_ptr<Canvas>> canvases_;
+    std::unordered_map<std::string, std::pair<int, FontMetrics>> canvas_fonts_;
+    std::string binary_;  // the binary payload of the query being answered (imageData), base64
 };
 
 /// Rewrites `prefers-color-scheme` media queries into width queries litehtml can
