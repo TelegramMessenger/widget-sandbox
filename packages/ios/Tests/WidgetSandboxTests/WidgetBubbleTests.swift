@@ -100,6 +100,93 @@ final class WidgetBubbleTests: XCTestCase {
         XCTAssertNotNil(bubble.host)
         XCTAssertEqual(changes, [true, false])
     }
+
+    func testHostAdoptedAfterItsSlotTurnedVisibleIsVisibleAndGetsFrames() throws {
+        let feed = WidgetFeed()
+        var queued: [() -> Void] = []
+        feed.schedule = { queued.append($0) }
+        feed.delay = { _, block in queued.append(block) }
+        let html = """
+        <div style='height:40px'>Hi</div>
+        <script>
+        var frames = 0;
+        (function tick() { frames++; if (frames < 40) requestAnimationFrame(tick); })();
+        setTimeout(function () { console.log('probe hidden=' + document.hidden + ' frames=' + frames); }, 400);
+        </script>
+        """
+        var options = WidgetHost.Options()
+        options.visible = false
+        let queue = WidgetExecutor.makeQueue("WidgetBubbleTests.prepared")
+        var prepared: WidgetHost?
+        try queue.sync {
+            prepared = try WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in FrameRenderer() }, executor: WidgetExecutor(queue: queue))
+        }
+        let bubble = WidgetBubble(html: html, theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in FrameRenderer() })
+        bubble.preparedHost = {
+            defer { prepared = nil }
+            return prepared
+        }
+        let space = OneSlotSpace(bubble.slot, rect: CGRect(x: 0, y: 0, width: 300, height: 40))
+        feed.attach(space)
+        space.origin = 500
+        feed.update()
+        XCTAssertFalse(bubble.slot.isVisible)
+        XCTAssertNil(bubble.host)
+        space.origin = 0
+        feed.update()
+        XCTAssertTrue(bubble.slot.isVisible)
+        XCTAssertNil(bubble.host, "the adoption must still be in flight for this race")
+        let window = TestWindow.makeVisible()
+        defer { window.close() }
+        wait({ bubble.host != nil }, timeout: 5)
+        let host = try XCTUnwrap(bubble.host)
+        window.attach(host.view)
+        wait({ bubble.host?.diagnostics.logs.contains { $0.text.hasPrefix("probe ") } == true }, timeout: 5)
+        let probe = bubble.host?.diagnostics.logs.last { $0.text.hasPrefix("probe ") }?.text ?? ""
+        XCTAssertTrue(probe.contains("hidden=false"), probe)
+        let frames = Int(probe.components(separatedBy: "frames=").last ?? "") ?? 0
+        XCTAssertGreaterThan(frames, 10, probe)
+        withExtendedLifetime(queued) {}
+    }
+}
+
+private final class FrameRenderer: Renderer {
+    let view = PlatformView(frame: CGRect(x: 0, y: 0, width: 300, height: 40))
+    var onMessage: ((String) -> Void)?
+    var onDiag: ((String, String) -> Void)?
+    private var time = 0.0
+
+    func load() {
+        onMessage?("{\"type\":\"ready\"}")
+    }
+
+    func send(_ json: String) {
+        guard let data = json.data(using: .utf8), let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let type = message["type"] as? String else {
+            return
+        }
+        switch type {
+        case "ops":
+            onMessage?("{\"type\":\"size\",\"width\":300,\"height\":40}")
+        case "requestFrame":
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { [weak self] in
+                guard let self = self else {
+                    return
+                }
+                self.time += 16
+                self.onMessage?("{\"type\":\"frame\",\"time\":\(self.time)}")
+            }
+        case "query":
+            if let qid = message["qid"] as? Int {
+                onMessage?("{\"type\":\"result\",\"qid\":\(qid),\"result\":null}")
+            }
+        default:
+            break
+        }
+    }
+
+    func setTheme(_ theme: String) {}
+    func evaluate(_ script: String, completion: @escaping (String?) -> Void) { completion(nil) }
+    func destroy() {}
 }
 
 private final class OneSlotSpace: WidgetFeedSpace {

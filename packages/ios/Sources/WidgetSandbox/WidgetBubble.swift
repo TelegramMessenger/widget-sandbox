@@ -230,7 +230,7 @@ public final class WidgetBubble {
                 self.changed(diagnostics)
             }
             self.host = prepared
-            prepared.setVisible(bootVisible && self.options.visible && self.slot.isVisible)
+            prepared.setVisible(self.options.visible && self.slot.isVisible)
             self.configure?(prepared)
             self.onHostChange?()
             self.changed(prepared.diagnostics)
