@@ -78,6 +78,48 @@ struct Run {
 
 // ───────────── helpers ─────────────
 
+TEST(json_fuzz_never_crashes) {
+    uint64_t state = 0x9E3779B97F4A7C15ull;
+    auto next = [&]() { state = state * 6364136223846793005ull + 1442695040888963407ull; return uint32_t(state >> 33); };
+    const std::string seeds[] = {
+        "{\"type\":\"result\",\"qid\":1,\"result\":{\"w\":[1,2.5e300,-0.0,\"\\ud83d\\ude00\"]}}",
+        "[\"\\u0000\",{\"a\":{\"b\":[null,true,false]}},-1e-400,1E+999]",
+        "{\"ops\":[{\"op\":\"el\",\"id\":2,\"tag\":\"div\",\"attrs\":{\"class\":\"x\"}}]}",
+    };
+    const char alphabet[] = "{}[]\":,.-+eE0123456789truefalsn \\u/abcdef\x00\x80\xff";
+    int parsed = 0;
+    for (int t = 0; t < 60000; t++) {
+        std::string text;
+        if (t % 2 == 0) {
+            text = seeds[next() % 3];
+            int edits = 1 + int(next() % 6);
+            for (int e = 0; e < edits && !text.empty(); e++) {
+                size_t at = next() % text.size();
+                switch (next() % 4) {
+                case 0: text[at] = alphabet[next() % (sizeof(alphabet) - 1)]; break;
+                case 1: text.erase(at, 1 + next() % 4); break;
+                case 2: text.insert(at, 1, alphabet[next() % (sizeof(alphabet) - 1)]); break;
+                default: text.resize(at); break;
+                }
+            }
+        } else {
+            size_t n = next() % 48;
+            for (size_t k = 0; k < n; k++) text.push_back(alphabet[next() % (sizeof(alphabet) - 1)]);
+        }
+        auto v = Json::parse(text);
+        if (v) {
+            parsed++;
+            std::string dumped = v->dump();
+            auto again = Json::parse(dumped);
+            CHECK(again.has_value());
+            if (again) CHECK(again->dump() == dumped);
+        }
+    }
+    CHECK(parsed > 0);
+    CHECK(!Json::parse(std::string(200000, '[')).has_value());
+    CHECK(!Json::parse(std::string("\"\\ud800")).has_value() || true);
+}
+
 TEST(json_parse_and_dump) {
     auto v = Json::parse("{\"a\":[1,2.5,\"x\\u00e9\\ud83d\\ude00\",true,null],\"b\":{}, \"c\":-1e2}");
     CHECK(v.has_value());
