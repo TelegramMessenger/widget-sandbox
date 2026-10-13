@@ -82,3 +82,31 @@ final class CanvasWordsTests: XCTestCase {
         XCTAssertFalse(batch([], ""))
     }
 }
+
+final class CanvasWordsFuzzTests: XCTestCase {
+    func testRandomWordPayloadsNeverCrash() {
+        var state: UInt64 = 0x9E3779B97F4A7C15
+        func next() -> UInt64 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return state >> 33
+        }
+        let specials: [Double] = [0, -0.0, 1, -1, 0.5, .nan, .infinity, -.infinity, 1e300, -1e300, 4096, 65536, 2_000_000, Double(Int.max), Double(Int32.min)]
+        let alphabet = ["", "a", "font", "é", "😀", "\u{0}", "\\", "\"", "icon:x", "\u{FFFF}"]
+        for _ in 0..<20_000 {
+            let n = Int(next() % 24)
+            var words: [Double] = []
+            for _ in 0..<n {
+                words.append(next() % 3 == 0 ? specials[Int(next() % UInt64(specials.count))] : Double(Int(next() % 40)) - 8)
+            }
+            var joined = ""
+            for _ in 0..<Int(next() % 4) {
+                joined += alphabet[Int(next() % UInt64(alphabet.count))]
+            }
+            let batch = words.withUnsafeBufferPointer { CanvasWords.batch(words: $0, strings: joined) }
+            if let batch = batch {
+                _ = CanvasWords.envelope(batch)
+                XCTAssertLessThanOrEqual(batch.strings.reduce(0) { $0 + $1.utf16.count }, joined.utf16.count)
+            }
+        }
+    }
+}
