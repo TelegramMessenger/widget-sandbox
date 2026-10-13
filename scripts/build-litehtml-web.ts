@@ -29,7 +29,7 @@ const cxxFlags = ['-O2', '-std=c++20', '-fwasm-exceptions', '-Wno-deprecated-dec
 const cFlags = ['-O2', '-std=gnu99', '-Wno-void-pointer-to-enum-cast', ...includes];
 
 const sources = [
-  path.join(core, 'src', 'renderer.cpp'),
+  ...['renderer.cpp', 'css.cpp', 'animations.cpp', 'canvas.cpp'].map((f) => path.join(core, 'src', f)),
   path.join(core, 'src', 'web', 'wasm.cpp'),
   ...fs.readdirSync(path.join(lite, 'src')).filter((f) => f.endsWith('.cpp')).map((f) => path.join(lite, 'src', f)),
   ...fs.readdirSync(path.join(lite, 'src', 'gumbo')).filter((f) => f.endsWith('.c')).map((f) => path.join(lite, 'src', 'gumbo', f)),

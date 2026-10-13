@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -37,12 +38,38 @@ enum class Cmd {
     FillEllipse,    // rect (bounding box), color
     StrokeEllipse,  // rect, color, width
     Text,           // text, font, color, x, y (baseline)
-    Image,          // image, rect (destination), radii + clip from the background layer
+    Image,          // image (or canvas), rect (destination), radii + clip from the background layer
     Linear,         // rect (border box), radii, clip, ax/ay → bx/by, stops
     Radial,         // rect, radii, clip, centre (ax, ay), radii (bx, by), stops
     Conic,          // rect, radii, clip, centre (ax, ay), angle (bx, degrees clockwise from the top), stops
     ClipPush,       // rect, radii: intersect the clip until the matching ClipPop
     ClipPop,
+    // Only from twidget's litehtml fork (TW_LITEHTML_TWIDGET):
+    Path,           // path (SVG geometry, fill and stroke), in CSS px
+    GroupPush,      // matrix, concatenated onto the current transform; opacity over the group; hidden = draw nothing until GroupPop
+    GroupPop,
+    Shadow,         // rect (border box, or padding box when inset), radii, color, offset (ax, ay), blur (bx), spread (by), inset
+};
+
+struct Path {
+    enum Op : uint8_t { Move, Line, Quad, Cubic, Close };
+    std::vector<Op> ops;
+    std::vector<float> points;  // 2 per Move/Line, 4 per Quad, 6 per Cubic
+    bool fill = false;
+    bool evenodd = false;
+    Color fill_color;
+    // fill_gradient: 0 none, 1 linear (x1, y1 → x2, y2), 2 radial (centre x1, y1, radius r, focus fx, fy)
+    int gradient = 0;
+    float x1 = 0, y1 = 0, x2 = 0, y2 = 0, r = 0, fx = 0, fy = 0;
+    std::vector<Stop> stops;
+    bool stroke = false;
+    Color stroke_color;
+    float stroke_width = 1;
+    int line_cap = 0;   // 0 butt, 1 round, 2 square
+    int line_join = 0;  // 0 miter, 1 round, 2 bevel
+    float miter_limit = 4;
+    std::vector<float> dashes;
+    float dash_offset = 0;
 };
 
 struct Command {
@@ -57,8 +84,14 @@ struct Command {
     std::string text;
     float x = 0, y = 0;
     int image = 0;
+    int canvas = 0;  // Image: a canvas bitmap (Backend::canvas_run) instead of a decoded image
     float ax = 0, ay = 0, bx = 0, by = 0;
     std::vector<Stop> stops;
+    std::shared_ptr<const Path> path;
+    float opacity = 1;
+    float matrix[6] = {1, 0, 0, 1, 0, 0};  // a, b, c, d, tx, ty
+    bool hidden = false;
+    bool inset = false;
 };
 
 using DisplayList = std::vector<Command>;

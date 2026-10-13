@@ -5,7 +5,11 @@
 // LitehtmlBackend.kt in src/android/jni.cpp. All calls on the main thread.
 #pragma once
 
+#include "canvas_ops.h"
+
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace twlite {
 
@@ -30,6 +34,14 @@ public:
     /// Decodes a `data:` image (anything else is refused by the container before this) and keeps it
     /// under `id` for the painter; `w`/`h` get the intrinsic size in CSS px. False when undecodable.
     virtual bool load_image(int id, const std::string& url, float& w, float& h) = 0;
+
+    // ── 2D canvas: optional. Without it a <canvas> stays transparent and reads back as zeros. ──
+    /// Runs `ops` on the w × h px bitmap of canvas `id`, created on the first call; a Reset op
+    /// reallocates it. The painter draws it wherever a display list Image names `canvas = id`.
+    virtual void canvas_run(int /*id*/, int /*w*/, int /*h*/, const std::vector<CanvasOp>& /*ops*/) {}
+    /// Straight-alpha RGBA of a region; pixels outside the bitmap are transparent. False when unsupported.
+    virtual bool canvas_read(int /*id*/, int /*x*/, int /*y*/, int /*w*/, int /*h*/, std::vector<uint8_t>& /*rgba*/) { return false; }
+    virtual void canvas_release(int /*id*/) {}
 };
 
 } // namespace twlite

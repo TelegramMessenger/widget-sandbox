@@ -1,12 +1,16 @@
 #include "renderer.h"
 
+#include "css.h"
+
 #include <litehtml.h>
+#include <litehtml/html_tag.h>
 #include <litehtml/render_item.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
 
 using twidget::Json;
 
@@ -123,6 +127,33 @@ double now_ms() {
     return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
 }
 
+std::string base64_encode(const std::vector<uint8_t>& in) {
+    static const char* A = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((in.size() + 2) / 3 * 4);
+    size_t i = 0;
+    for (; i + 2 < in.size(); i += 3) {
+        uint32_t v = (uint32_t(in[i]) << 16) | (uint32_t(in[i + 1]) << 8) | in[i + 2];
+        out += A[v >> 18]; out += A[(v >> 12) & 63]; out += A[(v >> 6) & 63]; out += A[v & 63];
+    }
+    if (i + 1 == in.size()) {
+        uint32_t v = uint32_t(in[i]) << 16;
+        out += A[v >> 18]; out += A[(v >> 12) & 63]; out += "==";
+    } else if (i + 2 == in.size()) {
+        uint32_t v = (uint32_t(in[i]) << 16) | (uint32_t(in[i + 1]) << 8);
+        out += A[v >> 18]; out += A[(v >> 12) & 63]; out += A[(v >> 6) & 63]; out += '=';
+    }
+    return out;
+}
+
+/// Move-type events: only the latest one per type and pointer goes out, once per frame.
+bool coalesced(const std::string& type) {
+    return type == "pointermove" || type == "mousemove" || type == "touchmove" || type == "wheel";
+}
+
+constexpr int MAX_CANVASES = 64;
+constexpr double DOUBLE_CLICK_MS = 500;
+
 } // namespace
 
 // ───────────────────────── color scheme rewrite ─────────────────────────
@@ -178,13 +209,47 @@ public:
     }
 
     // document lifecycle
+    /// True when the last build patched the previous document instead of parsing a new one.
+    bool patched() const { return patched_; }
+
     void build(const std::string& html, int vp_height) {
+        bool viewport_changed = vp_height != vp_height_;
         vp_height_ = vp_height;
+        patched_ = false;
+#ifdef TW_LITEHTML_TWIDGET
+        // twidget's litehtml fork patches a document made by createUpdatableFromString in place when the
+        // new HTML only changes what it can patch (styles, text, classes, attributes, child lists), and
+        // refuses otherwise, leaving the document as it was.
+        bool changed = true;
+        if (doc_ && doc_->update_from_string(html, &changed)) {
+            patched_ = true;
+            if (viewport_changed) doc_->media_changed();
+            float width = float(r_.width_);
+            if (!changed && !viewport_changed && width == rendered_width_) return;
+            if (!doc_->last_patch_paint_only() || viewport_changed || width != rendered_width_) {
+                doc_->render(litehtml::pixel_t(width));
+                rendered_width_ = width;
+            }
+            // A child-list patch replaces elements; a paint-only one cannot.
+            if (!doc_->last_patch_paint_only()) index();
+            return;
+        }
+#endif
         elements_.clear();
         doc_ = nullptr;
+#ifdef TW_LITEHTML_TWIDGET
+        doc_ = litehtml::document::createUpdatableFromString(html, this, std::string(litehtml::master_css) + UA_EXTRA);
+#else
         doc_ = litehtml::document::createFromString(litehtml::estring(html), this, std::string(litehtml::master_css) + UA_EXTRA);
+#endif
         if (!doc_) return;
-        doc_->render(litehtml::pixel_t(float(r_.width_)));
+        rendered_width_ = float(r_.width_);
+        doc_->render(litehtml::pixel_t(rendered_width_));
+        index();
+    }
+
+    void index() {
+        elements_.clear();
         if (auto root = doc_->root()) {
             for (auto& el : root->select_all("[data-twid]")) {
                 if (const char* a = el->get_attr("data-twid")) elements_[std::strtoll(a, nullptr, 10)] = el;
@@ -192,6 +257,66 @@ public:
         }
     }
     double height() const { return doc_ ? double(doc_->height()) : 0.0; }
+#ifdef TW_LITEHTML_TWIDGET
+    /// The declared values of `names` on every displayed element with a widget id that declares
+    /// one of `gates`, or whose id is in `always`. What the fork records as raw declarations.
+    std::unordered_map<int64_t, Declared> declarations(const std::vector<std::string>& names, const std::vector<std::string>& gates, const std::vector<int64_t>& always) const {
+        std::unordered_map<int64_t, Declared> out;
+        if (!doc_ || !doc_->root()) return out;
+        std::function<void(const litehtml::element::ptr&)> visit = [&](const litehtml::element::ptr& el) {
+            if (el->css().get_display() == litehtml::display_none) return;
+            if (auto tag = std::dynamic_pointer_cast<litehtml::html_tag>(el)) {
+                if (const char* a = tag->get_attr("data-twid")) {
+                    int64_t id = std::strtoll(a, nullptr, 10);
+                    bool listed = std::find(always.begin(), always.end(), id) != always.end();
+                    bool open = listed;
+                    for (size_t i = 0; !open && i < gates.size(); i++) open = !tag->raw_declaration(gates[i]).empty();
+                    if (open) {
+                        Declared found;
+                        for (const std::string& name : names) {
+                            std::string raw = tag->raw_declaration(name);
+                            if (!raw.empty()) found.emplace(name, std::move(raw));
+                        }
+                        if (!found.empty() || listed) out[id] = std::move(found);
+                    }
+                }
+            }
+            for (const auto& child : el->children()) visit(child);
+        };
+        visit(doc_->root());
+        return out;
+    }
+    /// Replaces the style attribute of elements in place (the fork's style holes), relaying out
+    /// only when a value can move boxes. False when the document cannot patch them.
+    bool restyle(const std::vector<std::pair<litehtml::element::ptr, std::string>>& patches) {
+        if (!doc_) return false;
+        bool changed = false;
+        if (!doc_->update_styles(patches, &changed)) return false;
+        patched_ = true;
+        if (changed && !doc_->last_patch_paint_only()) {
+            rendered_width_ = float(r_.width_);
+            doc_->render(litehtml::pixel_t(rendered_width_));
+        }
+        return true;
+    }
+#endif
+    /// The pointer left the view: :hover ends. True when something must repaint.
+    bool leave() {
+        if (!doc_) return false;
+        bool redraw = false;
+        doc_->on_mouse_leave([&](const litehtml::position&) { redraw = true; });
+        return redraw;
+    }
+    /// A decoded image for the canvas's drawImage: loads `url` like an <img> would.
+    bool image_of(const std::string& url, int& id, float& w, float& h) {
+        load_image(url.c_str(), nullptr, false);
+        auto it = images_.find(url);
+        if (it == images_.end() || !it->second.id) return false;
+        id = it->second.id;
+        w = it->second.w;
+        h = it->second.h;
+        return true;
+    }
     /// An asynchronously decoded image got its size; true when a known image changed.
     bool image_ready(int id, float w, float h) {
         for (auto& [url, img] : images_) {
@@ -241,6 +366,9 @@ public:
     }
     DisplayList draw() {
         list_.clear();
+#ifdef TW_LITEHTML_TWIDGET
+        groups_.clear();
+#endif
         if (doc_) {
             litehtml::position clip(0, 0, litehtml::pixel_t(float(r_.width_)), litehtml::pixel_t(float(vp_height_)));
             doc_->draw(0, 0, 0, &clip);
@@ -409,7 +537,15 @@ public:
         std::string url = src;
         if (images_.count(url)) return;
         Image img;
-        if (url.rfind("data:", 0) == 0) {
+        if (url.rfind("tw-canvas:", 0) == 0) {
+            // The renderer's own source for a <canvas>: tw-canvas:<node id>/<w>x<h>, drawn from the backend's bitmap.
+            int id = 0, w = 0, h = 0;
+            if (std::sscanf(url.c_str() + 10, "%d/%dx%d", &id, &w, &h) == 3) {
+                img.canvas = id;
+                img.w = float(w);
+                img.h = float(h);
+            }
+        } else if (url.rfind("data:", 0) == 0) {
             // The backend may answer the size later (`image_ready`): the id stays, the size is 0 until then.
             img.id = ++next_image_;
             if (!backend_.load_image(img.id, url, img.w, img.h)) img.id = 0;
@@ -426,10 +562,11 @@ public:
     }
     void draw_image(litehtml::uint_ptr, const litehtml::background_layer& layer, const std::string& url, const std::string&) override {
         auto it = images_.find(url);
-        if (it == images_.end() || !it->second.id) return;
+        if (it == images_.end() || (!it->second.id && !it->second.canvas)) return;
         Command c;
         c.kind = Cmd::Image;
         c.image = it->second.id;
+        c.canvas = it->second.canvas;
         c.rect = rect_of(layer.origin_box);
         c.radii = radii_of(layer.border_radius);
         c.clip = rect_of(layer.clip_box);
@@ -556,6 +693,68 @@ public:
         c.kind = Cmd::ClipPop;
         list_.push_back(std::move(c));
     }
+#ifdef TW_LITEHTML_TWIDGET
+    void draw_box_shadow(litehtml::uint_ptr, const litehtml::position& box, const litehtml::border_radiuses& radius, const litehtml::shadow_paint& shadow) override {
+        if (shadow.color.alpha == 0) return;
+        Command c;
+        c.kind = Cmd::Shadow;
+        c.rect = rect_of(box);
+        c.radii = radii_of(radius);
+        c.color = color_of(shadow.color);
+        c.ax = float(shadow.x);
+        c.ay = float(shadow.y);
+        c.bx = float(shadow.blur);
+        c.by = float(shadow.spread);
+        c.inset = shadow.inset;
+        list_.push_back(std::move(c));
+    }
+    void begin_group(litehtml::uint_ptr, const litehtml::paint_group& group) override {
+        // Backface visibility needs the accumulated matrix: a flip undone by an outer flip is a front face.
+        litehtml::transform_matrix total = groups_.empty() ? group.matrix : group.matrix.then(groups_.back());
+        groups_.push_back(total);
+        Command c;
+        c.kind = Cmd::GroupPush;
+        const auto& m = group.matrix;
+        float values[6] = {m.a, m.b, m.c, m.d, m.tx, m.ty};
+        std::copy(std::begin(values), std::end(values), c.matrix);
+        c.opacity = group.opacity;
+        c.hidden = group.backface_hidden && total.a * total.d - total.b * total.c < 0;
+        c.rect = rect_of(group.bounds);
+        list_.push_back(std::move(c));
+    }
+    void end_group(litehtml::uint_ptr) override {
+        if (!groups_.empty()) groups_.pop_back();
+        Command c;
+        c.kind = Cmd::GroupPop;
+        list_.push_back(std::move(c));
+    }
+    void draw_path(litehtml::uint_ptr, const litehtml::vector_path& path) override {
+        if (!path.fill && !path.stroke) return;
+        auto p = std::make_shared<Path>();
+        p->ops.reserve(path.ops.size());
+        for (auto op : path.ops) p->ops.push_back(Path::Op(op));
+        p->points = path.points;
+        p->fill = path.fill;
+        p->evenodd = path.evenodd;
+        p->fill_color = color_of(path.fill_color);
+        const auto& g = path.fill_gradient;
+        p->gradient = g.type;
+        p->x1 = g.x1; p->y1 = g.y1; p->x2 = g.x2; p->y2 = g.y2; p->r = g.r; p->fx = g.fx; p->fy = g.fy;
+        for (const auto& [offset, color] : g.stops) p->stops.push_back(Stop{offset, color_of(color)});
+        p->stroke = path.stroke;
+        p->stroke_color = color_of(path.stroke_color);
+        p->stroke_width = path.stroke_width;
+        p->line_cap = path.line_cap;
+        p->line_join = path.line_join;
+        p->miter_limit = path.miter_limit;
+        p->dashes = path.dashes;
+        p->dash_offset = path.dash_offset;
+        Command c;
+        c.kind = Cmd::Path;
+        c.path = std::move(p);
+        list_.push_back(std::move(c));
+    }
+#endif
     void get_viewport(litehtml::position& v) const override {
         v.x = 0; v.y = 0;
         v.width = litehtml::pixel_t(float(r_.width_));
@@ -588,6 +787,7 @@ private:
     };
     struct Image {
         int id = 0;
+        int canvas = 0;
         float w = 0, h = 0;
     };
 
@@ -628,7 +828,12 @@ private:
     Renderer& r_;
     Backend& backend_;
     litehtml::document::ptr doc_;
+#ifdef TW_LITEHTML_TWIDGET
+    std::vector<litehtml::transform_matrix> groups_;  // accumulated, during draw()
+#endif
     int vp_height_ = int(MIN_HEIGHT);
+    float rendered_width_ = 0;
+    bool patched_ = false;
     std::unordered_map<int64_t, litehtml::element::ptr> elements_;
     std::unordered_map<litehtml::uint_ptr, Font> fonts_;
     litehtml::uint_ptr next_font_ = 0;
@@ -641,7 +846,7 @@ private:
 // ───────────────────────── Renderer ─────────────────────────
 
 Renderer::Renderer(double width, double dpr, bool dark, Backend& backend)
-    : container_(std::make_unique<Container>(*this, backend)), width_(width), dpr_(dpr), dark_(dark), vp_height_(int(MIN_HEIGHT)) {
+    : container_(std::make_unique<Container>(*this, backend)), backend_(backend), width_(width), dpr_(dpr), dark_(dark), vp_height_(int(MIN_HEIGHT)) {
     auto make = [](const char* tag) {
         auto n = std::make_unique<Node>();
         n->tag = tag;
@@ -656,7 +861,12 @@ Renderer::Renderer(double width, double dpr, bool dark, Backend& backend)
     rebuild();
 }
 
-Renderer::~Renderer() = default;
+Renderer::~Renderer() {
+    for (const auto& [id, canvas] : canvases_) backend_.canvas_release(canvas->id());
+    for (const auto& [css, font] : canvas_fonts_) backend_.delete_font(font.first);
+}
+
+double Renderer::now_s() { return now_ms() / 1000; }
 
 uint32_t Renderer::px_width() const { return uint32_t(std::ceil(width_ * dpr_)); }
 uint32_t Renderer::px_height() const { return uint32_t(std::ceil(vp_height_ * dpr_)); }
@@ -670,9 +880,20 @@ std::vector<Json> Renderer::receive(const Json& msg) {
         report_size(out);
     } else if (type == "query") {
         Json res = Json::object();
+        binary_.clear();
         res.set("type", "result").set("qid", msg["qid"]);
         res.set("result", msg.find("query") ? answer(msg["query"]) : Json::object().set("error", "no query"));
+        if (!binary_.empty()) res.set("binaryBase64", std::move(binary_));
+        binary_.clear();
         out.push_back(std::move(res));
+    } else if (type == "anim") {
+        if (!frozen_) {
+            // `now` is the sandbox clock when the batch was sent: it maps the records' start times onto ours.
+            double now = now_ms();
+            animator_.apply_web(msg, now - msg["now"].asNumber(now));
+            animate();
+            report_size(out);
+        }
     } else if (type == "listen") {
         interest_.clear();
         for (const Json& t : msg["types"].arr()) if (t.isString()) interest_.insert(t.asString());
@@ -683,9 +904,15 @@ std::vector<Json> Renderer::receive(const Json& msg) {
         freeze(msg["reason"].asString(), msg["fatal"].asBool());
         rebuild();
     }
+    flush_pending(out);
+    return out;
+}
+
+void Renderer::flush_pending(std::vector<Json>& out) {
+    for (auto& ev : pending_events_) out.push_back(std::move(ev));
+    pending_events_.clear();
     for (auto& v : pending_violations_) out.push_back(Json::object().set("type", "violation").set("detail", v));
     pending_violations_.clear();
-    return out;
 }
 
 void Renderer::set_width(double width, std::vector<Json>& out) {
@@ -726,6 +953,10 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
         if (nodes_.count(id)) return;  // the validator never reuses a live id; keep the first
         auto n = std::make_unique<Node>();
         n->kind = Node::Element;
+        if (!css::is_tag_name(str("tag"))) {
+            out.push_back(Json::object().set("type", "violation").set("detail", "element name"));
+            return;
+        }
         n->id = id;
         n->tag = lower(str("tag"));
         n->svg = op["ns"].asString() == "svg";
@@ -751,12 +982,23 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
     bool is_root = n == html_node_.get() || n == head_node_.get() || n == body_node_.get();
     if (kind == "attr") {
         const std::string& name = str("name");
-        if (starts_with_on(name)) {
-            out.push_back(Json::object().set("type", "violation").set("detail", "attribute " + name));
+        if (starts_with_on(name) || !css::is_attribute_name(name)) {
+            out.push_back(Json::object().set("type", "violation").set("detail", "attribute " + name.substr(0, 64)));
             return;
         }
-        for (auto& a : n->attrs) if (a.first == name) { a.second = str("value"); return; }
-        n->attrs.emplace_back(name, str("value"));
+        bool found = false;
+        for (auto& a : n->attrs) if (a.first == name) { a.second = str("value"); found = true; }
+        if (!found) n->attrs.emplace_back(name, str("value"));
+        // Setting a canvas's width or height clears its bitmap, as in a browser.
+        if (n->tag == "canvas" && (name == "width" || name == "height")) {
+            if (auto it = canvases_.find(n->id); it != canvases_.end()) {
+                int w = it->second->width(), h = it->second->height();
+                (name == "width" ? w : h) = std::max(0, std::atoi(str("value").c_str()));
+                std::vector<CanvasOp> ops;
+                it->second->resize(w, h, ops);
+                backend_.canvas_run(it->second->id(), it->second->width(), it->second->height(), ops);
+            }
+        }
     } else if (kind == "rattr") {
         const std::string& name = str("name");
         n->attrs.erase(std::remove_if(n->attrs.begin(), n->attrs.end(), [&](auto& a) { return a.first == name; }), n->attrs.end());
@@ -787,7 +1029,11 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
         detach(n);
         forget(n);
     } else if (kind == "style") {
-        const std::string& name = str("name");
+        std::string name = css::starts_with(str("name"), "--") ? str("name") : lower(str("name"));
+        if (!css::is_property_name(name)) {
+            out.push_back(Json::object().set("type", "violation").set("detail", "property name"));
+            return;
+        }
         std::string value = str("value");
         if (op["important"].asBool() && !value.empty()) value += " !important";
         auto it = std::find_if(n->styles.begin(), n->styles.end(), [&](auto& s) { return s.first == name; });
@@ -832,7 +1078,9 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
         }
         // focus/blur/scroll*/select*: nothing to do without a focus model or scrolling
     } else if (kind == "canvas") {
-        // TODO: replay CanvasCmd into the display list; the element stays an empty box (same gap as the Blitz prototype).
+        if (n->tag == "canvas" && !n->svg) {
+            if (Canvas* canvas = canvas_for(n)) run_canvas(*canvas, op["cmds"]);
+        }
     }
 }
 
@@ -858,6 +1106,7 @@ void Renderer::detach(Node* n) {
 }
 
 void Renderer::forget(Node* n) {
+    forget_canvas(n->id);
     for (Node* c : n->children) {
         c->parent = nullptr;
         forget(c);
@@ -875,6 +1124,7 @@ void Renderer::serialize_node(const Node* n, std::string& out) const {
     case Node::Element: break;
     }
     if (n->tag == "script" || n->tag == "template") return;  // never forwarded by the validator; belt and braces
+    if (!css::is_tag_name(n->tag)) return;
     out.push_back('<');
     out += n->tag;
     if (n->id) {
@@ -882,30 +1132,31 @@ void Renderer::serialize_node(const Node* n, std::string& out) const {
         out += std::to_string(n->id);
         out.push_back('"');
     }
-    std::string style;
+    // The fork lays a <canvas> out as an image: its source is the backend's bitmap.
+    const Canvas* canvas = nullptr;
+    if (n->tag == "canvas" && !n->svg) {
+        if (auto it = canvases_.find(n->id); it != canvases_.end()) canvas = it->second.get();
+    }
+    if (canvas) out += " src=\"tw-canvas:" + std::to_string(canvas->id()) + "/" + std::to_string(canvas->width()) + "x" + std::to_string(canvas->height()) + "\"";
+    bool styled = !n->styles.empty() || overrides_.count(n->id);
     for (const auto& [name, value] : n->attrs) {
-        if (name == "style") { style = value; continue; }
+        if (name == "style") { styled = true; continue; }
+        if ((canvas && name == "src") || !css::is_attribute_name(name)) continue;
         out.push_back(' ');
         out += name;
         out += "=\"";
         escape_attr(value, out);
         out.push_back('"');
     }
-    if (!n->styles.empty() || !style.empty()) {
+    if (styled) {
         out += " style=\"";
-        escape_attr(style, out);
-        for (const auto& [name, value] : n->styles) {
-            if (!out.empty() && out.back() != '"' && out.back() != ';') out.push_back(';');
-            escape_attr(name, out);
-            out.push_back(':');
-            escape_attr(value, out);
-        }
+        write_style(n, out);
         out.push_back('"');
     }
     out.push_back('>');
     if (!n->svg && is_void(n->tag)) return;
     if (n->tag == "style") {
-        std::string css = rewrite_color_scheme(n->data, dark_);
+        std::string css = css::resolve_light_dark(rewrite_color_scheme(n->data, dark_), dark_);
         size_t p = 0;
         while ((p = css.find("</", p)) != std::string::npos) { css.replace(p, 2, "<\\/"); p += 3; }
         out += css;
@@ -920,6 +1171,30 @@ void Renderer::serialize_node(const Node* n, std::string& out) const {
     out.push_back('>');
 }
 
+void Renderer::write_style(const Node* n, std::string& out) const {
+    // Built plain, escaped once: the same text is also handed to the fork's style holes, which must
+    // match what this writes into the HTML byte for byte.
+    std::string plain;
+    for (const auto& [name, value] : n->attrs)
+        if (name == "style") plain = css::resolve_light_dark(value, dark_);
+    auto declare = [&](const std::string& name, const std::string& value) {
+        if (!plain.empty() && plain.back() != ';') plain.push_back(';');
+        plain += name;
+        plain.push_back(':');
+        plain += css::resolve_light_dark(value, dark_);
+    };
+    for (const auto& [name, value] : n->styles)
+        if (css::is_property_name(name)) declare(name, value);
+    if (auto it = overrides_.find(n->id); n->id && it != overrides_.end()) {
+        // The fork records nothing after this marker as declared, so animated values never feed back
+        // into the next scan as the element's own.
+        declare("-lh-anim", "1");
+        for (const auto& [name, value] : it->second)
+            if (css::is_property_name(name)) declare(name, value);
+    }
+    escape_attr(plain, out);
+}
+
 std::string Renderer::serialize() const {
     std::string out;
     out.reserve(4096);
@@ -929,17 +1204,17 @@ std::string Renderer::serialize() const {
     out += "<html";
     if (html->id) out += " data-twid=\"" + std::to_string(html->id) + "\"";
     if (frozen_) out += frozen_fatal_ ? " data-tw-frozen=\"fatal\"" : " data-tw-frozen=\"paused\"";
-    std::string style;
+    bool styled = !html->styles.empty() || overrides_.count(html->id);
     for (const auto& [name, value] : html->attrs) {
-        if (name == "style") { style = value; continue; }
+        if (name == "style") { styled = true; continue; }
+        if (!css::is_attribute_name(name)) continue;
         out += " " + name + "=\"";
         escape_attr(value, out);
         out.push_back('"');
     }
-    if (!style.empty() || !html->styles.empty()) {
+    if (styled) {
         out += " style=\"";
-        escape_attr(style, out);
-        for (const auto& [name, value] : html->styles) { out += ";" + name + ":"; escape_attr(value, out); }
+        write_style(html, out);
         out.push_back('"');
     }
     out.push_back('>');
@@ -972,6 +1247,11 @@ std::string Renderer::serialize() const {
 }
 
 void Renderer::rebuild() {
+    build_document();
+    animate();
+}
+
+void Renderer::build_document() {
     double t0 = now_ms();
     html_ = serialize();
     double t1 = now_ms();
@@ -986,6 +1266,7 @@ void Renderer::rebuild() {
         double b = now_ms();
         stats_.parse_ms += b - a;  // litehtml lays out inside createFromString+render; not separable
         stats_.passes++;
+        if (pass == 0 && container_->patched()) stats_.patched++;
         int h = int(std::ceil(std::clamp(container_->height(), MIN_HEIGHT, MAX_HEIGHT)));
         if (h == vp_height_) break;
         vp_height_ = h;
@@ -993,6 +1274,207 @@ void Renderer::rebuild() {
     doc_height_ = std::ceil(container_->height());
     stats_.builds++;
     dirty_ = true;
+}
+
+// ───────────────────────── animations ─────────────────────────
+
+void Renderer::animate() {
+#ifdef TW_LITEHTML_TWIDGET
+    if (animating_ || frozen_) return;
+    animating_ = true;
+    double now = now_s();
+    std::vector<std::string> sheets;
+    std::string key;
+    std::function<void(const Node*)> visit = [&](const Node* n) {
+        if (n->kind != Node::Element) return;
+        if (n->tag == "style") {
+            sheets.push_back(css::resolve_light_dark(rewrite_color_scheme(n->data, dark_), dark_));
+            key += sheets.back();
+            key.push_back('\x01');
+            return;
+        }
+        for (const Node* c : n->children) visit(c);
+    };
+    visit(html_node_.get());
+    if (key != sheets_key_) {
+        sheets_key_ = std::move(key);
+        animator_.set_style_sheets(sheets);
+    }
+    animator_.prune([this](int64_t id) { return node(id) != nullptr; });
+    auto declarations = container_->declarations(Animator::watched(), Animator::entry_properties(), {});
+    animator_.underlying.clear();
+    auto targets = animator_.web_targets();
+    if (!targets.empty()) {
+        // Web Animations targets are read whatever they declare: their keyframes compose onto these values.
+        std::vector<std::string> names = Animator::watched();
+        for (int64_t id : targets)
+            for (const std::string& p : animator_.web_properties(id))
+                if (std::find(names.begin(), names.end(), p) == names.end()) names.push_back(p);
+        for (auto& [id, values] : container_->declarations(names, {}, targets)) {
+            auto& declared = declarations[id];
+            for (const auto& [k, v] : values)
+                if (!css::starts_with(k, "animation") && !css::starts_with(k, "transition")) declared.emplace(k, v);
+            animator_.underlying[id] = std::move(values);
+        }
+    }
+    animator_.update(declarations, now);
+    auto sampled = animator_.sample(now);
+    queue_animation_events();
+    if (sampled != overrides_) {
+        overrides_ = std::move(sampled);
+        build_document();
+    }
+    animating_ = false;
+#endif
+}
+
+void Renderer::apply_overrides(StyleOverrides sampled) {
+    if (sampled == overrides_) return;
+    std::vector<int64_t> changed;
+    for (const auto& [id, values] : sampled) {
+        auto it = overrides_.find(id);
+        if (it == overrides_.end() || it->second != values) changed.push_back(id);
+    }
+    for (const auto& [id, values] : overrides_)
+        if (!sampled.count(id)) changed.push_back(id);
+    overrides_ = std::move(sampled);
+#ifdef TW_LITEHTML_TWIDGET
+    // An animation frame changes style attributes only: patch them in place instead of serialising
+    // the whole tree. Falls back to a build when an element has no style attribute yet, or the
+    // document height moved.
+    std::vector<std::pair<litehtml::element::ptr, std::string>> patches;
+    bool ok = true;
+    for (int64_t id : changed) {
+        const Node* n = node(id);
+        auto el = container_->element(id);
+        if (!n || !el) {
+            ok = false;
+            break;
+        }
+        std::string style;
+        write_style(n, style);
+        patches.emplace_back(std::move(el), std::move(style));
+    }
+    double t0 = now_ms();
+    if (ok && container_->restyle(patches)) {
+        int h = int(std::ceil(std::clamp(container_->height(), MIN_HEIGHT, MAX_HEIGHT)));
+        if (h == vp_height_) {
+            doc_height_ = std::ceil(container_->height());
+            stats_.parse_ms = now_ms() - t0;
+            stats_.serialize_ms = 0;
+            stats_.passes = 1;
+            stats_.builds++;
+            stats_.patched++;
+            dirty_ = true;
+            return;
+        }
+    }
+#endif
+    build_document();
+}
+
+void Renderer::queue_animation_events() {
+    for (const AnimationEvent& e : animator_.take_events()) {
+        if (frozen_ || !interest_.count(e.type)) continue;
+        Json ev = Json::object();
+        ev.set("type", e.type).set("targetId", double(e.target));
+        ev.set(e.type == "transitionend" ? "propertyName" : "animationName", e.name);
+        ev.set("elapsedTime", e.elapsed);
+        pending_events_.push_back(Json::object().set("type", "event").set("ev", std::move(ev)));
+    }
+}
+
+std::vector<Json> Renderer::tick() {
+    std::vector<Json> out;
+    flush_moves(out);
+    double now = now_s();
+    if (!frozen_ && animator_.active(now)) {
+        auto sampled = animator_.sample(now);
+        queue_animation_events();
+        apply_overrides(std::move(sampled));
+        report_size(out);
+    }
+    flush_pending(out);
+    return out;
+}
+
+bool Renderer::wants_tick() const {
+    return !frozen_ && (!pending_moves_.empty() || animator_.active(now_s()));
+}
+
+// ───────────────────────── canvas ─────────────────────────
+
+Canvas* Renderer::canvas_for(Node* n) {
+    if (auto it = canvases_.find(n->id); it != canvases_.end()) return it->second.get();
+    if (canvases_.size() >= MAX_CANVASES) return nullptr;
+    auto size = [&](const char* name, int fallback) {
+        for (const auto& [k, v] : n->attrs) {
+            std::string t = css::trim(v);
+            if (k == name && !t.empty() && std::isdigit((unsigned char)t[0])) return std::atoi(t.c_str());
+        }
+        return fallback;
+    };
+    auto canvas = std::make_unique<Canvas>(int(n->id), size("width", 300), size("height", 150), static_cast<CanvasHost&>(*this));
+    Canvas* raw = canvas.get();
+    canvases_[n->id] = std::move(canvas);
+    CanvasOp reset;
+    reset.kind = CanvasOp::Reset;
+    backend_.canvas_run(raw->id(), raw->width(), raw->height(), {reset});
+    return raw;
+}
+
+void Renderer::run_canvas(Canvas& canvas, const Json& cmds) {
+    // Fonts are held across one batch at most, so a widget cycling through font strings cannot grow this.
+    if (canvas_fonts_.size() > 64) {
+        for (const auto& [font_css, font] : canvas_fonts_) backend_.delete_font(font.first);
+        canvas_fonts_.clear();
+    }
+    std::vector<CanvasOp> ops;
+    canvas.run(cmds, ops);
+    if (ops.empty()) return;
+    backend_.canvas_run(canvas.id(), canvas.width(), canvas.height(), ops);
+    dirty_ = true;
+}
+
+void Renderer::forget_canvas(int64_t id) {
+    auto it = canvases_.find(id);
+    if (it == canvases_.end()) return;
+    backend_.canvas_release(it->second->id());
+    canvases_.erase(it);
+}
+
+int Renderer::canvas_font(const std::string& font, FontMetrics& metrics) {
+    if (auto it = canvas_fonts_.find(font); it != canvas_fonts_.end()) {
+        metrics = it->second.second;
+        return it->second.first;
+    }
+    css::Font f = css::parse_font(font);
+    int handle = backend_.create_font(f.family, f.size, f.weight, f.italic, metrics);
+    if (handle) canvas_fonts_.emplace(font, std::make_pair(handle, metrics));
+    return handle;
+}
+
+float Renderer::canvas_text_width(int font, const std::string& text) { return backend_.text_width(font, text); }
+
+bool Renderer::canvas_source(int64_t id, int& image, int& canvas, float& w, float& h) {
+    if (auto it = canvases_.find(id); it != canvases_.end()) {
+        canvas = it->second->id();
+        w = float(it->second->width());
+        h = float(it->second->height());
+        return true;
+    }
+    const Node* n = node(id);
+    if (!n || n->tag != "img") return false;
+    for (const auto& [k, v] : n->attrs)
+        if (k == "src" && v.rfind("data:", 0) == 0) return container_->image_of(v, image, w, h);
+    return false;
+}
+
+int64_t Renderer::canvas_allowance(int id) {
+    int64_t used = 0;
+    for (const auto& [node_id, canvas] : canvases_)
+        if (canvas->id() != id) used += canvas->pixels();
+    return Canvas::MAX_PIXELS - used;
 }
 
 void Renderer::report_size(std::vector<Json>& out) {
@@ -1080,7 +1562,41 @@ Json Renderer::answer(const Json& q) {
     if (kind == "validity") return Json::object().set("valid", true).set("message", "");
     if (kind == "matchMedia") return Json::object().set("matches", match_media(q["query"].asString()));
     if (kind == "viewport") return Json::object().set("innerWidth", width_).set("innerHeight", double(vp_height_)).set("dpr", dpr_);
-    if (kind == "svg" || kind == "imageData" || kind == "canvasCall") return Json::object().set("error", kind + " unsupported by the litehtml renderer");
+    if (kind == "anims") {
+        std::vector<int64_t> ids;
+        if (shadow) {
+            std::function<void(const Node*)> visit = [&](const Node* n) {
+                if (n->id && ids.size() < 100000) ids.push_back(n->id);
+                if (q["subtree"].asBool())
+                    for (const Node* c : n->children) visit(c);
+            };
+            visit(shadow);
+        }
+        return Json::object().set("list", animator_.css_animations(ids, now_s()));
+    }
+    if (kind == "imageData") {
+        int w = std::clamp(q["w"].asInt(), 0, Canvas::MAX_SIDE), h = std::clamp(q["h"].asInt(), 0, Canvas::MAX_SIDE);
+        if (int64_t(w) * h > Canvas::MAX_PIXELS) return Json::object().set("error", "too large");
+        std::vector<uint8_t> rgba;
+        auto it = shadow ? canvases_.find(shadow->id) : canvases_.end();
+        if (it == canvases_.end() || !backend_.canvas_read(it->second->id(), q["x"].asInt(), q["y"].asInt(), w, h, rgba) || rgba.size() != size_t(w) * h * 4)
+            rgba.assign(size_t(w) * h * 4, 0);
+        binary_ = base64_encode(rgba);
+        return Json::object().set("width", w).set("height", h);
+    }
+    if (kind == "canvasCall") {
+        auto it = shadow ? canvases_.find(shadow->id) : canvases_.end();
+        const std::string& method = q["method"].asString();
+        if (it == canvases_.end()) {
+            if (method == "getTransform") return Json::array().push(1).push(0).push(0).push(1).push(0).push(0);
+            if (method == "getLineDash") return Json::array();
+            if (method == "isPointInPath" || method == "isPointInStroke") return false;
+            return Json::object().set("error", "no canvas");
+        }
+        if (method == "toDataURL") return Json::object().set("error", "toDataURL unsupported by the litehtml renderer");
+        return it->second->call(method, q["args"]);
+    }
+    if (kind == "svg") return Json::object().set("error", kind + " unsupported by the litehtml renderer");
     return Json::object().set("error", "unknown query");
 }
 
@@ -1126,19 +1642,16 @@ bool Renderer::wants_gesture(int64_t target) const {
     return false;
 }
 
-void Renderer::emit_event(const char* type, int64_t target, const Rect& target_rect, const Touch& t, int action, std::vector<Json>& out) {
-    bool always = false;
-    for (const char* a : ALWAYS_FORWARD) if (!std::strcmp(a, type)) always = true;
-    if (!always && !interest_.count(type)) return;
+Json Renderer::event_json(const char* type, int64_t target, const Rect& target_rect, const Input& in) const {
     Json ev = Json::object();
     ev.set("type", type).set("targetId", double(target));
-    ev.set("clientX", t.x).set("clientY", t.y).set("pageX", t.x).set("pageY", t.y);
-    ev.set("offsetX", t.x - target_rect.x).set("offsetY", t.y - target_rect.y);
-    bool pressed = action == 0 || action == 1;
-    ev.set("button", 0).set("buttons", pressed ? 1 : 0).set("detail", std::strcmp(type, "click") == 0 ? 1 : 0).set("modifiers", 0);
+    ev.set("clientX", in.x).set("clientY", in.y).set("pageX", in.x).set("pageY", in.y);
+    ev.set("offsetX", in.x - target_rect.x).set("offsetY", in.y - target_rect.y);
+    ev.set("button", 0).set("buttons", in.buttons).set("detail", in.detail).set("modifiers", in.modifiers);
+    if (in.related) ev.set("relatedId", double(in.related));
     std::string name = type;
-    if (name.rfind("pointer", 0) == 0 || name == "click") {
-        ev.set("pointerId", double(t.pointer + 2)).set("pointerType", "touch").set("isPrimary", t.primary).set("pressure", pressed ? 0.5 : 0.0);
+    if (name.rfind("pointer", 0) == 0 || name == "click" || name == "dblclick") {
+        ev.set("pointerId", double(in.mouse ? 1 : in.pointer + 2)).set("pointerType", in.mouse ? "mouse" : "touch").set("isPrimary", in.primary).set("pressure", in.buttons ? 0.5 : 0.0);
     }
     // Form control state travels with every event (the sandbox mirror relies on it).
     const Node* n = node(target);
@@ -1153,14 +1666,74 @@ void Renderer::emit_event(const char* type, int64_t target, const Rect& target_r
         if (n->tag == "textarea") ev.set("value", n->data);
         else for (const auto& a : n->attrs) if (a.first == "value") ev.set("value", a.second);
     }
+    return ev;
+}
+
+void Renderer::dispatch(Json ev, std::vector<Json>& out) {
+    if (frozen_) return;
+    const std::string& type = ev["type"].asString();
+    bool always = false;
+    for (const char* a : ALWAYS_FORWARD) if (type == a) always = true;
+    if (!always && !interest_.count(type)) return;
+    if (coalesced(type)) {
+        std::string key = type + ":" + std::to_string(int64_t(ev["pointerId"].asNumber()));
+        for (auto& [k, pending] : pending_moves_) {
+            if (k != key) continue;
+            // Wheel deltas add up over the frame; a move only keeps its latest position.
+            if (type == "wheel") {
+                ev.set("deltaX", ev["deltaX"].asNumber() + pending["deltaX"].asNumber());
+                ev.set("deltaY", ev["deltaY"].asNumber() + pending["deltaY"].asNumber());
+            }
+            pending = std::move(ev);
+            return;
+        }
+        pending_moves_.emplace_back(std::move(key), std::move(ev));
+        return;
+    }
+    // Anything else keeps its order relative to the moves before it.
+    flush_moves(out);
     out.push_back(Json::object().set("type", "event").set("ev", std::move(ev)));
 }
 
-std::vector<Json> Renderer::touch(int action, double x, double y, int pointer, bool primary) {
+void Renderer::flush_moves(std::vector<Json>& out) {
+    for (auto& [key, ev] : pending_moves_) out.push_back(Json::object().set("type", "event").set("ev", std::move(ev)));
+    pending_moves_.clear();
+}
+
+void Renderer::emit_event(const char* type, int64_t target, const Rect& target_rect, const Touch& t, int action, std::vector<Json>& out) {
+    if (t.mouse && std::strncmp(type, "touch", 5) == 0) return;
+    Input in;
+    in.x = t.x;
+    in.y = t.y;
+    in.pointer = t.pointer;
+    in.primary = t.primary;
+    in.mouse = t.mouse;
+    in.modifiers = t.modifiers;
+    in.buttons = action == 0 || action == 1 ? 1 : 0;
+    in.detail = std::strcmp(type, "click") == 0 || std::strcmp(type, "dblclick") == 0 ? click_count_ : 0;
+    dispatch(event_json(type, target, target_rect, in), out);
+}
+
+bool Renderer::is_ancestor(int64_t ancestor, int64_t id) const {
+    if (!ancestor) return false;
+    const Node* n = node(id);
+    for (const Node* p = n ? n->parent : nullptr; p; p = p->parent)
+        if (p->id == ancestor) return true;
+    return false;
+}
+
+std::vector<int64_t> Renderer::chain(int64_t id) const {
+    std::vector<int64_t> out;
+    for (const Node* n = node(id); n; n = n->parent)
+        if (n->id) out.push_back(n->id);
+    return out;
+}
+
+std::vector<Json> Renderer::touch(int action, double x, double y, int pointer, bool primary, bool mouse, int modifiers) {
     std::vector<Json> out;
     if (frozen_) return out;
     if (action == 0) {
-        Touch t{x, y, x, y, 0, Rect{}, false, primary, pointer};
+        Touch t{x, y, x, y, 0, Rect{}, false, primary, pointer, mouse, modifiers};
         t.target = widget_id_at(x, y, &t.target_rect);
         touches_[pointer] = t;
         if (primary) out.push_back(Json::object().set("type", "gesture").set("wants", wants_gesture(t.target)));
@@ -1170,6 +1743,7 @@ std::vector<Json> Renderer::touch(int action, double x, double y, int pointer, b
             emit_event("mousedown", t.target, t.target_rect, t, 0, out);
             emit_event("touchstart", t.target, t.target_rect, t, 0, out);
         }
+        flush_pending(out);
         return out;
     }
     auto it = touches_.find(pointer);
@@ -1177,6 +1751,7 @@ std::vector<Json> Renderer::touch(int action, double x, double y, int pointer, b
     Touch& t = it->second;
     t.x = x;
     t.y = y;
+    t.modifiers = modifiers;
     if (action == 1) {
         if (!t.moved) {
             if (std::fabs(x - t.x0) < TAP_SLOP && std::fabs(y - t.y0) < TAP_SLOP) return out;
@@ -1201,14 +1776,118 @@ std::vector<Json> Renderer::touch(int action, double x, double y, int pointer, b
             emit_event("mouseup", done.target, done.target_rect, done, 2, out);
             emit_event("touchend", done.target, done.target_rect, done, 2, out);
         }
-        // a tap: the finger stayed inside the slop and lifted over the element it pressed
-        if (done.primary && !done.moved && done.target && up_target == done.target) {
-            emit_event("click", done.target, done.target_rect, done, 2, out);
+        // A click: the press and the release land on the same element, or one inside the other
+        // (the click goes to the outer one). A finger must also have stayed inside the slop.
+        int64_t click = 0;
+        if (done.target && (done.mouse || !done.moved)) {
+            if (up_target == done.target || is_ancestor(done.target, up_target)) click = done.target;
+            else if (is_ancestor(up_target, done.target)) click = up_target;
+        }
+        if (done.primary && click) {
+            double now = now_ms();
+            if (now - last_click_ms_ < DOUBLE_CLICK_MS && std::hypot(x - last_click_x_, y - last_click_y_) < (done.mouse ? 5 : TAP_SLOP * 2)) click_count_++;
+            else click_count_ = 1;
+            last_click_ms_ = now;
+            last_click_x_ = x;
+            last_click_y_ = y;
+            Rect rect = click == done.target ? done.target_rect : up_rect;
+            emit_event("click", click, rect, done, 2, out);
+            if (click_count_ == 2) emit_event("dblclick", click, rect, done, 2, out);
         }
     } else if (done.target) {
         emit_event("pointercancel", done.target, done.target_rect, done, 3, out);
         emit_event("touchcancel", done.target, done.target_rect, done, 3, out);
     }
+    flush_pending(out);
+    return out;
+}
+
+std::vector<Json> Renderer::hover(int action, double x, double y, int modifiers) {
+    std::vector<Json> out;
+    if (frozen_) return out;
+    auto box = [this](int64_t id) {
+        auto el = container_->element(id);
+        return el ? border_box_of(el) : Rect{};
+    };
+    Input in;
+    in.mouse = true;
+    in.pointer = 1;
+    in.modifiers = modifiers;
+    int64_t previous = hover_;
+    int64_t target = 0;
+    if (action == 0) {
+        in.x = hover_x_ = x;
+        in.y = hover_y_ = y;
+        if (container_->mouse(1, x, y)) dirty_ = true;
+        target = widget_id_at(x, y, nullptr);
+    } else {
+        in.x = hover_x_;
+        in.y = hover_y_;
+        if (container_->leave()) dirty_ = true;
+    }
+    if (target != previous) {
+        hover_ = target;
+        // out/over bubble and name the other element; leave/enter go to each ancestor the pointer
+        // actually left or entered, innermost first for leave and outermost first for enter.
+        auto before = chain(previous), after = chain(target);
+        auto in_chain = [](const std::vector<int64_t>& c, int64_t id) { return std::find(c.begin(), c.end(), id) != c.end(); };
+        if (previous) {
+            in.related = target;
+            dispatch(event_json("pointerout", previous, box(previous), in), out);
+            dispatch(event_json("mouseout", previous, box(previous), in), out);
+            for (int64_t id : before) {
+                if (in_chain(after, id)) continue;
+                dispatch(event_json("pointerleave", id, box(id), in), out);
+                dispatch(event_json("mouseleave", id, box(id), in), out);
+            }
+        }
+        if (target) {
+            in.related = previous;
+            dispatch(event_json("pointerover", target, box(target), in), out);
+            dispatch(event_json("mouseover", target, box(target), in), out);
+            for (auto it = after.rbegin(); it != after.rend(); ++it) {
+                if (in_chain(before, *it)) continue;
+                dispatch(event_json("pointerenter", *it, box(*it), in), out);
+                dispatch(event_json("mouseenter", *it, box(*it), in), out);
+            }
+        }
+        in.related = 0;
+    }
+    if (target) {
+        dispatch(event_json("pointermove", target, box(target), in), out);
+        dispatch(event_json("mousemove", target, box(target), in), out);
+    }
+    flush_pending(out);
+    return out;
+}
+
+std::vector<Json> Renderer::wheel(double x, double y, double dx, double dy, int mode, int modifiers) {
+    std::vector<Json> out;
+    if (frozen_) return out;
+    Rect rect;
+    int64_t target = widget_id_at(x, y, &rect);
+    if (!target) return out;
+    Input in;
+    in.x = x;
+    in.y = y;
+    in.mouse = true;
+    in.pointer = 1;
+    in.modifiers = modifiers;
+    Json ev = event_json("wheel", target, rect, in);
+    ev.set("deltaX", dx).set("deltaY", dy).set("deltaMode", mode);
+    dispatch(std::move(ev), out);
+    return out;
+}
+
+std::vector<Json> Renderer::key(const std::string& type, const std::string& key, const std::string& code, bool repeat, int modifiers) {
+    std::vector<Json> out;
+    if (frozen_ || (type != "keydown" && type != "keyup")) return out;
+    int64_t target = body_node_->id ? body_node_->id : html_node_->id;
+    if (!target) return out;
+    Json ev = Json::object();
+    ev.set("type", type).set("targetId", double(target)).set("key", key).set("code", code).set("repeat", repeat).set("modifiers", modifiers);
+    dispatch(std::move(ev), out);
+    flush_pending(out);
     return out;
 }
 
@@ -1228,6 +1907,8 @@ void Renderer::freeze(const std::string& reason, bool fatal) {
     frozen_reason_ = reason;
     frozen_fatal_ = fatal;
     touches_.clear();
+    pending_moves_.clear();
+    hover_ = 0;
 }
 
 // ───────────────────────── display list JSON ─────────────────────────
