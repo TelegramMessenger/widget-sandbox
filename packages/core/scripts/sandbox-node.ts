@@ -12,6 +12,7 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 import variant from '@telegram/widget-sandbox-quickjs';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CpuBudget } from '../src/host/cpu-budget.ts';
 import { UNPRIVILEGED_BRIDGE_METHODS } from '../src/host/user-activation.ts';
 import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
@@ -20,7 +21,7 @@ import { clearProvidedLibraries, provideLibrary, resolveLibrary, type ProvidedLi
 import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
 import { libraryPath, sandboxBuildOptions } from './sandbox-build.ts';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export interface RunResult {
   ops: unknown[][];

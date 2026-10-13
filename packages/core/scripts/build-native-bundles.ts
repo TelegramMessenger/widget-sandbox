@@ -14,13 +14,14 @@ import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LIBRARIES } from '../src/host/loader.ts';
 import { libraryPath, rendererBuildOptions, sandboxBuildOptions, validatorBuildOptions } from './sandbox-build.ts';
 
 /** The repo root; the native packages are siblings of this one under packages/. */
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 /** This package (packages/core): the bundles' sources. */
-const pkgRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const ios = { transport: 'webkit', js: 'packages/ios/Sources/WidgetSandbox/WidgetJS', fixtures: 'packages/ios/Tests/WidgetSandboxTests/Fixtures' } as const;
 const TARGETS = {
