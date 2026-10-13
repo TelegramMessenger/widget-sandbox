@@ -1,8 +1,10 @@
 #include "twidget/widget_host.h"
 
 #include "twidget/json.h"
+#include "twidget/quickjs_context.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <stdexcept>
 #include <thread>
 
@@ -215,6 +217,16 @@ void WidgetHost::onListen(SandboxEngine&, const std::string& json) {
 void WidgetHost::onPreventDefault(SandboxEngine&, const std::string& json) {
     std::string keys = validator_.validatePreventDefault(json);
     host([this, keys] { toRenderer("{\"type\":\"preventDefault\",\"keys\":" + keys + "}"); });
+}
+
+void WidgetHost::onAnim(SandboxEngine&, const std::string& json) {
+    std::string anims = validator_.validateAnim(json);
+    if (anims == "[]") return;
+    host([this, anims] {
+        char now[64];
+        std::snprintf(now, sizeof now, "%.17g", QuickJSContext::now() * 1000);
+        toRenderer(std::string("{\"type\":\"anim\",\"now\":") + now + ",\"anims\":" + anims + "}");
+    });
 }
 
 void WidgetHost::onRequestFrame(SandboxEngine&) {

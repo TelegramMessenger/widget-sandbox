@@ -454,6 +454,25 @@ TEST(validator_diag_bridge) {
     CHECK(replaced);
 }
 
+TEST(validator_validates_anim_records) {
+    std::vector<std::pair<std::string, std::string>> diags;
+    TrustedValidator v("light", RES, [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
+    v.processOps("[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null},{\"op\":\"el\",\"id\":7,\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":3,\"id\":7,\"before\":null}]");
+    auto record = [](const std::string& values, const std::string& duration, const std::string& easing) {
+        return "[{\"aid\":1,\"target\":7,\"keyframes\":[{\"offset\":0,\"easing\":\"linear\",\"composite\":null,\"values\":" + values + "}],\"timing\":{\"duration\":" + duration + ",\"delay\":0,\"endDelay\":0,\"iterations\":null,\"iterationStart\":0,\"direction\":\"normal\",\"fill\":\"none\",\"easing\":\"" + easing + "\"},\"composite\":\"replace\",\"iterationComposite\":\"replace\",\"startTime\":1000,\"holdTime\":null,\"playbackRate\":1}]";
+    };
+    for (const std::string& bad : {record("{}", "1e999", "linear"), record("{}", "1e12", "linear"), record("{}", "1000", "evil(1)"), std::string("{\"not\":\"a list\"}"), std::string("[{\"aid\":-1}]")}) {
+        diags.clear();
+        CHECK_MSG(v.validateAnim(bad) == "[]", bad);
+        bool violation = false;
+        for (auto& d : diags) if (d.first == "protocol-violation") violation = true;
+        CHECK_MSG(violation, bad);
+    }
+    std::string clean = v.validateAnim(record("{\"opacity\":\"0.5\",\"background-image\":\"url(https://evil.example/x)\",\"width\":\"expression(alert(1))\",\"behavior\":\"url(x.htc)\",\"animation-name\":\"x\"}", "1000", "ease-in"));
+    CHECK_MSG(clean.find("\"opacity\":\"0.5\"") != std::string::npos, clean);
+    CHECK_MSG(clean.find("url(") == std::string::npos && clean.find("expression") == std::string::npos && clean.find("animation-name") == std::string::npos, clean);
+}
+
 TEST(validator_strips_external_urls_and_handlers) {
     std::vector<std::pair<std::string, std::string>> diags;
     TrustedValidator v("light", RES, [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });

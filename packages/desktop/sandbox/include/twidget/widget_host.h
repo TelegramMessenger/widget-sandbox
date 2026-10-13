@@ -123,6 +123,7 @@ public:
     QueryAnswer onQuery(SandboxEngine&, const std::string& json) override;
     void onListen(SandboxEngine&, const std::string& json) override;
     void onPreventDefault(SandboxEngine&, const std::string& json) override;
+    void onAnim(SandboxEngine&, const std::string& json) override;
     void onRequestFrame(SandboxEngine&) override;
     void onLog(SandboxEngine&, const std::string& level, const std::string& text) override;
     void onDiag(SandboxEngine&, const std::string& kind, const std::string& detail) override;

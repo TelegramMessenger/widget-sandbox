@@ -74,6 +74,7 @@ public:
     virtual QueryAnswer onQuery(SandboxEngine& engine, const std::string& json) = 0;
     virtual void onListen(SandboxEngine& engine, const std::string& json) = 0;
     virtual void onPreventDefault(SandboxEngine& engine, const std::string& json) = 0;
+    virtual void onAnim(SandboxEngine&, const std::string&) {}
     virtual void onRequestFrame(SandboxEngine& engine) = 0;
     virtual void onLog(SandboxEngine& engine, const std::string& level, const std::string& text) = 0;
     virtual void onDiag(SandboxEngine& engine, const std::string& kind, const std::string& detail) = 0;

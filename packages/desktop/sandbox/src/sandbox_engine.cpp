@@ -347,6 +347,7 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
     }
     if (kind == "listen") { if (delegate_) delegate_->onListen(*this, arg); return HostReturn::undefined(); }
     if (kind == "pd") { if (delegate_) delegate_->onPreventDefault(*this, arg); return HostReturn::undefined(); }
+    if (kind == "anim") { if (delegate_) delegate_->onAnim(*this, arg); return HostReturn::undefined(); }
     if (kind == "bridge") {
         auto pair = Json::parse(arg);
         if (!pair || !pair->isArray() || pair->size() != 2 || !pair->arr()[0].isString()) return HostReturn::undefined();
