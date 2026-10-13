@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CpuBudget } from '../src/host/cpu-budget.ts';
 import { UNPRIVILEGED_BRIDGE_METHODS } from '../src/host/user-activation.ts';
-import { decodeBinaryOps } from '../src/sandbox/binary-ops.ts';
+import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
 import { Validator } from '../src/host/validator.ts';
 import { clearProvidedLibraries, provideLibrary, resolveLibrary, type ProvidedLibrarySpec } from '../src/host/loader.ts';
 import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';

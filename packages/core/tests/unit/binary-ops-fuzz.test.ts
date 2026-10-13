@@ -3,7 +3,8 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { OpWriter, decodeBinaryOps } from '../../src/sandbox/binary-ops.ts';
+import { OpWriter } from '../../src/sandbox/binary-ops.ts';
+import { decodeBinaryOps } from '../../src/shared/binary-ops-decode.ts';
 
 function rng(seed: number) {
   let s = seed >>> 0 || 1;
