@@ -325,9 +325,22 @@ TEST(hidden_timers_are_coalesced_to_one_hertz) {
 
 /// `ready` needs no gesture; a privileged call from a timer is refused and reported,
 /// the same call from the handler of a trusted click goes through once.
+TEST(compat_policy_forwards_every_bridge_call) {
+    Run r("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>");
+    r.host.waitUntil([&] { for (auto& b : r.host.bridge) if (b.first == "sendMessage") return true; return false; }, 3);
+    auto l = r.host.lock();
+    bool sent = false, blocked = false;
+    for (auto& b : r.host.bridge) if (b.first == "sendMessage") sent = true;
+    for (auto& d : r.host.diags) if (d.first == "activation-blocked") blocked = true;
+    CHECK(sent);
+    CHECK(!blocked);
+}
+
 TEST(bridge_and_timers) {
+    SandboxConfig strict = testConfig();
+    strict.policy = "strict";
     Run r("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);"
-          "document.getElementById('b').addEventListener('click', () => { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });</script>");
+          "document.getElementById('b').addEventListener('click', () => { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });</script>", strict);
     r.host.waitUntil([&] { for (auto& d : r.host.diags) if (d.first == "activation-blocked") return true; return false; }, 3);
     {
         auto l = r.host.lock();

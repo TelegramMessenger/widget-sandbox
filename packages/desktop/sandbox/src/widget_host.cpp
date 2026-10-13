@@ -53,6 +53,7 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const std::st
     c.innerHeight = 300;
     c.devicePixelRatio = o.devicePixelRatio;
     c.theme = theme;
+    c.policy = o.policy;
     return c;
 }
 
@@ -73,6 +74,7 @@ WidgetHost::WidgetHost(std::string html, std::string theme, double width, Widget
       engine_(html_, config_, resources_, std::move(intl)),
       viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {
     if (!renderer_) throw std::runtime_error("WidgetHost: the renderer factory returned nothing");
+    if (options.policy == "strict") validator_.setPolicy("strict");
     engine_.setDelegate(this);
     renderer_->onDiag = [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); };
     // The widget boots once the renderer announced itself, so the very first layout queries have something to measure.

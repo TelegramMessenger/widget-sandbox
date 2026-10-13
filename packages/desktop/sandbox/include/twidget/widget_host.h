@@ -44,6 +44,8 @@ struct WidgetHostOptions {
     bool visible = true;
     /// Device pixel ratio the engine boots with; the renderer's `size` report overrides it.
     double devicePixelRatio = 1;
+    /// "compat" (default) or "strict": the gesture gate, 64 KB text caps and the complex-script budget.
+    std::string policy = "compat";
 };
 
 struct WidgetDiagnostics {

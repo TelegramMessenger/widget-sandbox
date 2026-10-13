@@ -30,6 +30,7 @@ public:
     std::optional<std::string> validateQuery(const std::string& json);
     std::string validateListen(const std::string& json);
     std::string validatePreventDefault(const std::string& json);
+    void setPolicy(const std::string& policy);
     std::string validateAnim(const std::string& json);
     /// RenderOps re-styling the document for the new theme.
     std::string setTheme(const std::string& theme);

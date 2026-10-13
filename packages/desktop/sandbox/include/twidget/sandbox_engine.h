@@ -42,6 +42,8 @@ struct SandboxConfig {
     double innerHeight = 300;
     double devicePixelRatio = 1;
     std::string theme = "light";
+    /// "compat" (default) or "strict": strict gates privileged bridge calls on a user gesture.
+    std::string policy = "compat";
 };
 
 struct SandboxStats {
