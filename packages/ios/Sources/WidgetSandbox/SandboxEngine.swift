@@ -1006,30 +1006,7 @@ enum IntlBridge {
             return f.string(from: NSNumber(value: value)) ?? String(value)
         case "date", "dateMethod":
             let date = Date(timeIntervalSince1970: value / 1000)
-            let f = DateFormatter()
-            f.locale = locale
-            let method = req["method"] as? String
-            let wantsDate = ["weekday", "year", "month", "day", "dateStyle"].contains { opts[$0] != nil }
-            let wantsTime = ["hour", "minute", "second", "timeStyle"].contains { opts[$0] != nil }
-            if wantsDate || wantsTime {
-                var template = ""
-                if let w = opts["weekday"] as? String { template += w == "long" ? "EEEE" : "EEE" }
-                if let m = opts["month"] as? String { template += m == "long" ? "MMMM" : m == "short" ? "MMM" : m == "numeric" ? "M" : "MM" }
-                if opts["day"] != nil { template += "d" }
-                if opts["year"] != nil { template += "y" }
-                if opts["hour"] != nil { template += "j" }
-                if opts["minute"] != nil { template += "mm" }
-                if opts["second"] != nil { template += "ss" }
-                if template.isEmpty {
-                    f.dateStyle = Self.style(opts["dateStyle"] as? String)
-                    f.timeStyle = Self.style(opts["timeStyle"] as? String)
-                } else {
-                    f.setLocalizedDateFormatFromTemplate(template)
-                }
-            } else {
-                f.dateStyle = method == "toLocaleTimeString" ? .none : .medium
-                f.timeStyle = method == "toLocaleDateString" ? .none : .medium
-            }
+            let f = dateFormatter(locale: locale, options: opts, method: req["method"] as? String)
             return f.string(from: date)
         case "plural":
             return value == 1 ? "one" : "other"
@@ -1058,6 +1035,81 @@ enum IntlBridge {
         default:
             return ""
         }
+    }
+
+    private static func dateFormatter(locale: Locale, options: [String: Any], method: String?) -> DateFormatter {
+        let zone = (options["timeZone"] as? String).flatMap(TimeZone.init(identifier:)) ?? .current
+        let optionsData = (try? JSONSerialization.data(withJSONObject: options, options: [.sortedKeys])) ?? Data()
+        let key = "\(locale.identifier)|\(zone.identifier)|\(method ?? "")|\(String(decoding: optionsData, as: UTF8.self))" as NSString
+        let cache: NSCache<NSString, DateFormatter>
+        if let existing = Thread.current.threadDictionary["WidgetSandbox.IntlBridge.dateFormatters"] as? NSCache<NSString, DateFormatter> {
+            cache = existing
+        } else {
+            cache = NSCache<NSString, DateFormatter>()
+            cache.countLimit = 64
+            Thread.current.threadDictionary["WidgetSandbox.IntlBridge.dateFormatters"] = cache
+        }
+        if let formatter = cache.object(forKey: key) { return formatter }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = zone
+        let wantsDate = ["weekday", "year", "month", "day", "dateStyle"].contains { options[$0] != nil }
+        let wantsTime = ["hour", "minute", "second", "timeStyle"].contains { options[$0] != nil }
+        var hourSymbol = "j"
+        if let hour12 = options["hour12"] as? Bool {
+            hourSymbol = hour12 ? "h" : "H"
+        } else if let cycle = options["hourCycle"] as? String {
+            hourSymbol = ["h11": "K", "h12": "h", "h23": "H", "h24": "k"][cycle] ?? "j"
+        }
+        if let cycle = ["K": "h11", "h": "h12", "H": "h23", "k": "h24"][hourSymbol] {
+            var components = Locale.components(fromIdentifier: locale.identifier)
+            components["hours"] = cycle
+            formatter.locale = Locale(identifier: Locale.identifier(fromComponents: components))
+        }
+        if wantsDate || wantsTime {
+            var template = ""
+            if let weekday = options["weekday"] as? String { template += weekday == "long" ? "EEEE" : weekday == "narrow" ? "EEEEE" : "EEE" }
+            if let month = options["month"] as? String { template += month == "long" ? "MMMM" : month == "short" ? "MMM" : month == "narrow" ? "MMMMM" : month == "numeric" ? "M" : "MM" }
+            if let day = options["day"] as? String { template += day == "2-digit" ? "dd" : "d" }
+            if let year = options["year"] as? String { template += year == "2-digit" ? "yy" : "y" }
+            if let hour = options["hour"] as? String { template += hour == "2-digit" ? hourSymbol + hourSymbol : hourSymbol }
+            if options["minute"] != nil { template += "mm" }
+            if options["second"] != nil { template += "ss" }
+            if template.isEmpty {
+                formatter.dateStyle = Self.style(options["dateStyle"] as? String)
+                formatter.timeStyle = Self.style(options["timeStyle"] as? String)
+            } else {
+                formatter.setLocalizedDateFormatFromTemplate(template)
+            }
+        } else {
+            formatter.dateStyle = method == "toLocaleTimeString" ? .none : .medium
+            formatter.timeStyle = method == "toLocaleDateString" ? .none : .medium
+        }
+        if hourSymbol != "j" || options["hour"] as? String == "2-digit" {
+            let defaultTimePattern = DateFormatter.dateFormat(fromTemplate: "jmm", options: 0, locale: locale) ?? ""
+            let inferredPadding = (options["hour"] as? String != "numeric" || defaultTimePattern.contains("h")) && ["hh", "HH", "KK", "kk"].contains(where: formatter.dateFormat.contains)
+            let stylePadding = options["timeStyle"] != nil && (defaultTimePattern.contains("HH") || defaultTimePattern.contains("kk"))
+            let paddedHour = options["hour"] as? String == "2-digit" || inferredPadding || stylePadding
+            var quoted = false
+            var inHour = false
+            var pattern = ""
+            for character in formatter.dateFormat {
+                if character == "'" { quoted.toggle() }
+                if !quoted && "hHKk".contains(character) {
+                    if !inHour {
+                        let symbol = hourSymbol == "j" ? String(character) : hourSymbol
+                        pattern += paddedHour ? symbol + symbol : symbol
+                    }
+                    inHour = true
+                } else {
+                    inHour = false
+                    pattern.append(!quoted && "bB".contains(character) ? "a" : character)
+                }
+            }
+            formatter.dateFormat = pattern
+        }
+        cache.setObject(formatter, forKey: key)
+        return formatter
     }
 
     private static func style(_ s: String?) -> DateFormatter.Style {
