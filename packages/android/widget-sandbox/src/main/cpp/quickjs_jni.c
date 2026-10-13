@@ -53,8 +53,8 @@ static int64_t thread_cpu_ns(void) {
     return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 
-static int interrupt_handler(JSRuntime *rt, void *opaque) {
-    (void)rt;
+static int interrupt_handler(JSContext *ctx, void *opaque) {
+    (void)ctx;
     Ctx *c = (Ctx *)opaque;
     if (now_ns() > c->deadline_ns || (c->cpu_deadline_ns != INT64_MAX && thread_cpu_ns() > c->cpu_deadline_ns)) {
         c->interrupted = 1;

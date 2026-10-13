@@ -50,7 +50,7 @@ struct QuickJSTrampoline {
         return qjs_undefined();
     }
 
-    static int interrupt(JSRuntime* /*rt*/, void* opaque) {
+    static int interrupt(JSContext* /*ctx*/, void* opaque) {
         auto* self = static_cast<QuickJSContext*>(opaque);
         if (!self) return 0;
         if (QuickJSContext::now() > self->deadline || (self->cpuDeadline != std::numeric_limits<double>::infinity() && QuickJSContext::threadCpuTime() > self->cpuDeadline)) {

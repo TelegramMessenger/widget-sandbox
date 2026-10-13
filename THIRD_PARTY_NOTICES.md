@@ -7,7 +7,7 @@ listed; see the `package.json` files and `pnpm-lock.yaml`.
 
 | Component | Version | License | Where |
 |---|---|---|---|
-| [quickjs-ng](https://github.com/quickjs-ng/quickjs) — Fabrice Bellard, Charlie Gordon and contributors | 0.17.0 | MIT | vendored unmodified in `packages/ios/Sources/CQuickJS/quickjs/` (its `LICENSE` is there); compiled into the iOS/macOS package, the Android library and the desktop core; also builds `packages/tools/qjsc` |
+| [quickjs-ng](https://github.com/quickjs-ng/quickjs) — Fabrice Bellard, Charlie Gordon and contributors, as the [TelegramMessenger/quickjs](https://github.com/TelegramMessenger/quickjs) fork | 0.17 (fork) | MIT | git submodule at `packages/ios/Sources/CQuickJS/quickjs/` (its `LICENSE` is there); compiled into the iOS/macOS package, the Android library, the desktop core, `packages/tools/qjsc` and the web/Node wasm (`packages/quickjs-wasm`) |
 | [quickjs-emscripten](https://github.com/justjake/quickjs-emscripten) (`quickjs-emscripten-core`; `c/interface.c`, templates and the FFI of `@jitl/quickjs-ng-wasmfile-release-sync`) — Jake Teton-Landis | 0.32.0 | MIT | the web host's QuickJS glue, `packages/core`; `packages/quickjs-wasm` rebuilds the wasm variant from the TelegramMessenger/quickjs fork (`LICENSE.quickjs-emscripten` there) |
 | [linkedom](https://github.com/WebReflection/linkedom) — Andrea Giammarchi | 0.18.13 | ISC | bundled into `sandbox-bundle.js` (the DOM shim) |
 | [parse5](https://github.com/inikulin/parse5) — Ivan Nikulin | 8.0.1 | MIT | bundled into `sandbox-bundle.js` and `validator-bundle.js` |

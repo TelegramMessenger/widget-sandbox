@@ -5,14 +5,14 @@
 # its quickjs-ng-wasmfile-release-sync flags, so @jitl's FFI and
 # quickjs-emscripten-core work unchanged.
 #
-#   packages/quickjs-wasm/build.sh <fork checkout>
+#   packages/quickjs-wasm/build.sh [fork checkout]   (default: the packages/ios CQuickJS submodule)
 #
 # Needs emcc (brew install emscripten) and a host C compiler (for the fork's
 # qjs, which generates the amalgamated source). The output in dist/ is
 # committed, so the web build and CI need neither.
 set -eu
-FORK=$(cd "$1" && pwd)
 HERE=$(cd "$(dirname "$0")" && pwd)
+FORK=$(cd "${1:-$HERE/../ios/Sources/CQuickJS/quickjs}" && pwd)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 

@@ -66,18 +66,18 @@ for (const name of ['sandbox-bundle.js', 'validator-bundle.js', ...LIBRARIES.map
   execFileSync(qjsc, [path.join(res, name), path.join(res, out), path.basename(name)], { stdio: 'inherit' });
 }
 
-/** Builds packages/tools/qjsc from packages/ios/Sources/CQuickJS into .cache/ (gitignored) when it is missing or older than its sources. */
+/** Builds packages/tools/qjsc from packages/ios/Sources/CQuickJS (the fork submodule + shim) into .cache/ (gitignored) when it is missing or older than its sources. */
 function buildQjsc(): string {
   const qjs = path.join(root, 'packages/ios/Sources/CQuickJS');
   const sources = ['quickjs/quickjs.c', 'quickjs/dtoa.c', 'quickjs/libregexp.c', 'quickjs/libunicode.c', 'shim/qjs_shim.c'].map((f) => path.join(qjs, f));
   sources.push(path.join(root, 'packages/tools/qjsc/qjsc.c'));
   const headers = fs.readdirSync(path.join(qjs, 'quickjs')).filter((f) => f.endsWith('.h')).map((f) => path.join(qjs, 'quickjs', f));
-  headers.push(path.join(qjs, 'include/quickjs.h'), path.join(qjs, 'include/qjs_shim.h'));
+  headers.push(path.join(qjs, 'include/qjs_shim.h'));
   const bin = path.join(root, '.cache', process.platform === 'win32' ? 'qjsc.exe' : 'qjsc');
   const newest = Math.max(...[...sources, ...headers].map((f) => fs.statSync(f).mtimeMs));
   if (fs.existsSync(bin) && fs.statSync(bin).mtimeMs > newest) return bin;
   fs.mkdirSync(path.dirname(bin), { recursive: true });
-  console.log('building packages/tools/qjsc from the vendored quickjs-ng…');
+  console.log('building packages/tools/qjsc from the QuickJS submodule (TelegramMessenger/quickjs)…');
   const cc = process.env.CC ?? 'cc';
   execFileSync(cc, ['-O2', '-std=gnu11', '-D_GNU_SOURCE', '-DQUICKJS_NG_BUILD', '-I', path.join(qjs, 'include'), '-I', path.join(qjs, 'quickjs'),
     '-Wno-unused-parameter', ...sources, '-lm', '-o', bin], { stdio: 'inherit' });

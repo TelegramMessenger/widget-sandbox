@@ -631,7 +631,10 @@ information.
   (adapted to quickjs-ng 0.17's ArrayBuffer and interrupt-handler signatures)
   with the variant's emcc flags. `@jitl`'s FFI and `quickjs-emscripten-core`
   are unchanged; the output in `dist/` is committed, so the web build and CI
-  need no emcc. `dist/QUICKJS_VERSION` names the fork commit.
+  need no emcc (it is excluded from the repository-wide `dist` ignore rule on
+  purpose). `dist/QUICKJS_VERSION` names the fork commit; `build.sh` defaults to
+  the `packages/ios/Sources/CQuickJS/quickjs` submodule, so the wasm and the
+  native builds come from the same commit.
 - Behaviour change, now the same on every platform: out-of-memory is
   uncatchable in quickjs-ng 0.17, so a widget that hits the cap is stopped
   (`Memory limit exceeded`, last render frozen) even inside `try/catch`.
@@ -711,6 +714,22 @@ first and alone, as a library with no renderer.
   generated 40/40 load without uncaught errors; attacks 89, 0 leaks, one
   expected kill (`fallback-at-boot.html`). Sandbox bundle boot: tens of ms in
   release quickjs-ng from source (bytecode still open).
+
+## One QuickJS for every platform: the TelegramMessenger/quickjs fork (Oct 2026)
+
+- `packages/ios/Sources/CQuickJS/quickjs` is a git submodule of the
+  TelegramMessenger/quickjs fork (quickjs-ng 0.17 plus fixes and speed-ups),
+  replacing the vendored quickjs-ng 0.17.0. The iOS/macOS package, the Android
+  library, the desktop core, `packages/tools/qjsc` and the web/Node wasm
+  (`packages/quickjs-wasm`) all build from it; clone with
+  `git submodule update --init` (SwiftPM does it for package dependencies).
+- The fork's interrupt handler receives the `JSContext`, not the runtime; the
+  C++ and JNI glue follow.
+- Every `.qbc` was regenerated with qjsc built from the fork;
+  `BundledBytecodeTests` (Swift) fails when a shipped `.qbc` is not exactly what
+  the engine compiles from the shipped `.js`.
+- The fork makes out-of-memory uncatchable everywhere; the memory attacks that
+  catch the error are now stopped like the ones that do not.
 
 ## Bytecode precompilation of the bundles (Oct 2026)
 

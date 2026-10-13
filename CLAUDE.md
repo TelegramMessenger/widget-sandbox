@@ -124,6 +124,7 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
 ## Commands
 
 ```bash
+git submodule update --init           # QuickJS (TelegramMessenger/quickjs fork) in packages/ios/Sources/CQuickJS/quickjs
 corepack pnpm install                 # pnpm is not on PATH here
 corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "dev")
 corepack pnpm test:unit
