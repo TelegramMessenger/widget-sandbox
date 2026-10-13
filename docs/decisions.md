@@ -615,6 +615,30 @@ information.
   (`native-port-notes.md`, Lifecycle) is still open; the hidden state it needs
   now exists.
 
+## QuickJS for the web and Node from our fork (Oct 2026)
+
+- The npm wasm build (`@jitl/quickjs-ng-wasmfile-release-sync` 0.32.0) vendors
+  quickjs-ng 0.12.1, which frees a mapped `arguments` object's variable refs too
+  early (quickjs-ng#1400): any non-strict widget function reading `arguments`
+  plus enough allocation to run the GC corrupts the heap and aborts the worker
+  (`gc_scan`, `mark_weak_map_value`, out-of-bounds; the assertion moves with the
+  heap layout). The native builds (quickjs-ng 0.17) were not affected; ASan runs
+  of the same widget on the Swift and C++ cores are clean.
+- `packages/quickjs-wasm` (`@telegram/widget-sandbox-quickjs`) is that variant
+  rebuilt from the TelegramMessenger/quickjs fork: `build.sh <fork checkout>`
+  amalgamates the fork with its own `qjs`, applies quickjs-emscripten's one
+  quickjs-ng patch and compiles quickjs-emscripten 0.32.0's `interface.c`
+  (adapted to quickjs-ng 0.17's ArrayBuffer and interrupt-handler signatures)
+  with the variant's emcc flags. `@jitl`'s FFI and `quickjs-emscripten-core`
+  are unchanged; the output in `dist/` is committed, so the web build and CI
+  need no emcc. `dist/QUICKJS_VERSION` names the fork commit.
+- Behaviour change, now the same on every platform: out-of-memory is
+  uncatchable in quickjs-ng 0.17, so a widget that hits the cap is stopped
+  (`Memory limit exceeded`, last render frozen) even inside `try/catch`.
+- The web validator is not in this wasm: it runs in the host page's own JS
+  engine on the main thread (`WidgetHost`); only widget code runs in the
+  worker's QuickJS heap.
+
 ## User activation for privileged bridge calls (Oct 2026)
 
 - `openLink`, `sendMessage` and any future privileged bridge method act for the

@@ -9,7 +9,7 @@
 
 import { build } from 'esbuild';
 import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type QuickJSHandle } from 'quickjs-emscripten-core';
-import variant from '@jitl/quickjs-ng-wasmfile-release-sync';
+import variant from '@telegram/widget-sandbox-quickjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CpuBudget } from '../src/host/cpu-budget.ts';

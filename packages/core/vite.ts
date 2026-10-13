@@ -38,7 +38,7 @@ export function widgetSandbox(): Plugin {
     name: 'widget-sandbox',
     config: () => ({
       worker: { format: 'es' },
-      optimizeDeps: { exclude: ['@jitl/quickjs-ng-wasmfile-release-sync'] },
+      optimizeDeps: { exclude: ['@telegram/widget-sandbox-quickjs'] },
       server: { headers: ISOLATION_HEADERS },
       preview: { headers: ISOLATION_HEADERS },
     }),

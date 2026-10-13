@@ -146,37 +146,35 @@ test.describe('memory limit', () => {
     await expect(f.locator('[data-tw-badge]')).toHaveText('Widget stopped');
   });
 
-  test('steady growth that catches the error is refused at the cap and the widget lives on, bounded', async ({ page }) => {
+  // QuickJS from the TelegramMessenger/quickjs fork (quickjs-ng 0.17, as on native): out-of-memory is
+  // uncatchable, so a widget that tries to catch it is stopped like one that does not; the last render stays.
+  test('steady growth that tries to catch the error is still stopped at the cap, with its last render kept', async ({ page }) => {
     const f = await openAttack(page, 'mem-steady-growth.html');
-    await expect(f.locator('#mb')).toHaveText(/^\d+ \(alloc refused: InternalError\)$/, { timeout: 15_000 });
-    const reached = parseInt(await f.locator('#mb').textContent() ?? '', 10);
-    expect(reached).toBeGreaterThanOrEqual(40);
-    expect(reached).toBeLessThanOrEqual(FOOTPRINT_MB);
-    await page.waitForTimeout(500);
+    await page.waitForFunction(() => (window as any).__tw.state.dead, null, { timeout: 15_000 });
     const s = await twState(page);
-    expect(s.dead).toBeNull();
-    expect(s.logs.filter((l) => l.level === 'error')).toEqual([]);
-    // memoryBytes is sampled at most once a second after a task; the widget goes idle at the cap, so it may be stale here.
-    expect(s.stats.memoryBytes).toBeLessThanOrEqual(FOOTPRINT_MB * 1024 * 1024);
+    expect(s.dead).toMatch(/^Memory limit exceeded/);
+    const reached = parseInt(await f.locator('#mb').textContent() ?? '', 10);
+    expect(reached).toBeGreaterThanOrEqual(8);
+    expect(reached).toBeLessThanOrEqual(FOOTPRINT_MB);
+    await expect(f.locator('#mb')).not.toHaveText(/alloc refused/);
+    await expect(f.locator('html')).toHaveAttribute('data-tw-frozen', 'fatal');
   });
 
-  test('one 256 MB allocation is refused outright; the widget keeps running small', async ({ page }) => {
+  test('one 256 MB allocation is refused outright and stops the widget without growing it', async ({ page }) => {
     const f = await openAttack(page, 'mem-burst-alloc.html');
     await f.locator('#go').click();
-    await expect(f.locator('#status')).toHaveText('refused: InternalError');
-    await page.waitForTimeout(1200);
+    await page.waitForFunction(() => (window as any).__tw.state.dead, null, { timeout: 15_000 });
     const s = await twState(page);
-    expect(s.dead).toBeNull();
+    expect(s.dead).toMatch(/^Memory limit exceeded/);
+    await expect(f.locator('#status')).not.toHaveText(/allocated/);
     expect(s.stats.memoryBytes).toBeLessThan(32 * 1024 * 1024);
   });
 
-  test('the engine-agnostic probe reports both phases capped', async ({ page }) => {
-    // mem-cap-probe.html runs the probe synchronously at boot (its verdict goes to the stubbed window.print);
-    // run it again from the host side to read the verdict.
+  test('the engine-agnostic probe is stopped at the cap during boot', async ({ page }) => {
+    // mem-cap-probe.html allocates synchronously at boot: the runtime dies there, never past the cap.
     await openAttack(page, 'mem-cap-probe.html');
     const s = await twState(page);
-    expect(s.dead).toBeNull();
-    expect(s.logs.filter((l) => l.level === 'error')).toEqual([]);
+    expect(s.dead).toMatch(/^Memory limit exceeded/);
   });
 });
 
