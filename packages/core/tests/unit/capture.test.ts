@@ -97,3 +97,47 @@ describe('dom: className and textContent setters', () => {
     assert.equal(r.probes[0], 'new|true|1|flat|0|5|0');
   });
 });
+
+describe('capture: script contents', () => {
+  it('script text is never mirrored to the host, at boot or after a change', async () => {
+    const big = 'x'.repeat(70 * 1024);
+    const r = await runWidget(`<p id="p">hi</p><script id="s">/*${big}*/ var s = document.getElementById('s');
+      setTimeout(function () { s.textContent = 'var changed = 1;'; s.appendChild(document.createTextNode('//more')); }, 1);</script>`,
+      { timerRounds: 3, probes: ['s.textContent.length', 'document.getElementById("p").textContent'] });
+    const all = r.ops.flat() as any[];
+    const script = all.find((o) => o.op === 'el' && o.tag === 'script');
+    assert.ok(script);
+    assert.ok(!all.some((o) => o.op === 'ins' && o.parent === script.id));
+    assert.ok(!all.some((o) => (o.op === 'text' || o.op === 'data') && String(o.data).length > 1000));
+    assert.ok(!all.some((o) => (o.op === 'text' || o.op === 'data') && String(o.data).includes('changed')));
+    assert.equal(r.probes[0], String('var changed = 1;//more'.length));
+    assert.equal(r.probes[1], 'hi');
+  });
+});
+
+describe('capture: moving known nodes into a new subtree', () => {
+  it('an existing element moved into a container created in the same flush is inserted, not created again', async () => {
+    const r = await runWidget(`<div id="list"><section id="old"><button id="row" class="r"><b>Row</b></button></section></div><script>
+      var list = document.getElementById('list'), row = document.getElementById('row');
+      setTimeout(function () {
+        var fresh = document.createElement('section');
+        fresh.appendChild(row);
+        list.replaceChildren(fresh);
+        row.className = 'r moved';
+      }, 1);
+      setTimeout(function () {
+        var again = document.createElement('section');
+        again.appendChild(row);
+        list.replaceChildren(again);
+      }, 2);</script>`, { timerRounds: 4, policy: 'strict', probes: ['list.innerHTML'] });
+    assert.deepEqual(r.diags.filter((d) => d.kind.includes('violation')), []);
+    const all = r.ops.flat() as any[];
+    const rowCreates = all.filter((o) => o.op === 'el' && o.attrs?.id === 'row');
+    assert.equal(rowCreates.length, 1);
+    const rowId = rowCreates[0].id;
+    const inserts = all.filter((o) => o.op === 'ins' && o.id === rowId).map((o) => o.parent);
+    assert.equal(new Set(inserts).size, 3);
+    assert.ok(all.some((o) => o.op === 'attr' && o.id === rowId && o.value === 'r moved'));
+    assert.match(r.probes[0], /^<section><button [^>]*id="row"[^>]*><b>Row<\/b><\/button><\/section>$/);
+  });
+});

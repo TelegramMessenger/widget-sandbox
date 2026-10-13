@@ -79,11 +79,14 @@ const renderable = (n: any) => n.nodeType === 1 || n.nodeType === 3 || n.nodeTyp
  * doctype node is not linked to <html> through nextSibling, and the doctype is
  * never mirrored anyway.
  */
+const opaque = (n: any) => n.nodeType === 1 && n.localName === 'script';
+
 function* childrenOf(node: any): Generator<any> {
   if (node.nodeType === 9) {
     if (node.documentElement) yield node.documentElement;
     return;
   }
+  if (opaque(node)) return;
   for (let c = node.firstChild; c; c = c.nextSibling) if (renderable(c)) yield c;
 }
 
@@ -185,7 +188,8 @@ function createNode(node: any): number {
     for (const [name, value] of attrs) hooks.attributeChanged(node, name, value);
     hooks.elementSynced(node, id, (o) => postOps.push(o), true);
     for (const c of childrenOf(node)) {
-      const cid = createNode(c);
+      const known = c[ID];
+      const cid = known !== undefined && mirror.has(known) ? known : createNode(c);
       mirror.get(cid)!.parent = id;
       m.kids.push(cid);
       ops.push({ op: 'ins', parent: id, id: cid, before: null });
@@ -356,7 +360,7 @@ function reuseSoleText(node: any, id: number, oldId: number): boolean {
 function syncChildren(node: any, id: number, m: Mirror) {
   if (node.nodeType !== 9) {
     let i = 0;
-    let c = node.firstChild;
+    let c = opaque(node) ? null : node.firstChild;
     for (; c; c = c.nextSibling) {
       if (!renderable(c)) continue;
       const cid = c[ID];
