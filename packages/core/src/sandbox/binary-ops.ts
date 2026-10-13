@@ -209,53 +209,81 @@ export class OpWriter {
 
 /** The JSON ops a binary batch stands for (tests and the Node harness). Throws on a malformed batch. */
 export function decodeBinaryOps(words: ArrayLike<number>, joined: string, table: string[]): any[] {
-  if (words.length < 2 || words[0] !== MAGIC) throw new Error('bad header');
+  if (words.length < 2 || words[0] !== MAGIC || !isInt32(words[1]) || words[1] < 0) throw new Error('bad header');
   const ops: any[] = [];
   let at = 0;
+  let i = 2;
+  const word = (k: number) => {
+    const v = words[i + k];
+    if (i + k >= words.length || !isInt32(v)) throw new Error('truncated or non-integer word');
+    return v;
+  };
+  const flag = (k: number) => {
+    const v = word(k);
+    if (v !== 0 && v !== 1) throw new Error('bad flag');
+    return v === 1;
+  };
   const take = (n: number) => {
     if (n < 0 || at + n > joined.length) throw new Error('string out of range');
     const s = joined.slice(at, at + n);
     at += n;
     return s;
   };
-  const str = (v: number) => (v >= 0 ? take(v) : table[-v - 1] ?? (() => { throw new Error('bad intern'); })());
-  let i = 2;
+  const str = (v: number) => {
+    if (v >= 0) return take(v);
+    const k = -v - 1;
+    if (k >= table.length || typeof table[k] !== 'string') throw new Error('bad intern');
+    return table[k];
+  };
   while (i < words.length) {
-    const code = words[i];
+    const code = word(0);
     switch (code) {
-      case DEF: { table[words[i + 1]] = take(words[i + 2]); i += 3; break; }
+      case DEF: {
+        const k = word(1);
+        if (k < 0 || k >= MAX_INTERNED || k > table.length) throw new Error('bad intern');
+        table[k] = take(word(2));
+        i += 3;
+        break;
+      }
       case RESET: { table.length = 0; i += 1; break; }
       case EL: {
-        const id = words[i + 1], tag = str(words[i + 2]), svg = words[i + 3] === 1, m = words[i + 4];
+        const id = word(1), tag = str(word(2)), svg = flag(3), m = word(4);
+        if (m < 0 || m > (words.length - i - 5) / 2) throw new Error('bad attribute count');
         i += 5;
         const op: any = { op: 'el', id, tag };
         if (svg) op.ns = 'svg';
         if (m > 0) {
-          const attrs: Record<string, string> = {};
-          for (let k = 0; k < m; k++) { const name = str(words[i]); attrs[name] = str(words[i + 1]); i += 2; }
+          const attrs: Record<string, string> = Object.create(null);
+          for (let k = 0; k < m; k++) { const name = str(word(0)); attrs[name] = str(word(1)); i += 2; }
           op.attrs = attrs;
         }
         ops.push(op);
         break;
       }
       case TEXT: case COMMENT: case DATA: {
-        ops.push({ op: code === TEXT ? 'text' : code === COMMENT ? 'comment' : 'data', id: words[i + 1], data: str(words[i + 2]) });
+        ops.push({ op: code === TEXT ? 'text' : code === COMMENT ? 'comment' : 'data', id: word(1), data: str(word(2)) });
         i += 3;
         break;
       }
-      case ATTR: { ops.push({ op: 'attr', id: words[i + 1], name: str(words[i + 2]), value: str(words[i + 3]) }); i += 4; break; }
-      case RATTR: { ops.push({ op: 'rattr', id: words[i + 1], name: str(words[i + 2]) }); i += 3; break; }
-      case INS: { ops.push({ op: 'ins', parent: words[i + 1], id: words[i + 2], before: words[i + 3] === 0 ? null : words[i + 3] }); i += 4; break; }
-      case RM: { ops.push({ op: 'rm', id: words[i + 1] }); i += 2; break; }
+      case ATTR: { ops.push({ op: 'attr', id: word(1), name: str(word(2)), value: str(word(3)) }); i += 4; break; }
+      case RATTR: { ops.push({ op: 'rattr', id: word(1), name: str(word(2)) }); i += 3; break; }
+      case INS: { const before = word(3); ops.push({ op: 'ins', parent: word(1), id: word(2), before: before === 0 ? null : before }); i += 4; break; }
+      case RM: { ops.push({ op: 'rm', id: word(1) }); i += 2; break; }
       case STYLE: {
-        const op: any = { op: 'style', id: words[i + 1], name: str(words[i + 2]), value: str(words[i + 3]) };
-        if (words[i + 4] === 1) op.important = true;
+        const op: any = { op: 'style', id: word(1), name: str(word(2)), value: str(word(3)) };
+        if (flag(4)) op.important = true;
         ops.push(op);
         i += 5;
         break;
       }
-      case CANVAS: { ops.push({ op: 'canvas', id: words[i + 1], bin: words[i + 2] }); i += 3; break; }
-      case JSON_OP: { ops.push(JSON.parse(str(words[i + 1]))); i += 2; break; }
+      case CANVAS: { ops.push({ op: 'canvas', id: word(1), bin: word(2) }); i += 3; break; }
+      case JSON_OP: {
+        const op = JSON.parse(str(word(1)));
+        if (!op || typeof op !== 'object' || Array.isArray(op) || typeof op.op !== 'string') throw new Error('bad json op');
+        ops.push(op);
+        i += 2;
+        break;
+      }
       default: throw new Error('bad opcode ' + code);
     }
   }
