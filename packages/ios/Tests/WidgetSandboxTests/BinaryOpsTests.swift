@@ -61,6 +61,40 @@ final class BinaryOpsTests: XCTestCase {
         }
     }
 
+    /// Through a host: binary batches go to the validator's native model (no JSON in between), JSON stays on the JS validator, and the renderer sees the same ops.
+    func testHostsValidateBinaryOpsNatively() throws {
+        func host(_ features: Set<String>) throws -> (messages: [String], native: Bool) {
+            var options = WidgetHost.Options()
+            options.asyncValidation = true
+            options.features = features
+            let renderer = RecordingRenderer()
+            let host = try WidgetHost(html: Self.widgets[0], theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+            defer { host.destroy() }
+            let deadline = Date().addingTimeInterval(10)
+            while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            RunLoop.main.run(until: Date().addingTimeInterval(1.0))
+            let validator = Mirror(reflecting: host).children.first { $0.label == "validator" }?.value as! TrustedValidator
+            return (renderer.messages, validator.usesNativeModel)
+        }
+        let json = try host([])
+        let binary = try host(["binaryOps"])
+        XCTAssertFalse(json.native)
+        XCTAssertTrue(binary.native)
+        func ops(_ messages: [String]) -> [NSDictionary] {
+            messages.compactMap { m -> [[String: Any]]? in
+                guard let o = (try? JSONSerialization.jsonObject(with: Data(m.utf8))) as? [String: Any], o["type"] as? String == "ops" else { return nil }
+                return o["ops"] as? [[String: Any]]
+            }.flatMap { $0 }.map { op -> NSDictionary in
+                var op = op
+                if op["op"] as? String == "style", op["important"] as? Bool == false { op["important"] = nil }
+                if op["op"] as? String == "el", (op["attrs"] as? [Any])?.isEmpty == true { op["attrs"] = nil }
+                return op as NSDictionary
+            }
+        }
+        XCTAssertGreaterThan(ops(json.messages).count, 10)
+        XCTAssertEqual(ops(binary.messages), ops(json.messages))
+    }
+
     private func decode(_ words: [Int32], _ strings: String = "", table: BinaryInternTable = BinaryInternTable()) -> Result<BinaryOps.Decoded, BinaryOps.Failure> {
         BinaryOps.decode(BinaryOpsPayload(words: words, strings: Array(strings.utf8)), table: table)
     }

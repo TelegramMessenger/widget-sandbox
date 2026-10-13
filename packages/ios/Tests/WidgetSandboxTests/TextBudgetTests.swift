@@ -31,4 +31,24 @@ final class TextBudgetTests: XCTestCase {
         XCTAssertFalse(all.contains(String(repeating: "\u{0628}", count: 500)))
         XCTAssertGreaterThan(host.diagnostics.diags["text-budget"]?.count ?? 0, 0)
     }
+
+    /// The same budget in the native node model (binary ops), checked against the JS validator op for op.
+    func testComplexTextBudgetIsTheSameInTheNativeModel() {
+        let arabic = { (n: Int) in String(repeating: "\u{0627}", count: n) }
+        let batch = """
+            [{"op":"el","id":2,"tag":"html"},{"op":"ins","parent":1,"id":2,"before":null},{"op":"el","id":3,"tag":"body"},{"op":"ins","parent":2,"id":3,"before":null},
+             {"op":"text","id":20,"data":"\(arabic(5000))"},{"op":"ins","parent":3,"id":20,"before":null},
+             {"op":"text","id":21,"data":"\(arabic(4000))"},{"op":"ins","parent":3,"id":21,"before":null},
+             {"op":"text","id":22,"data":"\(arabic(3000))"},{"op":"ins","parent":3,"id":22,"before":null},
+             {"op":"data","id":22,"data":"\(arabic(3193))"},{"op":"data","id":20,"data":"shrunk"},
+             {"op":"text","id":23,"data":"\(arabic(5000))"},{"op":"ins","parent":3,"id":23,"before":null},{"op":"rm","id":23},
+             {"op":"text","id":24,"data":"\(arabic(5000))"},{"op":"ins","parent":3,"id":24,"before":null}]
+            """
+        let js = NativeValidatorDifferentialTests.Rig(native: false).json(batch)
+        let native = NativeValidatorDifferentialTests.Rig(native: true).json(batch)
+        XCTAssertEqual(native.0, js.0)
+        XCTAssertEqual(native.1, js.1)
+        XCTAssertEqual(native.2, js.2)
+        XCTAssertGreaterThanOrEqual(js.2.filter { $0.hasPrefix("text-budget") }.count, 2)
+    }
 }

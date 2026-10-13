@@ -53,6 +53,9 @@ public protocol SandboxEngineDelegate: AnyObject {
     /// An ops batch whose `{"op":"canvas","id":N,"bin":K}` placeholders stand for `canvas[K]` (canvas words).
     /// The default splices them back into JSON and calls `engine(_:ops:)`.
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch])
+    /// A binary op batch (`binaryOps`), copied out of the runtime. The default decodes it with the engine's
+    /// intern table into the same JSON as the JSON path; a host with a native node model validates it directly.
+    func engine(_ engine: SandboxEngine, binaryOps payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch])
     func engine(_ engine: SandboxEngine, query json: String) -> (json: String, binary: Data?)
     func engine(_ engine: SandboxEngine, listen json: String)
     func engine(_ engine: SandboxEngine, preventDefault json: String)
@@ -68,6 +71,15 @@ public protocol SandboxEngineDelegate: AnyObject {
 public extension SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
         self.engine(engine, ops: canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
+    }
+
+    func engine(_ engine: SandboxEngine, binaryOps payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) {
+        switch BinaryOps.decode(payload, table: engine.internTable) {
+        case .success(let decoded):
+            self.engine(engine, ops: decoded.tooMany ? "{}" : BinaryOps.json(decoded.ops, canvas: canvas, placeholders: true), canvas: canvas)
+        case .failure(let failure):
+            self.engine(engine, diag: "protocol-violation", detail: "malformed binary ops batch (\(failure))")
+        }
     }
 }
 
@@ -203,7 +215,8 @@ public final class SandboxEngine {
     private var stagedCanvas: [Int: WidgetCanvasBatch] = [:]
     private var stagedWords = 0
     /// The intern table of the binary op stream (`binaryOps`); one per runtime.
-    private let internTable = BinaryInternTable()
+    /// Used only on the JSON fallback (`engine(_:binaryOps:canvas:)`'s default), on the delegate's thread.
+    let internTable = BinaryInternTable()
     /// Binary op batches accepted so far (tests).
     private(set) var binaryBatches = 0
     /// Word payloads accepted so far (tests).
@@ -247,14 +260,9 @@ public final class SandboxEngine {
                 let canvas = stagedCanvas
                 stagedCanvas = [:]
                 stagedWords = 0
-                switch BinaryOps.decode(words: words, bytes: strings, table: internTable) {
-                case .success(let decoded):
-                    stats.ops += decoded.ops.count
-                    binaryBatches += 1
-                    delegate?.engine(self, ops: decoded.tooMany ? "{}" : BinaryOps.json(decoded.ops, canvas: canvas, placeholders: true), canvas: canvas)
-                case .failure(let failure):
-                    delegate?.engine(self, diag: "protocol-violation", detail: "malformed binary ops batch (\(failure))")
-                }
+                stats.ops += Int(words[1])
+                binaryBatches += 1
+                delegate?.engine(self, binaryOps: BinaryOpsPayload(words: Array(words), strings: Array(strings)), canvas: canvas)
             }
         }
         if runtimeFeatures.contains("canvasWords") {

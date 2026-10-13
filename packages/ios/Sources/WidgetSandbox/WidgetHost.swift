@@ -155,6 +155,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         diagnostics.prewarmed = prewarmed.joined(separator: "+")
         rendererAcceptsTypedOps = renderer.acceptsTypedOps
+        // Binary ops are validated by the native node model, which must own the widget's nodes from the first batch.
+        if engine.runtimeFeatures.contains("binaryOps") { validator.useNativeModel(true) }
         engine.delegate = self
         // Runtime + sandbox bundle now, on the engine's thread, while WebKit loads the document.
         if options.parallelBoot { engine.prewarm() }
@@ -250,6 +252,23 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     public func engine(_ engine: SandboxEngine, ops json: String) {
         self.engine(engine, ops: json, canvas: [:])
+    }
+
+    public func engine(_ engine: SandboxEngine, binaryOps payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) {
+        let typed = rendererAcceptsTypedOps
+        validate { [self] in
+            let batch = validator.processBinary(payload, canvas: canvas, typed: typed)
+            let nodes = validator.nodeCount
+            let deliver = {
+                switch batch {
+                case .empty: break
+                case .json(let clean): self.toRenderer("{\"type\":\"ops\",\"ops\":\(clean)}"); self.opsSent += 1
+                case .ops(let ops): self.toRenderer(ops: ops); self.opsSent += 1
+                }
+                self.diagnostics.nodes = nodes
+            }
+            if options.asyncValidation { toMain(deliver) } else { deliver() }
+        }
     }
 
     public func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
