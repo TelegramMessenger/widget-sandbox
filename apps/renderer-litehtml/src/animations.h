@@ -133,8 +133,9 @@ public:
 
     // What a compositor needs to play an element's animations without the core (compositor.h).
 
-    /// Elements with a running animation, transition or Web Animation.
-    std::vector<int64_t> animated_ids() const;
+    /// Elements whose animations, transitions or Web Animations still change something at `now`:
+    /// not ended, paused, held or finished.
+    std::vector<int64_t> animated_ids(double now) const;
     /// Every property the animations of `id` write.
     std::vector<std::string> animated_properties(int64_t id) const;
     /// What `sample` would write for `id` at `t`, without events and without changing any state.

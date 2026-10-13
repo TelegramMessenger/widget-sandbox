@@ -1195,16 +1195,23 @@ const Animator::Override* Animator::override_of(int64_t id, const std::string& k
     return it == o->second.end() ? nullptr : &it->second;
 }
 
-std::vector<int64_t> Animator::animated_ids() const {
+std::vector<int64_t> Animator::animated_ids(double now) const {
     std::vector<int64_t> out;
-    for (const auto& [id, list] : running_)
-        for (const Running& r : list)
-            if (keyframes_.count(r.spec.name)) {
-                out.push_back(id);
-                break;
-            }
+    for (const auto& [id, list] : running_) {
+        for (const Running& r : list) {
+            if (r.ended || !keyframes_.count(r.spec.name)) continue;
+            const Override* o = override_of(id, "animation:" + r.spec.name);
+            if (o ? o->cancelled || o->hold.has_value() : r.spec.paused) continue;
+            out.push_back(id);
+            break;
+        }
+    }
     for (const auto& [id, list] : transitions_) out.push_back(id);
-    for (const auto& [aid, a] : web_) out.push_back(a.target);
+    for (const auto& [aid, a] : web_) {
+        if (!a.running()) continue;
+        auto state = compute(a, local_time(a, now), a.rate >= 0);
+        if (state && !(a.rate > 0 ? state->after : state->before)) out.push_back(a.target);
+    }
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;

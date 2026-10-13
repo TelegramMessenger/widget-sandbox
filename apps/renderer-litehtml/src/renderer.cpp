@@ -1606,7 +1606,7 @@ void Renderer::update_composition(double now) {
     };
     std::vector<std::pair<int64_t, Want>> wanted;
     bool iterations = interest_.count("animationiteration") > 0;
-    auto ids = animator_.animated_ids();
+    auto ids = animator_.animated_ids(now);
     uint64_t key = container_->layouts() * 0x9E3779B97F4A7C15ull ^ std::hash<double>()(width_);
     for (int64_t id : ids) {
         auto plan = animator_.plan(id, now, iterations);
