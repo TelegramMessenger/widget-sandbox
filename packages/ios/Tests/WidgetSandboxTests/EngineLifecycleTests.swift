@@ -60,6 +60,29 @@ final class EngineLifecycleTests: XCTestCase {
         engine.terminate()
     }
 
+    /// Ops the engine delivers after the host was destroyed (its JS thread finishes
+    /// the task in flight) must not reach the validator: with pools on it is back in
+    /// the pool, and the next widget would inherit this widget's nodes.
+    func testValidatorWorkAfterDestroyIsDropped() throws {
+        var options = WidgetHost.Options()
+        options.asyncValidation = true
+        let renderer = RecordingRenderer()
+        let host = try WidgetHost(html: "<p>x</p>", theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        let deadline = Date().addingTimeInterval(10)
+        while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        let fields = Dictionary(Mirror(reflecting: host).children.compactMap { child in child.label.map { ($0, child.value) } }, uniquingKeysWith: { a, _ in a })
+        let validator = try XCTUnwrap(fields["validator"] as? TrustedValidator)
+        let engine = try XCTUnwrap(fields["engine"] as? SandboxEngine)
+        let before = validator.nodeCount
+        XCTAssertGreaterThan(before, 0)
+        host.destroy()
+        let late = "[{\"op\":\"el\",\"id\":900,\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":2,\"id\":900,\"before\":null}]"
+        host.engine(engine, ops: late)
+        host.engine(engine, ops: late)
+        validator.thread.sync {}
+        XCTAssertEqual(validator.nodeCount, before, "late ops after destroy reached the validator")
+    }
+
     func testSuccessfulPrewarmStillBoots() {
         let d = RecordingDelegate()
         let engine = SandboxEngine(html: "<p>x</p>", config: config())
