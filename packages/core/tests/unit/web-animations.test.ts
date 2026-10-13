@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import { Validator } from '../../src/host/validator.ts';
 import { runWidget, type RunOptions } from '../../scripts/sandbox-node.ts';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 const fixtures = path.join(here, '..', 'fixtures', 'waapi');
 const appFixture = path.join(fixtures, 'app-anims.json');
+const validatorFixture = path.join(fixtures, 'app-validator.json');
 
 function validator(diags: string[] = []): Validator {
   const v = new Validator((kind, detail) => diags.push(`${kind}: ${detail}`));
@@ -70,8 +73,12 @@ function cases(): Case[] {
   return [...inline, ...files.map((f) => ({ name: f, html: fs.readFileSync(path.join(fixtures, f), 'utf8') }))];
 }
 
+async function run(c: Case, bundle?: string) {
+  return runWidget(c.html, { ...c.opts, ...(bundle ? { bundle } : { webAnimations: true }), now: clock(), random: bytes(), frames: 6, timerRounds: 4 });
+}
+
 async function capture(c: Case, bundle?: string) {
-  const r = await runWidget(c.html, { ...c.opts, ...(bundle ? { bundle } : { webAnimations: true }), now: clock(), random: bytes(), frames: 6, timerRounds: 4 });
+  const r = await run(c, bundle);
   return { anims: r.anims, animOps: r.animOps, logs: r.logs.map((l) => `${l.level}:${l.text}`) };
 }
 
@@ -220,5 +227,124 @@ describe('web animations: validateAnim', () => {
     assert.deepEqual(v.validateQuery({ q: 'anims', id: 7, subtree: true }), { q: 'anims', id: 7, subtree: true });
     assert.deepEqual(v.validateQuery({ q: 'anims', id: 7, subtree: 'yes' }), { q: 'anims', id: 7, subtree: false });
     assert.equal(v.validateQuery({ q: 'anims', id: 99 }), null);
+  });
+});
+
+type Stream = { kind: 'ops' | 'anim'; json: string }[];
+
+const SKELETON = JSON.stringify([
+  { op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null },
+  { op: 'el', id: 3, tag: 'body' }, { op: 'ins', parent: 2, id: 3, before: null },
+  { op: 'el', id: 7, tag: 'div' }, { op: 'ins', parent: 3, id: 7, before: null },
+]);
+
+function arrayValuesStream(): Stream {
+  return [
+    { kind: 'ops', json: SKELETON },
+    { kind: 'anim', json: JSON.stringify([record({ aid: 8, keyframes: [{ offset: 0, easing: 'linear', composite: null, values: [] }] })]) },
+    { kind: 'anim', json: JSON.stringify([record({ aid: 9, keyframes: [{ offset: 0, easing: 'linear', composite: null, values: ['red'] }] })]) },
+  ];
+}
+
+function syntheticStream(): Stream {
+  const many = Array.from({ length: 65 }, (_, i) => ({ offset: i / 64, easing: 'linear', composite: null, values: {} }));
+  const hostileValues = {
+    'background-image': 'url(javascript:alert(1))', background: 'url(https://evil.example/x) red', width: 'expression(alert(1))', color: 'red; background: url(x)',
+    '--x': 'url(https://evil.example/)', behavior: 'url(x.htc)', '-moz-binding': 'url(x.xml#y)', Opacity: '1', 'transition-duration': '1s', '-webkit-animation-name': 'x',
+    cursor: 'url(x.cur), auto', filter: 'url(#f)', opacity: '0.5', transform: 'rotate(0.1deg) translate(1.5e-7px)', 'background-color': 'light-dark(red, blue)',
+  };
+  const batches: unknown[] = [
+    [record()],
+    [record({ aid: 2, keyframes: [{ offset: 0, easing: 'cubic-bezier(0.1, 0.2, 0.3, 1)', composite: 'add', values: hostileValues }, { offset: 0.5, easing: 'linear(0, 0.5 25%, 1)', composite: null, values: { opacity: '1' } }] }, { iterations: 2.5, easing: 'steps(3, jump-both)' })],
+    [record({ aid: 3, startTime: null, holdTime: 12.125, playbackRate: -0.25 })],
+    [{ aid: 4, target: 7, css: { kind: 'transition', name: 'opacity', origin: 3 }, startTime: 1e3, holdTime: null, playbackRate: 1, cancelled: true }],
+    [record({ target: 99 })], [record({ aid: 5, keyframes: many })], [record({}, { duration: 1e12 })], [record({}, { duration: '__inf__' })], [record({}, { delay: '__ninf__' })],
+    [record({}, { iterations: -1 })], [record({}, { iterations: 'Infinity' })], [record({}, { easing: 'evil(1)' })], [record({}, { easing: 'cubic-bezier(0, 0, 1, url(x))' })],
+    [record({}, { easing: 'linear(' + Array(300).fill('0').join(',') + ')' })], [record({}, { direction: 'sideways' })], [record({}, { fill: 'auto' })], [record({ playbackRate: 1e6 })],
+    [record({ startTime: '__inf__' })], [record({ startTime: null, holdTime: null })], [record({ composite: 'multiply' })],
+    [record({ aid: 6, keyframes: [{ offset: 0.8, easing: 'linear', composite: null, values: {} }, { offset: 0.2, easing: 'linear', composite: null, values: {} }] })],
+    [record({ aid: 6, keyframes: [{ offset: 1.5, easing: 'linear', composite: null, values: {} }] })],
+    [record({ aid: 6, keyframes: [{ offset: 0, easing: 'linear', composite: null, values: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`--v${i}`, '1'])) }] })],
+    [record({ aid: 6, keyframes: [[0, 'linear']] })], [record({ aid: 6, timing: [] })], [record({ aid: 6, keyframes: 'opacity' })],
+    [{ aid: -1 }, { aid: 1.5, remove: true }, { aid: 2 ** 31 }, null, [], 'x'],
+    [{ aid: 2, target: 7, css: { kind: 'animation', name: 'a;b', origin: 1 }, startTime: null, holdTime: 0, playbackRate: 1, cancelled: false }],
+    [{ aid: 2, target: 7, css: [], startTime: null, holdTime: 0, playbackRate: 1, cancelled: false }],
+    [{ aid: 2, target: 7, css: null, startTime: null, holdTime: 0, playbackRate: 1, cancelled: false }],
+    { not: 'a list' },
+    Array(4097).fill(1),
+    Array.from({ length: 1100 }, (_, i) => record({ aid: 100 + i })),
+    [{ aid: 105, remove: true }], [{ aid: 105, remove: true }], [record({ aid: 5000 })],
+    [record({ aid: 3, keyframes: [{ offset: 2 }] })], [{ aid: 1, remove: true }],
+  ];
+  return [{ kind: 'ops', json: SKELETON }, ...batches.map((b) => ({ kind: 'anim' as const, json: JSON.stringify(b).replace(/"__inf__"/g, '1e999').replace(/"__ninf__"/g, '-1e999') }))];
+}
+
+const ARRAY_VALUES = /"values":\[/;
+const compact = (out: string) => (out.length > 4096 ? 'sha256:' + createHash('sha256').update(out).digest('hex') : out);
+const generated: Record<string, () => Stream> = { synthetic: syntheticStream, 'array-values': arrayValuesStream };
+
+function replayApp(bundle: string, stream: Stream) {
+  const diags: string[] = [];
+  const ctx: any = { __diag: (k: string, d: string) => diags.push(`${k}: ${d}`) };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(bundle, ctx);
+  const v = ctx.__twValidator;
+  v.create('light');
+  const out: { out: string; diags: string[] }[] = [];
+  for (const s of stream) {
+    if (s.kind === 'ops') { v.processOps(s.json); continue; }
+    diags.length = 0;
+    out.push({ out: compact(v.validateAnim(s.json)), diags: [...diags] });
+  }
+  return out;
+}
+
+function replayNew(stream: Stream) {
+  const diags: string[] = [];
+  const v = new Validator((k, d) => diags.push(`${k}: ${d}`));
+  const out: { out: string; diags: string[] }[] = [];
+  for (const s of stream) {
+    if (s.kind === 'ops') { v.processOps(JSON.parse(s.json)); continue; }
+    diags.length = 0;
+    out.push({ out: compact(JSON.stringify(v.validateAnim(JSON.parse(s.json)))), diags: [...diags] });
+  }
+  return out;
+}
+
+describe('web animations: validator differential against the app validator bundle', () => {
+  it('validateAnim gives the app validator output and diagnostics, except that array keyframe values are rejected', async () => {
+    const appValidator = process.env.TW_APP_VALIDATOR_BUNDLE;
+    if (appValidator) {
+      const bundle = fs.readFileSync(appValidator, 'utf8');
+      const out: Record<string, unknown> = {};
+      const streams: [string, Stream][] = Object.entries(generated).map(([name, make]) => [name, make()]);
+      for (const c of cases()) streams.push([c.name, (await run(c)).stream]);
+      for (const [name, stream] of streams) out[name] = { stream: generated[name] ? null : stream, expected: replayApp(bundle, stream) };
+      fs.writeFileSync(validatorFixture, JSON.stringify(out) + '\n');
+    }
+    const fixture = JSON.parse(fs.readFileSync(validatorFixture, 'utf8')) as Record<string, { stream: Stream | null; expected: { out: string; diags: string[] }[] }>;
+    let compared = 0, divergent = 0;
+    for (const [name, entry] of Object.entries(fixture)) {
+      const expected = entry.expected;
+      const stream = entry.stream ?? generated[name]();
+      const got = replayNew(stream);
+      const inputs = stream.filter((s) => s.kind === 'anim');
+      assert.equal(got.length, expected.length, name);
+      got.forEach((g, i) => {
+        if (ARRAY_VALUES.test(inputs[i].json)) {
+          divergent++;
+          assert.notEqual(expected[i].out, '[]', `${name} #${i}: the app accepted array values`);
+          assert.equal(g.out, '[]', `${name} #${i}`);
+          assert.ok(g.diags.some((d) => d.startsWith('protocol-violation: rejected anim keyframes')), `${name} #${i}`);
+          return;
+        }
+        compared++;
+        assert.deepEqual(g, expected[i], `${name} #${i} ${inputs[i].json.slice(0, 200)}`);
+      });
+    }
+    assert.ok(compared > 50, `compared ${compared}`);
+    console.log(`validator differential: ${compared} anim batches identical, ${divergent} array-values batches rejected`);
+    assert.equal(divergent, 2);
   });
 });

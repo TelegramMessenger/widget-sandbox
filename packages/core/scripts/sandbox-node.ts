@@ -40,6 +40,7 @@ export interface RunResult {
   binaryBatches: number;
   anims: unknown[][];
   animOps: unknown[][];
+  stream: { kind: 'ops' | 'anim'; json: string }[];
 }
 
 /** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */
@@ -136,7 +137,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [] };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [] };
   const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
@@ -172,6 +173,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'anim': {
         const list = JSON.parse(arg);
         res.anims.push(list);
+        res.stream.push({ kind: 'anim', json: arg });
         res.animOps.push(arg.length > MAX_ANIM_BATCH_BYTES ? [] : validator.validateAnim(list));
         return vm.undefined;
       }
@@ -213,6 +215,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     for (const op of ops) if (op && op.op === 'canvas' && typeof op.bin === 'number') { op.cmds = canvasPayloads[op.bin] ?? []; delete op.bin; res.canvasWordBatches++; }
     canvasPayloads.length = 0;
     res.ops.push(ops);
+    res.stream.push({ kind: 'ops', json: JSON.stringify(ops) });
     const out = validator.processOps(ops);
     res.renderOps.push(...out);
     log(`ops (${ops.length}) →`, JSON.stringify(out).slice(0, 2000));
