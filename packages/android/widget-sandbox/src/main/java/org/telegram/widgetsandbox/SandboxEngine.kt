@@ -77,6 +77,7 @@ class SandboxEngine(
         fun onLoaded(engine: SandboxEngine)
         fun onStats(engine: SandboxEngine, stats: SandboxStats)
         fun onDied(engine: SandboxEngine, reason: String)
+        fun onAnim(engine: SandboxEngine, json: String) {}
     }
 
     /** Everything below runs on this thread (see JSThread for why not an executor). */
@@ -372,6 +373,7 @@ class SandboxEngine(
             }
             "listen" -> delegate?.onListen(this, arg)
             "pd" -> delegate?.onPreventDefault(this, arg)
+            "anim" -> delegate?.onAnim(this, arg)
             "bridge" -> {
                 val pair = try { JSONArray(arg) } catch (e: Exception) { null }
                 if (pair != null && pair.length() == 2 && pair.opt(0) is String) {

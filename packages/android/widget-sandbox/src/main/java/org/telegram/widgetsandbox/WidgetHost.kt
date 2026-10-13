@@ -221,6 +221,13 @@ class WidgetHost(
     override fun onPreventDefault(engine: SandboxEngine, json: String) {
         main.post { if (!destroyed) toRenderer("{\"type\":\"preventDefault\",\"keys\":${validator.validatePreventDefault(json)}}") }
     }
+    override fun onAnim(engine: SandboxEngine, json: String) {
+        main.post {
+            if (destroyed) return@post
+            val anims = validator.validateAnim(json)
+            if (anims != "[]") toRenderer("{\"type\":\"anim\",\"now\":${QuickJSContext.nativeNow() / 1e6},\"anims\":$anims}")
+        }
+    }
     override fun onRequestFrame(engine: SandboxEngine) {
         main.post { toRenderer("{\"type\":\"requestFrame\"}") }
     }
