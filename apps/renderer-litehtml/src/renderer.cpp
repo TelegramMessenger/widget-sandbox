@@ -921,7 +921,7 @@ private:
     static void positioned_z(const std::shared_ptr<litehtml::render_item>& item, std::set<int>& z) {
         for (const auto& child : item->children()) {
             if (child->src_el()->is_positioned()) z.insert(child->src_el()->css().get_z_index());
-            else positioned_z(child, z);
+            else if (!child->src_el()->css().is_paint_group()) positioned_z(child, z);
         }
     }
     /// An element's children in stacking order, as if it formed a stacking context: what litehtml's
