@@ -12,7 +12,7 @@
 // is implemented on top of the same reconciliation.
 
 import { DOCUMENT_ID } from '../shared/protocol';
-import { document, SVG_NS } from './dom';
+import { document, domHooks, exposeNode, SVG_NS } from './dom';
 import { OpWriter } from './binary-ops';
 import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './host';
 import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
@@ -64,7 +64,7 @@ export function idOf(node: any): number {
   return node[ID] ?? (node[ID] = nextId++);
 }
 export function nodeById(id: number): any {
-  return byId.get(id) ?? null;
+  return exposeNode(byId.get(id) ?? null);
 }
 /** Id of a node the host knows about, or 0. */
 export function mirroredId(node: any): number {
@@ -107,6 +107,7 @@ export function pushProp(node: any, name: string, value: string | number | boole
 
 interface Observation { target: any; options: any }
 const observers = new Set<MutationObserverImpl>();
+domHooks.observing = () => observers.size > 0;
 let records: any[] = [];
 
 function record(rec: any) {

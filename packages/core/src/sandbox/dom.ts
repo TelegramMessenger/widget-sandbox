@@ -25,6 +25,87 @@ function ownerOf(proto: any, name: string): any {
   return null;
 }
 
+/** Set on a node once script could have obtained a reference to it. */
+export const EXPOSED = Symbol('tw.exposed');
+/** Set on a parent once script holds a live childNodes list of it: every child counts as exposed. */
+const KIDS_EXPOSED = Symbol('tw.kidsExposed');
+/** Hooks the capture layer fills in. */
+export const domHooks = { observing: (): boolean => false };
+let inPlaceText = true;
+let inPlaceKilled = false;
+let rawFirstChild: () => any;
+let rawNextSibling: () => any;
+
+export function exposeNode<T>(n: T): T {
+  if (n && typeof n === 'object' && (n as any).nodeType === 3) (n as any)[EXPOSED] = true;
+  return n;
+}
+
+/** A Range, TreeWalker, NodeIterator or Selection can reach any node: stop updating text nodes in place for good. */
+export function exposeAll(): void {
+  inPlaceKilled = true;
+  inPlaceText = false;
+}
+
+export function setInPlaceText(enabled: boolean): void {
+  inPlaceText = enabled && !inPlaceKilled;
+}
+
+// Exposure tracking: every getter that can hand a text node to script marks it.
+{
+  const samples = [document.createElement('div'), document.createTextNode('x'), document.createComment('x'), document.createDocumentFragment(), document];
+  const wrapped = new Set<any>();
+  rawFirstChild = Object.getOwnPropertyDescriptor(ownerOf(samples[0], 'firstChild'), 'firstChild')!.get!;
+  rawNextSibling = Object.getOwnPropertyDescriptor(ownerOf(samples[1], 'nextSibling'), 'nextSibling')!.get!;
+  for (const name of ['firstChild', 'lastChild', 'nextSibling', 'previousSibling']) {
+    for (const sample of samples) {
+      const proto = ownerOf(sample, name);
+      const d = proto && Object.getOwnPropertyDescriptor(proto, name);
+      if (!d?.get || wrapped.has(d.get)) continue;
+      const get = d.get;
+      const wrapper = function (this: any) {
+        return exposeNode(get.call(this));
+      };
+      wrapped.add(wrapper);
+      Object.defineProperty(proto, name, { ...d, get: wrapper });
+    }
+  }
+  for (const sample of samples) {
+    const proto = ownerOf(sample, 'childNodes');
+    const d = proto && Object.getOwnPropertyDescriptor(proto, 'childNodes');
+    if (!d?.get || wrapped.has(d.get)) continue;
+    const get = d.get;
+    const wrapper = function (this: any) {
+      this[KIDS_EXPOSED] = true;
+      return get.call(this);
+    };
+    wrapped.add(wrapper);
+    Object.defineProperty(proto, 'childNodes', { ...d, get: wrapper });
+  }
+  for (const sample of samples) {
+    const proto = ownerOf(sample, 'normalize');
+    if (!proto || wrapped.has(proto.normalize)) continue;
+    const normalize = proto.normalize;
+    const wrapper = function (this: any) {
+      this[KIDS_EXPOSED] = true;
+      return normalize.call(this);
+    };
+    wrapped.add(wrapper);
+    proto.normalize = wrapper;
+  }
+  const docProto = ownerOf(document, 'createRange');
+  for (const name of ['createRange', 'createTreeWalker', 'createNodeIterator', 'evaluate']) {
+    const owner = ownerOf(document, name);
+    if (!owner || typeof owner[name] !== 'function') continue;
+    const orig = owner[name];
+    owner[name] = function (this: any, ...args: any[]) {
+      exposeAll();
+      return orig.apply(this, args);
+    };
+  }
+  void docProto;
+}
+
 // Fast setters for the two writes tickers make every frame. Both keep linkedom's
 // semantics; capture.ts's dirty tracking wraps them like any other setter.
 {
@@ -54,6 +135,8 @@ function ownerOf(proto: any, name: string): any {
       },
     });
   }
+  const firstChildOf = rawFirstChild;
+  const nextSiblingOf = rawNextSibling;
   const textProto = ownerOf(sample, 'textContent');
   const textContent = textProto && Object.getOwnPropertyDescriptor(textProto, 'textContent');
   if (textContent?.set) {
@@ -63,8 +146,12 @@ function ownerOf(proto: any, name: string): any {
     Object.defineProperty(textProto, 'textContent', {
       ...textContent,
       set(this: any, v: any) {
-        const first = this.nodeType === 1 ? this.firstChild : null;
-        if (typeof v === 'string' && v !== '' && first && first.nodeType === 3 && !first.nextSibling) {
+        const first = this.nodeType === 1 ? firstChildOf.call(this) : null;
+        if (typeof v === 'string' && v !== '' && first && first.nodeType === 3 && !nextSiblingOf.call(first)) {
+          if (inPlaceText && !first[EXPOSED] && !this[KIDS_EXPOSED] && !domHooks.observing()) {
+            first.data = v;
+            return;
+          }
           this.replaceChild(document.createTextNode(v), first);
           return;
         }

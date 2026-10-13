@@ -6,7 +6,7 @@ import './prelude';
 import * as linkedom from 'linkedom';
 import { enableCanvasWords, flushCanvases, ImageData, installCanvas, Context2D, Path2D } from './canvas';
 import * as capture from './capture';
-import { document, loadDocument, parseInto, SCRIPT_INERT, SVG_NS } from './dom';
+import { document, loadDocument, parseInto, SCRIPT_INERT, setInPlaceText, SVG_NS } from './dom';
 import * as ev from './events';
 import { pseudoHooks } from './css-select-shim';
 import { applyEventState, emitProps, FormData, installForms, isChecked, syntheticToggle } from './forms';
@@ -340,6 +340,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
     globals.configureLimits({ maxTimers: Number(config.maxTimers) });
     enableCanvasWords(Array.isArray(config.features) && config.features.includes('canvasWords'));
     capture.enableBinaryOps(Array.isArray(config.features) && config.features.includes('binaryOps'));
+    setInPlaceText(!(Array.isArray(config.features) && config.features.includes('noInPlaceText')));
     globals.setHidden(config.visible === false);
     globals.setTheme(config.theme, false);
     globals.setViewport(config.viewport);
