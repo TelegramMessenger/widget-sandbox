@@ -64,6 +64,40 @@ object references: `{g: gid}` gradient/pattern, `{p: pid}` Path2D,
 `{n: nodeId}` an image source that must be a rendered `canvas`/`img`/`video`,
 `{w, h, b64}` an `ImageData`.
 
+### Features (opt-in wire forms)
+
+`config.features` lists the optional forms a host understands; absent or
+empty means plain JSON only, which every host, glue and renderer speaks, so
+web, Android and desktop keep working unchanged. The shim uses a form only when
+the feature is listed **and** the glue installed the matching function.
+
+### Canvas words (`canvasWords`)
+
+The glue installs `__hostCanvas(key, words: Float64Array, strings: string)`
+(captured by the bundle and deleted from the global object like `__host`).
+Commands are written into one word buffer per canvas; at flush the `canvas` op
+becomes a placeholder `{"op":"canvas","id":N,"bin":K}` in the JSON batch and
+payload `K` is handed over first, right before the `ops` call:
+
+```
+words   = commands… , length(string 0) … length(string m-1), m
+command = kind, name, ident, argc, (tag, payload)…
+kind    = 0 c | 1 s | 2 r | 3 g | 4 gs | 5 pn | 6 pc
+name    = string index (c, s, g, pc) or -1
+ident   = gradient/path id (g, gs, pn, pc) or 0
+tag     = 0 number | 1 string index | 2 {g:id} | 3 {p:id} | 4 {n:id}
+        | 5 list (payload = n, followed by n numbers) | 6 null | 7 boolean
+strings = the m strings joined, lengths in UTF-16 units
+```
+
+Command K maps 1:1 onto the JSON command array; non-finite numbers mean JSON
+`null`. Anything the words cannot express (`ImageData`, other objects,
+ill-formed UTF-16) turns that canvas back into JSON arrays for the frame. At
+most 64 payloads per batch, 2 M words and 2 M string units per payload; the
+glue validates payloads (the same rules as JSON commands) and drops malformed
+ones. The Node harness decodes payloads back into JSON (`canvasWords: true`,
+`decodeCanvasWords`); the Swift glue validates them natively.
+
 ## Host → renderer: `RenderOp`
 
 Same shapes as above, after validation:

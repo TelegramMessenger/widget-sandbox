@@ -4,7 +4,7 @@
 // getImageData, isPointInPath, …) goes through the sync query bridge.
 
 import { ensureCreated, flush, markDirty, mirroredId } from './capture';
-import { diag, hostBinary, query, unsupported } from './host';
+import { diag, hostBinary, hostCanvas, query, stageCanvas, stagedCanvasCount, unsupported } from './host';
 
 const CALLS = [
   'save', 'restore', 'scale', 'rotate', 'translate', 'transform', 'setTransform', 'resetTransform', 'clearRect', 'fillRect',
@@ -21,14 +21,154 @@ const DEFAULTS: Record<string, any> = {
 };
 const MAX_BUFFERED = 400_000;
 
-const pending = new Map<any, any[]>(); // canvas element → commands not yet flushed
+// Canvas words (docs/protocol.md): when the host advertises `canvasWords` and the
+// glue installs `__hostCanvas`, commands are written into a Float64Array per
+// canvas instead of arrays, and the flush hands them over as one binary payload
+// with a `{op:'canvas', id, bin}` placeholder in the JSON batch. A command the
+// words cannot express turns that canvas back into JSON arrays for the frame.
+const KINDS: Record<string, number> = { c: 0, s: 1, r: 2, g: 3, gs: 4, pn: 5, pc: 6 };
+const KIND_NAMES = ['c', 's', 'r', 'g', 'gs', 'pn', 'pc'];
+const MAX_PAYLOADS = 64;
+const MAX_WORDS = 2_000_000;
+const MAX_STRING_UNITS = 2_000_000;
+let wordsEnabled = false;
+
+export function enableCanvasWords(on: boolean) {
+  wordsEnabled = on && hostCanvas !== null;
+}
+
+class WordBuffer {
+  f = new Float64Array(512);
+  n = 0;
+  strings: string[] = [];
+  interned = new Map<string, number>();
+  count = 0;
+  list: any[][] | null = null;
+  joined = '';
+
+  get length() {
+    return this.list !== null ? this.list.length : this.count;
+  }
+  private word(v: number) {
+    if (this.n === this.f.length) {
+      const g = new Float64Array(this.f.length * 2);
+      g.set(this.f);
+      this.f = g;
+    }
+    this.f[this.n++] = v;
+  }
+  private intern(s: string): number {
+    let k = this.interned.get(s);
+    if (k === undefined) {
+      k = this.strings.push(s) - 1;
+      this.interned.set(s, k);
+    }
+    return k;
+  }
+  private value(x: any): boolean {
+    const t = typeof x;
+    if (t === 'number') { this.word(0); this.word(x); return true; }
+    if (t === 'string') { this.word(1); this.word(this.strings.push(x) - 1); return true; }
+    if (t === 'boolean') { this.word(7); this.word(x ? 1 : 0); return true; }
+    if (x === null || x === undefined) { this.word(6); this.word(0); return true; }
+    if (Array.isArray(x)) {
+      for (let k = 0; k < x.length; k++) if (typeof x[k] !== 'number') return false;
+      this.word(5);
+      this.word(x.length);
+      for (let k = 0; k < x.length; k++) this.word(x[k]);
+      return true;
+    }
+    if (t === 'object') {
+      const keys = Object.keys(x);
+      if (keys.length === 1 && typeof x[keys[0]] === 'number') {
+        const tag = keys[0] === 'g' ? 2 : keys[0] === 'p' ? 3 : keys[0] === 'n' ? 4 : 0;
+        if (tag) { this.word(tag); this.word(x[keys[0]]); return true; }
+      }
+    }
+    return false;
+  }
+  private encode(a: any[]): boolean {
+    const kind = Object.prototype.hasOwnProperty.call(KINDS, a[0]) ? KINDS[a[0]] : undefined;
+    if (kind === undefined) return false;
+    let p = 1;
+    let ident = 0;
+    let name = -1;
+    if (kind >= 3) {
+      ident = a[p++];
+      if (typeof ident !== 'number') return false;
+    }
+    if (kind === 0 || kind === 1 || kind === 3 || kind === 6) {
+      const x = a[p++];
+      if (typeof x !== 'string') return false;
+      name = this.intern(x);
+    }
+    if (p > a.length) return false;
+    this.word(kind);
+    this.word(name);
+    this.word(ident);
+    this.word(a.length - p);
+    for (; p < a.length; p++) if (!this.value(a[p])) return false;
+    return true;
+  }
+  push(a: any[]) {
+    if (this.list !== null) { this.list.push(a); return; }
+    const n = this.n;
+    const strings = this.strings.length;
+    if (this.encode(a)) { this.count++; return; }
+    this.n = n;
+    this.strings.length = strings;
+    for (const [s, k] of this.interned) if (k >= strings) this.interned.delete(s);
+    this.toList();
+    this.list!.push(a);
+  }
+  /** Appends the string lengths and count; false when the payload cannot go as words. */
+  pack(): boolean {
+    const joined = this.strings.join('');
+    if (this.n + this.strings.length + 1 > MAX_WORDS || joined.length > MAX_STRING_UNITS) return false;
+    if (typeof (joined as any).isWellFormed === 'function' && !(joined as any).isWellFormed()) return false;
+    for (const s of this.strings) this.word(s.length);
+    this.word(this.strings.length);
+    this.joined = joined;
+    return true;
+  }
+  toList() {
+    const list: any[][] = [];
+    const f = this.f;
+    const s = this.strings;
+    let j = 0;
+    for (let c = 0; c < this.count; c++) {
+      const kind = f[j], name = f[j + 1], ident = f[j + 2], argc = f[j + 3];
+      j += 4;
+      const a: any[] = [KIND_NAMES[kind]];
+      if (kind >= 3) a.push(ident);
+      if (name >= 0) a.push(s[name]);
+      for (let q = 0; q < argc; q++) {
+        const tag = f[j], x = f[j + 1];
+        j += 2;
+        if (tag === 0) a.push(x);
+        else if (tag === 1) a.push(s[x]);
+        else if (tag === 7) a.push(x !== 0);
+        else if (tag === 6) a.push(null);
+        else if (tag === 2) a.push({ g: x });
+        else if (tag === 3) a.push({ p: x });
+        else if (tag === 4) a.push({ n: x });
+        else { a.push(Array.from(f.subarray(j, j + x))); j += x; }
+      }
+      list.push(a);
+    }
+    this.list = list;
+  }
+}
+
+type Buffer = any[] | WordBuffer;
+const pending = new Map<any, Buffer>(); // canvas element → commands not yet flushed
 const contexts = new WeakMap<object, Context2D>();
 const measureCache = new Map<string, any>();
 let objectSeq = 1;
 
-function buffer(canvas: any): any[] {
+function buffer(canvas: any): Buffer {
   let cmds = pending.get(canvas);
-  if (!cmds) pending.set(canvas, (cmds = []));
+  if (!cmds) pending.set(canvas, (cmds = wordsEnabled ? new WordBuffer() : []));
   return cmds;
 }
 
@@ -39,7 +179,13 @@ export function flushCanvases(push: (op: any) => void) {
     if (!cmds.length) continue;
     // Detached (offscreen) canvases are announced to the host on first use.
     const id = mirroredId(canvas) || ensureCreated(canvas);
-    if (id) push({ op: 'canvas', id, cmds });
+    if (!id) continue;
+    if (Array.isArray(cmds)) push({ op: 'canvas', id, cmds });
+    else if (cmds.list === null && stagedCanvasCount() < MAX_PAYLOADS && cmds.pack()) push({ op: 'canvas', id, bin: stageCanvas(cmds.f.subarray(0, cmds.n), cmds.joined) });
+    else {
+      if (cmds.list === null) cmds.toList();
+      push({ op: 'canvas', id, cmds: cmds.list });
+    }
   }
   pending.clear();
 }

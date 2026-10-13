@@ -4,7 +4,7 @@
 
 import './prelude';
 import * as linkedom from 'linkedom';
-import { flushCanvases, ImageData, installCanvas, Context2D, Path2D } from './canvas';
+import { enableCanvasWords, flushCanvases, ImageData, installCanvas, Context2D, Path2D } from './canvas';
 import * as capture from './capture';
 import { document, loadDocument, parseInto, SCRIPT_INERT, SVG_NS } from './dom';
 import * as ev from './events';
@@ -338,6 +338,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
   boot(arg) {
     const { html, config } = JSON.parse(arg);
     globals.configureLimits({ maxTimers: Number(config.maxTimers) });
+    enableCanvasWords(Array.isArray(config.features) && config.features.includes('canvasWords'));
     globals.setHidden(config.visible === false);
     globals.setTheme(config.theme, false);
     globals.setViewport(config.viewport);

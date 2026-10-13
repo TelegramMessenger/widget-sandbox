@@ -155,6 +155,12 @@ export interface SandboxConfig {
   visible: boolean;
   viewport: { innerWidth: number; innerHeight: number; dpr: number };
   theme: 'light' | 'dark';
+  /**
+   * Optional wire forms this host understands, opt-in per host (docs/protocol.md,
+   * "Features"). Absent or empty: plain JSON only, which every host and renderer speaks.
+   * `canvasWords`: canvas commands as a word stream through `__hostCanvas`.
+   */
+  features?: string[];
 }
 
 /** Defaults shared by every host (the native configs repeat them). */

@@ -33,6 +33,43 @@ export interface RunResult {
   throttled: number;
   /** Final size of the wasm linear memory: the runtime's footprint, never above INITIAL + memoryLimitBytes. */
   wasmBytes: number;
+  /** Canvas ops that arrived as word payloads (`canvasWords`). */
+  canvasWordBatches: number;
+}
+
+/** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */
+export function decodeCanvasWords(all: number[], joined: string): any[][] {
+  const m = all[all.length - 1];
+  const lengths = all.slice(all.length - 1 - m, all.length - 1);
+  const strings: string[] = [];
+  let at = 0;
+  for (const n of lengths) { strings.push(joined.slice(at, at + n)); at += n; }
+  const f = all.slice(0, all.length - 1 - m);
+  const kinds = ['c', 's', 'r', 'g', 'gs', 'pn', 'pc'];
+  const num = (x: number) => (Number.isFinite(x) ? x : null);
+  const out: any[][] = [];
+  let j = 0;
+  while (j < f.length) {
+    const kind = f[j], name = f[j + 1], ident = f[j + 2], argc = f[j + 3];
+    j += 4;
+    const a: any[] = [kinds[kind]];
+    if (kind >= 3) a.push(ident);
+    if (name >= 0) a.push(strings[name]);
+    for (let q = 0; q < argc; q++) {
+      const tag = f[j], x = f[j + 1];
+      j += 2;
+      if (tag === 0) a.push(num(x));
+      else if (tag === 1) a.push(strings[x]);
+      else if (tag === 7) a.push(x !== 0);
+      else if (tag === 6) a.push(null);
+      else if (tag === 2) a.push({ g: x });
+      else if (tag === 3) a.push({ p: x });
+      else if (tag === 4) a.push({ n: x });
+      else { a.push(f.slice(j, j + x).map(num)); j += x; }
+    }
+    out.push(a);
+  }
+  return out;
 }
 
 export async function bundleSandbox(): Promise<string> {
@@ -69,6 +106,8 @@ export interface RunOptions {
   /** Host clock (`now`) and random bytes (`random`) instead of performance.now / Math.random, for reproducible runs. */
   now?: () => number;
   random?: (count: number) => number[];
+  /** Advertise `canvasWords` and install `__hostCanvas`; payloads are decoded back into JSON commands before validation. */
+  canvasWords?: boolean;
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
@@ -84,8 +123,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0 };
-  const config = { ...LIMIT_DEFAULTS, memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0 };
+  const config = { ...LIMIT_DEFAULTS, features: opts.canvasWords ? ['canvasWords'] : [], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const timers = new Map<number, number>();
@@ -99,6 +138,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     switch (kind) {
       case 'ops': {
         const ops = JSON.parse(arg);
+        for (const op of ops) if (op && op.op === 'canvas' && typeof op.bin === 'number') { op.cmds = canvasPayloads[op.bin] ?? []; delete op.bin; res.canvasWordBatches++; }
+        canvasPayloads.length = 0;
         res.ops.push(ops);
         const out = validator.processOps(ops);
         res.renderOps.push(...out);
@@ -145,6 +186,24 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   });
   vm.setProp(vm.global, '__host', hostFn);
   hostFn.dispose();
+  const canvasPayloads: any[][][] = [];
+  if (opts.canvasWords) {
+    const canvasFn = vm.newFunction('__hostCanvas', (k: QuickJSHandle, w: QuickJSHandle, s: QuickJSHandle) => {
+      const key = vm.getNumber(k);
+      const num = (name: string) => { const h = vm.getProp(w, name); const v = vm.getNumber(h); h.dispose(); return v; };
+      const bufferHandle = vm.getProp(w, 'buffer');
+      const bytes = vm.getArrayBuffer(bufferHandle);
+      const copy = bytes.value.slice();
+      bytes.dispose();
+      bufferHandle.dispose();
+      const start = num('byteOffset') / 8;
+      const words = Array.from(new Float64Array(copy.buffer, copy.byteOffset, copy.byteLength / 8).subarray(start, start + num('length')));
+      canvasPayloads[key] = decodeCanvasWords(words, vm.getString(s));
+      return vm.undefined;
+    });
+    vm.setProp(vm.global, '__hostCanvas', canvasFn);
+    canvasFn.dispose();
+  }
   const binFn = vm.newFunction('__hostBinary', () => vm.null);
   vm.setProp(vm.global, '__hostBinary', binFn);
   binFn.dispose();
@@ -171,7 +230,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   bundleResult.value.dispose();
   const dispatch = vm.getProp(vm.global, '__twDispatch');
   if (vm.typeof(dispatch) !== 'function') throw new Error('bundle did not define __twDispatch');
-  const hide = vm.evalCode("(function(g){for(const n of ['__host','__hostBinary','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);", 'hide-host.js');
+  const hide = vm.evalCode("(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);", 'hide-host.js');
   if (hide.error) {
     fail(hide.error, 'hide-host.js');
     throw new Error('sandbox bundle failed to load');

@@ -4,9 +4,31 @@
 
 declare const __host: (kind: string, arg?: string) => any;
 declare const __hostBinary: () => ArrayBuffer | null;
+declare const __hostCanvas: ((key: number, words: Float64Array, strings: string) => void) | undefined;
 
 const hostFn = __host;
 const hostBin = __hostBinary;
+/** Optional binary channel for canvas command words (docs/protocol.md, "Canvas words"); only when the glue installs it. */
+export const hostCanvas = typeof __hostCanvas === 'function' ? __hostCanvas : null;
+
+let stagedCanvas: { words: Float64Array; strings: string }[] = [];
+
+/** Queue a canvas word payload for the next ops batch; its index is the `bin` of the placeholder op. */
+export function stageCanvas(words: Float64Array, strings: string): number {
+  return stagedCanvas.push({ words, strings }) - 1;
+}
+
+export function stagedCanvasCount(): number {
+  return stagedCanvas.length;
+}
+
+/** Hands the staged payloads to the glue; called right before the `ops` batch that refers to them. */
+export function sendStagedCanvas(): void {
+  if (!stagedCanvas.length || !hostCanvas) return;
+  const staged = stagedCanvas;
+  stagedCanvas = [];
+  for (let k = 0; k < staged.length; k++) hostCanvas(k, staged[k].words, staged[k].strings);
+}
 
 export const host = (kind: string, arg?: string): any => hostFn(kind, arg);
 export const hostBinary = (): ArrayBuffer | null => hostBin();

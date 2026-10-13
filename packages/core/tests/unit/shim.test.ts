@@ -133,3 +133,36 @@ describe('glue: host globals', () => {
     assert.equal(r.probes[2], 'tick', 'the glue still dispatches timers through its private reference after a widget redefines the global');
   });
 });
+
+describe('canvas words', () => {
+  const widget = `<canvas id="c" width="200" height="100"></canvas><script>
+    var c = document.getElementById('c').getContext('2d'), f = 0;
+    var g = c.createLinearGradient(0, 0, 100, 0); g.addColorStop(0, 'red'); g.addColorStop(1, 'blue');
+    var p = new Path2D('M0 0 L10 10'); p.lineTo(20, 5);
+    function draw() {
+      c.clearRect(0, 0, 200, 100); c.save(); c.fillStyle = g; c.fillRect(f, 0, 50, 50); c.fillStyle = 'rgba(0,0,0,0.5)';
+      c.font = '12px sans-serif'; c.fillText('héllo ' + f, 5, 80); c.setLineDash([2, 3]); c.lineWidth = NaN; c.lineWidth = 2;
+      c.stroke(p); c.arc(50, 50, 10, 0, Math.PI * 2, false); c.drawImage(document.getElementById('c'), 0, 0);
+      c.imageSmoothingEnabled = false; c.restore();
+      if (++f < 4) requestAnimationFrame(draw);
+    }
+    draw();
+    var img = c.createImageData(2, 2); img.data[0] = 255;
+    setTimeout(function () { c.putImageData(img, 0, 0); c.fillRect(0, 0, 1, 1); }, 1);
+  </script>`;
+
+  it('word payloads stand for exactly the JSON commands, and unexpressible commands fall back to JSON', async () => {
+    const json = await runWidget(widget, { timerRounds: 6 });
+    const words = await runWidget(widget, { timerRounds: 6, canvasWords: true });
+    const canvasOps = (r: any) => r.renderOps.filter((o: any) => o.op === 'canvas');
+    assert.ok(words.canvasWordBatches >= 3, `${words.canvasWordBatches} word batches`);
+    assert.equal(json.canvasWordBatches, 0);
+    assert.deepEqual(canvasOps(words), canvasOps(json));
+    assert.deepEqual(words.diags.filter((d) => d.kind.startsWith('validator')), json.diags.filter((d) => d.kind.startsWith('validator')));
+  });
+
+  it('without the feature every canvas op stays JSON', async () => {
+    const r = await runWidget(widget, { timerRounds: 6, canvasWords: false });
+    assert.equal(r.canvasWordBatches, 0);
+  });
+});

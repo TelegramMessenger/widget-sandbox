@@ -13,7 +13,7 @@
 
 import { DOCUMENT_ID } from '../shared/protocol';
 import { document, SVG_NS } from './dom';
-import { counters, host, invalidateLayout } from './host';
+import { counters, host, invalidateLayout, sendStagedCanvas } from './host';
 import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
 
 export const ID = Symbol('tw.id');
@@ -480,7 +480,9 @@ function send() {
   const batch = ops;
   ops = [];
   invalidateLayout();
-  host('ops', JSON.stringify(batch));
+  const json = JSON.stringify(batch);
+  sendStagedCanvas();
+  host('ops', json);
 }
 
 /** End-of-task flush, with the periodic full walk as a safety net. */
