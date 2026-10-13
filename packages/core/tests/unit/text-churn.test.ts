@@ -7,9 +7,10 @@ const BASE = [
   { op: 'el', id: 3, tag: 'body' }, { op: 'ins', parent: 2, id: 3, before: null },
 ];
 
-function rig() {
+function rig(policy: 'compat' | 'strict' = 'strict') {
   const diags: string[] = [];
   const v = new Validator((kind, detail) => diags.push(`${kind}: ${detail}`));
+  v.setPolicy(policy);
   let now = 1000;
   v.setClock(() => now);
   v.processOps(BASE);
@@ -57,5 +58,14 @@ describe('complex-script text churn', () => {
     assert.ok(!JSON.stringify(out).includes(cjk(4000, 0x5b57)));
     assert.ok(r.diags.some((d) => d.startsWith('text-churn: ')));
     assert.ok(!r.diags.some((d) => d.startsWith('text-budget')));
+  });
+
+  it('leaves complex-script churn alone under the compat policy', () => {
+    const r = rig('compat');
+    r.v.processOps([{ op: 'text', id: 20, data: cjk(3000) }, { op: 'ins', parent: 3, id: 20, before: null }]);
+    let accepted = 0;
+    for (let i = 0; i < 4; i++) accepted += r.v.processOps([{ op: 'data', id: 20, data: cjk(2999) }, { op: 'data', id: 20, data: cjk(3000) }]).length;
+    assert.equal(accepted, 8);
+    assert.deepEqual(r.diags, []);
   });
 });

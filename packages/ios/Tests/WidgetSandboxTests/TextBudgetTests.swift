@@ -74,7 +74,7 @@ final class TextBudgetTests: XCTestCase {
 
     private func churn(binary: Bool, js: String, seconds: TimeInterval) -> (renderer: RecordingRenderer, churnDiags: Int) {
         let renderer = RecordingRenderer()
-        var options = WidgetHost.Options()
+        var options = Self.strict
         if binary { options.features = ["binaryOps"] }
         let host = try! WidgetHost(html: "<p id=p></p><script>" + js + "</script>", theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
@@ -117,7 +117,7 @@ final class TextBudgetTests: XCTestCase {
     }
 
     func testChurnRefillsWithTheClockInTheNativeModel() {
-        let rig = NativeValidatorDifferentialTests.Rig(native: true)
+        let rig = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict)
         var now = 1000.0
         rig.validator.thread.sync { rig.validator.nativeModel?.clock = { now } }
         let cjk = { (n: Int) in String(repeating: "\u{4E2D}", count: n) }
@@ -131,5 +131,19 @@ final class TextBudgetTests: XCTestCase {
         XCTAssertTrue(rig.diags.contains { $0.hasPrefix("text-churn") })
         now += 6
         XCTAssertEqual(rig.json("[{\"op\":\"data\",\"id\":20,\"data\":\"\(cjk(2999))\"}]").0.count, 1)
+    }
+
+    func testCompatPolicyLeavesChurnAloneOnBothValidatorPaths() {
+        let cjk = { (n: Int) in String(repeating: "\u{4E2D}", count: n) }
+        for native in [true, false] {
+            let rig = NativeValidatorDifferentialTests.Rig(native: native)
+            _ = rig.json("[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null},{\"op\":\"text\",\"id\":20,\"data\":\"\(cjk(3000))\"},{\"op\":\"ins\",\"parent\":3,\"id\":20,\"before\":null}]")
+            var accepted = 0
+            for _ in 0 ..< 4 {
+                accepted += rig.json("[{\"op\":\"data\",\"id\":20,\"data\":\"\(cjk(2999))\"},{\"op\":\"data\",\"id\":20,\"data\":\"\(cjk(3000))\"}]").0.count
+            }
+            XCTAssertEqual(accepted, 8, "native \(native)")
+            XCTAssertFalse(rig.diags.contains { $0.hasPrefix("text-churn") }, "native \(native)")
+        }
     }
 }
