@@ -12,7 +12,7 @@
 // is implemented on top of the same reconciliation.
 
 import { DOCUMENT_ID } from '../shared/protocol';
-import { document, domHooks, exposeNode, SVG_NS } from './dom';
+import { document, domHooks, exposeNode, quietly, SVG_NS } from './dom';
 import { OpWriter } from './binary-ops';
 import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './host';
 import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
@@ -447,6 +447,10 @@ let lastFullSync = 0;
 
 /** Emit ops for everything that changed since the last flush. */
 export function flush(full = false): void {
+  quietly(() => flushNow(full));
+}
+
+function flushNow(full: boolean): void {
   if (!dirty.size && !postOps.length && !full && !pendingStyles.size) {
     hooks.flushExtra((o) => ops.push(o));
     if (ops.length) send();

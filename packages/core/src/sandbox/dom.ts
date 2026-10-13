@@ -36,8 +36,20 @@ let inPlaceKilled = false;
 let rawFirstChild: () => any;
 let rawNextSibling: () => any;
 
+let quiet = 0;
+
+/** Runs `fn` as the shim's own bookkeeping: node reads inside it do not count as script exposure. */
+export function quietly<T>(fn: () => T): T {
+  quiet++;
+  try {
+    return fn();
+  } finally {
+    quiet--;
+  }
+}
+
 export function exposeNode<T>(n: T): T {
-  if (n && typeof n === 'object' && (n as any).nodeType === 3) (n as any)[EXPOSED] = true;
+  if (quiet === 0 && n && typeof n === 'object' && (n as any).nodeType === 3) (n as any)[EXPOSED] = true;
   return n;
 }
 
@@ -76,7 +88,7 @@ export function setInPlaceText(enabled: boolean): void {
     if (!d?.get || wrapped.has(d.get)) continue;
     const get = d.get;
     const wrapper = function (this: any) {
-      this[KIDS_EXPOSED] = true;
+      if (quiet === 0) this[KIDS_EXPOSED] = true;
       return get.call(this);
     };
     wrapped.add(wrapper);
@@ -87,7 +99,7 @@ export function setInPlaceText(enabled: boolean): void {
     if (!proto || wrapped.has(proto.normalize)) continue;
     const normalize = proto.normalize;
     const wrapper = function (this: any) {
-      this[KIDS_EXPOSED] = true;
+      if (quiet === 0) this[KIDS_EXPOSED] = true;
       return normalize.call(this);
     };
     wrapped.add(wrapper);
