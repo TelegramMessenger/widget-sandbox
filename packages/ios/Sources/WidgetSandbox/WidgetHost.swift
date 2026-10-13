@@ -142,11 +142,11 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.maxTimers = options.maxTimers
         config.visible = options.visible
         self.config = config
-        if options.pools, let pooled = EnginePool.shared.take() {
+        if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
             engine = pooled
             prewarmed.append("engine")
         } else {
-            engine = SandboxEngine(resources: resources)
+            engine = SandboxEngine(resources: resources, features: options.features)
         }
         diagnostics.prewarmed = prewarmed.joined(separator: "+")
         engine.delegate = self

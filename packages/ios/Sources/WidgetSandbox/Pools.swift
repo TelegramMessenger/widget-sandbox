@@ -19,6 +19,14 @@ public final class EnginePool {
     public var targetSize = 0 { didSet { refill() } }
     public var resources: SandboxResources = .shared
     public private(set) var created = 0, taken = 0, hits = 0
+    /// Features new engines are prewarmed with (`SandboxEngine.runtimeFeatures`); set it to what the hosts advertise.
+    public var features: Set<String> = [] {
+        didSet {
+            guard features != oldValue else { return }
+            drain()
+            refill()
+        }
+    }
     private var idle: [SandboxEngine] = []
 
     public var count: Int { idle.count }
@@ -29,8 +37,10 @@ public final class EnginePool {
     }
 
     /// A prewarmed engine (its bundle evaluation may still be running on its own thread), or nil when empty.
-    public func take() -> SandboxEngine? {
+    /// Only an engine built with exactly `features` is handed out; anything else would silently lose or gain host functions.
+    public func take(features: Set<String> = []) -> SandboxEngine? {
         taken += 1
+        guard features == self.features else { return nil }
         let e = idle.popLast()
         if e != nil { hits += 1 }
         refill()
@@ -40,7 +50,7 @@ public final class EnginePool {
     private func refill() {
         while idle.count < targetSize {
             let t0 = CACurrentMediaTime()
-            let e = SandboxEngine(resources: resources)
+            let e = SandboxEngine(resources: resources, features: features)
             e.prewarm()
             idle.append(e)
             created += 1

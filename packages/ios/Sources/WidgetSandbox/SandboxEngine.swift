@@ -140,6 +140,7 @@ public final class SandboxEngine {
     public init(html: String, config: SandboxConfig, resources: SandboxResources = .shared) {
         self.html = html
         self.config = config
+        self.runtimeFeatures = config.features
         self.resources = resources
         visible = config.visible
         budget = CpuBudget(config: config)
@@ -149,8 +150,11 @@ public final class SandboxEngine {
     /// evaluates the sandbox bundle ahead of time, `start(html:config:)` boots
     /// the widget later (a pool of such engines takes the bundle's evaluation
     /// off the critical path of a bubble that scrolls into view).
-    public init(resources: SandboxResources = .shared) {
+    /// An engine for a widget that comes later (`start(html:config:)`), e.g. a pooled one. `features` decides
+    /// which optional host functions its runtime gets when it is created; a later config cannot add them.
+    public init(resources: SandboxResources = .shared, features: Set<String> = []) {
         self.resources = resources
+        self.runtimeFeatures = features
         config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
         visible = true
         budget = CpuBudget(config: config)
@@ -182,6 +186,9 @@ public final class SandboxEngine {
 
     static let hostGlobals = ["__host", "__hostBinary", "__hostCanvas", "__twDispatch"]
     static let hideHostGlobals = "(function(g){" + hostGlobals.map { "if(!delete g.\($0))throw new Error('\($0)');" }.joined() + "})(globalThis);"
+
+    /// The optional host functions this engine's runtime was built with (fixed at init).
+    public let runtimeFeatures: Set<String>
 
     /// Canvas word payloads (`__hostCanvas`) for the next ops batch, by key.
     private var stagedCanvas: [Int: WidgetCanvasBatch] = [:]
@@ -218,7 +225,7 @@ public final class SandboxEngine {
         if js != nil { return }
         js = QuickJSContext(memoryLimitBytes: config.memoryLimitBytes, maxStackBytes: JSThread.jsStackLimit)
         js.registerFunction("__host") { [unowned self] args in self.hostCall(kind: args.first ?? "", arg: args.count > 1 ? args[1] : "") }
-        if config.features.contains("canvasWords") {
+        if runtimeFeatures.contains("canvasWords") {
             js.registerWordsFunction("__hostCanvas") { [unowned self] key, words, strings in
                 guard key >= 0, key < Double(CanvasWords.maxPayloads), key == key.rounded(), stagedCanvas.count < CanvasWords.maxPayloads,
                       stagedWords + words.count <= CanvasWords.maxWords, let batch = CanvasWords.batch(words: words, strings: strings) else { return }
@@ -273,7 +280,7 @@ public final class SandboxEngine {
                     "maxTimers": self.config.maxTimers, "visible": self.visible,
                     "viewport": ["innerWidth": self.config.innerWidth, "innerHeight": self.config.innerHeight, "dpr": self.config.devicePixelRatio],
                     "theme": self.config.theme,
-                    "features": Array(self.config.features).sorted(),
+                    "features": Array(self.config.features.intersection(self.runtimeFeatures)).sorted(),
                 ],
             ])
             self.callTw("boot", bootArg)

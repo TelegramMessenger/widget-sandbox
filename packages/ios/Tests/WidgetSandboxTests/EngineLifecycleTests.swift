@@ -101,6 +101,42 @@ final class EngineLifecycleTests: XCTestCase {
         engine.terminate()
     }
 
+    /// A pooled engine is prewarmed with the pool's features and handed only to a
+    /// host that advertises exactly those; a host with canvas words then gets them.
+    func testPooledEnginesCarryTheirFeatures() throws {
+        let pool = EnginePool()
+        pool.features = ["canvasWords"]
+        pool.prewarm(1)
+        XCTAssertNil(pool.take(features: []), "a JSON-only host must not get a canvas-words engine")
+        let engine = try XCTUnwrap(pool.take(features: ["canvasWords"]))
+        XCTAssertEqual(engine.runtimeFeatures, ["canvasWords"])
+        let d = RecordingDelegate()
+        engine.delegate = d
+        var config = config()
+        config.features = ["canvasWords"]
+        engine.start(html: "<canvas id=c></canvas><script>var c=document.getElementById('c').getContext('2d');c.fillRect(0,0,1,1);c.fillText('x',0,0);</script>", config: config)
+        wait(for: [d.loaded], timeout: 20)
+        engine.queue.sync {}
+        XCTAssertGreaterThan(engine.queue.sync { engine.canvasWordPayloads }, 0)
+        engine.terminate()
+        pool.targetSize = 0
+        pool.drain()
+    }
+
+    func testAnEngineCannotGainFeaturesFromALaterConfig() {
+        let engine = SandboxEngine(features: [])
+        let d = RecordingDelegate()
+        engine.delegate = d
+        var config = config()
+        config.features = ["canvasWords"]
+        engine.start(html: "<canvas id=c></canvas><script>var c=document.getElementById('c').getContext('2d');c.fillRect(0,0,1,1);</script>", config: config)
+        wait(for: [d.loaded], timeout: 20)
+        engine.queue.sync {}
+        XCTAssertEqual(engine.queue.sync { engine.canvasWordPayloads }, 0)
+        XCTAssertTrue(d.lock.withLock { d.ops.joined().contains("\"cmds\":") })
+        engine.terminate()
+    }
+
     func testSuccessfulPrewarmStillBoots() {
         let d = RecordingDelegate()
         let engine = SandboxEngine(html: "<p>x</p>", config: config())
