@@ -59,6 +59,36 @@ export function emitProps(el: any, id: number, push: (op: any) => void, isNew: b
 const tag = (el: any) => el.localName;
 const optionsOf = (select: any): any[] => [...select.querySelectorAll('option')];
 
+function formOwner(el: any): any {
+  const id = el.getAttribute('form');
+  if (id !== null) {
+    const owner = document.getElementById(id);
+    return owner?.localName === 'form' ? owner : null;
+  }
+  return el.closest('form');
+}
+
+function controlDisabled(el: any): boolean {
+  if (el.hasAttribute('disabled')) return true;
+  for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+    if (parent.localName !== 'fieldset' || !parent.hasAttribute('disabled')) continue;
+    const legend = [...parent.children].find((child: any) => child.localName === 'legend');
+    if (!legend?.contains(el)) return true;
+  }
+  return false;
+}
+
+export function activateFormControl(target: any) {
+  const control = target?.closest?.('button,input');
+  if (!control || controlDisabled(control)) return;
+  const attr = (control.getAttribute('type') ?? '').toLowerCase();
+  const type = control.localName === 'button' && !['button', 'reset'].includes(attr) ? 'submit' : attr;
+  if (!['submit', 'image'].includes(type)) return;
+  const form = formOwner(control);
+  if (!form) return;
+  if (form.hasAttribute('novalidate') || control.hasAttribute('formnovalidate') || form.checkValidity()) form.requestSubmit(control);
+}
+
 function selectIndex(select: any): number {
   const s = st(select);
   if (s.selectedIndex !== undefined) return s.selectedIndex;
@@ -308,7 +338,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   // ── shared by all listed controls ──
   for (const t of ['input', 'textarea', 'select', 'button', 'output', 'fieldset']) {
     define(protoOf(t), {
-      form: { get(this: any) { return this.closest('form'); } },
+      form: { get(this: any) { return formOwner(this); } },
       labels: { get(this: any) { const id = this.getAttribute('id'); return [...document.querySelectorAll('label')].filter((l: any) => l.contains(this) || (id && l.getAttribute('for') === id)); } },
       validity: { get(this: any) { return validity(this); } },
       validationMessage: { get(this: any) { return validity(this).message ?? ''; } },

@@ -124,6 +124,7 @@ export interface WidgetEvent {
   inputType?: string;
   data?: string | null;
   submitterId?: NodeId;
+  defaultActions?: boolean;
   naturalWidth?: number;
   naturalHeight?: number;
   open?: boolean;

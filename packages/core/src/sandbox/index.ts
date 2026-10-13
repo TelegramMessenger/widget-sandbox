@@ -10,7 +10,7 @@ import { morphDocument } from './morph';
 import { document, installAttributeFastPaths, loadDocument, parseInto, SCRIPT_INERT, setAttrFast, setInPlaceText, SVG_NS } from './dom';
 import * as ev from './events';
 import { pseudoHooks } from './css-select-shim';
-import { applyEventState, finishPointerEvent, pointerEventTarget, emitProps, FormData, installForms, isChecked, syntheticToggle } from './forms';
+import { activateFormControl, applyEventState, finishPointerEvent, pointerEventTarget, emitProps, FormData, installForms, isChecked, syntheticToggle } from './forms';
 import * as globals from './globals';
 import { counters, diag, host, setFlushHook, unsupported } from './host';
 import { DOMMatrix, DOMPoint, DOMRect, elementFromPoint, getComputedStyle, installLayout } from './layout';
@@ -172,9 +172,10 @@ globals.setFrameHook((now) => {
 });
 
 /** The click flow shared by real and synthetic clicks: external links go to openLink. */
-function afterClick(target: any, e: ev.Event) {
+function afterClick(target: any, e: ev.Event, defaultActions = false) {
   if (e.defaultPrevented) return;
   const el = target?.nodeType === 1 ? target : target?.parentNode;
+  if (defaultActions) activateFormControl(el);
   const a = el?.closest?.('a[href]');
   if (!a) return;
   const href = String(a.getAttribute('href') ?? '').trim();
@@ -188,7 +189,7 @@ define(HTMLElementProto, {
     syntheticToggle(this);
     const e = new ev.PointerEvent('click', { bubbles: true, cancelable: true, composed: true, button: 0 });
     ev.dispatchEvent.call(this, e);
-    afterClick(this, e);
+    afterClick(this, e, true);
   },
 });
 define(protoOf('script'), {
@@ -345,7 +346,7 @@ function dispatchHostEvent(raw: any) {
   const e = ev.eventFromHost(raw, capture.nodeById);
   ev.dispatchEvent.call(target, e);
   finishPointerEvent(raw);
-  if (raw.type === 'click') afterClick(target, e);
+  if (raw.type === 'click') afterClick(target, e, raw.defaultActions === true);
   if (e.defaultPrevented) {
     const key = `${raw.targetId}:${raw.type}` + (raw.type.startsWith('key') && raw.key ? `:${raw.key}` : '');
     if (!pdKeys.has(key)) { pdKeys.add(key); pdDirty = true; }
