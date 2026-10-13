@@ -93,6 +93,7 @@ public final class TrustedValidator {
             globalThis.__v_validateQuery = (j) => __twValidator.validateQuery(j);
             globalThis.__v_validateListen = (j) => __twValidator.validateListen(j);
             globalThis.__v_validatePreventDefault = (j) => __twValidator.validatePreventDefault(j);
+            globalThis.__v_validateAnim = (j) => __twValidator.validateAnim(j);
             globalThis.__v_setTheme = (t) => __twValidator.setTheme(t);
             globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);
             globalThis.__v_nodeCount = () => __twValidator.nodeCount();
@@ -305,6 +306,19 @@ public final class TrustedValidator {
 
     public func validateListen(_ json: String) -> String { str("__v_validateListen", [json]).nilIfEmpty ?? "[]" }
     public func validatePreventDefault(_ json: String) -> String { str("__v_validatePreventDefault", [json]).nilIfEmpty ?? "[]" }
+    public func validateAnim(_ json: String) -> String {
+        if json.utf16.count > 4 << 20 { return "[]" }
+        if let native = thread.sync({ [self] in self.native }) {
+            return thread.sync { [self] in
+                guard let value = JSONText.parse(json) else {
+                    onDiag("protocol-violation", "anim batch is not valid JSON")
+                    return "[]"
+                }
+                return native.validateAnim(json: value).json
+            }
+        }
+        return str("__v_validateAnim", [json]).nilIfEmpty ?? "[]"
+    }
     public func setTheme(_ theme: String) -> String {
         thread.sync { [self] in
             let fromJS = str("__v_setTheme", [theme]).nilIfEmpty ?? "[]"

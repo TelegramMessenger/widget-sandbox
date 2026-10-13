@@ -143,6 +143,7 @@ final class NativeValidator {
     private var out: [WidgetOp] = []
     private var styleCache: [String: [String: String]] = [:]
     private var styleCacheSize = 0
+    var liveAnims = Set<Double>()
 
     init(tables: NativeValidatorTables, oracle: NativeValidatorOracle?, diag: @escaping (String, String) -> Void) {
         self.tables = tables
@@ -157,6 +158,7 @@ final class NativeValidator {
         adoptedHead = false
         adoptedBody = false
         dirtyStyles.removeAll()
+        liveAnims.removeAll()
         intern.reset()
         nodeSeq = 0
         nodes[Self.documentId] = Node(id: Self.documentId, kind: .document, rendered: false, seq: nextSeq())

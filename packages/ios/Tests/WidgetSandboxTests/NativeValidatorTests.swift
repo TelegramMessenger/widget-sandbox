@@ -229,6 +229,8 @@ final class NativeValidatorDifferentialTests: XCTestCase {
                         let truth = js.validator.validateQuery(q)
                         XCTAssertEqual(viaJSON.validator.validateQuery(q), truth, q)
                         XCTAssertEqual(viaBinary.validator.validateQuery(q), truth, q)
+                        let anim = "[{\"aid\":1,\"target\":\(gen.id()),\"css\":{\"kind\":\"animation\",\"name\":\"spin\",\"origin\":0},\"startTime\":0,\"holdTime\":null,\"playbackRate\":1,\"cancelled\":false}]"
+                        XCTAssertEqual(viaBinary.validator.validateAnim(anim), js.validator.validateAnim(anim), anim)
                     }
                 }
             }

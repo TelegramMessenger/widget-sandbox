@@ -66,9 +66,12 @@ public protocol SandboxEngineDelegate: AnyObject {
     func engineLoaded(_ engine: SandboxEngine)
     func engine(_ engine: SandboxEngine, stats: SandboxStats)
     func engine(_ engine: SandboxEngine, died reason: String)
+    func engine(_ engine: SandboxEngine, anim json: String)
 }
 
 public extension SandboxEngineDelegate {
+    func engine(_ engine: SandboxEngine, anim json: String) {}
+
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
         self.engine(engine, ops: canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
     }
@@ -517,6 +520,9 @@ public final class SandboxEngine {
             return .undefined
         case "pd":
             delegate?.engine(self, preventDefault: arg)
+            return .undefined
+        case "anim":
+            delegate?.engine(self, anim: arg)
             return .undefined
         case "bridge":
             if let pair = Self.parse(arg) as? [Any], pair.count == 2, let method = pair[0] as? String,
