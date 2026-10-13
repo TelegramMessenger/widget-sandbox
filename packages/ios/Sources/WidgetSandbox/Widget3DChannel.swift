@@ -14,6 +14,12 @@ public struct Widget3DBytes {
     public let pointer: UnsafeRawPointer
     public let length: Int
     public let kind: Kind
+
+    public init(pointer: UnsafeRawPointer, length: Int, kind: Kind) {
+        self.pointer = pointer
+        self.length = length
+        self.kind = kind
+    }
 }
 
 public enum Widget3DArgument {
