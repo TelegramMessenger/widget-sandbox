@@ -75,6 +75,8 @@ class WidgetHost(
         val sharedValidatorThread: Boolean = false,
         /** Take a prewarmed validator from ValidatorPool when it has one, and recycle it on destroy (implies the shared thread). */
         val pools: Boolean = false,
+        /** "compat" (default) or "strict": the gesture gate, 64 KB text caps and the complex-script budget. */
+        val policy: String = "compat",
     )
 
     val view: View get() = renderer.view
@@ -120,8 +122,9 @@ class WidgetHost(
             innerWidth = viewport.first, innerHeight = viewport.second, devicePixelRatio = viewport.third, theme = theme,
             memoryLimitBytes = options.memoryLimitBytes, cpuLimitMs = options.cpuLimitMs,
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
-            maxTimers = options.maxTimers, visible = options.visible,
+            maxTimers = options.maxTimers, visible = options.visible, policy = options.policy,
         )
+        if (options.policy == "strict") validator.setPolicy("strict")
         engine = SandboxEngine(html, config, resources)
         engine.delegate = this
         renderer.onDiag = { k, d -> diag(k, d) }

@@ -81,6 +81,7 @@ class TrustedValidator private constructor(
                 globalThis.__v_validateQuery = (j) => __twValidator.validateQuery(j);
                 globalThis.__v_validateListen = (j) => __twValidator.validateListen(j);
                 globalThis.__v_validatePreventDefault = (j) => __twValidator.validatePreventDefault(j);
+                globalThis.__v_setPolicy = (p) => __twValidator.setPolicy ? __twValidator.setPolicy(p) : '';
                 globalThis.__v_validateAnim = (j) => __twValidator.validateAnim(j);
                 globalThis.__v_setTheme = (t) => __twValidator.setTheme(t);
                 globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);
@@ -124,6 +125,7 @@ class TrustedValidator private constructor(
 
     fun validateListen(json: String): String = str("__v_validateListen", listOf(json)).ifEmpty { "[]" }
     fun validatePreventDefault(json: String): String = str("__v_validatePreventDefault", listOf(json)).ifEmpty { "[]" }
+    fun setPolicy(policy: String) { str("__v_setPolicy", listOf(policy)) }
     fun validateAnim(json: String): String = str("__v_validateAnim", listOf(json)).ifEmpty { "[]" }
     fun setTheme(theme: String): String = str("__v_setTheme", listOf(theme)).ifEmpty { "[]" }
     fun rewriteMediaQuery(query: String): String = str("__v_rewriteMediaQuery", listOf(query))
