@@ -202,6 +202,10 @@ public final class SandboxEngine {
     /// Canvas word payloads (`__hostCanvas`) for the next ops batch, by key.
     private var stagedCanvas: [Int: WidgetCanvasBatch] = [:]
     private var stagedWords = 0
+    /// The intern table of the binary op stream (`binaryOps`); one per runtime.
+    private let internTable = BinaryInternTable()
+    /// Binary op batches accepted so far (tests).
+    private(set) var binaryBatches = 0
     /// Word payloads accepted so far (tests).
     private(set) var canvasWordPayloads = 0
 
@@ -234,6 +238,25 @@ public final class SandboxEngine {
         if js != nil { return }
         js = QuickJSContext(memoryLimitBytes: config.memoryLimitBytes, maxStackBytes: JSThread.jsStackLimit)
         js.registerFunction("__host") { [unowned self] args in self.hostCall(kind: args.first ?? "", arg: args.count > 1 ? args[1] : "") }
+        if runtimeFeatures.contains("binaryOps") {
+            js.registerOpsFunction("__hostOps") { [unowned self] words, strings in
+                guard words.count >= 2, words.count <= BinaryOps.maxWords, strings.count <= BinaryOps.maxStringBytes else {
+                    delegate?.engine(self, diag: "protocol-violation", detail: "binary ops batch too large")
+                    return
+                }
+                let canvas = stagedCanvas
+                stagedCanvas = [:]
+                stagedWords = 0
+                switch BinaryOps.decode(words: words, bytes: strings, table: internTable) {
+                case .success(let decoded):
+                    stats.ops += decoded.ops.count
+                    binaryBatches += 1
+                    delegate?.engine(self, ops: decoded.tooMany ? "{}" : BinaryOps.json(decoded.ops, canvas: canvas, placeholders: true), canvas: canvas)
+                case .failure(let failure):
+                    delegate?.engine(self, diag: "protocol-violation", detail: "malformed binary ops batch (\(failure))")
+                }
+            }
+        }
         if runtimeFeatures.contains("canvasWords") {
             js.registerWordsFunction("__hostCanvas") { [unowned self] key, words, strings in
                 guard key >= 0, key < Double(CanvasWords.maxPayloads), key == key.rounded(), stagedCanvas.count < CanvasWords.maxPayloads,

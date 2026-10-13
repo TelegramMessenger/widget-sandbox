@@ -208,6 +208,20 @@ public final class QuickJSContext {
         _ = qjs_set_global_prop(context, name, fn)
     }
 
+    private var opsFunctions: [Int32: (UnsafeBufferPointer<Int32>, UnsafeBufferPointer<UInt8>) -> Void] = [:]
+
+    /// `name(words: Int32Array, strings: string)`: the words and the string's UTF-8 are only valid during the call.
+    public func registerOpsFunction(_ name: String, _ handler: @escaping (UnsafeBufferPointer<Int32>, UnsafeBufferPointer<UInt8>) -> Void) {
+        let magic = Int32(opsFunctions.count)
+        opsFunctions[magic] = handler
+        let fn = qjs_new_cfunction_magic(context, opsTrampoline, name, 2, magic)
+        _ = qjs_set_global_prop(context, name, fn)
+    }
+
+    fileprivate func dispatchOps(magic: Int32, words: UnsafeBufferPointer<Int32>, strings: UnsafeBufferPointer<UInt8>) {
+        opsFunctions[magic]?(words, strings)
+    }
+
     fileprivate func dispatchWords(magic: Int32, number: Double, words: UnsafeBufferPointer<Double>, text: String) {
         wordFunctions[magic]?(number, words, text)
     }
@@ -293,5 +307,20 @@ private func wordsTrampoline(_ ctxPtr: OpaquePointer?, _ this: JSValue, _ argc: 
     let number = qjs_to_float64(ctxPtr, argv[0])
     let words = UnsafeRawPointer(pointer).bindMemory(to: Double.self, capacity: length / 8)
     ctx.dispatchWords(magic: magic, number: number, words: UnsafeBufferPointer(start: words, count: length / 8), text: text)
+    return qjs_undefined()
+}
+
+private func opsTrampoline(_ ctxPtr: OpaquePointer?, _ this: JSValue, _ argc: Int32, _ argv: UnsafeMutablePointer<JSValue>?, _ magic: Int32) -> JSValue {
+    guard let ctxPtr, let opaque = JS_GetContextOpaque(ctxPtr), argc >= 2, let argv, qjs_is_string(argv[1]) else { return qjs_undefined() }
+    let ctx = Unmanaged<QuickJSContext>.fromOpaque(opaque).takeUnretainedValue()
+    var pointer: UnsafeMutablePointer<UInt8>?
+    var length = 0
+    guard qjs_typed_array_bytes(ctxPtr, argv[0], &pointer, &length) == Int32(JS_TYPED_ARRAY_INT32.rawValue), let pointer, length % 4 == 0 else { return qjs_undefined() }
+    var count = 0
+    guard let c = JS_ToCStringLen2(ctxPtr, &count, argv[1], false) else { return qjs_undefined() }
+    defer { JS_FreeCString(ctxPtr, c) }
+    let words = UnsafeRawPointer(pointer).bindMemory(to: Int32.self, capacity: length / 4)
+    let bytes = UnsafeRawPointer(c).bindMemory(to: UInt8.self, capacity: count)
+    ctx.dispatchOps(magic: magic, words: UnsafeBufferPointer(start: words, count: length / 4), strings: UnsafeBufferPointer(start: bytes, count: count))
     return qjs_undefined()
 }
