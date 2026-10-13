@@ -108,6 +108,7 @@ export function pushProp(node: any, name: string, value: string | number | boole
 interface Observation { target: any; options: any }
 const observers = new Set<MutationObserverImpl>();
 domHooks.observing = () => observers.size > 0;
+domHooks.markDirty = (node) => dirty.add(node);
 let records: any[] = [];
 
 function record(rec: any) {

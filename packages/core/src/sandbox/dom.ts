@@ -30,7 +30,7 @@ export const EXPOSED = Symbol('tw.exposed');
 /** Set on a parent once script holds a live childNodes list of it: every child counts as exposed. */
 const KIDS_EXPOSED = Symbol('tw.kidsExposed');
 /** Hooks the capture layer fills in. */
-export const domHooks = { observing: (): boolean => false };
+export const domHooks = { observing: (): boolean => false, markDirty: (_node: any): void => {} };
 let inPlaceText = true;
 let inPlaceKilled = false;
 let rawFirstChild: () => any;
@@ -227,4 +227,67 @@ export function parseInto(context: any, html: string, target: any = context): vo
   const mock = { nodeName: context.localName, tagName: context.localName, attrs: [], namespaceURI: svg ? SVG_NS : HTML_NS, childNodes: [], parentNode: null };
   const frag = (parseFragment as (ctx: unknown, html: string) => any)(mock, String(html));
   build(frag, target, true);
+}
+
+let attrFast = true;
+const SINGLE_TOKEN = /^\S+$/;
+
+export function setAttrFast(enabled: boolean): void {
+  attrFast = enabled;
+}
+
+/**
+ * Installed after dirty tracking. getAttribute('class') normally goes through the
+ * className getter and the dirty-marking classList wrapper; when the class
+ * attribute and the cached classList hold the same single token it returns the
+ * attribute value directly. Writing the class an element already has returns
+ * before dirty marking when nothing could observe the write (no MutationObserver,
+ * no attributeChangedCallback).
+ */
+export function installAttributeFastPaths(): void {
+  const sample = document.createElement('div');
+  const tokens = sample.classList;
+  const classListKey = Object.getOwnPropertySymbols(sample).find((k) => sample[k] === tokens);
+  if (!classListKey) return;
+  const nodeProto = ownerOf(sample, 'getAttributeNode');
+  const getNode = nodeProto && nodeProto.getAttributeNode;
+  const getProto = ownerOf(sample, 'getAttribute');
+  const getAttribute = getProto && getProto.getAttribute;
+  if (typeof getNode !== 'function' || typeof getAttribute !== 'function') return;
+  getProto.getAttribute = function (this: any, name: any) {
+    'use strict';
+    if (attrFast && name === 'class') {
+      const list = this[classListKey];
+      if (list && list.size === 1) {
+        const a = getNode.call(this, 'class');
+        if (a) {
+          const v = a.value;
+          if (list.has(v)) {
+            domHooks.markDirty(this);
+            return v;
+          }
+        }
+      }
+    }
+    return getAttribute.call(this, name);
+  };
+  const classProto = ownerOf(sample, 'className');
+  const d = classProto && Object.getOwnPropertyDescriptor(classProto, 'className');
+  if (!d?.set) return;
+  const set = d.set;
+  Object.defineProperty(classProto, 'className', {
+    ...d,
+    set(this: any, v: any) {
+      'use strict';
+      if (attrFast && typeof v === 'string' && SINGLE_TOKEN.test(v) && !domHooks.observing() && !this.attributeChangedCallback) {
+        const a = getNode.call(this, 'class');
+        if (a && a.value === v) {
+          domHooks.markDirty(this);
+          domHooks.markDirty(a);
+          return;
+        }
+      }
+      set.call(this, v);
+    },
+  });
 }

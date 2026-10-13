@@ -84,4 +84,40 @@ describe('textContent in place', () => {
       same(on, off);
     }
   });
+
+  it('fuzz: attribute reads and class writes match the full path', async () => {
+    let seed = 4242;
+    const rnd = (n: number) => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n);
+    const values = ['up', 'down', 'up down', 'up  down', '', 'x', 'UP'];
+    const names = ['class', 'CLASS', 'Class', 'id', 'data-x', 'nope', 'xlink:href', 'style'];
+    for (let round = 0; round < 14; round++) {
+      const steps: string[] = [];
+      for (let k = 0; k < 50; k++) {
+        const c = `c[${rnd(6)}]`;
+        const v = JSON.stringify(values[rnd(values.length)]);
+        switch (rnd(16)) {
+          case 0: case 1: case 2: steps.push(`${c}.className = ${v};`); break;
+          case 3: steps.push(`${c}.setAttribute('class', ${v});`); break;
+          case 4: steps.push(`${c}.removeAttribute('class');`); break;
+          case 5: steps.push(`${c}.classList.add('z');`); break;
+          case 6: steps.push(`${c}.classList.remove('up');`); break;
+          case 7: steps.push(`var an = ${c}.getAttributeNode('class'); if (an) an.value = ${v};`); break;
+          case 8: steps.push(`${c}.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#a${k}');`); break;
+          case 9: steps.push(`${c}.setAttribute('data-x', 'd${k}');`); break;
+          case 10: steps.push(`${c}.removeAttribute('data-x');`); break;
+          case 11: steps.push(`lists.push(${c}.classList);`); break;
+          case 12: if (round % 4 === 0) steps.push(`if (!window.mo) { window.mo = new MutationObserver(function (rs) { rs.forEach(function (r) { log.push('mo:' + r.type + ':' + r.attributeName + ':' + r.oldValue); }); }); mo.observe(document.body, { attributes: true, attributeOldValue: true, subtree: true }); }`); break;
+          default: steps.push(`log.push(c.map(function (e) { return ${JSON.stringify(names)}.map(function (n) { return n + '=' + e.getAttribute(n); }).join(';') + '|' + e.className + '|' + e.classList.length; }).join(',') + '/' + lists.map(function (l) { return l.value; }).join(','));`);
+        }
+      }
+      const html = `<div><b id="c0" class="up">0</b><b id="c1">1</b><i id="c2" class="up down">2</i><svg><circle id="c3" class="up"/><rect id="c4"/></svg><b id="c5" class="UP" data-x="1">5</b></div><script>
+        var c = [], lists = [], log = [];
+        for (var i = 0; i < 6; i++) c.push(document.getElementById('c' + i));
+        setTimeout(function () { ${steps.slice(0, 25).join('\n')} }, 1);
+        setTimeout(function () { ${steps.slice(25).join('\n')} }, 2);</script>`;
+      const on = await runWidget(html, { timerRounds: 5, probes: ['log.join("\\n")', 'document.body.innerHTML'] });
+      const off = await runWidget(html, { timerRounds: 5, probes: ['log.join("\\n")', 'document.body.innerHTML'], attrFast: false });
+      same(on, off);
+    }
+  });
 });
