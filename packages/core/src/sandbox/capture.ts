@@ -19,6 +19,7 @@ import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './h
 import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
 
 export const ID = Symbol('tw.id');
+const stringifyOps = JSON.stringify;
 
 interface Mirror {
   parent: number;
@@ -503,7 +504,7 @@ function send() {
   const batch = ops;
   ops = [];
   invalidateLayout(batch.length > 0 && batch.every(boxNeutral));
-  const json = JSON.stringify(batch);
+  const json = stringifyOps(batch);
   sendStagedCanvas();
   host('ops', json);
 }

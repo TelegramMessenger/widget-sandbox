@@ -8,6 +8,7 @@
 import { boxNeutral } from './box-neutral';
 
 const MAGIC = 0x54574f31;
+const stringifyOp = JSON.stringify;
 const NOT_INTERNED = 2147483647;
 const MAX_INTERNED = 4096;
 const MAX_INTERNED_LENGTH = 256;
@@ -73,7 +74,7 @@ export class OpWriter {
     this.count++;
     if (this.boxNeutral && !boxNeutral(o)) this.boxNeutral = false;
     if (o && typeof o === 'object' && isInt32(o.id) && this.record(o)) return;
-    const json = JSON.stringify(o);
+    const json = stringifyOp(o);
     const w = this.room(2);
     w[this.n] = JSON_OP;
     w[this.n + 1] = this.inline(json === undefined ? 'null' : json);

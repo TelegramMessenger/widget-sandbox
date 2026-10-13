@@ -27,6 +27,22 @@ describe('shim: scripts', () => {
 });
 
 describe('shim: globals', () => {
+  for (const binaryOps of [false, true]) {
+    it(`keeps rendering when widget code replaces JSON.stringify (binary=${binaryOps})`, async () => {
+      const r = await runWidget(`<input id="field"><div id="value">before</div><script>
+        var original = JSON.stringify;
+        JSON.stringify = function (value) {
+          if (value && (value.op || Array.isArray(value) && value.some(function (item) { return item && item.op; }))) return '[]';
+          return original.apply(JSON, arguments);
+        };
+        document.getElementById('value').textContent = 'after replacement';
+        document.getElementById('field').focus();
+      </script>`, { binaryOps, timerRounds: 0 });
+      assert.deepEqual(errorsOf(r), []);
+      assert.ok(r.renderOps.some((op) => (op.op === 'text' || op.op === 'data') && op.data === 'after replacement'));
+      assert.ok(r.renderOps.some((op) => op.op === 'call' && op.method === 'focus'));
+    });
+  }
   it('lets top-level var declarations replace window aliases (frames, top, parent)', async () => {
     const r = await runWidget(`<script>var frames = 0; frames++; var top = 'x';</script>`, { probes: ['frames', 'top'] });
     assert.deepEqual(r.probes, ['1', 'x']);
