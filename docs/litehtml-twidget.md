@@ -6,6 +6,10 @@ This supersedes the litehtml column of
 `docs/widget-profile-draft.md` only in what it lists below; the probes have not
 been re-run on the fork.
 
+The renderer has since moved to twidget as TwidgetCore (`Sources/TwidgetCore`,
+`docs/TWIDGET_CORE.md` there), which reads this repository as its protocol.
+`apps/renderer-litehtml` here is a copy kept until this repository drops it.
+
 ## What was ported from twidget
 
 twidget's Swift layer did these things on Apple only. They are now shared C++ in
@@ -15,15 +19,13 @@ the litehtml core or shared TypeScript in the sandbox, so every host gets them.
 |---|---|---|
 | Fork support: documents patched in place (`update_from_string`, `update_styles`), the fork's SVG, group and box-shadow paint hooks | `apps/renderer-litehtml/src/renderer.cpp`, `display_list.h`, behind `TW_LITEHTML_TWIDGET` | `LHContainer.mm` |
 | CSS animations and transitions: `@keyframes`, timing functions incl. `steps()`, `linear()` and `calc()` times, interpolation of numbers, colours and transform lists, animation and transition events | `src/animations.*` | `WidgetAnimations.swift` |
-| Web Animations: `Element.animate`, `Animation`, `KeyframeEffect`, `document.timeline`, `getAnimations()` incl. control of CSS animations. The sandbox owns the timing model; the renderer samples validated `anim` records | `packages/core/src/sandbox/animations.ts`, `Validator.validateAnim`, `src/animations.*` | `WidgetWebAnimations.swift` |
+| Web Animations: the renderer samples the validated `anim` records of the sandbox's `webAnimations` feature (`packages/core/src/sandbox/waapi.ts`, `Validator.validateAnim`), and answers the `anims` query | `src/animations.*` | `WidgetWebAnimations.swift` |
 | Events: hover enter/leave/over/out over the whole ancestor chain, `dblclick`, `wheel`, `keydown`/`keyup`, moves coalesced per frame, click on the common ancestor | `src/renderer.cpp` (`hover`, `wheel`, `key`, `tick`) | `LiteHTMLWidgetRenderer.swift` |
 | Canvas 2D: the interpreter (state stack, transforms, paths and `Path2D`, SVG `d` incl. arcs, gradients, clip, text, `drawImage`, `putImageData`, hit tests) emits `CanvasOp`s a `Backend` runs | `src/canvas.*`, `src/canvas_ops.h`, `Backend::canvas_run/read/release` | `WidgetCanvas.swift` |
 | `light-dark()` resolved in the renderer; tag, attribute and property names checked before they are written into the generated HTML | `src/css.*`, `src/renderer.cpp` | `WidgetDOM.swift` |
 
-Protocol additions (`packages/core/src/shared/protocol.ts`): the host → renderer
-message `anim` and the query `anims`. The validator, the worker, the web host and
-the desktop host (`WidgetHost::onAnim`) route them; the web renderer runs them as
-native animations.
+The `anim` message and the `anims` query are the `webAnimations` feature of
+`docs/protocol.md`: a host lists it in `config.features` to turn it on.
 
 How it fits together:
 
@@ -92,15 +94,13 @@ Without `tick()` a host renders the state at each rebuild, as before. Without
 
 ### Checks
 
-- `packages/core/tests/unit/animations.test.ts`: the shim and the validator,
-  7 tests.
 - The core was compiled with MSVC against both the fork and the vendored
   upstream litehtml (without `TW_LITEHTML_TWIDGET`). It was not built here
   with clang for Apple, Android or wasm; `CMakeLists.txt` and
   `scripts/build-litehtml-web.ts` list the new sources.
-- A headless harness of 36 checks (events, animations, Web Animations, canvas,
-  `light-dark()`, names) runs the core with a stub backend. It lives in the
-  Windows spike, not here; `tests/test_main.cpp` needs the CoreGraphics
+- A headless harness (events, animations, Web Animations, canvas, compositor
+  layers, `light-dark()`, names) runs the core with a stub backend: twidget's
+  `Tests/TwidgetCoreTests`. `tests/test_main.cpp` here needs the CoreGraphics
   backend and was not run.
 - In the Windows spike, `corpus/common` (32) and `corpus/htmlbubbles-ported`
   (116) load with no errors.
