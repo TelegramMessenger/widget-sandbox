@@ -5,6 +5,8 @@
 
 import { expect, test, type Page } from '@playwright/test';
 
+test.skip(process.env.VITE_TW_POLICY === 'compat', 'the gesture gate belongs to the strict policy');
+
 const WIDGET = `<button id="b">send</button><input id="i">
 <script>
 TelegramWidget.ready();
