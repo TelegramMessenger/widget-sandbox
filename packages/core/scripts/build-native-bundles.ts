@@ -8,6 +8,7 @@
 //        pnpm build:macos      (same outputs as ios: one Swift package)
 //        pnpm build:android
 //        pnpm build:desktop
+//        tsx scripts/build-native-bundles.ts <target> --out <dir>   (writes only the bundles to <dir>; used by the freshness test)
 
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
@@ -38,7 +39,9 @@ if (!target) {
   console.error(`unknown target "${targetName}"; expected one of ${Object.keys(TARGETS).join(', ')}`);
   process.exit(1);
 }
-const res = path.join(root, target.js);
+const outIndex = process.argv.indexOf('--out');
+const outDir = outIndex > 0 ? path.resolve(process.argv[outIndex + 1]) : undefined;
+const res = outDir ?? path.join(root, target.js);
 fs.mkdirSync(path.join(res, 'libs'), { recursive: true });
 
 async function emit(name: string, options: Parameters<typeof build>[0]) {
@@ -87,6 +90,8 @@ function buildQjsc(): string {
 fs.writeFileSync(path.join(res, 'libraries.json'), JSON.stringify(LIBRARIES.map((l) => ({ name: l.name, file: l.file, patterns: l.patterns.map((p) => p.source) })), null, 2));
 
 // Test fixtures shared with the native ports (one source of truth: packages/core/tests/fixtures).
-fs.mkdirSync(path.join(root, target.fixtures), { recursive: true });
-for (const f of ['cpu-budget.json']) fs.copyFileSync(path.join(pkgRoot, 'tests', 'fixtures', f), path.join(root, target.fixtures, f));
-console.log(`fixtures copied to ${target.fixtures}`);
+if (!outDir) {
+  fs.mkdirSync(path.join(root, target.fixtures), { recursive: true });
+  for (const f of ['cpu-budget.json']) fs.copyFileSync(path.join(pkgRoot, 'tests', 'fixtures', f), path.join(root, target.fixtures, f));
+  console.log(`fixtures copied to ${target.fixtures}`);
+}
