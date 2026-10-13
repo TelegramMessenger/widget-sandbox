@@ -11,8 +11,9 @@ import type { RenderOp } from '../../src/shared/protocol.ts';
 const CANARY = 'http://127.0.0.1:9999/hit/unit';
 const noDiag = () => {};
 
-function run(ops: unknown[], diags: string[] = []): RenderOp[] {
+function run(ops: unknown[], diags: string[] = [], policy: 'compat' | 'strict' = 'compat'): RenderOp[] {
   const v = new Validator((kind, detail) => diags.push(`${kind}: ${detail}`));
+  v.setPolicy(policy);
   // Minimal document skeleton so inserts under <body> are rendered.
   const base = [
     { op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null },
@@ -307,11 +308,26 @@ describe('validator: 64 KB text budget', () => {
       { op: 'data', id: 20, data: big },
       { op: 'el', id: 23, tag: 'canvas' }, { op: 'ins', parent: 3, id: 23, before: null },
       { op: 'canvas', id: 23, cmds: [['c', 'fillText', big, 0, 0], ['c', 'fillText', 'short', 0, 0]] },
-    ], diags));
+    ], diags, 'strict'));
     assert.ok(out.includes(ok));
     assert.ok(!out.includes(big));
     assert.ok(out.includes('short'));
     assert.ok(diags.length > 0);
+  });
+
+  it('keeps the 2 MB text and 4 MB canvas string limits under the default compat policy', () => {
+    const big = 'b'.repeat(2 * 1024 * 1024);
+    const canvasBig = 'c'.repeat(3 * 1024 * 1024);
+    const over = 'o'.repeat(2 * 1024 * 1024 + 1);
+    const out = run([
+      { op: 'text', id: 21, data: big }, { op: 'ins', parent: 3, id: 21, before: null },
+      { op: 'text', id: 24, data: over }, { op: 'ins', parent: 3, id: 24, before: null },
+      { op: 'el', id: 23, tag: 'canvas' }, { op: 'ins', parent: 3, id: 23, before: null },
+      { op: 'canvas', id: 23, cmds: [['c', 'fillText', canvasBig, 0, 0]] },
+    ]);
+    const texts = out.filter((o: any) => o.op === 'text').map((o: any) => o.id);
+    assert.deepEqual(texts, [21]);
+    assert.ok(out.some((o: any) => o.op === 'canvas' && JSON.stringify(o).includes(canvasBig)));
   });
 });
 
@@ -330,12 +346,22 @@ describe('validator: complex-script text budget', () => {
       { op: 'text', id: 24, data: arabic(5000) }, { op: 'ins', parent: 3, id: 24, before: null },
       { op: 'text', id: 25, data: '😀'.repeat(100) }, { op: 'ins', parent: 3, id: 25, before: null },
       { op: 'comment', id: 26, data: arabic(9000) },
-    ], diags);
+    ], diags, 'strict');
     const texts = out.filter((o: any) => o.op === 'text').map((o: any) => o.id);
     assert.deepEqual(texts, [20, 22, 23, 24]);
     assert.ok(out.some((o: any) => o.op === 'data' && o.id === 20));
     assert.ok(!out.some((o: any) => o.op === 'data' && o.id === 22), 'growing past the budget is refused');
     assert.ok(!out.some((o: any) => o.id === 25), '200 more units would pass 8192');
     assert.ok(diags.filter((d) => d.startsWith('text-budget')).length >= 3);
+  });
+
+  it('does not budget complex-script text under the default compat policy', () => {
+    const diags: string[] = [];
+    const out = run([
+      { op: 'text', id: 20, data: '\u0627'.repeat(20000) }, { op: 'ins', parent: 3, id: 20, before: null },
+      { op: 'text', id: 21, data: '\u4e2d'.repeat(20000) }, { op: 'ins', parent: 3, id: 21, before: null },
+    ], diags);
+    assert.deepEqual(out.filter((o: any) => o.op === 'text').map((o: any) => o.id), [20, 21]);
+    assert.ok(!diags.some((d) => d.startsWith('text-budget')));
   });
 });

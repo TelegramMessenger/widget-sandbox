@@ -16,7 +16,7 @@ import type { PooledWorker, WorkerPool } from './worker-pool';
 import { Validator } from './validator';
 import {
   LIMIT_DEFAULTS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_SIZE, SAB_STATE,
-  type HostToRenderer, type HostToWorker, type RendererToHost, type SandboxConfig, type Stats, type WorkerToHost,
+  type HostToRenderer, type HostToWorker, type RendererToHost, type SandboxConfig, type SandboxPolicy, type Stats, type WorkerToHost,
 } from '../shared/protocol';
 
 export interface WidgetHostOptions {
@@ -27,6 +27,7 @@ export interface WidgetHostOptions {
   cpuQuotaWindowMs?: number;
   cpuKillAfterMs?: number;
   maxTimers?: number;
+  policy?: SandboxPolicy;
   /** Initial visibility; change it later with `setVisible`. */
   visible?: boolean;
   onLog?: (level: string, text: string) => void;
@@ -81,6 +82,7 @@ export class WidgetHost {
     this.renderer = (opts.rendererFactory ?? IframeRenderer.factory)(container, opts.theme);
     this.element = this.renderer.element;
     this.validator = new Validator(diag, { colorScheme: opts.theme, scope: this.renderer.cssScope ?? 'document' });
+    this.validator.setPolicy(opts.policy === 'strict' ? 'strict' : 'compat');
     this.renderer.onMessage = (msg) => this.onRenderer(msg);
     this.renderer.onDiag = diag;
     this.renderer.load();
@@ -97,6 +99,7 @@ export class WidgetHost {
       cpuKillAfterMs: opts.cpuKillAfterMs ?? LIMIT_DEFAULTS.cpuKillAfterMs,
       maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers,
       visible: opts.visible ?? true,
+      policy: opts.policy === 'strict' ? 'strict' : 'compat',
       viewport: this.viewport,
       theme: opts.theme,
     };
@@ -220,7 +223,7 @@ export class WidgetHost {
         break;
       case 'bridge': {
         const method = String(msg.method);
-        if (!UNPRIVILEGED_BRIDGE_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
+        if (this.opts.policy === 'strict' && !UNPRIVILEGED_BRIDGE_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
           if (this.blockedBridgeReported < 20) {
             this.blockedBridgeReported++;
             this.opts.onDiag?.('activation-blocked', `${method.slice(0, 64)} ignored: it needs a user click or key press on the visible widget and runs in that event's handler`);

@@ -197,7 +197,14 @@ export interface SandboxConfig {
   features?: string[];
   /** Extra bundled libraries the host serves under /libs/<file> (loader.ts `provideLibrary`); glue only, never sent to the sandbox. */
   libraries?: { name: string; file: string; patterns: string[] }[];
+  /**
+   * `compat` (default): the behaviour hosts had before the hardening below. `strict`: privileged
+   * bridge calls need a user gesture, text values are capped at 64 KB and complex-script text is budgeted.
+   */
+  policy?: SandboxPolicy;
 }
+
+export type SandboxPolicy = 'compat' | 'strict';
 
 /** Defaults shared by every host (the native configs repeat them). */
 export const LIMIT_DEFAULTS = {

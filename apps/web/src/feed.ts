@@ -460,6 +460,7 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     };
     const t0 = now();
     b.host = new WidgetHost(b.wrap, html, {
+      policy: 'strict',
       theme,
       rendererFactory: timedFactory(FACTORIES[renderer], rec),
       workerPool: pool ?? undefined,

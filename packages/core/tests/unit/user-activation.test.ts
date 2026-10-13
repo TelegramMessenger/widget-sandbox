@@ -55,10 +55,18 @@ describe('user activation: harness', () => {
   </script>`;
 
   it('privileged calls outside a gesture are blocked; one trusted click unlocks one call', async () => {
-    const first = await runWidget(widget, { timerRounds: 2 });
+    const first = await runWidget(widget, { timerRounds: 2, policy: 'strict' });
     const button = first.renderOps.find((o: any) => o.op === 'el' && o.tag === 'button') as any;
-    const r = await runWidget(widget, { timerRounds: 2, events: [{ type: 'click', targetId: button.id }, { type: 'click', targetId: button.id, gesture: 1 }, { type: 'click', targetId: button.id, gesture: 1 }] });
+    const r = await runWidget(widget, { timerRounds: 2, policy: 'strict', events: [{ type: 'click', targetId: button.id }, { type: 'click', targetId: button.id, gesture: 1 }, { type: 'click', targetId: button.id, gesture: 1 }] });
     assert.deepEqual(r.bridge.map((b: any) => b[0] + ':' + JSON.stringify(b[1])), ['ready:[]', 'sendMessage:["clicked"]']);
     assert.ok(r.diags.filter((d) => d.kind === 'activation-blocked').length >= 4);
+  });
+
+  it('the default compat policy forwards every bridge call, as before the gate', async () => {
+    const r = await runWidget(widget, { timerRounds: 2 });
+    const calls = r.bridge.map((b: any) => b[0] + ':' + JSON.stringify(b[1]));
+    assert.ok(calls.includes('sendMessage:["timer"]'), JSON.stringify(calls));
+    assert.ok(calls.includes('openLink:["https://example.com/boot"]'), JSON.stringify(calls));
+    assert.ok(!r.diags.some((d) => d.kind === 'activation-blocked'));
   });
 });

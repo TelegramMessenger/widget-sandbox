@@ -20,6 +20,7 @@ import { DOCUMENT_ID, EVENT_TYPES, type AnimKeyframe, type AnimRecord, type Canv
 const MAX_NODES = 50_000;
 /** Text nodes, string properties and Path2D data; a chat widget has no use for more, and every byte is copied through the renderer. */
 const MAX_TEXT = 64 * 1024;
+const COMPAT_MAX_TEXT = 2 * 1024 * 1024;
 /**
  * Per-document budget of complex-script text (UTF-16 units at or above U+0590:
  * Hebrew, Arabic, Indic, Thai, CJK, emoji, …) in text nodes. Shaping and line
@@ -90,15 +91,24 @@ interface NodeInfo {
  * native host's own node model (Swift `NativeValidator`) applies the same rules
  * from one source of truth instead of a copy.
  */
-export function validatorTables(): unknown {
+export type ValidatorPolicy = 'compat' | 'strict';
+
+export function policyLimits(policy: ValidatorPolicy) {
+  return policy === 'strict'
+    ? { maxText: MAX_TEXT, maxCanvasString: MAX_TEXT, complexTextBudget: COMPLEX_TEXT_BUDGET }
+    : { maxText: COMPAT_MAX_TEXT, maxCanvasString: MAX_ATTR, complexTextBudget: 0 };
+}
+
+export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
+  const limits = policyLimits(policy);
   return {
     html: [...HTML_TAGS], svg: [...SVG_TAGS.entries()], dropped: [...DROPPED_TAGS], attrs: [...ALLOWED_ATTRS],
     silent: [...SILENT_DROP_ATTRS], url: [...URL_ATTRS], css: [...CSS_VALUE_ATTRS], anim: [...ANIMATION_VALUE_ATTRS],
     animTags: [...SVG_ANIMATION_TAGS], fragTags: [...SVG_HREF_FRAGMENT_TAGS], svgCase: [...SVG_ATTR_CASE.entries()],
     props: Object.entries(PROPS).map(([k, v]) => [k, v.type, v.tags ? [...v.tags] : null]), methods: Object.entries(METHODS),
     events: [...EVENT_TYPE_SET], mime: [...IMAGE_MIME], placeholder: PLACEHOLDER_IMAGE,
-    limits: [MAX_NODES, MAX_TEXT, MAX_ATTR, MAX_OPS_PER_BATCH, MAX_CANVAS_CMDS, LIMBO],
-    complexTextBudget: COMPLEX_TEXT_BUDGET,
+    limits: [MAX_NODES, limits.maxText, MAX_ATTR, MAX_OPS_PER_BATCH, MAX_CANVAS_CMDS, LIMBO],
+    complexTextBudget: limits.complexTextBudget,
   };
 }
 
@@ -140,6 +150,16 @@ export class Validator {
   private overChurn(): boolean {
     this.diag('text-churn', `complex-script text changes over ${COMPLEX_CHURN_PER_SECOND} units per second`);
     return false;
+  }
+
+  private policyName: ValidatorPolicy = 'compat';
+  private limits = policyLimits('compat');
+
+  get policy(): ValidatorPolicy { return this.policyName; }
+
+  setPolicy(policy: ValidatorPolicy) {
+    this.policyName = policy === 'strict' ? 'strict' : 'compat';
+    this.limits = policyLimits(this.policyName);
   }
   private out: RenderOp[] = [];
   private diag: Diag;
@@ -334,14 +354,14 @@ export class Validator {
 
   private opCharData(op: Record<string, unknown>): boolean {
     const { id, data } = op;
-    if (!isId(id) || !isStr(data, MAX_TEXT)) return false;
+    if (!isId(id) || !isStr(data, this.limits.maxText)) return false;
     const kind = op.op === 'text' ? 'text' : 'comment';
     const complex = kind === 'text' ? complexUnits(data) : 0;
-    if (complex && this.complexText + complex > COMPLEX_TEXT_BUDGET) {
-      this.diag('text-budget', `document complex-script text over ${COMPLEX_TEXT_BUDGET} units`);
+    if (complex && this.limits.complexTextBudget && this.complexText + complex > this.limits.complexTextBudget) {
+      this.diag('text-budget', `document complex-script text over ${this.limits.complexTextBudget} units`);
       return false;
     }
-    if (complex && !this.takeChurn(complexWords(data))) return this.overChurn();
+    if (complex && this.limits.complexTextBudget && !this.takeChurn(complexWords(data))) return this.overChurn();
     // Comments are tracked for tree consistency but never rendered.
     const node = this.newNode(id, { kind, data, rendered: kind === 'text', complex });
     if (!node) return false;
@@ -352,16 +372,16 @@ export class Validator {
 
   private opData(op: Record<string, unknown>): boolean {
     const { id, data } = op;
-    if (!isId(id) || !isStr(data, MAX_TEXT)) return false;
+    if (!isId(id) || !isStr(data, this.limits.maxText)) return false;
     const node = this.nodes.get(id);
     if (!node || node.kind === 'el' || node.kind === 'doc') return false;
     const complex = node.kind === 'text' ? complexUnits(data) : 0;
     const growth = complex - (node.complex ?? 0);
-    if (growth > 0 && this.complexText + growth > COMPLEX_TEXT_BUDGET) {
-      this.diag('text-budget', `document complex-script text over ${COMPLEX_TEXT_BUDGET} units`);
+    if (growth > 0 && this.limits.complexTextBudget && this.complexText + growth > this.limits.complexTextBudget) {
+      this.diag('text-budget', `document complex-script text over ${this.limits.complexTextBudget} units`);
       return false;
     }
-    if (complex && !this.takeChurn(complexWords(data))) return this.overChurn();
+    if (complex && this.limits.complexTextBudget && !this.takeChurn(complexWords(data))) return this.overChurn();
     this.complexText += growth;
     node.complex = complex;
     node.data = data;
@@ -613,7 +633,7 @@ export class Validator {
     const node = this.nodes.get(id);
     if (!spec || !node || node.kind !== 'el') return false;
     if (typeof value !== spec.type) return false;
-    if (typeof value === 'string' && value.length > MAX_TEXT) return false;
+    if (typeof value === 'string' && value.length > this.limits.maxText) return false;
     if (typeof value === 'number' && !Number.isFinite(value)) return false;
     if (!node.rendered || (spec.tags && !spec.tags.has(node.tag))) return true;
     this.out.push({ op: 'prop', id, name, value: value as string | number | boolean });
@@ -661,7 +681,7 @@ export class Validator {
   private canvasArg(v: unknown): unknown {
     if (v === null || typeof v === 'boolean') return v;
     if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
-    if (typeof v === 'string') return v.length <= MAX_TEXT ? v : undefined;
+    if (typeof v === 'string') return v.length <= this.limits.maxCanvasString ? v : undefined;
     if (Array.isArray(v)) return v.length <= 4096 && v.every(isNum) ? v : undefined;
     if (isObj(v)) {
       if (isNum(v.g) && Number.isInteger(v.g)) return { g: v.g }; // gradient / pattern
@@ -719,7 +739,7 @@ export class Validator {
         return isNum(name) && isNum(rest[0]) && typeof rest[1] === 'string' && rest[1].length < 256 ? ['gs', name, rest[0], rest[1]] : null;
       case 'pn':
         // ['pn', pid, svgPathData | null]
-        return isNum(name) && (rest[0] === null || isStr(rest[0], MAX_TEXT)) ? ['pn', name, rest[0]] : null;
+        return isNum(name) && (rest[0] === null || isStr(rest[0], this.limits.maxText)) ? ['pn', name, rest[0]] : null;
       case 'pc': {
         // ['pc', pid, method, ...args]
         if (!isNum(name) || typeof rest[0] !== 'string' || !CANVAS_PATH_METHODS.has(rest[0])) return null;

@@ -71,8 +71,12 @@ const v = () => {
     if (Array.isArray(texts)) for (const t of texts.slice(0, 16)) if (typeof t === 'string' && t.length < 262_144) sanitizeStylesheet(t, () => {}, v().cssEnv);
     return '';
   },
+  setPolicy(policy: string) {
+    v().setPolicy(policy === 'strict' ? 'strict' : 'compat');
+    return '';
+  },
   tables() {
-    return JSON.stringify(validatorTables());
+    return JSON.stringify(validatorTables(v().policy));
   },
   native(on: string) {
     v().setNodeLookup(on === '1' && typeof __twNode === 'function' ? (id) => __twNode!(id) || null : null);

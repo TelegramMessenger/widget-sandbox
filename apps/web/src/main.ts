@@ -142,6 +142,7 @@ function load(html: string, name: string | null) {
   el.sandboxWrap.replaceChildren();
   renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole();
   host = new WidgetHost(el.sandboxWrap, html, {
+    policy: 'strict',
     theme: state.theme,
     ...limits,
     // Blitz / litehtml (dev tooling): a native renderer compiled to wasm instead of the sandboxed iframe; sandbox and validator unchanged.
@@ -231,6 +232,7 @@ function updateCompare() {
     // `current` (what __tw.tap / __tw.blitz / __tw.litehtml talk to) stays the main bubble's renderer.
     const mainBlitz = BlitzRenderer.current, mainLitehtml = LitehtmlRenderer.current;
     const h = new WidgetHost(wrap, html, {
+      policy: 'strict',
       theme: state.theme,
       ...limits,
       rendererFactory: r.factory,
