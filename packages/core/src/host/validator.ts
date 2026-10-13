@@ -105,6 +105,13 @@ export class Validator {
     return rewriteMediaQuery(query, this.env);
   }
 
+  /** Would a `canvas` op for `id` be accepted (a known `<canvas>` element)? Native hosts check this before validating canvas words themselves. */
+  isCanvas(id: unknown): boolean {
+    if (!isId(id)) return false;
+    const n = this.nodes.get(id);
+    return !!n && n.kind === 'el' && n.tag === 'canvas';
+  }
+
   /** Does `id` name an element the renderer knows about? (Used to validate queries.) */
   private renderedElement(id: unknown): NodeInfo | null {
     if (!isId(id)) return null;

@@ -10,6 +10,7 @@
 //   __twValidator.setTheme('light'|'dark')  → json RenderOp[] (re-emitted stylesheets)
 //   __twValidator.rewriteMediaQuery(query)  → string
 //   __twValidator.nodeCount()               → number
+//   __twValidator.isCanvas(id)              → boolean (would a canvas op for id be accepted)
 // Diagnostics are reported through `__diag(kind, detail)` if the host defines it.
 
 import { Validator } from './validator';
@@ -50,5 +51,8 @@ const v = () => {
   },
   nodeCount() {
     return v().nodeCount;
+  },
+  isCanvas(id: number) {
+    return v().isCanvas(Number(id));
   },
 };

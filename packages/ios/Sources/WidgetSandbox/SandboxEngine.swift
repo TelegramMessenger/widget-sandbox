@@ -50,6 +50,9 @@ public struct SandboxStats {
 /// `query` is synchronous: it may block the engine queue (and must not block the main thread).
 public protocol SandboxEngineDelegate: AnyObject {
     func engine(_ engine: SandboxEngine, ops json: String)
+    /// An ops batch whose `{"op":"canvas","id":N,"bin":K}` placeholders stand for `canvas[K]` (canvas words).
+    /// The default splices them back into JSON and calls `engine(_:ops:)`.
+    func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch])
     func engine(_ engine: SandboxEngine, query json: String) -> (json: String, binary: Data?)
     func engine(_ engine: SandboxEngine, listen json: String)
     func engine(_ engine: SandboxEngine, preventDefault json: String)
@@ -60,6 +63,12 @@ public protocol SandboxEngineDelegate: AnyObject {
     func engineLoaded(_ engine: SandboxEngine)
     func engine(_ engine: SandboxEngine, stats: SandboxStats)
     func engine(_ engine: SandboxEngine, died reason: String)
+}
+
+public extension SandboxEngineDelegate {
+    func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
+        self.engine(engine, ops: canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
+    }
 }
 
 public final class SandboxEngine {
@@ -421,7 +430,7 @@ public final class SandboxEngine {
             let canvas = stagedCanvas
             stagedCanvas = [:]
             stagedWords = 0
-            delegate?.engine(self, ops: canvas.isEmpty ? arg : CanvasWords.splice(arg, canvas))
+            delegate?.engine(self, ops: arg, canvas: canvas)
             return .undefined
         case "query":
             return .string(syncQuery(arg))

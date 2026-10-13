@@ -4,7 +4,7 @@ import Foundation
 enum CanvasBatchFastPath {
     static let maxOps = 200_000
     static let maxCmdsPerOp = 500_000
-    static let maxStringBytes = 1 << 20
+    static let maxStringBytes = 64 * 1024
     static let maxDistinctIds = 16
     static let maxBatchBytes = 4 << 20
 

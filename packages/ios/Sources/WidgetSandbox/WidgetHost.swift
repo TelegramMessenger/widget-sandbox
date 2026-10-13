@@ -6,6 +6,7 @@
 // iOS and macOS share this file; `PlatformView` is UIView or NSView.
 
 import Foundation
+import WidgetSandboxProtocol
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -60,6 +61,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var parallelBoot = false
         /// Validate ops and queries on the validator's thread and hop to the main thread only to talk to the renderer, instead of blocking the main thread for each batch.
         public var asyncValidation = false
+        /// Main-thread deliveries go through `MainPacer` (bounded work per run loop turn, order kept) instead of straight onto the main queue.
+        public var pacedDelivery = false
         /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`; empty means plain JSON.
         public var features: Set<String> = []
         public init() {}
@@ -77,6 +80,8 @@ public final class WidgetHost: SandboxEngineDelegate {
     private let engine: SandboxEngine
     private let validator: TrustedValidator
     private let renderer: Renderer
+    /// Read once on the main thread; validation threads decide from it whether to parse validator output into `WidgetOp`s.
+    private var rendererAcceptsTypedOps = false
     private let options: Options
     private let html: String
     private let config: SandboxConfig
@@ -149,6 +154,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             engine = SandboxEngine(resources: resources, features: options.features)
         }
         diagnostics.prewarmed = prewarmed.joined(separator: "+")
+        rendererAcceptsTypedOps = renderer.acceptsTypedOps
         engine.delegate = self
         // Runtime + sandbox bundle now, on the engine's thread, while WebKit loads the document.
         if options.parallelBoot { engine.prewarm() }
@@ -168,7 +174,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         if options.asyncValidation {
             validate { [self] in
                 let ops = validator.setTheme(theme)
-                DispatchQueue.main.async { self.toRenderer(Self.json(["type": "ops", "ops": Self.raw(ops)])) }
+                toMain { self.toRenderer(Self.json(["type": "ops", "ops": Self.raw(ops)])) }
             }
         } else {
             toRenderer(Self.json(["type": "ops", "ops": Self.raw(validator.setTheme(theme))]))
@@ -220,12 +226,17 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// order of ops and queries: one serial validator, one serial main queue.
     /// Work queued before destroy() must not run on a validator that went back
     /// to the pool: it would feed this widget's ops into the next widget's model.
+    /// Every hop of this host to the main thread, in order.
+    private func toMain(_ block: @escaping () -> Void) {
+        if options.pacedDelivery { MainPacer.shared.async(block) } else { DispatchQueue.main.async(execute: block) }
+    }
+
     private let validatorLock = NSLock()
     private var validatorReleased = false
 
     private func validate(_ work: @escaping () -> Void) {
         guard options.asyncValidation else {
-            DispatchQueue.main.async(execute: work)
+            toMain(work)
             return
         }
         validator.perform { [weak self] in
@@ -238,14 +249,23 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
 
     public func engine(_ engine: SandboxEngine, ops json: String) {
+        self.engine(engine, ops: json, canvas: [:])
+    }
+
+    public func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
+        let typed = rendererAcceptsTypedOps
         validate { [self] in
-            let clean = validator.processOps(json)
+            let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typed)
             let nodes = validator.nodeCount
             let deliver = {
-                if clean != "[]" { self.toRenderer("{\"type\":\"ops\",\"ops\":\(clean)}"); self.opsSent += 1 }
+                switch batch {
+                case .empty: break
+                case .json(let clean): self.toRenderer("{\"type\":\"ops\",\"ops\":\(clean)}"); self.opsSent += 1
+                case .ops(let ops): self.toRenderer(ops: ops); self.opsSent += 1
+                }
                 self.diagnostics.nodes = nodes
             }
-            if options.asyncValidation { DispatchQueue.main.async(execute: deliver) } else { deliver() }
+            if options.asyncValidation { toMain(deliver) } else { deliver() }
         }
     }
 
@@ -268,7 +288,7 @@ public final class WidgetHost: SandboxEngineDelegate {
                 pending.id = self.qid
                 self.toRenderer("{\"type\":\"query\",\"qid\":\(self.qid),\"query\":\(clean)}")
             }
-            if options.asyncValidation { DispatchQueue.main.async(execute: send) } else { send() }
+            if options.asyncValidation { toMain(send) } else { send() }
         }
         if pending.semaphore.wait(timeout: .now() + 3) == .timedOut {
             queryLock.lock()
@@ -294,21 +314,21 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let types = validator.validateListen(json)
             let send = { self.toRenderer("{\"type\":\"listen\",\"types\":\(types)}") }
-            if options.asyncValidation { DispatchQueue.main.async(execute: send) } else { send() }
+            if options.asyncValidation { toMain(send) } else { send() }
         }
     }
     public func engine(_ engine: SandboxEngine, preventDefault json: String) {
         validate { [self] in
             let keys = validator.validatePreventDefault(json)
             let send = { self.toRenderer("{\"type\":\"preventDefault\",\"keys\":\(keys)}") }
-            if options.asyncValidation { DispatchQueue.main.async(execute: send) } else { send() }
+            if options.asyncValidation { toMain(send) } else { send() }
         }
     }
     public func engineRequestsFrame(_ engine: SandboxEngine) {
-        DispatchQueue.main.async { self.toRenderer("{\"type\":\"requestFrame\"}") }
+        toMain { self.toRenderer("{\"type\":\"requestFrame\"}") }
     }
     public func engine(_ engine: SandboxEngine, log level: String, text: String) {
-        DispatchQueue.main.async {
+        toMain {
             if self.diagnostics.logs.count < 5000 { self.diagnostics.logs.append((level, text)) }
             if level == "error", text.hasPrefix("Uncaught ") {
                 self.diagnostics.lastError = text
@@ -320,10 +340,10 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
     private var tasksAtError = 0
     public func engine(_ engine: SandboxEngine, diag kind: String, detail: String) {
-        DispatchQueue.main.async { self.diag(kind, detail) }
+        toMain { self.diag(kind, detail) }
     }
     public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) {
-        DispatchQueue.main.async {
+        toMain {
             self.diagnostics.bridge.append((method, argsJson))
             self.onBridge?(method, argsJson)
             self.changed()
@@ -340,20 +360,20 @@ public final class WidgetHost: SandboxEngineDelegate {
                 self.changed()
                 self.toRenderer("{\"type\":\"query\",\"qid\":\(Self.renderAckQid),\"query\":{\"q\":\"viewport\"}}")
             }
-            if options.asyncValidation { DispatchQueue.main.async(execute: deliver) } else { deliver() }
+            if options.asyncValidation { toMain(deliver) } else { deliver() }
         }
     }
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     private static let renderAckQid = -1
     public func engine(_ engine: SandboxEngine, stats: SandboxStats) {
-        DispatchQueue.main.async {
+        toMain {
             self.diagnostics.stats = stats
             if self.diagnostics.lastError != nil, stats.tasks > self.tasksAtError + 1 { self.diagnostics.lastError = nil }
             self.changed()
         }
     }
     public func engine(_ engine: SandboxEngine, died reason: String) {
-        DispatchQueue.main.async {
+        toMain {
             if self.diagnostics.dead != nil { return }
             self.diagnostics.dead = reason
             self.changed()
@@ -441,6 +461,11 @@ public final class WidgetHost: SandboxEngineDelegate {
         if rendererReady { renderer.send(json) } else { pendingToRenderer.append(json) }
     }
 
+    private func toRenderer(ops: [WidgetOp]) {
+        if destroyed { return }
+        if rendererReady { renderer.send(ops: ops) } else { pendingToRenderer.append("{\"type\":\"ops\",\"ops\":\(WidgetOp.json(ops))}") }
+    }
+
     private func diag(_ kind: String, _ detail: String) {
         var entry = diagnostics.diags[kind] ?? (0, [])
         entry.count += 1
@@ -454,7 +479,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         // Coalesce UI updates: a misbehaving widget can emit thousands of diagnostics per second.
         if changeScheduled { return }
         changeScheduled = true
-        DispatchQueue.main.async {
+        toMain {
             self.changeScheduled = false
             self.onChange?(self.diagnostics)
         }

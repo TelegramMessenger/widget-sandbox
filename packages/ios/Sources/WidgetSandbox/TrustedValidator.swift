@@ -12,6 +12,7 @@
 // work off the main thread without a thread per bubble.
 
 import Foundation
+import WidgetSandboxProtocol
 
 public final class TrustedValidator {
     /// One thread for every validator that asks for it (see the header).
@@ -72,6 +73,7 @@ public final class TrustedValidator {
             globalThis.__v_setTheme = (t) => __twValidator.setTheme(t);
             globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);
             globalThis.__v_nodeCount = () => __twValidator.nodeCount();
+            globalThis.__v_isCanvas = (id) => __twValidator.isCanvas(Number(id)) ? 1 : 0;
             globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };
             """, filename: "validator-glue.js")
         try js.call("__v_create", [theme])
@@ -109,6 +111,46 @@ public final class TrustedValidator {
     public func processOps(_ json: String) -> String {
         let out = str("__v_processOps", [json])
         return out.isEmpty ? "[]" : out
+    }
+
+    /// What a renderer gets for one ops batch: nothing, the JSON array, or typed ops for a renderer that takes them.
+    public enum RenderBatch {
+        case empty
+        case json(String)
+        case ops([WidgetOp])
+    }
+
+    /// Batches of canvas word payloads validated without JSON (tests and stats).
+    public private(set) var nativeCanvasBatches = 0
+
+    /// Validates a batch for a renderer. With `typed`, the output is parsed into `WidgetOp`s here, on the
+    /// validator's thread, so the main thread never parses JSON. A batch made only of canvas placeholders whose
+    /// word payloads pass `CanvasWords.envelope` (the same rules as the JS validator, stricter where they differ)
+    /// on known canvas elements goes to the renderer as typed canvas ops without any JSON; anything else is
+    /// spliced back into JSON and validated by the JS validator as before.
+    public func processOpsForRenderer(_ json: String, canvas: [Int: WidgetCanvasBatch] = [:], typed: Bool) -> RenderBatch {
+        thread.sync { [self] in
+            guard let js else { return .empty }
+            if typed, !canvas.isEmpty, let list = CanvasWords.only(json, canvas),
+               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch) }) {
+                nativeCanvasBatches += 1
+                return .ops(list.map { WidgetOp(canvas: $0.id, batch: $0.batch) })
+            }
+            let out = processOps(canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
+            if out == "[]" { return .empty }
+            return typed ? Self.typedOps(out) : .json(out)
+        }
+    }
+
+    static func typedOps(_ json: String) -> RenderBatch {
+        guard let list = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [Any] else { return .json(json) }
+        var ops: [WidgetOp] = []
+        ops.reserveCapacity(list.count)
+        for item in list {
+            guard let fields = item as? [String: Any] else { return .json(json) }
+            ops.append(WidgetOp(fields))
+        }
+        return ops.isEmpty ? .empty : .ops(ops)
     }
 
     /// Untrusted query → clean query JSON, or nil if rejected.
