@@ -314,3 +314,28 @@ describe('validator: 64 KB text budget', () => {
     assert.ok(diags.length > 0);
   });
 });
+
+describe('validator: complex-script text budget', () => {
+  it('a document holds at most 8192 complex-script units in text nodes, counted on create, data and remove', () => {
+    const arabic = (n: number) => 'ا'.repeat(n);
+    const diags: string[] = [];
+    const out = run([
+      { op: 'text', id: 20, data: arabic(5000) + 'latin is free ' + 'x'.repeat(20000) }, { op: 'ins', parent: 3, id: 20, before: null },
+      { op: 'text', id: 21, data: arabic(4000) }, { op: 'ins', parent: 3, id: 21, before: null },
+      { op: 'text', id: 22, data: arabic(3000) }, { op: 'ins', parent: 3, id: 22, before: null },
+      { op: 'data', id: 22, data: arabic(3193) },
+      { op: 'data', id: 20, data: 'shrunk' },
+      { op: 'text', id: 23, data: arabic(5000) }, { op: 'ins', parent: 3, id: 23, before: null },
+      { op: 'rm', id: 23 },
+      { op: 'text', id: 24, data: arabic(5000) }, { op: 'ins', parent: 3, id: 24, before: null },
+      { op: 'text', id: 25, data: '😀'.repeat(100) }, { op: 'ins', parent: 3, id: 25, before: null },
+      { op: 'comment', id: 26, data: arabic(9000) },
+    ], diags);
+    const texts = out.filter((o: any) => o.op === 'text').map((o: any) => o.id);
+    assert.deepEqual(texts, [20, 22, 23, 24]);
+    assert.ok(out.some((o: any) => o.op === 'data' && o.id === 20));
+    assert.ok(!out.some((o: any) => o.op === 'data' && o.id === 22), 'growing past the budget is refused');
+    assert.ok(!out.some((o: any) => o.id === 25), '200 more units would pass 8192');
+    assert.ok(diags.filter((d) => d.startsWith('text-budget')).length >= 3);
+  });
+});

@@ -20,6 +20,19 @@ import { DOCUMENT_ID, EVENT_TYPES, type CanvasCmd, type NodeId, type Query, type
 const MAX_NODES = 50_000;
 /** Text nodes, string properties and Path2D data; a chat widget has no use for more, and every byte is copied through the renderer. */
 const MAX_TEXT = 64 * 1024;
+/**
+ * Per-document budget of complex-script text (UTF-16 units at or above U+0590:
+ * Hebrew, Arabic, Indic, Thai, CJK, emoji, …) in text nodes. Shaping and line
+ * breaking such text is what makes a renderer slow, so a widget gets this much
+ * of it in its whole document, counted on create, data change and removal.
+ */
+const COMPLEX_TEXT_BUDGET = 8192;
+
+function complexUnits(text: string): number {
+  let n = 0;
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) >= 0x0590) n++;
+  return n;
+}
 const MAX_ATTR = 4 * 1024 * 1024; // data: URLs can be large
 const MAX_OPS_PER_BATCH = 200_000;
 const MAX_CANVAS_CMDS = 500_000;
@@ -47,6 +60,8 @@ interface NodeInfo {
   parent: NodeId | null;
   children: NodeId[];
   data: string;
+  /** Complex-script units this text node counts against the document budget. */
+  complex?: number;
   /** Renderer currently has this node attached under its parent. */
   attached: boolean;
 }
@@ -68,6 +83,7 @@ export class Validator {
   private nodes = new Map<NodeId, NodeInfo>();
   private adopted = { html: false, head: false, body: false };
   private dirtyStyles = new Set<NodeId>();
+  private complexText = 0;
   private out: RenderOp[] = [];
   private diag: Diag;
   private env: CssEnv;
@@ -232,9 +248,15 @@ export class Validator {
     const { id, data } = op;
     if (!isId(id) || !isStr(data, MAX_TEXT)) return false;
     const kind = op.op === 'text' ? 'text' : 'comment';
+    const complex = kind === 'text' ? complexUnits(data) : 0;
+    if (complex && this.complexText + complex > COMPLEX_TEXT_BUDGET) {
+      this.diag('text-budget', `document complex-script text over ${COMPLEX_TEXT_BUDGET} units`);
+      return false;
+    }
     // Comments are tracked for tree consistency but never rendered.
-    const node = this.newNode(id, { kind, data, rendered: kind === 'text' });
+    const node = this.newNode(id, { kind, data, rendered: kind === 'text', complex });
     if (!node) return false;
+    this.complexText += complex;
     if (kind === 'text') this.out.push({ op: 'text', id, data });
     return true;
   }
@@ -244,6 +266,14 @@ export class Validator {
     if (!isId(id) || !isStr(data, MAX_TEXT)) return false;
     const node = this.nodes.get(id);
     if (!node || node.kind === 'el' || node.kind === 'doc') return false;
+    const complex = node.kind === 'text' ? complexUnits(data) : 0;
+    const growth = complex - (node.complex ?? 0);
+    if (growth > 0 && this.complexText + growth > COMPLEX_TEXT_BUDGET) {
+      this.diag('text-budget', `document complex-script text over ${COMPLEX_TEXT_BUDGET} units`);
+      return false;
+    }
+    this.complexText += growth;
+    node.complex = complex;
     node.data = data;
     const parent = node.parent !== null ? this.nodes.get(node.parent) : null;
     if (parent?.isStyle) this.dirtyStyles.add(parent.id);
@@ -332,6 +362,7 @@ export class Validator {
     const stack = [node];
     while (stack.length) {
       const n = stack.pop()!;
+      this.complexText -= n.complex ?? 0;
       this.nodes.delete(n.id);
       this.dirtyStyles.delete(n.id);
       for (const c of n.children) {
