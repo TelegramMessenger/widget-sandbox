@@ -12,12 +12,13 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 import variant from '@jitl/quickjs-ng-wasmfile-release-sync';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CpuBudget } from '../src/host/cpu-budget.ts';
 import { Validator } from '../src/host/validator.ts';
 import { LIMIT_DEFAULTS, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
 import { libraryPath, sandboxBuildOptions } from './sandbox-build.ts';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export interface RunResult {
   ops: unknown[][];
