@@ -161,6 +161,31 @@ describe('canvas words', () => {
     assert.deepEqual(words.diags.filter((d) => d.kind.startsWith('validator')), json.diags.filter((d) => d.kind.startsWith('validator')));
   });
 
+  it('random calls and property sets give byte-identical commands on the word path', async () => {
+    const fuzz = `<canvas id="c"></canvas><script>
+      var c = document.getElementById('c').getContext('2d'), seed = 12345;
+      function rnd(n) { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return seed % n; }
+      var nums = [0, -0, 1, -1.5, 1e21, 1e-7, 0.1 + 0.2, NaN, Infinity, -Infinity, 2147483648, 123456789.125];
+      var strs = ['', 'a', 'héllo', '\u{1F600}', 'quote"back\\slash', 'nul\u0000x', '12px serif', 'rgba(1,2,3,0.5)'];
+      var calls = ['fillRect', 'strokeRect', 'moveTo', 'lineTo', 'arc', 'fillText', 'strokeText', 'translate', 'rotate', 'scale', 'save', 'restore', 'beginPath', 'closePath', 'setTransform', 'clearRect'];
+      var props = ['lineWidth', 'globalAlpha', 'font', 'fillStyle', 'strokeStyle', 'textAlign', 'imageSmoothingEnabled', 'shadowBlur', 'lineDashOffset'];
+      function arg() { var k = rnd(4); return k === 0 ? strs[rnd(strs.length)] : k === 1 ? undefined : nums[rnd(nums.length)]; }
+      function frame() {
+        for (var i = 0; i < 300; i++) {
+          if (rnd(3) === 0) { var p = props[rnd(props.length)]; var k = rnd(3); c[p] = k === 0 ? nums[rnd(nums.length)] : k === 1 ? strs[rnd(strs.length)] : !!rnd(2); }
+          else { var m = calls[rnd(calls.length)], n = rnd(7), a = []; for (var j = 0; j < n; j++) a.push(arg()); c[m].apply(c, a); }
+        }
+        if (rnd(10) === 0) c.setLineDash([1, 2]);
+      }
+      frame(); setTimeout(frame, 1); setTimeout(frame, 2);
+    </script>`;
+    const canvas = (r: any) => JSON.stringify(r.ops.flat().filter((o: any) => o.op === 'canvas').map((o: any) => o.cmds));
+    const json = await runWidget(fuzz, { timerRounds: 3 });
+    const words = await runWidget(fuzz, { timerRounds: 3, canvasWords: true });
+    assert.ok(words.canvasWordBatches >= 3, `${words.canvasWordBatches} word batches`);
+    assert.equal(canvas(words), canvas(json));
+  });
+
   it('without the feature every canvas op stays JSON', async () => {
     const r = await runWidget(widget, { timerRounds: 6, canvasWords: false });
     assert.equal(r.canvasWordBatches, 0);

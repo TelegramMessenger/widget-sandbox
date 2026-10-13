@@ -110,6 +110,40 @@ class WordBuffer {
     for (; p < a.length; p++) if (!this.value(a[p])) return false;
     return true;
   }
+  /** `['c', name, ...args]` with only number and string arguments, written without building the array. */
+  call(name: string, args: ArrayLike<any>, argc: number): boolean {
+    if (this.list !== null) return false;
+    for (let k = 0; k < argc; k++) {
+      const t = typeof args[k];
+      if (t !== 'number' && t !== 'string') return false;
+    }
+    this.word(0);
+    this.word(this.intern(name));
+    this.word(0);
+    this.word(argc);
+    for (let k = 0; k < argc; k++) {
+      const v = args[k];
+      if (typeof v === 'number') { this.word(0); this.word(v); }
+      else { this.word(1); this.word(this.strings.push(v) - 1); }
+    }
+    this.count++;
+    return true;
+  }
+  /** `['s', name, value]` for a number, string or boolean value. */
+  set(name: string, v: any): boolean {
+    if (this.list !== null) return false;
+    const t = typeof v;
+    if (t !== 'number' && t !== 'string' && t !== 'boolean') return false;
+    this.word(1);
+    this.word(this.intern(name));
+    this.word(0);
+    this.word(1);
+    if (t === 'number') { this.word(0); this.word(v); }
+    else if (t === 'string') { this.word(1); this.word(this.strings.push(v) - 1); }
+    else { this.word(7); this.word(v ? 1 : 0); }
+    this.count++;
+    return true;
+  }
   push(a: any[]) {
     if (this.list !== null) { this.list.push(a); return; }
     const n = this.n;
@@ -324,6 +358,13 @@ for (const name of CALLS) {
       const top = this._stack.pop();
       if (top) [this._s, this._dash] = top;
     } else if (name === 'reset') { this._s = { ...DEFAULTS }; this._stack = []; this._dash = []; }
+    let argc = args.length;
+    while (argc > 0 && args[argc - 1] === undefined) argc--;
+    const cmds = buffer(this.canvas);
+    if (!Array.isArray(cmds) && cmds.length <= MAX_BUFFERED && cmds.call(name, args, argc)) {
+      markDirty(this.canvas);
+      return;
+    }
     this._push(['c', name, ...args.map((a) => this._enc(a))]);
   };
 }
@@ -342,6 +383,11 @@ for (const name of Object.keys(DEFAULTS)) {
       } else if (typeof dflt === 'boolean') v = !!v;
       else if (typeof v !== 'string') return;
       this._s[name] = v;
+      const cmds = buffer(this.canvas);
+      if (!Array.isArray(cmds) && cmds.length <= MAX_BUFFERED && cmds.set(name, v)) {
+        markDirty(this.canvas);
+        return;
+      }
       this._push(['s', name, this._enc(v)]);
     },
   });
