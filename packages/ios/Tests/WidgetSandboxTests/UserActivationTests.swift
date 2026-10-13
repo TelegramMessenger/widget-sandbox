@@ -2,6 +2,26 @@ import XCTest
 @testable import WidgetSandbox
 
 final class UserActivationTests: XCTestCase {
+    func testNothingRunsAfterDestroy() {
+        let renderer = RecordingRenderer()
+        var bridge = 0
+        var host: WidgetHost? = try! WidgetHost(html: "<a id='a' href='https://example.com/x'>x</a><script>var n=0;setInterval(function(){n++;console.log('tick'+n);document.body.setAttribute('data-n',n);},10);requestAnimationFrame(function f(){requestAnimationFrame(f);});document.getElementById('a').addEventListener('click',function(){setTimeout(function(){},0);});</script>", theme: "light", width: 300, rendererFactory: { _, _, _ in renderer })
+        host?.onBridge = { _, _ in bridge += 1 }
+        let deadline = Date().addingTimeInterval(5)
+        while !(host?.diagnostics.logs.count ?? 0 > 3) && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        host?.destroy()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let sent = renderer.messages.count
+        let logs = host?.diagnostics.logs.count ?? 0
+        renderer.onMessage?("{\"type\":\"event\",\"ev\":{\"type\":\"click\",\"targetId\":5}}")
+        renderer.onMessage?("{\"type\":\"frame\",\"time\":1}")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertEqual(renderer.messages.count, sent)
+        XCTAssertEqual(host?.diagnostics.logs.count ?? 0, logs)
+        XCTAssertEqual(bridge, 0)
+        host = nil
+    }
+
     private final class Harness {
         let renderer = RecordingRenderer()
         let host: WidgetHost
