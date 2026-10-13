@@ -153,7 +153,10 @@ void SandboxEngine::boot() {
 
 void SandboxEngine::event(const std::string& json) { enqueue("event", json); }
 void SandboxEngine::activationEvent(const std::string& json, int gesture) { enqueue(kActivationPrefix + std::to_string(gesture), json); }
-void SandboxEngine::frame(double time) { enqueue("frame", Json::number(time)); }
+/// Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets.
+static double coarseNowMs(double ms) { return std::floor(ms / 0.1) * 0.1; }
+
+void SandboxEngine::frame(double time) { enqueue("frame", Json::number(coarseNowMs(time))); }
 void SandboxEngine::viewport(double innerWidth, double innerHeight, double dpr) {
     Json v = Json::object();
     v.set("innerWidth", innerWidth);
@@ -297,7 +300,7 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         return HostReturn::undefined();
     }
     if (kind == "query") return HostReturn::string(syncQuery(arg));
-    if (kind == "now") return HostReturn::number(nowMs());
+    if (kind == "now") return HostReturn::number(coarseNowMs(nowMs()));
     if (kind == "timer") {
         auto pair = Json::parse(arg);
         if (!pair || !pair->isArray() || pair->size() != 2 || !(*pair)[0].isNumber()) return HostReturn::undefined();

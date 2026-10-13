@@ -50,6 +50,9 @@ data class SandboxStats(
 )
 
 private const val ACTIVATION_PREFIX = "activation:"
+
+/** Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets. */
+internal fun coarseNowMs(ms: Double): Double = kotlin.math.floor(ms / 0.1) * 0.1
 private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
 private const val WALL_BACKSTOP_FACTOR = 10.0
 private const val WALL_BACKSTOP_MIN_MS = 5000.0
@@ -211,7 +214,7 @@ class SandboxEngine(
 
     private val activation = ActivationGate()
     private var blockedBridgeReported = 0
-    fun frame(time: Double) = enqueue("frame", time.toString())
+    fun frame(time: Double) = enqueue("frame", coarseNowMs(time).toString())
     fun viewport(innerWidth: Double, innerHeight: Double, dpr: Double) =
         enqueue("viewport", JSONObject().put("innerWidth", innerWidth).put("innerHeight", innerHeight).put("dpr", dpr).toString())
     fun resize(entriesJson: String) = enqueue("resize", entriesJson)
@@ -336,7 +339,7 @@ class SandboxEngine(
                 delegate?.onOps(this, arg)
             }
             "query" -> return HostReturn.Str(syncQuery(arg))
-            "now" -> return HostReturn.Num(nowNs() / 1e6)
+            "now" -> return HostReturn.Num(coarseNowMs(nowNs() / 1e6))
             "timer" -> {
                 val pair = try { JSONArray(arg) } catch (e: Exception) { return HostReturn.Undefined }
                 if (pair.length() != 2) return HostReturn.Undefined

@@ -166,3 +166,12 @@ describe('canvas words', () => {
     assert.equal(r.canvasWordBatches, 0);
   });
 });
+
+describe('glue: coarse clock', () => {
+  it('performance.now() ticks in 100 µs steps', async () => {
+    const r = await runWidget(`<script>var seen = {}, distinct = 0, t0 = performance.now(); for (var i = 0; i < 100000; i++) { var t = performance.now(); if (!seen[t]) { seen[t] = 1; distinct++; } } var elapsed = performance.now() - t0;</script>`, { timerRounds: 0, probes: ['distinct', 'elapsed'] });
+    const distinct = Number(r.probes[0]);
+    const elapsed = Number(r.probes[1]);
+    assert.ok(distinct <= elapsed / 0.1 + 2, `${distinct} distinct values in ${elapsed} ms`);
+  });
+});

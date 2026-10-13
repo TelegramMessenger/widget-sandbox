@@ -373,6 +373,15 @@ TEST(widget_code_cannot_reach_host_globals) {
     CHECK(r.host.countLogPrefix("pwned") == 0);
 }
 
+TEST(widget_clock_is_coarse) {
+    Run r("<script>var seen={},distinct=0,t0=performance.now();for(var i=0;i<200000;i++){var t=performance.now();if(!seen[t]){seen[t]=1;distinct++;}}console.log('CLOCK '+distinct+' '+(performance.now()-t0));</script>");
+    r.barrier();
+    auto l = r.host.lock();
+    double distinct = -1, elapsed = -1;
+    for (auto& log : r.host.logs) if (log.second.rfind("CLOCK ", 0) == 0) sscanf(log.second.c_str(), "CLOCK %lf %lf", &distinct, &elapsed);
+    CHECK_MSG(distinct >= 1 && distinct <= elapsed / 0.1 + 2, r.logsText());
+}
+
 TEST(intl_fallback_formats_through_the_host) {
     Run r("<script>console.log((1234.5).toLocaleString() + '|' + new Intl.PluralRules('en').select(1) + '|' + new Intl.NumberFormat('en', {style:'percent'}).format(0.25));</script>");
     r.barrier();

@@ -191,7 +191,7 @@ function hostCall(kind: string, arg: string): string | number | undefined {
     case 'query':
       return syncQuery(arg);
     case 'now':
-      return performance.now();
+      return coarseNowMs(performance.now());
     case 'timer': {
       const [id, delay] = JSON.parse(arg) as [number, number];
       if (typeof id !== 'number') return;
@@ -556,6 +556,8 @@ function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
 }
 
 const HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
+/** Widget clocks tick in 100 µs steps (a worker's own performance.now() can be finer in a cross-origin-isolated page), so they cannot time cache or pool effects of other widgets. */
+const coarseNowMs = (ms: number) => Math.floor(ms / 0.1) * 0.1;
 let ready = false;
 let activeGesture = 0;
 
@@ -575,7 +577,7 @@ function handle(msg: HostToWorker) {
     case 'frame':
       // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
       if (!visible) { frameWanted = true; return; }
-      dispatch('frame', msg.time);
+      dispatch('frame', coarseNowMs(msg.time));
       return;
     case 'viewport': dispatch('viewport', msg.viewport); return;
     case 'resize': dispatch('resize', msg.entries); return;

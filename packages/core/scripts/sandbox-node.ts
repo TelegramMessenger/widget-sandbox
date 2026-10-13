@@ -154,7 +154,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         log('query', JSON.stringify(q), '→', JSON.stringify(answer));
         return vm.newString(JSON.stringify(answer));
       }
-      case 'now': return vm.newNumber(opts.now ? opts.now() : performance.now());
+      case 'now': return vm.newNumber(opts.now ? opts.now() : Math.floor(performance.now() / 0.1) * 0.1);
       case 'timer': {
         const [id, delay] = JSON.parse(arg);
         if (timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }

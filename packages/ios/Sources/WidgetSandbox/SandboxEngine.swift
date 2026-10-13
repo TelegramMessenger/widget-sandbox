@@ -291,7 +291,14 @@ public final class SandboxEngine {
     public func event(json: String) { enqueue("event", json) }
     /// A real user input event from the renderer (press, click, key press); every event of one physical gesture carries the same increasing `gesture` number.
     public func activationEvent(json: String, gesture: Int) { enqueue(Self.activationPrefix + String(gesture), json) }
-    public func frame(time: Double) { enqueue("frame", String(time)) }
+    public func frame(time: Double) { enqueue("frame", String(Self.coarseNowMs(time))) }
+
+    /// Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets.
+    static let clockResolutionMs = 0.1
+
+    static func coarseNowMs(_ ms: Double) -> Double {
+        (ms / clockResolutionMs).rounded(.down) * clockResolutionMs
+    }
     public func viewport(innerWidth: Double, innerHeight: Double, dpr: Double) {
         enqueue("viewport", Self.json(["innerWidth": innerWidth, "innerHeight": innerHeight, "dpr": dpr]))
     }
@@ -412,7 +419,7 @@ public final class SandboxEngine {
         case "query":
             return .string(syncQuery(arg))
         case "now":
-            return .number(CACurrentMediaTime() * 1000)
+            return .number(Self.coarseNowMs(CACurrentMediaTime() * 1000))
         case "timer":
             guard let pair = Self.parse(arg) as? [Any], pair.count == 2, let id = (pair[0] as? NSNumber)?.intValue else { return .undefined }
             var delay = min(max(0, (pair[1] as? NSNumber)?.doubleValue ?? 0) / 1000, maxTimerDelay)

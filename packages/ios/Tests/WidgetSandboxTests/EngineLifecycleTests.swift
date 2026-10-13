@@ -83,6 +83,24 @@ final class EngineLifecycleTests: XCTestCase {
         XCTAssertEqual(validator.nodeCount, before, "late ops after destroy reached the validator")
     }
 
+    /// performance.now() and frame times tick in 100 µs steps, so widgets cannot time each other.
+    func testWidgetClockIsCoarse() {
+        let d = RecordingDelegate()
+        let engine = SandboxEngine(html: "<script>var seen={},distinct=0,t0=performance.now();for(var i=0;i<200000;i++){var t=performance.now();if(!seen[t]){seen[t]=1;distinct++;}}console.log('CLOCK '+distinct+' '+(performance.now()-t0));</script>", config: config())
+        engine.delegate = d
+        engine.start()
+        wait(for: [d.loaded], timeout: 20)
+        engine.queue.sync {}
+        let line = d.lock.withLock { d.logs.map { $0.1 }.first { $0.hasPrefix("CLOCK") } } ?? ""
+        let parts = line.split(separator: " ")
+        XCTAssertEqual(parts.count, 3, line)
+        if parts.count == 3, let distinct = Double(parts[1]), let elapsed = Double(parts[2]) {
+            XCTAssertLessThanOrEqual(distinct, elapsed / SandboxEngine.clockResolutionMs + 2, line)
+        }
+        XCTAssertEqual(SandboxEngine.coarseNowMs(1234.56789), 1234.5, accuracy: 1e-9)
+        engine.terminate()
+    }
+
     func testSuccessfulPrewarmStillBoots() {
         let d = RecordingDelegate()
         let engine = SandboxEngine(html: "<p>x</p>", config: config())
