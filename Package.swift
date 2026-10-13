@@ -1,6 +1,9 @@
 // swift-tools-version:5.9
 import PackageDescription
 
+let localCheckout = !#filePath.contains("/checkouts/")
+let optimizedC: [CSetting] = localCheckout ? [.unsafeFlags(["-O2"])] : []
+
 let package = Package(
     name: "WidgetSandbox",
     platforms: [.iOS(.v16), .macOS(.v10_13)],
@@ -35,7 +38,7 @@ let package = Package(
                 .define("_GNU_SOURCE"),
                 .define("QUICKJS_NG_BUILD"),
                 .define("QJS_DISABLE_DUMPS"),
-            ]
+            ] + optimizedC
         ),
         // Typed host -> renderer ops for in-process native renderers; no dependencies.
         .target(
