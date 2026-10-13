@@ -288,7 +288,12 @@ const METHOD_IMPL: Record<string, (el: any, a: any[]) => void> = {
       else if (el instanceof HTMLTextAreaElement) HTMLTextAreaElement.prototype.setSelectionRange.call(el, a[0], a[1]);
     } catch {}
   },
-  scrollIntoView: (el) => Element.prototype.scrollIntoView.call(el, { block: 'nearest' }),
+  scrollIntoView: (el, a) => Element.prototype.scrollIntoView.call(el, {
+    block: (['start', 'center', 'end', 'nearest'] as const)[a[0] ?? 0],
+    inline: (['start', 'center', 'end', 'nearest'] as const)[a[1] ?? 3],
+    behavior: (['auto', 'instant', 'smooth'] as const)[a[2] ?? 0],
+    ...{ container: ['all', 'nearest'][a[3] ?? 0] },
+  }),
   scrollTo: (el, a) => Element.prototype.scrollTo.call(el, a[0], a[1]),
   scrollBy: (el, a) => Element.prototype.scrollBy.call(el, a[0], a[1]),
   setPointerCapture: (el, a) => {

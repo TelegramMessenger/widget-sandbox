@@ -675,6 +675,10 @@ export class Validator {
     const node = this.nodes.get(id);
     if (!node || node.kind !== 'el') return false;
     if (!node.rendered) return true;
+    if (method === 'scrollIntoView' && (args === undefined || Array.isArray(args) && args.length === 0)) {
+      this.out.push({ op: 'call', id, method, args: [0, 3, 0, 0] });
+      return true;
+    }
     const n = METHODS[method];
     const out: number[] = [];
     if (n > 0) {
@@ -684,6 +688,7 @@ export class Validator {
         out.push(args[i] as number);
       }
     }
+    if (method === 'scrollIntoView' && out.some((value, index) => !Number.isInteger(value) || value < 0 || value > [3, 3, 2, 1][index])) return false;
     this.out.push({ op: 'call', id, method, args: out });
     return true;
   }

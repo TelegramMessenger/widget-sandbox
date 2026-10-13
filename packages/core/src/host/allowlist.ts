@@ -116,7 +116,7 @@ export const PROPS: Record<string, { type: 'string' | 'number' | 'boolean'; tags
 
 /** Methods callable through the `call` op: name → number of primitive args forwarded. */
 export const METHODS: Record<string, number> = {
-  focus: 0, blur: 0, select: 0, scrollIntoView: 0, setPointerCapture: 1, releasePointerCapture: 1,
+  focus: 0, blur: 0, select: 0, scrollIntoView: 4, setPointerCapture: 1, releasePointerCapture: 1,
   showModal: 0, show: 0, close: 0, reset: 0, scrollTo: 2, scrollBy: 2, setSelectionRange: 2,
   showPopover: 0, hidePopover: 0, togglePopover: 0,
   // Not DOM methods: (un)subscribe the element in the renderer's ResizeObserver.

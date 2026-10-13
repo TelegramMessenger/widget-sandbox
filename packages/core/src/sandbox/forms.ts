@@ -244,7 +244,20 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   define(ElementProto, {
     focus(this: any) { callMethod(this, 'focus'); },
     blur(this: any) { callMethod(this, 'blur'); },
-    scrollIntoView(this: any) { callMethod(this, 'scrollIntoView'); },
+    scrollIntoView(this: any, options: any = true) {
+      const o = options != null && (typeof options === 'object' || typeof options === 'function') ? options : {};
+      const enumIndex = (value: any, values: string[], fallback: number) => {
+        if (value === undefined) return fallback;
+        const index = values.indexOf(String(value));
+        if (index < 0) throw new TypeError('Invalid scrollIntoView option');
+        return index;
+      };
+      const behavior = enumIndex(o.behavior, ['auto', 'instant', 'smooth'], 0);
+      const block = enumIndex(o.block, ['start', 'center', 'end', 'nearest'], options != null && typeof options !== 'object' && typeof options !== 'function' && !options ? 2 : 0);
+      const container = enumIndex(o.container, ['all', 'nearest'], 0);
+      const inline = enumIndex(o.inline, ['start', 'center', 'end', 'nearest'], 3);
+      callMethod(this, 'scrollIntoView', [block, inline, behavior, container]);
+    },
     scrollTo(this: any, x: any, y: any) { const o = typeof x === 'object' && x ? x : { left: x, top: y }; callMethod(this, 'scrollTo', [Number(o.left) || 0, Number(o.top) || 0]); },
     scrollBy(this: any, x: any, y: any) { const o = typeof x === 'object' && x ? x : { left: x, top: y }; callMethod(this, 'scrollBy', [Number(o.left) || 0, Number(o.top) || 0]); },
     setPointerCapture(this: any, id: number) {
