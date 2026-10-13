@@ -40,11 +40,47 @@ export const LIBRARIES: Library[] = [
   },
 ];
 
+export interface ProvidedLibrarySpec {
+  name: string;
+  file: string;
+  patterns: string[];
+}
+
+export const MAX_LIBRARY_URL = 2048;
+const provided: Library[] = [];
+const PROBES = ['', 'https://example.invalid/x.js', 'app:', 'https://cdn.jsdelivr.net/npm/x.js'];
+
+export function provideLibrary(spec: ProvidedLibrarySpec): boolean {
+  if (!spec || typeof spec.name !== 'string' || typeof spec.file !== 'string' || !Array.isArray(spec.patterns) || !spec.patterns.length) return false;
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(spec.name) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,124}\.js$/.test(spec.file) || spec.file.includes('..')) return false;
+  if (LIBRARIES.some((l) => l.name === spec.name || l.file === spec.file)) return false;
+  if (provided.some((l) => l.file === spec.file && l.name !== spec.name)) return false;
+  const patterns: RegExp[] = [];
+  for (const p of spec.patterns) {
+    if (typeof p !== 'string' || p.length > 1024) return false;
+    let re: RegExp;
+    try { re = new RegExp(`^(?:${p})$`, 'i'); } catch { return false; }
+    if (PROBES.some((probe) => re.test(probe))) return false;
+    patterns.push(re);
+  }
+  const i = provided.findIndex((l) => l.name === spec.name);
+  if (i >= 0) provided.splice(i, 1);
+  provided.push({ name: spec.name, file: spec.file, source: '', patterns });
+  return true;
+}
+
+export function clearProvidedLibraries(): void {
+  provided.length = 0;
+}
+
 export function resolveLibrary(url: string): Library | null {
+  if (typeof url !== 'string' || url.length > MAX_LIBRARY_URL) return null;
   let u = url.trim();
   if (u.startsWith('//')) u = 'https:' + u;
   u = u.split(/[?#]/)[0];
+  if (/[\u0000-\u001f]/.test(u)) return null;
   for (const lib of LIBRARIES) if (lib.patterns.some((p) => p.test(u))) return lib;
+  for (const lib of provided) if (lib.patterns.some((p) => p.test(u))) return lib;
   return null;
 }
 

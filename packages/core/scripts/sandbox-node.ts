@@ -16,6 +16,7 @@ import { CpuBudget } from '../src/host/cpu-budget.ts';
 import { UNPRIVILEGED_BRIDGE_METHODS } from '../src/host/user-activation.ts';
 import { decodeBinaryOps } from '../src/sandbox/binary-ops.ts';
 import { Validator } from '../src/host/validator.ts';
+import { clearProvidedLibraries, provideLibrary, resolveLibrary, type ProvidedLibrarySpec } from '../src/host/loader.ts';
 import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
 import { libraryPath, sandboxBuildOptions } from './sandbox-build.ts';
 
@@ -121,12 +122,15 @@ export interface RunOptions {
   /** Advertise `binaryOps` and install `__hostOps`; batches are decoded back into JSON ops before validation. */
   binaryOps?: boolean;
   canvasRect?: boolean;
+  libraries?: { spec: ProvidedLibrarySpec; source: string }[];
   webAnimations?: boolean;
   frames?: number;
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
   const bundle = opts.bundle ?? (cachedBundle ??= await bundleSandbox());
+  const providedSources = new Map<string, string>();
+  for (const l of opts.libraries ?? []) if (provideLibrary(l.spec)) providedSources.set(l.spec.file, l.source);
   // Same memory cap as src/host/worker.ts: the emscripten build cannot count its
   // heap, so the wasm Memory's maximum is the limit (see the comment there).
   const memoryLimitBytes = opts.memoryLimitBytes ?? LIMIT_DEFAULTS.memoryLimitBytes;
@@ -313,8 +317,11 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       const s = JSON.parse(next);
       let ok = true;
       if (s.src !== undefined) {
-        const lib = /chart/i.test(s.src) ? 'chart.js/dist/chart.umd.min.js' : /d3/i.test(s.src) ? 'd3/dist/d3.min.js' : null;
-        if (lib) evalCode(fs.readFileSync(libraryPath(lib), 'utf8'), lib);
+        const resolved = resolveLibrary(String(s.src));
+        const providedSource = resolved && resolved.source === '' ? providedSources.get(resolved.file) : undefined;
+        const lib = resolved && resolved.source === '' ? null : /chart/i.test(s.src) ? 'chart.js/dist/chart.umd.min.js' : /d3/i.test(s.src) ? 'd3/dist/d3.min.js' : null;
+        if (providedSource !== undefined) { evalCode(providedSource, resolved!.file); res.diags.push({ kind: 'library', detail: `${s.src} → bundled ${resolved!.name}` }); }
+        else if (lib) evalCode(fs.readFileSync(libraryPath(lib), 'utf8'), lib);
         else { ok = false; res.diags.push({ kind: 'script-skipped', detail: s.src }); }
       } else evalCode(s.code, `inline-${s.id}.js`, s.type);
       settle();
@@ -367,6 +374,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   }
   for (const code of opts.probes ?? []) probe(code);
   res.wasmBytes = wasmMemory.buffer.byteLength;
+  if (opts.libraries?.length) clearProvidedLibraries();
   dispatch.dispose();
   encoder.dispose();
   vm.dispose();

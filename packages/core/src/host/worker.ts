@@ -13,7 +13,7 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 import baseVariant from '@telegram/widget-sandbox-quickjs';
 import wasmUrl from '@telegram/widget-sandbox-quickjs/wasm?url';
 import { CpuBudget } from './cpu-budget';
-import { resolveLibrary } from './loader';
+import { provideLibrary, resolveLibrary } from './loader';
 import { MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
 
 const post = (msg: WorkerToHost) => (self as unknown as Worker).postMessage(msg);
@@ -547,7 +547,9 @@ async function warm(msg: Extract<HostToWorker, { type: 'warm' | 'init' }>) {
 /** Phase 2 (pool `start`, or the second half of `init`): the widget's HTML and its real config into the warmed VM. */
 function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
   if (dead) return;
-  config = { ...msg.config, memoryLimitBytes: Math.min(msg.config.memoryLimitBytes, warmedMemoryLimitBytes) };
+  const { libraries, ...widgetConfig } = msg.config;
+  for (const lib of libraries ?? []) if (!provideLibrary(lib)) post({ type: 'diag', kind: 'library', detail: `provided library refused: ${String(lib?.name).slice(0, 64)}` });
+  config = { ...widgetConfig, memoryLimitBytes: Math.min(msg.config.memoryLimitBytes, warmedMemoryLimitBytes) };
   visible = config.visible !== false;
   budget = new CpuBudget(config);
   rt.setMemoryLimit(config.memoryLimitBytes);

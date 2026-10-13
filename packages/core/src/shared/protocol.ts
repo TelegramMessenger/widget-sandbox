@@ -195,6 +195,8 @@ export interface SandboxConfig {
    * `canvasWords`: canvas commands as a word stream through `__hostCanvas`.
    */
   features?: string[];
+  /** Extra bundled libraries the host serves under /libs/<file> (loader.ts `provideLibrary`); glue only, never sent to the sandbox. */
+  libraries?: { name: string; file: string; patterns: string[] }[];
 }
 
 /** Defaults shared by every host (the native configs repeat them). */
