@@ -31,7 +31,7 @@ let nextId = DOCUMENT_ID + 1;
 const byId = new Map<number, any>();
 const mirror = new Map<number, Mirror>();
 const dirty = new Set<any>();
-let ops: { push(op: any): void; readonly length: number } = [];
+let ops: any[] | OpWriter = [];
 
 /** Switch the op stream to binary records (`binaryOps` feature); a no-op unless the glue installed `__hostOps`. */
 export function enableBinaryOps(on: boolean) {

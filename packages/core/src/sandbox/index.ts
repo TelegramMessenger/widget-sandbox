@@ -10,7 +10,7 @@ import { morphDocument } from './morph';
 import { document, installAttributeFastPaths, loadDocument, parseInto, SCRIPT_INERT, setAttrFast, setInPlaceText, SVG_NS } from './dom';
 import * as ev from './events';
 import { pseudoHooks } from './css-select-shim';
-import { applyEventState, emitProps, FormData, installForms, isChecked, syntheticToggle } from './forms';
+import { applyEventState, finishPointerEvent, pointerEventTarget, emitProps, FormData, installForms, isChecked, syntheticToggle } from './forms';
 import * as globals from './globals';
 import { counters, diag, host, setFlushHook, unsupported } from './host';
 import { DOMMatrix, DOMPoint, DOMRect, elementFromPoint, getComputedStyle, installLayout } from './layout';
@@ -337,13 +337,14 @@ const pdKeys = new Set<string>();
 let pdDirty = false;
 
 function dispatchHostEvent(raw: any) {
-  const target = capture.nodeById(raw.targetId);
-  if (!target) return;
+  const target = pointerEventTarget(capture.nodeById(raw.targetId), raw);
+  if (!target) { finishPointerEvent(raw); return; }
   applyEventState(target, raw);
   if (raw.type === 'focus' || raw.type === 'focusin') activeElement = target;
   else if (raw.type === 'blur' || raw.type === 'focusout') activeElement = null;
   const e = ev.eventFromHost(raw, capture.nodeById);
   ev.dispatchEvent.call(target, e);
+  finishPointerEvent(raw);
   if (raw.type === 'click') afterClick(target, e);
   if (e.defaultPrevented) {
     const key = `${raw.targetId}:${raw.type}` + (raw.type.startsWith('key') && raw.key ? `:${raw.key}` : '');

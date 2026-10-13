@@ -442,12 +442,12 @@ export function eventFromHost(ev: any, lookup: (id: number) => any): Event {
   const init: any = {
     ...ev,
     bubbles: !['mouseenter', 'mouseleave', 'pointerenter', 'pointerleave', 'focus', 'blur', 'load', 'error', 'scroll', 'toggle'].includes(t),
-    cancelable: !['input', 'change', 'scroll', 'load', 'error', 'focus', 'blur', 'focusin', 'focusout', 'toggle', 'mouseenter', 'mouseleave', 'pointerenter', 'pointerleave'].includes(t),
+    cancelable: !['gotpointercapture', 'lostpointercapture', 'input', 'change', 'scroll', 'load', 'error', 'focus', 'blur', 'focusin', 'focusout', 'toggle', 'mouseenter', 'mouseleave', 'pointerenter', 'pointerleave'].includes(t),
     altKey: !!(mods & 1), ctrlKey: !!(mods & 2), metaKey: !!(mods & 4), shiftKey: !!(mods & 8),
     relatedTarget: ev.relatedId ? lookup(ev.relatedId) : null,
   };
   let e: Event;
-  if (t.startsWith('pointer')) e = new PointerEvent(t, init);
+  if (t.startsWith('pointer') || t === 'gotpointercapture' || t === 'lostpointercapture') e = new PointerEvent(t, init);
   else if (t === 'wheel') e = new WheelEvent(t, init);
   else if (t === 'click' || t === 'dblclick' || t === 'contextmenu') e = new PointerEvent(t, init);
   else if (t.startsWith('mouse')) e = new MouseEvent(t, init);

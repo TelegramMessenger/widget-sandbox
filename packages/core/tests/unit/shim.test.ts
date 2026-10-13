@@ -201,3 +201,37 @@ describe('glue: coarse clock', () => {
     assert.ok(distinct <= elapsed / 0.1 + 2, `${distinct} distinct values in ${elapsed} ms`);
   });
 });
+
+describe('shim: pointer capture', () => {
+  it('retargets queued drag events and releases capture after pointerup', async () => {
+    const html = `<div id="drag"></div><div id="outside"></div><script>
+      var drag = document.getElementById('drag'), seen = [];
+      drag.addEventListener('pointerdown', e => { drag.setPointerCapture(e.pointerId); seen.push(drag.hasPointerCapture(e.pointerId)); });
+      drag.addEventListener('pointermove', e => seen.push(e.target.id + ':move'));
+      drag.addEventListener('pointerup', e => seen.push(e.target.id + ':up'));
+    </script>`;
+    const initial = await runWidget(html);
+    const id = (name: string) => initial.renderOps.find(o => o.op === 'el' && o.attrs?.some(([key, value]: string[]) => key === 'id' && value === name))?.id;
+    assert.ok(id('drag'));
+    assert.ok(id('outside'));
+    const r = await runWidget(html, {
+      events: [
+        { type: 'pointerdown', targetId: id('drag'), pointerId: 1 },
+        { type: 'pointermove', targetId: id('outside'), pointerId: 1 },
+        { type: 'pointerup', targetId: id('outside'), pointerId: 1 },
+        { type: 'pointermove', targetId: id('outside'), pointerId: 1 },
+      ],
+      probes: ['JSON.stringify(seen)', 'drag.hasPointerCapture(1)'],
+    });
+    assert.deepEqual(errorsOf(r), []);
+    assert.deepEqual(r.probes, ['[true,"drag:move","drag:up"]', 'false']);
+  });
+  it('uses PointerEvent for native capture notifications', async () => {
+    const html = `<div id="drag"></div><script>var seen=[];document.getElementById('drag').addEventListener('gotpointercapture',e=>seen.push(e instanceof PointerEvent,e.pointerId,e.cancelable));</script>`;
+    const initial = await runWidget(html);
+    const id = initial.renderOps.find(o => o.op === 'el' && o.attrs?.some(([key, value]: string[]) => key === 'id' && value === 'drag'))?.id;
+    const r = await runWidget(html, { events: [{ type: 'gotpointercapture', targetId: id, pointerId: 7 }], probes: ['JSON.stringify(seen)'] });
+    assert.deepEqual(r.probes, ['[true,7,false]']);
+  });
+
+});

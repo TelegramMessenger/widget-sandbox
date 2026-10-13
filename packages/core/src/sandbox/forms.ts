@@ -9,6 +9,31 @@ import { document } from './dom';
 import { unsupported } from './host';
 import { elQuery } from './layout';
 
+const activePointers = new Set<number>();
+const pointerCaptures = new Map<number, any>();
+
+export function pointerEventTarget(target: any, event: any): any {
+  const id = Number(event.pointerId) || 1;
+  if (event.type === 'pointerdown') {
+    activePointers.add(id);
+    pointerCaptures.delete(id);
+  }
+  if (['pointermove', 'pointerup', 'pointercancel'].includes(event.type)) {
+    const captured = pointerCaptures.get(id);
+    if (captured?.isConnected) return captured;
+    pointerCaptures.delete(id);
+  }
+  return target;
+}
+
+export function finishPointerEvent(event: any) {
+  if (event.type === 'pointerup' || event.type === 'pointercancel') {
+    const id = Number(event.pointerId) || 1;
+    activePointers.delete(id);
+    pointerCaptures.delete(id);
+  }
+}
+
 const STATE = Symbol('tw.state');
 interface State { value?: string; checked?: boolean; selectedIndex?: number; indeterminate?: boolean; dirty: Set<string>; naturalWidth?: number; naturalHeight?: number; complete?: boolean }
 
@@ -192,9 +217,19 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
     scrollIntoView(this: any) { callMethod(this, 'scrollIntoView'); },
     scrollTo(this: any, x: any, y: any) { const o = typeof x === 'object' && x ? x : { left: x, top: y }; callMethod(this, 'scrollTo', [Number(o.left) || 0, Number(o.top) || 0]); },
     scrollBy(this: any, x: any, y: any) { const o = typeof x === 'object' && x ? x : { left: x, top: y }; callMethod(this, 'scrollBy', [Number(o.left) || 0, Number(o.top) || 0]); },
-    setPointerCapture(this: any, id: number) { callMethod(this, 'setPointerCapture', [Number(id) || 0]); },
-    releasePointerCapture(this: any, id: number) { callMethod(this, 'releasePointerCapture', [Number(id) || 0]); },
-    hasPointerCapture() { return false; },
+    setPointerCapture(this: any, id: number) {
+      id = Number(id) || 0;
+      if (!activePointers.has(id) || !this.isConnected) return;
+      pointerCaptures.set(id, this);
+      callMethod(this, 'setPointerCapture', [id]);
+    },
+    releasePointerCapture(this: any, id: number) {
+      id = Number(id) || 0;
+      if (pointerCaptures.get(id) !== this) return;
+      pointerCaptures.delete(id);
+      callMethod(this, 'releasePointerCapture', [id]);
+    },
+    hasPointerCapture(this: any, id: number) { return pointerCaptures.get(Number(id)) === this; },
     showPopover(this: any) { callMethod(this, 'showPopover'); },
     hidePopover(this: any) { callMethod(this, 'hidePopover'); },
     togglePopover(this: any) { callMethod(this, 'togglePopover'); },
