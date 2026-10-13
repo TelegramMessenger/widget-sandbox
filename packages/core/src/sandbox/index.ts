@@ -6,6 +6,7 @@ import './prelude';
 import * as linkedom from 'linkedom';
 import { enableCanvasWords, flushCanvases, ImageData, installCanvas, Context2D, Path2D, setCanvasRectFast } from './canvas';
 import * as capture from './capture';
+import { morphDocument } from './morph';
 import { document, installAttributeFastPaths, loadDocument, parseInto, SCRIPT_INERT, setAttrFast, setInPlaceText, SVG_NS } from './dom';
 import * as ev from './events';
 import { pseudoHooks } from './css-select-shim';
@@ -352,6 +353,8 @@ function dispatchHostEvent(raw: any) {
 
 // ───────────────────────── dispatcher ─────────────────────────
 
+let morphEnabled = false;
+
 const handlers: Record<string, (arg: string) => string | void> = {
   boot(arg) {
     const { html, config } = JSON.parse(arg);
@@ -362,6 +365,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
     setAttrFast(!(Array.isArray(config.features) && config.features.includes('noAttrFast')));
     setCanvasRectFast(!(Array.isArray(config.features) && config.features.includes('noCanvasRect')));
     setWebAnimations(Array.isArray(config.features) && config.features.includes('webAnimations'));
+    morphEnabled = Array.isArray(config.features) && config.features.includes('morphUpdates');
     if (webAnimationsEnabled()) Object.assign(G, webAnimations().globals);
     globals.setHidden(config.visible === false);
     globals.setTheme(config.theme, false);
@@ -414,6 +418,13 @@ const handlers: Record<string, (arg: string) => string | void> = {
   resize(arg) { globals.fireResize(JSON.parse(arg), capture.nodeById); },
   theme(arg) { globals.setTheme(JSON.parse(arg), true); globals.mediaChanged(); },
   bridge(arg) { const [event, data] = JSON.parse(arg); globals.fireBridge(String(event), data); },
+  morph(arg) {
+    if (!morphEnabled) return '';
+    const { html } = JSON.parse(arg);
+    if (!morphDocument(String(html))) return '';
+    ev.dispatchEvent.call(document, new ev.Event('widgetupdate'));
+    return '1';
+  },
   visibility(arg) {
     // Same signal a background tab gets: document.hidden / visibilityState flip and `visibilitychange` fires (no pagehide/pageshow).
     const { visible } = JSON.parse(arg);

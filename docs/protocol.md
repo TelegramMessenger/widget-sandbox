@@ -354,6 +354,20 @@ accumulate missed ticks), events pass through as usual. The shim receives
 `document.visibilityState` and dispatches `visibilitychange` on the document,
 like a background tab (no `pagehide`/`pageshow`).
 
+### `morph {html}` (`morphUpdates`)
+
+In-place document update, opt-in through the `morphUpdates` feature (it must be in
+both the host's `config.features` and the engine's runtime features). The shim parses
+`html` like `boot` does and patches the live DOM to match it: element children are
+matched by `id`, then by tag in order; attributes (`class`, `style` included) and text
+are updated in place, unmatched nodes are inserted or removed. Node identity is kept,
+so CSS transitions run from the old values. Scripts in `html` are inert and existing
+scripts are left alone; elements with `data-morph-keep` keep their children (content
+the widget built itself). The changes leave the sandbox as an ordinary `ops` batch
+and are validated like any other. Afterwards `widgetupdate` fires on `document`.
+The dispatch returns `'1'` when applied; hosts fall back to a fresh boot otherwise
+(Swift: `WidgetBubble.morph(html:completion:)`, `WidgetHost.morph`, `SandboxEngine.morph`).
+
 ## Shared buffer layout
 
 ```

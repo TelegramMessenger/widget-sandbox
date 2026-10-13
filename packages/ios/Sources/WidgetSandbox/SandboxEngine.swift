@@ -379,6 +379,23 @@ public final class SandboxEngine {
     public func theme(_ theme: String) { enqueue("theme", Self.json(theme)) }
     public func bridgeEvent(_ event: String, dataJson: String) { enqueue("bridge", "[\(Self.json(event)),\(dataJson)]") }
 
+    /// In-place document update (`morphUpdates`): the shim patches the live DOM to `html`, keeping node identity,
+    /// and fires `widgetupdate`; scripts in `html` do not run. `completion` gets false when the shim did not apply it
+    /// (feature off, unreadable document, engine dead or not booted), and is called on the engine's queue.
+    public func morph(html: String, completion: @escaping (Bool) -> Void) {
+        queue.async {
+            guard !self.dead, self.js != nil, self.runtimeFeatures.contains("morphUpdates"), self.config.features.contains("morphUpdates") else {
+                completion(false)
+                return
+            }
+            var applied = false
+            self.task("morph", sliceMs: self.config.cpuLimitMs) {
+                applied = self.callTw("morph", Self.json(["html": html])) == "1"
+            }
+            completion(applied && !self.dead)
+        }
+    }
+
     /// The host knows whether the widget is on screen; the sandbox does not.
     public func setVisible(_ v: Bool) {
         queue.async {

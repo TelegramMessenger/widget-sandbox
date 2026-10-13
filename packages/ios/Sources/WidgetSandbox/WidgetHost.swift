@@ -287,6 +287,13 @@ public final class WidgetHost: SandboxEngineDelegate {
         engine.bridgeEvent(event, dataJson: dataJson)
     }
 
+    /// Sends a newer version of the widget's HTML into the running sandbox (`morphUpdates`); `completion` runs on main.
+    public func morph(html: String, completion: @escaping (Bool) -> Void) {
+        engine.morph(html: html) { applied in
+            DispatchQueue.main.async { completion(applied) }
+        }
+    }
+
     /// Off-screen pause. The owner reports whether the bubble is on screen
     /// (scrolled away, app in the background, …); the view's own window
     /// attachment is combined with it. Hidden: no animation frames, timers at

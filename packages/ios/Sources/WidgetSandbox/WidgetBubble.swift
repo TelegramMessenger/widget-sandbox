@@ -3,7 +3,7 @@ import CoreGraphics
 
 public final class WidgetBubble {
     public let slot = WidgetFeedSlot()
-    public let html: String
+    public private(set) var html: String
     public let options: WidgetHost.Options
     public private(set) var width: CGFloat
     public private(set) var theme: String
@@ -121,6 +121,26 @@ public final class WidgetBubble {
         }
         self.theme = theme
         host?.setTheme(theme)
+    }
+
+    /// Moves the bubble to a newer version of its HTML. A live host is morphed in place (`morphUpdates`); with no
+    /// host the next boot uses `html`. `completion(false)` (on main) means nothing changed and the caller should rebuild.
+    public func morph(html: String, completion: @escaping (Bool) -> Void) {
+        guard adopting == nil, pendingPrepared == nil else {
+            completion(false)
+            return
+        }
+        guard let host = host else {
+            self.html = html
+            completion(true)
+            return
+        }
+        host.morph(html: html) { [weak self] applied in
+            if applied {
+                self?.html = html
+            }
+            completion(applied)
+        }
     }
 
     public func setWidth(_ width: CGFloat) {

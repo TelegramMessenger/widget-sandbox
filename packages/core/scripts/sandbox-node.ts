@@ -24,6 +24,8 @@ import { libraryPath, sandboxBuildOptions } from './sandbox-build.ts';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export interface RunResult {
+  /** One entry per `morph` script step: whether the shim applied it. */
+  morphed: boolean[];
   ops: unknown[][];
   renderOps: RenderOp[];
   diags: { kind: string; detail: string }[];
@@ -104,7 +106,7 @@ export interface RunOptions {
   /** Live-timer cap passed to the shim (default LIMIT_DEFAULTS.maxTimers). */
   maxTimers?: number;
   /** Steps run after the timer rounds: visibility changes and probes, in order (probe results land in RunResult.probes before `probes`). */
-  script?: ({ visible: boolean } | { probe: string })[];
+  script?: ({ visible: boolean } | { probe: string } | { morph: string })[];
   /** CPU quota per second (default: effectively unlimited, like the harness's 10 s cpuLimitMs; wasm under Node is slow). */
   cpuQuotaMs?: number;
   /** Validator CSS scope: 'shadow' for ops meant for the Shadow DOM renderer (css-sanitizer.ts). */
@@ -127,6 +129,8 @@ export interface RunOptions {
   libraries?: { spec: ProvidedLibrarySpec; source: string }[];
   webAnimations?: boolean;
   frames?: number;
+  /** Advertise `morphUpdates` (in-place document updates through the `morph` dispatch). */
+  morphUpdates?: boolean;
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
@@ -144,8 +148,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [] };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   validator.setPolicy(opts.policy === 'strict' ? 'strict' : 'compat');
@@ -373,6 +377,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   };
   for (const step of opts.script ?? []) {
     if ('visible' in step) task('visibility', () => tw('visibility', JSON.stringify({ visible: step.visible })));
+    else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
     else probe(step.probe);
   }
   for (const code of opts.probes ?? []) probe(code);

@@ -148,6 +148,31 @@ final class WidgetBubbleTests: XCTestCase {
         XCTAssertGreaterThan(frames, 10, probe)
         withExtendedLifetime(queued) {}
     }
+
+    private func morphProbe(features: Set<String>) -> (applied: Bool?, logs: [String]) {
+        let html = "<div id='bar' style='width:30%'>a</div><script>var bar = document.getElementById('bar'); document.addEventListener('widgetupdate', function () { console.log('update same=' + (bar === document.getElementById('bar')) + ' ' + bar.getAttribute('style')); });</script>"
+        var options = WidgetHost.Options()
+        options.features = features
+        let bubble = WidgetBubble(html: html, theme: "light", width: 300, options: options, feed: WidgetFeed(), rendererFactory: { _, _, _ in FrameRenderer() })
+        XCTAssertNotNil(bubble.ensureHost())
+        wait { bubble.host?.diagnostics.loaded == true }
+        var applied: Bool?
+        bubble.morph(html: "<div id='bar' style='width:50%'>b</div><script>console.log('reran');</script>") { applied = $0 }
+        wait({ applied != nil && (applied == false || bubble.host?.diagnostics.logs.contains { $0.text.hasPrefix("update ") } == true) })
+        return (applied, bubble.host?.diagnostics.logs.map { $0.text } ?? [])
+    }
+
+    func testMorphPatchesTheLiveDocumentWhenAdvertised() {
+        let (applied, logs) = morphProbe(features: ["morphUpdates"])
+        XCTAssertEqual(applied, true)
+        XCTAssertTrue(logs.contains("update same=true width:50%"), "\(logs)")
+        XCTAssertFalse(logs.contains("reran"))
+    }
+
+    func testMorphIsRefusedWithoutTheFeature() {
+        let (applied, _) = morphProbe(features: [])
+        XCTAssertEqual(applied, false)
+    }
 }
 
 private final class FrameRenderer: Renderer {
