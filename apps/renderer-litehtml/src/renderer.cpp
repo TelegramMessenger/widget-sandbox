@@ -357,8 +357,9 @@ public:
         auto px = litehtml::pixel_t(float(x)), py = litehtml::pixel_t(float(y));
         return doc_->root_render()->get_element_by_point(px, py, px, py, nullptr);
     }
-    /// Pointer state for :hover / :active; true when something must repaint.
-    bool mouse(int action, double x, double y) {
+    /// Pointer state for :hover / :active; true when something must repaint. A lifted finger leaves
+    /// :hover; a mouse released over the view keeps it.
+    bool mouse(int action, double x, double y, bool hovers = false) {
         if (!doc_) return false;
         bool redraw = false;
         auto box = [&](const litehtml::position&) { redraw = true; };
@@ -366,7 +367,10 @@ public:
         switch (action) {
         case 0: doc_->on_mouse_over(px, py, px, py, box); doc_->on_lbutton_down(px, py, px, py, box); break;
         case 1: doc_->on_mouse_over(px, py, px, py, box); break;
-        case 2: doc_->on_lbutton_up(px, py, px, py, box); doc_->on_mouse_leave(box); break;
+        case 2:
+            doc_->on_lbutton_up(px, py, px, py, box);
+            if (!hovers) doc_->on_mouse_leave(box);
+            break;
         default: doc_->on_button_cancel(box); doc_->on_mouse_leave(box); break;
         }
         return redraw;
@@ -1782,7 +1786,7 @@ std::vector<Json> Renderer::touch(int action, double x, double y, int pointer, b
     }
     Touch done = t;
     touches_.erase(it);
-    if (container_->mouse(action, x, y)) dirty_ = true;
+    if (container_->mouse(action, x, y, done.mouse && action == 2)) dirty_ = true;
     if (action == 2) {
         Rect up_rect;
         int64_t up_target = widget_id_at(x, y, &up_rect);
