@@ -120,7 +120,7 @@ export const METHODS: Record<string, number> = {
   showModal: 0, show: 0, close: 0, reset: 0, scrollTo: 2, scrollBy: 2, setSelectionRange: 2,
   showPopover: 0, hidePopover: 0, togglePopover: 0,
   // Not DOM methods: (un)subscribe the element in the renderer's ResizeObserver.
-  observeResize: 0, unobserveResize: 0,
+  observeResize: 0, unobserveResize: 0, completeEditorCommand: 3,
 };
 
 /** Canvas 2D: methods that may be replayed. Nothing here takes a URL. */
