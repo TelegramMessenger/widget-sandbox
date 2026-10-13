@@ -146,6 +146,13 @@ std::string base64_encode(const std::vector<uint8_t>& in) {
     return out;
 }
 
+/// The `style` attribute is the inline style itself, as in the DOM: setting it replaces what the
+/// style ops set, and a style op that removes a property removes it from what the attribute set.
+void set_inline_style(std::vector<std::pair<std::string, std::string>>& styles, const std::string& text) {
+    styles.clear();
+    for (auto& d : css::parse_declarations(text)) styles.emplace_back(std::move(d.name), d.important ? d.value + " !important" : std::move(d.value));
+}
+
 /// Move-type events: only the latest one per type and pointer goes out, once per frame.
 bool coalesced(const std::string& type) {
     return type == "pointermove" || type == "mousemove" || type == "touchmove" || type == "wheel";
@@ -963,7 +970,8 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
         for (const Json& pair : op["attrs"].arr()) {
             if (!pair[0].isString() || !pair[1].isString()) continue;
             if (starts_with_on(pair[0].asString())) continue;
-            n->attrs.emplace_back(pair[0].asString(), pair[1].asString());
+            if (pair[0].asString() == "style") set_inline_style(n->styles, pair[1].asString());
+            else n->attrs.emplace_back(pair[0].asString(), pair[1].asString());
         }
         nodes_[id] = std::move(n);
         return;
@@ -986,6 +994,10 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
             out.push_back(Json::object().set("type", "violation").set("detail", "attribute " + name.substr(0, 64)));
             return;
         }
+        if (name == "style") {
+            set_inline_style(n->styles, str("value"));
+            return;
+        }
         bool found = false;
         for (auto& a : n->attrs) if (a.first == name) { a.second = str("value"); found = true; }
         if (!found) n->attrs.emplace_back(name, str("value"));
@@ -1001,6 +1013,7 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
         }
     } else if (kind == "rattr") {
         const std::string& name = str("name");
+        if (name == "style") n->styles.clear();
         n->attrs.erase(std::remove_if(n->attrs.begin(), n->attrs.end(), [&](auto& a) { return a.first == name; }), n->attrs.end());
     } else if (kind == "data") {
         if (n->kind != Node::Element) n->data = str("data");
@@ -1092,6 +1105,10 @@ void Renderer::adopt(int64_t id, Node* n, const Json& attrs) {
     aliases_[id] = n;
     for (const Json& pair : attrs.arr()) {
         if (!pair[0].isString() || !pair[1].isString() || starts_with_on(pair[0].asString())) continue;
+        if (pair[0].asString() == "style") {
+            set_inline_style(n->styles, pair[1].asString());
+            continue;
+        }
         bool found = false;
         for (auto& a : n->attrs) if (a.first == pair[0].asString()) { a.second = pair[1].asString(); found = true; }
         if (!found) n->attrs.emplace_back(pair[0].asString(), pair[1].asString());
@@ -1175,8 +1192,6 @@ void Renderer::write_style(const Node* n, std::string& out) const {
     // Built plain, escaped once: the same text is also handed to the fork's style holes, which must
     // match what this writes into the HTML byte for byte.
     std::string plain;
-    for (const auto& [name, value] : n->attrs)
-        if (name == "style") plain = css::resolve_light_dark(value, dark_);
     auto declare = [&](const std::string& name, const std::string& value) {
         if (!plain.empty() && plain.back() != ';') plain.push_back(';');
         plain += name;
