@@ -125,8 +125,12 @@ public final class Widget3DChannel: WidgetSideChannel {
         do {
             _ = try js.evaluate("try { (\(adapter))(globalThis.__tw3d); } finally { delete globalThis.__tw3d; }", filename: "twidget3d.js")
         } catch {
-            _ = try? js.evaluate("delete globalThis.__tw3d;", filename: "twidget3d-cleanup.js")
             onDiag?("3d", "adapter failed: \(error)")
+        }
+        let hidden = (try? js.evaluate("delete globalThis.__tw3d; typeof globalThis.__tw3d === 'undefined' ? 'hidden' : 'visible'", filename: "twidget3d-hide.js"))?.string == "hidden"
+        if !hidden {
+            onDiag?("3d", "host function could not be hidden")
+            destroy()
         }
     }
 
@@ -338,6 +342,7 @@ private func widget3DTrampoline(_ ctx: OpaquePointer?, _ this: JSValue, _ argc: 
                 let kind: Widget3DBytes.Kind = type == Int32(JS_TYPED_ARRAY_FLOAT32.rawValue) ? .float32 : type == Int32(JS_TYPED_ARRAY_UINT16.rawValue) ? .uint16 : type == Int32(JS_TYPED_ARRAY_UINT32.rawValue) ? .uint32 : .other
                 args.append(.bytes(Widget3DBytes(pointer: UnsafeRawPointer(pointer), length: length, kind: kind)))
             } else {
+                if type < 0, let pending = qjs_take_exception_description(ctx) { free(pending) }
                 args.append(.none)
             }
         }

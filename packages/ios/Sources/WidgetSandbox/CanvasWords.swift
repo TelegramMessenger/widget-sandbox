@@ -24,12 +24,12 @@ enum CanvasWords {
             var at = 0
             for k in 0..<count {
                 let length = words[commandWords + k]
-                guard length >= 0, length == length.rounded() else { return false }
+                guard length >= 0, length == length.rounded(), Double(b.count - at) >= length else { return false }
                 let end = at + Int(length)
                 strings.append(String(decoding: UnsafeBufferPointer(rebasing: b[at..<end]), as: UTF8.self))
                 at = end
             }
-            return true
+            return at == b.count
         }
         if ascii == false { return nil }
         if ascii == true { return WidgetCanvasBatch(words: Array(words[0..<commandWords]), strings: strings) }

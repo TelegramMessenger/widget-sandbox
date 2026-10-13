@@ -14,14 +14,14 @@ extension NativeValidator {
     private static let animEasingPattern: NSRegularExpression = {
         let num = "[+-]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
         let space = "[\\t\\n\\f\\r \\u000b\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]"
-        let pattern = "^(?:linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end|cubic-bezier\\(S*N S*,S*N S*,S*N S*,S*N S*\\)|steps\\(S*[0-9]{1,6}S*(?:,S*(?:start|end|jump-start|jump-end|jump-both|jump-none)S*)?\\)|linear\\((?:[0-9eE.%,+-]|S){1,8192}\\))$"
+        let pattern = "\\A(?:linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end|cubic-bezier\\(S*N S*,S*N S*,S*N S*,S*N S*\\)|steps\\(S*[0-9]{1,6}S*(?:,S*(?:start|end|jump-start|jump-end|jump-both|jump-none)S*)?\\)|linear\\((?:[0-9eE.%,+-]|S){1,8192}\\))\\z"
             .replacingOccurrences(of: "N ", with: num)
             .replacingOccurrences(of: "S", with: space)
         return try! NSRegularExpression(pattern: pattern)
     }()
-    private static let animPropertyPattern = try! NSRegularExpression(pattern: "^(?:--[A-Za-z0-9_-]{1,128}|-?[a-z][a-z-]{0,63})$")
-    private static let animBlockedPattern = try! NSRegularExpression(pattern: "^(?:-webkit-)?(?:animation|transition)(?:-|$)")
-    private static let cssNamePattern = try! NSRegularExpression(pattern: "^[A-Za-z0-9_-]{1,128}$")
+    private static let animPropertyPattern = try! NSRegularExpression(pattern: "\\A(?:--[A-Za-z0-9_-]{1,128}|-?[a-z][a-z-]{0,63})\\z")
+    private static let animBlockedPattern = try! NSRegularExpression(pattern: "\\A(?:-webkit-)?(?:animation|transition)(?:-|\\z)")
+    private static let cssNamePattern = try! NSRegularExpression(pattern: "\\A[A-Za-z0-9_-]{1,128}\\z")
 
     private static func matches(_ re: NSRegularExpression, _ s: String) -> Bool {
         re.firstMatch(in: s, range: NSRange(location: 0, length: s.utf16.count)) != nil
