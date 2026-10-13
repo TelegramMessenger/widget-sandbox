@@ -107,6 +107,41 @@ final class IconExpansionTests: XCTestCase {
         XCTAssertEqual(diags, ["icon-limit"])
     }
 
+    private func render(_ html: String, options: WidgetHost.Options) -> (RecordingRenderer, WidgetHost) {
+        let renderer = RecordingRenderer()
+        let host = try! WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        let deadline = Date().addingTimeInterval(10)
+        while !(renderer.messages.joined().contains("\"img\"") || host.diagnostics.dead != nil) && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        return (renderer, host)
+    }
+
+    func testTheHostResolverReachesARunningWidget() {
+        let html = "<img id=a src=\"icon:airplane\"><div id=b></div><script>document.getElementById('b').style.backgroundImage = 'url(icon:airplane?weight=bold)'; const i = document.createElement('img'); i.src = 'icon:airplane'; document.body.appendChild(i);</script>"
+        for binary in [false, true] {
+            var asked: [String] = []
+            let lock = NSLock()
+            var options = WidgetHost.Options()
+            if binary { options.features = ["binaryOps"] }
+            options.assetResolver = { icon in lock.withLock { asked.append(icon) }; return Self.stubResolver(icon) }
+            let (renderer, host) = render(html, options: options)
+            let sent = renderer.messages.joined()
+            XCTAssertTrue(sent.contains(Self.airplane), "binary \(binary): \(sent.prefix(400))")
+            XCTAssertFalse(sent.contains("[\"src\",\"icon:") || sent.contains("\"value\":\"url(icon:"), "binary \(binary)")
+            XCTAssertTrue(sent.contains("\"name\":\"background-image\",\"value\":\"url(\"" + Self.airplane) || sent.contains("url(" + Self.airplane), "binary \(binary)")
+            XCTAssertGreaterThanOrEqual(lock.withLock { asked.count }, 2, "binary \(binary)")
+            host.destroy()
+
+            var plain = WidgetHost.Options()
+            if binary { plain.features = ["binaryOps"] }
+            let (without, other) = render(html, options: plain)
+            XCTAssertFalse(without.messages.joined().contains(Self.airplane), "binary \(binary)")
+            other.destroy()
+        }
+    }
+
     func testBinaryBatchesExpandIconsThroughTheNativeModel() throws {
         let box = Box()
         let v = try validator(native: true, box: box)
