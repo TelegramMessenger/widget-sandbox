@@ -186,6 +186,20 @@ unaffected.
 - Sizes: ≤ 50 000 nodes, text ≤ 2 MB, attribute ≤ 4 MB (data: URLs), batch ≤
   200 000 ops, canvas ≤ 500 000 commands.
 
+### `icon:` images (Swift hosts, `WidgetHost.Options.assetResolver`)
+
+A host that knows a built-in icon set passes `assetResolver: (String) -> String?`
+(the Telegram app uses the twidget kit's `twa_icon_data_url`). Before validation,
+`TrustedValidator` replaces `icon:<name>[?query]` tokens with the resolver's answer: a
+whole JSON string value under any key except `data` and `text`, and `url(icon:…)` anywhere,
+in JSON batches and in binary op fields alike (`IconExpansion.swift`). The resolver only
+sees tokens of the grammar `icon:[A-Za-z0-9_.-]{0,96}(?:\?[A-Za-z0-9=&.%#_-]{0,400})?`.
+An answer is used only if it is a `data:image/` URL of at most 64 KB made of
+`[A-Za-z0-9-._~,/:=%;+]`, so it can never become a fetchable URL or break out of a
+JSON string or a CSS `url()`. A batch expands at most 1024 tokens and 2 MB
+(`icon-limit`, once per batch). The result is validated like any other `data:`
+image. Without a resolver `icon:` URLs are blocked like every other non-`data:` URL.
+
 ## Sync queries
 
 The sandbox posts `{ type: 'query', query }` and blocks with `Atomics.wait` on
