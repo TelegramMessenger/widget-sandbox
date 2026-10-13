@@ -21,6 +21,20 @@ struct Rect {
     bool empty() const { return w <= 0 || h <= 0; }
 };
 
+/// A 2D affine map, SVG order: x' = a·x + c·y + e, y' = b·x + d·y + f.
+struct Affine {
+    float a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
+    /// `this` after `next`: maps a point through `next` first.
+    Affine operator*(const Affine& next) const {
+        return Affine{a * next.a + c * next.b, b * next.a + d * next.b, a * next.c + c * next.d,
+                      b * next.c + d * next.d, a * next.e + c * next.f + e, b * next.e + d * next.f + f};
+    }
+    static Affine translate(float x, float y) { return Affine{1, 0, 0, 1, x, y}; }
+    float apply_x(float x, float y) const { return a * x + c * y + e; }
+    float apply_y(float x, float y) const { return b * x + d * y + f; }
+    bool operator==(const Affine&) const = default;
+};
+
 /// Per-corner elliptical radii (CSS order, x then y). All zero = plain rectangle.
 struct Radii {
     float tlx = 0, tly = 0, trx = 0, try_ = 0, brx = 0, bry = 0, blx = 0, bly = 0;

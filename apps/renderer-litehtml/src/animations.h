@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace twlite {
@@ -126,7 +127,36 @@ public:
     StyleOverrides sample(double now);
     /// Something will change on the next frame.
     bool active(double now) const;
+    /// The same, leaving out the elements in `skip`.
+    bool active(double now, const std::unordered_set<int64_t>& skip) const;
     std::vector<AnimationEvent> take_events() { return std::move(events_); }
+
+    // What a compositor needs to play an element's animations without the core (compositor.h).
+
+    /// Elements with a running animation, transition or Web Animation.
+    std::vector<int64_t> animated_ids() const;
+    /// Every property the animations of `id` write.
+    std::vector<std::string> animated_properties(int64_t id) const;
+    /// What `sample` would write for `id` at `t`, without events and without changing any state.
+    StyleValues peek(int64_t id, double t) const;
+    /// `property` of `id` without its animations: as declared, or the property's initial value.
+    std::string base_value(int64_t id, const std::string& property) const { return underlying_value(id, property); }
+    struct Plan {
+        /// False while an animation still waits out its delay: nothing to hand over before `wake`.
+        bool ready = true;
+        /// The span to bake, on the renderer clock: up to the first end, or one loop when the
+        /// animations repeat forever.
+        double start = 0, duration = 0;
+        bool repeat = false;
+        /// When the core must sample `id` again: an end, a delay running out, or with `iterations`
+        /// the next animationiteration.
+        double wake = 0;
+    };
+    /// Nullopt when there is nothing to hand over, or when the timing cannot be baked: a reversed
+    /// playback rate, two endless loops of different lengths, accumulating iterations.
+    std::optional<Plan> plan(int64_t id, double now, bool iterations) const;
+    /// Changes whenever anything that decides how `id` animates changes; equal values bake equal tracks.
+    uint64_t signature(int64_t id) const;
 
     /// `{type:'anim', now, anims}`: Web Animations records, or script control of CSS animations
     /// and transitions (`css`). `clock_offset_ms` maps the sandbox clock onto the renderer's.
@@ -165,11 +195,14 @@ private:
     };
 
     std::string underlying_value(int64_t id, const std::string& property) const;
-    std::optional<StyleValues> sample_animation(int64_t id, Running& item, const std::vector<Keyframe>& frames, double now);
+    /// `events` null: a peek, which reports nothing.
+    std::optional<StyleValues> sample_animation(int64_t id, Running& item, const std::vector<Keyframe>& frames, double now, std::vector<AnimationEvent>* events) const;
     StyleValues values(const std::vector<Keyframe>& frames, const Declared& base, double progress, const AnimationSpec& spec) const;
     std::optional<std::string> transition_value(int64_t id, const std::string& property, double now) const;
     void prune_overrides();
-    void sample_web(StyleOverrides& out, double now) const;
+    /// `only` non-zero: that target alone.
+    void sample_web(StyleOverrides& out, double now, int64_t only = 0) const;
+    const Override* override_of(int64_t id, const std::string& key) const;
 
     KeyframeRules keyframes_;
     std::unordered_map<int64_t, std::vector<Running>> running_;

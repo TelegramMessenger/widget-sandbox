@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <set>
 
 using twidget::Json;
 
@@ -146,6 +147,11 @@ std::string base64_encode(const std::vector<uint8_t>& in) {
     return out;
 }
 
+/// What a compositor layer animates; an element animating anything else is painted per frame.
+bool is_layer_property(const std::string& property) {
+    return property == "transform" || property == "opacity" || property == "translate" || property == "rotate" || property == "scale";
+}
+
 /// The `style` attribute is the inline style itself, as in the DOM: setting it replaces what the
 /// style ops set, and a style op that removes a property removes it from what the attribute set.
 void set_inline_style(std::vector<std::pair<std::string, std::string>>& styles, const std::string& text) {
@@ -159,6 +165,12 @@ bool coalesced(const std::string& type) {
 }
 
 constexpr int MAX_CANVASES = 64;
+/// Layers: at most this many per widget, this many device pixels in all, and no track shorter
+/// than this (a frame or two is cheaper to paint than to hand over).
+constexpr size_t MAX_LAYERS = 64;
+constexpr double MAX_LAYER_PIXELS = 4096.0 * 4096.0;
+constexpr double MIN_LAYER_SPAN = 0.1;
+constexpr float LAYER_MARGIN = 48;
 constexpr double DOUBLE_CLICK_MS = 500;
 
 } // namespace
@@ -236,6 +248,7 @@ public:
             if (!doc_->last_patch_paint_only() || viewport_changed || width != rendered_width_) {
                 doc_->render(litehtml::pixel_t(width));
                 rendered_width_ = width;
+                layouts_++;
             }
             // A child-list patch replaces elements; a paint-only one cannot.
             if (!doc_->last_patch_paint_only()) index();
@@ -252,6 +265,7 @@ public:
         if (!doc_) return;
         rendered_width_ = float(r_.width_);
         doc_->render(litehtml::pixel_t(rendered_width_));
+        layouts_++;
         index();
     }
 
@@ -303,8 +317,109 @@ public:
         if (changed && !doc_->last_patch_paint_only()) {
             rendered_width_ = float(r_.width_);
             doc_->render(litehtml::pixel_t(rendered_width_));
+            layouts_++;
         }
         return true;
+    }
+
+    // compositor layers
+
+    /// Counts layouts: boxes, and so what can cover a layer, change only with one.
+    uint64_t layouts() const { return layouts_; }
+    /// `el` can be painted on its own as a layer: a box with no effects of its own, under no
+    /// ancestor that groups its paint. `box` gets its border box.
+    bool layer_candidate(const litehtml::element::ptr& el, Rect& box) const {
+        auto ri = el->get_render_item();
+        if (!doc_ || !ri || !ri->is_visible() || (el->is_inline() && !el->is_inline_box())) return false;
+        const auto& css = el->css();
+        if (!css.get_filter().empty() || !css.get_backdrop_filter().empty()) return false;
+        for (auto p = ri->parent(); p; p = p->parent())
+            if (p->src_el()->css().is_paint_group()) return false;
+        box = border_box_of(el);
+        return box.w > 0 && box.h > 0 && box.w * box.h < 2'000'000;
+    }
+    /// The ancestor that clips `el`, if one does: its padding box and inner radii. False when two
+    /// do; a layer carries one clip.
+    bool clip_of(const litehtml::element::ptr& el, bool& has, Rect& rect, Radii& radii) const {
+        has = false;
+        auto ri = el->get_render_item();
+        if (!ri) return false;
+        for (auto p = ri->parent(); p; p = p->parent()) {
+            if (!p->src_el()->css().clips_contents()) continue;
+            if (has) return false;
+            has = true;
+            Rect border = border_box_of(p->src_el());
+            const auto& b = p->get_borders();
+            rect = Rect{border.x + float(b.left), border.y + float(b.top), border.w - float(b.left) - float(b.right), border.h - float(b.top) - float(b.bottom)};
+            auto r = p->src_el()->css().get_borders().radius.calc_percents(litehtml::pixel_t(border.w), litehtml::pixel_t(border.h));
+            radii = Radii{std::max(0.0f, float(r.top_left_x) - float(b.left)), std::max(0.0f, float(r.top_left_y) - float(b.top)),
+                          std::max(0.0f, float(r.top_right_x) - float(b.right)), std::max(0.0f, float(r.top_right_y) - float(b.top)),
+                          std::max(0.0f, float(r.bottom_right_x) - float(b.right)), std::max(0.0f, float(r.bottom_right_y) - float(b.bottom)),
+                          std::max(0.0f, float(r.bottom_left_x) - float(b.left)), std::max(0.0f, float(r.bottom_left_y) - float(b.bottom))};
+        }
+        return true;
+    }
+    /// Render items in the order a full paint draws them.
+    std::vector<const litehtml::render_item*> paint_order() {
+        std::vector<const litehtml::render_item*> trace;
+        if (!doc_) return trace;
+        litehtml::g_paint_trace = &trace;
+        draw();
+        litehtml::g_paint_trace = nullptr;
+        return trace;
+    }
+    /// Something painted after `el` meets `area`, other than `el`'s descendants and what `ignore`
+    /// holds (other layers, ordered among themselves by paint order).
+    bool covered(const litehtml::element::ptr& el, const Rect& area, const std::vector<const litehtml::render_item*>& trace,
+                 const std::unordered_set<const litehtml::element*>& ignore) const {
+        auto ri = el->get_render_item();
+        auto self = std::find(trace.begin(), trace.end(), ri.get());
+        if (self == trace.end()) return true;
+        for (auto it = std::next(self); it != trace.end(); ++it) {
+            const litehtml::render_item* item = *it;
+            if (item->src_el()->is_space()) continue;
+            bool skip = false;
+            for (const litehtml::render_item* walk = item; walk && !skip; walk = walk->parent().get())
+                skip = walk == ri.get() || ignore.count(walk->src_el().get());
+            if (skip) continue;
+            Rect box = border_box_of(item->src_el());
+            if (box.w <= 0 || box.h <= 0) continue;
+            if (box.x < area.x + area.w && area.x < box.x + box.w && box.y < area.y + area.h && area.y < box.y + box.h) return true;
+        }
+        return false;
+    }
+    /// Paints the document without the elements in `skip`.
+    DisplayList draw(const std::vector<litehtml::element::ptr>& skip) {
+        if (!doc_) return {};
+        for (const auto& el : skip) doc_->skip_paint.insert(el.get());
+        DisplayList list = draw();
+        doc_->skip_paint.clear();
+        return list;
+    }
+    /// `el` and its descendants alone, without `el`'s own transform, opacity and stacking group
+    /// (the layer applies them) and without the other layers in `skip`. `bounds` gets the area the
+    /// paint can reach.
+    DisplayList draw_layer(const litehtml::element::ptr& el, const std::vector<litehtml::element::ptr>& skip, Rect& bounds) {
+        list_.clear();
+        groups_.clear();
+        auto ri = el->get_render_item();
+        if (!doc_ || !ri) return {};
+        for (const auto& other : skip)
+            if (other != el) doc_->skip_paint.insert(other.get());
+        litehtml::position placement = ri->get_placement();
+        litehtml::pixel_t x = placement.x - ri->pos().x, y = placement.y - ri->pos().y;
+        el->draw(0, x, y, nullptr, ri);
+        if (ri->is_visible()) draw_stacking_context(ri, x, y);
+        doc_->skip_paint.clear();
+        Rect box = border_box_of(el);
+        litehtml::position redraw(litehtml::pixel_t(box.x), litehtml::pixel_t(box.y), litehtml::pixel_t(box.w), litehtml::pixel_t(box.h));
+        ri->get_redraw_box(redraw, x, y);
+        // The redraw box leaves out shadows and anti-aliasing: a margin keeps them.
+        float x0 = std::min(box.x, float(redraw.x)) - LAYER_MARGIN, y0 = std::min(box.y, float(redraw.y)) - LAYER_MARGIN;
+        float x1 = std::max(box.x + box.w, float(redraw.x) + float(redraw.width)) + LAYER_MARGIN;
+        float y1 = std::max(box.y + box.h, float(redraw.y) + float(redraw.height)) + LAYER_MARGIN;
+        bounds = Rect{std::floor(x0), std::floor(y0), std::ceil(x1) - std::floor(x0), std::ceil(y1) - std::floor(y0)};
+        return std::move(list_);
     }
 #endif
     /// The pointer left the view: :hover ends. True when something must repaint.
@@ -802,6 +917,28 @@ private:
         float w = 0, h = 0;
     };
 
+#ifdef TW_LITEHTML_TWIDGET
+    static void positioned_z(const std::shared_ptr<litehtml::render_item>& item, std::set<int>& z) {
+        for (const auto& child : item->children()) {
+            if (child->src_el()->is_positioned()) z.insert(child->src_el()->css().get_z_index());
+            else positioned_z(child, z);
+        }
+    }
+    /// An element's children in stacking order, as if it formed a stacking context: what litehtml's
+    /// own group paint does after the element's background, without the group.
+    static void draw_stacking_context(const std::shared_ptr<litehtml::render_item>& ri, litehtml::pixel_t x, litehtml::pixel_t y) {
+        std::set<int> z;
+        positioned_z(ri, z);
+        for (int index : z)
+            if (index < 0) ri->draw_children(0, x, y, nullptr, litehtml::draw_positioned, index);
+        ri->draw_children(0, x, y, nullptr, litehtml::draw_block, 0);
+        ri->draw_children(0, x, y, nullptr, litehtml::draw_floats, 0);
+        ri->draw_children(0, x, y, nullptr, litehtml::draw_inlines, 0);
+        for (int index : z)
+            if (index >= 0) ri->draw_children(0, x, y, nullptr, litehtml::draw_positioned, index);
+    }
+#endif
+
     static void clip_intersect(Rect& a, const Rect& b) {
         float x0 = std::max(a.x, b.x), y0 = std::max(a.y, b.y);
         float x1 = std::min(a.x + a.w, b.x + b.w), y1 = std::min(a.y + a.h, b.y + b.h);
@@ -844,6 +981,7 @@ private:
 #endif
     int vp_height_ = int(MIN_HEIGHT);
     float rendered_width_ = 0;
+    uint64_t layouts_ = 0;
     bool patched_ = false;
     std::unordered_map<int64_t, litehtml::element::ptr> elements_;
     std::unordered_map<litehtml::uint_ptr, Font> fonts_;
@@ -1337,7 +1475,9 @@ void Renderer::animate() {
         }
     }
     animator_.update(declarations, now);
+    update_composition(now);
     auto sampled = animator_.sample(now);
+    strip_layers(sampled);
     queue_animation_events();
     if (sampled != overrides_) {
         overrides_ = std::move(sampled);
@@ -1407,8 +1547,10 @@ std::vector<Json> Renderer::tick() {
     std::vector<Json> out;
     flush_moves(out);
     double now = now_s();
-    if (!frozen_ && animator_.active(now)) {
+    if (!frozen_ && (animator_.active(now) || now >= wake_at_)) {
+        update_composition(now);
         auto sampled = animator_.sample(now);
+        strip_layers(sampled);
         queue_animation_events();
         apply_overrides(std::move(sampled));
         report_size(out);
@@ -1418,7 +1560,186 @@ std::vector<Json> Renderer::tick() {
 }
 
 bool Renderer::wants_tick() const {
-    return !frozen_ && (!pending_moves_.empty() || animator_.active(now_s()));
+    return !frozen_ && (!pending_moves_.empty() || animator_.active(now_s(), layer_ids_));
+}
+
+double Renderer::next_tick_in() const {
+    if (frozen_) return std::numeric_limits<double>::infinity();
+    return std::max(0.0, wake_at_ - now_s());
+}
+
+// ───────────────────────── compositor layers ─────────────────────────
+
+void Renderer::set_compositing(bool enabled) {
+    if (enabled == compositing_) return;
+    compositing_ = enabled;
+    composition_key_ = 0;
+    rebuild();
+}
+
+void Renderer::strip_layers(StyleOverrides& sampled) const {
+    for (int64_t id : layer_ids_) {
+        auto it = sampled.find(id);
+        if (it == sampled.end()) continue;
+        auto& values = it->second;
+        values.erase(std::remove_if(values.begin(), values.end(), [](const auto& v) { return is_layer_property(v.first); }), values.end());
+        if (values.empty()) sampled.erase(it);
+    }
+}
+
+void Renderer::update_composition(double now) {
+    wake_at_ = std::numeric_limits<double>::infinity();
+    auto drop_all = [&] {
+        if (promoted_.empty()) return;
+        promoted_.clear();
+        layer_ids_.clear();
+        composition_key_ = 0;
+        dirty_ = true;
+    };
+#ifdef TW_LITEHTML_TWIDGET
+    if (!compositing_ || frozen_) return drop_all();
+    struct Want {
+        litehtml::element::ptr el;
+        Animator::Plan plan;
+        Rect box;
+        uint64_t signature;
+    };
+    std::vector<std::pair<int64_t, Want>> wanted;
+    bool iterations = interest_.count("animationiteration") > 0;
+    auto ids = animator_.animated_ids();
+    uint64_t key = container_->layouts() * 0x9E3779B97F4A7C15ull ^ std::hash<double>()(width_);
+    for (int64_t id : ids) {
+        auto plan = animator_.plan(id, now, iterations);
+        if (!plan) continue;
+        wake_at_ = std::min(wake_at_, plan->wake);
+        if (!plan->ready || (!plan->repeat && plan->duration < MIN_LAYER_SPAN)) continue;
+        auto properties = animator_.animated_properties(id);
+        if (!std::all_of(properties.begin(), properties.end(), [](const std::string& p) { return is_layer_property(p); })) continue;
+        const Node* n = node(id);
+        auto el = container_->element(id);
+        Rect box;
+        if (!n || n->svg || n->tag == "svg" || !el || !container_->layer_candidate(el, box)) continue;
+        // A layer holds a still picture: nothing inside or around it may animate.
+        if (std::any_of(ids.begin(), ids.end(), [&](int64_t other) { return other != id && (is_ancestor(other, id) || is_ancestor(id, other)); })) continue;
+        uint64_t signature = animator_.signature(id);
+        key = (key * 1099511628211ull) ^ uint64_t(id) ^ (signature << 1) ^ uint64_t(plan->repeat);
+        wanted.emplace_back(id, Want{std::move(el), *plan, box, signature});
+    }
+    if (wanted.empty()) return drop_all();
+    if (key == composition_key_) return;
+    composition_key_ = key;
+
+    std::map<int64_t, Promotion> next;
+    std::unordered_map<int64_t, litehtml::element::ptr> elements;
+    for (auto& [id, want] : wanted) {
+        Promotion p;
+        p.box = want.box;
+        p.signature = want.signature;
+        if (!container_->clip_of(want.el, p.has_clip, p.clip, p.clip_radii)) continue;
+        // A running track stays when nothing about it changed, and while it still covers what the
+        // animations will do: the end of a one-shot track, or the same loop.
+        auto old = promoted_.find(id);
+        bool same_span = old != promoted_.end() &&
+                         (want.plan.repeat ? old->second.track.repeat && std::fabs(old->second.track.duration - want.plan.duration) < 1e-6
+                                           : !old->second.track.repeat && std::fabs(old->second.track.start + old->second.track.duration - (want.plan.start + want.plan.duration)) < 1e-3);
+        if (same_span && old->second.signature == want.signature && std::memcmp(&old->second.box, &want.box, sizeof(Rect)) == 0) {
+            p.track = old->second.track;
+            p.track_version = old->second.track_version;
+        } else {
+            const Rect& box = want.box;
+            auto origin = css::parse_origin(animator_.base_value(id, "transform-origin"), box.w, box.h);
+            if (!origin) continue;
+            Affine to = Affine::translate(box.x + origin->first, box.y + origin->second);
+            Affine from = Affine::translate(-(box.x + origin->first), -(box.y + origin->second));
+            const Animator::Plan& plan = want.plan;
+            int64_t target = id;
+            auto sample = [&](double t, LayerKey& out) {
+                StyleValues values = animator_.peek(target, plan.start + t * plan.duration);
+                auto value = [&](const char* property) {
+                    for (auto it = values.rbegin(); it != values.rend(); ++it)
+                        if (it->first == property) return it->second;
+                    return animator_.base_value(target, property);
+                };
+                auto translate = css::parse_translate(value("translate"), box.w, box.h);
+                auto rotate = css::parse_rotate(value("rotate"));
+                auto scale = css::parse_scale(value("scale"));
+                auto transform = css::parse_transform(value("transform"), box.w, box.h);
+                auto opacity = css::parse_opacity(value("opacity"));
+                if (!translate || !rotate || !scale || !transform || !opacity) return false;
+                out.matrix = to * *translate * *rotate * *scale * *transform * from;
+                out.opacity = *opacity;
+                return true;
+            };
+            p.track.start = plan.start;
+            p.track.duration = plan.duration;
+            p.track.repeat = plan.repeat;
+            if (!bake_track(sample, box, p.track.keys)) continue;
+            p.track_version = next_version_++;
+        }
+        // What the layer can cover, and how fine to rasterise it.
+        float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f, scale = 1;
+        for (const LayerKey& k : p.track.keys) {
+            const float corners[4][2] = {{p.box.x, p.box.y}, {p.box.x + p.box.w, p.box.y}, {p.box.x, p.box.y + p.box.h}, {p.box.x + p.box.w, p.box.y + p.box.h}};
+            for (const auto& c : corners) {
+                float x = k.matrix.apply_x(c[0], c[1]), y = k.matrix.apply_y(c[0], c[1]);
+                x0 = std::min(x0, x); y0 = std::min(y0, y); x1 = std::max(x1, x); y1 = std::max(y1, y);
+            }
+            scale = std::max(scale, std::sqrt(std::fabs(k.matrix.a * k.matrix.d - k.matrix.b * k.matrix.c)));
+        }
+        p.raster_scale = std::min(scale, 3.0f);
+        p.reach = Rect{x0, y0, x1 - x0, y1 - y0};
+        if (p.has_clip) {
+            float cx0 = std::max(p.reach.x, p.clip.x), cy0 = std::max(p.reach.y, p.clip.y);
+            float cx1 = std::min(p.reach.x + p.reach.w, p.clip.x + p.clip.w), cy1 = std::min(p.reach.y + p.reach.h, p.clip.y + p.clip.h);
+            p.reach = Rect{cx0, cy0, std::max(0.0f, cx1 - cx0), std::max(0.0f, cy1 - cy0)};
+        }
+        elements[id] = want.el;
+        next.emplace(id, std::move(p));
+    }
+
+    // Only a layer nothing paints over can go above the document. Dropping one can uncover
+    // another's neighbour, so this settles over a few rounds.
+    auto trace = container_->paint_order();
+    for (int round = 0; round < 4 && !next.empty(); round++) {
+        std::unordered_set<const litehtml::element*> ignore;
+        for (const auto& [id, p] : next) ignore.insert(elements[id].get());
+        std::vector<std::pair<int64_t, double>> uncovered;
+        for (const auto& [id, p] : next) {
+            if (p.reach.empty() || container_->covered(elements[id], p.reach, trace, ignore)) continue;
+            double s = dpr_ * p.raster_scale;
+            uncovered.emplace_back(id, double(p.box.w + 2 * LAYER_MARGIN) * (p.box.h + 2 * LAYER_MARGIN) * s * s);
+        }
+        std::sort(uncovered.begin(), uncovered.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+        std::map<int64_t, Promotion> admitted;
+        double pixels = 0;
+        for (const auto& [id, cost] : uncovered) {
+            if (admitted.size() >= MAX_LAYERS || pixels + cost > MAX_LAYER_PIXELS) continue;
+            pixels += cost;
+            admitted.emplace(id, std::move(next[id]));
+        }
+        bool stable = admitted.size() == next.size();
+        next = std::move(admitted);
+        if (stable) break;
+    }
+    for (auto& [id, p] : next) {
+        auto ri = elements[id]->get_render_item();
+        p.order = size_t(std::find(trace.begin(), trace.end(), ri.get()) - trace.begin());
+    }
+
+    bool changed = next.size() != promoted_.size();
+    for (const auto& [id, p] : next) {
+        auto old = promoted_.find(id);
+        changed = changed || old == promoted_.end() || old->second.track_version != p.track_version || old->second.order != p.order ||
+                  std::memcmp(&old->second.box, &p.box, sizeof(Rect)) != 0;
+    }
+    promoted_ = std::move(next);
+    layer_ids_.clear();
+    for (const auto& [id, p] : promoted_) layer_ids_.insert(id);
+    if (changed) dirty_ = true;
+#else
+    (void)now;
+    drop_all();
+#endif
 }
 
 // ───────────────────────── canvas ─────────────────────────
@@ -1509,6 +1830,48 @@ void Renderer::report_size(std::vector<Json>& out) {
 
 DisplayList Renderer::paint() {
     dirty_ = false;
+#ifdef TW_LITEHTML_TWIDGET
+    if (!promoted_.empty() || !composition_.layers.empty()) {
+        std::vector<std::pair<size_t, int64_t>> order;
+        std::vector<litehtml::element::ptr> skip;
+        for (const auto& [id, p] : promoted_) {
+            if (auto el = container_->element(id)) {
+                order.emplace_back(p.order, id);
+                skip.push_back(std::move(el));
+            }
+        }
+        DisplayList list = container_->draw(skip);
+        std::sort(order.begin(), order.end());
+        Composition next;
+        bool changed = order.size() != composition_.layers.size();
+        for (const auto& [index, id] : order) {
+            const Promotion& p = promoted_.at(id);
+            Layer layer;
+            layer.id = id;
+            layer.content = container_->draw_layer(container_->element(id), skip, layer.bounds);
+            // A canvas repaints without its command changing: such a layer is always new.
+            bool canvas = std::any_of(layer.content.begin(), layer.content.end(), [](const Command& c) { return c.canvas != 0; });
+            layer.content_version = canvas ? next_version_++ : paint_digest(layer.content);
+            layer.raster_scale = p.raster_scale;
+            layer.has_clip = p.has_clip;
+            layer.clip = p.clip;
+            layer.clip_radii = p.clip_radii;
+            layer.track_version = p.track_version;
+            layer.track = p.track;
+            size_t i = next.layers.size();
+            if (!changed) {
+                const Layer& old = composition_.layers[i];
+                changed = old.id != id || old.content_version != layer.content_version || old.track_version != layer.track_version ||
+                          std::memcmp(&old.bounds, &layer.bounds, sizeof(Rect)) != 0 || old.has_clip != layer.has_clip ||
+                          std::memcmp(&old.clip, &layer.clip, sizeof(Rect)) != 0 || std::memcmp(&old.clip_radii, &layer.clip_radii, sizeof(Radii)) != 0;
+            }
+            next.layers.push_back(std::move(layer));
+        }
+        next.version = changed ? next_version_++ : composition_.version;
+        composition_ = std::move(next);
+        return list;
+    }
+#endif
     return container_->draw();
 }
 

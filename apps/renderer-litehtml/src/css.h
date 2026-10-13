@@ -58,4 +58,16 @@ struct Font {
 };
 Font parse_font(std::string_view font);
 
+/// A `transform` list as one matrix for a box of `w` × `h` (percentages), about the box's top left.
+/// Only 2D functions in px, % and angle units; nullopt for anything else (3D, em, var(), calc()).
+std::optional<Affine> parse_transform(std::string_view text, float w, float h);
+/// The individual `translate`, `rotate` and `scale` properties, likewise.
+std::optional<Affine> parse_translate(std::string_view text, float w, float h);
+std::optional<Affine> parse_rotate(std::string_view text);
+std::optional<Affine> parse_scale(std::string_view text);
+/// `transform-origin` within a `w` × `h` box; nullopt when it is not 2D px, % or keywords.
+std::optional<std::pair<float, float>> parse_origin(std::string_view text, float w, float h);
+/// `opacity`: a number or a percentage, clamped to 0..1.
+std::optional<float> parse_opacity(std::string_view text);
+
 } // namespace twlite::css

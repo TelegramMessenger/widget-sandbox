@@ -1055,7 +1055,7 @@ StyleValues Animator::values(const std::vector<Keyframe>& frames, const Declared
     return result;
 }
 
-std::optional<StyleValues> Animator::sample_animation(int64_t id, Running& item, const std::vector<Keyframe>& frames, double now) {
+std::optional<StyleValues> Animator::sample_animation(int64_t id, Running& item, const std::vector<Keyframe>& frames, double now, std::vector<AnimationEvent>* events) const {
     const AnimationSpec& spec = item.spec;
     double local = now - item.start - spec.delay;
     if (auto o = overrides_.find(id); o != overrides_.end()) {
@@ -1083,7 +1083,7 @@ std::optional<StyleValues> Animator::sample_animation(int64_t id, Running& item,
     if (local >= total) {
         if (!item.ended) {
             item.ended = true;
-            events_.push_back({"animationend", id, spec.name, total});
+            if (events) events->push_back({"animationend", id, spec.name, total});
         }
         if (spec.fill == "forwards" || spec.fill == "both") {
             int last_iteration = std::max(0, int(std::ceil(std::min(spec.iterations, 1e9))) - 1);
@@ -1097,7 +1097,7 @@ std::optional<StyleValues> Animator::sample_animation(int64_t id, Running& item,
     int iteration = int(std::min(local / duration, 1e9));
     if (iteration != item.iteration) {
         item.iteration = iteration;
-        events_.push_back({"animationiteration", id, spec.name, local});
+        if (events) events->push_back({"animationiteration", id, spec.name, local});
     }
     double progress = (local - iteration * duration) / duration;
     if (reversed(iteration)) progress = 1 - progress;
@@ -1110,7 +1110,7 @@ StyleOverrides Animator::sample(double now) {
         for (Running& item : list) {
             auto frames = keyframes_.find(item.spec.name);
             if (frames == keyframes_.end() || frames->second.empty()) continue;
-            if (auto values = sample_animation(id, item, frames->second, now))
+            if (auto values = sample_animation(id, item, frames->second, now, &events_))
                 for (auto& [property, value] : *values) merge(out[id], property, std::move(value));
         }
     }
@@ -1143,10 +1143,11 @@ StyleOverrides Animator::sample(double now) {
     return out;
 }
 
-void Animator::sample_web(StyleOverrides& out, double now) const {
+void Animator::sample_web(StyleOverrides& out, double now, int64_t only) const {
     // By target, then in aid order: later animations composite onto earlier ones.
     std::map<int64_t, std::vector<const WebAnimation*>> by_target;
-    for (const auto& [aid, a] : web_) by_target[a.target].push_back(&a);
+    for (const auto& [aid, a] : web_)
+        if (!only || a.target == only) by_target[a.target].push_back(&a);
     for (const auto& [id, list] : by_target) {
         for (const WebAnimation* a : list) {
             auto state = compute(*a, local_time(*a, now), a->rate >= 0);
@@ -1165,18 +1166,249 @@ void Animator::sample_web(StyleOverrides& out, double now) const {
 }
 
 bool Animator::active(double now) const {
-    if (!transitions_.empty()) return true;
+    static const std::unordered_set<int64_t> NONE;
+    return active(now, NONE);
+}
+
+bool Animator::active(double now, const std::unordered_set<int64_t>& skip) const {
+    for (const auto& [id, list] : transitions_)
+        if (!skip.count(id)) return true;
     for (const auto& [aid, a] : web_) {
-        if (!a.running()) continue;
+        if (!a.running() || skip.count(a.target)) continue;
         auto state = compute(a, local_time(a, now), a.rate >= 0);
         if (!state) continue;
         bool pending = a.rate > 0 ? state->before : state->after;
         if ((!state->before && !state->after) || pending) return true;
     }
-    for (const auto& [id, list] : running_)
+    for (const auto& [id, list] : running_) {
+        if (skip.count(id)) continue;
         for (const Running& r : list)
             if (!r.ended && !r.spec.paused && keyframes_.count(r.spec.name)) return true;
+    }
     return false;
+}
+
+const Animator::Override* Animator::override_of(int64_t id, const std::string& key) const {
+    auto o = overrides_.find(id);
+    if (o == overrides_.end()) return nullptr;
+    auto it = o->second.find(key);
+    return it == o->second.end() ? nullptr : &it->second;
+}
+
+std::vector<int64_t> Animator::animated_ids() const {
+    std::vector<int64_t> out;
+    for (const auto& [id, list] : running_)
+        for (const Running& r : list)
+            if (keyframes_.count(r.spec.name)) {
+                out.push_back(id);
+                break;
+            }
+    for (const auto& [id, list] : transitions_) out.push_back(id);
+    for (const auto& [aid, a] : web_) out.push_back(a.target);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+std::vector<std::string> Animator::animated_properties(int64_t id) const {
+    std::vector<std::string> out;
+    auto add = [&](const std::string& p) {
+        if (std::find(out.begin(), out.end(), p) == out.end()) out.push_back(p);
+    };
+    if (auto r = running_.find(id); r != running_.end())
+        for (const Running& item : r->second)
+            if (auto frames = keyframes_.find(item.spec.name); frames != keyframes_.end())
+                for (const Keyframe& f : frames->second)
+                    for (const auto& [property, value] : f.declarations) add(property);
+    if (auto t = transitions_.find(id); t != transitions_.end())
+        for (const auto& [property, transition] : t->second) add(property);
+    for (const auto& [aid, a] : web_)
+        if (a.target == id)
+            for (const std::string& p : a.properties) add(p);
+    return out;
+}
+
+StyleValues Animator::peek(int64_t id, double t) const {
+    StyleOverrides out;
+    if (auto r = running_.find(id); r != running_.end()) {
+        for (Running item : r->second) {
+            auto frames = keyframes_.find(item.spec.name);
+            if (frames == keyframes_.end() || frames->second.empty()) continue;
+            if (auto values = sample_animation(id, item, frames->second, t, nullptr))
+                for (auto& [property, value] : *values) merge(out[id], property, std::move(value));
+        }
+    }
+    if (auto list = transitions_.find(id); list != transitions_.end()) {
+        for (const auto& [property, transition] : list->second) {
+            double elapsed = t - transition.start - transition.spec.delay;
+            if (const Override* o = override_of(id, "transition:" + property)) {
+                if (o->cancelled) continue;
+                elapsed = o->local(t) - transition.spec.delay;
+            }
+            // An ended transition leaves the declared value, which the element already has.
+            if (elapsed >= transition.spec.duration) continue;
+            double progress = std::max(0.0, elapsed) / transition.spec.duration;
+            merge(out[id], property, elapsed <= 0 ? transition.from : interpolate(transition.from, transition.to, transition.spec.timing.css(progress)));
+        }
+    }
+    if (!web_.empty()) sample_web(out, t, id);
+    auto it = out.find(id);
+    return it == out.end() ? StyleValues{} : std::move(it->second);
+}
+
+std::optional<Animator::Plan> Animator::plan(int64_t id, double now, bool iterations) const {
+    Plan plan;
+    double end = INF, loop = 0, wait = INF, next_iteration = INF;
+    bool looping = false;
+    // An animation's local time runs `rate` times as fast as the clock from `origin`; it begins
+    // after `delay` local seconds and repeats every `period` local seconds.
+    auto add = [&](double origin, double rate, double delay, double duration, double count, bool alternate) {
+        if (rate <= 0 || duration <= 0) return false;
+        double begin = origin + delay / rate;
+        if (now < begin) {
+            wait = std::min(wait, begin);
+            return true;
+        }
+        double iteration = duration / rate;
+        if (std::isinf(count)) {
+            double period = iteration * (alternate ? 2 : 1);
+            if (looping && std::fabs(period - loop) > 1e-6) return false;
+            looping = true;
+            loop = period;
+        } else {
+            end = std::min(end, begin + count * iteration);
+        }
+        double done = std::floor((now - begin) / iteration) + 1;
+        if (std::isinf(count) || done < count) next_iteration = std::min(next_iteration, begin + done * iteration);
+        return true;
+    };
+
+    if (auto r = running_.find(id); r != running_.end()) {
+        for (const Running& item : r->second) {
+            if (item.ended || !keyframes_.count(item.spec.name)) continue;
+            const AnimationSpec& spec = item.spec;
+            double origin = item.start, rate = 1;
+            if (const Override* o = override_of(id, "animation:" + spec.name)) {
+                if (o->cancelled || o->hold) continue;
+                origin = *o->start;
+                rate = o->rate;
+            } else if (spec.paused) continue;
+            bool alternate = spec.direction == "alternate" || spec.direction == "alternate-reverse";
+            if (!add(origin, rate, spec.delay, std::max(spec.duration, 0.0001), spec.iterations, alternate)) return std::nullopt;
+        }
+    }
+    if (auto list = transitions_.find(id); list != transitions_.end()) {
+        for (const auto& [property, transition] : list->second) {
+            double origin = transition.start, rate = 1;
+            if (const Override* o = override_of(id, "transition:" + property)) {
+                if (o->cancelled || o->hold) continue;
+                origin = *o->start;
+                rate = o->rate;
+            }
+            if (!add(origin, rate, transition.spec.delay, transition.spec.duration, 1, false)) return std::nullopt;
+        }
+    }
+    for (const auto& [aid, a] : web_) {
+        if (a.target != id || !a.running()) continue;
+        if (a.iteration_composite != "replace") return std::nullopt;
+        bool alternate = a.direction == "alternate" || a.direction == "alternate-reverse";
+        // Local milliseconds: (now·1000 − start) · rate, so the origin is start / 1000 seconds.
+        if (!add(*a.start_ms / 1000, a.rate, a.delay / 1000, a.duration / 1000, a.iterations, alternate)) return std::nullopt;
+    }
+
+    plan.wake = std::min(wait, end);
+    if (iterations) plan.wake = std::min(plan.wake, next_iteration);
+    if (wait < INF && end == INF && !looping) {
+        plan.ready = false;
+        return plan;
+    }
+    // Something still waiting changes the picture at `wait`: bake only up to there.
+    end = std::min(end, wait);
+    plan.start = now;
+    if (end < INF) {
+        plan.duration = end - now;
+    } else if (looping) {
+        plan.duration = loop;
+        plan.repeat = true;
+    } else {
+        return std::nullopt;
+    }
+    if (plan.duration <= 0) return std::nullopt;
+    return plan;
+}
+
+uint64_t Animator::signature(int64_t id) const {
+    std::string s;
+    auto num = [&](double v) {
+        s += css::format_number(v, 6);
+        s.push_back('|');
+    };
+    auto text = [&](const std::string& v) {
+        s += v;
+        s.push_back('|');
+    };
+    auto control = [&](const std::string& key) {
+        if (const Override* o = override_of(id, key)) {
+            text(key);
+            num(o->origin);
+            num(o->start ? *o->start : -1);
+            num(o->hold ? *o->hold : -1);
+            num(o->rate);
+            num(o->cancelled);
+        }
+    };
+    if (auto r = running_.find(id); r != running_.end()) {
+        for (const Running& item : r->second) {
+            const AnimationSpec& spec = item.spec;
+            text(spec.name);
+            num(item.start);
+            num(spec.duration);
+            text(spec.timing_text);
+            num(spec.delay);
+            num(spec.iterations);
+            text(spec.direction);
+            text(spec.fill);
+            num(spec.paused);
+            num(item.ended);
+            control("animation:" + spec.name);
+        }
+    }
+    if (auto list = transitions_.find(id); list != transitions_.end()) {
+        for (const auto& [property, transition] : list->second) {
+            text(property);
+            text(transition.from);
+            text(transition.to);
+            num(transition.start);
+            num(transition.spec.duration);
+            num(transition.spec.delay);
+            text(transition.spec.timing.text);
+            control("transition:" + property);
+        }
+    }
+    for (const auto& [aid, a] : web_) {
+        if (a.target != id) continue;
+        num(double(aid));
+        num(a.start_ms ? *a.start_ms : -1);
+        num(a.hold_ms ? *a.hold_ms : -1);
+        num(a.rate);
+        num(a.duration);
+        num(a.delay);
+        num(a.iterations);
+        text(a.direction);
+        text(a.fill);
+        text(a.easing.text);
+        text(a.composite);
+        for (const auto& frame : a.frames) {
+            num(frame.offset);
+            text(frame.easing.text);
+            for (const auto& [property, value] : frame.values) {
+                text(property);
+                text(value);
+            }
+        }
+    }
+    for (const char* property : {"transform", "opacity", "translate", "rotate", "scale", "transform-origin"}) text(base_value(id, property));
+    return std::hash<std::string>()(s);
 }
 
 void Animator::apply_web(const Json& message, double clock_offset_ms) {

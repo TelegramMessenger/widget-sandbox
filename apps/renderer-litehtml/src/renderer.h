@@ -13,10 +13,13 @@
 #include "animations.h"
 #include "backend.h"
 #include "canvas.h"
+#include "compositor.h"
 #include "display_list.h"
 #include "twidget/json.h"
 
 #include <cstdint>
+#include <limits>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -64,6 +67,17 @@ public:
     std::vector<twidget::Json> tick();
     /// Something waits for the next frame: a running animation or a coalesced move.
     bool wants_tick() const;
+    /// When `wants_tick()` is false: seconds until `tick()` is due anyway (an animation event, the
+    /// end of a layer's track); infinity when nothing is scheduled.
+    double next_tick_in() const;
+
+    /// Lets the platform's compositor run transform and opacity animations (compositor.h). Off by
+    /// default: a platform that never turns it on gets every frame painted, as before.
+    void set_compositing(bool enabled);
+    /// The layers that go above the display list `paint()` returned last.
+    const Composition& composition() const { return composition_; }
+    /// The renderer clock, in seconds: what `LayerTrack::start` is on.
+    static double clock() { return now_s(); }
     /// A backend that decodes images asynchronously (the web) reports the size of image `id` here;
     /// the document is rebuilt with it. Returns renderer → host messages (a `size`, when it changed).
     std::vector<twidget::Json> image_ready(int id, float w, float h);
@@ -139,6 +153,22 @@ private:
     void animate();
     void apply_overrides(StyleOverrides sampled);
     void queue_animation_events();
+    // compositor layers
+    struct Promotion {
+        Rect box;
+        Rect reach;  // what the layer can cover over its whole track
+        float raster_scale = 1;
+        bool has_clip = false;
+        Rect clip;
+        Radii clip_radii;
+        uint64_t signature = 0;
+        uint64_t track_version = 0;
+        LayerTrack track;
+        size_t order = 0;
+    };
+    void update_composition(double now);
+    /// Drops what the layers animate from `sampled`: the compositor shows it, the document must not.
+    void strip_layers(StyleOverrides& sampled) const;
     // canvas
     Canvas* canvas_for(Node* n);
     void run_canvas(Canvas& canvas, const twidget::Json& cmds);
@@ -183,6 +213,14 @@ private:
     StyleOverrides overrides_;
     std::string sheets_key_;
     bool animating_ = false;  // inside animate(): its own rebuild must not re-enter
+
+    bool compositing_ = false;
+    std::map<int64_t, Promotion> promoted_;
+    std::unordered_set<int64_t> layer_ids_;
+    Composition composition_;
+    double wake_at_ = std::numeric_limits<double>::infinity();
+    uint64_t composition_key_ = 0;
+    uint64_t next_version_ = 1;
 
     std::unordered_map<int64_t, std::unique_ptr<Canvas>> canvases_;
     std::unordered_map<std::string, std::pair<int, FontMetrics>> canvas_fonts_;
