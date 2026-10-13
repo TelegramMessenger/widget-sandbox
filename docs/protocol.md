@@ -71,6 +71,41 @@ empty means plain JSON only, which every host, glue and renderer speaks, so
 web, Android and desktop keep working unchanged. The shim uses a form only when
 the feature is listed **and** the glue installed the matching function.
 
+### Web Animations (`webAnimations`)
+
+With `webAnimations` in `config.features`, `Element.animate`, `getAnimations`,
+`document.timeline`, `document.getAnimations` and the `Animation`,
+`KeyframeEffect`, `AnimationEffect`, `AnimationTimeline`, `DocumentTimeline`,
+`AnimationPlaybackEvent`, `CSSAnimation` and `CSSTransition` globals run in the
+shim (`packages/core/src/sandbox/waapi.ts`). Timing, events and promises are
+computed in the sandbox; the renderer only plays what it is told. Without the
+feature `Element.animate` returns a finished stub and reports `unsupported`.
+It uses no new host function: the shim sends `__host('anim', json)` after the
+tick's ops, and `getAnimations` asks the renderer with the `anims` query.
+
+`anim` is a JSON array of records (max 4096 per batch, 4 MB of JSON):
+
+- `{aid, remove: true}`: the animation left the renderer.
+- Script animation: `{aid, target, keyframes: [{offset, easing, composite, values: {css-property: value}}],
+  timing: {duration, delay, endDelay, iterations (null = infinite), iterationStart, direction, fill, easing},
+  composite, iterationComposite, startTime, holdTime, playbackRate}`. `startTime` is on the
+  sandbox clock (`now`), `holdTime` is a current time while paused or pending; one of them is set.
+- CSS animation control: `{aid, target, css: {kind: 'animation'|'transition', name, origin}, startTime,
+  holdTime, playbackRate, cancelled}`, for a CSS animation the widget paused, seeked or
+  cancelled; `origin` is the renderer's id from the `anims` answer.
+
+The host validates with `validateAnim` (`validator.ts`; the Swift native node
+model has its twin in `NativeAnimValidator.swift`): `target` must be a rendered
+element, at most 64 keyframes with sorted offsets in [0, 1] and 64 values each,
+times finite and within 24 h, playback rate within ±1000, easings from the CSS
+easing grammar, and at most 1024 live script animations (`animation-limit`).
+Every keyframe value goes through the same CSS property sanitizer as
+`element.style` (no `url()` other than `#fragment`, no `expression()`), and
+`animation-*` / `transition-*` properties are dropped. Rejected records are
+reported as `protocol-violation` and a live one becomes a `remove` record.
+The renderer gets `{type: 'anim', now, anims}`, where `now` is the sandbox
+clock at delivery so it can map `startTime` onto its own timeline.
+
 ### Canvas words (`canvasWords`)
 
 The glue installs `__hostCanvas(key, words: Float64Array, strings: string)`
@@ -173,6 +208,7 @@ sets state 2 and `Atomics.notify`s. Timeout: 3 s (answer `{error:'timeout'}`).
 | `validity {id}` | ValidityState JSON + `message` |
 | `matchMedia {query}` | `{matches}` — `prefers-color-scheme` is rewritten by the host against the chat theme before the renderer evaluates the query |
 | `viewport` | `{innerWidth, innerHeight, dpr}` |
+| `anims {id, subtree}` | `{list: [{kind, id, name, index, origin, currentTime, playbackRate, paused, duration, delay, iterations, direction, fill, easing}]}`: running CSS animations and transitions (`webAnimations`) |
 
 Answers are cached in the sandbox until the next flush that sent ops. The
 diagnostics panel shows query count, total latency and cache hits.
@@ -228,7 +264,7 @@ Host → worker: `init {html, sab, config, sandboxBundle}`, `event {ev}`,
 `visibility {visible}`.
 
 Host → renderer, besides ops and queries: `listen {types}`, `preventDefault
-{keys}`, `requestFrame`, and `frozen {reason, fatal}` — the runtime is gone
+{keys}`, `requestFrame`, `anim {now, anims}` (`webAnimations`), and `frozen {reason, fatal}` — the runtime is gone
 (or paused): the renderer keeps the DOM as it is, cancels the pending frame,
 stops forwarding events, sets `data-tw-frozen="fatal"|"paused"` on `<html>`
 (`pointer-events: none`, a slight grayscale when fatal) and shows a small badge
@@ -237,7 +273,7 @@ sends it from its death path; the iframe / WKWebView / WebView stays on screen
 until the owner calls `destroy()`.
 
 Worker → host (payload untrusted unless noted): `ops`, `query`, `listen
-{types}`, `pd {keys}`, `raf`, `log {level, text}`, `diag {kind, detail}`,
+{types}`, `pd {keys}`, `anim {anims, now}` (`now` from the glue), `raf`, `log {level, text}`, `diag {kind, detail}`,
 `bridge {method, args}`; trusted glue: `loaded`, `stats`, `dead {reason}`.
 Diagnostic kinds added by the runtime limits: `timer-limit` (shim, once),
 `timer-limit-enforced` (glue backstop — a shim bug), `cpu-throttled` (glue, at
@@ -245,7 +281,7 @@ most once per second).
 
 Inside the worker the QuickJS context has exactly one capability,
 `__host(kind: string, arg: string): string | number | undefined`, with kinds
-`ops query now timer clearTimer raf log diag listen pd bridge intl random stat`,
+`ops query now timer clearTimer raf log diag listen pd anim bridge intl random stat`,
 plus `__hostBinary()` to fetch the binary part of the last query answer.
 
 ### User activation for privileged bridge calls
