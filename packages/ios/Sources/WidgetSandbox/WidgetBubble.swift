@@ -22,6 +22,9 @@ public final class WidgetBubble {
     public var onContent: (() -> Void)?
     public var onHostContent: (() -> Void)?
     public var configure: ((WidgetHost) -> Void)?
+    /// A rebuilt host (after its bubble was dropped off screen) never reports a height below the one the bubble had when it was dropped, so a widget that grows while it boots doesn't shrink and regrow its row each time it is rebuilt.
+    public var holdsHeightOnRebuild = false
+    private var heightFloor: CGFloat = 0
     /// A host booted off the main thread for this widget (see WidgetPreparer); adopted instead of booting a new one.
     public var preparedHost: (() -> WidgetHost?)?
     public private(set) var adoptedHosts = 0
@@ -172,6 +175,7 @@ public final class WidgetBubble {
             return nil
         }
         generation += 1
+        heightFloor = holdsHeightOnRebuild && hasContent ? height : 0
         isAwaitingRender = hasContent
         hostHasContent = false
         let generation = self.generation
@@ -208,6 +212,7 @@ public final class WidgetBubble {
 
     private func adopt(_ prepared: WidgetHost, bootVisible: Bool) -> WidgetHost {
         generation += 1
+        heightFloor = holdsHeightOnRebuild && hasContent ? height : 0
         isAwaitingRender = false
         hostHasContent = false
         let generation = self.generation
@@ -273,7 +278,7 @@ public final class WidgetBubble {
             }
             isAwaitingRender = false
         }
-        let newHeight = diagnostics.height
+        let newHeight = diagnostics.height > 0 ? max(diagnostics.height, heightFloor) : 0
         if newHeight > 0 && abs(newHeight - height) > 0.5 {
             height = newHeight
             onHeightChange?()

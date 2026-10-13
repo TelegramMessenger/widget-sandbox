@@ -45,6 +45,45 @@ final class WidgetBubbleTests: XCTestCase {
         withExtendedLifetime(queued) {}
     }
 
+    private func rebuiltHeight(holds: Bool) -> (CGFloat, [CGFloat]) {
+        let feed = WidgetFeed()
+        var queued: [() -> Void] = []
+        feed.schedule = { queued.append($0) }
+        feed.delay = { _, block in queued.append(block) }
+        var generation = 0
+        let bubble = WidgetBubble(html: "<div>Rows</div>", theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in
+            generation += 1
+            return generation == 1 ? ScriptedSizeRenderer(early: 120, settled: 120) : ScriptedSizeRenderer(early: 30, settled: 60)
+        })
+        bubble.holdsHeightOnRebuild = holds
+        var heights: [CGFloat] = []
+        bubble.onHeightChange = { heights.append(bubble.height) }
+        XCTAssertNotNil(bubble.ensureHost())
+        wait { bubble.hasContent && bubble.height == 120 }
+        let space = OneSlotSpace(bubble.slot, rect: CGRect(x: 0, y: 0, width: 300, height: 120))
+        feed.attach(space)
+        space.origin = 100_000
+        feed.update()
+        XCTAssertNil(bubble.host)
+        space.origin = 0
+        feed.update()
+        wait({ bubble.host?.diagnostics.rendered == true && bubble.hostHasContent && !bubble.isAwaitingRender && bubble.host?.diagnostics.height == 60 })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        withExtendedLifetime(queued) {}
+        return (bubble.height, heights)
+    }
+
+    func testRebuiltHostKeepsTheDroppedHeightWhenAsked() {
+        let (height, heights) = rebuiltHeight(holds: true)
+        XCTAssertEqual(height, 120)
+        XCTAssertEqual(heights, [120], "\(heights)")
+    }
+
+    func testRebuiltHostTakesItsOwnHeightByDefault() {
+        let (height, _) = rebuiltHeight(holds: false)
+        XCTAssertEqual(height, 60)
+    }
+
     func testVisibilityFollowsTheFeedAndReachesTheHost() {
         let feed = WidgetFeed()
         feed.schedule = { _ in }
