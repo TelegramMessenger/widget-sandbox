@@ -55,7 +55,6 @@ final class TypedDeliveryTests: XCTestCase {
     private func run(typed: Bool) -> (messages: [String], typedBatches: Int, nativeCanvas: Int) {
         var options = WidgetHost.Options()
         options.asyncValidation = true
-        options.pacedDelivery = true
         options.features = ["canvasWords"]
         let typedRenderer = TypedRenderer()
         let jsonRenderer = RecordingRenderer()

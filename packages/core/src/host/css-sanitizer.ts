@@ -286,7 +286,34 @@ function parse(css: string, context: string): csstree.CssNode {
 }
 
 /** Sanitize the text of a <style> element. */
+// Sanitized stylesheets by colour scheme, scope and text, with the diagnostics they
+// produced (replayed on every use, so a cached result reports exactly what a fresh
+// one would). Widgets re-send the same <style> text on re-renders and themes;
+// native hosts also warm it while the sandbox boots (`warmStylesheets`).
+const SHEET_CACHE_SIZE = 32;
+const SHEET_CACHE_MAX_TEXT = 262_144;
+const sheetCache = new Map<string, { out: string; diags: [string, string][] }>();
+
+export function clearStylesheetCache(): void {
+  sheetCache.clear();
+}
+
 export function sanitizeStylesheet(css: string, diag: Diag, env: CssEnv = DEFAULT_ENV): string {
+  const key = `${env.colorScheme}\u0001${env.scope ?? ''}\u0001${css}`;
+  let hit = sheetCache.get(key);
+  if (!hit) {
+    const diags: [string, string][] = [];
+    hit = { out: sanitizeStylesheetUncached(css, (k, d) => diags.push([k, d]), env), diags };
+    if (css.length < SHEET_CACHE_MAX_TEXT) {
+      if (sheetCache.size >= SHEET_CACHE_SIZE) sheetCache.delete(sheetCache.keys().next().value!);
+      sheetCache.set(key, hit);
+    }
+  }
+  for (const [k, d] of hit.diags) diag(k, d);
+  return hit.out;
+}
+
+function sanitizeStylesheetUncached(css: string, diag: Diag, env: CssEnv): string {
   try {
     const ast = parse(css, 'stylesheet');
     sanitizeTree(ast, diag, env);

@@ -19,7 +19,7 @@ public final class EnginePool {
     public var targetSize = 0 { didSet { refill() } }
     public var resources: SandboxResources = .shared
     public private(set) var created = 0, taken = 0, hits = 0
-    /// Features new engines are prewarmed with (`SandboxEngine.runtimeFeatures`); set it to what the hosts advertise.
+    /// Features new engines are prewarmed with (`SandboxEngine.runtimeFeatures`); set it to what the hosts advertise. Main thread.
     public var features: Set<String> = [] {
         didSet {
             guard features != oldValue else { return }
@@ -28,8 +28,9 @@ public final class EnginePool {
         }
     }
     private var idle: [SandboxEngine] = []
+    private let lock = NSLock()
 
-    public var count: Int { idle.count }
+    public var count: Int { lock.lock(); defer { lock.unlock() }; return idle.count }
 
     public func prewarm(_ n: Int) {
         targetSize = max(targetSize, n)
@@ -39,28 +40,48 @@ public final class EnginePool {
     /// A prewarmed engine (its bundle evaluation may still be running on its own thread), or nil when empty.
     /// Only an engine built with exactly `features` is handed out; anything else would silently lose or gain host functions.
     public func take(features: Set<String> = []) -> SandboxEngine? {
+        lock.lock()
         taken += 1
-        guard features == self.features else { return nil }
-        let e = idle.popLast()
+        let e = features == self.features ? idle.popLast() : nil
         if e != nil { hits += 1 }
-        refill()
+        lock.unlock()
+        scheduleRefill()
         return e
     }
 
+    private var refillScheduled = false
+    private func scheduleRefill() {
+        lock.lock()
+        if refillScheduled || idle.count >= targetSize { lock.unlock(); return }
+        refillScheduled = true
+        lock.unlock()
+        DispatchQueue.main.async { [self] in
+            lock.lock()
+            refillScheduled = false
+            lock.unlock()
+            refill()
+        }
+    }
+
     private func refill() {
-        while idle.count < targetSize {
+        while count < targetSize {
             let t0 = CACurrentMediaTime()
             let e = SandboxEngine(resources: resources, features: features)
             e.prewarm()
+            lock.lock()
             idle.append(e)
+            lock.unlock()
             created += 1
             WidgetWarmup.mainThreadWork?("engine-create", (CACurrentMediaTime() - t0) * 1000)
         }
     }
 
     public func drain() {
-        idle.forEach { $0.terminate() }
+        lock.lock()
+        let engines = idle
         idle.removeAll()
+        lock.unlock()
+        engines.forEach { $0.terminate() }
     }
 }
 
@@ -71,8 +92,9 @@ public final class ValidatorPool {
     public var resources: SandboxResources = .shared
     public private(set) var created = 0, taken = 0, hits = 0, recycled = 0
     private var idle: [TrustedValidator] = []
+    private let lock = NSLock()
 
-    public var count: Int { idle.count }
+    public var count: Int { lock.lock(); defer { lock.unlock() }; return idle.count }
 
     public func prewarm(_ n: Int) {
         targetSize = max(targetSize, n)
@@ -80,37 +102,60 @@ public final class ValidatorPool {
     }
 
     public func take(theme: String) -> TrustedValidator? {
+        lock.lock()
         taken += 1
-        guard let v = idle.popLast() else { refill(); return nil }
-        hits += 1
-        // Pooled validators are created for "light"; the host's theme is applied by a fresh instance.
-        v.perform { v.reset(theme: theme) }
-        refill()
+        let taken = idle.popLast()
+        if taken != nil { hits += 1 }
+        lock.unlock()
+        guard let v = taken else { scheduleRefill(); return nil }
+        if theme != "light" { v.perform { v.reset(theme: theme) } }
+        scheduleRefill()
         return v
+    }
+
+    private var refillScheduled = false
+    private func scheduleRefill() {
+        lock.lock()
+        if refillScheduled || idle.count >= targetSize { lock.unlock(); return }
+        refillScheduled = true
+        lock.unlock()
+        DispatchQueue.main.async { [self] in
+            lock.lock()
+            refillScheduled = false
+            lock.unlock()
+            refill()
+        }
     }
 
     /// Back into the pool with a fresh instance (the previous widget's node model
     /// is gone): cheaper than a new context, so the pool holds up to twice its
     /// target of recycled validators.
     public func recycle(_ validator: TrustedValidator) {
-        guard idle.count < max(targetSize * 2, 1) else { return }
-        validator.onDiag = { _, _ in }
-        validator.perform { validator.reset(theme: "light") }
-        idle.append(validator)
-        recycled += 1
+        guard count < max(targetSize * 2, 1) else { return }
+        validator.perform { [self] in
+            validator.onDiag = { _, _ in }
+            validator.reset(theme: "light")
+            lock.lock()
+            idle.append(validator)
+            recycled += 1
+            lock.unlock()
+        }
     }
 
     /// New contexts are built on the shared validator thread; the main thread never waits for the bundle.
     private func refill() {
-        while idle.count < targetSize {
+        while count < targetSize {
             let t0 = CACurrentMediaTime()
-            idle.append(TrustedValidator.background(theme: "light", resources: resources, thread: TrustedValidator.sharedThread, onDiag: { _, _ in }))
+            let made = TrustedValidator.background(theme: "light", resources: resources, thread: TrustedValidator.sharedThreadForNextValidator(), onDiag: { _, _ in })
+            lock.lock()
+            idle.append(made)
+            lock.unlock()
             created += 1
             WidgetWarmup.mainThreadWork?("validator-create", (CACurrentMediaTime() - t0) * 1000)
         }
     }
 
-    public func drain() { idle.removeAll() }
+    public func drain() { lock.lock(); idle.removeAll(); lock.unlock() }
 }
 
 /// Everything a chat screen prewarms before the first bubble: the WebKit
@@ -121,7 +166,10 @@ public enum WidgetWarmup {
     public static var mainThreadWork: ((String, Double) -> Void)?
 
     public static func prewarm(renderers: Int, engines: Int, validators: Int, width: CGFloat = 360, parkingView: PlatformView? = nil) {
-        RendererEnvironment.shared.prewarm()
+        _ = SandboxResources.shared
+        _ = SandboxEngine.parse("{\"type\":\"ready\"}")
+        _ = TrustedValidator.sharedThreadForNextValidator()
+        if renderers > 0 { RendererEnvironment.shared.prewarm() }
         RendererPool.shared.width = width
         if let parkingView { RendererPool.shared.parkingView = parkingView }
         RendererPool.shared.prewarm(renderers)

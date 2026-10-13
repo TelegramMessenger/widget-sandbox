@@ -17,6 +17,23 @@ import WidgetSandboxProtocol
 public final class TrustedValidator {
     /// One thread for every validator that asks for it (see the header).
     public static let sharedThread = JSThread(name: "widget.validator")
+    /// Validators of many widgets spread over up to four shared threads (half the cores), so one busy widget does not delay the others.
+    public static let sharedThreadCount = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
+    private static let extraSharedThreads = (1..<sharedThreadCount).map { JSThread(name: "widget.validator.\($0)") }
+    private static var nextSharedThread = 0
+    private static let nextSharedThreadLock = NSLock()
+
+    public static func sharedThreadForNextValidator() -> JSThread {
+        nextSharedThreadLock.lock()
+        let index = nextSharedThread % sharedThreadCount
+        nextSharedThread += 1
+        nextSharedThreadLock.unlock()
+        return index == 0 ? sharedThread : extraSharedThreads[index - 1]
+    }
+
+    public static func isShared(_ thread: JSThread) -> Bool {
+        return thread === sharedThread || extraSharedThreads.contains { $0 === thread }
+    }
 
     public let thread: JSThread
     private let ownsThread: Bool
@@ -82,6 +99,7 @@ public final class TrustedValidator {
             globalThis.__v_isCanvas = (id) => __twValidator.isCanvas(Number(id)) ? 1 : 0;
             globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };
             globalThis.__v_tables = () => __twValidator.tables();
+            globalThis.__v_warmCss = (j) => __twValidator.warmStylesheets(j);
             globalThis.__v_native = (f) => __twValidator.native(f);
             globalThis.__v_cssProp = (n, v) => __twValidator.cssProp(n, v);
             globalThis.__v_cssAttr = (v) => __twValidator.cssAttr(v);
@@ -90,10 +108,31 @@ public final class TrustedValidator {
             globalThis.__v_canvasCmds = (j) => __twValidator.canvasCmds(j);
             """, filename: "validator-glue.js")
         try js.call("__v_create", [theme])
+        js.collectGarbage()
         bundleSource = fromBytecode ? "bytecode" : "source"
     }
 
-    deinit { if ownsThread { thread.stop() } }
+    deinit {
+        // The context belongs to the validator's thread: release it there.
+        if js != nil, !thread.isCurrent {
+            let retired = RetiredRuntime(js)
+            js = nil
+            thread.async { retired.release() }
+        }
+        if ownsThread { thread.stop() }
+    }
+
+    private final class RetiredRuntime {
+        private var context: QuickJSContext?
+
+        init(_ context: QuickJSContext?) {
+            self.context = context
+        }
+
+        func release() {
+            context = nil
+        }
+    }
 
     /// A fresh validator instance in the same context (the bundle stays
     /// evaluated): how a pool recycles a validator for the next widget.
@@ -103,6 +142,18 @@ public final class TrustedValidator {
             native = nil
         }
         _ = str("__v_create", [theme])
+        thread.sync { [self] in js?.collectGarbage() }
+    }
+
+    /// Stylesheets found in the widget source, sanitized on the validator's thread while the sandbox boots;
+    /// the bundle caches each result with its diagnostics and replays them when the widget's ops bring the
+    /// same text, so the output is identical to a cold run.
+    public func warmStylesheets(_ texts: [String]) {
+        guard !texts.isEmpty, let data = try? JSONSerialization.data(withJSONObject: texts) else { return }
+        let json = String(decoding: data, as: UTF8.self)
+        thread.async { [self] in
+            _ = str("__v_warmCss", [json])
+        }
     }
 
     // MARK: native node model (binary ops)
@@ -263,6 +314,14 @@ public final class TrustedValidator {
         }
     }
     public func rewriteMediaQuery(_ query: String) -> String { str("__v_rewriteMediaQuery", [query]) }
+    public var memoryUsage: [String: Int]? { thread.sync { [self] in js?.memoryUsage } }
+    public func collectGarbage() { thread.async { [self] in js?.collectGarbage() } }
+
+    /// `processOps` and the node count after it, read in the same turn of the validator's thread.
+    public func processOpsCounted(_ json: String) -> (ops: String, nodes: Int) {
+        thread.sync { [self] in (processOps(json), nodeCount) }
+    }
+
     public var nodeCount: Int { thread.sync { [self] in native?.nodeCount ?? Int((try? js?.call("__v_nodeCount"))?.number ?? 0) } }
 }
 

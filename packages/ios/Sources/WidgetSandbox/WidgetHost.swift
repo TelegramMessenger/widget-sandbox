@@ -53,42 +53,57 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var visible = true
         /// One WebKit environment (process pool, data store, content controller, rule list, scheme handler) for every renderer; see RendererEnvironment.
         public var sharedWebKit = false
-        /// One JSThread for every validator instead of a thread per widget (see TrustedValidator).
-        public var sharedValidatorThread = false
+        /// A few JSThreads shared by every validator instead of a thread per widget (see TrustedValidator).
+        public var sharedValidatorThread = true
         /// Take prewarmed parts from RendererPool / EnginePool / ValidatorPool when they have any, and recycle the validator on destroy.
         public var pools = false
+        /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`, `binaryOps`; empty means plain JSON.
+        public var features: Set<String> = []
+        /// Side channels next to the DOM protocol, one fresh instance per host (e.g. the twidget kit's 3D surfaces).
+        public var sideChannels: [() -> WidgetSideChannel] = []
         /// Build the QuickJS runtime and evaluate the sandbox bundle while the renderer document is still loading, instead of after `ready`.
         public var parallelBoot = false
-        /// Validate ops and queries on the validator's thread and hop to the main thread only to talk to the renderer, instead of blocking the main thread for each batch.
-        public var asyncValidation = false
-        /// Main-thread deliveries go through `MainPacer` (bounded work per run loop turn, order kept) instead of straight onto the main queue.
-        public var pacedDelivery = false
-        /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`; empty means plain JSON.
-        public var features: Set<String> = []
+        /// Ops and queries are always validated on the validator's thread; the main thread only talks to the renderer.
+        public var asyncValidation = true
+        /// Boot hosts that the feed creates ahead of the viewport on a background queue (WidgetPreparer) and adopt them once their first content is laid out.
+        public var backgroundBoot = false
         public init() {}
     }
 
     public let view: PlatformView
-    public private(set) var diagnostics = WidgetDiagnostics()
+    private var state = WidgetDiagnostics()
+    private let publishLock = NSLock()
+    private var published = WidgetDiagnostics()
+    public var diagnostics: WidgetDiagnostics {
+        publishLock.lock()
+        defer { publishLock.unlock() }
+        return published
+    }
+    public let executor: WidgetExecutor
+    public var rendererObject: Renderer { renderer }
     public var onChange: ((WidgetDiagnostics) -> Void)?
+    /// Called on the host's executor with every change, before the coalesced main-thread `onChange`.
+    public var onChangeOnExecutor: ((WidgetDiagnostics) -> Void)?
     public var onBridge: ((String, String) -> Void)?
-    /// Non-fatal uncaught exception in widget code (also in `diagnostics.logs`).
+    /// Non-fatal uncaught exception in widget code (also in `state.logs`).
     public var onError: ((String) -> Void)?
     /// Badge text shown by the renderer over a dead widget (user-facing, no error details).
     public var stoppedLabel = "Widget stopped"
 
     private let engine: SandboxEngine
+    private let sideChannels: [WidgetSideChannel]
     private let validator: TrustedValidator
     private let renderer: Renderer
-    /// Read once on the main thread; validation threads decide from it whether to parse validator output into `WidgetOp`s.
-    private var rendererAcceptsTypedOps = false
     private let options: Options
-    private let html: String
     private let config: SandboxConfig
     private var theme: String
     private var rendererReady = false
-    private var engineStarted = false
-    private var pendingToRenderer: [String] = []
+    private enum Outgoing {
+        case json(String)
+        case ops([WidgetOp])
+    }
+    private var pendingToRenderer: [Outgoing] = []
+    private let typedOps: Bool
     private var destroyed = false
     private var viewport: (w: Double, h: Double, dpr: Double)
     private var ownerVisible: Bool
@@ -99,18 +114,23 @@ public final class WidgetHost: SandboxEngineDelegate {
     private let minHeight: CGFloat = 24, maxHeight: CGFloat = 900
     private let createdAt = Date()
     private var opsSent = 0
+    public private(set) var frameCount = 0
 
     /// `rendererFactory`: the renderer; the WebView renderer when nil.
-    public init(html: String, theme: String = "light", width: CGFloat = 400, options: Options = Options(), resources: SandboxResources = .shared, rendererFactory: RendererFactory? = nil) throws {
+    public init(html: String, theme: String = "light", width: CGFloat = 400, options: Options = Options(), resources: SandboxResources = .shared, rendererFactory: RendererFactory? = nil, executor: WidgetExecutor = WidgetExecutor(), shell: WidgetShellPool.Shell? = nil) throws {
+        self.executor = executor
+        sideChannels = options.sideChannels.map { $0() }
         self.theme = theme
-        self.html = html
         self.options = options
         ownerVisible = options.visible
         let scale = PlatformScreen.scale
         viewport = (Double(width), 300, scale)
         var prewarmed: [String] = []
         var rendererLoaded = false
-        if let factory = rendererFactory {
+        if let shell = shell {
+            renderer = shell.renderer
+            prewarmed.append("shell")
+        } else if let factory = rendererFactory {
             renderer = factory(resources, theme, width)
         } else if options.pools, let pooled = RendererPool.shared.take() {
             pooled.setTheme(theme)
@@ -120,14 +140,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         } else {
             renderer = RendererWebView(rendererBundle: resources.rendererBundle, theme: theme, environment: options.sharedWebKit ? .shared : nil)
         }
-        let container = WidgetContainerView(frame: CGRect(x: 0, y: 0, width: width, height: 300))
-        renderer.view.frame = container.bounds
-        #if canImport(UIKit)
-        renderer.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        #else
-        renderer.view.autoresizingMask = [.width, .height]
-        #endif
-        container.addSubview(renderer.view)
+        typedOps = renderer.acceptsTypedOps
+        let container = shell?.container ?? WidgetShellPool.makeContainer(renderer, width: width)
         view = container
         var diagSink: ((String, String) -> Void) = { _, _ in }
         if options.pools, let pooled = ValidatorPool.shared.take(theme: theme) {
@@ -135,16 +149,16 @@ public final class WidgetHost: SandboxEngineDelegate {
             validator.onDiag = { k, d in diagSink(k, d) }
             prewarmed.append("validator")
         } else {
-            validator = try TrustedValidator(theme: theme, resources: resources, thread: options.sharedValidatorThread ? TrustedValidator.sharedThread : nil) { k, d in diagSink(k, d) }
+            validator = TrustedValidator.background(theme: theme, resources: resources, thread: options.sharedValidatorThread ? TrustedValidator.sharedThreadForNextValidator() : nil) { k, d in diagSink(k, d) }
         }
         var config = SandboxConfig(innerWidth: viewport.w, innerHeight: viewport.h, devicePixelRatio: scale, theme: theme)
-        config.features = options.features
         config.memoryLimitBytes = options.memoryLimitBytes
         config.cpuLimitMs = options.cpuLimitMs
         config.cpuQuotaMs = options.cpuQuotaMs
         config.cpuQuotaWindowMs = options.cpuQuotaWindowMs
         config.cpuKillAfterMs = options.cpuKillAfterMs
         config.maxTimers = options.maxTimers
+        config.features = options.features
         config.visible = options.visible
         self.config = config
         if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
@@ -153,33 +167,84 @@ public final class WidgetHost: SandboxEngineDelegate {
         } else {
             engine = SandboxEngine(resources: resources, features: options.features)
         }
-        diagnostics.prewarmed = prewarmed.joined(separator: "+")
-        rendererAcceptsTypedOps = renderer.acceptsTypedOps
-        // Binary ops are validated by the native node model, which must own the widget's nodes from the first batch.
-        if engine.runtimeFeatures.contains("binaryOps") { validator.useNativeModel(true) }
+        state.prewarmed = prewarmed.joined(separator: "+")
+        validator.useNativeModel(engine.runtimeFeatures.contains("binaryOps"))
         engine.delegate = self
-        // Runtime + sandbox bundle now, on the engine's thread, while WebKit loads the document.
-        if options.parallelBoot { engine.prewarm() }
+        let channels = sideChannels
+        engine.afterBoot = { js in channels.forEach { $0.install(in: js) } }
+        for channel in channels {
+            channel.connect(renderer)
+            channel.onDiag = { [weak self] k, d in self?.executor.async { self?.diag(k, d) } }
+        }
         diagSink = { [weak self] k, d in self?.diag(k, d) }
         renderer.onDiag = { [weak self] k, d in self?.diag(k, d) }
-        container.onWindowChange = { [weak self] inWindow in self?.inWindow = inWindow; self?.pushVisibility() }
-        // The widget boots once the renderer announced itself, so the very first
-        // layout queries have something to measure. A pooled renderer replays its
-        // buffered `ready` as soon as the listener is set.
+        if let scheduled = renderer as? ScheduledRenderer {
+            scheduled.schedule = { [weak executor] block in executor?.async(block) }
+            scheduled.scheduleAfter = { [weak executor] seconds, block in executor?.after(seconds, block) }
+            scheduled.isOnExecutor = { [weak executor] in executor?.isCurrent ?? Thread.isMainThread }
+            scheduled.scheduleUrgent = { [weak executor] block in executor?.urgent(block) }
+            scheduled.executorIsMain = { [weak executor] in executor?.isMain ?? true }
+        }
+        if shell != nil {
+            if executor.isMain || executor.isCurrent {
+                renderer.setTheme(theme)
+            } else {
+                let themed = renderer
+                executor.async { themed.setTheme(theme) }
+            }
+        }
+        container.onWindowChange = { [weak self] inWindow in
+            self?.onExecutor {
+                self?.inWindow = inWindow
+                self?.pushVisibility()
+            }
+        }
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
+        publish()
+        if !rendererLoaded && !executor.isMain && !executor.isCurrent {
+            rendererLoaded = true
+            let loading = renderer
+            executor.async { loading.load() }
+        }
+        engine.start(html: html, config: config)
+        let warmed = validator
+        warmed.perform { warmed.warmStylesheets(Self.styleTexts(in: html)) }
         if !rendererLoaded { renderer.load() }
     }
 
+    private func onExecutor(_ block: @escaping () -> Void) {
+        if executor.isCurrent {
+            block()
+        } else {
+            executor.async(block)
+        }
+    }
+
+    private func onMain(_ block: @escaping () -> Void) {
+        if Thread.isMainThread {
+            block()
+        } else {
+            DispatchQueue.main.async(execute: block)
+        }
+    }
+
+    public var isAdopted: Bool {
+        return executor.isMain
+    }
+
+    public func moveToMain(_ completion: @escaping () -> Void) {
+        executor.moveToMain(completion)
+    }
+
     public func setTheme(_ theme: String) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.setTheme(theme) }
+        }
         self.theme = theme
         renderer.setTheme(theme)
-        if options.asyncValidation {
-            validate { [self] in
-                let ops = validator.setTheme(theme)
-                toMain { self.toRenderer(Self.json(["type": "ops", "ops": Self.raw(ops)])) }
-            }
-        } else {
-            toRenderer(Self.json(["type": "ops", "ops": Self.raw(validator.setTheme(theme))]))
+        validate { [self] in
+            let ops = validator.setTheme(theme)
+            executor.paced { self.toRenderer("{\"type\":\"ops\",\"ops\":\(ops)}") }
         }
         engine.theme(theme)
     }
@@ -188,6 +253,12 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// bubble scrolled far away and wants to keep its picture. nil when the
     /// renderer cannot snapshot (not a WebView, or WebKit refused).
     public func snapshot(completion: @escaping (PlatformImage?) -> Void) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in
+                guard let self = self else { return DispatchQueue.main.async { completion(nil) } }
+                self.snapshot { image in DispatchQueue.main.async { completion(image) } }
+            }
+        }
         if destroyed { return completion(nil) }
         renderer.snapshot(completion: completion)
     }
@@ -201,24 +272,33 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// attachment is combined with it. Hidden: no animation frames, timers at
     /// 1 Hz, `document.hidden` / `visibilitychange` inside the widget.
     public func setVisible(_ visible: Bool) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.setVisible(visible) }
+        }
         ownerVisible = visible
         pushVisibility()
     }
 
     private func pushVisibility() {
         engine.setVisible(ownerVisible && inWindow)
+        sideChannels.forEach { $0.setVisible(ownerVisible && inWindow) }
     }
 
+
     public func destroy() {
+        guard executor.isCurrent else {
+            return executor.async { [self] in destroy() }
+        }
         if destroyed { return }
         destroyed = true
         engine.terminate()
+        sideChannels.forEach { $0.destroy() }
         renderer.destroy()
         resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
         validatorLock.lock()
         validatorReleased = true
         validatorLock.unlock()
-        if options.pools, validator.thread === TrustedValidator.sharedThread { ValidatorPool.shared.recycle(validator) }
+        if options.pools, TrustedValidator.isShared(validator.thread) { ValidatorPool.shared.recycle(validator) }
     }
 
     // MARK: engine → host (engine queue)
@@ -226,23 +306,12 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// Validation runs where the options say: inline on the main thread, or on
     /// the validator's thread with only the renderer call on main. Both keep the
     /// order of ops and queries: one serial validator, one serial main queue.
-    /// Work queued before destroy() must not run on a validator that went back
-    /// to the pool: it would feed this widget's ops into the next widget's model.
-    /// Every hop of this host to the main thread, in order.
-    private func toMain(_ block: @escaping () -> Void) {
-        if options.pacedDelivery { MainPacer.shared.async(block) } else { DispatchQueue.main.async(execute: block) }
-    }
-
     private let validatorLock = NSLock()
     private var validatorReleased = false
 
     private func validate(_ work: @escaping () -> Void) {
-        guard options.asyncValidation else {
-            toMain(work)
-            return
-        }
         validator.perform { [weak self] in
-            guard let self else { return }
+            guard let self = self else { return }
             self.validatorLock.lock()
             let released = self.validatorReleased
             self.validatorLock.unlock()
@@ -254,37 +323,43 @@ public final class WidgetHost: SandboxEngineDelegate {
         self.engine(engine, ops: json, canvas: [:])
     }
 
-    public func engine(_ engine: SandboxEngine, binaryOps payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) {
-        let typed = rendererAcceptsTypedOps
+    public func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
         validate { [self] in
-            let batch = validator.processBinary(payload, canvas: canvas, typed: typed)
+            let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
-            let deliver = {
+            executor.paced {
                 switch batch {
-                case .empty: break
-                case .json(let clean): self.toRenderer("{\"type\":\"ops\",\"ops\":\(clean)}"); self.opsSent += 1
-                case .ops(let ops): self.toRenderer(ops: ops); self.opsSent += 1
+                case .empty:
+                    break
+                case .json(let clean):
+                    self.opsSent += 1
+                    self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                case .ops(let ops):
+                    self.opsSent += 1
+                    self.toRenderer(.ops(ops))
                 }
-                self.diagnostics.nodes = nodes
+                self.state.nodes = nodes
             }
-            if options.asyncValidation { toMain(deliver) } else { deliver() }
         }
     }
 
-    public func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
-        let typed = rendererAcceptsTypedOps
+    public func engine(_ engine: SandboxEngine, binaryOps: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) {
         validate { [self] in
-            let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typed)
+            let batch = validator.processBinary(binaryOps, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
-            let deliver = {
+            executor.paced {
                 switch batch {
-                case .empty: break
-                case .json(let clean): self.toRenderer("{\"type\":\"ops\",\"ops\":\(clean)}"); self.opsSent += 1
-                case .ops(let ops): self.toRenderer(ops: ops); self.opsSent += 1
+                case .empty:
+                    break
+                case .json(let clean):
+                    self.opsSent += 1
+                    self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                case .ops(let ops):
+                    self.opsSent += 1
+                    self.toRenderer(.ops(ops))
                 }
-                self.diagnostics.nodes = nodes
+                self.state.nodes = nodes
             }
-            if options.asyncValidation { toMain(deliver) } else { deliver() }
         }
     }
 
@@ -307,7 +382,7 @@ public final class WidgetHost: SandboxEngineDelegate {
                 pending.id = self.qid
                 self.toRenderer("{\"type\":\"query\",\"qid\":\(self.qid),\"query\":\(clean)}")
             }
-            if options.asyncValidation { toMain(send) } else { send() }
+            executor.paced(send)
         }
         if pending.semaphore.wait(timeout: .now() + 3) == .timedOut {
             queryLock.lock()
@@ -333,39 +408,40 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let types = validator.validateListen(json)
             let send = { self.toRenderer("{\"type\":\"listen\",\"types\":\(types)}") }
-            if options.asyncValidation { toMain(send) } else { send() }
+            executor.paced(send)
         }
     }
     public func engine(_ engine: SandboxEngine, preventDefault json: String) {
         validate { [self] in
             let keys = validator.validatePreventDefault(json)
             let send = { self.toRenderer("{\"type\":\"preventDefault\",\"keys\":\(keys)}") }
-            if options.asyncValidation { toMain(send) } else { send() }
+            executor.paced(send)
         }
     }
     public func engineRequestsFrame(_ engine: SandboxEngine) {
-        toMain { self.toRenderer("{\"type\":\"requestFrame\"}") }
+        executor.paced { self.toRenderer("{\"type\":\"requestFrame\"}") }
     }
     public func engine(_ engine: SandboxEngine, log level: String, text: String) {
-        toMain {
-            if self.diagnostics.logs.count < 5000 { self.diagnostics.logs.append((level, text)) }
+        executor.async {
+            if self.state.logs.count < 5000 { self.state.logs.append((level, text)) }
             if level == "error", text.hasPrefix("Uncaught ") {
-                self.diagnostics.lastError = text
-                self.tasksAtError = self.diagnostics.stats.tasks
-                self.onError?(text)
+                self.state.lastError = text
+                self.tasksAtError = self.state.stats.tasks
+                let onError = self.onError
+                self.onMain { onError?(text) }
             }
             self.changed()
         }
     }
     private var tasksAtError = 0
     public func engine(_ engine: SandboxEngine, diag kind: String, detail: String) {
-        toMain { self.diag(kind, detail) }
+        executor.async { self.diag(kind, detail) }
     }
     public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) {
-        toMain {
-            self.diagnostics.bridge.append((method, argsJson))
-            self.onBridge?(method, argsJson)
+        executor.async {
+            self.state.bridge.append((method, argsJson))
             self.changed()
+            self.onMain { self.onBridge?(method, argsJson) }
         }
     }
     public func engineLoaded(_ engine: SandboxEngine) {
@@ -374,27 +450,27 @@ public final class WidgetHost: SandboxEngineDelegate {
         // then one trusted query to the renderer: its answer comes after every size report those ops produced.
         validate { [self] in
             let deliver = {
-                self.diagnostics.loaded = true
-                self.diagnostics.loadedMs = loadedMs
+                self.state.loaded = true
+                self.state.loadedMs = loadedMs
                 self.changed()
                 self.toRenderer("{\"type\":\"query\",\"qid\":\(Self.renderAckQid),\"query\":{\"q\":\"viewport\"}}")
             }
-            if options.asyncValidation { toMain(deliver) } else { deliver() }
+            executor.paced(deliver)
         }
     }
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     private static let renderAckQid = -1
     public func engine(_ engine: SandboxEngine, stats: SandboxStats) {
-        toMain {
-            self.diagnostics.stats = stats
-            if self.diagnostics.lastError != nil, stats.tasks > self.tasksAtError + 1 { self.diagnostics.lastError = nil }
+        executor.async {
+            self.state.stats = stats
+            if self.state.lastError != nil, stats.tasks > self.tasksAtError + 1 { self.state.lastError = nil }
             self.changed()
         }
     }
     public func engine(_ engine: SandboxEngine, died reason: String) {
-        toMain {
-            if self.diagnostics.dead != nil { return }
-            self.diagnostics.dead = reason
+        executor.paced {
+            if self.state.dead != nil { return }
+            self.state.dead = reason
             self.changed()
             self.resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
             // The renderer stays: last render as fallback, badge from the renderer, no more events or frames.
@@ -404,6 +480,9 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     /// Trusted script evaluated in the renderer (tests and diagnostics only); "null" from a renderer without script.
     public func evaluateInRenderer(_ script: String, completion: @escaping (String) -> Void) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.evaluateInRenderer(script) { value in DispatchQueue.main.async { completion(value) } } }
+        }
         renderer.evaluate(script) { completion($0 ?? "null") }
     }
 
@@ -415,14 +494,10 @@ public final class WidgetHost: SandboxEngineDelegate {
         case "ready":
             if rendererReady { return }
             rendererReady = true
-            diagnostics.rendererReadyMs = Date().timeIntervalSince(createdAt) * 1000
+            state.rendererReadyMs = Date().timeIntervalSince(createdAt) * 1000
             let queued = pendingToRenderer
             pendingToRenderer = []
-            queued.forEach(renderer.send)
-            if !engineStarted {
-                engineStarted = true
-                engine.start(html: html, config: config)
-            }
+            queued.forEach(deliver)
         case "event":
             if let ev = msg["ev"] {
                 if let gesture = gesture(for: ev) {
@@ -434,9 +509,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         case "result":
             guard let id = (msg["qid"] as? NSNumber)?.intValue else { return }
             if id == Self.renderAckQid {
-                if !diagnostics.rendered {
-                    diagnostics.rendered = true
-                    diagnostics.renderedMs = Date().timeIntervalSince(createdAt) * 1000
+                if !state.rendered {
+                    state.rendered = true
+                    state.renderedMs = Date().timeIntervalSince(createdAt) * 1000
                     changed()
                 }
                 return
@@ -449,12 +524,12 @@ public final class WidgetHost: SandboxEngineDelegate {
             resolveQuery(json: Self.json(msg["result"] ?? NSNull()), binary: binary)
         case "size":
             let height = min(max(CGFloat((msg["height"] as? NSNumber)?.doubleValue ?? 0), minHeight), maxHeight)
-            if diagnostics.firstContentMs == nil, opsSent > 0 {
-                diagnostics.firstContentMs = Date().timeIntervalSince(createdAt) * 1000
+            if state.firstContentMs == nil, opsSent > 0, (msg["painted"] as? Bool) != false {
+                state.firstContentMs = Date().timeIntervalSince(createdAt) * 1000
                 changed()
             }
-            if height != diagnostics.height {
-                diagnostics.height = height
+            if height != state.height {
+                state.height = height
                 changed()
             }
             let vp = ((msg["innerWidth"] as? NSNumber)?.doubleValue ?? viewport.w, (msg["innerHeight"] as? NSNumber)?.doubleValue ?? viewport.h, (msg["dpr"] as? NSNumber)?.doubleValue ?? viewport.dpr)
@@ -465,6 +540,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         case "resize":
             if let entries = msg["entries"] { engine.resize(entriesJson: Self.json(entries)) }
         case "frame":
+            frameCount += 1
             engine.frame(time: (msg["time"] as? NSNumber)?.doubleValue ?? 0)
         case "media":
             engine.theme(theme)
@@ -476,31 +552,54 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
 
     private func toRenderer(_ json: String) {
-        if destroyed { return }
-        if rendererReady { renderer.send(json) } else { pendingToRenderer.append(json) }
+        toRenderer(.json(json))
     }
 
-    private func toRenderer(ops: [WidgetOp]) {
+    private func toRenderer(_ message: Outgoing) {
         if destroyed { return }
-        if rendererReady { renderer.send(ops: ops) } else { pendingToRenderer.append("{\"type\":\"ops\",\"ops\":\(WidgetOp.json(ops))}") }
+        if rendererReady { deliver(message) } else { pendingToRenderer.append(message) }
+    }
+
+    private func deliver(_ message: Outgoing) {
+        switch message {
+        case .json(let json): renderer.send(json)
+        case .ops(let ops): renderer.send(ops: ops)
+        }
     }
 
     private func diag(_ kind: String, _ detail: String) {
-        var entry = diagnostics.diags[kind] ?? (0, [])
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.diag(kind, detail) }
+        }
+        var entry = state.diags[kind] ?? (0, [])
         entry.count += 1
         if entry.details.count < 50 { entry.details.append(detail) }
-        diagnostics.diags[kind] = entry
+        state.diags[kind] = entry
         changed()
     }
 
     private var changeScheduled = false
+    private func publish() {
+        publishLock.lock()
+        published = state
+        publishLock.unlock()
+    }
+
     private func changed() {
         // Coalesce UI updates: a misbehaving widget can emit thousands of diagnostics per second.
-        if changeScheduled { return }
+        onChangeOnExecutor?(state)
+        publishLock.lock()
+        published = state
+        let schedule = !changeScheduled
         changeScheduled = true
-        toMain {
+        publishLock.unlock()
+        guard schedule else { return }
+        DispatchQueue.main.async {
+            self.publishLock.lock()
             self.changeScheduled = false
-            self.onChange?(self.diagnostics)
+            let snapshot = self.published
+            self.publishLock.unlock()
+            self.onChange?(snapshot)
         }
     }
 
@@ -537,8 +636,17 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         return true
     }
-    /// Embeds already-serialized JSON inside a dictionary passed to `json(_:)`.
-    private static func raw(_ json: String) -> Any { SandboxEngine.parse(json) ?? [] }
+
+    static func styleTexts(in html: String, limit: Int = 4) -> [String] {
+        var texts: [String] = []
+        var rest = html[...]
+        while texts.count < limit, let open = rest.range(of: "<style", options: .caseInsensitive), let tagEnd = rest[open.upperBound...].firstIndex(of: ">"),
+              let close = rest[rest.index(after: tagEnd)...].range(of: "</style", options: .caseInsensitive) {
+            texts.append(String(rest[rest.index(after: tagEnd)..<close.lowerBound]))
+            rest = rest[close.upperBound...]
+        }
+        return texts
+    }
 }
 
 #if canImport(UIKit)

@@ -13,7 +13,7 @@
 //   __twValidator.isCanvas(id)              → boolean (would a canvas op for id be accepted)
 // Diagnostics are reported through `__diag(kind, detail)` if the host defines it.
 
-import { sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet } from './css-sanitizer';
+import { clearStylesheetCache, sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet } from './css-sanitizer';
 import { Validator, validatorTables } from './validator';
 
 declare const __diag: ((kind: string, detail: string) => void) | undefined;
@@ -30,6 +30,7 @@ const v = () => {
 
 (globalThis as any).__twValidator = {
   create(theme: 'light' | 'dark') {
+    clearStylesheetCache();
     validator = new Validator(diag, { colorScheme: theme === 'dark' ? 'dark' : 'light' });
   },
   processOps(json: string) {
@@ -60,6 +61,12 @@ const v = () => {
   // For a native node model (Swift NativeValidator): the rules as data and the
   // stateless sanitizers; with native('1') the queries ask the host's model
   // through __twNode(id) → tag or ''.
+  /** Sanitizes the stylesheets of a widget that is still booting (results and diagnostics are cached, nothing is reported now). */
+  warmStylesheets(json: string) {
+    const texts = JSON.parse(json);
+    if (Array.isArray(texts)) for (const t of texts.slice(0, 16)) if (typeof t === 'string' && t.length < 262_144) sanitizeStylesheet(t, () => {}, v().cssEnv);
+    return '';
+  },
   tables() {
     return JSON.stringify(validatorTables());
   },

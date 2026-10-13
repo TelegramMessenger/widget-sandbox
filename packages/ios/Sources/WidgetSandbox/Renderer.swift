@@ -2,8 +2,8 @@
 // docs/protocol.md (host → renderer: ops / query / listen / preventDefault /
 // requestFrame / frozen; renderer → host: ready / event / gesture / result /
 // size / resize / frame / media / violation). RendererWebView is the product
-// renderer; other implementations (the Blitz prototype in the demo) plug in
-// through WidgetHost's `rendererFactory`. All members are main-thread.
+// renderer; other implementations plug in through WidgetHost's
+// `rendererFactory`. All members are main-thread.
 // Mirrors Renderer.kt on Android.
 
 import Foundation
@@ -19,9 +19,7 @@ public protocol Renderer: AnyObject {
     func load()
     /// Host → renderer message (JSON).
     func send(_ json: String)
-    /// True for an in-process renderer that takes validated ops already parsed (`send(ops:)`); the host then skips the JSON text.
     var acceptsTypedOps: Bool { get }
-    /// Validated ops as typed values, the same batch `send(_:)` would get as `{type:'ops'}`.
     func send(ops: [WidgetOp])
     /// The chat theme changed (`prefers-color-scheme` inside the renderer).
     func setTheme(_ theme: String)
@@ -33,9 +31,9 @@ public protocol Renderer: AnyObject {
 }
 
 public extension Renderer {
+    func snapshot(completion: @escaping (PlatformImage?) -> Void) { completion(nil) }
     var acceptsTypedOps: Bool { false }
     func send(ops: [WidgetOp]) { send("{\"type\":\"ops\",\"ops\":\(WidgetOp.json(ops))}") }
-    func snapshot(completion: @escaping (PlatformImage?) -> Void) { completion(nil) }
 }
 
 /// Builds a renderer for one widget: the shared resources, the chat theme and the width in CSS px (= points).
@@ -47,4 +45,13 @@ extension RendererWebView: Renderer {
     public func evaluate(_ script: String, completion: @escaping (String?) -> Void) {
         webView.evaluateJavaScript(script) { value, _ in completion(value.map { "\($0)" }) }
     }
+}
+
+/// A renderer whose deferred work (re-renders, timers) runs where its host runs: on a background queue while the host is prepared off-screen, on the main thread once adopted.
+public protocol ScheduledRenderer: AnyObject {
+    var schedule: (@escaping () -> Void) -> Void { get set }
+    var scheduleAfter: (TimeInterval, @escaping () -> Void) -> Void { get set }
+    var isOnExecutor: () -> Bool { get set }
+    var scheduleUrgent: (@escaping () -> Void) -> Void { get set }
+    var executorIsMain: () -> Bool { get set }
 }

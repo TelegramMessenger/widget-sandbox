@@ -40,6 +40,8 @@ final class PoolsTests: XCTestCase {
         let text = await withCheckedContinuation { c in host.evaluateInRenderer("document.body.textContent") { c.resume(returning: $0) } }
         XCTAssertEqual(text, "pooled ok")
         host.destroy()
+        // The validator re-enters the pool from its own thread, after its reset.
+        try await wait(5) { ValidatorPool.shared.recycled == recycledBefore + 1 }
         XCTAssertEqual(ValidatorPool.shared.recycled, recycledBefore + 1)
         RendererPool.shared.targetSize = 0; EnginePool.shared.targetSize = 0; ValidatorPool.shared.targetSize = 0
         RendererPool.shared.drain(); EnginePool.shared.drain(); ValidatorPool.shared.drain()

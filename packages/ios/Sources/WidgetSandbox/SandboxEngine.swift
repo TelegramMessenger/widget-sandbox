@@ -214,6 +214,9 @@ public final class SandboxEngine {
     /// Canvas word payloads (`__hostCanvas`) for the next ops batch, by key.
     private var stagedCanvas: [Int: WidgetCanvasBatch] = [:]
     private var stagedWords = 0
+    /// Runs on the engine's thread right after the sandbox bundle booted, before widget code (side channels install their globals here).
+    public var afterBoot: ((QuickJSContext) -> Void)?
+
     /// The intern table of the binary op stream (`binaryOps`); one per runtime.
     /// Used only on the JSON fallback (`engine(_:binaryOps:canvas:)`'s default), on the delegate's thread.
     let internTable = BinaryInternTable()
@@ -226,6 +229,10 @@ public final class SandboxEngine {
     private var prewarmFailed = false
 
     public var isPrewarmed: Bool { queue.sync { self.prewarmed } }
+
+    /// `JS_ComputeMemoryUsage` of the widget's runtime, nil once it is gone (diagnostics and memory tests).
+    public var memoryUsage: [String: Int]? { queue.sync { self.js?.memoryUsage } }
+    public func collectGarbage() { queue.async { self.js?.collectGarbage() } }
 
     public func start() {
         queue.async { self.boot() }
@@ -298,6 +305,7 @@ public final class SandboxEngine {
             return
         }
         bundleEval = ((CACurrentMediaTime() - t0) * 1000, how)
+        js.collectGarbage()
         prewarmed = true
     }
 
@@ -324,9 +332,13 @@ public final class SandboxEngine {
                 ],
             ])
             self.callTw("boot", bootArg)
+            if !self.dead, let afterBoot = self.afterBoot {
+                afterBoot(self.js)
+            }
         }
         task("boot", sliceMs: config.cpuLimitMs) { self.callTw("loaded", "") }
         if !dead { delegate?.engineLoaded(self) }
+        if !dead { js.collectGarbage() }
         postStats(force: true)
         let queued = pendingBeforeBoot
         pendingBeforeBoot.removeAll()
@@ -360,6 +372,7 @@ public final class SandboxEngine {
             self.visible = v
             guard self.js != nil else { return } // boot reads `visible` for the shim
             self.dispatch("visibility", "{\"visible\":\(v)}")
+            if !v, !self.dead { self.js.collectGarbage() }
             if v {
                 if self.frameWanted { self.frameWanted = false; self.delegate?.engineRequestsFrame(self) }
                 if !self.deferred.isEmpty { self.wake() }
@@ -570,6 +583,8 @@ public final class SandboxEngine {
         wakeTimer?.cancel()
         wakeTimer = nil
         delegate?.engine(self, died: reason)
+        // The runtime is gone for good: free its heap now instead of with the engine.
+        queue.async { self.js = nil }
     }
 
     private func handleError(_ error: Error, where location: String) {
