@@ -54,7 +54,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         /// One WebKit environment (process pool, data store, content controller, rule list, scheme handler) for every renderer; see RendererEnvironment.
         public var sharedWebKit = false
         /// A few JSThreads shared by every validator instead of a thread per widget (see TrustedValidator).
-        public var sharedValidatorThread = true
+        public var sharedValidatorThread = false
         /// Take prewarmed parts from RendererPool / EnginePool / ValidatorPool when they have any, and recycle the validator on destroy.
         public var pools = false
         /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`, `binaryOps`; empty means plain JSON.
@@ -63,8 +63,10 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var sideChannels: [() -> WidgetSideChannel] = []
         /// Build the QuickJS runtime and evaluate the sandbox bundle while the renderer document is still loading, instead of after `ready`.
         public var parallelBoot = false
-        /// Ops and queries are always validated on the validator's thread; the main thread only talks to the renderer.
-        public var asyncValidation = true
+        /// Run the widget's own scripts as soon as the host exists instead of after the renderer's `ready`; queries made before the renderer loads wait for it.
+        public var startBeforeRendererReady = false
+        /// Validate ops and queries on the validator's thread and only talk to the renderer on the executor; false validates on the executor itself.
+        public var asyncValidation = false
         /// Boot hosts that the feed creates ahead of the viewport on a background queue (WidgetPreparer) and adopt them once their first content is laid out.
         public var backgroundBoot = false
         public var assetResolver: WidgetAssetResolver?
@@ -99,6 +101,8 @@ public final class WidgetHost: SandboxEngineDelegate {
     private let config: SandboxConfig
     private var theme: String
     private var rendererReady = false
+    private var engineStarted = false
+    private let html: String
     private enum Outgoing {
         case json(String)
         case ops([WidgetOp])
@@ -120,6 +124,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// `rendererFactory`: the renderer; the WebView renderer when nil.
     public init(html: String, theme: String = "light", width: CGFloat = 400, options: Options = Options(), resources: SandboxResources = .shared, rendererFactory: RendererFactory? = nil, executor: WidgetExecutor = WidgetExecutor(), shell: WidgetShellPool.Shell? = nil) throws {
         self.executor = executor
+        self.html = html
         sideChannels = options.sideChannels.map { $0() }
         self.theme = theme
         self.options = options
@@ -208,10 +213,20 @@ public final class WidgetHost: SandboxEngineDelegate {
             let loading = renderer
             executor.async { loading.load() }
         }
-        engine.start(html: html, config: config)
+        if options.startBeforeRendererReady {
+            startEngine()
+        } else if options.parallelBoot {
+            engine.prewarm()
+        }
         let warmed = validator
         warmed.perform { warmed.warmStylesheets(Self.styleTexts(in: html)) }
         if !rendererLoaded { renderer.load() }
+    }
+
+    private func startEngine() {
+        if engineStarted { return }
+        engineStarted = true
+        engine.start(html: html, config: config)
     }
 
     private func onExecutor(_ block: @escaping () -> Void) {
@@ -246,7 +261,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         renderer.setTheme(theme)
         validate { [self] in
             let ops = validator.setTheme(theme)
-            executor.paced { self.toRenderer("{\"type\":\"ops\",\"ops\":\(ops)}") }
+            deliver { self.toRenderer("{\"type\":\"ops\",\"ops\":\(ops)}") }
         }
         engine.theme(theme)
     }
@@ -305,20 +320,38 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     // MARK: engine → host (engine queue)
 
-    /// Validation runs where the options say: inline on the main thread, or on
-    /// the validator's thread with only the renderer call on main. Both keep the
-    /// order of ops and queries: one serial validator, one serial main queue.
+    /// Validation runs where the options say: on the executor, or on the
+    /// validator's thread with only the renderer call on the executor. Both keep
+    /// the order of ops, queries, bridge calls and diagnostics: one serial
+    /// validator, one serial paced queue.
     private let validatorLock = NSLock()
     private var validatorReleased = false
 
     private func validate(_ work: @escaping () -> Void) {
-        validator.perform { [weak self] in
+        let guarded = { [weak self] in
             guard let self = self else { return }
             self.validatorLock.lock()
             let released = self.validatorReleased
             self.validatorLock.unlock()
             if !released { work() }
         }
+        if options.asyncValidation {
+            validator.perform(guarded)
+        } else {
+            executor.paced(guarded)
+        }
+    }
+
+    private func deliver(_ block: @escaping () -> Void) {
+        if options.asyncValidation {
+            executor.paced(block)
+        } else {
+            block()
+        }
+    }
+
+    private func inOrder(_ block: @escaping () -> Void) {
+        validate { [self] in deliver(block) }
     }
 
     public func engine(_ engine: SandboxEngine, ops json: String) {
@@ -329,7 +362,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
-            executor.paced {
+            deliver {
                 switch batch {
                 case .empty:
                     break
@@ -349,7 +382,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let batch = validator.processBinary(binaryOps, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
-            executor.paced {
+            deliver {
                 switch batch {
                 case .empty:
                     break
@@ -384,7 +417,7 @@ public final class WidgetHost: SandboxEngineDelegate {
                 pending.id = self.qid
                 self.toRenderer("{\"type\":\"query\",\"qid\":\(self.qid),\"query\":\(clean)}")
             }
-            executor.paced(send)
+            deliver(send)
         }
         if pending.semaphore.wait(timeout: .now() + 3) == .timedOut {
             queryLock.lock()
@@ -409,15 +442,13 @@ public final class WidgetHost: SandboxEngineDelegate {
     public func engine(_ engine: SandboxEngine, listen json: String) {
         validate { [self] in
             let types = validator.validateListen(json)
-            let send = { self.toRenderer("{\"type\":\"listen\",\"types\":\(types)}") }
-            executor.paced(send)
+            deliver { self.toRenderer("{\"type\":\"listen\",\"types\":\(types)}") }
         }
     }
     public func engine(_ engine: SandboxEngine, preventDefault json: String) {
         validate { [self] in
             let keys = validator.validatePreventDefault(json)
-            let send = { self.toRenderer("{\"type\":\"preventDefault\",\"keys\":\(keys)}") }
-            executor.paced(send)
+            deliver { self.toRenderer("{\"type\":\"preventDefault\",\"keys\":\(keys)}") }
         }
     }
     public func engine(_ engine: SandboxEngine, anim json: String) {
@@ -432,7 +463,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         executor.paced { self.toRenderer("{\"type\":\"requestFrame\"}") }
     }
     public func engine(_ engine: SandboxEngine, log level: String, text: String) {
-        executor.async {
+        inOrder {
             if self.state.logs.count < 5000 { self.state.logs.append((level, text)) }
             if level == "error", text.hasPrefix("Uncaught ") {
                 self.state.lastError = text
@@ -445,10 +476,10 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
     private var tasksAtError = 0
     public func engine(_ engine: SandboxEngine, diag kind: String, detail: String) {
-        executor.async { self.diag(kind, detail) }
+        inOrder { self.diag(kind, detail) }
     }
     public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) {
-        executor.async {
+        inOrder {
             self.state.bridge.append((method, argsJson))
             self.changed()
             self.onMain { self.onBridge?(method, argsJson) }
@@ -465,7 +496,7 @@ public final class WidgetHost: SandboxEngineDelegate {
                 self.changed()
                 self.toRenderer("{\"type\":\"query\",\"qid\":\(Self.renderAckQid),\"query\":{\"q\":\"viewport\"}}")
             }
-            executor.paced(deliver)
+            self.deliver(deliver)
         }
     }
     /// qid of the host's own post-load ack query; engine queries count up from 1.
@@ -508,6 +539,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             let queued = pendingToRenderer
             pendingToRenderer = []
             queued.forEach(deliver)
+            startEngine()
         case "event":
             if let ev = msg["ev"] {
                 if let gesture = gesture(for: ev) {

@@ -16,17 +16,15 @@ nothing until the host lists them; "default" items apply to every host.
 | The host functions and `__twDispatch` are deleted from the global object after boot, and a sandbox bundle that fails to load (or cannot hide them) kills the widget before any widget code runs | all | none | A host loading an older JS bundle through `SandboxResources(bundle:)` gets every widget killed. |
 | In-place `textContent` updates and the attribute fast paths run by default | all | features `noInPlaceText`, `noAttrFast` | Same ops as the full paths (differential fuzz tests on TS and Swift). |
 | QuickJS is the TelegramMessenger/quickjs fork as a git submodule on every platform | all | none | SwiftPM and Xcode clone it for git dependencies; registry/zip copies without submodules fail to build. Web uses `packages/quickjs-wasm` (workspace package, committed build) instead of the npm variant. |
-| iOS/macOS `WidgetHost.Options` defaults: `sharedValidatorThread` false -> true, `asyncValidation` false -> true; validation always runs on the validator thread | iOS, macOS | `sharedValidatorThread = false` | `asyncValidation = false` is no longer honoured. |
-| iOS/macOS `WidgetHost` starts the engine in `init` instead of on the renderer's `ready` | iOS, macOS | none | A sync query before the renderer loads waits up to the 3 s query timeout. |
-| iOS/macOS main-thread delivery goes through `MainPacer` (ops, queries, frames) while logs, diags, stats and bridge use `DispatchQueue.main` | iOS, macOS | none | Bridge and error callbacks can arrive before an earlier ops batch reaches the renderer. |
 
-Pending on branch `appsync`, same kind: complex-script text changes draw from 8192 words refilling at 1024 per second (`text-churn`), all platforms, no opt-out.
+Also by default: complex-script text changes draw from 8192 words refilling at 1024 per second (`text-churn`), all platforms, no opt-out.
 
 ## Opt-in (nothing changes until the host lists them)
 
 - `config.features`: `canvasWords`, `binaryOps` (native node model validates binary batches), `webAnimations` (Element.animate and the `anim` message).
 - `WidgetHost.Options.assetResolver` (iOS/macOS): `icon:` images expanded to `data:image/` before validation.
 - `WidgetHost.Options.sideChannels` (iOS/macOS): side channels such as `Widget3DChannel`.
+- `WidgetHost.Options` (iOS/macOS) keep their old defaults (`asyncValidation` and `sharedValidatorThread` false, the widget starts on the renderer's `ready`, `parallelBoot` only prewarms the runtime). New: `startBeforeRendererReady` runs the widget while the renderer loads. Ops, queries, bridge calls, logs and diagnostics reach the main thread in the order the widget produced them in both validation modes.
 - `SandboxResources.provide` (iOS/macOS): extra bundled libraries such as three.js.
 
 ## API
