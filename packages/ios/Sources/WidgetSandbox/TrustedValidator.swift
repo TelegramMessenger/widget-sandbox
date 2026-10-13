@@ -113,6 +113,7 @@ public final class TrustedValidator {
             globalThis.__v_isCanvas = (id) => __twValidator.isCanvas(Number(id)) ? 1 : 0;
             globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };
             globalThis.__v_tables = () => __twValidator.tables();
+            globalThis.__v_setPolicy = (p) => __twValidator.setPolicy ? __twValidator.setPolicy(p) : '';
             globalThis.__v_warmCss = (j) => __twValidator.warmStylesheets(j);
             globalThis.__v_native = (f) => __twValidator.native(f);
             globalThis.__v_cssProp = (n, v) => __twValidator.cssProp(n, v);
@@ -155,6 +156,7 @@ public final class TrustedValidator {
             if native != nil { _ = str("__v_native", ["0"]) }
             native = nil
             icons = nil
+            policy = .compat
         }
         _ = str("__v_create", [theme])
         thread.sync { [self] in js?.collectGarbage() }
@@ -178,7 +180,7 @@ public final class TrustedValidator {
     var nativeModel: NativeValidator? { native }
     fileprivate var oracleDiagnostics = 0
     private static let tablesLock = NSLock()
-    private static var cachedTables: NativeValidatorTables?
+    private static var cachedTables: [SandboxPolicy: NativeValidatorTables] = [:]
 
     public var usesNativeModel: Bool { thread.sync { [self] in native != nil } }
 
@@ -211,10 +213,25 @@ public final class TrustedValidator {
     private func loadTables() -> NativeValidatorTables? {
         Self.tablesLock.lock()
         defer { Self.tablesLock.unlock() }
-        if let cached = Self.cachedTables { return cached }
+        if let cached = Self.cachedTables[policy] { return cached }
         let tables = NativeValidatorTables(json: str("__v_tables", []))
-        Self.cachedTables = tables
+        Self.cachedTables[policy] = tables
         return tables
+    }
+
+    public private(set) var policy: SandboxPolicy = .compat
+
+    public func setPolicy(_ policy: SandboxPolicy) {
+        thread.async { [self] in
+            guard js != nil, self.policy != policy else { return }
+            _ = str("__v_setPolicy", [policy.rawValue])
+            self.policy = policy
+            if native != nil {
+                _ = str("__v_native", ["0"])
+                native = nil
+                onDiag("validator-error", "policy changed after the native model started")
+            }
+        }
     }
 
     /// A binary ops batch through the native model (`useNativeModel(true)` first).

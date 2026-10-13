@@ -29,7 +29,9 @@ final class UserActivationTests: XCTestCase {
 
         init(_ html: String, timeout: TimeInterval = 5) {
             let renderer = self.renderer
-            host = try! WidgetHost(html: html, theme: "light", width: 300, rendererFactory: { _, _, _ in renderer })
+            var options = WidgetHost.Options()
+            options.policy = .strict
+            host = try! WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
             host.onBridge = { [weak self] method, args in self?.bridge.append((method, args)) }
             pump(timeout) { self.host.diagnostics.rendered || self.host.diagnostics.dead != nil }
         }

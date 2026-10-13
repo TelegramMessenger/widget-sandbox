@@ -7,9 +7,10 @@ final class NativeValidatorDifferentialTests: XCTestCase {
         let validator: TrustedValidator
         var diags: [String] = []
 
-        init(native: Bool) {
+        init(native: Bool, policy: SandboxPolicy = .compat) {
             validator = try! TrustedValidator(theme: "light") { _, _ in }
             validator.onDiag = { [unowned self] k, d in self.diags.append(k + "|" + d) }
+            validator.setPolicy(policy)
             if native { validator.useNativeModel(true) }
             XCTAssertEqual(validator.usesNativeModel, native)
         }

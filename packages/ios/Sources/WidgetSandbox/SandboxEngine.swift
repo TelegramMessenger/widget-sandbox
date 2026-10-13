@@ -11,6 +11,11 @@ import WidgetSandboxProtocol
 import QuartzCore
 
 /// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts.
+public enum SandboxPolicy: String {
+    case compat
+    case strict
+}
+
 public struct SandboxConfig {
     public var memoryLimitBytes = 64 << 20
     /// Longest continuous run of widget JS in one task before the runtime is killed.
@@ -31,6 +36,7 @@ public struct SandboxConfig {
     /// Optional wire forms the host understands (docs/protocol.md, "Features"); empty means plain JSON.
     /// `canvasWords`: canvas commands arrive as word payloads and are spliced back into the ops JSON.
     public var features: Set<String> = []
+    public var policy: SandboxPolicy = .compat
 
     public init(innerWidth: Double, innerHeight: Double, devicePixelRatio: Double, theme: String) {
         self.innerWidth = innerWidth
@@ -533,7 +539,7 @@ public final class SandboxEngine {
             if let pair = Self.parse(arg) as? [Any], pair.count == 2, let method = pair[0] as? String,
                let argsData = try? JSONSerialization.data(withJSONObject: pair[1], options: [.fragmentsAllowed]) {
                 let name = String(method.prefix(64))
-                if !Self.unprivilegedBridgeMethods.contains(name) {
+                if config.policy == .strict, !Self.unprivilegedBridgeMethods.contains(name) {
                     guard activeGesture > consumedGesture, visible else {
                         if blockedBridgeReported < 20 {
                             blockedBridgeReported += 1

@@ -70,6 +70,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         /// Boot hosts that the feed creates ahead of the viewport on a background queue (WidgetPreparer) and adopt them once their first content is laid out.
         public var backgroundBoot = false
         public var assetResolver: WidgetAssetResolver?
+        public var policy: SandboxPolicy = .compat
         public init() {}
     }
 
@@ -166,6 +167,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.maxTimers = options.maxTimers
         config.features = options.features
         config.visible = options.visible
+        config.policy = options.policy
         self.config = config
         if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
             engine = pooled
@@ -175,6 +177,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         state.prewarmed = prewarmed.joined(separator: "+")
         validator.setAssetResolver(options.assetResolver)
+        validator.setPolicy(options.policy)
         validator.useNativeModel(engine.runtimeFeatures.contains("binaryOps"))
         engine.delegate = self
         let channels = sideChannels

@@ -3,9 +3,29 @@ import XCTest
 
 /// Text nodes are capped at 64 KB by the validator bundle every native glue loads.
 final class TextBudgetTests: XCTestCase {
+    static var strict: WidgetHost.Options {
+        var options = WidgetHost.Options()
+        options.policy = .strict
+        return options
+    }
+
+    func testCompatPolicyKeepsTheOldLimits() {
+        let renderer = RecordingRenderer()
+        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(1024*1024);document.getElementById('b').textContent='\\u0627'.repeat(20000);</script>", theme: "light", width: 300, rendererFactory: { _, _, _ in renderer })
+        defer { host.destroy() }
+        let deadline = Date().addingTimeInterval(5)
+        while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        let all = renderer.messages.joined()
+        XCTAssertTrue(all.contains(String(repeating: "a", count: 1024 * 1024)))
+        XCTAssertTrue(all.contains(String(repeating: "\u{0627}", count: 20000)))
+        XCTAssertNil(host.diagnostics.diags["text-budget"])
+    }
+
     func testTextNodesAreCappedAt64KB() {
         let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(64*1024);document.getElementById('b').textContent='b'.repeat(64*1024+1);</script>", theme: "light", width: 300, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(64*1024);document.getElementById('b').textContent='b'.repeat(64*1024+1);</script>", theme: "light", width: 300, options: Self.strict, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
@@ -20,7 +40,7 @@ final class TextBudgetTests: XCTestCase {
     /// 8192 complex-script units per document, through the validator bundle every native glue loads.
     func testComplexTextIsBudgetedPerDocument() {
         let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='\\u0627'.repeat(8000);document.getElementById('b').textContent='\\u0628'.repeat(500);</script>", theme: "light", width: 300, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='\\u0627'.repeat(8000);document.getElementById('b').textContent='\\u0628'.repeat(500);</script>", theme: "light", width: 300, options: Self.strict, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
@@ -44,8 +64,8 @@ final class TextBudgetTests: XCTestCase {
              {"op":"text","id":23,"data":"\(arabic(5000))"},{"op":"ins","parent":3,"id":23,"before":null},{"op":"rm","id":23},
              {"op":"text","id":24,"data":"\(arabic(5000))"},{"op":"ins","parent":3,"id":24,"before":null}]
             """
-        let js = NativeValidatorDifferentialTests.Rig(native: false).json(batch)
-        let native = NativeValidatorDifferentialTests.Rig(native: true).json(batch)
+        let js = NativeValidatorDifferentialTests.Rig(native: false, policy: .strict).json(batch)
+        let native = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict).json(batch)
         XCTAssertEqual(native.0, js.0)
         XCTAssertEqual(native.1, js.1)
         XCTAssertEqual(native.2, js.2)

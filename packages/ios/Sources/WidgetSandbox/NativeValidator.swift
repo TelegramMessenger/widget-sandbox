@@ -32,6 +32,7 @@ struct NativeValidatorTables {
     var maxOps = 200_000
     var maxCanvasCommands = 500_000
     var limbo = 0
+    var complexTextBudget = 0
 
     init?(json: String) {
         guard let root = JSONText.parse(json)?.object else { return nil }
@@ -88,6 +89,7 @@ struct NativeValidatorTables {
         maxOps = Int(numbers[3])
         maxCanvasCommands = Int(numbers[4])
         limbo = Int(numbers[5])
+        complexTextBudget = Int(root["complexTextBudget"]?.number ?? 0)
     }
 }
 
@@ -508,14 +510,14 @@ final class NativeValidator {
     }
 
     private func overTextBudget() -> Bool {
-        diag("text-budget", "document complex-script text over \(Self.complexTextBudget) units")
+        diag("text-budget", "document complex-script text over \(tables.complexTextBudget) units")
         return false
     }
 
     private func characterData(_ id: Int, _ data: String, text: Bool) -> Bool {
         let units = text ? Self.complexUnits(data) : 0
-        if units > 0, complexText + units > Self.complexTextBudget { return overTextBudget() }
-        if units > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
+        if units > 0, tables.complexTextBudget > 0, complexText + units > tables.complexTextBudget { return overTextBudget() }
+        if units > 0, tables.complexTextBudget > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
         let seq = nextSeq()
         guard let node = newNode(id, { Node(id: id, kind: text ? .text : .comment, rendered: text, data: data, seq: seq) }) else { return false }
         node.complex = units
@@ -528,8 +530,8 @@ final class NativeValidator {
         guard let node = nodes[id], node.kind != .element, node.kind != .document else { return false }
         let units = node.kind == .text ? Self.complexUnits(data) : 0
         let delta = units - node.complex
-        if delta > 0, complexText + delta > Self.complexTextBudget { return overTextBudget() }
-        if units > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
+        if delta > 0, tables.complexTextBudget > 0, complexText + delta > tables.complexTextBudget { return overTextBudget() }
+        if units > 0, tables.complexTextBudget > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
         complexText += delta
         node.complex = units
         node.data = data
