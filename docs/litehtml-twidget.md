@@ -35,6 +35,46 @@ How it fits together:
   element whose source is `tw-canvas:<id>/<w>x<h>`; the backend draws its
   bitmap there. Canvas ops run when they arrive, not at paint time.
 
+### Compositor layers
+
+An element whose animations write only `transform`, `opacity`, `translate`, `rotate` or `scale`
+can be handed to the platform's compositor instead of being painted every frame
+(`src/compositor.h`, ported from twidget's `WidgetCompositor.swift`):
+
+- **The core decides and bakes.** `Renderer::composition()` lists the layers after each
+  `paint()`. Each layer carries:
+  - the element's subtree as its own display list, without the element's own transform and
+    opacity;
+  - its bounds;
+  - an optional clip from one clipping ancestor;
+  - a raster scale;
+  - a track of linear keys, each a full 2D matrix plus an opacity.
+
+  Easing, `steps()`, direction, iterations and Web Animations timing are all baked into those
+  keys, by halving spans until the box's corners are within 0.05 px. A platform therefore only
+  needs linear keyframes, and a loop repeats.
+- **The document leaves layers out.** Promoted elements are skipped in the main paint (the fork's
+  `skip_paint`), and their sampled transform and opacity no longer reach the document. The core
+  stops asking for frames for them, and wakes only when an iteration or end event is due
+  (`next_tick_in()`).
+- **Promotion rules:**
+  - nothing animates inside or around the element;
+  - it has no filter, and no ancestor groups its paint;
+  - at most one ancestor clips it;
+  - nothing painted after it meets the area it sweeps over;
+  - at most 64 layers, and no track shorter than 0.1 s.
+- **Off by default.** `set_compositing(true)` turns it on; a platform without a compositor keeps
+  painting every frame.
+- **`resume_track()`** helps a compositor that cannot start an animation part way through: it
+  turns a loop to its current phase and cuts a one-shot to what is left.
+
+The Windows spike plays layers with `Windows.UI.Composition`:
+- each layer is a sprite drawn once by Direct2D;
+- its transform is an expression over a property set whose `Vector4`/`Vector2` keyframes
+  interpolate component by component, as the core baked them;
+- opacity is a scalar keyframe animation;
+- the clip is a rounded-rectangle geometric clip, which cannot round uneven corners.
+
 ### State per platform
 
 The shared parts build everywhere, but each host still has work to do:
@@ -45,6 +85,7 @@ The shared parts build everywhere, but each host still has work to do:
 | calls `tick()` (animations) | done | — | — | — |
 | forwards `hover`, `wheel`, `key` | done | — | — | — |
 | fork paint hooks (path, group, shadow) | done | — | — | — |
+| compositor layers (`set_compositing`) | done | — | — | — |
 
 Without `tick()` a host renders the state at each rebuild, as before. Without
 `canvas_run` a canvas stays empty, as before.
@@ -156,8 +197,8 @@ authors chose, not what users will.
    `touch-action`, `text-overflow`: in?
 8. **Hover.** `:hover` and the hover events have no meaning under a finger.
    Keep them for desktop only, or out?
-9. **Not ported from twidget yet.** Compositor handoff (platform keyframe
-   animations instead of per-frame patches), magic move, `filter` painting
+9. **Not ported from twidget yet.** Magic move, layers for elements with
+   effects or overlapping content (twidget also promotes what covers a layer), `filter` painting
    (the fork's `draw_filtered` / `draw_backdrop`), scrolling inside a widget.
    Which of them belong in the profile?
 
