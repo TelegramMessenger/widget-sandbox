@@ -23,6 +23,8 @@ namespace twidget {
 
 static constexpr double kInf = std::numeric_limits<double>::infinity();
 static constexpr const char* kActivationPrefix = "activation:";
+static constexpr const char* kHideHostGlobals =
+    "(function(g){for(const n of ['__host','__hostBinary','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
 static constexpr double kWallBackstopFactor = 10.0;
 static constexpr double kWallBackstopMinMs = 5000.0;
 
@@ -105,6 +107,16 @@ void SandboxEngine::boot() {
         // Fail closed: a runtime whose shim did not load completely (its network
         // stubs and DOM capture may be missing) never runs widget code.
         if (how == "failed") {
+            if (!dead_) kill("sandbox bundle failed to load");
+            return;
+        }
+        // The bundle holds private references to the host functions; widget code
+        // must not reach them, nor the shim's dispatcher, through the global object.
+        bool hidden = js_->captureGlobalFunction("__twDispatch");
+        if (hidden) {
+            try { js_->evaluate(kHideHostGlobals, "hide-host.js", false); } catch (const JSError&) { hidden = false; }
+        }
+        if (!hidden) {
             if (!dead_) kill("sandbox bundle failed to load");
             return;
         }

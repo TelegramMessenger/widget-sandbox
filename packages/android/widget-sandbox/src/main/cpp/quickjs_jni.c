@@ -26,6 +26,8 @@ typedef struct {
     jobject self;         // global ref to the owning QuickJSContext
     int64_t deadline_ns;  // CLOCK_BOOTTIME nanoseconds (= SystemClock.elapsedRealtimeNanos)
     int64_t cpu_deadline_ns;  // CLOCK_THREAD_CPUTIME_ID nanoseconds of the thread running JS
+    char *captured_name;      // a global function kept privately (the shim's dispatcher) after the global is deleted
+    JSValue captured;
     int interrupted;
 } Ctx;
 
@@ -186,6 +188,10 @@ static void n_destroy(JNIEnv *env, jobject thiz, jlong handle) {
     (void)thiz;
     Ctx *c = ctx_of(handle);
     if (!c) return;
+    if (c->captured_name) {
+        qjs_free_value(c->ctx, c->captured);
+        free(c->captured_name);
+    }
     JS_FreeContext(c->ctx);
     JS_FreeRuntime(c->rt);
     (*env)->DeleteGlobalRef(env, c->self);
@@ -223,12 +229,33 @@ static jobject n_eval(JNIEnv *env, jobject thiz, jlong handle, jbyteArray code, 
     return out;
 }
 
+static jboolean n_capture_global_function(JNIEnv *env, jobject thiz, jlong handle, jstring name) {
+    (void)thiz;
+    Ctx *c = ctx_of(handle);
+    const char *n = (*env)->GetStringUTFChars(env, name, NULL);
+    JSValue fn = qjs_get_global_prop(c->ctx, n);
+    jboolean ok = JNI_FALSE;
+    if (qjs_is_function(c->ctx, fn)) {
+        if (c->captured_name) {
+            qjs_free_value(c->ctx, c->captured);
+            free(c->captured_name);
+        }
+        c->captured_name = strdup(n);
+        c->captured = fn;
+        ok = JNI_TRUE;
+    } else {
+        qjs_free_value(c->ctx, fn);
+    }
+    (*env)->ReleaseStringUTFChars(env, name, n);
+    return ok;
+}
+
 static jobject n_call(JNIEnv *env, jobject thiz, jlong handle, jstring name, jobjectArray args) {
     (void)thiz;
     Ctx *c = ctx_of(handle);
     enter(c, env);
     const char *n = (*env)->GetStringUTFChars(env, name, NULL);
-    JSValue fn = qjs_get_global_prop(c->ctx, n);
+    JSValue fn = c->captured_name && strcmp(c->captured_name, n) == 0 ? qjs_dup_value(c->ctx, c->captured) : qjs_get_global_prop(c->ctx, n);
     jobject out = NULL;
     if (!qjs_is_function(c->ctx, fn)) {
         char msg[160];
@@ -369,6 +396,7 @@ static const JNINativeMethod METHODS[] = {
     {"nativeSetDeadline", "(JJ)V", (void *)n_set_deadline},
     {"nativeGetDeadline", "(J)J", (void *)n_get_deadline},
     {"nativeSetCpuDeadline", "(JJ)V", (void *)n_set_cpu_deadline},
+    {"nativeCaptureGlobalFunction", "(JLjava/lang/String;)Z", (void *)n_capture_global_function},
     {"nativeThreadCpuNanos", "()J", (void *)n_thread_cpu_nanos},
     {"nativeInterrupted", "(J)Z", (void *)n_interrupted},
     {"nativeResetInterrupted", "(J)V", (void *)n_reset_interrupted},

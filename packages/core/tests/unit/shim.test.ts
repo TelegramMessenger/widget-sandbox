@@ -121,3 +121,15 @@ describe('harness: fail closed', () => {
     assert.equal(ran, false);
   });
 });
+
+describe('glue: host globals', () => {
+  it('widget code cannot reach the host functions or the shim dispatcher, and the shim still works', async () => {
+    const r = await runWidget(`<p id="p">x</p><script>
+      var names = ['__host', '__hostBinary', '__twDispatch'];
+      var seen = names.map(function (n) { return n + '=' + typeof globalThis[n] + '/' + (n in globalThis) + '/' + (Object.getOwnPropertyNames(globalThis).indexOf(n) >= 0); }).join(',');
+      var redefined = (function () { try { Object.defineProperty(globalThis, '__twDispatch', { value: function () { return 'pwned'; } }); return 'ok'; } catch (e) { return 'threw'; } })();
+      setTimeout(function () { document.getElementById('p').textContent = 'tick'; }, 1);</script>`, { timerRounds: 2, probes: ['seen', 'redefined', 'document.getElementById("p").textContent'] });
+    assert.equal(r.probes[0], '__host=undefined/false/false,__hostBinary=undefined/false/false,__twDispatch=undefined/false/false');
+    assert.equal(r.probes[2], 'tick', 'the glue still dispatches timers through its private reference after a widget redefines the global');
+  });
+});

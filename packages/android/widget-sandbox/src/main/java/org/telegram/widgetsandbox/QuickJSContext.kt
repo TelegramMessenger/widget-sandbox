@@ -65,6 +65,9 @@ class QuickJSContext(memoryLimitBytes: Long, maxStackBytes: Long = DEFAULT_MAX_S
             nativeSetCpuDeadline(handle, value)
         }
 
+    /** Keeps a private reference to the global function [name]; [call] uses it from then on, even after the global is deleted. */
+    fun captureGlobalFunction(name: String): Boolean = nativeCaptureGlobalFunction(handle, name)
+
     /** CPU time consumed by the calling thread; unaffected by how busy the device is. */
     fun threadCpuNanos(): Long = nativeThreadCpuNanos()
 
@@ -174,6 +177,7 @@ class QuickJSContext(memoryLimitBytes: Long, maxStackBytes: Long = DEFAULT_MAX_S
     private external fun nativeGetDeadline(handle: Long): Long
     private external fun nativeSetCpuDeadline(handle: Long, nanos: Long)
     private external fun nativeThreadCpuNanos(): Long
+    private external fun nativeCaptureGlobalFunction(handle: Long, name: String): Boolean
     private external fun nativeInterrupted(handle: Long): Boolean
     private external fun nativeResetInterrupted(handle: Long)
 }

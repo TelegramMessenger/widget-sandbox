@@ -530,6 +530,9 @@ async function warm(msg: Extract<HostToWorker, { type: 'warm' | 'init' }>) {
       return kill('sandbox bundle failed to initialise');
     }
     twDispatch = fn;
+    // The bundle holds private references to the host functions; widget code
+    // must not reach them, nor the shim's dispatcher, through the global object.
+    if (!evalScript(HIDE_HOST_GLOBALS, 'hide-host.js', 'global')) return kill('sandbox bundle failed to load');
     bootMs = performance.now() - t0;
     post({ type: 'diag', kind: 'boot', detail: `sandbox bundle eval ${bootMs.toFixed(0)} ms; wasm memory ${(wasmMemory.buffer.byteLength / 1048576).toFixed(1)} MB, cap ${((WASM_INITIAL_PAGES * WASM_PAGE_BYTES + config.memoryLimitBytes) / 1048576).toFixed(0)} MB${QuickJS.getWasmMemory() === wasmMemory ? '' : ' (module ignored the provided Memory)'}` });
   });
@@ -552,6 +555,7 @@ function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
   for (const m of queue.splice(0)) handle(m);
 }
 
+const HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
 let ready = false;
 let activeGesture = 0;
 

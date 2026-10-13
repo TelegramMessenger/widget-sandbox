@@ -80,7 +80,10 @@ public final class QuickJSContext {
         }, opaque)
     }
 
+    private var captured: [String: JSValue] = [:]
+
     deinit {
+        for value in captured.values { qjs_free_value(context, value) }
         JS_FreeContext(context)
         JS_FreeRuntime(runtime)
     }
@@ -195,12 +198,27 @@ public final class QuickJSContext {
         return Data(bytes: blob, count: len)
     }
 
+    /// Keeps a private reference to the global function `name`, which `call(name)` uses from then on even after the global is deleted.
+    @discardableResult
+    public func captureGlobalFunction(_ name: String) -> Bool {
+        enterJS()
+        let fn = qjs_get_global_prop(context, name)
+        guard qjs_is_function(context, fn) else {
+            qjs_free_value(context, fn)
+            return false
+        }
+        if let old = captured[name] { qjs_free_value(context, old) }
+        captured[name] = fn
+        return true
+    }
+
     /// Calls the global function `name` with string arguments.
     @discardableResult
     public func call(_ name: String, _ args: [String] = []) throws -> JSResult {
         enterJS()
-        let fn = qjs_get_global_prop(context, name)
-        defer { qjs_free_value(context, fn) }
+        let own = captured[name] == nil
+        let fn = captured[name] ?? qjs_get_global_prop(context, name)
+        defer { if own { qjs_free_value(context, fn) } }
         guard qjs_is_function(context, fn) else { throw QuickJSError.notAFunction(name) }
         var argv = args.map { arg -> JSValue in
             var arg = arg

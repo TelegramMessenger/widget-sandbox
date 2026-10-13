@@ -362,6 +362,17 @@ TEST(user_gestures_are_numbered_per_physical_press) {
 }
 #endif
 
+TEST(widget_code_cannot_reach_host_globals) {
+    Run r("<script>var names=['__host','__hostBinary','__twDispatch'];console.log('globals '+names.map(function(n){return n+'='+typeof globalThis[n]+'/'+(n in globalThis);}).join(','));"
+          "try{Object.defineProperty(globalThis,'__twDispatch',{value:function(){console.log('pwned');}});}catch(e){}setTimeout(function(){console.log('tick');},1);</script>");
+    r.host.waitUntil([&] { return r.host.countLogPrefix("tick") > 0; }, 3);
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.countLogPrefix("globals __host=undefined/false,__hostBinary=undefined/false,__twDispatch=undefined/false") == 1, r.logsText());
+    CHECK(r.host.countLogPrefix("tick") == 1);
+    CHECK(r.host.countLogPrefix("pwned") == 0);
+}
+
 TEST(intl_fallback_formats_through_the_host) {
     Run r("<script>console.log((1234.5).toLocaleString() + '|' + new Intl.PluralRules('en').select(1) + '|' + new Intl.NumberFormat('en', {style:'percent'}).format(0.25));</script>");
     r.barrier();

@@ -171,6 +171,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   bundleResult.value.dispose();
   const dispatch = vm.getProp(vm.global, '__twDispatch');
   if (vm.typeof(dispatch) !== 'function') throw new Error('bundle did not define __twDispatch');
+  const hide = vm.evalCode("(function(g){for(const n of ['__host','__hostBinary','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);", 'hide-host.js');
+  if (hide.error) {
+    fail(hide.error, 'hide-host.js');
+    throw new Error('sandbox bundle failed to load');
+  }
+  hide.value.dispose();
   const tw = (kind: string, arg = ''): string | null => {
     const k = vm.newString(kind);
     const a = vm.newString(arg);

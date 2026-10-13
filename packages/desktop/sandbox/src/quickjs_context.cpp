@@ -89,7 +89,16 @@ QuickJSContext::QuickJSContext(size_t memoryLimitBytes, size_t maxStackBytes) {
     JS_SetInterruptHandler(runtime_, &QuickJSTrampoline::interrupt, this);
 }
 
+struct QuickJSContext::Captured {
+    std::string name;
+    JSValue fn;
+};
+
 QuickJSContext::~QuickJSContext() {
+    for (Captured* c : captured_) {
+        qjs_free_value(context_, c->fn);
+        delete c;
+    }
     JS_FreeContext(context_);
     JS_FreeRuntime(runtime_);
 }
@@ -154,9 +163,29 @@ std::vector<uint8_t> QuickJSContext::compileBytecode(const std::string& code, co
     return out;
 }
 
-JSResult QuickJSContext::call(const std::string& name, const std::vector<std::string>& args) {
+bool QuickJSContext::captureGlobalFunction(const std::string& name) {
     enter();
     JSValue fn = qjs_get_global_prop(context_, name.c_str());
+    if (!qjs_is_function(context_, fn)) {
+        qjs_free_value(context_, fn);
+        return false;
+    }
+    for (Captured* c : captured_) {
+        if (c->name == name) {
+            qjs_free_value(context_, c->fn);
+            c->fn = fn;
+            return true;
+        }
+    }
+    captured_.push_back(new Captured{name, fn});
+    return true;
+}
+
+JSResult QuickJSContext::call(const std::string& name, const std::vector<std::string>& args) {
+    enter();
+    const JSValue* kept = nullptr;
+    for (Captured* c : captured_) if (c->name == name) kept = &c->fn;
+    JSValue fn = kept ? qjs_dup_value(context_, *kept) : qjs_get_global_prop(context_, name.c_str());
     if (!qjs_is_function(context_, fn)) {
         qjs_free_value(context_, fn);
         throw JSError(name + " is not a function");

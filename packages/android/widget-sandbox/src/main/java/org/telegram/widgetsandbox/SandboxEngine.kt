@@ -50,6 +50,7 @@ data class SandboxStats(
 )
 
 private const val ACTIVATION_PREFIX = "activation:"
+private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
 private const val WALL_BACKSTOP_FACTOR = 10.0
 private const val WALL_BACKSTOP_MIN_MS = 5000.0
 
@@ -158,6 +159,19 @@ class SandboxEngine(
             // Fail closed: a runtime whose shim did not load completely (its network
             // stubs and DOM capture may be missing) never runs widget code.
             if (how == "failed") {
+                if (!dead) kill("sandbox bundle failed to load")
+                return@task
+            }
+            // The bundle holds private references to the host functions; widget code
+            // must not reach them, nor the shim's dispatcher, through the global object.
+            val hidden = ctx.captureGlobalFunction("__twDispatch") &&
+                try {
+                    ctx.evaluate(HIDE_HOST_GLOBALS, "hide-host.js", false)
+                    true
+                } catch (e: QuickJSException) {
+                    false
+                }
+            if (!hidden) {
                 if (!dead) kill("sandbox bundle failed to load")
                 return@task
             }

@@ -82,6 +82,9 @@ public:
     /// Calls the global function `name` with string arguments.
     JSResult call(const std::string& name, const std::vector<std::string>& args = {});
 
+    /// Keeps a private reference to the global function `name`; `call(name)` uses it from then on, even after the global is deleted.
+    bool captureGlobalFunction(const std::string& name);
+
     bool hasPendingJob() const;
     /// Runs queued promise jobs. Errors thrown by jobs go to `onError` and do not stop the loop.
     void executePendingJobs(const std::function<void(const JSError&)>& onError);
@@ -93,6 +96,8 @@ private:
     JSRuntime* runtime_;
     JSContext* context_;
     std::vector<HostFunction> functions_;
+    struct Captured;
+    std::vector<Captured*> captured_;
     friend struct QuickJSTrampoline;
 };
 

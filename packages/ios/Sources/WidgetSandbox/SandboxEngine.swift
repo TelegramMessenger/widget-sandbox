@@ -176,6 +176,9 @@ public final class SandboxEngine {
         }
     }
 
+    static let hostGlobals = ["__host", "__hostBinary", "__twDispatch"]
+    static let hideHostGlobals = "(function(g){" + hostGlobals.map { "if(!delete g.\($0))throw new Error('\($0)');" }.joined() + "})(globalThis);"
+
     private var prewarming = false
     private var prewarmFailed = false
 
@@ -219,6 +222,12 @@ public final class SandboxEngine {
         // Fail closed: a runtime whose shim did not load completely (its network
         // stubs and DOM capture may be missing) never runs widget code.
         if how == "failed" {
+            if !dead && !prewarmFailed { kill("sandbox bundle failed to load") }
+            return
+        }
+        // The bundle holds private references to the host functions; widget code
+        // must not reach them, nor the shim's dispatcher, through the global object.
+        guard js.captureGlobalFunction("__twDispatch"), (try? js.evaluate(Self.hideHostGlobals, filename: "hide-host.js")) != nil else {
             if !dead && !prewarmFailed { kill("sandbox bundle failed to load") }
             return
         }

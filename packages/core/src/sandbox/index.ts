@@ -406,6 +406,8 @@ Object.defineProperty(G, '__twDispatch', {
     }
   },
   enumerable: false,
-  configurable: false,
+  // Configurable so the glue can delete the global once it holds a private
+  // reference: widget code must not be able to call into the shim's dispatcher.
+  configurable: true,
   writable: false,
 });
