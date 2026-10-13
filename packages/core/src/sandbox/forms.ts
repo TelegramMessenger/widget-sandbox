@@ -199,12 +199,6 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
     hidePopover(this: any) { callMethod(this, 'hidePopover'); },
     togglePopover(this: any) { callMethod(this, 'togglePopover'); },
     requestFullscreen() { unsupported('Element.requestFullscreen'); return Promise.reject(new Error('Fullscreen is not available')); },
-    animate() {
-      unsupported('Element.animate (Web Animations API)');
-      const done = Promise.resolve();
-      return { finished: done, ready: done, cancel() {}, finish() {}, play() {}, pause() {}, reverse() {}, onfinish: null, addEventListener() {}, removeEventListener() {}, playState: 'finished', currentTime: 0 };
-    },
-    getAnimations() { return []; },
     attachShadow(this: any) { unsupported('Element.attachShadow (shadow DOM is not rendered)'); throw new Error('NotSupportedError: shadow DOM is not available'); },
   });
 

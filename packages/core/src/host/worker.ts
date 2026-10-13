@@ -231,6 +231,9 @@ function hostCall(kind: string, arg: string): string | number | undefined {
     case 'pd':
       try { post({ type: 'pd', keys: JSON.parse(arg) }); } catch {}
       return;
+    case 'anim':
+      try { post({ type: 'anim', anim: JSON.parse(arg) }); } catch {}
+      return;
     case 'bridge':
       try {
         const [method, args] = JSON.parse(arg);

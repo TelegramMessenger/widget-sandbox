@@ -4,6 +4,7 @@
 
 import './prelude';
 import * as linkedom from 'linkedom';
+import { flushAnimations, installAnimations } from './animations';
 import { flushCanvases, ImageData, installCanvas, Context2D, Path2D } from './canvas';
 import * as capture from './capture';
 import { document, loadDocument, parseInto, SCRIPT_INERT, SVG_NS } from './dom';
@@ -82,7 +83,7 @@ ev.installEventTarget(LD.EventTarget.prototype);
 ev.setEventRoots(G, document);
 globals.installWindow({ document, getComputedStyle, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 } });
 ev.installEventTarget(G);
-setFlushHook(() => capture.flush());
+setFlushHook(() => { capture.flush(); flushAnimations(); });
 
 // ───────────────────────── element.style / innerHTML ─────────────────────────
 
@@ -154,6 +155,7 @@ pseudoHooks['placeholder-shown'] = (el) => (el.localName === 'input' || el.local
 pseudoHooks.default = (el) => el.localName === 'input' ? el.hasAttribute('checked') : el.localName === 'option' ? el.hasAttribute('selected') : false;
 installLayout(ElementProto, HTMLElementProto, SVGElementProto, (el, name, value) => capture.pushProp(el, name, value));
 installCanvas(protoOf('canvas'));
+installAnimations(ElementProto, document);
 
 /** The click flow shared by real and synthetic clicks: external links go to openLink. */
 function afterClick(target: any, e: ev.Event) {
@@ -373,6 +375,8 @@ const handlers: Record<string, (arg: string) => string | void> = {
     const ran = capture.deliverMutationRecords(reportError);
     ev.flushInterest();
     capture.flushTick();
+    // After the task's ops: a record may target an element those ops just created.
+    flushAnimations();
     if (pdDirty) { pdDirty = false; host('pd', JSON.stringify([...pdKeys])); }
     host('stat', JSON.stringify({ cacheHits: counters.cacheHits, missed: counters.missed }));
     return ran || capture.hasPendingRecords() ? '1' : '';

@@ -15,7 +15,7 @@ import {
 } from './allowlist';
 import { DEFAULT_ENV, rewriteMediaQuery, sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet, type CssEnv, type Diag } from './css-sanitizer';
 import { checkUrl, isFragment, PLACEHOLDER_IMAGE } from './url-policy';
-import { DOCUMENT_ID, EVENT_TYPES, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
+import { DOCUMENT_ID, EVENT_TYPES, type AnimKeyframe, type AnimRecord, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
 
 const MAX_NODES = 50_000;
 const MAX_TEXT = 2 * 1024 * 1024;
@@ -29,6 +29,27 @@ const LIMBO = 0;
 const ATTR_NAME = /^[a-zA-Z_][\w.:\-]*$/;
 const TAG_NAME = /^[a-zA-Z][\w.\-]*$/;
 const EVENT_TYPE_SET = new Set<string>(EVENT_TYPES);
+/** Web Animations limits, as in twidget's renderer: per record, per widget and on every time. */
+const MAX_ANIM_KEYFRAMES = 64;
+const MAX_ANIM_VALUES = 64;
+const MAX_ANIMS = 1024;
+const MAX_ANIM_MS = 24 * 3600 * 1000;
+const EASING_NUMBER = String.raw`-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?`;
+const EASING = new RegExp(
+  '^(?:linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end' +
+    String.raw`|steps\(\s*\d{1,6}\s*(?:,\s*(?:start|end|jump-start|jump-end|jump-both|jump-none)\s*)?\)` +
+    `|cubic-bezier\\(\\s*${EASING_NUMBER}\\s*,\\s*${EASING_NUMBER}\\s*,\\s*${EASING_NUMBER}\\s*,\\s*${EASING_NUMBER}\\s*\\)` +
+    `|linear\\(\\s*${EASING_NUMBER}(?:\\s+${EASING_NUMBER}%){0,2}(?:\\s*,\\s*${EASING_NUMBER}(?:\\s+${EASING_NUMBER}%){0,2}){0,255}\\s*\\))$`,
+);
+const isEasing = (v: unknown): v is string => {
+  if (typeof v !== 'string' || v.length > 4096) return false;
+  const t = v.trim().toLowerCase();
+  if (!EASING.test(t)) return false;
+  // cubic-bezier's x coordinates must stay in [0, 1] (the curve has to be a function of time).
+  const bezier = /^cubic-bezier\(([^,]+),[^,]+,([^,]+),/.exec(t);
+  return !bezier || [bezier[1], bezier[2]].every((x) => Number(x) >= 0 && Number(x) <= 1);
+};
+const isTime = (v: unknown): v is number => isNum(v) && Math.abs(v) <= MAX_ANIM_MS;
 const SVG_ANIMATION_TAGS = new Set(['animate', 'animateTransform', 'animateMotion']);
 const SVG_HREF_FRAGMENT_TAGS = new Set(['use', 'linearGradient', 'radialGradient', 'pattern', 'filter', 'textPath', 'mpath', 'feImage']);
 
@@ -643,9 +664,103 @@ export class Validator {
         return isStr(q.query, 1024) ? { q: 'matchMedia', query: q.query } : null;
       case 'viewport':
         return { q: 'viewport' };
+      case 'anims':
+        return el() ? { q: 'anims', id: q.id as NodeId, subtree: q.subtree === true } : null;
       default:
         return null;
     }
+  }
+
+  /** Script animation aids the renderer holds, so a widget cannot grow the renderer's table past the cap. */
+  private anims = new Set<number>();
+
+  /**
+   * Validates a batch of Web Animations records (`host('anim', …)` in the sandbox) like style ops:
+   * the target must be a rendered element, every keyframe value passes the CSS sanitizer (rejected
+   * values are dropped, animation-* and transition-* are never animated), easings match a strict
+   * grammar, and times, iterations, rates and counts are capped. Null drops the whole message.
+   */
+  validateAnim(msg: unknown): { type: 'anim'; now: number; anims: AnimRecord[] } | null {
+    if (!isObj(msg) || !isNum(msg.now) || !Array.isArray(msg.anims)) return null;
+    const out: AnimRecord[] = [];
+    for (const raw of msg.anims.slice(0, 4096)) {
+      // An animation id is the sandbox's own counter, not a node id: 1 is valid.
+      if (!isObj(raw) || typeof raw.aid !== 'number' || !Number.isInteger(raw.aid) || raw.aid < 1 || raw.aid >= MAX_ID) continue;
+      const aid = raw.aid;
+      if (raw.remove === true) {
+        if (this.anims.delete(aid)) out.push({ aid, remove: true });
+        continue;
+      }
+      const target = this.renderedElement(raw.target);
+      if (!target) continue;
+      if (!this.anims.has(aid) && this.anims.size >= MAX_ANIMS) {
+        this.diag('anim-limit', `more than ${MAX_ANIMS} live animations`);
+        continue;
+      }
+      const rate = raw.playbackRate === undefined ? 1 : raw.playbackRate;
+      if (!isNum(rate) || Math.abs(rate) > 1000) continue;
+      const startTime = raw.startTime === undefined ? undefined : raw.startTime;
+      const holdTime = raw.holdTime === undefined ? undefined : raw.holdTime;
+      if ((startTime !== undefined && !isNum(startTime)) || (holdTime !== undefined && !isTime(holdTime))) continue;
+      const base: AnimRecord = { aid, target: target.id, playbackRate: rate };
+      if (startTime !== undefined) base.startTime = startTime as number;
+      if (holdTime !== undefined) base.holdTime = holdTime as number;
+
+      if (isObj(raw.css)) {
+        const { kind, name, origin } = raw.css;
+        if ((kind !== 'animation' && kind !== 'transition') || !isStr(name, 128) || !/^[\w-]+$/.test(name) || !isNum(origin)) continue;
+        const cancelled = raw.cancelled === true;
+        if (!cancelled && startTime === undefined && holdTime === undefined) continue;
+        out.push({ ...base, css: { kind, name, origin }, ...(cancelled ? { cancelled: true as const } : {}) });
+        this.anims.add(aid);
+        continue;
+      }
+
+      if (!Array.isArray(raw.keyframes) || raw.keyframes.length > MAX_ANIM_KEYFRAMES || !isObj(raw.timing)) continue;
+      const t = raw.timing;
+      const duration = t.duration ?? 0, delay = t.delay ?? 0, endDelay = t.endDelay ?? 0, iterationStart = t.iterationStart ?? 0;
+      const iterations = t.iterations === null ? null : (t.iterations ?? 1);
+      const direction = t.direction ?? 'normal', fill = t.fill ?? 'none', easing = t.easing ?? 'linear';
+      if (!isTime(duration) || (duration as number) < 0 || !isTime(delay) || !isTime(endDelay)) continue;
+      if (iterations !== null && (!isNum(iterations) || iterations < 0 || iterations > 1e9)) continue;
+      if (!isNum(iterationStart) || iterationStart < 0 || iterationStart > 1e9) continue;
+      if (!['normal', 'reverse', 'alternate', 'alternate-reverse'].includes(direction as string)) continue;
+      if (!['none', 'forwards', 'backwards', 'both', 'auto'].includes(fill as string) || !isEasing(easing)) continue;
+      const composite = raw.composite ?? 'replace', iterationComposite = raw.iterationComposite ?? 'replace';
+      if (!['replace', 'add', 'accumulate'].includes(composite as string) || !['replace', 'accumulate'].includes(iterationComposite as string)) continue;
+
+      const keyframes: AnimKeyframe[] = [];
+      let previous = 0;
+      let ok = true;
+      for (const frame of raw.keyframes) {
+        if (!isObj(frame) || !isNum(frame.offset) || frame.offset < previous || frame.offset > 1 || !isObj(frame.values)) { ok = false; break; }
+        const frameEasing = frame.easing ?? 'linear';
+        if (!isEasing(frameEasing)) { ok = false; break; }
+        if (frame.composite !== undefined && !['replace', 'add', 'accumulate'].includes(frame.composite as string)) { ok = false; break; }
+        previous = frame.offset;
+        const values: Record<string, string> = {};
+        let count = 0;
+        for (const [name, value] of Object.entries(frame.values)) {
+          if (++count > MAX_ANIM_VALUES) break;
+          if (typeof value !== 'string' || !/^-{0,2}[a-zA-Z_][\w-]*$/.test(name) || name.length > 128) continue;
+          if (/^(?:-\w+-)?(?:animation|transition)/i.test(name)) continue;
+          const clean = sanitizeStyleProperty(name, value, this.diag, this.env);
+          if (clean && clean.value) values[name] = clean.value;
+        }
+        keyframes.push({ offset: frame.offset, easing: frameEasing, ...(frame.composite ? { composite: frame.composite as AnimKeyframe['composite'] } : {}), values });
+      }
+      if (!ok) continue;
+      if (startTime === undefined && holdTime === undefined) continue;
+      out.push({
+        ...base,
+        keyframes,
+        timing: { duration: duration as number, delay: delay as number, endDelay: endDelay as number, iterations: iterations as number | null, iterationStart, direction: direction as string, fill: fill as string, easing },
+        composite: composite as AnimRecord['composite'],
+        iterationComposite: iterationComposite as AnimRecord['iterationComposite'],
+      });
+      this.anims.add(aid);
+    }
+    return out.length ? { type: 'anim', now: msg.now, anims: out } : null;
   }
 
   /** Event types the sandbox wants forwarded. */

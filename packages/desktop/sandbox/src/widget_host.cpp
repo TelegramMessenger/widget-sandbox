@@ -217,6 +217,12 @@ void WidgetHost::onPreventDefault(SandboxEngine&, const std::string& json) {
     host([this, keys] { toRenderer("{\"type\":\"preventDefault\",\"keys\":" + keys + "}"); });
 }
 
+void WidgetHost::onAnim(SandboxEngine&, const std::string& json) {
+    std::string msg = validator_.validateAnim(json);
+    if (msg.empty()) return;
+    host([this, msg] { toRenderer(msg); });
+}
+
 void WidgetHost::onRequestFrame(SandboxEngine&) {
     host([this] { toRenderer("{\"type\":\"requestFrame\"}"); });
 }

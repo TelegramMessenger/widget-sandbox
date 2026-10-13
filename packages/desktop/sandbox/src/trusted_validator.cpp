@@ -23,6 +23,7 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
             "globalThis.__v_validateQuery = (j) => __twValidator.validateQuery(j);"
             "globalThis.__v_validateListen = (j) => __twValidator.validateListen(j);"
             "globalThis.__v_validatePreventDefault = (j) => __twValidator.validatePreventDefault(j);"
+            "globalThis.__v_validateAnim = (j) => __twValidator.validateAnim ? __twValidator.validateAnim(j) : '';"
             "globalThis.__v_setTheme = (t) => __twValidator.setTheme(t);"
             "globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);"
             "globalThis.__v_nodeCount = () => __twValidator.nodeCount();"
@@ -61,6 +62,7 @@ std::optional<std::string> TrustedValidator::validateQuery(const std::string& js
 
 std::string TrustedValidator::validateListen(const std::string& json) { auto s = str("__v_validateListen", {json}); return s.empty() ? "[]" : s; }
 std::string TrustedValidator::validatePreventDefault(const std::string& json) { auto s = str("__v_validatePreventDefault", {json}); return s.empty() ? "[]" : s; }
+std::string TrustedValidator::validateAnim(const std::string& json) { return str("__v_validateAnim", {json}); }
 std::string TrustedValidator::setTheme(const std::string& theme) { auto s = str("__v_setTheme", {theme}); return s.empty() ? "[]" : s; }
 std::string TrustedValidator::rewriteMediaQuery(const std::string& query) { return str("__v_rewriteMediaQuery", {query}); }
 int TrustedValidator::nodeCount() {

@@ -197,6 +197,11 @@ export class WidgetHost {
       case 'pd':
         this.toRenderer({ type: 'preventDefault', keys: this.validator.validatePreventDefault(msg.keys) });
         break;
+      case 'anim': {
+        const anim = this.validator.validateAnim(msg.anim);
+        if (anim) this.toRenderer(anim);
+        break;
+      }
       case 'raf':
         this.toRenderer({ type: 'requestFrame' });
         break;

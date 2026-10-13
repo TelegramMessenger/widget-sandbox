@@ -14,7 +14,7 @@
 // and invoked explicitly ("primordials"); nothing is looked up on `document` or
 // on a widget element after start-up.
 
-import type { CanvasCmd, HostToRenderer, Query, RenderOp, RendererToHost, WidgetEvent } from '../shared/protocol';
+import type { AnimRecord, CanvasCmd, HostToRenderer, Query, RenderOp, RendererToHost, WidgetEvent } from '../shared/protocol';
 
 /** Where the core renders: a whole document (iframe, native WebViews) or a shadow root inside the host page. */
 export interface RendererEnv {
@@ -524,6 +524,92 @@ function answer(q: Query): { result: unknown; binary?: ArrayBuffer } {
       return { result: { matches: env.matchMedia(q.query) } };
     case 'viewport':
       return { result: env.viewport() };
+    case 'anims':
+      return { result: { list: cssAnimationList(nodes.get(q.id), q.subtree) } };
+  }
+}
+
+// ───────────────────────── Web Animations ─────────────────────────
+// The sandbox owns the timing model and sends each script animation's state; here a real
+// browser runs it as a native animation. CSS animations are reported to the `anims` query with
+// an origin number that stays their identity when the sandbox controls them.
+
+const scriptAnimations = new Map<number, Animation>();
+const origins = new WeakMap<Animation, number>();
+const byOrigin = new Map<number, WeakRef<Animation>>();
+let nextOrigin = 1;
+
+function originOf(a: Animation): number {
+  let o = origins.get(a);
+  if (o === undefined) {
+    origins.set(a, (o = nextOrigin++));
+    byOrigin.set(o, new WeakRef(a));
+  }
+  return o;
+}
+
+function cssAnimationList(root: Node | undefined, subtree: boolean): unknown[] {
+  if (!root || !(root instanceof Element)) return [];
+  const out: unknown[] = [];
+  root.getAnimations({ subtree }).forEach((a, index) => {
+    const css = a as CSSAnimation & CSSTransition;
+    const kind = typeof (globalThis as any).CSSAnimation === 'function' && a instanceof CSSAnimation ? 'animation' : typeof (globalThis as any).CSSTransition === 'function' && a instanceof CSSTransition ? 'transition' : '';
+    if (!kind) return;
+    const effect = a.effect as KeyframeEffect | null;
+    const t = effect?.getTiming();
+    out.push({
+      kind, id: idOf(effect?.target ?? null), name: kind === 'animation' ? css.animationName : css.transitionProperty, index, origin: originOf(a),
+      currentTime: Number(a.currentTime ?? 0), playbackRate: a.playbackRate, paused: a.playState === 'paused',
+      duration: Number(t?.duration ?? 0), delay: t?.delay ?? 0, iterations: t?.iterations === Infinity ? null : t?.iterations ?? 1,
+      direction: t?.direction ?? 'normal', fill: t?.fill ?? 'none', easing: t?.easing ?? 'ease',
+    });
+  });
+  return out;
+}
+
+const camel = (name: string) => (name.startsWith('--') ? name : name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()));
+
+function applyAnimations(now: number, records: AnimRecord[]) {
+  // The records' times are on the sandbox clock; `now` is that clock when they were sent.
+  const offset = performance.now() - now;
+  for (const r of records) {
+    if (r.remove) {
+      scriptAnimations.get(r.aid)?.cancel();
+      scriptAnimations.delete(r.aid);
+      continue;
+    }
+    const el = r.target !== undefined ? nodes.get(r.target) : undefined;
+    if (!(el instanceof Element)) continue;
+    if (r.css) {
+      const a = byOrigin.get(r.css.origin)?.deref();
+      if (!a) continue;
+      if (r.cancelled) { a.cancel(); continue; }
+      a.playbackRate = r.playbackRate ?? 1;
+      if (r.holdTime !== undefined) { a.pause(); a.currentTime = r.holdTime; }
+      else if (r.startTime !== undefined) { a.play(); a.startTime = r.startTime + offset; }
+      continue;
+    }
+    scriptAnimations.get(r.aid)?.cancel();
+    const t = r.timing!;
+    const keyframes = r.keyframes!.map((f) => {
+      const k: Record<string, string | number> = { offset: f.offset, easing: f.easing };
+      if (f.composite) k.composite = f.composite;
+      for (const [name, value] of Object.entries(f.values)) k[camel(name)] = value;
+      return k;
+    });
+    try {
+      const a = el.animate(keyframes as Keyframe[], {
+        duration: t.duration, delay: t.delay, endDelay: t.endDelay, iterations: t.iterations ?? Infinity, iterationStart: t.iterationStart,
+        direction: t.direction as PlaybackDirection, fill: t.fill as FillMode, easing: t.easing,
+        composite: r.composite as CompositeOperation, iterationComposite: r.iterationComposite as any,
+      });
+      a.playbackRate = r.playbackRate ?? 1;
+      if (r.holdTime !== undefined) { a.pause(); a.currentTime = r.holdTime; }
+      else if (r.startTime !== undefined) a.startTime = r.startTime + offset;
+      scriptAnimations.set(r.aid, a);
+    } catch (e) {
+      violation('animation failed: ' + String(e));
+    }
   }
 }
 
@@ -711,6 +797,9 @@ function onMessage(msg: HostToRenderer) {
       break;
     case 'frozen':
       freeze(String(msg.reason), !!msg.fatal);
+      break;
+    case 'anim':
+      if (!frozen) applyAnimations(msg.now, msg.anims);
       break;
   }
 }

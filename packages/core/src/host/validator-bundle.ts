@@ -7,6 +7,7 @@
 //   __twValidator.validateQuery(json)       → json Query or '' if rejected
 //   __twValidator.validateListen(json)      → json string[]
 //   __twValidator.validatePreventDefault(json) → json string[]
+//   __twValidator.validateAnim(json)        → json {type:'anim', now, anims} or '' if nothing survived
 //   __twValidator.setTheme('light'|'dark')  → json RenderOp[] (re-emitted stylesheets)
 //   __twValidator.rewriteMediaQuery(query)  → string
 //   __twValidator.nodeCount()               → number
@@ -41,6 +42,10 @@ const v = () => {
   },
   validatePreventDefault(json: string) {
     return JSON.stringify(v().validatePreventDefault(JSON.parse(json)));
+  },
+  validateAnim(json: string) {
+    const anim = v().validateAnim(JSON.parse(json));
+    return anim ? JSON.stringify(anim) : '';
   },
   setTheme(theme: 'light' | 'dark') {
     return JSON.stringify(v().setTheme(theme === 'dark' ? 'dark' : 'light'));

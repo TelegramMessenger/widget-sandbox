@@ -55,7 +55,40 @@ export type Query =
   | { q: 'elementFromPoint'; x: number; y: number }
   | { q: 'validity'; id: NodeId }
   | { q: 'matchMedia'; query: string }
-  | { q: 'viewport' };
+  | { q: 'viewport' }
+  /** Running CSS animations and transitions of an element (or its subtree), for getAnimations(). */
+  | { q: 'anims'; id: NodeId; subtree: boolean };
+
+// ───────────── Web Animations (Element.animate) ─────────────
+
+export interface AnimKeyframe {
+  offset: number;
+  easing: string;
+  composite?: 'replace' | 'add' | 'accumulate';
+  values: Record<string, string>;
+}
+
+/**
+ * The state of one script animation as the sandbox's timing model holds it. Times are ms;
+ * `startTime` is on the sandbox clock (`performance.now()`), mapped by the renderer through the
+ * message's `now`; `holdTime` is the local time of a paused animation. `iterations: null` is
+ * infinite. `{aid, remove: true}` drops a record. A record with `css` instead of keyframes
+ * controls a CSS animation or transition the `anims` query reported (`origin` is its identity).
+ */
+export interface AnimRecord {
+  aid: number;
+  target?: NodeId;
+  remove?: true;
+  keyframes?: AnimKeyframe[];
+  timing?: { duration: number; delay: number; endDelay: number; iterations: number | null; iterationStart: number; direction: string; fill: string; easing: string };
+  composite?: 'replace' | 'add' | 'accumulate';
+  iterationComposite?: 'replace' | 'accumulate';
+  startTime?: number;
+  holdTime?: number;
+  playbackRate?: number;
+  css?: { kind: 'animation' | 'transition'; name: string; origin: number };
+  cancelled?: true;
+}
 
 // ───────────── renderer → host → sandbox: events ─────────────
 
@@ -112,6 +145,8 @@ export const EVENT_TYPES = [
 
 export type HostToRenderer =
   | { type: 'ops'; ops: RenderOp[] }
+  /** Validated script animation records; `now` is the sandbox clock when they were sent. */
+  | { type: 'anim'; now: number; anims: AnimRecord[] }
   | { type: 'query'; qid: number; query: Query }
   | { type: 'listen'; types: string[] }
   | { type: 'preventDefault'; keys: string[] }
@@ -214,6 +249,7 @@ export type WorkerToHost =
   | { type: 'query'; query: unknown }
   | { type: 'listen'; types: unknown }
   | { type: 'pd'; keys: unknown }
+  | { type: 'anim'; anim: unknown }
   | { type: 'raf' }
   | { type: 'log'; level: string; text: string }
   | { type: 'diag'; kind: string; detail: string }

@@ -26,6 +26,8 @@ export interface RunResult {
   diags: { kind: string; detail: string }[];
   logs: { level: string; text: string }[];
   queries: unknown[];
+  /** Validated `anim` messages (Web Animations records) the renderer would get. */
+  anims: unknown[];
   bridge: unknown[];
   timers: number;
   probes: string[];
@@ -77,7 +79,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0 };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], anims: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0 };
   const config = { ...LIMIT_DEFAULTS, memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
@@ -103,6 +105,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         const answer = clean ? opts.answer?.(clean) ?? defaultAnswer(clean) : { error: 'invalid query' };
         log('query', JSON.stringify(q), '→', JSON.stringify(answer));
         return vm.newString(JSON.stringify(answer));
+      }
+      case 'anim': {
+        const clean = validator.validateAnim(JSON.parse(arg));
+        if (clean) res.anims.push(clean);
+        log('anim', arg.slice(0, 2000), '→', JSON.stringify(clean).slice(0, 2000));
+        return vm.undefined;
       }
       case 'now': return vm.newNumber(performance.now());
       case 'timer': {
