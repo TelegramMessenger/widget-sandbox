@@ -290,7 +290,13 @@ public final class Widget3DChannel: WidgetSideChannel {
             }
             removed.forEach { $0.removeFromSuperlayer() }
         }
-        if Thread.isMainThread { detach() } else { DispatchQueue.main.async(execute: detach) }
+        if let scheduled = renderer as? ScheduledRenderer {
+            if scheduled.isOnExecutor() { detach() } else { scheduled.schedule(detach) }
+        } else if Thread.isMainThread {
+            detach()
+        } else {
+            DispatchQueue.main.async(execute: detach)
+        }
     }
 
     private static let registryLock = NSLock()
