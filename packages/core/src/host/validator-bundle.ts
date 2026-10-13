@@ -15,6 +15,7 @@
 
 import { clearStylesheetCache, sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet } from './css-sanitizer';
 import { Validator, validatorTables } from './validator';
+import { MAX_ANIM_BATCH_BYTES } from '../shared/protocol';
 
 declare const __diag: ((kind: string, detail: string) => void) | undefined;
 declare const __twNode: ((id: number) => string) | undefined;
@@ -42,6 +43,9 @@ const v = () => {
   },
   validateListen(json: string) {
     return JSON.stringify(v().validateListen(JSON.parse(json)));
+  },
+  validateAnim(json: string) {
+    return json.length > MAX_ANIM_BATCH_BYTES ? '[]' : JSON.stringify(v().validateAnim(JSON.parse(json)));
   },
   validatePreventDefault(json: string) {
     return JSON.stringify(v().validatePreventDefault(JSON.parse(json)));

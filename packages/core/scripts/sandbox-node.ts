@@ -16,7 +16,7 @@ import { CpuBudget } from '../src/host/cpu-budget.ts';
 import { UNPRIVILEGED_BRIDGE_METHODS } from '../src/host/user-activation.ts';
 import { decodeBinaryOps } from '../src/sandbox/binary-ops.ts';
 import { Validator } from '../src/host/validator.ts';
-import { LIMIT_DEFAULTS, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
+import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
 import { libraryPath, sandboxBuildOptions } from './sandbox-build.ts';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -38,6 +38,10 @@ export interface RunResult {
   canvasWordBatches: number;
   /** Ops batches that arrived as binary records (`binaryOps`). */
   binaryBatches: number;
+  /** Raw `anim` payloads from the shim (Web Animations), in order. */
+  anims: unknown[][];
+  /** The same batches after validator.validateAnim. */
+  animOps: unknown[][];
 }
 
 /** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */
@@ -117,6 +121,10 @@ export interface RunOptions {
   canvasWords?: boolean;
   /** Advertise `binaryOps` and install `__hostOps`; batches are decoded back into JSON ops before validation. */
   binaryOps?: boolean;
+  /** Advertise `webAnimations`: Element.animate and the Web Animations API run in the shim and send `anim` batches. */
+  webAnimations?: boolean;
+  /** Extra frames (with timer rounds) after the timer rounds. */
+  frames?: number;
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
@@ -132,8 +140,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0 };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [] };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const timers = new Map<number, number>();
@@ -165,6 +173,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         return vm.undefined;
       }
       case 'clearTimer': timers.delete(Number(arg)); return vm.undefined;
+      case 'anim': {
+        const list = JSON.parse(arg);
+        res.anims.push(list);
+        res.animOps.push(arg.length > MAX_ANIM_BATCH_BYTES ? [] : validator.validateAnim(list));
+        return vm.undefined;
+      }
       case 'log': { const i = arg.indexOf(':'); res.logs.push({ level: arg.slice(0, i), text: arg.slice(i + 1) }); log('[' + arg.slice(0, i) + ']', arg.slice(i + 1)); return vm.undefined; }
       case 'diag': { const i = arg.indexOf(':'); res.diags.push({ kind: arg.slice(0, i), detail: arg.slice(i + 1) }); log('[diag]', arg); return vm.undefined; }
       case 'bridge': {
@@ -336,6 +350,11 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
     task('frame', () => tw('frame', String(performance.now())));
   }
+  for (let round = 0; round < (opts.frames ?? 0); round++) {
+    const due = [...timers.keys()];
+    for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
+    task('frame', () => tw('frame', String(performance.now())));
+  }
   const probe = (code: string) => {
     const r = vm.evalCode(`(function(){ try { return String(${code}); } catch (e) { return 'THREW ' + e; } })()`, 'probe.js');
     if (r.error) { res.probes.push('ERROR ' + JSON.stringify(vm.dump(r.error))); r.error.dispose(); }
@@ -365,6 +384,7 @@ function defaultAnswer(q: any): unknown {
     case 'measureText': return { width: String(q.text).length * 6, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2 };
     case 'matchMedia': return { matches: false };
     case 'viewport': return { innerWidth: 400, innerHeight: 300, dpr: 1 };
+    case 'anims': return { list: [] };
     case 'validity': return { valid: true, message: '' };
     case 'elementFromPoint': return 0;
     case 'canvasCall': return q.method === 'toDataURL' ? 'data:,' : false;

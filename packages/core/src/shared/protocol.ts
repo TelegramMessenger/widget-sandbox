@@ -55,7 +55,40 @@ export type Query =
   | { q: 'elementFromPoint'; x: number; y: number }
   | { q: 'validity'; id: NodeId }
   | { q: 'matchMedia'; query: string }
-  | { q: 'viewport' };
+  | { q: 'viewport' }
+  | { q: 'anims'; id: NodeId; subtree: boolean };
+
+export interface AnimKeyframe {
+  offset: number;
+  easing: string;
+  composite: 'replace' | 'add' | 'accumulate' | null;
+  values: Record<string, string>;
+}
+
+export interface AnimTiming {
+  duration: number;
+  delay: number;
+  endDelay: number;
+  iterations: number | null;
+  iterationStart: number;
+  direction: 'normal' | 'reverse' | 'alternate' | 'alternate-reverse';
+  fill: 'none' | 'forwards' | 'backwards' | 'both';
+  easing: string;
+}
+
+export type AnimRecord =
+  | { aid: number; remove: true }
+  | {
+    aid: number; target: NodeId; css: { kind: 'animation' | 'transition'; name: string; origin: number };
+    startTime: number | null; holdTime: number | null; playbackRate: number; cancelled: boolean;
+  }
+  | {
+    aid: number; target: NodeId; keyframes: AnimKeyframe[]; timing: AnimTiming;
+    composite: 'replace' | 'add' | 'accumulate'; iterationComposite: 'replace' | 'accumulate';
+    startTime: number | null; holdTime: number | null; playbackRate: number;
+  };
+
+export const MAX_ANIM_BATCH_BYTES = 4 * 1024 * 1024;
 
 // ───────────── renderer → host → sandbox: events ─────────────
 
@@ -115,6 +148,7 @@ export type HostToRenderer =
   | { type: 'query'; qid: number; query: Query }
   | { type: 'listen'; types: string[] }
   | { type: 'preventDefault'; keys: string[] }
+  | { type: 'anim'; now: number; anims: AnimRecord[] }
   | { type: 'requestFrame' }
   /** The runtime is gone (fatal) or paused: keep the last render, stop forwarding events and frames, show a badge with `reason`. */
   | { type: 'frozen'; reason: string; fatal: boolean };
@@ -220,6 +254,7 @@ export type WorkerToHost =
   | { type: 'query'; query: unknown }
   | { type: 'listen'; types: unknown }
   | { type: 'pd'; keys: unknown }
+  | { type: 'anim'; anims: unknown; now: number }
   | { type: 'raf' }
   | { type: 'log'; level: string; text: string }
   | { type: 'diag'; kind: string; detail: string }

@@ -14,7 +14,7 @@ import baseVariant from '@telegram/widget-sandbox-quickjs';
 import wasmUrl from '@telegram/widget-sandbox-quickjs/wasm?url';
 import { CpuBudget } from './cpu-budget';
 import { resolveLibrary } from './loader';
-import { MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
+import { MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
 
 const post = (msg: WorkerToHost) => (self as unknown as Worker).postMessage(msg);
 
@@ -231,6 +231,10 @@ function hostCall(kind: string, arg: string): string | number | undefined {
       return;
     case 'pd':
       try { post({ type: 'pd', keys: JSON.parse(arg) }); } catch {}
+      return;
+    case 'anim':
+      if (arg.length > MAX_ANIM_BATCH_BYTES) return;
+      try { post({ type: 'anim', anims: JSON.parse(arg), now: performance.now() }); } catch {}
       return;
     case 'bridge':
       try {

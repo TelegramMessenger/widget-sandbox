@@ -81,6 +81,13 @@ function setTimer(fn: any, delay: any, args: any[], interval: boolean): number {
 function clearTimer(id: any) {
   if (timers.delete(Number(id))) host('clearTimer', String(Number(id)));
 }
+export function hostTimer(fn: () => void, ms: number): number {
+  const id = timerSeq++;
+  timers.set(id, { fn, args: [], interval: false, delay: ms });
+  host('timer', JSON.stringify([id, ms]));
+  return id;
+}
+export const clearHostTimer = clearTimer;
 export function fireTimer(id: number) {
   const t = timers.get(id);
   if (!t) return;
@@ -107,14 +114,26 @@ export function setHidden(h: boolean): boolean {
 
 let frameCallbacks = new Map<number, (t: number) => void>();
 let frameSeq = 1;
+let frameHook: ((now: number) => ((run: () => void) => void) | null) | null = null;
+export function setFrameHook(hook: typeof frameHook) {
+  frameHook = hook;
+}
 export function fireFrame() {
   const batch = frameCallbacks;
   frameCallbacks = new Map();
   const now = G.performance.now();
-  for (const cb of batch.values()) {
-    try { cb(now); } catch (e) { reportError(e); }
-  }
+  const run = () => {
+    for (const cb of batch.values()) {
+      try { cb(now); } catch (e) { reportError(e); }
+    }
+  };
+  const hooked = frameHook ? frameHook(now) : null;
+  if (hooked) { hooked(run); return; }
+  run();
 }
+
+let originTime = 0;
+export const timeOrigin = () => originTime;
 
 // ───────────────────────── storage ─────────────────────────
 
@@ -481,6 +500,7 @@ export function installWindow(deps: WindowDeps) {
   G.origin = 'null';
 
   const t0 = Number(host('now'));
+  originTime = t0;
   G.performance = {
     now: () => Number(host('now')) - t0,
     timeOrigin: Date.now(),

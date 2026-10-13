@@ -15,6 +15,7 @@
 // on a widget element after start-up.
 
 import type { CanvasCmd, HostToRenderer, Query, RenderOp, RendererToHost, WidgetEvent } from '../shared/protocol';
+import { applyAnims, cssAnimationList } from './web-animations';
 
 /** Where the core renders: a whole document (iframe, native WebViews) or a shadow root inside the host page. */
 export interface RendererEnv {
@@ -524,6 +525,8 @@ function answer(q: Query): { result: unknown; binary?: ArrayBuffer } {
       return { result: { matches: env.matchMedia(q.query) } };
     case 'viewport':
       return { result: env.viewport() };
+    case 'anims':
+      return { result: { list: cssAnimationList(el, q.subtree === true, idOf) } };
   }
 }
 
@@ -704,6 +707,9 @@ function onMessage(msg: HostToRenderer) {
       break;
     case 'preventDefault':
       preventKeys = new Set(msg.keys);
+      break;
+    case 'anim':
+      try { applyAnims(msg.now, msg.anims, (id) => nodes.get(id)); } catch (e) { violation('anim failed: ' + String(e)); }
       break;
     case 'requestFrame':
       if (frozen || frameReq) break;

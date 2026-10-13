@@ -14,6 +14,7 @@ import * as globals from './globals';
 import { counters, diag, host, setFlushHook, unsupported } from './host';
 import { DOMMatrix, DOMPoint, DOMRect, elementFromPoint, getComputedStyle, installLayout } from './layout';
 import { styleOf } from './style';
+import { setWebAnimations, webAnimations, webAnimationsEnabled } from './waapi';
 
 const G: any = globalThis;
 const LD: any = linkedom;
@@ -154,6 +155,20 @@ pseudoHooks['placeholder-shown'] = (el) => (el.localName === 'input' || el.local
 pseudoHooks.default = (el) => el.localName === 'input' ? el.hasAttribute('checked') : el.localName === 'option' ? el.hasAttribute('selected') : false;
 installLayout(ElementProto, HTMLElementProto, SVGElementProto, (el, name, value) => capture.pushProp(el, name, value));
 installCanvas(protoOf('canvas'));
+{
+  const stubAnimate = ElementProto.animate;
+  const stubGetAnimations = ElementProto.getAnimations;
+  define(ElementProto, {
+    animate(this: any, keyframes: any, options: any) { return webAnimationsEnabled() ? webAnimations().animate(this, keyframes, options) : stubAnimate.call(this, keyframes, options); },
+    getAnimations(this: any, options: any) { return webAnimationsEnabled() ? webAnimations().elementAnimations(this, options) : stubGetAnimations.call(this, options); },
+  });
+}
+globals.setFrameHook((now) => {
+  if (!webAnimationsEnabled()) return null;
+  const wa = webAnimations();
+  const run = wa.frame(now);
+  return run ? (callbacks) => wa.defer(() => run(callbacks)) : null;
+});
 
 /** The click flow shared by real and synthetic clicks: external links go to openLink. */
 function afterClick(target: any, e: ev.Event) {
@@ -215,6 +230,7 @@ let adopted: any[] = [];
 
 // ───────────────────────── document extras ─────────────────────────
 
+const inertTimeline = { currentTime: 0 };
 let activeElement: any = null;
 let currentScript: any = null;
 const docProps: Record<string, PropertyDescriptor> = {
@@ -253,7 +269,8 @@ const docProps: Record<string, PropertyDescriptor> = {
       return new C('');
     },
   },
-  timeline: { value: { currentTime: 0 } },
+  timeline: { get: () => (webAnimationsEnabled() ? webAnimations().timeline : inertTimeline) },
+  getAnimations: { value: () => (webAnimationsEnabled() ? webAnimations().documentAnimations() : []) },
   dir: { value: 'ltr', writable: true },
 };
 for (const [name, d] of Object.entries(docProps)) Object.defineProperty(document, name, { configurable: true, ...d });
@@ -343,6 +360,8 @@ const handlers: Record<string, (arg: string) => string | void> = {
     capture.enableBinaryOps(Array.isArray(config.features) && config.features.includes('binaryOps'));
     setInPlaceText(!(Array.isArray(config.features) && config.features.includes('noInPlaceText')));
     setAttrFast(!(Array.isArray(config.features) && config.features.includes('noAttrFast')));
+    setWebAnimations(Array.isArray(config.features) && config.features.includes('webAnimations'));
+    if (webAnimationsEnabled()) Object.assign(G, webAnimations().globals);
     globals.setHidden(config.visible === false);
     globals.setTheme(config.theme, false);
     globals.setViewport(config.viewport);
@@ -378,6 +397,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
     const ran = capture.deliverMutationRecords(reportError);
     ev.flushInterest();
     capture.flushTick();
+    if (webAnimationsEnabled()) webAnimations().endTick();
     if (pdDirty) { pdDirty = false; host('pd', JSON.stringify([...pdKeys])); }
     host('stat', JSON.stringify({ cacheHits: counters.cacheHits, missed: counters.missed }));
     return ran || capture.hasPendingRecords() ? '1' : '';

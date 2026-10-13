@@ -15,7 +15,7 @@ import {
 } from './allowlist';
 import { DEFAULT_ENV, rewriteMediaQuery, sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet, type CssEnv, type Diag } from './css-sanitizer';
 import { checkUrl, IMAGE_MIME, isFragment, PLACEHOLDER_IMAGE } from './url-policy';
-import { DOCUMENT_ID, EVENT_TYPES, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
+import { DOCUMENT_ID, EVENT_TYPES, type AnimKeyframe, type AnimRecord, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
 
 const MAX_NODES = 50_000;
 /** Text nodes, string properties and Path2D data; a chat widget has no use for more, and every byte is copied through the renderer. */
@@ -730,9 +730,89 @@ export class Validator {
         return isStr(q.query, 1024) ? { q: 'matchMedia', query: q.query } : null;
       case 'viewport':
         return { q: 'viewport' };
+      case 'anims':
+        return el() ? { q: 'anims', id: q.id as NodeId, subtree: q.subtree === true } : null;
       default:
         return null;
     }
+  }
+
+  private liveAnims = new Set<number>();
+
+  /** Web Animations records from the sandbox (`anim`): clean copies for the renderer, `remove` records for ones that became invalid. */
+  validateAnim(list: unknown): AnimRecord[] {
+    if (!Array.isArray(list) || list.length > MAX_ANIM_RECORDS) {
+      this.diag('protocol-violation', 'anim batch is not an array or too large');
+      return [];
+    }
+    const live = this.liveAnims;
+    const out: AnimRecord[] = [];
+    const drop = (aid: number) => { if (live.delete(aid)) out.push({ aid, remove: true }); };
+    for (const a of list) {
+      if (!isObj(a) || !Number.isInteger(a.aid) || (a.aid as number) < 1 || (a.aid as number) > 2147483647) {
+        this.diag('protocol-violation', 'rejected anim record');
+        continue;
+      }
+      const aid = a.aid as number;
+      if (a.remove === true) { drop(aid); continue; }
+      if (a.css !== undefined) {
+        const c = a.css;
+        const valid = this.renderedElement(a.target) && isObj(c) && (c.kind === 'animation' || c.kind === 'transition') && typeof c.name === 'string' && /^[\w-]{1,128}$/.test(c.name) && finiteWithin(c.origin, 1e15)
+          && (a.startTime === null || finiteWithin(a.startTime, 1e15)) && (a.holdTime === null || finiteWithin(a.holdTime, 1e12)) && finiteWithin(a.playbackRate, 1000) && typeof a.cancelled === 'boolean';
+        if (!valid) { this.diag('protocol-violation', 'rejected css anim record'); continue; }
+        out.push({
+          aid, target: a.target as NodeId, css: { kind: c.kind as 'animation' | 'transition', name: c.name as string, origin: c.origin as number },
+          startTime: a.startTime as number | null, holdTime: a.holdTime as number | null, playbackRate: a.playbackRate as number, cancelled: a.cancelled as boolean,
+        });
+        continue;
+      }
+      const target = this.renderedElement(a.target);
+      const t = a.timing;
+      const ok = !!target && Array.isArray(a.keyframes) && a.keyframes.length <= MAX_ANIM_KEYFRAMES && isObj(t)
+        && finiteWithin(t.duration, MAX_ANIM_TIME) && (t.duration as number) >= 0 && finiteWithin(t.delay, MAX_ANIM_TIME) && finiteWithin(t.endDelay, MAX_ANIM_TIME)
+        && (t.iterations === null || (finiteWithin(t.iterations, 1e9) && (t.iterations as number) >= 0)) && finiteWithin(t.iterationStart, 1e9) && (t.iterationStart as number) >= 0
+        && ANIM_DIRECTIONS.has(t.direction as string) && ANIM_FILLS.has(t.fill as string)
+        && animEasing(t.easing) !== null && ANIM_COMPOSITES.has(a.composite as string) && ANIM_ITERATION_COMPOSITES.has(a.iterationComposite as string)
+        && (a.startTime === null || finiteWithin(a.startTime, 1e15)) && (a.holdTime === null || finiteWithin(a.holdTime, 1e12)) && (a.startTime !== null || a.holdTime !== null)
+        && finiteWithin(a.playbackRate, 1000);
+      if (!ok) {
+        if (target) this.diag('protocol-violation', 'rejected anim record');
+        drop(aid);
+        continue;
+      }
+      const timing = t as Record<string, unknown>;
+      const frames: AnimKeyframe[] = [];
+      let last = 0;
+      let bad = false;
+      for (const f of a.keyframes as unknown[]) {
+        if (!isObj(f) || !finiteWithin(f.offset, 1) || (f.offset as number) < last || (f.offset as number) > 1 || animEasing(f.easing) === null
+          || !(f.composite === null || ANIM_COMPOSITES.has(f.composite as string)) || !isObj(f.values)) { bad = true; break; }
+        last = f.offset as number;
+        const names = Object.keys(f.values);
+        if (names.length > MAX_ANIM_VALUES) { bad = true; break; }
+        const values: Record<string, string> = {};
+        for (const name of names) {
+          const value = f.values[name];
+          if (typeof value !== 'string' || value.length > 4096 || !/^(?:--[\w-]{1,128}|-?[a-z][a-z-]{0,63})$/.test(name) || /^(?:-webkit-)?(?:animation|transition)(?:-|$)/.test(name)) continue;
+          const clean = sanitizeStyleProperty(name, value, this.diag, this.env);
+          if (clean && clean.value !== '') values[name] = clean.value;
+        }
+        frames.push({ offset: f.offset as number, easing: f.easing as string, composite: f.composite as AnimKeyframe['composite'], values });
+      }
+      if (bad) { this.diag('protocol-violation', 'rejected anim keyframes'); drop(aid); continue; }
+      if (!live.has(aid) && live.size >= MAX_LIVE_ANIMS) { this.diag('animation-limit', 'more than ' + MAX_LIVE_ANIMS + ' live script animations'); continue; }
+      live.add(aid);
+      out.push({
+        aid, target: a.target as NodeId, keyframes: frames,
+        timing: {
+          duration: timing.duration as number, delay: timing.delay as number, endDelay: timing.endDelay as number, iterations: timing.iterations as number | null,
+          iterationStart: timing.iterationStart as number, direction: timing.direction as any, fill: timing.fill as any, easing: timing.easing as string,
+        },
+        composite: a.composite as any, iterationComposite: a.iterationComposite as any,
+        startTime: a.startTime as number | null, holdTime: a.holdTime as number | null, playbackRate: a.playbackRate as number,
+      });
+    }
+    return out;
   }
 
   /** Event types the sandbox wants forwarded. */
@@ -746,6 +826,27 @@ export class Validator {
     if (!Array.isArray(keys)) return [];
     return keys.filter((k): k is string => typeof k === 'string' && /^\d{1,10}:[a-z]{1,20}(?::[\w ]{1,20})?$/.test(k)).slice(0, 256);
   }
+}
+
+const MAX_ANIM_RECORDS = 4096;
+const MAX_LIVE_ANIMS = 1024;
+const MAX_ANIM_KEYFRAMES = 64;
+const MAX_ANIM_VALUES = 64;
+const MAX_ANIM_TIME = 86_400_000;
+const ANIM_DIRECTIONS = new Set(['normal', 'reverse', 'alternate', 'alternate-reverse']);
+const ANIM_FILLS = new Set(['none', 'forwards', 'backwards', 'both']);
+const ANIM_COMPOSITES = new Set(['replace', 'add', 'accumulate']);
+const ANIM_ITERATION_COMPOSITES = new Set(['replace', 'accumulate']);
+const ANIM_NUMBER = '[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?';
+const ANIM_EASING = new RegExp('^(?:linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end|cubic-bezier\\(\\s*' + ANIM_NUMBER + '\\s*,\\s*' + ANIM_NUMBER + '\\s*,\\s*' + ANIM_NUMBER + '\\s*,\\s*' + ANIM_NUMBER
+  + '\\s*\\)|steps\\(\\s*\\d{1,6}\\s*(?:,\\s*(?:start|end|jump-start|jump-end|jump-both|jump-none)\\s*)?\\)|linear\\([0-9eE.%,\\s+-]{1,8192}\\))$');
+
+function animEasing(e: unknown): string | null {
+  return typeof e === 'string' && e.length <= 8192 && ANIM_EASING.test(e) && e.split(',').length <= 257 ? e : null;
+}
+
+function finiteWithin(n: unknown, max: number): boolean {
+  return typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= max;
 }
 
 function safeJson(v: unknown): string {
