@@ -7,6 +7,7 @@
 // pass it through the validator before it reaches the renderer.
 
 import Foundation
+import WidgetSandboxProtocol
 import QuartzCore
 
 /// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts.
@@ -27,6 +28,9 @@ public struct SandboxConfig {
     public var innerHeight: Double
     public var devicePixelRatio: Double
     public var theme: String
+    /// Optional wire forms the host understands (docs/protocol.md, "Features"); empty means plain JSON.
+    /// `canvasWords`: canvas commands arrive as word payloads and are spliced back into the ops JSON.
+    public var features: Set<String> = []
 
     public init(innerWidth: Double, innerHeight: Double, devicePixelRatio: Double, theme: String) {
         self.innerWidth = innerWidth
@@ -176,8 +180,14 @@ public final class SandboxEngine {
         }
     }
 
-    static let hostGlobals = ["__host", "__hostBinary", "__twDispatch"]
+    static let hostGlobals = ["__host", "__hostBinary", "__hostCanvas", "__twDispatch"]
     static let hideHostGlobals = "(function(g){" + hostGlobals.map { "if(!delete g.\($0))throw new Error('\($0)');" }.joined() + "})(globalThis);"
+
+    /// Canvas word payloads (`__hostCanvas`) for the next ops batch, by key.
+    private var stagedCanvas: [Int: WidgetCanvasBatch] = [:]
+    private var stagedWords = 0
+    /// Word payloads accepted so far (tests).
+    private(set) var canvasWordPayloads = 0
 
     private var prewarming = false
     private var prewarmFailed = false
@@ -208,6 +218,15 @@ public final class SandboxEngine {
         if js != nil { return }
         js = QuickJSContext(memoryLimitBytes: config.memoryLimitBytes, maxStackBytes: JSThread.jsStackLimit)
         js.registerFunction("__host") { [unowned self] args in self.hostCall(kind: args.first ?? "", arg: args.count > 1 ? args[1] : "") }
+        if config.features.contains("canvasWords") {
+            js.registerWordsFunction("__hostCanvas") { [unowned self] key, words, strings in
+                guard key >= 0, key < Double(CanvasWords.maxPayloads), key == key.rounded(), stagedCanvas.count < CanvasWords.maxPayloads,
+                      stagedWords + words.count <= CanvasWords.maxWords, let batch = CanvasWords.batch(words: words, strings: strings) else { return }
+                stagedWords += words.count
+                stagedCanvas[Int(key)] = batch
+                canvasWordPayloads += 1
+            }
+        }
         js.registerFunction("__hostBinary") { [unowned self] _ in
             guard let data = self.lastBinary else { return .null }
             self.lastBinary = nil
@@ -254,6 +273,7 @@ public final class SandboxEngine {
                     "maxTimers": self.config.maxTimers, "visible": self.visible,
                     "viewport": ["innerWidth": self.config.innerWidth, "innerHeight": self.config.innerHeight, "dpr": self.config.devicePixelRatio],
                     "theme": self.config.theme,
+                    "features": Array(self.config.features).sorted(),
                 ],
             ])
             self.callTw("boot", bootArg)
@@ -384,7 +404,10 @@ public final class SandboxEngine {
         switch kind {
         case "ops":
             stats.ops += Self.countOccurrences(of: "\"op\":", in: arg)
-            delegate?.engine(self, ops: arg)
+            let canvas = stagedCanvas
+            stagedCanvas = [:]
+            stagedWords = 0
+            delegate?.engine(self, ops: canvas.isEmpty ? arg : CanvasWords.splice(arg, canvas))
             return .undefined
         case "query":
             return .string(syncQuery(arg))

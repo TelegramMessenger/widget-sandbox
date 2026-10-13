@@ -60,6 +60,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var parallelBoot = false
         /// Validate ops and queries on the validator's thread and hop to the main thread only to talk to the renderer, instead of blocking the main thread for each batch.
         public var asyncValidation = false
+        /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`; empty means plain JSON.
+        public var features: Set<String> = []
         public init() {}
     }
 
@@ -131,6 +133,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             validator = try TrustedValidator(theme: theme, resources: resources, thread: options.sharedValidatorThread ? TrustedValidator.sharedThread : nil) { k, d in diagSink(k, d) }
         }
         var config = SandboxConfig(innerWidth: viewport.w, innerHeight: viewport.h, devicePixelRatio: scale, theme: theme)
+        config.features = options.features
         config.memoryLimitBytes = options.memoryLimitBytes
         config.cpuLimitMs = options.cpuLimitMs
         config.cpuQuotaMs = options.cpuQuotaMs

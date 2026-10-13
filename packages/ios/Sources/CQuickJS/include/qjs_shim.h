@@ -30,6 +30,8 @@ JSValue qjs_throw_error(JSContext *ctx, const char *message);
 
 /* Registers a C function with a `magic` index, so one trampoline can serve many names. */
 JSValue qjs_new_cfunction_magic(JSContext *ctx, JSCFunctionMagic *fn, const char *name, int length, int magic);
+/* The bytes a typed array views (valid until the next JS call); returns its JSTypedArrayEnum or -1. */
+int qjs_typed_array_bytes(JSContext *ctx, JSValue v, uint8_t **ptr, size_t *len);
 
 const char *qjs_to_cstring(JSContext *ctx, JSValue v);
 void qjs_free_cstring(JSContext *ctx, const char *s);

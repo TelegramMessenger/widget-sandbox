@@ -555,7 +555,7 @@ function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
   for (const m of queue.splice(0)) handle(m);
 }
 
-const HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
+const HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
 let ready = false;
 let activeGesture = 0;
 

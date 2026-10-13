@@ -50,7 +50,7 @@ data class SandboxStats(
 )
 
 private const val ACTIVATION_PREFIX = "activation:"
-private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
+private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
 private const val WALL_BACKSTOP_FACTOR = 10.0
 private const val WALL_BACKSTOP_MIN_MS = 5000.0
 
