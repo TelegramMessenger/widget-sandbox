@@ -14,7 +14,7 @@
 // source, so time- and random-driven widgets compare too.
 //
 // Usage: pnpm tsx scripts/ops-diff.ts --a path/to/sandbox-bundle.js [--b other.js]
-//          [--timers N] [--json out.json] corpus/compat corpus/generated/… file.html
+//          [--timers N] [--features canvasWords,binaryOps,webAnimations] [--json out.json] corpus/compat corpus/generated/… file.html
 import fs from 'node:fs';
 import path from 'node:path';
 import { bundleSandbox, runWidget, type RunResult } from '../packages/core/scripts/sandbox-node.ts';
@@ -170,12 +170,13 @@ function deterministic() {
   };
 }
 
-export async function run(html: string, bundle: string, timerRounds: number): Promise<Outcome> {
+export async function run(html: string, bundle: string, timerRounds: number, features: string[] = []): Promise<Outcome> {
   const unknown: string[] = [];
-  const first = await runWidget(html, { bundle, timerRounds: 1, ...deterministic() });
+  const wire = { canvasWords: features.includes('canvasWords'), binaryOps: features.includes('binaryOps'), webAnimations: features.includes('webAnimations') };
+  const first = await runWidget(html, { bundle, timerRounds: 1, ...wire, ...deterministic() });
   const targets = clickTargets(applyOps(first.renderOps)).slice(0, MAX_CLICKS);
   const events = targets.flatMap((targetId) => [{ type: 'pointerdown', targetId }, { type: 'pointerup', targetId }, { type: 'click', targetId }]);
-  const r: RunResult = await runWidget(html, { bundle, timerRounds, events, ...deterministic(), unknownHost: (kind) => { if (!PROTOCOL_HOST_KINDS.has(kind)) unknown.push(kind); } });
+  const r: RunResult = await runWidget(html, { bundle, timerRounds, events, ...wire, ...deterministic(), unknownHost: (kind) => { if (!PROTOCOL_HOST_KINDS.has(kind)) unknown.push(kind); } });
   return {
     tree: serialize(applyOps(r.renderOps)),
     diags: r.diags.map((d) => d.kind).sort(),
@@ -214,7 +215,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
   const bPath = opt('--b');
   const jsonOut = opt('--json');
   const timerRounds = Number(opt('--timers') ?? 3);
-  if (!aPath || !argv.length) { console.error('usage: tsx scripts/ops-diff.ts --a bundle.js [--b bundle.js] [--timers N] [--json out.json] <widget.html | dir>…'); process.exit(2); }
+  const features = (opt('--features') ?? '').split(',').filter(Boolean);
+  if (!aPath || !argv.length) { console.error('usage: tsx scripts/ops-diff.ts --a bundle.js [--b bundle.js] [--timers N] [--features a,b] [--json out.json] <widget.html | dir>…'); process.exit(2); }
   const a = DETERMINISM + fs.readFileSync(aPath, 'utf8');
   const b = DETERMINISM + (bPath ? fs.readFileSync(bPath, 'utf8') : await bundleSandbox());
   const report: { file: string; status: string; detail?: string }[] = [];
@@ -222,7 +224,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
     const html = fs.readFileSync(file, 'utf8');
     let status = 'same', detail = '';
     try {
-      const [ra, ra2, rb] = [await run(html, a, timerRounds), await run(html, a, timerRounds), await run(html, b, timerRounds)];
+      const [ra, ra2, rb] = [await run(html, a, timerRounds, features), await run(html, a, timerRounds, features), await run(html, b, timerRounds, features)];
       if (ra.tree !== ra2.tree) status = 'nondeterministic';
       else if (ra.tree !== rb.tree) { status = 'tree'; detail = firstDifference(ra.tree, rb.tree); }
       else if (ra.errors.join('\n') !== rb.errors.join('\n')) { status = 'errors'; detail = `A: ${ra.errors.join(' | ')}\n    B: ${rb.errors.join(' | ')}`; }
