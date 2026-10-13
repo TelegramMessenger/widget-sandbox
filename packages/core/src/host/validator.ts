@@ -18,7 +18,8 @@ import { checkUrl, isFragment, PLACEHOLDER_IMAGE } from './url-policy';
 import { DOCUMENT_ID, EVENT_TYPES, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
 
 const MAX_NODES = 50_000;
-const MAX_TEXT = 2 * 1024 * 1024;
+/** Text nodes, string properties and Path2D data; a chat widget has no use for more, and every byte is copied through the renderer. */
+const MAX_TEXT = 64 * 1024;
 const MAX_ATTR = 4 * 1024 * 1024; // data: URLs can be large
 const MAX_OPS_PER_BATCH = 200_000;
 const MAX_CANVAS_CMDS = 500_000;
@@ -532,7 +533,7 @@ export class Validator {
   private canvasArg(v: unknown): unknown {
     if (v === null || typeof v === 'boolean') return v;
     if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
-    if (typeof v === 'string') return v.length <= MAX_ATTR ? v : undefined;
+    if (typeof v === 'string') return v.length <= MAX_TEXT ? v : undefined;
     if (Array.isArray(v)) return v.length <= 4096 && v.every(isNum) ? v : undefined;
     if (isObj(v)) {
       if (isNum(v.g) && Number.isInteger(v.g)) return { g: v.g }; // gradient / pattern

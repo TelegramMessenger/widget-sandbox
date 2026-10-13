@@ -293,3 +293,24 @@ describe('css sanitizer: shadow scope (ShadowDomRenderer prototype)', () => {
     assert.equal(sanitizeStylesheet(css, noDiag), ':root{--a:1}:host{color:red}@media (max-width:480px){p{width:50vw}}');
   });
 });
+
+describe('validator: 64 KB text budget', () => {
+  it('caps text nodes, text data, string properties and canvas strings at 64 KB', () => {
+    const ok = 'a'.repeat(64 * 1024);
+    const big = 'b'.repeat(64 * 1024 + 1);
+    const diags: string[] = [];
+    const out = json(run([
+      { op: 'text', id: 20, data: ok }, { op: 'ins', parent: 3, id: 20, before: null },
+      { op: 'text', id: 21, data: big }, { op: 'ins', parent: 3, id: 21, before: null },
+      { op: 'el', id: 22, tag: 'input' }, { op: 'ins', parent: 3, id: 22, before: null },
+      { op: 'prop', id: 22, name: 'value', value: big },
+      { op: 'data', id: 20, data: big },
+      { op: 'el', id: 23, tag: 'canvas' }, { op: 'ins', parent: 3, id: 23, before: null },
+      { op: 'canvas', id: 23, cmds: [['c', 'fillText', big, 0, 0], ['c', 'fillText', 'short', 0, 0]] },
+    ], diags));
+    assert.ok(out.includes(ok));
+    assert.ok(!out.includes(big));
+    assert.ok(out.includes('short'));
+    assert.ok(diags.length > 0);
+  });
+});
