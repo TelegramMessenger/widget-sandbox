@@ -14,7 +14,7 @@ import {
   SVG_TAGS, URL_ATTRS,
 } from './allowlist';
 import { DEFAULT_ENV, rewriteMediaQuery, sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet, type CssEnv, type Diag } from './css-sanitizer';
-import { checkUrl, isFragment, PLACEHOLDER_IMAGE } from './url-policy';
+import { checkUrl, IMAGE_MIME, isFragment, PLACEHOLDER_IMAGE } from './url-policy';
 import { DOCUMENT_ID, EVENT_TYPES, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
 
 const MAX_NODES = 50_000;
@@ -64,6 +64,23 @@ interface NodeInfo {
   complex?: number;
   /** Renderer currently has this node attached under its parent. */
   attached: boolean;
+}
+
+/**
+ * The allowlists, limits and placeholder this validator enforces, as data, so a
+ * native host's own node model (Swift `NativeValidator`) applies the same rules
+ * from one source of truth instead of a copy.
+ */
+export function validatorTables(): unknown {
+  return {
+    html: [...HTML_TAGS], svg: [...SVG_TAGS.entries()], dropped: [...DROPPED_TAGS], attrs: [...ALLOWED_ATTRS],
+    silent: [...SILENT_DROP_ATTRS], url: [...URL_ATTRS], css: [...CSS_VALUE_ATTRS], anim: [...ANIMATION_VALUE_ATTRS],
+    animTags: [...SVG_ANIMATION_TAGS], fragTags: [...SVG_HREF_FRAGMENT_TAGS], svgCase: [...SVG_ATTR_CASE.entries()],
+    props: Object.entries(PROPS).map(([k, v]) => [k, v.type, v.tags ? [...v.tags] : null]), methods: Object.entries(METHODS),
+    events: [...EVENT_TYPE_SET], mime: [...IMAGE_MIME], placeholder: PLACEHOLDER_IMAGE,
+    limits: [MAX_NODES, MAX_TEXT, MAX_ATTR, MAX_OPS_PER_BATCH, MAX_CANVAS_CMDS, LIMBO],
+    complexTextBudget: COMPLEX_TEXT_BUDGET,
+  };
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -128,9 +145,40 @@ export class Validator {
     return !!n && n.kind === 'el' && n.tag === 'canvas';
   }
 
+  /**
+   * A native host that keeps the node model itself (Swift `NativeValidator`) answers
+   * "which rendered element is `id`" for the checks still done here (queries,
+   * Web Animations): the tag, or null.
+   */
+  private nodeLookup: ((id: number) => string | null) | null = null;
+  setNodeLookup(lookup: ((id: number) => string | null) | null) {
+    this.nodeLookup = lookup;
+  }
+
+  // Stateless pieces for a native node model: the same sanitizers with this
+  // validator's diagnostics and colour scheme.
+  get cssEnv(): CssEnv { return this.env; }
+  get diagnostics(): Diag { return this.diag; }
+
+  /** Validated canvas commands, with the same diagnostics as a `canvas` op. */
+  canvasCommands(cmds: unknown): CanvasCmd[] {
+    if (!Array.isArray(cmds)) return [];
+    const out: CanvasCmd[] = [];
+    for (const cmd of cmds) {
+      const clean = this.canvasCmd(cmd);
+      if (clean) out.push(clean);
+      else this.diag('protocol-violation', 'rejected canvas cmd ' + safeJson(cmd));
+    }
+    return out;
+  }
+
   /** Does `id` name an element the renderer knows about? (Used to validate queries.) */
   private renderedElement(id: unknown): NodeInfo | null {
     if (!isId(id)) return null;
+    if (this.nodeLookup) {
+      const tag = this.nodeLookup(id);
+      return tag ? { id, kind: 'el', tag, ns: 'html', rendered: true, isStyle: false, adopted: false, parent: null, children: [], data: '', attached: true } : null;
+    }
     const n = this.nodes.get(id);
     return n && n.kind === 'el' && n.rendered ? n : null;
   }

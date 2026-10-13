@@ -13,9 +13,11 @@
 //   __twValidator.isCanvas(id)              → boolean (would a canvas op for id be accepted)
 // Diagnostics are reported through `__diag(kind, detail)` if the host defines it.
 
-import { Validator } from './validator';
+import { sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet } from './css-sanitizer';
+import { Validator, validatorTables } from './validator';
 
 declare const __diag: ((kind: string, detail: string) => void) | undefined;
+declare const __twNode: ((id: number) => string) | undefined;
 
 let validator: Validator | null = null;
 const diag = (kind: string, detail: string) => {
@@ -54,5 +56,32 @@ const v = () => {
   },
   isCanvas(id: number) {
     return v().isCanvas(Number(id));
+  },
+  // For a native node model (Swift NativeValidator): the rules as data and the
+  // stateless sanitizers; with native('1') the queries ask the host's model
+  // through __twNode(id) → tag or ''.
+  tables() {
+    return JSON.stringify(validatorTables());
+  },
+  native(on: string) {
+    v().setNodeLookup(on === '1' && typeof __twNode === 'function' ? (id) => __twNode!(id) || null : null);
+    return '';
+  },
+  cssProp(name: string, value: string) {
+    const r = sanitizeStyleProperty(String(name), String(value), v().diagnostics, v().cssEnv);
+    return r ? '+' + r.value : '-';
+  },
+  cssAttr(value: string) {
+    return sanitizeStyleAttribute(String(value), v().diagnostics, v().cssEnv);
+  },
+  cssValue(value: string, where: string) {
+    const r = sanitizeCssValue(String(value), v().diagnostics, String(where), v().cssEnv);
+    return r === null ? '-' : '+' + r;
+  },
+  cssSheet(text: string) {
+    return sanitizeStylesheet(String(text), v().diagnostics, v().cssEnv);
+  },
+  canvasCmds(json: string) {
+    return JSON.stringify(v().canvasCommands(JSON.parse(json)));
   },
 };

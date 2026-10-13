@@ -11,7 +11,7 @@
 
 export type UrlKind = 'image' | 'fragment-only';
 
-const IMAGE_MIME = new Set([
+export const IMAGE_MIME = new Set([
   'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp',
   'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml',
 ]);

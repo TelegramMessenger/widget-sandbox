@@ -54,8 +54,14 @@ public final class TrustedValidator {
         let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit)
         self.js = js
         var fromBytecode = false
+        js.registerFunction("__twNode") { [weak self] args in
+            guard let self, let native = self.native, let id = Int(args.first ?? "") else { return .string("") }
+            return .string(native.renderedTag(id) ?? "")
+        }
         js.registerFunction("__diag") { [weak self] args in
-            self?.onDiag(args.first ?? "", args.count > 1 ? args[1] : "")
+            guard let self else { return .undefined }
+            self.oracleDiagnostics += 1
+            self.onDiag(args.first ?? "", args.count > 1 ? args[1] : "")
             return .undefined
         }
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
@@ -75,6 +81,13 @@ public final class TrustedValidator {
             globalThis.__v_nodeCount = () => __twValidator.nodeCount();
             globalThis.__v_isCanvas = (id) => __twValidator.isCanvas(Number(id)) ? 1 : 0;
             globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };
+            globalThis.__v_tables = () => __twValidator.tables();
+            globalThis.__v_native = (f) => __twValidator.native(f);
+            globalThis.__v_cssProp = (n, v) => __twValidator.cssProp(n, v);
+            globalThis.__v_cssAttr = (v) => __twValidator.cssAttr(v);
+            globalThis.__v_cssValue = (v, w) => __twValidator.cssValue(v, w);
+            globalThis.__v_cssSheet = (t) => __twValidator.cssSheet(t);
+            globalThis.__v_canvasCmds = (j) => __twValidator.canvasCmds(j);
             """, filename: "validator-glue.js")
         try js.call("__v_create", [theme])
         bundleSource = fromBytecode ? "bytecode" : "source"
@@ -85,7 +98,77 @@ public final class TrustedValidator {
     /// A fresh validator instance in the same context (the bundle stays
     /// evaluated): how a pool recycles a validator for the next widget.
     public func reset(theme: String) {
+        thread.sync { [self] in
+            if native != nil { _ = str("__v_native", ["0"]) }
+            native = nil
+        }
         _ = str("__v_create", [theme])
+    }
+
+    // MARK: native node model (binary ops)
+
+    /// The node model kept in Swift for a widget whose sandbox sends binary ops; nil: the JS validator owns it.
+    private var native: NativeValidator?
+    fileprivate var oracleDiagnostics = 0
+    private static let tablesLock = NSLock()
+    private static var cachedTables: NativeValidatorTables?
+
+    public var usesNativeModel: Bool { thread.sync { [self] in native != nil } }
+
+    /// Switches this validator to the native node model (`NativeValidator`, rules from `__twValidator.tables()`,
+    /// CSS and canvas commands from the JS sanitizers). Must happen before the widget's first batch.
+    public func useNativeModel(_ on: Bool) {
+        thread.sync { [self] in
+            guard js != nil else { return }
+            if !on {
+                if native != nil { _ = str("__v_native", ["0"]) }
+                native = nil
+                return
+            }
+            if native != nil { return }
+            guard let tables = loadTables() else {
+                onDiag("validator-error", "native tables")
+                return
+            }
+            native = NativeValidator(tables: tables, oracle: self) { [weak self] k, d in
+                self?.onDiag(k, d.firstIndex(of: "\u{0}").map { String(d[..<$0]) } ?? d)
+            }
+            _ = str("__v_native", ["1"])
+        }
+    }
+
+    func tablesJSON() -> String {
+        str("__v_tables", [])
+    }
+
+    private func loadTables() -> NativeValidatorTables? {
+        Self.tablesLock.lock()
+        defer { Self.tablesLock.unlock() }
+        if let cached = Self.cachedTables { return cached }
+        let tables = NativeValidatorTables(json: str("__v_tables", []))
+        Self.cachedTables = tables
+        return tables
+    }
+
+    /// A binary ops batch through the native model (`useNativeModel(true)` first).
+    public func processBinary(_ payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch] = [:], typed: Bool) -> RenderBatch {
+        thread.sync { [self] in
+            guard let native else {
+                onDiag("protocol-violation", "binary ops without the native model")
+                return .empty
+            }
+            switch BinaryOps.decode(payload, table: native.intern) {
+            case .failure(let failure):
+                onDiag("protocol-violation", "malformed binary ops batch (\(failure))")
+                return .empty
+            case .success(let decoded):
+                return Self.render(native.process(decoded, canvas: canvas), typed: typed)
+            }
+        }
+    }
+
+    private static func render(_ ops: [WidgetOp], typed: Bool) -> RenderBatch {
+        ops.isEmpty ? .empty : typed ? .ops(ops) : .json(WidgetOp.json(ops))
     }
 
     /// Runs `block` on the validator's thread, after everything queued before
@@ -109,6 +192,16 @@ public final class TrustedValidator {
 
     /// Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived).
     public func processOps(_ json: String) -> String {
+        if let native = thread.sync({ [self] in self.native }) {
+            return thread.sync { [self] in
+                guard let value = JSONText.parse(json) else {
+                    onDiag("protocol-violation", "ops batch is not valid JSON")
+                    return "[]"
+                }
+                let ops = native.process(json: value)
+                return ops.isEmpty ? "[]" : WidgetOp.json(ops)
+            }
+        }
         let out = str("__v_processOps", [json])
         return out.isEmpty ? "[]" : out
     }
@@ -161,9 +254,42 @@ public final class TrustedValidator {
 
     public func validateListen(_ json: String) -> String { str("__v_validateListen", [json]).nilIfEmpty ?? "[]" }
     public func validatePreventDefault(_ json: String) -> String { str("__v_validatePreventDefault", [json]).nilIfEmpty ?? "[]" }
-    public func setTheme(_ theme: String) -> String { str("__v_setTheme", [theme]).nilIfEmpty ?? "[]" }
+    public func setTheme(_ theme: String) -> String {
+        thread.sync { [self] in
+            let fromJS = str("__v_setTheme", [theme]).nilIfEmpty ?? "[]"
+            guard let native else { return fromJS }
+            let ops = native.setTheme()
+            return ops.isEmpty ? "[]" : WidgetOp.json(ops)
+        }
+    }
     public func rewriteMediaQuery(_ query: String) -> String { str("__v_rewriteMediaQuery", [query]) }
-    public var nodeCount: Int { thread.sync { [self] in Int((try? js?.call("__v_nodeCount"))?.number ?? 0) } }
+    public var nodeCount: Int { thread.sync { [self] in native?.nodeCount ?? Int((try? js?.call("__v_nodeCount"))?.number ?? 0) } }
+}
+
+extension TrustedValidator: NativeValidatorOracle {
+    var diagnostics: Int { oracleDiagnostics }
+
+    func styleProperty(_ name: String, _ value: String) -> String? {
+        let r = str("__v_cssProp", [name, value])
+        return r.hasPrefix("+") ? String(r.dropFirst()) : nil
+    }
+
+    func styleAttribute(_ value: String) -> String {
+        str("__v_cssAttr", [value])
+    }
+
+    func cssValue(_ value: String, where place: String) -> String? {
+        let r = str("__v_cssValue", [value, place])
+        return r.hasPrefix("+") ? String(r.dropFirst()) : nil
+    }
+
+    func stylesheet(_ text: String) -> String {
+        str("__v_cssSheet", [text])
+    }
+
+    func canvasCommands(_ json: String) -> String {
+        str("__v_canvasCmds", [json]).nilIfEmpty ?? "[]"
+    }
 }
 
 private extension String {
