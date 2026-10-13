@@ -159,6 +159,8 @@ final class NativeValidator {
         adoptedBody = false
         dirtyStyles.removeAll()
         liveAnims.removeAll()
+        churnTokens = Double(Self.complexTextBudget)
+        churnAt = nil
         intern.reset()
         nodeSeq = 0
         nodes[Self.documentId] = Node(id: Self.documentId, kind: .document, rendered: false, seq: nextSeq())
@@ -458,7 +460,46 @@ final class NativeValidator {
     }
 
     static let complexTextBudget = 8192
+    static let complexChurnPerSecond = 1024.0
     private var complexText = 0
+    private var churnTokens = Double(NativeValidator.complexTextBudget)
+    private var churnAt: Double?
+    var clock: () -> Double = { Date().timeIntervalSince1970 }
+
+    static func complexWords(_ s: String) -> Int {
+        var count = 0
+        var run = false
+        for unit in s.utf16 {
+            if unit >= 0x4E00 && unit <= 0x9FCC {
+                if run { count += 1 }
+                run = false
+                count += 1
+            } else if unit <= 0x20 {
+                if run { count += 1 }
+                run = false
+            } else if unit >= 0x0590 {
+                run = true
+            }
+        }
+        if run { count += 1 }
+        return count
+    }
+
+    private func takeChurn(_ words: Int) -> Bool {
+        let now = clock()
+        if let at = churnAt {
+            churnTokens = min(Double(Self.complexTextBudget), churnTokens + max(0, now - at) * Self.complexChurnPerSecond)
+        }
+        churnAt = now
+        guard churnTokens >= Double(words) else { return false }
+        churnTokens -= Double(words)
+        return true
+    }
+
+    private func overChurn() -> Bool {
+        diag("text-churn", "complex-script text changes over \(Int(Self.complexChurnPerSecond)) units per second")
+        return false
+    }
 
     static func complexUnits(_ s: String) -> Int {
         var count = 0
@@ -474,6 +515,7 @@ final class NativeValidator {
     private func characterData(_ id: Int, _ data: String, text: Bool) -> Bool {
         let units = text ? Self.complexUnits(data) : 0
         if units > 0, complexText + units > Self.complexTextBudget { return overTextBudget() }
+        if units > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
         let seq = nextSeq()
         guard let node = newNode(id, { Node(id: id, kind: text ? .text : .comment, rendered: text, data: data, seq: seq) }) else { return false }
         node.complex = units
@@ -487,6 +529,7 @@ final class NativeValidator {
         let units = node.kind == .text ? Self.complexUnits(data) : 0
         let delta = units - node.complex
         if delta > 0, complexText + delta > Self.complexTextBudget { return overTextBudget() }
+        if units > 0, !takeChurn(Self.complexWords(data)) { return overChurn() }
         complexText += delta
         node.complex = units
         node.data = data

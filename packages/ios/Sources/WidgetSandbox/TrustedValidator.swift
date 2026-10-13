@@ -175,6 +175,7 @@ public final class TrustedValidator {
 
     /// The node model kept in Swift for a widget whose sandbox sends binary ops; nil: the JS validator owns it.
     private var native: NativeValidator?
+    var nativeModel: NativeValidator? { native }
     fileprivate var oracleDiagnostics = 0
     private static let tablesLock = NSLock()
     private static var cachedTables: NativeValidatorTables?

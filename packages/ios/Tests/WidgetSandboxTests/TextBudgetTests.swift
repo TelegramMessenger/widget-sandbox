@@ -51,4 +51,65 @@ final class TextBudgetTests: XCTestCase {
         XCTAssertEqual(native.2, js.2)
         XCTAssertGreaterThanOrEqual(js.2.filter { $0.hasPrefix("text-budget") }.count, 2)
     }
+
+    private func churn(binary: Bool, js: String, seconds: TimeInterval) -> (renderer: RecordingRenderer, churnDiags: Int) {
+        let renderer = RecordingRenderer()
+        var options = WidgetHost.Options()
+        if binary { options.features = ["binaryOps"] }
+        let host = try! WidgetHost(html: "<p id=p></p><script>" + js + "</script>", theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        defer { host.destroy() }
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return (renderer, host.diagnostics.diags["text-churn"]?.count ?? 0)
+    }
+
+    func testComplexTextChurnIsRateLimitedOnBothValidatorPaths() {
+        let js = "var p=document.getElementById('p'),n=0;setInterval(function(){n++;var c=String.fromCharCode(0x4E00+n%500);p.textContent=c.repeat(3000);},20);"
+        for binary in [true, false] {
+            let start = Date()
+            let r = churn(binary: binary, js: js, seconds: 1.2)
+            let elapsed = Date().timeIntervalSince(start)
+            var accepted = 0
+            for message in r.renderer.messages {
+                for n in 1...500 where message.contains(String(repeating: String(UnicodeScalar(0x4E00 + n % 500)!), count: 3000)) { accepted += 1 }
+            }
+            let allowed = (8192.0 + 1024.0 * elapsed) / 3000.0 + 1
+            XCTAssertGreaterThan(r.churnDiags, 0, "binary \(binary)")
+            XCTAssertGreaterThan(accepted, 0, "binary \(binary)")
+            XCTAssertLessThanOrEqual(Double(accepted), allowed, "binary \(binary) accepted \(accepted)")
+        }
+    }
+
+    func testTickerTextNeverHitsTheChurnLimit() {
+        let js = "var p=document.getElementById('p'),n=0;setInterval(function(){n++;p.textContent='BTC $'+(60000+n)+' \\u25B2 +'+(n%7)+'.0% \\u00B7 ETH $'+(3000+n%50)+' \\u092E\\u0947\\u0930\\u093E';},10);"
+        for binary in [true, false] {
+            XCTAssertEqual(churn(binary: binary, js: js, seconds: 0.8).churnDiags, 0, "binary \(binary)")
+        }
+    }
+
+    func testComplexWordsCountsWordsNotUnits() {
+        XCTAssertEqual(NativeValidator.complexWords("BTC $60000 \u{25B2}"), 1)
+        XCTAssertEqual(NativeValidator.complexWords("\u{4E2D}\u{6587}\u{5B57} hello \u{092E}\u{0947}\u{0930}\u{093E} \u{0928}\u{093E}\u{092E}"), 5)
+        XCTAssertEqual(NativeValidator.complexWords("\u{3042}\u{3044}\u{3046}\u{3048}\u{304A}\u{304B}\u{304D}\u{304F}\u{3051}\u{3053}\u{3002}\u{3055}\u{3057}\u{3059}"), 1)
+        XCTAssertEqual(NativeValidator.complexWords(""), 0)
+    }
+
+    func testChurnRefillsWithTheClockInTheNativeModel() {
+        let rig = NativeValidatorDifferentialTests.Rig(native: true)
+        var now = 1000.0
+        rig.validator.thread.sync { rig.validator.nativeModel?.clock = { now } }
+        let cjk = { (n: Int) in String(repeating: "\u{4E2D}", count: n) }
+        _ = rig.json("[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null},{\"op\":\"text\",\"id\":20,\"data\":\"\(cjk(3000))\"},{\"op\":\"ins\",\"parent\":3,\"id\":20,\"before\":null}]")
+        var accepted = 0
+        for _ in 0 ..< 4 {
+            let r = rig.json("[{\"op\":\"data\",\"id\":20,\"data\":\"\(cjk(2999))\"},{\"op\":\"data\",\"id\":20,\"data\":\"\(cjk(3000))\"}]")
+            accepted += r.0.count
+        }
+        XCTAssertEqual(accepted, 1)
+        XCTAssertTrue(rig.diags.contains { $0.hasPrefix("text-churn") })
+        now += 6
+        XCTAssertEqual(rig.json("[{\"op\":\"data\",\"id\":20,\"data\":\"\(cjk(2999))\"}]").0.count, 1)
+    }
 }

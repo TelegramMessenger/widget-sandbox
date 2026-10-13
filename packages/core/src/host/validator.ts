@@ -27,6 +27,25 @@ const MAX_TEXT = 64 * 1024;
  * of it in its whole document, counted on create, data change and removal.
  */
 const COMPLEX_TEXT_BUDGET = 8192;
+const COMPLEX_CHURN_PER_SECOND = 1024;
+
+export function complexWords(text: string): number {
+  let count = 0;
+  let run = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c >= 0x4e00 && c <= 0x9fcc) {
+      if (run) count++;
+      run = false;
+      count++;
+    } else if (c <= 0x20) {
+      if (run) count++;
+      run = false;
+    } else if (c >= 0x0590) run = true;
+  }
+  if (run) count++;
+  return count;
+}
 
 function complexUnits(text: string): number {
   let n = 0;
@@ -101,6 +120,27 @@ export class Validator {
   private adopted = { html: false, head: false, body: false };
   private dirtyStyles = new Set<NodeId>();
   private complexText = 0;
+  private churnTokens = COMPLEX_TEXT_BUDGET;
+  private churnAt: number | null = null;
+  private clock: () => number = () => Date.now() / 1000;
+
+  setClock(clock: () => number) {
+    this.clock = clock;
+  }
+
+  private takeChurn(words: number): boolean {
+    const now = this.clock();
+    if (this.churnAt !== null) this.churnTokens = Math.min(COMPLEX_TEXT_BUDGET, this.churnTokens + Math.max(0, now - this.churnAt) * COMPLEX_CHURN_PER_SECOND);
+    this.churnAt = now;
+    if (this.churnTokens < words) return false;
+    this.churnTokens -= words;
+    return true;
+  }
+
+  private overChurn(): boolean {
+    this.diag('text-churn', `complex-script text changes over ${COMPLEX_CHURN_PER_SECOND} units per second`);
+    return false;
+  }
   private out: RenderOp[] = [];
   private diag: Diag;
   private env: CssEnv;
@@ -301,6 +341,7 @@ export class Validator {
       this.diag('text-budget', `document complex-script text over ${COMPLEX_TEXT_BUDGET} units`);
       return false;
     }
+    if (complex && !this.takeChurn(complexWords(data))) return this.overChurn();
     // Comments are tracked for tree consistency but never rendered.
     const node = this.newNode(id, { kind, data, rendered: kind === 'text', complex });
     if (!node) return false;
@@ -320,6 +361,7 @@ export class Validator {
       this.diag('text-budget', `document complex-script text over ${COMPLEX_TEXT_BUDGET} units`);
       return false;
     }
+    if (complex && !this.takeChurn(complexWords(data))) return this.overChurn();
     this.complexText += growth;
     node.complex = complex;
     node.data = data;
