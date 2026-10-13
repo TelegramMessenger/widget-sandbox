@@ -240,6 +240,37 @@ final class NativeValidatorDifferentialTests: XCTestCase {
         XCTAssertGreaterThan(diags, 2000)
     }
 
+    func testIconExpansionOfFieldsMatchesTheJSONText() {
+        let icons = IconExpansion(resolver: IconExpansionTests.stubResolver) { _, _ in }
+        XCTAssertNotNil(icons.dataURL("icon:airplane"))
+        let values = ["icon:airplane", "icon:airplane?weight=bold", "icon:nope", "x icon:airplane", "url(icon:airplane)", "url('icon:airplane')", "url(\"icon:airplane\")", "url(\u{a0}icon:airplane)",
+                      "url(\u{2003}icon:airplane)", "url(\ticon:airplane)", "url(\nicon:airplane)", "URL(ICON:airplane)", "url( icon:airplane ) url(icon:airplane)", "url(\\\"icon:airplane)", "icon:airplane\n",
+                      "a:url(icon:airplane);b:url(icon:airplane)", "icon:" + String(repeating: "a", count: 97), "url(icon:airplane?x=" + String(repeating: "1", count: 401) + ")"]
+        let keys = ["src", "href", "data-x", "1x", "fill", "style", "title"]
+        var replaced = 0
+        for value in values {
+            var encoder = BinaryOpsEncoder()
+            encoder.begin()
+            var json: [String] = []
+            for key in keys {
+                encoder.attribute(5, key, value)
+                json.append(String(decoding: BinaryOps.json(.attribute(id: 5, name: BinaryString(s: key, units: key.utf16.count), value: BinaryString(s: value, units: value.utf16.count)), canvas: [:]), as: UTF8.self))
+            }
+            encoder.text(6, value, code: .data)
+            json.append(String(decoding: BinaryOps.json(.data(id: 6, data: BinaryString(s: value, units: value.utf16.count)), canvas: [:]), as: UTF8.self))
+            let attrs = keys.map { ($0, value) }
+            encoder.element(7, tag: "img", svg: false, attributes: attrs)
+            json.append(String(decoding: BinaryOps.json(.element(id: 7, tag: BinaryString(s: "img", units: 3), svg: false, attributes: attrs.map { (BinaryString(s: $0.0, units: $0.0.utf16.count), BinaryString(s: $0.1, units: $0.1.utf16.count)) }), canvas: [:]), as: UTF8.self))
+            icons.beginBatch()
+            let expected = icons.expand("[" + json.joined(separator: ",") + "]")
+            icons.beginBatch()
+            guard case .success(let decoded) = BinaryOps.decode(encoder.finish(), table: BinaryInternTable(), icons: icons) else { return XCTFail(value) }
+            XCTAssertEqual(BinaryOps.json(decoded.ops, canvas: [:]), expected, value)
+            if expected.contains("data:image") { replaced += 1 }
+        }
+        XCTAssertGreaterThan(replaced, 6)
+    }
+
     func testTablesComeFromTheBundle() throws {
         let rig = Rig(native: true)
         let tables = try XCTUnwrap(NativeValidatorTables(json: rig.validator.tablesJSON()))

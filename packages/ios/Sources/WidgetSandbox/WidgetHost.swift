@@ -67,6 +67,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var asyncValidation = true
         /// Boot hosts that the feed creates ahead of the viewport on a background queue (WidgetPreparer) and adopt them once their first content is laid out.
         public var backgroundBoot = false
+        public var assetResolver: WidgetAssetResolver?
         public init() {}
     }
 
@@ -168,6 +169,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             engine = SandboxEngine(resources: resources, features: options.features)
         }
         state.prewarmed = prewarmed.joined(separator: "+")
+        validator.setAssetResolver(options.assetResolver)
         validator.useNativeModel(engine.runtimeFeatures.contains("binaryOps"))
         engine.delegate = self
         let channels = sideChannels

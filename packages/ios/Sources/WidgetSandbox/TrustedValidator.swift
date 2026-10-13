@@ -39,6 +39,19 @@ public final class TrustedValidator {
     private let ownsThread: Bool
     private var js: QuickJSContext!
     public var onDiag: (String, String) -> Void
+    private var icons: IconExpansion?
+
+    public func setAssetResolver(_ resolver: WidgetAssetResolver?) {
+        thread.async { [self] in
+            icons = resolver.map { IconExpansion(resolver: $0) { [weak self] k, d in self?.onDiag(k, d) } }
+        }
+    }
+
+    private func expandIcons(_ json: String) -> String {
+        guard let icons else { return json }
+        icons.beginBatch()
+        return icons.expand(json)
+    }
     /// Set once the bundle is evaluated: from the precompiled blob or from source.
     public private(set) var bundleSource = "pending"
 
@@ -141,6 +154,7 @@ public final class TrustedValidator {
         thread.sync { [self] in
             if native != nil { _ = str("__v_native", ["0"]) }
             native = nil
+            icons = nil
         }
         _ = str("__v_create", [theme])
         thread.sync { [self] in js?.collectGarbage() }
@@ -209,7 +223,8 @@ public final class TrustedValidator {
                 onDiag("protocol-violation", "binary ops without the native model")
                 return .empty
             }
-            switch BinaryOps.decode(payload, table: native.intern) {
+            icons?.beginBatch()
+            switch BinaryOps.decode(payload, table: native.intern, icons: icons) {
             case .failure(let failure):
                 onDiag("protocol-violation", "malformed binary ops batch (\(failure))")
                 return .empty
@@ -244,6 +259,7 @@ public final class TrustedValidator {
 
     /// Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived).
     public func processOps(_ json: String) -> String {
+        let json = thread.sync { [self] in expandIcons(json) }
         if let native = thread.sync({ [self] in self.native }) {
             return thread.sync { [self] in
                 guard let value = JSONText.parse(json) else {

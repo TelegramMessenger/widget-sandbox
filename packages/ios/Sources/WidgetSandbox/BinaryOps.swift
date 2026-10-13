@@ -89,10 +89,10 @@ enum BinaryOps {
         var tooMany: Bool
     }
 
-    static func decode(_ payload: BinaryOpsPayload, table: BinaryInternTable) -> Result<Decoded, Failure> {
+    static func decode(_ payload: BinaryOpsPayload, table: BinaryInternTable, icons: IconExpansion? = nil) -> Result<Decoded, Failure> {
         payload.words.withUnsafeBufferPointer { w in
             payload.strings.withUnsafeBufferPointer { b in
-                decode(words: w, bytes: b, table: table)
+                decode(words: w, bytes: b, table: table, icons: icons)
             }
         }
     }
@@ -137,7 +137,7 @@ enum BinaryOps {
         }
     }
 
-    static func decode(words w: UnsafeBufferPointer<Int32>, bytes b: UnsafeBufferPointer<UInt8>, table: BinaryInternTable) -> Result<Decoded, Failure> {
+    static func decode(words w: UnsafeBufferPointer<Int32>, bytes b: UnsafeBufferPointer<UInt8>, table: BinaryInternTable, icons: IconExpansion? = nil) -> Result<Decoded, Failure> {
         guard w.count >= 2, w.count <= maxWords, b.count <= maxStringBytes, w[0] == magic, w[1] >= 0 else { return .failure(.header) }
         var ascii = true
         if let base = b.baseAddress {
@@ -156,6 +156,7 @@ enum BinaryOps {
         ops.reserveCapacity(min(Int(w[1]), maxOps))
         var i = 2
         var count = 0
+        let iconExpansion = b.count >= 5 && IconExpansion.mayContainIcon(bytes: b) ? icons : nil
 
         func word() throws -> Int32 {
             guard i < w.count else { throw Failure.truncated }
@@ -175,6 +176,9 @@ enum BinaryOps {
                 let k = -(Int(v) + 1)
                 guard k < interned.count else { throw Failure.intern }
                 s = interned[k]
+            }
+            if let iconExpansion, let expanded = iconExpansion.expandField(s.s, key: key) {
+                return BinaryString(s: expanded, units: expanded.utf16.count)
             }
             return s
         }
@@ -250,7 +254,7 @@ enum BinaryOps {
                 case .json:
                     let v = try word()
                     let text = try inline(v).s
-                    guard let value = JSONText.parse(text) else { throw Failure.json }
+                    guard let value = JSONText.parse(iconExpansion.map { $0.expand(text) } ?? text) else { throw Failure.json }
                     ops.append(.json(value))
                 case nil:
                     throw Failure.opcode(code)
