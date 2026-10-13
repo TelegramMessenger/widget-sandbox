@@ -141,3 +141,15 @@ describe('capture: moving known nodes into a new subtree', () => {
     assert.match(r.probes[0], /^<section><button [^>]*id="row"[^>]*><b>Row<\/b><\/button><\/section>$/);
   });
 });
+
+describe('capture: layout query cache', () => {
+  for (const binary of [false, true]) it(`offset reads survive transform-only flushes but not layout changes or rect reads${binary ? ' (binary ops)' : ''}`, async () => {
+    const r = await runWidget(`<section id="s" style="height:50px"></section><script>
+      var s = document.getElementById('s'), h = [];
+      for (var i = 0; i < 4; i++) { s.style.transform = 'translateY(' + i + 'px)'; s.style.opacity = String(1 - i / 10); h.push(s.offsetHeight); }
+      s.getBoundingClientRect(); s.style.transform = 'none'; s.getBoundingClientRect();
+      s.style.height = '60px'; h.push(s.offsetHeight);</script>`, { timerRounds: 0, probes: ['h.length'], binaryOps: binary });
+    const kinds = r.queries.map((q: any) => q.q);
+    assert.deepEqual(kinds, ['box', 'rect', 'rect', 'box']);
+  });
+});

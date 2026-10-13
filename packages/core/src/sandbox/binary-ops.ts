@@ -5,6 +5,8 @@
 // Each record stands for exactly the JSON op the JSON path would have sent; any
 // op the records cannot carry exactly goes as a JSON record.
 
+import { boxNeutral } from './box-neutral';
+
 const MAGIC = 0x54574f31;
 const NOT_INTERNED = 2147483647;
 const MAX_INTERNED = 4096;
@@ -65,8 +67,11 @@ export class OpWriter {
     return ref === NOT_INTERNED ? this.inline(x) : ref;
   }
 
+  boxNeutral = true;
+
   push(o: any): void {
     this.count++;
+    if (this.boxNeutral && !boxNeutral(o)) this.boxNeutral = false;
     if (o && typeof o === 'object' && isInt32(o.id) && this.record(o)) return;
     const json = JSON.stringify(o);
     const w = this.room(2);
@@ -192,6 +197,7 @@ export class OpWriter {
     let joined = this.strings.join('');
     if (typeof (joined as any).isWellFormed === 'function' && !(joined as any).isWellFormed()) joined = (joined as any).toWellFormed();
     this.resetPending = false;
+    this.boxNeutral = true;
     this.send(this.w.subarray(0, this.n), joined);
     this.n = 2;
     this.count = 0;

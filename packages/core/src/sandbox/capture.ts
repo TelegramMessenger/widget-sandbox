@@ -14,6 +14,7 @@
 import { DOCUMENT_ID } from '../shared/protocol';
 import { document, domHooks, exposeNode, quietly, SVG_NS } from './dom';
 import { OpWriter } from './binary-ops';
+import { boxNeutral } from './box-neutral';
 import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './host';
 import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
 
@@ -494,14 +495,14 @@ function flushNow(full: boolean): void {
 
 function send() {
   if (ops instanceof OpWriter) {
-    invalidateLayout();
+    invalidateLayout(ops.length > 0 && ops.boxNeutral);
     sendStagedCanvas();
     ops.flush();
     return;
   }
   const batch = ops;
   ops = [];
-  invalidateLayout();
+  invalidateLayout(batch.length > 0 && batch.every(boxNeutral));
   const json = JSON.stringify(batch);
   sendStagedCanvas();
   host('ops', json);

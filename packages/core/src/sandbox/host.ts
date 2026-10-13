@@ -50,6 +50,7 @@ export function unsupported(api: string): void {
 
 // ── sync queries with a layout cache ──
 
+
 const cache = new Map<string, any>();
 export const counters = { cacheHits: 0, missed: 0 };
 let flushHook: () => void = () => {};
@@ -58,8 +59,12 @@ export function setFlushHook(fn: () => void) {
 }
 
 /** Layout may have changed: drop cached answers. Called after every flush that sent ops. */
-export function invalidateLayout(): void {
-  cache.clear();
+export function invalidateLayout(keepBoxes = false): void {
+  if (!keepBoxes) {
+    cache.clear();
+    return;
+  }
+  for (const key of cache.keys()) if (!key.startsWith('{"q":"box",')) cache.delete(key);
 }
 
 /**
