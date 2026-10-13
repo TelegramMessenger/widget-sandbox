@@ -120,6 +120,7 @@ export interface RunOptions {
   canvasWords?: boolean;
   /** Advertise `binaryOps` and install `__hostOps`; batches are decoded back into JSON ops before validation. */
   binaryOps?: boolean;
+  canvasRect?: boolean;
   webAnimations?: boolean;
   frames?: number;
 }
@@ -138,7 +139,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
   const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [] };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const timers = new Map<number, number>();

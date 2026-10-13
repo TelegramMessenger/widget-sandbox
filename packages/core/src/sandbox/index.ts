@@ -4,7 +4,7 @@
 
 import './prelude';
 import * as linkedom from 'linkedom';
-import { enableCanvasWords, flushCanvases, ImageData, installCanvas, Context2D, Path2D } from './canvas';
+import { enableCanvasWords, flushCanvases, ImageData, installCanvas, Context2D, Path2D, setCanvasRectFast } from './canvas';
 import * as capture from './capture';
 import { document, installAttributeFastPaths, loadDocument, parseInto, SCRIPT_INERT, setAttrFast, setInPlaceText, SVG_NS } from './dom';
 import * as ev from './events';
@@ -360,6 +360,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
     capture.enableBinaryOps(Array.isArray(config.features) && config.features.includes('binaryOps'));
     setInPlaceText(!(Array.isArray(config.features) && config.features.includes('noInPlaceText')));
     setAttrFast(!(Array.isArray(config.features) && config.features.includes('noAttrFast')));
+    setCanvasRectFast(!(Array.isArray(config.features) && config.features.includes('noCanvasRect')));
     setWebAnimations(Array.isArray(config.features) && config.features.includes('webAnimations'));
     if (webAnimationsEnabled()) Object.assign(G, webAnimations().globals);
     globals.setHidden(config.visible === false);

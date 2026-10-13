@@ -32,6 +32,11 @@ const MAX_PAYLOADS = 64;
 const MAX_WORDS = 2_000_000;
 const MAX_STRING_UNITS = 2_000_000;
 let wordsEnabled = false;
+let rectFast = true;
+
+export function setCanvasRectFast(on: boolean) {
+  rectFast = on;
+}
 
 export function enableCanvasWords(on: boolean) {
   wordsEnabled = on && hostCanvas !== null;
@@ -108,6 +113,19 @@ class WordBuffer {
     this.word(ident);
     this.word(a.length - p);
     for (; p < a.length; p++) if (!this.value(a[p])) return false;
+    return true;
+  }
+  rect(name: string, a: number, b: number, c: number, d: number): boolean {
+    if (this.list !== null) return false;
+    this.word(0);
+    this.word(this.intern(name));
+    this.word(0);
+    this.word(4);
+    this.word(0); this.word(a);
+    this.word(0); this.word(b);
+    this.word(0); this.word(c);
+    this.word(0); this.word(d);
+    this.count++;
     return true;
   }
   /** `['c', name, ...args]` with only number and string arguments, written without building the array. */
@@ -366,6 +384,19 @@ for (const name of CALLS) {
       return;
     }
     this._push(['c', name, ...args.map((a) => this._enc(a))]);
+  };
+}
+for (const name of ['fillRect', 'strokeRect', 'clearRect']) {
+  const generic = Context2D.prototype[name];
+  Context2D.prototype[name] = function (this: Context2D, a: any, b: any, c: any, d: any) {
+    if (rectFast && arguments.length === 4 && typeof a === 'number' && typeof b === 'number' && typeof c === 'number' && typeof d === 'number') {
+      const cmds = buffer(this.canvas);
+      if (!Array.isArray(cmds) && cmds.length <= MAX_BUFFERED && cmds.rect(name, a, b, c, d)) {
+        markDirty(this.canvas);
+        return;
+      }
+    }
+    return generic.apply(this, arguments as any);
   };
 }
 for (const name of Object.keys(DEFAULTS)) {
