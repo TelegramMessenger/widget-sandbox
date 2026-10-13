@@ -1,5 +1,6 @@
 import XCTest
 import QuartzCore
+import WidgetSandboxProtocol
 @testable import WidgetSandbox
 
 final class Widget3DChannelTests: XCTestCase {

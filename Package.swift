@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "WidgetSandbox", targets: ["WidgetSandbox"]),
         .library(name: "WidgetSandboxProtocol", targets: ["WidgetSandboxProtocol"]),
+        .library(name: "CQuickJS", targets: ["CQuickJS"]),
     ],
     targets: [
         // QuickJS from the TelegramMessenger/quickjs fork (quickjs-ng 0.17 with fixes; a git

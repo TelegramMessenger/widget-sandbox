@@ -1,11 +1,7 @@
 import CQuickJS
 import Foundation
 import QuartzCore
-
-public protocol SurfaceHostingRenderer: AnyObject {
-    var surfaceLayer: ((String) -> CALayer?)? { get set }
-    var surfaceLayout: ((String, CGSize, CGFloat, Bool) -> Void)? { get set }
-}
+import WidgetSandboxProtocol
 
 public struct Widget3DBytes {
     public enum Kind {
