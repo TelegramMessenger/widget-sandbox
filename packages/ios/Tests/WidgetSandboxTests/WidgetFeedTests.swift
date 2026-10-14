@@ -237,6 +237,7 @@ final class WidgetFeedTests: XCTestCase {
             feed.register(slot)
             return slot
         }
+        defer { withExtendedLifetime(slots) {} }
         slots[0].snapshotStored(bytes: 100)
         slots[1].snapshotStored(bytes: 100)
         slots[2].snapshotStored(bytes: 100)
