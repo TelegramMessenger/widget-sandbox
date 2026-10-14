@@ -51,6 +51,7 @@ export function textWork(text: string): number {
 }
 
 const SMALL_TEXT = 256;
+const VISIBLE_TEXT_ATTRS = new Set(['value', 'placeholder', 'alt', 'label', 'title']);
 
 export function chargesChurn(text: string): boolean {
   if (text.length > SMALL_TEXT) return true;
@@ -95,6 +96,7 @@ interface NodeInfo {
   data: string;
   /** Complex-script units this text node counts against the document budget. */
   complex?: number;
+  textSlots?: Map<string, { length: number; complex: number }>;
   /** Renderer currently has this node attached under its parent. */
   attached: boolean;
 }
@@ -360,7 +362,9 @@ export class Validator {
     if (attrs) {
       for (const [name, value] of Object.entries(attrs)) {
         if (!isStr(value, MAX_ATTR)) continue;
-        for (const pair of this.sanitizeAttr(node, name, value)) outAttrs.push(pair);
+        for (const pair of this.sanitizeAttr(node, name, value)) {
+          if (!VISIBLE_TEXT_ATTRS.has(pair[0]) || this.updateTextSlot(node, 'attr:' + pair[0], pair[1])) outAttrs.push(pair);
+        }
       }
     }
     this.out.push({ op: 'el', id, tag: outTag, ...(node.ns === 'svg' ? { ns: 'svg' as const } : {}), attrs: outAttrs, ...(adopt ? { adopt } : {}) });
@@ -501,6 +505,10 @@ export class Validator {
       const n = stack.pop()!;
       this.complexText -= n.complex ?? 0;
       this.totalText -= n.data.length;
+      for (const charge of n.textSlots?.values() ?? []) {
+        this.totalText -= charge.length;
+        this.complexText -= charge.complex;
+      }
       this.nodes.delete(n.id);
       this.dirtyStyles.delete(n.id);
       for (const c of n.children) {
@@ -525,10 +533,16 @@ export class Validator {
     if (pairs.length === 0) {
       // The previous (possibly valid) value must not survive a rejected update.
       const canon = this.canonAttrName(node, name);
-      if (canon) this.out.push({ op: 'rattr', id, name: canon });
+      if (canon) {
+        this.releaseTextSlot(node, 'attr:' + canon);
+        this.out.push({ op: 'rattr', id, name: canon });
+      }
       return true;
     }
-    for (const [n, v] of pairs) this.out.push({ op: 'attr', id, name: n, value: v });
+    for (const [n, v] of pairs) {
+      if (VISIBLE_TEXT_ATTRS.has(n) && !this.updateTextSlot(node, 'attr:' + n, v)) return false;
+      this.out.push({ op: 'attr', id, name: n, value: v });
+    }
     return true;
   }
 
@@ -540,6 +554,7 @@ export class Validator {
     if (!node.rendered) return true;
     const canon = this.canonAttrName(node, name);
     if (!canon) return true;
+    this.releaseTextSlot(node, 'attr:' + canon);
     this.out.push({ op: 'rattr', id, name: canon });
     if (node.tag === 'a' && (canon === 'href' || canon === 'xlink:href')) this.out.push({ op: 'rattr', id, name: 'data-tg-link' });
     return true;
@@ -664,8 +679,43 @@ export class Validator {
     if (typeof value === 'string' && value.length > this.limits.maxText) return false;
     if (typeof value === 'number' && !Number.isFinite(value)) return false;
     if (!node.rendered || (spec.tags && !spec.tags.has(node.tag))) return true;
+    if (typeof value === 'string' && !this.updateTextSlot(node, 'prop:' + name, value)) return false;
     this.out.push({ op: 'prop', id, name, value: value as string | number | boolean });
     return true;
+  }
+
+  private updateTextSlot(node: NodeInfo, key: string, text: string): boolean {
+    if (!this.limits.textBudget && !this.limits.complexTextBudget) return true;
+    if (text.length > this.limits.maxText) {
+      this.diag('text-budget', `visible text over ${this.limits.maxText} units`);
+      return false;
+    }
+    const previous = node.textSlots?.get(key);
+    const lengthDelta = text.length - (previous?.length ?? 0);
+    if (lengthDelta > 0 && this.limits.textBudget && this.totalText + lengthDelta > this.limits.textBudget) {
+      this.diag('text-budget', `document text over ${this.limits.textBudget} units`);
+      return false;
+    }
+    const complex = complexUnits(text);
+    const complexDelta = complex - (previous?.complex ?? 0);
+    if (complexDelta > 0 && this.limits.complexTextBudget && this.complexText + complexDelta > this.limits.complexTextBudget) {
+      this.diag('text-budget', `document complex-script text over ${this.limits.complexTextBudget} units`);
+      return false;
+    }
+    if (this.limits.textBudget && chargesChurn(text) && !this.takeChurn(textWork(text))) return this.overChurn();
+    this.totalText += lengthDelta;
+    this.complexText += complexDelta;
+    if (text.length) (node.textSlots ??= new Map()).set(key, { length: text.length, complex });
+    else node.textSlots?.delete(key);
+    return true;
+  }
+
+  private releaseTextSlot(node: NodeInfo, key: string): void {
+    const charge = node.textSlots?.get(key);
+    if (!charge) return;
+    this.totalText -= charge.length;
+    this.complexText -= charge.complex;
+    node.textSlots!.delete(key);
   }
 
   private opCall(op: Record<string, unknown>): boolean {

@@ -365,3 +365,73 @@ describe('validator: complex-script text budget', () => {
     assert.ok(!diags.some((d) => d.startsWith('text-budget')));
   });
 });
+
+describe('validator: visible attribute and form value text budgets', () => {
+  it('rejects oversized visible text attributes on creation and mutation', () => {
+    const big = 'x'.repeat(64 * 1024 + 1);
+    const out = run([
+      { op: 'el', id: 20, tag: 'input', attrs: { value: big, placeholder: big, title: big } },
+      { op: 'el', id: 21, tag: 'img', attrs: { alt: big } },
+      { op: 'el', id: 22, tag: 'option', attrs: { label: big } },
+      { op: 'attr', id: 20, name: 'VALUE', value: big },
+    ], [], 'strict');
+    assert.ok(!json(out).includes(big));
+    assert.equal(out.filter(o => o.op === 'el').length, 3);
+  });
+
+  it('shares the document budget with form properties and refunds removals', () => {
+    const chunk = 'a'.repeat(64 * 1024);
+    const out = run([
+      ...[20, 21, 22].map(id => ({ op: 'text', id, data: chunk })),
+      { op: 'el', id: 30, tag: 'textarea' },
+      { op: 'prop', id: 30, name: 'value', value: chunk },
+      { op: 'text', id: 23, data: 'overflow' },
+      { op: 'rm', id: 30 },
+      { op: 'text', id: 24, data: chunk },
+    ], [], 'strict');
+    assert.ok(out.some(o => o.op === 'prop' && o.id === 30));
+    assert.ok(!out.some(o => o.op === 'text' && o.id === 23));
+    assert.ok(out.some(o => o.op === 'text' && o.id === 24));
+  });
+
+  it('shares complex text budgets across attributes, properties and text nodes', () => {
+    const text = (n: number) => 'ا'.repeat(n);
+    const out = run([
+      { op: 'text', id: 20, data: text(6000) },
+      { op: 'el', id: 21, tag: 'input', attrs: { placeholder: text(3000), value: text(2000) } },
+      { op: 'prop', id: 21, name: 'value', value: text(500) },
+      { op: 'rattr', id: 21, name: 'VALUE' },
+      { op: 'prop', id: 21, name: 'value', value: text(501) },
+    ], [], 'strict');
+    assert.equal(attrsOf(out, 21).placeholder, undefined);
+    assert.equal(attrsOf(out, 21).value, text(2000));
+    assert.ok(!out.some(o => o.op === 'prop' && o.value === text(500)));
+    assert.ok(out.some(o => o.op === 'prop' && o.value === text(501)));
+  });
+
+  it('rate limits repeated form values and attribute changes', () => {
+    for (const property of [true, false]) {
+      const diags: string[] = [];
+      const out = run([
+        { op: 'el', id: 20, tag: 'input' },
+        ...Array.from({ length: 10 }, (_, i) => property
+          ? { op: 'prop', id: 20, name: 'value', value: String.fromCharCode(0x4e00 + i).repeat(3000) }
+          : { op: 'attr', id: 20, name: 'placeholder', value: String.fromCharCode(0x4e00 + i).repeat(3000) }),
+      ], diags, 'strict');
+      assert.equal(out.filter(o => o.op === (property ? 'prop' : 'attr')).length, 2);
+      assert.ok(diags.some(d => d.startsWith('text-churn')));
+    }
+  });
+
+  it('preserves compatibility policy limits for visible attributes and property churn', () => {
+    const big = 'x'.repeat(64 * 1024 + 1);
+    const diags: string[] = [];
+    const out = run([
+      { op: 'el', id: 20, tag: 'input', attrs: { value: big } },
+      ...Array.from({ length: 10 }, (_, i) => ({ op: 'prop', id: 20, name: 'value', value: String.fromCharCode(0x4e00 + i).repeat(3000) })),
+    ], diags);
+    assert.equal(attrsOf(out, 20).value, big);
+    assert.equal(out.filter(o => o.op === 'prop').length, 10);
+    assert.ok(!diags.some(d => d.startsWith('text-')));
+  });
+});

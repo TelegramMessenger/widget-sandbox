@@ -188,4 +188,86 @@ final class TextBudgetTests: XCTestCase {
         XCTAssertEqual(rig.json(op).0.count, 1)
     }
 
+    func testVisibleTextBudgetsMatchOnBothValidatorPaths() throws {
+        let chunk = String(repeating: "a", count: 64 * 1024)
+        let arabic = { String(repeating: "ا", count: $0) }
+        let cases: [[ [String: Any] ]] = [
+            [
+                ["op": "el", "id": 20, "tag": "input", "attrs": ["value": chunk + "x", "placeholder": chunk + "x"]],
+                ["op": "attr", "id": 20, "name": "TITLE", "value": chunk + "x"],
+            ],
+            [
+                ["op": "text", "id": 20, "data": chunk], ["op": "text", "id": 21, "data": chunk], ["op": "text", "id": 22, "data": chunk],
+                ["op": "el", "id": 30, "tag": "textarea"], ["op": "prop", "id": 30, "name": "value", "value": chunk],
+                ["op": "text", "id": 23, "data": "overflow"], ["op": "rm", "id": 30], ["op": "text", "id": 24, "data": chunk],
+            ],
+            [
+                ["op": "text", "id": 20, "data": arabic(6000)],
+                ["op": "el", "id": 21, "tag": "input", "attrs": ["placeholder": arabic(3000), "value": arabic(2000)]],
+                ["op": "prop", "id": 21, "name": "value", "value": arabic(500)],
+                ["op": "rattr", "id": 21, "name": "VALUE"], ["op": "prop", "id": 21, "name": "value", "value": arabic(501)],
+            ],
+        ]
+        for (index, ops) in cases.enumerated() {
+            let batch = String(decoding: try JSONSerialization.data(withJSONObject: ops, options: [.sortedKeys]), as: UTF8.self)
+            let js = NativeValidatorDifferentialTests.Rig(native: false, policy: .strict).json(batch)
+            let native = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict).json(batch)
+            XCTAssertEqual(native.0, js.0, "case \(index)")
+            XCTAssertEqual(native.1, js.1, "case \(index)")
+            XCTAssertEqual(native.2, js.2, "case \(index)")
+            XCTAssertTrue(native.2.contains { $0.hasPrefix("text-budget") }, "case \(index)")
+            let output = native.0 as! [[String: Any]]
+            if index == 0 {
+                XCTAssertEqual(output.count, 1)
+                XCTAssertTrue((output[0]["attrs"] as! [Any]).isEmpty)
+            } else if index == 1 {
+                XCTAssertFalse(output.contains { $0["id"] as? Int == 23 })
+                XCTAssertTrue(output.contains { $0["id"] as? Int == 24 })
+            } else {
+                XCTAssertFalse(output.contains { $0["op"] as? String == "prop" && $0["value"] as? String == arabic(500) })
+                XCTAssertTrue(output.contains { $0["op"] as? String == "prop" && $0["value"] as? String == arabic(501) })
+            }
+        }
+    }
+
+    func testFormValueAndAttributeChurnIsLimitedOnBothPaths() throws {
+        for native in [false, true] {
+            for property in [false, true] {
+                let rig = NativeValidatorDifferentialTests.Rig(native: native, policy: .strict)
+                var ops: [[String: Any]] = [["op": "el", "id": 20, "tag": "input"]]
+                for i in 0..<10 {
+                    ops.append(["op": property ? "prop" : "attr", "id": 20, "name": property ? "value" : "placeholder", "value": String(repeating: String(UnicodeScalar(0x4e00 + i)!), count: 3000)])
+                }
+                let batch = String(decoding: try JSONSerialization.data(withJSONObject: ops), as: UTF8.self)
+                let result = rig.json(batch)
+                let output = result.0 as! [[String: Any]]
+                XCTAssertEqual(output.filter { $0["op"] as? String == (property ? "prop" : "attr") }.count, 2)
+                XCTAssertTrue(result.2.contains { $0.hasPrefix("text-churn") })
+            }
+        }
+    }
+
+    func testBinaryVisibleAttributeBudgetsRefundExactlyOnce() {
+        let rig = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict)
+        var encoder = BinaryOpsEncoder()
+        let chunk = String(repeating: "x", count: 64 * 1024)
+        encoder.begin(reset: true)
+        encoder.element(20, tag: "input", svg: false, attributes: [("value", chunk), ("placeholder", chunk), ("title", chunk)])
+        encoder.text(21, chunk, code: .text)
+        encoder.attribute(20, "value", chunk + "x", internValue: false)
+        encoder.text(22, "rejected", code: .text)
+        encoder.removeAttribute(20, "VALUE")
+        encoder.removeAttribute(20, "value")
+        encoder.text(23, chunk, code: .text)
+        encoder.text(24, "still rejected", code: .text)
+        encoder.remove(20)
+        encoder.text(25, chunk, code: .text)
+        encoder.text(26, chunk, code: .text)
+        encoder.text(27, "still full", code: .text)
+        let output = rig.binary(encoder.finish()).0 as! [[String: Any]]
+        let textIds = output.filter { $0["op"] as? String == "text" }.compactMap { $0["id"] as? Int }
+        XCTAssertEqual(textIds, [21, 23, 25, 26])
+        XCTAssertFalse(output.contains { $0["op"] as? String == "attr" })
+    }
+
 }

@@ -119,6 +119,7 @@ final class NativeValidator {
         var data: String
         var attached = false
         var complex = 0
+        var textSlots: [String: (length: Int, complex: Int)] = [:]
         let seq: Int
 
         init(id: Int, kind: Kind, tag: String = "", svg: Bool = false, rendered: Bool = true, isStyle: Bool = false, adopted: Bool = false, data: String = "", seq: Int) {
@@ -459,7 +460,11 @@ final class NativeValidator {
         var attrs = extra
         for (name, value) in attributes {
             guard let value else { continue }
-            attrs += sanitizeAttribute(node, name, value)
+            for pair in sanitizeAttribute(node, name, value) {
+                if !Self.visibleTextAttributes.contains(pair.name) || updateTextSlot(node, key: "attr:" + pair.name, text: pair.value) {
+                    attrs.append(pair)
+                }
+            }
         }
         out.append(WidgetOp(element: id, tag: rendered, svg: node.svg, attributes: attrs, adopt: adopt))
         return true
@@ -474,6 +479,7 @@ final class NativeValidator {
     var clock: () -> Double = { Date().timeIntervalSince1970 }
 
     static let smallText = 256
+    private static let visibleTextAttributes: Set<String> = ["value", "placeholder", "alt", "label", "title"]
 
     static func chargesChurn(_ s: String) -> Bool {
         if s.utf16.count > smallText { return true }
@@ -645,6 +651,10 @@ final class NativeValidator {
         while let n = stack.popLast() {
             complexText -= n.complex
             totalText -= n.data.utf16.count
+            for charge in n.textSlots.values {
+                totalText -= charge.length
+                complexText -= charge.complex
+            }
             nodes[n.id] = nil
             dirtyStyles[n.id] = nil
             for c in n.children {
@@ -662,10 +672,16 @@ final class NativeValidator {
         if !node.rendered { return true }
         let pairs = sanitizeAttribute(node, name, value)
         if pairs.isEmpty {
-            if let canon = canonicalAttributeName(node, name) { out.append(WidgetOp(removeAttribute: id, name: canon)) }
+            if let canon = canonicalAttributeName(node, name) {
+                releaseTextSlot(node, key: "attr:" + canon)
+                out.append(WidgetOp(removeAttribute: id, name: canon))
+            }
             return true
         }
-        for (n, v) in pairs { out.append(WidgetOp(attribute: id, name: n, value: v)) }
+        for (n, v) in pairs {
+            if Self.visibleTextAttributes.contains(n), !updateTextSlot(node, key: "attr:" + n, text: v) { return false }
+            out.append(WidgetOp(attribute: id, name: n, value: v))
+        }
         return true
     }
 
@@ -673,6 +689,7 @@ final class NativeValidator {
         guard let node = nodes[id], node.kind == .element else { return false }
         if !node.rendered { return true }
         guard let canon = canonicalAttributeName(node, name) else { return true }
+        releaseTextSlot(node, key: "attr:" + canon)
         out.append(WidgetOp(removeAttribute: id, name: canon))
         if node.tag == "a" && (canon == "href" || canon == "xlink:href") { out.append(WidgetOp(removeAttribute: id, name: "data-tg-link")) }
         return true
@@ -821,8 +838,38 @@ final class NativeValidator {
         }
         guard type == spec.type else { return false }
         if !node.rendered || (spec.tags.map { !$0.contains(node.tag) } ?? false) { return true }
+        if case .string(let text)? = value, !updateTextSlot(node, key: "prop:" + name, text: text) { return false }
         out.append(WidgetOp(["op": "prop", "id": id, "name": name, "value": any]))
         return true
+    }
+
+    private func updateTextSlot(_ node: Node, key: String, text: String) -> Bool {
+        guard tables.textBudget > 0 || tables.complexTextBudget > 0 else { return true }
+        let length = text.utf16.count
+        if length > tables.maxText {
+            diag("text-budget", "visible text over \(tables.maxText) units")
+            return false
+        }
+        let previous = node.textSlots[key]
+        let lengthDelta = length - (previous?.length ?? 0)
+        if lengthDelta > 0, tables.textBudget > 0, totalText + lengthDelta > tables.textBudget {
+            diag("text-budget", "document text over \(tables.textBudget) units")
+            return false
+        }
+        let complex = Self.complexUnits(text)
+        let complexDelta = complex - (previous?.complex ?? 0)
+        if complexDelta > 0, tables.complexTextBudget > 0, complexText + complexDelta > tables.complexTextBudget { return overTextBudget() }
+        if tables.textBudget > 0, Self.chargesChurn(text), !takeChurn(Self.textWork(text)) { return overChurn() }
+        totalText += lengthDelta
+        complexText += complexDelta
+        node.textSlots[key] = length > 0 ? (length, complex) : nil
+        return true
+    }
+
+    private func releaseTextSlot(_ node: Node, key: String) {
+        guard let charge = node.textSlots.removeValue(forKey: key) else { return }
+        totalText -= charge.length
+        complexText -= charge.complex
     }
 
     private func call(_ o: JSONObject) -> Bool {
