@@ -2,7 +2,8 @@
 import PackageDescription
 
 let localCheckout = !#filePath.contains("/checkouts/")
-let optimizedC: [CSetting] = localCheckout ? [.unsafeFlags(["-O2"])] : []
+let optimizedC: [CSetting] = localCheckout ? [.unsafeFlags(["-O3"])] : []
+let optimizesDebug = localCheckout && Context.environment["WIDGET_SANDBOX_DEBUG_UNOPTIMIZED"] == nil
 
 let package = Package(
     name: "WidgetSandbox",
@@ -59,3 +60,9 @@ let package = Package(
         ),
     ]
 )
+
+if optimizesDebug {
+    for target in package.targets where target.type == .regular && target.name != "CQuickJS" {
+        target.swiftSettings = (target.swiftSettings ?? []) + [.unsafeFlags(["-O"], .when(configuration: .debug))]
+    }
+}
