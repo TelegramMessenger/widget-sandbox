@@ -242,10 +242,32 @@ export function flushCanvases(push: (op: any) => void) {
   pending.clear();
 }
 
+const gradientSlots = new WeakMap<object, { next: number; slots: { id: number; value: WeakRef<CanvasGradient> }[] }>();
+
+function gradientId(canvas: object, value: CanvasGradient): number {
+  let pool = gradientSlots.get(canvas);
+  if (!pool) gradientSlots.set(canvas, pool = { next: 0, slots: [] });
+  if (pool.slots.length < 4096) {
+    const id = objectSeq++;
+    pool.slots.push({ id, value: new WeakRef(value) });
+    return id;
+  }
+  for (let n = 0; n < pool.slots.length; n++) {
+    const index = pool.next;
+    pool.next = (index + 1) % pool.slots.length;
+    const slot = pool.slots[index];
+    if (!slot.value.deref()) {
+      slot.value = new WeakRef(value);
+      return slot.id;
+    }
+  }
+  throw new RangeError('Too many live canvas gradients');
+}
+
 class CanvasGradient {
-  _id = objectSeq++;
+  _id: number;
   _canvas: any;
-  constructor(canvas: any) { this._canvas = canvas; }
+  constructor(canvas: any) { this._canvas = canvas; this._id = gradientId(canvas, this); }
   addColorStop(offset: number, color: string) { buffer(this._canvas).push(['gs', this._id, Number(offset), String(color)]); }
 }
 class CanvasPattern {
