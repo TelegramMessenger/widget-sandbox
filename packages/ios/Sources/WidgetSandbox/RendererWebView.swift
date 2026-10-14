@@ -121,20 +121,35 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
 
     /// Compiles (once per process) the no-network rule list, then loads the renderer document.
     public func load() {
+        loadDocument(replacingHistory: false)
+    }
+
+    private func loadDocument(replacingHistory: Bool) {
         guard isUsable else { return }
         let requestedURL = documentURL
         if let environment {
             environment.ensureRuleList { [weak self] in
                 guard let self, self.isUsable, self.documentURL == requestedURL else { return }
                 if environment.ruleListSource.hasPrefix("unavailable") { onDiag?("renderer", "content rule list \(environment.ruleListSource); relying on CSP + scheme handler") }
-                webView.load(URLRequest(url: documentURL))
+                navigate(to: requestedURL, replacingHistory: replacingHistory)
             }
             return
         }
         Self.ruleList { [weak self] list, error, _ in
             guard let self, self.isUsable, self.documentURL == requestedURL else { return }
             if let list { self.webView.configuration.userContentController.add(list) } else { self.onDiag?("renderer", "content rule list unavailable (\(error ?? "?")); relying on CSP + scheme handler") }
-            self.webView.load(URLRequest(url: self.documentURL))
+            self.navigate(to: requestedURL, replacingHistory: replacingHistory)
+        }
+    }
+
+    private func navigate(to url: URL, replacingHistory: Bool) {
+        if replacingHistory {
+            webView.evaluateJavaScript("location.replace(\(Self.jsStringLiteral(url.absoluteString)));undefined") { [weak self] _, error in
+                guard let self, error != nil, self.isUsable, self.documentURL == url, !self.documentLoaded else { return }
+                self.webView.load(URLRequest(url: url))
+            }
+        } else {
+            webView.load(URLRequest(url: url))
         }
     }
 
@@ -191,7 +206,7 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
         let timeout = DispatchWorkItem { [weak self] in self?.finishReuse(false) }
         reuseTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
-        load()
+        loadDocument(replacingHistory: true)
     }
 
     private func finishReuse(_ success: Bool) {

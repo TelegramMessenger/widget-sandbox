@@ -92,6 +92,7 @@ final class RendererReuseTests: XCTestCase {
                     let renderer = try XCTUnwrap(host.rendererObject as? RendererWebView)
                     if let reusedRenderer { XCTAssertTrue(renderer === reusedRenderer) }
                     reusedRenderer = renderer
+                    XCTAssertTrue(renderer.webView.backForwardList.backList.isEmpty)
                     if index > 0 { pooled.append(host.diagnostics.firstContentMs!) }
                 } else if index > 0 {
                     fresh.append(host.diagnostics.firstContentMs!)

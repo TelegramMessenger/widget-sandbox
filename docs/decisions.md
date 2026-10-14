@@ -896,8 +896,9 @@ the three-way renderer matrix (`docs/blitz-experiment.md`,
 on destruction when pools are enabled. It remains off by default. The QuickJS
 runtime is terminated; it is never reused after running a widget.
 
-A returned WKWebView loads a new trusted renderer document at a fresh random
-origin, with a fresh CSP nonce. The previous document is unregistered, callbacks
+A returned WKWebView replaces its current history entry with a new trusted renderer
+document at a fresh random origin, with a fresh CSP nonce. Repeated reuse does not
+accumulate old pages in the back-forward list. The previous document is unregistered, callbacks
 and buffered messages are cleared, and messages from the previous frame URL are
 rejected. Only a new `ready` message admits the view to the idle pool. Failed or
 timed-out resets destroy the view. This preserves per-widget origins rather than
