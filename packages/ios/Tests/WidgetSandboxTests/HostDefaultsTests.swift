@@ -39,6 +39,36 @@ final class HostDefaultsTests: XCTestCase {
         XCTAssertFalse(options.sharedValidatorThread)
         XCTAssertFalse(options.parallelBoot)
         XCTAssertFalse(options.startBeforeRendererReady)
+        XCTAssertEqual(options.maximumHeight, 900)
+    }
+
+    func testReportedHeightsRespectTheConfiguredLimitAndCanShrink() throws {
+        for (maximum, expected) in [(900.0, 900.0), (16_384.0, 2339.0)] {
+            let renderer = DeferredRenderer()
+            var options = WidgetHost.Options()
+            options.maximumHeight = CGFloat(maximum)
+            let host = try WidgetHost(html: "<p>article</p>", options: options, rendererFactory: { _, _, _ in renderer })
+            defer { host.destroy() }
+            for (reported, height) in [(2339.0, expected), (100_000.0, maximum), (320.0, 320.0), (-1.0, 24.0)] {
+                renderer.onMessage?("{\"type\":\"size\",\"height\":\(reported)}")
+                pump(1) { host.diagnostics.height == CGFloat(height) }
+                XCTAssertEqual(host.diagnostics.height, CGFloat(height))
+            }
+        }
+    }
+
+    func testInvalidHeightLimitsRemainFiniteAndPositive() throws {
+        let cases: [(CGFloat, CGFloat)] = [(.infinity, 900), (.nan, 900), (-1, 24), (0, 24)]
+        for (maximum, expected) in cases {
+            let renderer = DeferredRenderer()
+            var options = WidgetHost.Options()
+            options.maximumHeight = maximum
+            let host = try WidgetHost(html: "<p>article</p>", options: options, rendererFactory: { _, _, _ in renderer })
+            defer { host.destroy() }
+            renderer.onMessage?("{\"type\":\"size\",\"height\":100000}")
+            pump(1) { host.diagnostics.height == expected }
+            XCTAssertEqual(host.diagnostics.height, expected)
+        }
     }
 
     func testWidgetRunsAfterRendererReady() {
