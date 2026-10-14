@@ -45,6 +45,36 @@ final class WidgetBubbleTests: XCTestCase {
         withExtendedLifetime(queued) {}
     }
 
+    func testAsyncSnapshotCannotReplaceSnapshotFromNewHost() {
+        let feed = WidgetFeed()
+        feed.schedule = { _ in }
+        feed.delay = { _, _ in }
+        let bubble = WidgetBubble(html: "<div>Hi</div>", theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in ScriptedSizeRenderer(early: 40, settled: 40) })
+        typealias Capture = ((snapshot: AnyObject, bytes: Int)?) -> Void
+        var captures: [Capture] = []
+        bubble.captureSnapshotAsync = { captures.append($0) }
+        XCTAssertNotNil(bubble.ensureHost())
+        wait { bubble.hostHasContent }
+        bubble.takeSnapshot()
+        bubble.takeSnapshot()
+        XCTAssertEqual(captures.count, 1)
+        let space = OneSlotSpace(bubble.slot, rect: CGRect(x: 0, y: 0, width: 300, height: 40))
+        feed.attach(space)
+        space.origin = 100_000
+        feed.update()
+        XCTAssertNil(bubble.host)
+        space.origin = 0
+        feed.update()
+        wait { bubble.hostHasContent }
+        bubble.takeSnapshot()
+        XCTAssertEqual(captures.count, 2)
+        let fresh = NSObject()
+        captures[1]((fresh, 160))
+        XCTAssertTrue(bubble.snapshot === fresh)
+        captures[0]((NSObject(), 160))
+        XCTAssertTrue(bubble.snapshot === fresh)
+    }
+
     private func rebuiltHeight(holds: Bool) -> (CGFloat, [CGFloat]) {
         let feed = WidgetFeed()
         var queued: [() -> Void] = []

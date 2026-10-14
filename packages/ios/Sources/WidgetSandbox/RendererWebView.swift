@@ -34,7 +34,11 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
     /// True once the page announced `ready` (a pooled renderer is usually ready before it is taken).
     public private(set) var isReady = false
 
-    private let documentURL: URL
+    private var documentURL: URL
+    private let rendererBundle: String
+    private var reuseCompletion: ((Bool) -> Void)?
+    private var reuseTimeout: DispatchWorkItem?
+    private(set) var isUsable = true
     private let environment: RendererEnvironment?
     private var schemeHandler: RendererSchemeHandler?
     private let messageHandler = WeakMessageHandler()
@@ -48,6 +52,7 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
         // Every widget gets its own origin: tgwidget://w-<uuid>/
         documentURL = URL(string: "\(Self.scheme)://w-\(UUID().uuidString.lowercased())/")!
         self.environment = environment
+        self.rendererBundle = rendererBundle
         let nonce = Self.makeNonce()
         let csp = Self.csp(nonce: nonce)
         let html = Self.document(rendererJs: rendererBundle, nonce: nonce, csp: csp)
@@ -116,16 +121,18 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
 
     /// Compiles (once per process) the no-network rule list, then loads the renderer document.
     public func load() {
+        guard isUsable else { return }
+        let requestedURL = documentURL
         if let environment {
             environment.ensureRuleList { [weak self] in
-                guard let self else { return }
+                guard let self, self.isUsable, self.documentURL == requestedURL else { return }
                 if environment.ruleListSource.hasPrefix("unavailable") { onDiag?("renderer", "content rule list \(environment.ruleListSource); relying on CSP + scheme handler") }
                 webView.load(URLRequest(url: documentURL))
             }
             return
         }
         Self.ruleList { [weak self] list, error, _ in
-            guard let self else { return }
+            guard let self, self.isUsable, self.documentURL == requestedURL else { return }
             if let list { self.webView.configuration.userContentController.add(list) } else { self.onDiag?("renderer", "content rule list unavailable (\(error ?? "?")); relying on CSP + scheme handler") }
             self.webView.load(URLRequest(url: self.documentURL))
         }
@@ -137,13 +144,15 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
 
     /// Host → renderer. Must be called on the main thread.
     public func send(_ json: String) {
+        guard isUsable else { return }
+        let requestedURL = documentURL
         if Self.transport == .callAsync, #available(macOS 11.0, iOS 14.0, *) {
             webView.callAsyncJavaScript("__twReceive(json)", arguments: ["json": json], in: nil, in: .page) { [weak self] result in
-                if case .failure(let error) = result { self?.onDiag?("renderer", "callAsyncJavaScript failed: \(error.localizedDescription)") }
+                if case .failure(let error) = result, self?.documentURL == requestedURL { self?.onDiag?("renderer", "callAsyncJavaScript failed: \(error.localizedDescription)") }
             }
         } else {
             webView.evaluateJavaScript("__twReceive(\(Self.jsStringLiteral(json)));undefined") { [weak self] _, error in
-                if let error { self?.onDiag?("renderer", "evaluateJavaScript failed: \(error.localizedDescription)") }
+                if let error, self?.documentURL == requestedURL { self?.onDiag?("renderer", "evaluateJavaScript failed: \(error.localizedDescription)") }
             }
         }
     }
@@ -161,9 +170,47 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
         webView.takeSnapshot(with: config) { image, _ in completion(image) }
     }
 
+    func prepareForReuse(completion: @escaping (Bool) -> Void) {
+        guard isUsable, let environment, reuseCompletion == nil else {
+            completion(false)
+            return
+        }
+        onMessage = nil
+        onDiag = nil
+        buffered.removeAll()
+        webView.stopLoading()
+        webView.removeFromSuperview()
+        environment.schemeHandler.unregister(url: documentURL)
+        documentURL = URL(string: "\(Self.scheme)://w-\(UUID().uuidString.lowercased())/")!
+        let nonce = Self.makeNonce()
+        let csp = Self.csp(nonce: nonce)
+        environment.schemeHandler.register(url: documentURL, html: Self.document(rendererJs: rendererBundle, nonce: nonce, csp: csp), csp: csp, owner: self)
+        isReady = false
+        documentLoaded = false
+        reuseCompletion = completion
+        let timeout = DispatchWorkItem { [weak self] in self?.finishReuse(false) }
+        reuseTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
+        load()
+    }
+
+    private func finishReuse(_ success: Bool) {
+        let completion = reuseCompletion
+        reuseCompletion = nil
+        reuseTimeout?.cancel()
+        reuseTimeout = nil
+        if !success { isUsable = false }
+        completion?(success)
+    }
+
     public func destroy() {
         if destroyed { return }
         destroyed = true
+        isUsable = false
+        onMessage = nil
+        onDiag = nil
+        buffered.removeAll()
+        finishReuse(false)
         if let environment {
             environment.schemeHandler.unregister(url: documentURL)
             environment.unregister(self)
@@ -177,9 +224,10 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
     // MARK: renderer → host
 
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "tw", let body = message.body as? String else { return }
+        guard isUsable, message.frameInfo.isMainFrame, message.frameInfo.request.url == documentURL, message.name == "tw", let body = message.body as? String else { return }
         if !isReady, body.hasPrefix("{\"type\":\"ready\""), body.count < 20 { isReady = true }
         if let onMessage { onMessage(body) } else { buffered.append(body) }
+        if isReady { finishReuse(true) }
     }
 
     private func flushBuffered() {
@@ -214,6 +262,7 @@ public final class RendererWebView: NSObject, WKNavigationDelegate, WKUIDelegate
     }
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         onDiag?("renderer", "web content process terminated")
+        finishReuse(false)
     }
 
     // MARK: UI delegate — no popups, no dialogs

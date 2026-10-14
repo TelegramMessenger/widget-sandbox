@@ -30,6 +30,8 @@ public final class WidgetBubble {
     public private(set) var adoptedHosts = 0
     private var adopting: WidgetHost?
     public var captureSnapshot: (() -> (snapshot: AnyObject, bytes: Int)?)?
+    public var captureSnapshotAsync: ((@escaping ((snapshot: AnyObject, bytes: Int)?) -> Void) -> Void)?
+    private var snapshotRequest: UUID?
     public var onSnapshotChange: (() -> Void)?
     public private(set) var snapshot: AnyObject?
 
@@ -75,15 +77,30 @@ public final class WidgetBubble {
     }
 
     public func takeSnapshot() {
-        guard hostHasContent, let captured = captureSnapshot?() else {
-            return
+        guard hostHasContent else { return }
+        if let captured = captureSnapshot?() {
+            storeSnapshot(captured)
+        } else if let captureSnapshotAsync, snapshotRequest == nil, let host {
+            let request = UUID()
+            let generation = self.generation
+            snapshotRequest = request
+            captureSnapshotAsync { [weak self, weak host] captured in
+                guard let self, self.snapshotRequest == request else { return }
+                self.snapshotRequest = nil
+                guard self.generation == generation, let host, self.host === host, let captured else { return }
+                self.storeSnapshot(captured)
+            }
         }
+    }
+
+    private func storeSnapshot(_ captured: (snapshot: AnyObject, bytes: Int)) {
         snapshot = captured.snapshot
         slot.snapshotStored(bytes: max(1, captured.bytes))
         onSnapshotChange?()
     }
 
     public func clearSnapshot() {
+        snapshotRequest = nil
         guard snapshot != nil else {
             return
         }
@@ -268,6 +285,7 @@ public final class WidgetBubble {
     }
 
     private func dropHost() {
+        snapshotRequest = nil
         if let pending = pendingPrepared {
             pendingPrepared = nil
             pending.discard()

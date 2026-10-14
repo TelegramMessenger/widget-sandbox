@@ -108,7 +108,7 @@ final class SharedSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let url = urlSchemeTask.request.url, let doc = documents[url] else {
+        guard let url = urlSchemeTask.request.url, let doc = documents[url], doc.owner?.webView === webView else {
             let url = urlSchemeTask.request.url?.absoluteString ?? ""
             // The web view that asked is known; the owner of *that* view gets the diagnostic.
             RendererEnvironment.shared.rendererOf(webView)?.onDiag?("url-blocked", "renderer subresource request refused: \(url.prefix(120))")
@@ -145,7 +145,7 @@ public final class RendererPool {
     public static let shared = RendererPool()
 
     /// Renderers to keep ready; 0 disables the pool.
-    public var targetSize = 0 { didSet { scheduleRefill() } }
+    public var targetSize = 0 { didSet { trim(); scheduleRefill() } }
     /// Width the parked web views are laid out at (the bubble's widget width), so the first `size` report is right.
     public var width: CGFloat = 360
     public var theme = "light"
@@ -154,26 +154,56 @@ public final class RendererPool {
     public weak var parkingView: PlatformView?
     public var canRefill: () -> Bool = { true }
     public var resources: SandboxResources = .shared
-    public private(set) var created = 0, taken = 0, hits = 0
+    public private(set) var created = 0, taken = 0, hits = 0, recycled = 0
 
     private var idle: [RendererWebView] = []
+    private var resetting: [ObjectIdentifier: RendererWebView] = [:]
+    public var resettingCount: Int { resetting.count }
     private var observer: CFRunLoopObserver?
+    private var pressureSource: DispatchSourceMemoryPressure?
+    private var pressureUntil: CFTimeInterval = 0
 
     public var count: Int { idle.count }
 
     public func prewarm(_ n: Int) {
         targetSize = max(targetSize, n)
-        while idle.count < n { makeOne() }
+        guard CACurrentMediaTime() >= pressureUntil else { return }
+        while idle.count + resetting.count < n { makeOne() }
     }
 
     /// A pre-loaded renderer, or nil when the pool is empty.
     public func take() -> RendererWebView? {
         taken += 1
+        while let last = idle.last, !last.isUsable { idle.removeLast().destroy() }
         guard let r = idle.popLast() else { scheduleRefill(); return nil }
         hits += 1
         r.webView.removeFromSuperview()
         scheduleRefill()
         return r
+    }
+
+    public func recycle(_ renderer: RendererWebView) {
+        guard targetSize > 0, CACurrentMediaTime() >= pressureUntil, renderer.isUsable, idle.count + resetting.count < targetSize * 2 else {
+            renderer.destroy()
+            return
+        }
+        let key = ObjectIdentifier(renderer)
+        guard resetting[key] == nil else { return }
+        resetting[key] = renderer
+        renderer.prepareForReuse { [weak self, weak renderer] success in
+            guard let self, let renderer, self.resetting.removeValue(forKey: key) != nil else { return }
+            if success, self.targetSize > 0, self.idle.count < self.targetSize * 2 {
+                self.idle.append(renderer)
+                self.recycled += 1
+            } else {
+                renderer.destroy()
+            }
+        }
+    }
+
+    private func trim() {
+        while idle.count > max(0, targetSize * 2) { idle.removeLast().destroy() }
+        if targetSize <= 0 { drain() }
     }
 
     private func makeOne() {
@@ -188,14 +218,25 @@ public final class RendererPool {
     }
 
     private func scheduleRefill() {
-        guard idle.count < targetSize, observer == nil else { return }
+        if targetSize > 0, pressureSource == nil {
+            let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+            source.setEventHandler { [weak self] in self?.releaseForMemoryPressure() }
+            source.resume()
+            pressureSource = source
+        }
+        guard CACurrentMediaTime() >= pressureUntil, idle.count + resetting.count < targetSize, observer == nil else { return }
         // One web view per idle turn of the main run loop: never a burst in the middle of a scroll frame.
         observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { [weak self] _, _ in
             guard let self else { return }
-            if idle.count >= targetSize { stopObserving(); return }
+            if idle.count + resetting.count >= targetSize { stopObserving(); return }
             if canRefill() { makeOne() }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    func releaseForMemoryPressure() {
+        pressureUntil = CACurrentMediaTime() + 30
+        drain()
     }
 
     private func stopObserving() {
@@ -205,7 +246,10 @@ public final class RendererPool {
 
     /// Drops the parked renderers (tests, memory pressure).
     public func drain() {
-        idle.forEach { $0.destroy() }
+        stopObserving()
+        let renderers = idle + Array(resetting.values)
         idle.removeAll()
+        resetting.removeAll()
+        renderers.forEach { $0.destroy() }
     }
 }

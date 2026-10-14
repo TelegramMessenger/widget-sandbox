@@ -889,3 +889,21 @@ the three-way renderer matrix (`docs/blitz-experiment.md`,
   and D3 need the canvas), 3× rasterisation on a device (CPU vs vello on the
   GPU), Blitz's size after strip, a low-end phone for the WebView stall, the
   renderer and engine pools on Android.
+
+## Opt-in WebKit view reuse (Oct 2026)
+
+`WidgetHost.Options.recyclesRenderers` returns shared-environment WebKit renderers
+on destruction when pools are enabled. It remains off by default. The QuickJS
+runtime is terminated; it is never reused after running a widget.
+
+A returned WKWebView loads a new trusted renderer document at a fresh random
+origin, with a fresh CSP nonce. The previous document is unregistered, callbacks
+and buffered messages are cleared, and messages from the previous frame URL are
+rejected. Only a new `ready` message admits the view to the idle pool. Failed or
+timed-out resets destroy the view. This preserves per-widget origins rather than
+resetting untrusted content inside a shared document.
+
+The pool holds at most twice its warm target, counting resets in flight. Draining
+also cancels pending refills and resets. Memory pressure drains the pool and
+suppresses refills/recycling for 30 seconds. Async bubble snapshots are accepted
+only for the host generation that requested them.

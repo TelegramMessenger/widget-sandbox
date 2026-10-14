@@ -57,6 +57,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var sharedValidatorThread = false
         /// Take prewarmed parts from RendererPool / EnginePool / ValidatorPool when they have any, and recycle the validator on destroy.
         public var pools = false
+        public var recyclesRenderers = false
         /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`, `binaryOps`; empty means plain JSON.
         public var features: Set<String> = []
         /// Side channels next to the DOM protocol, one fresh instance per host (e.g. the twidget kit's 3D surfaces).
@@ -260,6 +261,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         guard executor.isCurrent else {
             return executor.async { [weak self] in self?.setTheme(theme) }
         }
+        guard !destroyed else { return }
         self.theme = theme
         renderer.setTheme(theme)
         validate { [self] in
@@ -320,7 +322,13 @@ public final class WidgetHost: SandboxEngineDelegate {
         destroyed = true
         engine.terminate()
         sideChannels.forEach { $0.destroy() }
-        renderer.destroy()
+        renderer.onMessage = nil
+        renderer.onDiag = nil
+        if options.pools, options.recyclesRenderers, let web = renderer as? RendererWebView {
+            RendererPool.shared.recycle(web)
+        } else {
+            renderer.destroy()
+        }
         resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
         validatorLock.lock()
         validatorReleased = true
