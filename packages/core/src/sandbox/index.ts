@@ -12,7 +12,7 @@ import * as ev from './events';
 import { pseudoHooks } from './css-select-shim';
 import { activateFormControl, applyEventState, finishPointerEvent, pointerEventTarget, emitProps, FormData, installForms, isChecked, syntheticToggle } from './forms';
 import * as globals from './globals';
-import { counters, diag, host, setFlushHook, unsupported } from './host';
+import { counters, diag, host, invalidateLayout, setFlushHook, unsupported } from './host';
 import { DOMMatrix, DOMPoint, DOMRect, elementFromPoint, getComputedStyle, installLayout } from './layout';
 import { styleOf } from './style';
 import { setWebAnimations, webAnimations, webAnimationsEnabled } from './waapi';
@@ -338,6 +338,7 @@ const pdKeys = new Set<string>();
 let pdDirty = false;
 
 function dispatchHostEvent(raw: any) {
+  if (raw.type === 'scroll') invalidateLayout();
   const target = pointerEventTarget(capture.nodeById(raw.targetId), raw);
   if (!target) { finishPointerEvent(raw); return; }
   applyEventState(target, raw);
