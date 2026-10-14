@@ -876,6 +876,18 @@ final class NativeValidator {
         guard let id = isId(o["id"]), case .string(let method)? = o["method"], let n = tables.methods[method] else { return false }
         guard let node = nodes[id], node.kind == .element else { return false }
         if !node.rendered { return true }
+        if method == "scrollIntoView" {
+            switch o["args"] {
+            case nil:
+                out.append(WidgetOp(["op": "call", "id": id, "method": method, "args": [0.0, 3.0, 0.0, 0.0]]))
+                return true
+            case .array(let list)? where list.isEmpty:
+                out.append(WidgetOp(["op": "call", "id": id, "method": method, "args": [0.0, 3.0, 0.0, 0.0]]))
+                return true
+            default:
+                break
+            }
+        }
         var args: [Double] = []
         if n > 0 {
             guard case .array(let list)? = o["args"] else { return false }
@@ -883,6 +895,9 @@ final class NativeValidator {
                 guard k < list.count, case .number(let d) = list[k], d.isFinite else { return false }
                 args.append(d)
             }
+        }
+        if method == "scrollIntoView", zip(args, [3.0, 3.0, 2.0, 1.0]).contains(where: { value, limit in value != value.rounded() || value < 0 || value > limit }) {
+            return false
         }
         out.append(WidgetOp(["op": "call", "id": id, "method": method, "args": args]))
         return true

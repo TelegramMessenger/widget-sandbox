@@ -411,6 +411,19 @@ final class BinaryOpsHostileTests: XCTestCase {
         XCTAssertGreaterThan(rejected, 300)
     }
 
+    func testScrollIntoViewArgumentsMatchTheScriptValidator() {
+        let calls = ["", ",\"args\":[]", ",\"args\":null", ",\"args\":[1,2,1,0]", ",\"args\":[3,3,2,1]", ",\"args\":[4,0,0,0]", ",\"args\":[0,0,3,0]", ",\"args\":[0,0,0,2]", ",\"args\":[-1,0,0,0]", ",\"args\":[0.5,0,0,0]", ",\"args\":[0,0,0]"]
+        for call in calls {
+            var results: [NSArray] = []
+            for native in [false, true] {
+                let rig = Rig(native: native)
+                _ = rig.json("[{\"op\":\"el\",\"id\":2,\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null}]")
+                results.append(rig.json("[{\"op\":\"call\",\"id\":2,\"method\":\"scrollIntoView\"\(call)}]").0)
+            }
+            XCTAssertEqual(results[0], results[1], call)
+        }
+    }
+
     func testJSONOpsStillGoThroughTheNativeModel() {
         let rig = Rig(native: true)
         _ = rig.json("[{\"op\":\"el\",\"id\":2,\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null}]")
