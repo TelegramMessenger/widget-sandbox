@@ -123,6 +123,29 @@ enum CanvasWords {
         }
     }
 
+    static func textCharges(_ batch: WidgetCanvasBatch) -> [(range: Range<Int>, work: Int)] {
+        guard batch.strings.contains("fillText") || batch.strings.contains("strokeText") else { return [] }
+        guard batch.strings.contains(where: NativeValidator.chargesChurn) else { return [] }
+        var costs: [Int: Int] = [:]
+        var charges: [(range: Range<Int>, work: Int)] = []
+        _ = batch.forEach { command, values in
+            guard command.kind == 0, command.name >= 0,
+                  batch.strings[command.name] == "fillText" || batch.strings[command.name] == "strokeText",
+                  let first = values.first, case .string(let index) = first else { return true }
+            let work: Int
+            if let cached = costs[index] {
+                work = cached
+            } else {
+                let text = batch.strings[index]
+                work = NativeValidator.chargesChurn(text) ? NativeValidator.textWork(text) : 0
+                costs[index] = work
+            }
+            if work > 0 { charges.append(((command.arguments.lowerBound - 4)..<command.arguments.upperBound, work)) }
+            return true
+        }
+        return charges
+    }
+
     static func commandsJSON(_ batch: WidgetCanvasBatch) -> String? {
         batch.json(number: JSNumberText.string)
     }

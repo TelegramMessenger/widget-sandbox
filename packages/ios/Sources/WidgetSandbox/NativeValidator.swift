@@ -891,7 +891,7 @@ final class NativeValidator {
     private func canvasWords(_ id: Int, _ batch: WidgetCanvasBatch) -> Bool {
         guard isId(id), let node = nodes[id], node.kind == .element, node.tag == "canvas" else { return false }
         if CanvasWords.envelope(batch) {
-            out.append(WidgetOp(canvas: id, batch: batch))
+            if let accepted = limitCanvasText(batch) { out.append(WidgetOp(canvas: id, batch: accepted)) }
             return true
         }
         guard let json = CanvasWords.commandsJSON(batch) else { return false }
@@ -901,7 +901,34 @@ final class NativeValidator {
 
     private func canvasJSON(_ id: Int, _ json: String) {
         guard let clean = oracle?.canvasCommands(json), clean != "[]", let cmds = (try? JSONSerialization.jsonObject(with: Data(clean.utf8))) as? [Any], !cmds.isEmpty else { return }
-        out.append(WidgetOp(["op": "canvas", "id": id, "cmds": cmds]))
+        let accepted = cmds.filter { value in
+            guard tables.textBudget > 0, let cmd = value as? [Any], cmd.count >= 3, cmd[0] as? String == "c",
+                  cmd[1] as? String == "fillText" || cmd[1] as? String == "strokeText",
+                  let text = cmd[2] as? String, Self.chargesChurn(text) else { return true }
+            return takeChurn(Self.textWork(text)) || overChurn()
+        }
+        if !accepted.isEmpty { out.append(WidgetOp(["op": "canvas", "id": id, "cmds": accepted])) }
+    }
+
+    private func limitCanvasText(_ batch: WidgetCanvasBatch) -> WidgetCanvasBatch? {
+        guard tables.textBudget > 0 else { return batch }
+        var rejected: [Range<Int>] = []
+        for charge in CanvasWords.textCharges(batch) where !takeChurn(charge.work) {
+            _ = overChurn()
+            rejected.append(charge.range)
+        }
+        guard !rejected.isEmpty else { return batch }
+        let acceptedCount = batch.words.count - rejected.reduce(0) { $0 + $1.count }
+        guard acceptedCount > 0 else { return nil }
+        var words: [Double] = []
+        words.reserveCapacity(acceptedCount)
+        var start = 0
+        for range in rejected {
+            words.append(contentsOf: batch.words[start..<range.lowerBound])
+            start = range.upperBound
+        }
+        words.append(contentsOf: batch.words[start...])
+        return WidgetCanvasBatch(words: words, strings: batch.strings)
     }
 }
 

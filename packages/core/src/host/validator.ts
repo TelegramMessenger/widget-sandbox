@@ -753,7 +753,12 @@ export class Validator {
     const out: CanvasCmd[] = [];
     for (const cmd of cmds) {
       const clean = this.canvasCmd(cmd);
-      if (clean) out.push(clean);
+      if (clean) {
+        if (clean[0] === 'c' && (clean[1] === 'fillText' || clean[1] === 'strokeText') && typeof clean[2] === 'string'
+          && this.limits.textBudget && chargesChurn(clean[2]) && !this.takeChurn(textWork(clean[2]))) {
+          this.overChurn();
+        } else out.push(clean);
+      }
       else this.diag('protocol-violation', 'rejected canvas cmd ' + safeJson(cmd));
     }
     if (out.length) this.out.push({ op: 'canvas', id, cmds: out });

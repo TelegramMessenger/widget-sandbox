@@ -311,7 +311,7 @@ public final class TrustedValidator {
         thread.sync { [self] in
             guard let js else { return .empty }
             if typed, !canvas.isEmpty, let list = CanvasWords.only(json, canvas),
-               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch) }) {
+               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch) && (policy != .strict || CanvasWords.textCharges($0.batch).isEmpty) }) {
                 nativeCanvasBatches += 1
                 return .ops(list.map { WidgetOp(canvas: $0.id, batch: $0.batch) })
             }

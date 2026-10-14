@@ -435,3 +435,31 @@ describe('validator: visible attribute and form value text budgets', () => {
     assert.ok(!diags.some(d => d.startsWith('text-')));
   });
 });
+
+describe('validator: canvas text churn', () => {
+  it('limits repeated canvas text while preserving other drawing commands', () => {
+    const diags: string[] = [];
+    const out = run([
+      { op: 'el', id: 20, tag: 'canvas' },
+      { op: 'canvas', id: 20, cmds: [
+        ...Array.from({ length: 10 }, () => ['c', 'fillText', '中'.repeat(3000), 0, 0]),
+        ['c', 'fillRect', 0, 0, 10, 10], ['c', 'strokeText', 'Ready', 0, 0],
+      ] },
+    ], diags, 'strict');
+    const commands = out.filter(o => o.op === 'canvas').flatMap(o => o.cmds);
+    assert.equal(commands.length, 4);
+    assert.equal(commands.filter(c => c[1] === 'fillText').length, 2);
+    assert.ok(diags.some(d => d.startsWith('text-churn')));
+  });
+
+  it('shares canvas churn with document text and keeps compatibility unrestricted', () => {
+    for (const policy of ['strict', 'compat'] as const) {
+      const out = run([
+        { op: 'text', id: 21, data: '中'.repeat(6000) },
+        { op: 'el', id: 20, tag: 'canvas' },
+        { op: 'canvas', id: 20, cmds: [['c', 'strokeText', '中'.repeat(3000), 0, 0]] },
+      ], [], policy);
+      assert.equal(out.filter(o => o.op === 'canvas').length, policy === 'strict' ? 0 : 1);
+    }
+  });
+});

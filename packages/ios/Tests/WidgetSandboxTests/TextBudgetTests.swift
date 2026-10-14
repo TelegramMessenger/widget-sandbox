@@ -1,4 +1,5 @@
 import XCTest
+import WidgetSandboxProtocol
 @testable import WidgetSandbox
 
 /// Text nodes are capped at 64 KB by the validator bundle every native glue loads.
@@ -268,6 +269,78 @@ final class TextBudgetTests: XCTestCase {
         let textIds = output.filter { $0["op"] as? String == "text" }.compactMap { $0["id"] as? Int }
         XCTAssertEqual(textIds, [21, 23, 25, 26])
         XCTAssertFalse(output.contains { $0["op"] as? String == "attr" })
+    }
+
+    func testCanvasTextChurnIsLimitedAcrossJSONAndBinaryPaths() {
+        for native in [false, true] {
+            for binary in [false, true] where native || !binary {
+                for strict in [false, true] {
+                    let rig = NativeValidatorDifferentialTests.Rig(native: native, policy: strict ? .strict : .compat)
+                    var words: [Double] = []
+                    for _ in 0..<10 { words += [0, 0, 0, 3, 1, 1, 0, 0, 0, 0] }
+                    words += [0, 2, 0, 4, 0, 0, 0, 0, 0, 10, 0, 10]
+                    words += [0, 3, 0, 3, 1, 4, 0, 0, 0, 0]
+                    let batch = WidgetCanvasBatch(words: words, strings: ["fillText", String(repeating: "中", count: 3000), "fillRect", "strokeText", "Ready"])
+                    let output: NSArray
+                    if binary {
+                        var encoder = BinaryOpsEncoder()
+                        encoder.begin(reset: true)
+                        encoder.element(20, tag: "canvas", svg: false, attributes: [])
+                        encoder.canvas(20, key: 7)
+                        output = rig.binary(encoder.finish(), canvas: [7: batch]).0
+                    } else {
+                        let ops: [[String: Any]] = [["op": "el", "id": 20, "tag": "canvas"], ["op": "canvas", "id": 20, "cmds": batch.commands()]]
+                        output = rig.json(String(decoding: try! JSONSerialization.data(withJSONObject: ops), as: UTF8.self)).0
+                    }
+                    let commands = (output as! [[String: Any]]).filter { $0["op"] as? String == "canvas" }.flatMap { $0["cmds"] as! [[Any]] }
+                    XCTAssertEqual(commands.count, strict ? 4 : 12, "native \(native), binary \(binary)")
+                    XCTAssertEqual(rig.diags.contains { $0.hasPrefix("text-churn") }, strict)
+                }
+            }
+        }
+    }
+
+    func testCanvasTextSharesTheDocumentChurnBudget() throws {
+        for native in [false, true] {
+            let rig = NativeValidatorDifferentialTests.Rig(native: native, policy: .strict)
+            let ops: [[String: Any]] = [
+                ["op": "text", "id": 21, "data": String(repeating: "中", count: 6000)],
+                ["op": "el", "id": 20, "tag": "canvas"],
+                ["op": "canvas", "id": 20, "cmds": [["c", "strokeText", String(repeating: "中", count: 3000), 0, 0]]],
+            ]
+            let result = rig.json(String(decoding: try JSONSerialization.data(withJSONObject: ops), as: UTF8.self))
+            XCTAssertFalse((result.0 as! [[String: Any]]).contains { $0["op"] as? String == "canvas" })
+            XCTAssertTrue(result.2.contains { $0.hasPrefix("text-churn") })
+        }
+    }
+
+    func testCanvasWordShortcutCannotBypassJavaScriptChurn() {
+        let rig = NativeValidatorDifferentialTests.Rig(native: false, policy: .strict)
+        _ = rig.json("[{\"op\":\"el\",\"id\":20,\"tag\":\"canvas\"}]")
+        let command: [Double] = [0, 0, 0, 3, 1, 1, 0, 0, 0, 0]
+        let words = Array(repeating: command, count: 10).flatMap { $0 }
+        let batch = WidgetCanvasBatch(words: words, strings: ["fillText", String(repeating: "中", count: 3000)])
+        let result = rig.validator.processOpsForRenderer("[{\"op\":\"canvas\",\"id\":20,\"bin\":7}]", canvas: [7: batch], typed: true)
+        guard case .ops(let ops) = result else { return XCTFail("expected accepted canvas commands") }
+        let decoded = NativeValidatorDifferentialTests.Rig.normalized(WidgetOp.json(ops)) as! [[String: Any]]
+        XCTAssertEqual((decoded.first?["cmds"] as? [Any])?.count, 2)
+        XCTAssertTrue(rig.diags.contains { $0.hasPrefix("text-churn") })
+        XCTAssertEqual(rig.validator.nativeCanvasBatches, 0)
+    }
+
+    func testShortCanvasLabelsKeepTheWordShortcut() {
+        let rig = NativeValidatorDifferentialTests.Rig(native: false, policy: .strict)
+        _ = rig.json("[{\"op\":\"el\",\"id\":20,\"tag\":\"canvas\"}]")
+        let command: [Double] = [0, 0, 0, 3, 1, 1, 0, 0, 0, 0]
+        let words = Array(repeating: command, count: 200).flatMap { $0 }
+        let batch = WidgetCanvasBatch(words: words, strings: ["fillText", "BTC $100.00"])
+        for _ in 0..<60 {
+            let result = rig.validator.processOpsForRenderer("[{\"op\":\"canvas\",\"id\":20,\"bin\":7}]", canvas: [7: batch], typed: true)
+            guard case .ops(let ops) = result else { return XCTFail("expected short labels") }
+            XCTAssertEqual(ops.count, 1)
+        }
+        XCTAssertEqual(rig.validator.nativeCanvasBatches, 60)
+        XCTAssertFalse(rig.diags.contains { $0.hasPrefix("text-churn") })
     }
 
 }
