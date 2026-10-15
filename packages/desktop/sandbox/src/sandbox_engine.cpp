@@ -10,7 +10,7 @@
 #include <cstring>
 #include <limits>
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
 #include <stdlib.h>
 #elif defined(__linux__)
 #include <sys/random.h>
@@ -32,7 +32,7 @@ double SandboxEngine::nowSeconds() { return QuickJSContext::now(); }
 double SandboxEngine::nowMs() { return QuickJSContext::now() * 1000; }
 
 static void randomBytes(uint8_t* buf, size_t n) {
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
     arc4random_buf(buf, n);
 #elif defined(__linux__)
     size_t got = 0;
