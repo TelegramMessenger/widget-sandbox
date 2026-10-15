@@ -4,6 +4,7 @@
 #pragma once
 
 #include <charconv>
+#include <clocale>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -15,6 +16,20 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#if defined(__APPLE__)
+#include <xlocale.h>
+#endif
+
+// Floating-point std::to_chars needs macOS 13.3 / iOS 16.3 on Apple's libc++;
+// older deployment targets (Telegram macOS supports 10.13) take the
+// shortest-precision fallback in Json::number.
+#if !defined(__APPLE__)
+#define TWIDGET_JSON_TO_CHARS_DOUBLE 1
+#elif defined(_LIBCPP_AVAILABILITY_HAS_TO_CHARS_FLOATING_POINT) && _LIBCPP_AVAILABILITY_HAS_TO_CHARS_FLOATING_POINT
+#define TWIDGET_JSON_TO_CHARS_DOUBLE 1
+#else
+#define TWIDGET_JSON_TO_CHARS_DOUBLE 0
+#endif
 
 namespace twidget {
 
@@ -122,17 +137,37 @@ public:
             auto r = std::to_chars(buf, buf + sizeof buf, (long long)d);
             return std::string(buf, r.ptr);
         }
-#if defined(__APPLE__)
-        // Floating-point to_chars requires macOS 13.3.
-        auto stream = std::ostringstream();
-        stream.imbue(std::locale::classic());
-        stream.precision(std::numeric_limits<double>::max_digits10);
-        stream << d;
-        return stream.str();
-#else
+#if TWIDGET_JSON_TO_CHARS_DOUBLE
         char buf[64];
         auto r = std::to_chars(buf, buf + sizeof buf, d);
         return std::string(buf, r.ptr);
+#else
+        // Shortest of 15, 16, 17 significant digits that reads back as the same
+        // double: 0.1 stays "0.1", not max_digits10's "0.10000000000000001".
+        std::string out;
+        for (int precision = 15; precision <= 17; precision++) {
+            std::ostringstream stream;
+            stream.imbue(std::locale::classic());
+            stream.precision(precision);
+            stream << d;
+            out = stream.str();
+            if (parseDouble(out.c_str()) == d) break;
+        }
+        return out;
+#endif
+    }
+
+    /// strtod in the C locale. Plain strtod follows LC_NUMERIC: a Qt host running
+    /// under ru_RU reads "16.5" as 16.
+    static double parseDouble(const char* text) {
+#if defined(_WIN32)
+        static const _locale_t c = _create_locale(LC_NUMERIC, "C");
+        return _strtod_l(text, nullptr, c);
+#elif defined(__ANDROID__)
+        return std::strtod(text, nullptr); // bionic: LC_NUMERIC is always "C"
+#else
+        static const locale_t c = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+        return strtod_l(text, nullptr, c);
 #endif
     }
 
@@ -261,7 +296,7 @@ private:
                 if (pos == d) return false;
             }
             std::string tmp(s.substr(start, pos - start));
-            out = Json(std::strtod(tmp.c_str(), nullptr));
+            out = Json(parseDouble(tmp.c_str()));
             return true;
         }
         bool value(Json& out, int depth) {

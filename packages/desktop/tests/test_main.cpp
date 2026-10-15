@@ -19,6 +19,7 @@
 #endif
 
 #include <chrono>
+#include <clocale>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -134,10 +135,35 @@ TEST(json_parse_and_dump) {
     CHECK(Json::number(1234.5) == "1234.5");
     CHECK(Json::number(3) == "3");
     CHECK(Json::number(1e21) == "1e+21");
+    // Shortest round trip on every target (Apple below macOS 13.3 has no floating to_chars).
+    CHECK(Json::number(0.1) == "0.1");
+    CHECK(Json::number(16.7) == "16.7");
+    CHECK(Json::number(-0.25) == "-0.25");
+    for (double d : {1.0 / 3, 2.0 / 3, 0.1 + 0.2, 1e-7, 123456.789e10, 5e-324, 1.7976931348623157e308}) {
+        auto text = Json::number(d);
+        CHECK_MSG(Json::parse(text)->asNumber() == d, text);
+        CHECK_MSG(text.size() <= 24, text);
+    }
     CHECK(Json::quote("a\"b\\c\n\x01") == "\"a\\\"b\\\\c\\n\\u0001\"");
     Json o = Json::object();
     o.set("k", "v").set("n", 2);
     CHECK(o.dump() == "{\"k\":\"v\",\"n\":2}");
+}
+
+/// Numbers parse and print the same under a locale whose decimal separator is a
+/// comma (Qt hosts call setlocale from the environment).
+TEST(json_numbers_ignore_lc_numeric) {
+    std::string saved = setlocale(LC_NUMERIC, nullptr);
+    const char* comma = nullptr;
+    for (const char* name : {"ru_RU.UTF-8", "ru_RU.utf8", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8"}) {
+        if (setlocale(LC_NUMERIC, name)) { comma = name; break; }
+    }
+    if (!comma) { fprintf(stderr, "  (no comma-decimal locale installed; skipped)\n"); return; }
+    CHECK((*Json::parse("{\"h\":16.5}"))["h"].asNumber() == 16.5);
+    CHECK(Json::parse("[1e-3,2.25E2]")->dump() == "[0.001,225]");
+    CHECK(Json::number(16.5) == "16.5");
+    CHECK(Json::number(0.1) == "0.1");
+    setlocale(LC_NUMERIC, saved.c_str());
 }
 
 /// CpuBudget against the fixture shared with cpu-budget.ts, CpuBudget.swift and CpuBudget.kt.
