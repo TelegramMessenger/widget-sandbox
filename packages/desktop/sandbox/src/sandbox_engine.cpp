@@ -137,7 +137,10 @@ void SandboxEngine::boot() {
         config.set("viewport", viewport);
         config.set("theme", config_.theme);
         Json features = Json::array();
-        for (const std::string& feature : config_.features) features.push(Json(feature));
+        // Only what this runtime implements (Swift runtimeFeatures, WEB_FEATURES in worker.ts):
+        // canvasWords, binaryOps and morphUpdates need host functions the C++ glue does not have.
+        for (const std::string& feature : config_.features)
+            if (feature == "webAnimations" || feature == "noInPlaceText" || feature == "noAttrFast" || feature == "noCanvasRect") features.push(Json(feature));
         config.set("features", features);
         Json boot = Json::object();
         boot.set("html", html_);

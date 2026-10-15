@@ -8,7 +8,7 @@ import { LitehtmlRenderer } from './renderers/litehtml-renderer';
 import { ShadowDomRenderer } from '@telegram/widget-sandbox/host/shadow-renderer';
 import { WidgetHost } from '@telegram/widget-sandbox/host/widget-host';
 import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
-import { WIDGET_POLICY } from './policy';
+import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import type { FeedApi } from './feed';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
 
@@ -144,6 +144,7 @@ function load(html: string, name: string | null) {
   renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole();
   host = new WidgetHost(el.sandboxWrap, html, {
     policy: WIDGET_POLICY,
+    features: WIDGET_FEATURES,
     theme: state.theme,
     ...limits,
     // Blitz / litehtml (dev tooling): a native renderer compiled to wasm instead of the sandboxed iframe; sandbox and validator unchanged.
@@ -234,6 +235,7 @@ function updateCompare() {
     const mainBlitz = BlitzRenderer.current, mainLitehtml = LitehtmlRenderer.current;
     const h = new WidgetHost(wrap, html, {
       policy: WIDGET_POLICY,
+      features: WIDGET_FEATURES,
       theme: state.theme,
       ...limits,
       rendererFactory: r.factory,

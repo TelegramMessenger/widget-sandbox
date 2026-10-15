@@ -38,7 +38,15 @@ data class SandboxConfig(
      * Anything but exactly "compat" is strict ([isStrictPolicy]), so a typo never weakens the sandbox.
      */
     var policy: String = "strict",
+    /**
+     * Opt-in sandbox features (docs/protocol.md, "Features"). This runtime implements
+     * [RUNTIME_FEATURES]; the rest (canvasWords, binaryOps, morphUpdates: Swift only) is dropped.
+     */
+    var features: Set<String> = emptySet(),
 )
+
+/** The features the Kotlin glue implements; the twin of Swift `runtimeFeatures` and `WEB_FEATURES` in worker.ts. */
+val RUNTIME_FEATURES: Set<String> = setOf("webAnimations", "noInPlaceText", "noAttrFast", "noCanvasRect")
 
 /** Fail-closed policy parsing, the twin of `resolvePolicy` in src/shared/protocol.ts. */
 fun isStrictPolicy(policy: String): Boolean = policy != "compat"
@@ -203,7 +211,8 @@ class SandboxEngine(
                         .put("maxTimers", config.maxTimers)
                         .put("visible", visible)
                         .put("viewport", JSONObject().put("innerWidth", config.innerWidth).put("innerHeight", config.innerHeight).put("dpr", config.devicePixelRatio))
-                        .put("theme", config.theme),
+                        .put("theme", config.theme)
+                        .put("features", JSONArray(config.features.intersect(RUNTIME_FEATURES).sorted())),
                 ).toString()
             callTw("boot", bootArg)
         }

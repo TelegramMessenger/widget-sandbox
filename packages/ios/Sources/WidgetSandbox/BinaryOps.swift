@@ -82,6 +82,9 @@ enum BinaryOps {
         case count
         case flags
         case json
+        /// A canvas payload key referenced twice: each payload stands for one canvas op, and a
+        /// repeated key would make the validator and the splice redo the whole payload per reference.
+        case canvasKey
     }
 
     struct Decoded {
@@ -154,6 +157,7 @@ enum BinaryOps {
         var reset = false
         var ops: [BinaryOp] = []
         ops.reserveCapacity(min(Int(w[1]), maxOps))
+        var canvasKeys = Set<Int>()
         var i = 2
         var count = 0
         let iconExpansion = b.count >= 5 && IconExpansion.mayContainIcon(bytes: b) ? icons : nil
@@ -250,7 +254,9 @@ enum BinaryOps {
                     ops.append(.style(id: id, name: name, value: value, important: important == 1))
                 case .canvas:
                     let id = try int()
-                    ops.append(.canvas(id: id, key: try int()))
+                    let key = try int()
+                    guard canvasKeys.insert(key).inserted else { throw Failure.canvasKey }
+                    ops.append(.canvas(id: id, key: key))
                 case .json:
                     let v = try word()
                     let text = try inline(v).s

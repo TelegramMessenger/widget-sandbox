@@ -225,7 +225,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     return text;
   };
   const acceptOps = (ops: any[]) => {
-    for (const op of ops) if (op && op.op === 'canvas' && typeof op.bin === 'number') { op.cmds = canvasPayloads[op.bin] ?? []; delete op.bin; res.canvasWordBatches++; }
+    // Each payload is taken once (CanvasWords.swift `placeholders`): a repeated key keeps its `bin` and the validator rejects it.
+    for (const op of ops) if (op && op.op === 'canvas' && typeof op.bin === 'number' && canvasPayloads[op.bin]) { op.cmds = canvasPayloads[op.bin]; delete canvasPayloads[op.bin]; delete op.bin; res.canvasWordBatches++; }
     canvasPayloads.length = 0;
     res.ops.push(ops);
     res.stream.push({ kind: 'ops', json: JSON.stringify(ops) });

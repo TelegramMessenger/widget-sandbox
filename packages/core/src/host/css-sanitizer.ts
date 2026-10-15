@@ -37,8 +37,48 @@ export interface CssEnv {
    * container units. Default: 'document' (iframe, native WebViews), untouched.
    */
   scope?: 'document' | 'shadow';
+  /**
+   * Strict policy: `attr()` may only read attributes the validator's text budgets
+   * count (`isTextAttr`), so no other attribute can become visible text.
+   */
+  strict?: boolean;
 }
 export const DEFAULT_ENV: CssEnv = { colorScheme: 'light' };
+
+const VISIBLE_TEXT_ATTRS = new Set(['value', 'placeholder', 'alt', 'label', 'title']);
+
+/**
+ * Attributes whose values count against the strict text budgets: the ones a
+ * renderer draws as text, plus `data-*` and `aria-*`, which `attr()` may read.
+ */
+export function isTextAttr(name: string): boolean {
+  return VISIBLE_TEXT_ATTRS.has(name) || name.startsWith('data-') || name.startsWith('aria-');
+}
+export const TEXT_ATTRS = [...VISIBLE_TEXT_ATTRS];
+export const TEXT_ATTR_PREFIXES = ['data-', 'aria-'];
+
+/**
+ * The contents of the string tokens in sanitized CSS: what `content`, `quotes`,
+ * `list-style` or a custom property substituted into them can draw. The input is
+ * this sanitizer's output, so escapes are already decoded except `\"` and `\\`.
+ * NativeValidator.cssStringText is the same loop over UTF-16 units.
+ */
+export function cssStringText(css: string): string {
+  let out = '';
+  for (let i = 0; i < css.length;) {
+    const c = css.charCodeAt(i);
+    if (c === 0x5c) { i += 2; continue; }
+    if (c !== 0x22 && c !== 0x27) { i++; continue; }
+    let j = i + 1;
+    while (j < css.length && css.charCodeAt(j) !== c) {
+      if (css.charCodeAt(j) === 0x5c && j + 1 < css.length) j++;
+      out += css[j];
+      j++;
+    }
+    i = j + 1;
+  }
+  return out;
+}
 const ALWAYS = '(min-width: 0px)';
 const NEVER = '(min-width: 99999px)';
 
@@ -114,6 +154,13 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
           } else if (fnStack.some((f) => URL_FUNCTIONS.has(f)) && SUBSTITUTION_FUNCTIONS.has(name)) {
             ok = false;
             diag('css-dropped', `${where}: ${name}() inside a URL-taking function`);
+          } else if (name === 'attr' && env.strict) {
+            const first = node.children.first;
+            const attr = first?.type === 'Identifier' ? first.name.toLowerCase() : '';
+            if (!isTextAttr(attr)) {
+              ok = false;
+              diag('css-dropped', `${where}: attr(${truncate(attr)}) reads an attribute outside the text budget`);
+            }
           }
           fnStack.push(name);
           break;
@@ -137,7 +184,9 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
 }
 
 function truncate(s: string): string {
-  return s.length > 80 ? s.slice(0, 80) + '…' : s;
+  if (s.length <= 80) return s;
+  const last = s.charCodeAt(79);
+  return s.slice(0, last >= 0xd800 && last <= 0xdbff ? 79 : 80) + '…';
 }
 
 function declarationIsSafe(decl: csstree.Declaration, diag: Diag, env: CssEnv): boolean {
@@ -299,7 +348,7 @@ export function clearStylesheetCache(): void {
 }
 
 export function sanitizeStylesheet(css: string, diag: Diag, env: CssEnv = DEFAULT_ENV): string {
-  const key = `${env.colorScheme}\u0001${env.scope ?? ''}\u0001${css}`;
+  const key = `${env.colorScheme}\u0001${env.scope ?? ''}\u0001${env.strict ? 1 : 0}\u0001${css}`;
   let hit = sheetCache.get(key);
   if (!hit) {
     const diags: [string, string][] = [];

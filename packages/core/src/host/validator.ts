@@ -13,7 +13,10 @@ import {
   CSS_VALUE_ATTRS, DROPPED_TAGS, HTML_TAGS, METHODS, PROPS, SILENT_DROP_ATTRS, SVG_ATTR_CASE, SVG_QUERY_METHODS,
   SVG_TAGS, URL_ATTRS,
 } from './allowlist';
-import { DEFAULT_ENV, rewriteMediaQuery, sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet, type CssEnv, type Diag } from './css-sanitizer';
+import {
+  DEFAULT_ENV, TEXT_ATTRS, TEXT_ATTR_PREFIXES, cssStringText, isTextAttr, rewriteMediaQuery, sanitizeCssValue, sanitizeStyleAttribute,
+  sanitizeStyleProperty, sanitizeStylesheet, type CssEnv, type Diag,
+} from './css-sanitizer';
 import { checkUrl, IMAGE_MIME, isFragment, PLACEHOLDER_IMAGE } from './url-policy';
 import { DOCUMENT_ID, EVENT_TYPES, type AnimKeyframe, type AnimRecord, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
 
@@ -51,7 +54,6 @@ export function textWork(text: string): number {
 }
 
 const SMALL_TEXT = 256;
-const VISIBLE_TEXT_ATTRS = new Set(['value', 'placeholder', 'alt', 'label', 'title']);
 
 export function chargesChurn(text: string): boolean {
   if (text.length > SMALL_TEXT) return true;
@@ -67,6 +69,7 @@ function complexUnits(text: string): number {
   for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) >= 0x0590) n++;
   return n;
 }
+const KEYFRAME_MEMBERS = new Set(['offset', 'easing', 'composite', 'computed-offset']);
 const MAX_ATTR = 4 * 1024 * 1024; // data: URLs can be large
 const MAX_OPS_PER_BATCH = 200_000;
 const MAX_CANVAS_CMDS = 500_000;
@@ -125,6 +128,7 @@ export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
     limits: [MAX_NODES, limits.maxText, MAX_ATTR, MAX_OPS_PER_BATCH, MAX_CANVAS_CMDS, LIMBO],
     complexTextBudget: limits.complexTextBudget,
     textBudget: limits.textBudget,
+    textAttrs: TEXT_ATTRS, textAttrPrefixes: TEXT_ATTR_PREFIXES,
   };
 }
 
@@ -177,6 +181,7 @@ export class Validator {
   setPolicy(policy: ValidatorPolicy) {
     this.policyName = policy === 'compat' ? 'compat' : 'strict';
     this.limits = policyLimits(this.policyName);
+    this.env = { ...this.env, strict: this.policyName === 'strict' };
   }
   private out: RenderOp[] = [];
   private diag: Diag;
@@ -207,7 +212,24 @@ export class Validator {
 
   private styleText(style: NodeInfo): string {
     const css = style.children.map((c) => this.nodes.get(c)?.data ?? '').join('');
-    return sanitizeStylesheet(css, this.diag, this.env);
+    const text = sanitizeStylesheet(css, this.diag, this.env);
+    // The raw text is charged as text nodes; the strings it draws are charged decoded.
+    if (this.budgeted && !this.updateTextSlot(style, 'sheet', cssStringText(text))) {
+      this.releaseTextSlot(style, 'sheet');
+      return '';
+    }
+    return text;
+  }
+
+  private get budgeted(): boolean {
+    return this.limits.textBudget > 0 || this.limits.complexTextBudget > 0;
+  }
+
+  /** The text an attribute value can put on screen under the strict budgets, or null if none. */
+  private attrText(name: string, value: string): string | null {
+    if (!this.budgeted) return null;
+    if (name === 'style') return cssStringText(value);
+    return isTextAttr(name) ? value : null;
   }
 
   /** Media query strings from matchMedia(): prefers-color-scheme is answered from the host theme. */
@@ -363,7 +385,8 @@ export class Validator {
       for (const [name, value] of Object.entries(attrs)) {
         if (!isStr(value, MAX_ATTR)) continue;
         for (const pair of this.sanitizeAttr(node, name, value)) {
-          if (!VISIBLE_TEXT_ATTRS.has(pair[0]) || this.updateTextSlot(node, 'attr:' + pair[0], pair[1])) outAttrs.push(pair);
+          const text = this.attrText(pair[0], pair[1]);
+          if (text === null || this.updateTextSlot(node, 'attr:' + pair[0], text)) outAttrs.push(pair);
         }
       }
     }
@@ -540,7 +563,8 @@ export class Validator {
       return true;
     }
     for (const [n, v] of pairs) {
-      if (VISIBLE_TEXT_ATTRS.has(n) && !this.updateTextSlot(node, 'attr:' + n, v)) return false;
+      const text = this.attrText(n, v);
+      if (text !== null && !this.updateTextSlot(node, 'attr:' + n, text)) return false;
       this.out.push({ op: 'attr', id, name: n, value: v });
     }
     return true;
@@ -615,7 +639,7 @@ export class Validator {
   private sanitizeUrlAttr(node: NodeInfo, name: string, lower: string, value: string): [string, string][] {
     const tag = node.tag;
     const block = (): [string, string][] => {
-      this.diag('url-blocked', `${tag}[${lower}]=${value.length > 80 ? value.slice(0, 80) + '…' : value}`);
+      this.diag('url-blocked', `${tag}[${lower}]=${clip(value, 80)}`);
       return [];
     };
     const isHref = lower === 'href' || lower === 'xlink:href';
@@ -665,7 +689,12 @@ export class Validator {
     if (!/^-{0,2}[a-zA-Z_][\w-]*$/.test(name)) return false;
     const clean = sanitizeStyleProperty(name, value, this.diag, this.env);
     // A rejected value clears the property rather than leaving a stale one.
-    this.out.push({ op: 'style', id, name, value: clean ? clean.value : '', important: important === true });
+    let out = clean ? clean.value : '';
+    if (this.budgeted && !this.updateTextSlot(node, 'style:' + name, cssStringText(out))) {
+      this.releaseTextSlot(node, 'style:' + name);
+      out = '';
+    }
+    this.out.push({ op: 'style', id, name, value: out, important: important === true });
     return true;
   }
 
@@ -739,6 +768,8 @@ export class Validator {
       }
     }
     if (method === 'scrollIntoView' && out.some((value, index) => !Number.isInteger(value) || value < 0 || value > [3, 3, 2, 1][index])) return false;
+    // (generation, command, allowDefault) for a native renderer's pending textarea Enter (docs/protocol.md, "Native editor commands").
+    if (method === 'completeEditorCommand' && (node.tag !== 'textarea' || !out.every((v) => Number.isSafeInteger(v) && v >= 0) || out[2] > 1)) return false;
     this.out.push({ op: 'call', id, method, args: out });
     return true;
   }
@@ -943,6 +974,8 @@ export class Validator {
         for (const name of names) {
           const value = f.values[name];
           if (typeof value !== 'string' || value.length > 4096 || !/^(?:--[\w-]{1,128}|-?[a-z][a-z-]{0,63})$/.test(name) || /^(?:-webkit-)?(?:animation|transition)(?:-|$)/.test(name)) continue;
+          // Keyframe members, not CSS properties: a renderer that merges values into the keyframe object would let them override the checked fields.
+          if (KEYFRAME_MEMBERS.has(name)) continue;
           const clean = sanitizeStyleProperty(name, value, this.diag, this.env);
           if (clean && clean.value !== '') values[name] = clean.value;
         }
@@ -998,10 +1031,16 @@ function finiteWithin(n: unknown, max: number): boolean {
   return typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= max;
 }
 
+/** At most `n` UTF-16 units plus an ellipsis, never ending on half a surrogate pair (JSONText.truncated in Swift). */
+function clip(s: string, n: number): string {
+  if (s.length <= n) return s;
+  const last = s.charCodeAt(n - 1);
+  return s.slice(0, last >= 0xd800 && last <= 0xdbff ? n - 1 : n) + '…';
+}
+
 function safeJson(v: unknown): string {
   try {
-    const s = JSON.stringify(v);
-    return s.length > 160 ? s.slice(0, 160) + '…' : s;
+    return clip(JSON.stringify(v), 160);
   } catch {
     return '[unserializable]';
   }

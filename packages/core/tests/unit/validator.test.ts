@@ -436,6 +436,97 @@ describe('validator: visible attribute and form value text budgets', () => {
   });
 });
 
+describe('validator: strict budgets for text reached through attributes and CSS', () => {
+  const cjk = (n: number, base = 0x4e00) => Array.from({ length: n }, (_, i) => String.fromCharCode(base + (i % 512))).join('');
+
+  it('data-* and aria-* values count like visible text, other attributes do not', () => {
+    const diags: string[] = [];
+    const out = run([
+      { op: 'el', id: 20, tag: 'p', attrs: { 'data-x': cjk(6000), class: 'a b' } },
+      { op: 'el', id: 21, tag: 'p', attrs: { 'aria-label': cjk(3000) } },
+      { op: 'el', id: 22, tag: 'p' },
+      { op: 'attr', id: 22, name: 'data-y', value: cjk(3000) },
+      { op: 'attr', id: 22, name: 'class', value: 'x'.repeat(100_000) },
+    ], diags, 'strict');
+    assert.equal(attrsOf(out, 20)['data-x'], cjk(6000));
+    assert.equal(attrsOf(out, 21)['aria-label'], undefined);
+    assert.ok(!out.some((o) => o.op === 'attr' && o.name === 'data-y'));
+    assert.ok(out.some((o) => o.op === 'attr' && o.name === 'class'));
+    assert.ok(diags.some((d) => d.startsWith('text-budget')));
+  });
+
+  it('the 60 000-ideograph data attribute from the branch review is rejected', () => {
+    const diags: string[] = [];
+    const out = run([{ op: 'el', id: 20, tag: 'p', attrs: { 'data-x': cjk(60_000) } }], diags, 'strict');
+    assert.equal(attrsOf(out, 20)['data-x'], undefined);
+    assert.ok(diags.some((d) => d.startsWith('text-budget')));
+  });
+
+  it('attr() may only read budgeted attributes under strict', () => {
+    const strict = { colorScheme: 'light' as const, strict: true };
+    assert.equal(sanitizeStyleProperty('content', 'attr(data-x)', noDiag, strict)?.value, 'attr(data-x)');
+    assert.equal(sanitizeStyleProperty('content', 'attr(title)', noDiag, strict)?.value, 'attr(title)');
+    const diags: string[] = [];
+    assert.equal(sanitizeStyleProperty('content', 'attr(class)', (k, d) => diags.push(`${k}: ${d}`), strict), null);
+    assert.ok(diags.some((d) => d.includes('attr(class)')));
+    assert.ok(!sanitizeStylesheet('p::before{content:attr(id)}', noDiag, strict).includes('attr'));
+    assert.equal(sanitizeStyleProperty('content', 'attr(class)', noDiag, { colorScheme: 'light' })?.value, 'attr(class)');
+    const out = run([
+      { op: 'el', id: 20, tag: 'style' }, { op: 'ins', parent: 3, id: 20, before: null },
+      { op: 'text', id: 21, data: 'p::before{content:attr(class)} q::before{content:attr(data-q)}' }, { op: 'ins', parent: 20, id: 21, before: null },
+    ], [], 'strict');
+    const css = out.filter((o) => o.op === 'css').map((o: any) => o.text).join('');
+    assert.ok(!css.includes('attr(class)') && css.includes('attr(data-q)'), css);
+  });
+
+  it('strings in style properties and style attributes are charged', () => {
+    const diags: string[] = [];
+    const out = run([
+      { op: 'el', id: 20, tag: 'p' }, { op: 'ins', parent: 3, id: 20, before: null },
+      { op: 'style', id: 20, name: '--x', value: `"${cjk(5000)}"` },
+      { op: 'el', id: 21, tag: 'p', attrs: { style: `--y: "${cjk(5000)}"` } },
+      { op: 'style', id: 20, name: 'content', value: `"${cjk(5000)}"` },
+    ], diags, 'strict');
+    assert.ok(out.some((o) => o.op === 'style' && o.name === '--x' && o.value.length > 5000));
+    assert.equal(attrsOf(out, 21).style, undefined, 'the second 5000 ideographs are over the budget');
+    assert.ok(out.some((o) => o.op === 'style' && o.name === 'content' && o.value === ''), 'an over-budget property is cleared');
+    assert.ok(diags.some((d) => d.startsWith('text-')));
+  });
+
+  it('stylesheet strings are charged decoded, so escapes do not hide ideographs', () => {
+    const diags: string[] = [];
+    const v = new Validator((kind, detail) => diags.push(`${kind}: ${detail}`));
+    v.setPolicy('strict');
+    let t = 0;
+    v.setClock(() => t);
+    v.processOps([
+      { op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null },
+      { op: 'el', id: 3, tag: 'body' }, { op: 'ins', parent: 2, id: 3, before: null },
+      { op: 'text', id: 10, data: cjk(7000) }, { op: 'ins', parent: 3, id: 10, before: null },
+    ]);
+    t += 60;
+    const escaped = Array.from({ length: 2000 }, () => '\\5b57 ').join('');
+    const out = v.processOps([
+      { op: 'el', id: 22, tag: 'style' }, { op: 'ins', parent: 3, id: 22, before: null },
+      { op: 'text', id: 23, data: `p::after{content:"${escaped}"}` }, { op: 'ins', parent: 22, id: 23, before: null },
+    ]);
+    assert.equal((out.filter((o) => o.op === 'css' && o.id === 22).pop() as any)?.text, '');
+    assert.ok(diags.some((d) => d.startsWith('text-budget')));
+    const small = v.processOps([{ op: 'data', id: 23, data: 'p::after{content:"\\5b57"}' }]);
+    assert.equal((small.filter((o) => o.op === 'css' && o.id === 22).pop() as any)?.text, 'p::after{content:"字"}');
+  });
+
+  it('compat leaves attributes and CSS strings unbudgeted', () => {
+    const diags: string[] = [];
+    const out = run([
+      { op: 'el', id: 20, tag: 'p', attrs: { 'data-x': cjk(60_000), style: `--y: "${cjk(9000)}"` } },
+    ], diags);
+    assert.equal(attrsOf(out, 20)['data-x'], cjk(60_000));
+    assert.ok(attrsOf(out, 20).style.length > 9000);
+    assert.ok(!diags.some((d) => d.startsWith('text-')));
+  });
+});
+
 describe('validator: canvas text churn', () => {
   it('limits repeated canvas text while preserving other drawing commands', () => {
     const diags: string[] = [];

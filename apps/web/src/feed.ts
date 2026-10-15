@@ -33,7 +33,7 @@ import type { Renderer, RendererFactory } from '@telegram/widget-sandbox/host/re
 import { ShadowDomRenderer } from '@telegram/widget-sandbox/host/shadow-renderer';
 import { WidgetHost } from '@telegram/widget-sandbox/host/widget-host';
 import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
-import { WIDGET_POLICY } from './policy';
+import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 
 export type FeedRenderer = 'iframe' | 'shadow' | 'blitz' | 'litehtml';
 /** Which corpus fills the widget bubbles; `BATCH_ORDER` is the round-robin over its batches (light first). */
@@ -462,6 +462,7 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     const t0 = now();
     b.host = new WidgetHost(b.wrap, html, {
       policy: WIDGET_POLICY,
+      features: WIDGET_FEATURES,
       theme,
       rendererFactory: timedFactory(FACTORIES[renderer], rec),
       workerPool: pool ?? undefined,

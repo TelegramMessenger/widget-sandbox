@@ -1,11 +1,21 @@
 import type { AnimRecord } from '../shared/protocol';
 
-const scripted = new Map<number, Animation>();
-const cssIds = new WeakMap<Animation, number>();
-const cssById = new Map<number, WeakRef<Animation>>();
-let cssSeq = 0;
+/**
+ * One per renderer instance: the shadow-DOM renderer puts many widgets in one
+ * page, and a widget must neither see nor drive another widget's animations.
+ */
+export class AnimationState {
+  readonly scripted = new Map<number, Animation>();
+  readonly cssIds = new WeakMap<Animation, number>();
+  readonly cssById = new Map<number, WeakRef<Animation>>();
+  cssSeq = 0;
+}
 
-export function cssAnimationList(el: Element, subtree: boolean, idOf: (n: Node | null) => number): unknown[] {
+/** Keyframe members; a CSS property of the same name never overrides them (validator.ts KEYFRAME_MEMBERS). */
+const KEYFRAME_MEMBERS = new Set(['offset', 'easing', 'composite', 'computedOffset']);
+
+export function cssAnimationList(state: AnimationState, el: Element, subtree: boolean, idOf: (n: Node | null) => number): unknown[] {
+  const { cssIds, cssById } = state;
   const out: unknown[] = [];
   const index = new Map<number, number>();
   for (const a of el.getAnimations({ subtree })) {
@@ -14,7 +24,7 @@ export function cssAnimationList(el: Element, subtree: boolean, idOf: (n: Node |
     if ((!isAnimation && !isTransition) || a.currentTime === null) continue;
     let origin = cssIds.get(a);
     if (origin === undefined) {
-      origin = ++cssSeq;
+      origin = ++state.cssSeq;
       cssIds.set(a, origin);
       cssById.set(origin, new WeakRef(a));
     }
@@ -36,12 +46,13 @@ export function cssAnimationList(el: Element, subtree: boolean, idOf: (n: Node |
 
 const camel = (n: string) => (n.startsWith('--') ? n : n === 'float' ? 'cssFloat' : n.replace(/^-(webkit|moz|ms)-/, '$1-').replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()));
 
-export function applyAnims(now: number, anims: AnimRecord[], nodeById: (id: number) => Node | undefined): void {
+export function applyAnims(state: AnimationState, now: number, anims: AnimRecord[], nodeById: (id: number) => Node | undefined): void {
+  const { scripted, cssById } = state;
   const offset = performance.now() - Number(now);
   for (const r of anims) {
     if ('css' in r) {
       const a = cssById.get(r.css.origin)?.deref();
-      if (!a) continue;
+      if (!a || (a.effect as KeyframeEffect | null)?.target !== nodeById(r.target)) continue;
       try {
         if (r.cancelled) a.cancel();
         else {
@@ -65,9 +76,14 @@ export function applyAnims(now: number, anims: AnimRecord[], nodeById: (id: numb
       continue;
     }
     const frames = r.keyframes.map((k) => {
-      const o: Record<string, unknown> = { offset: k.offset, easing: k.easing };
+      const o: Record<string, unknown> = {};
+      for (const name of Object.keys(k.values)) {
+        const key = camel(name);
+        if (!KEYFRAME_MEMBERS.has(key)) o[key] = k.values[name];
+      }
+      o.offset = k.offset;
+      o.easing = k.easing;
       if (k.composite) o.composite = k.composite;
-      for (const name of Object.keys(k.values)) o[camel(name)] = k.values[name];
       return o as Keyframe;
     });
     const t = r.timing;
@@ -93,6 +109,8 @@ export function applyAnims(now: number, anims: AnimRecord[], nodeById: (id: numb
         a.startTime = (r.startTime as number) + offset;
       }
     } catch {
+      // A failed update must not leave the previous (possibly infinite) animation running unaccounted.
+      try { a?.cancel(); } catch {}
       scripted.delete(r.aid);
     }
   }

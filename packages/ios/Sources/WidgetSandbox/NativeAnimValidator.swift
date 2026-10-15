@@ -21,6 +21,8 @@ extension NativeValidator {
     }()
     private static let animPropertyPattern = try! NSRegularExpression(pattern: "\\A(?:--[A-Za-z0-9_-]{1,128}|-?[a-z][a-z-]{0,63})\\z")
     private static let animBlockedPattern = try! NSRegularExpression(pattern: "\\A(?:-webkit-)?(?:animation|transition)(?:-|\\z)")
+    /// Keyframe members, not CSS properties (validator.ts `KEYFRAME_MEMBERS`).
+    private static let keyframeMembers: Set<String> = ["offset", "easing", "composite", "computed-offset"]
     private static let cssNamePattern = try! NSRegularExpression(pattern: "\\A[A-Za-z0-9_-]{1,128}\\z")
 
     private static func matches(_ re: NSRegularExpression, _ s: String) -> Bool {
@@ -141,7 +143,7 @@ extension NativeValidator {
                 }
                 var clean = JSONObject()
                 for (name, value) in values.entries {
-                    guard case .string(let text) = value, text.utf16.count <= 4096, Self.matches(Self.animPropertyPattern, name), !Self.matches(Self.animBlockedPattern, name) else { continue }
+                    guard case .string(let text) = value, text.utf16.count <= 4096, Self.matches(Self.animPropertyPattern, name), !Self.matches(Self.animBlockedPattern, name), !Self.keyframeMembers.contains(name) else { continue }
                     if let v = oracle?.styleProperty(name, text), !v.isEmpty { clean.set(name, .string(v)) }
                 }
                 frames.append(Self.object([("offset", .number(offset)), ("easing", .string(easing)), ("composite", frame["composite"]!), ("values", .object(clean))]))

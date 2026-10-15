@@ -9,6 +9,7 @@ const isInt32 = (v: unknown): v is number => typeof v === 'number' && (v | 0) ==
 export function decodeBinaryOps(words: ArrayLike<number>, joined: string, table: string[]): any[] {
   if (words.length < 2 || words[0] !== MAGIC || !isInt32(words[1]) || words[1] < 0) throw new Error('bad header');
   const ops: any[] = [];
+  const canvasKeys = new Set<number>();
   let at = 0;
   let i = 2;
   const word = (k: number) => {
@@ -74,7 +75,15 @@ export function decodeBinaryOps(words: ArrayLike<number>, joined: string, table:
         i += 5;
         break;
       }
-      case CANVAS: { ops.push({ op: 'canvas', id: word(1), bin: word(2) }); i += 3; break; }
+      case CANVAS: {
+        // One reference per payload and batch (BinaryOps.swift `canvasKey`).
+        const key = word(2);
+        if (canvasKeys.has(key)) throw new Error('canvas payload referenced twice');
+        canvasKeys.add(key);
+        ops.push({ op: 'canvas', id: word(1), bin: key });
+        i += 3;
+        break;
+      }
       case JSON_OP: {
         const op = JSON.parse(str(word(1)));
         if (!op || typeof op !== 'object' || Array.isArray(op) || typeof op.op !== 'string') throw new Error('bad json op');

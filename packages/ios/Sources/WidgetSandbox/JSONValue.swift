@@ -331,6 +331,8 @@ enum JSONText {
         if s.utf8.count <= limit { return s }
         let units = s.utf16
         if units.count <= limit { return s }
-        return String(decoding: units.prefix(limit), as: UTF16.self) + "\u{2026}"
+        // Never half a surrogate pair (validator.ts `clip`).
+        let last = units[units.index(units.startIndex, offsetBy: limit - 1)]
+        return String(decoding: units.prefix(UTF16.isLeadSurrogate(last) ? limit - 1 : limit), as: UTF16.self) + "\u{2026}"
     }
 }

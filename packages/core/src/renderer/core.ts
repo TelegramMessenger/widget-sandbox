@@ -15,7 +15,7 @@
 // on a widget element after start-up.
 
 import type { CanvasCmd, HostToRenderer, Query, RenderOp, RendererToHost, WidgetEvent } from '../shared/protocol';
-import { applyAnims, cssAnimationList } from './web-animations';
+import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
 
 /** Where the core renders: a whole document (iframe, native WebViews) or a shadow root inside the host page. */
 export interface RendererEnv {
@@ -141,6 +141,7 @@ let BODY: HTMLElement;
 
 const nodes = new Map<number, Node>();
 const ids = new WeakMap<Node, number>();
+const animations = new AnimationState();
 
 function register(id: number, node: Node) {
   nodes.set(id, node);
@@ -531,7 +532,7 @@ function answer(q: Query): { result: unknown; binary?: ArrayBuffer } {
     case 'viewport':
       return { result: env.viewport() };
     case 'anims':
-      return { result: { list: cssAnimationList(el, q.subtree === true, idOf) } };
+      return { result: { list: cssAnimationList(animations, el, q.subtree === true, idOf) } };
   }
 }
 
@@ -714,7 +715,7 @@ function onMessage(msg: HostToRenderer) {
       preventKeys = new Set(msg.keys);
       break;
     case 'anim':
-      try { applyAnims(msg.now, msg.anims, (id) => nodes.get(id)); } catch (e) { violation('anim failed: ' + String(e)); }
+      try { applyAnims(animations, msg.now, msg.anims, (id) => nodes.get(id)); } catch (e) { violation('anim failed: ' + String(e)); }
       break;
     case 'requestFrame':
       if (frozen || frameReq) break;

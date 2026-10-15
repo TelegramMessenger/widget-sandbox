@@ -24,7 +24,7 @@ final class WebAnimationsTests: XCTestCase {
         (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [[String: Any]] ?? []
     }
 
-    private static let hostileValues = "{\"background-image\":\"url(javascript:alert(1))\",\"background\":\"url(https://evil.example/x) red\",\"width\":\"expression(alert(1))\",\"color\":\"red; background: url(x)\",\"--x\":\"url(https://evil.example/)\",\"behavior\":\"url(x.htc)\",\"-moz-binding\":\"url(x.xml#y)\",\"Opacity\":\"1\",\"transition-duration\":\"1s\",\"-webkit-animation-name\":\"x\",\"cursor\":\"url(x.cur), auto\",\"opacity\":\"0.5\",\"color\":\"light-dark(red, blue)\"}"
+    private static let hostileValues = "{\"background-image\":\"url(javascript:alert(1))\",\"background\":\"url(https://evil.example/x) red\",\"width\":\"expression(alert(1))\",\"color\":\"red; background: url(x)\",\"--x\":\"url(https://evil.example/)\",\"behavior\":\"url(x.htc)\",\"-moz-binding\":\"url(x.xml#y)\",\"Opacity\":\"1\",\"transition-duration\":\"1s\",\"-webkit-animation-name\":\"x\",\"cursor\":\"url(x.cur), auto\",\"opacity\":\"0.5\",\"color\":\"light-dark(red, blue)\",\"offset\":\"0.9\",\"easing\":\"steps(99999999)\",\"composite\":\"x\",\"computed-offset\":\"1\"}"
 
     private func hostile() -> [String] {
         let many = "[" + (0..<65).map { "{\"offset\":\(Double($0) / 64),\"easing\":\"linear\",\"composite\":null,\"values\":{}}" }.joined(separator: ",") + "]"
@@ -102,7 +102,7 @@ final class WebAnimationsTests: XCTestCase {
             for (k, value) in values {
                 XCTAssertNil(value.range(of: "url\\s*\\(|expression|javascript:", options: [.regularExpression, .caseInsensitive]), "\(k): \(value)")
             }
-            for k in ["behavior", "-moz-binding", "Opacity", "transition-duration", "-webkit-animation-name", "width", "background-image"] {
+            for k in ["behavior", "-moz-binding", "Opacity", "transition-duration", "-webkit-animation-name", "width", "background-image", "offset", "easing", "composite", "computed-offset"] {
                 XCTAssertNil(values[k], k)
             }
             XCTAssertEqual(values["opacity"], "0.5")

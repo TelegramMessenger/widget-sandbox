@@ -24,6 +24,10 @@ const MAX_LOG = 4000;
 let rt: QuickJSRuntime;
 let vm: QuickJSContext;
 let config: SandboxConfig;
+
+/** The features this runtime implements; the rest of what a host asks for is dropped (Swift: `runtimeFeatures`). */
+const WEB_FEATURES = new Set(['webAnimations', 'noInPlaceText', 'noAttrFast', 'noCanvasRect']);
+const withWebFeatures = (c: SandboxConfig): SandboxConfig => ({ ...c, features: (c.features ?? []).filter((f) => WEB_FEATURES.has(f)) });
 /** The memory limit the wasm Memory was sized for in `warm`; `start` cannot exceed it. */
 let warmedMemoryLimitBytes = 0;
 let header: Int32Array;
@@ -233,7 +237,7 @@ function hostCall(kind: string, arg: string): string | number | undefined {
       try { post({ type: 'pd', keys: JSON.parse(arg) }); } catch {}
       return;
     case 'anim':
-      if (arg.length > MAX_ANIM_BATCH_BYTES) return;
+      if (arg.length > MAX_ANIM_BATCH_BYTES || !config.features?.includes('webAnimations')) return;
       try { post({ type: 'anim', anims: JSON.parse(arg), now: performance.now() }); } catch {}
       return;
     case 'bridge':
@@ -465,7 +469,7 @@ function dispatch(kind: string, arg: unknown): boolean {
  * pool's limits); the widget and its real config come with `start`.
  */
 async function warm(msg: Extract<HostToWorker, { type: 'warm' | 'init' }>) {
-  config = msg.config;
+  config = withWebFeatures(msg.config);
   visible = config.visible !== false;
   budget = new CpuBudget(config);
   header = new Int32Array(msg.sab, 0, SAB_HEADER / 4);
@@ -549,7 +553,7 @@ function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
   if (dead) return;
   const { libraries, ...widgetConfig } = msg.config;
   for (const lib of libraries ?? []) if (!provideLibrary(lib)) post({ type: 'diag', kind: 'library', detail: `provided library refused: ${String(lib?.name).slice(0, 64)}` });
-  config = { ...widgetConfig, memoryLimitBytes: Math.min(msg.config.memoryLimitBytes, warmedMemoryLimitBytes) };
+  config = withWebFeatures({ ...widgetConfig, memoryLimitBytes: Math.min(msg.config.memoryLimitBytes, warmedMemoryLimitBytes) });
   visible = config.visible !== false;
   budget = new CpuBudget(config);
   rt.setMemoryLimit(config.memoryLimitBytes);

@@ -12,7 +12,9 @@ final class TextBudgetTests: XCTestCase {
 
     func testCompatPolicyKeepsTheOldLimits() {
         let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(1024*1024);document.getElementById('b').textContent='\\u0627'.repeat(20000);</script>", theme: "light", width: 300, rendererFactory: { _, _, _ in renderer })
+        var compat = WidgetHost.Options()
+        compat.policy = .compat
+        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(1024*1024);document.getElementById('b').textContent='\\u0627'.repeat(20000);</script>", theme: "light", width: 300, options: compat, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {

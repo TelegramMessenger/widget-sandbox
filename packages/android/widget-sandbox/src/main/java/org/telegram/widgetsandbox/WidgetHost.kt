@@ -77,6 +77,8 @@ class WidgetHost(
         val pools: Boolean = false,
         /** "strict" (default; anything but "compat") or "compat": the gesture gate, 64 KB text caps and the text budgets. */
         val policy: String = "strict",
+        /** Opt-in sandbox features, e.g. "webAnimations"; see [SandboxConfig.features]. */
+        val features: Set<String> = emptySet(),
     )
 
     val view: View get() = renderer.view
@@ -122,7 +124,7 @@ class WidgetHost(
             innerWidth = viewport.first, innerHeight = viewport.second, devicePixelRatio = viewport.third, theme = theme,
             memoryLimitBytes = options.memoryLimitBytes, cpuLimitMs = options.cpuLimitMs,
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
-            maxTimers = options.maxTimers, visible = options.visible, policy = options.policy,
+            maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
         )
         if (isStrictPolicy(options.policy)) validator.setPolicy("strict")
         engine = SandboxEngine(html, config, resources)

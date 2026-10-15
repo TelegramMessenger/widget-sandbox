@@ -13,6 +13,7 @@ import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate, UNPRIVILEGED_BRIDGE_METHODS } from './user-activation';
 import type { Renderer, RendererFactory } from './renderer';
+import type { ProvidedLibrarySpec } from './loader';
 import type { PooledWorker, WorkerPool } from './worker-pool';
 import { Validator } from './validator';
 import {
@@ -47,6 +48,14 @@ export interface WidgetHostOptions {
   rendererFactory?: RendererFactory;
   /** Take the sandbox worker from a pool of warmed ones (worker-pool.ts) instead of booting a fresh one. */
   workerPool?: WorkerPool;
+  /**
+   * Opt-in sandbox features (docs/protocol.md, "Features"). The web runtime honours
+   * `webAnimations`, `noInPlaceText`, `noAttrFast` and `noCanvasRect` (`WEB_FEATURES` in
+   * worker.ts); the native-only wire forms (`canvasWords`, `binaryOps`, `morphUpdates`) are dropped.
+   */
+  features?: string[];
+  /** Extra bundled libraries the page serves under /libs/<file> (loader.ts `provideLibrary`). */
+  libraries?: ProvidedLibrarySpec[];
 }
 
 const MIN_HEIGHT = 24;
@@ -103,6 +112,8 @@ export class WidgetHost {
       maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers,
       visible: opts.visible ?? true,
       policy: this.policy,
+      features: opts.features ?? [],
+      ...(opts.libraries?.length ? { libraries: opts.libraries } : {}),
       viewport: this.viewport,
       theme: opts.theme,
     };

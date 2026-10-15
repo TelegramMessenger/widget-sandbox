@@ -159,8 +159,12 @@ enum CanvasWords {
         var key: Int
     }
 
+    /// Each payload key counts once: a later `{"op":"canvas","id":N,"bin":K}` with the same K stays
+    /// in the JSON as it is, without commands, and the validator rejects it, so one payload is
+    /// never expanded or validated more than once per batch.
     private static func placeholders(_ b: UnsafeBufferPointer<UInt8>) -> [Placeholder] {
         var out: [Placeholder] = []
+        var seen = Set<Int>()
         var i = 0
         let n = b.count
         func digits(_ i: inout Int) -> Int? {
@@ -178,7 +182,7 @@ enum CanvasWords {
                 if let id = digits(&j), n - j > middle.count, middle.indices.allSatisfy({ b[j + $0] == middle[$0] }) {
                     j += middle.count
                     if let key = digits(&j), j < n, b[j] == 0x7d {
-                        out.append(Placeholder(range: at..<(j + 1), id: id, key: key))
+                        if seen.insert(key).inserted { out.append(Placeholder(range: at..<(j + 1), id: id, key: key)) }
                         i = j + 1
                         continue
                     }

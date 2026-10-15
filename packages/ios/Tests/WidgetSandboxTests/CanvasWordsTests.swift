@@ -71,6 +71,15 @@ final class CanvasWordsTests: XCTestCase {
         }
     }
 
+    func testAPayloadIsSplicedOncePerBatch() {
+        let batch = [0.0, 0, 0, 0, 1, 1].withUnsafeBufferPointer { CanvasWords.batch(words: $0, strings: "a") }!
+        let json = "[{\"op\":\"canvas\",\"id\":5,\"bin\":0},{\"op\":\"canvas\",\"id\":6,\"bin\":0}]"
+        let spliced = CanvasWords.splice(json, [0: batch])
+        XCTAssertTrue(spliced.hasPrefix("[{\"op\":\"canvas\",\"id\":5,\"cmds\":"), spliced)
+        XCTAssertTrue(spliced.hasSuffix(",{\"op\":\"canvas\",\"id\":6,\"bin\":0}]"), "the repeat stays a placeholder the validator rejects: \(spliced)")
+        XCTAssertNil(CanvasWords.only(json, [0: batch]))
+    }
+
     func testBatchDecoderRejectsMalformedWords() {
         func batch(_ words: [Double], _ strings: String) -> Bool {
             words.withUnsafeBufferPointer { CanvasWords.batch(words: $0, strings: strings) != nil }

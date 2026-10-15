@@ -117,6 +117,12 @@ public final class Widget3DChannel: WidgetSideChannel {
     }
 
     public func install(in js: QuickJSContext) {
+        #if !(DEBUG || TWIDGET_EXPERIMENTAL_3D)
+        // 3D is not part of release builds (docs/decisions.md, "3D side channel"): `__tw3d` hands
+        // raw buffers to the backend past the validator. Debug builds keep it for the twidget lab.
+        onDiag?("3d", "not available in release builds")
+        return
+        #else
         guard backend.isAvailable, let adapter = backend.adapterSource else {
             return
         }
@@ -141,6 +147,7 @@ public final class Widget3DChannel: WidgetSideChannel {
             onDiag?("3d", "host function could not be hidden")
             destroy()
         }
+        #endif
     }
 
     func call(_ args: [Widget3DArgument]) -> HostReturn {

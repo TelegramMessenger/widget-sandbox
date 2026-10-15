@@ -34,6 +34,13 @@ struct NativeValidatorTables {
     var limbo = 0
     var complexTextBudget = 0
     var textBudget = 0
+    /// Attributes whose values count against the strict text budgets (css-sanitizer.ts `isTextAttr`).
+    var textAttributes: Set<String> = ["value", "placeholder", "alt", "label", "title"]
+    var textAttributePrefixes: [String] = ["data-", "aria-"]
+
+    func isTextAttribute(_ name: String) -> Bool {
+        textAttributes.contains(name) || textAttributePrefixes.contains { name.hasPrefix($0) }
+    }
 
     init?(json: String) {
         guard let root = JSONText.parse(json)?.object else { return nil }
@@ -92,6 +99,8 @@ struct NativeValidatorTables {
         limbo = Int(numbers[5])
         complexTextBudget = Int(root["complexTextBudget"]?.number ?? 0)
         textBudget = Int(root["textBudget"]?.number ?? 0)
+        if let names = strings("textAttrs") { textAttributes = Set(names) }
+        if let prefixes = strings("textAttrPrefixes") { textAttributePrefixes = prefixes }
     }
 }
 
@@ -254,7 +263,42 @@ final class NativeValidator {
     private func styleText(_ style: Node) -> String {
         var css = ""
         for c in style.children { css += nodes[c]?.data ?? "" }
-        return oracle?.stylesheet(css) ?? ""
+        let text = oracle?.stylesheet(css) ?? ""
+        // The raw text is charged as text nodes; the strings it draws are charged decoded (validator.ts styleText).
+        if budgeted, !updateTextSlot(style, key: "sheet", text: Self.cssStringText(text)) {
+            releaseTextSlot(style, key: "sheet")
+            return ""
+        }
+        return text
+    }
+
+    private var budgeted: Bool { tables.textBudget > 0 || tables.complexTextBudget > 0 }
+
+    /// The text an attribute value can put on screen under the strict budgets, or nil (validator.ts `attrText`).
+    private func attrText(_ name: String, _ value: String) -> String? {
+        guard budgeted else { return nil }
+        if name == "style" { return Self.cssStringText(value) }
+        return tables.isTextAttribute(name) ? value : nil
+    }
+
+    /// css-sanitizer.ts `cssStringText`: the contents of the string tokens in sanitized CSS, over UTF-16 units.
+    static func cssStringText(_ css: String) -> String {
+        let u = Array(css.utf16)
+        var out: [UInt16] = []
+        var i = 0
+        while i < u.count {
+            let c = u[i]
+            if c == 0x5c { i += 2; continue }
+            if c != 0x22 && c != 0x27 { i += 1; continue }
+            var j = i + 1
+            while j < u.count && u[j] != c {
+                if u[j] == 0x5c && j + 1 < u.count { j += 1 }
+                out.append(u[j])
+                j += 1
+            }
+            i = j + 1
+        }
+        return String(decoding: out, as: UTF16.self)
     }
 
     private func markDirty(_ id: Int) {
@@ -461,9 +505,8 @@ final class NativeValidator {
         for (name, value) in attributes {
             guard let value else { continue }
             for pair in sanitizeAttribute(node, name, value) {
-                if !Self.visibleTextAttributes.contains(pair.name) || updateTextSlot(node, key: "attr:" + pair.name, text: pair.value) {
-                    attrs.append(pair)
-                }
+                if let text = attrText(pair.name, pair.value), !updateTextSlot(node, key: "attr:" + pair.name, text: text) { continue }
+                attrs.append(pair)
             }
         }
         out.append(WidgetOp(element: id, tag: rendered, svg: node.svg, attributes: attrs, adopt: adopt))
@@ -479,7 +522,6 @@ final class NativeValidator {
     var clock: () -> Double = { Date().timeIntervalSince1970 }
 
     static let smallText = 256
-    private static let visibleTextAttributes: Set<String> = ["value", "placeholder", "alt", "label", "title"]
 
     static func chargesChurn(_ s: String) -> Bool {
         if s.utf16.count > smallText { return true }
@@ -679,7 +721,7 @@ final class NativeValidator {
             return true
         }
         for (n, v) in pairs {
-            if Self.visibleTextAttributes.contains(n), !updateTextSlot(node, key: "attr:" + n, text: v) { return false }
+            if let text = attrText(n, v), !updateTextSlot(node, key: "attr:" + n, text: text) { return false }
             out.append(WidgetOp(attribute: id, name: n, value: v))
         }
         return true
@@ -791,7 +833,12 @@ final class NativeValidator {
         guard let node = nodes[id], node.kind == .element else { return false }
         if !node.rendered { return true }
         guard Self.isStyleName(name) else { return false }
-        out.append(WidgetOp(style: id, name: name, value: styleValue(name, value), important: important))
+        var clean = styleValue(name, value)
+        if budgeted, !updateTextSlot(node, key: "style:" + name, text: Self.cssStringText(clean)) {
+            releaseTextSlot(node, key: "style:" + name)
+            clean = ""
+        }
+        out.append(WidgetOp(style: id, name: name, value: clean, important: important))
         return true
     }
 
@@ -828,6 +875,7 @@ final class NativeValidator {
             if s.utf8.count > tables.maxText, s.utf16.count > tables.maxText { return false }
             any = s
         case .number(let n)?:
+            guard n.isFinite else { return false } // validator.ts opProp: 1e999 parses as Infinity
             type = "number"
             any = NSNumber(value: n)
         case .bool(let b)?:
@@ -897,6 +945,9 @@ final class NativeValidator {
             }
         }
         if method == "scrollIntoView", zip(args, [3.0, 3.0, 2.0, 1.0]).contains(where: { value, limit in value != value.rounded() || value < 0 || value > limit }) {
+            return false
+        }
+        if method == "completeEditorCommand", node.tag != "textarea" || args.contains(where: { $0 != $0.rounded() || $0 < 0 || $0 > 9_007_199_254_740_991 }) || args[2] > 1 {
             return false
         }
         out.append(WidgetOp(["op": "call", "id": id, "method": method, "args": args]))

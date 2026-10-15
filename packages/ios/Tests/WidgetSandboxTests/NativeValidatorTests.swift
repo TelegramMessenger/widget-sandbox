@@ -71,12 +71,15 @@ final class NativeValidatorDifferentialTests: XCTestCase {
         static let attrValues = ["", "a b", "up", "down", "#frag", "#bad frag", "#a(b)", "javascript:alert(1)", " java\tscript:x", "data:image/png;base64,AA==", "DATA:image/svg+xml,<svg/>", " \u{1}data:image/gif,x ",
                                  "data:text/html,x", "data:,x", "data:image/png", "data: IMAGE/PNG ;x,y", "data:image/png;x", "blob:x", "url(#g)", "url(http://x)", "red", "rgb(1,2,3)", "light-dark(red, blue)",
                                  "color:red; background:url(x)", "opacity:0.5", "0;1;0", "1;url(x)", "red;blue", "href", "xlink:HREF", "SRC", "Привет 🙂", "\u{0}x", "a\"b", "<b>", "x&y", "#", "##",
-                                 "#\u{a0}x", "#x\u{2028}", "\n#x", "1", "none", String(repeating: "v", count: 90), "translate(1px, 2px)", "url( icon:star )", "expression(x)", "icon:airplane", "icon:airplane?weight=bold", "url(icon:airplane)", "url(\"icon:airplane\")", "url(\u{a0}icon:airplane)", "url(\ticon:airplane)", "URL(ICON:airplane)"]
+                                 "#\u{a0}x", "#x\u{2028}", "\n#x", "1", "none", String(repeating: "v", count: 90), "translate(1px, 2px)", "url( icon:star )", "expression(x)", "icon:airplane", "icon:airplane?weight=bold", "url(icon:airplane)", "url(\"icon:airplane\")", "url(\u{a0}icon:airplane)", "url(\ticon:airplane)", "URL(ICON:airplane)",
+                                 String(repeating: "\u{2500}", count: 200), "\u{1F642}\u{1F642}\u{1F642}"]
         static let styleNames = ["transform", "opacity", "color", "left", "width", "background", "background-color", "fill", "display", "--x", "--my-var", "-webkit-transform", "behavior", "Transform", "x",
                                  "", "1x", "a b", "content", "background-image", "filter", "z-index", "transition", "π", String(repeating: "s", count: 129)]
         static let styleValues = ["", "1", "0.5", "red", "translate(1px,2px)", "translate(1px, 2px) rotate(3deg)", "url(x)", "url(#a)", "light-dark(red,blue)", "red !important", "rgb(1, 2, 3)",
-                                  "calc(100% - 2px)", "expression(alert(1))", "10px", "Привет", "a;b", "var(--x)", "none", "-1px", "1e3px", "#fff", "blur(2px)", "inherit"]
-        static let texts = ["", "hi", "Привет 🙂", "a < b & c", "div{color:red}", "@import url(x); body{background:url(http://x)}", "x\u{0}y", String(repeating: "t", count: 300), "\u{2028}", "@media (prefers-color-scheme: dark){p{color:red}}"]
+                                  "calc(100% - 2px)", "expression(alert(1))", "10px", "Привет", "a;b", "var(--x)", "none", "-1px", "1e3px", "#fff", "blur(2px)", "inherit",
+                                  "\"" + String(repeating: "\u{2500}", count: 200) + "\"", "attr(data-x)", "attr(class)", "attr(title)", "\"\\2500\\2500\"", "'a' attr(aria-label) 'b'"]
+        static let texts = ["", "hi", "Привет 🙂", "a < b & c", "div{color:red}", String(repeating: "\u{2500}", count: 200),
+                            "p::after{content:\"" + String(repeating: "\u{2500}", count: 150) + "\"} q::before{content:attr(id) attr(data-q)}", "@import url(x); body{background:url(http://x)}", "x\u{0}y", String(repeating: "t", count: 300), "\u{2028}", "@media (prefers-color-scheme: dark){p{color:red}}"]
 
         mutating func id() -> Int { Int.random(in: 2...60, using: &rng) }
         mutating func anyId() -> String {
@@ -143,7 +146,7 @@ final class NativeValidatorDifferentialTests: XCTestCase {
                 return .shim(.style(id: id(), name: bs(one(Self.styleNames)), value: bs(one(Self.styleValues)), important: chance(4)))
             case 93..<95:
                 let name = one(["value", "checked", "scrollTop", "selectedIndex", "selected", "indeterminate", "foo", "__proto__", "hasOwnProperty", "toString"])
-                let value = one(["\"v\"", "true", "false", "5", "1.5", "null", "[]", "{}", "\"\""])
+                let value = one(["\"v\"", "true", "false", "5", "1.5", "null", "[]", "{}", "\"\"", "1e999", "-1e999"])
                 return .raw(chance(5) ? "{\"op\":\"prop\",\"id\":\(anyId()),\"name\":\(str(name))}" : "{\"op\":\"prop\",\"id\":\(anyId()),\"name\":\(str(name)),\"value\":\(value)}")
             case 95..<97:
                 let method = one(["focus", "scrollTo", "setPointerCapture", "blur", "foo", "__proto__", "toString", "observeResize", "scrollBy"])
@@ -195,9 +198,18 @@ final class NativeValidatorDifferentialTests: XCTestCase {
     }
 
     func testDifferentialFuzz() {
+        differential(policy: .compat, seeds: 1...60)
+    }
+
+    /// The same fuzz under the default policy: text budgets over attributes and CSS strings, `attr()` limits.
+    func testDifferentialFuzzUnderStrict() {
+        differential(policy: .strict, seeds: 101...160)
+    }
+
+    private func differential(policy: SandboxPolicy, seeds: ClosedRange<Int>) {
         var batches = 0, outputs = 0, diags = 0
-        for seed in 1...60 {
-            let js = Rig(native: false), viaJSON = Rig(native: true), viaBinary = Rig(native: true)
+        for seed in seeds {
+            let js = Rig(native: false, policy: policy), viaJSON = Rig(native: true, policy: policy), viaBinary = Rig(native: true, policy: policy)
             var gen = Gen(rng: RNG(state: UInt64(seed) &* 0x9E37_79B9_7F4A_7C15 | 1))
             var encoder = BinaryOpsEncoder()
             let setup = "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\",\"attrs\":{}},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null}]"
@@ -236,7 +248,7 @@ final class NativeValidatorDifferentialTests: XCTestCase {
                 }
             }
         }
-        print("native differential: \(batches) batches, \(outputs) ops out, \(diags) diags")
+        print("native differential (\(policy.rawValue)): \(batches) batches, \(outputs) ops out, \(diags) diags")
         XCTAssertGreaterThan(outputs, 5000)
         XCTAssertGreaterThan(diags, 2000)
     }
@@ -293,6 +305,15 @@ final class BinaryOpsHostileTests: XCTestCase {
 
     func decode(_ p: BinaryOpsPayload, table: BinaryInternTable = BinaryInternTable()) -> Result<BinaryOps.Decoded, BinaryOps.Failure> {
         BinaryOps.decode(p, table: table)
+    }
+
+    /// A canvas payload key counts once per batch: a repeat would make the native model
+    /// validate (and the splice serialise) the whole payload again for every reference.
+    func testRepeatedCanvasKeyRejectsTheBatch() {
+        let m = BinaryOps.magic
+        guard case .failure(let failure) = decode(Self.payload([m, 2, 10, 5, 0, 10, 6, 0])) else { return XCTFail("a repeated key decoded") }
+        XCTAssertEqual(failure, .canvasKey)
+        XCTAssertNotNil(try? decode(Self.payload([m, 2, 10, 5, 0, 10, 6, 1])).get())
     }
 
     func testMalformedBuffersAreRejectedWhole() {

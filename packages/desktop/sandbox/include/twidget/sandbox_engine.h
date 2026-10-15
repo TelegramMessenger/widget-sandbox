@@ -47,6 +47,7 @@ struct SandboxConfig {
     /// and tooling. Anything but exactly "compat" is strict (isStrictPolicy).
     std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
+    /// This runtime honours webAnimations, noInPlaceText, noAttrFast and noCanvasRect and drops the rest.
     std::vector<std::string> features;
 };
 
