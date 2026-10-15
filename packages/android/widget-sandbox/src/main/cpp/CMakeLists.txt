@@ -1,12 +1,13 @@
-# quickjs-ng v0.17.0 — the copy vendored for iOS (ios/Sources/CQuickJS), built
-# unmodified for Android plus the same qjs_shim.c and a JNI layer written
-# against the shim. One engine, one shim, one set of sources on every platform.
+# QuickJS from the TelegramMessenger/quickjs fork, the git submodule at
+# packages/ios/Sources/CQuickJS/quickjs (`git submodule update --init`), built for
+# Android with the same qjs_shim.c plus a JNI layer written against the shim.
+# One engine, one shim, one set of sources on every platform.
 cmake_minimum_required(VERSION 3.22)
 project(twquickjs C)
 
 set(QJS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../ios/Sources/CQuickJS")
 if(NOT EXISTS "${QJS}/quickjs/quickjs.c")
-    message(FATAL_ERROR "quickjs-ng sources not found at ${QJS}; packages/android must sit next to packages/ios")
+    message(FATAL_ERROR "QuickJS sources not found at ${QJS}/quickjs: run git submodule update --init (packages/android must sit next to packages/ios)")
 endif()
 
 add_library(twquickjs SHARED

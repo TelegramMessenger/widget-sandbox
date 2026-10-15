@@ -21,7 +21,7 @@ android {
         consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild {
             cmake {
-                // Pure C: no STL. The quickjs-ng sources are the ones vendored for iOS.
+                // Pure C: no STL. QuickJS is the fork submodule under packages/ios/Sources/CQuickJS.
                 arguments += listOf("-DANDROID_STL=none")
             }
         }
