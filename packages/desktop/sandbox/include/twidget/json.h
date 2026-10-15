@@ -7,7 +7,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
+#include <locale>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -119,9 +122,18 @@ public:
             auto r = std::to_chars(buf, buf + sizeof buf, (long long)d);
             return std::string(buf, r.ptr);
         }
+#if defined(__APPLE__)
+        // Floating-point to_chars requires macOS 13.3.
+        auto stream = std::ostringstream();
+        stream.imbue(std::locale::classic());
+        stream.precision(std::numeric_limits<double>::max_digits10);
+        stream << d;
+        return stream.str();
+#else
         char buf[64];
         auto r = std::to_chars(buf, buf + sizeof buf, d);
         return std::string(buf, r.ptr);
+#endif
     }
 
     /// Strict parse; nullopt on any error. `maxDepth` bounds nesting (hostile input).
