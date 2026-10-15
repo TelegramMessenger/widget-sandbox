@@ -94,9 +94,11 @@ therefore prepends a doctype to doctype-less files — the comparison target is
 "the widget inside our document", not "the file opened as a page". Full
 documents are untouched.
 
-### Shadow DOM renderer (prototype): the renderer core without the frame
+### Shadow DOM renderer: the renderer core without the frame
 
-The web product path is still the sandboxed `srcdoc` iframe, but a feed of
+Since 2026-10-16 this is the web product renderer (decision D2; see "The web
+renders through Shadow DOM; invariant 6 reworded" below). Until then the web
+product path was the sandboxed `srcdoc` iframe, but a feed of
 hundreds of bubbles pays per bubble for a document: asynchronous boot, a
 style context, nothing buildable before insertion. The renderer code was
 therefore split into `packages/core/src/renderer/core.ts` (`createRenderer(env)`, one
@@ -521,7 +523,7 @@ information.
 
 ### Strict-policy text limits
 
-Strict validators allow at most 64 Ki UTF-16 units per text value, 256 Ki units across tracked text and comment nodes, and 8192 complex-script units across text nodes. Removal and shrinking release the document budget; resetting a pooled native validator clears it.
+Strict validators allow at most 64 Ki UTF-16 units per text value, 256 Ki units across tracked text and comment nodes, and 8192 complex-script units across text nodes. Removal and shrinking release the document budget; resetting a pooled native validator clears it. Since the pre-release hardening the budgets also charge `data-*` / `aria-*` values and the strings of sanitized CSS (see "Strict budgets reach attributes and CSS strings").
 
 Text mutations longer than 256 UTF-16 units, or containing complex-script, CJK, Kana, Hangul or fullwidth characters, also consume a shared token bucket with an 8192-work-unit burst and a 1024-unit-per-second refill; short Latin, digit and symbol text such as ticker cells is never charged, so a 400-cell ticker updating every frame keeps all its updates. Work counts words separated by whitespace, hyphens, question marks, slashes, or zero-width spaces, and counts CJK, Kana, Hangul, fullwidth and supplementary characters individually. Long unbroken runs cost at least one unit per 1024 UTF-16 units. Creating, replacing, splitting, or removing nodes cannot refund mutation work. Rejected mutations preserve the last accepted text. Compatibility policy keeps its existing limits.
 
@@ -908,3 +910,120 @@ The pool holds at most twice its warm target, counting resets in flight. Drainin
 also cancels pending refills and resets. Memory pressure drains the pool and
 suppresses refills/recycling for 30 seconds. Async bubble snapshots are accepted
 only for the host generation that requested them.
+
+## Pre-release hardening of the integration branch (Oct 2026)
+
+Release plan decisions D2, D5, D6 and D13, and the blockers of
+`docs/branches-review.md` §4 and §7, before `telegram-macos` becomes `main`.
+
+### `strict` is the default policy, parsed fail-closed
+
+The gesture gate for privileged bridge calls, the 64 KB text caps and the text
+budgets applied only under `strict`, and every glue copy defaulted to `compat`:
+a client that forgot the option let `openLink` run from a timer. `strict` is now
+the default in all five copies (web `WidgetHost`, Node harness, Swift
+`SandboxConfig` / `WidgetHost.Options`, Kotlin, C++). Kotlin and C++ keep a
+string option; anything but exactly `"compat"` is strict (`isStrictPolicy`,
+`resolvePolicy` in TS, `Validator.setPolicy`), so a typo never weakens the
+sandbox. `compat` stays for tests and tooling.
+
+### Strict budgets reach attributes and CSS strings
+
+The budgets of "Strict-policy text limits" charged text nodes, form values and
+five visible attributes (`value`, `placeholder`, `alt`, `label`, `title`). A
+widget could still put 60 000 ideographs on screen through `data-x` and
+`content: attr(data-x)`, or through a string in a custom property and
+`content: var(--x)`. Under `strict` now:
+
+- `data-*` and `aria-*` values are charged like the visible attributes
+  (`isTextAttr`, exported to the Swift native model through `tables()`);
+- `attr()` may only read those attributes; any other name drops the declaration;
+- the string tokens of a sanitized `style` attribute, of each `style` op and of
+  each sanitized stylesheet are charged too, decoded (`cssStringText`), so
+  `\5b57` escapes count as the ideographs they draw. The raw stylesheet text
+  stays charged as text nodes; strings are short in real widgets, so the double
+  count costs nothing. An over-budget property is cleared, an over-budget
+  stylesheet ships empty.
+
+SVG path data, classes and other attributes that cannot become text stay
+outside the budgets: charging them would break animated SVG under the churn
+bucket.
+
+### One canvas payload per reference
+
+With `canvasWords` a batch referenced a word payload by key, and nothing
+stopped a batch from naming the same key thousands of times: each reference
+re-validated (native model) or re-serialised (JSON splice) the whole payload,
+which could hang the validator thread or exhaust memory from one message. A key
+now counts once per batch: a binary batch with a repeated key is rejected whole
+(`BinaryOps.Failure.canvasKey`, mirrored in `binary-ops-decode.ts`), a JSON batch
+splices only the first placeholder and the validator rejects the rest, and the
+Node harness takes each payload once.
+
+### Web Animations records
+
+`values` of a keyframe may no longer use `offset`, `easing`, `composite` or
+`computed-offset` (validator and `NativeAnimValidator`), and the renderer
+writes those members after the values, so a value can never override the
+checked fields. A failed `setKeyframes` cancels the old animation instead of
+leaving it running outside `MAX_LIVE_ANIMS`. Animation state moved from module
+globals into `AnimationState`, one per renderer instance: on the shadow-DOM
+renderer every widget shares the page, and widgets cancelled each other's
+animations. A CSS-animation record applies only to an animation whose effect
+target is the record's `target`. The web worker forwards `anim` only when
+`webAnimations` is enabled.
+
+### 3D side channel (`__tw3d`): out of release builds
+
+`Widget3DChannel` (twidget kit) installs `__tw3d`, a C function that takes an
+op string and byte buffers from the widget's heap (up to 64 MB per call) and
+hands them to a Metal backend: a second capability next to `__host`, with no
+validator, policy, gesture or visibility check. Decision D6: 3D is cut from the
+release. `Widget3DChannel.install` is compiled only under `DEBUG ||
+TWIDGET_EXPERIMENTAL_3D`; release builds keep the API (the kit still compiles)
+but never expose the function and report a `3d` diag. Before it comes back:
+a security review of the backend, ops checked by trusted glue against a schema,
+visibility and CPU accounting, and `destroy()` that does not wait on the lock
+the JS thread holds during a backend call (a main-thread hang today).
+
+### Swift-only extensions and parity
+
+`binaryOps` with the native node model (`NativeValidator.swift`), `canvasWords`,
+`morphUpdates`, `icon:` expansion, side channels and the feed/pool machinery
+exist only in the Swift glue; they are performance paths for Telegram macOS,
+opt-in, and listed in `docs/changes.md`. Every glue now passes on only the
+features it implements (`RUNTIME_FEATURES` in Kotlin, `WEB_FEATURES` in the
+worker, the C++ engine's own list), and Android and the web take `features`
+(so Web Animations work there). A platform copy of a validator part is allowed
+only with parity tests (D13): the differential fuzz of `NativeValidator`
+against the script validator runs under both policies, and the attack corpus
+runs through the native model.
+
+### `completeEditorCommand`
+
+The twidget renderers keep a textarea's Enter pending until the widget's
+`keydown`/`keypress` handlers ran; the shim then calls
+`completeEditorCommand(generation, command, allowDefault)`. It is documented in
+`docs/protocol.md` ("Native editor commands") and the validators accept it only
+on a `<textarea>` with integer arguments. Forms are outside the v1 profile
+(D3a); the call goes when the profile drops them.
+
+### The web renders through Shadow DOM; invariant 6 reworded
+
+Decision D2 (2026-10-16): the web product renderer is the shadow-DOM renderer,
+not the iframe. Invariant 6 now reads "a sandboxed frame with a per-widget CSP,
+or a shadow root with a scoped validator inside a page whose CSP closes the
+network". The frame was never the primary boundary: widget JS never reaches the
+page (invariant 1), every op is validated (2, 4), and the renderer core refuses
+forbidden tags, attributes and URLs itself and cancels every navigation and
+submit. What the per-widget CSP added, the web client's page CSP has to give:
+
+- `connect-src` only Telegram's own endpoints, no wildcards;
+- `form-action 'none'`, `frame-src` / `child-src` without third-party origins;
+- `img-src` and `media-src` without third-party hosts (`data:` and `blob:` plus
+  Telegram's own), `font-src` likewise;
+- `style-src` admits the renderer's `<style>` elements in the shadow roots
+  (a nonce the renderer sets, or `'unsafe-inline'`), nothing remote.
+
+`TW_RENDERER=shadow corepack pnpm test:attacks` keeps measuring exactly what
+the frame used to add (0 canary hits, 0 requests).

@@ -1,4 +1,9 @@
-# Shadow DOM instead of iframe: a frameless renderer for the web (prototype)
+# Shadow DOM instead of iframe: a frameless renderer for the web
+
+**Decided 2026-10-16 (release plan D2): this is the web product renderer.**
+Invariant 6 is reworded and the web client's page CSP requirements are in
+`docs/decisions.md`, "The web renders through Shadow DOM; invariant 6 reworded".
+The text below is the prototype's record.
 
 Date: 2026-10-12. The question: which renderer to take as the product path on the
 web if the feed holds hundreds of bubbles. A srcdoc iframe per bubble (`IframeRenderer`,
@@ -139,7 +144,7 @@ Bench (`--pool 8,32`, the pool is prewarmed before the clock starts and refills 
   mostly overlaps the boots with each other rather than removing them; in a live feed with
   refilling while idle the share of "already warm" is higher than here.
 
-## What to decide
+## What to decide (decided: Shadow DOM, D2)
 
 The prototype shows: without the iframe on the web only what the validator holds
 anyway is lost (attacks 100/100), compatibility is the same (generated 40/40), and the renderer

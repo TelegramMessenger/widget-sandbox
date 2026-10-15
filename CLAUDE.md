@@ -48,16 +48,27 @@ pnpm workspace). A framework change touches `packages/` only.
 5. QuickJS has no network capability; `fetch`/XHR/WebSocket/EventSource/
    RTCPeerConnection/sendBeacon/importScripts/Worker are stubs throwing
    `NetworkDisabledError`.
-6. Defense in depth on the renderer (sandboxed frame, strict CSP, every
-   navigation cancelled, platform request blocking).
+6. Defense in depth on the renderer: a sandboxed frame with a strict
+   per-widget CSP (iframe, WKWebView, WebView), or a shadow root with a scoped
+   validator (`scope: 'shadow'`) on a page whose own CSP closes the network
+   (`connect-src` only Telegram's endpoints, `form-action 'none'`, no
+   third-party `img-src`/`media-src`/`font-src`/`frame-src`); every navigation
+   cancelled, platform request blocking (`docs/decisions.md`, "The web renders
+   through Shadow DOM").
+
+Policy: `strict` is the default on every host (gesture gate for privileged
+bridge calls, 64 KB text caps, text budgets over text nodes, visible and
+`data-*`/`aria-*` attributes and CSS strings); anything but exactly `compat`
+is strict, `compat` is for tests and tooling (`docs/changes.md`).
 
 **Shadow DOM renderer** (`packages/core/src/host/shadow-renderer.ts`, `docs/shadow-dom-renderer.md`,
 the **shadow** toggle / `?shadow=1`, `TW_RENDERER=shadow` for the Playwright suites):
 the renderer core (`packages/core/src/renderer/core.ts`, shared with the iframe and native
-bundles) on a shadow root inside the host page, no iframe. A prototype for the
-web feed (hundreds of bubbles): it relaxes invariant 6 (no opaque origin, no
-per-widget CSP), so it is not the product path until decided; the validator
-runs in `scope: 'shadow'` for it (`css-sanitizer.ts`). Feed bench:
+bundles) on a shadow root inside the host page, no iframe. **The web product
+renderer since 2026-10-16** (release plan D2; invariant 6 reworded above, the
+page CSP the web client needs is in `docs/decisions.md`); the validator runs in
+`scope: 'shadow'` for it (`css-sanitizer.ts`). The iframe stays as the dev
+app's default and the reference. Feed bench:
 `apps/web/bench/feed.html` + `scripts/feed-bench.ts`. **Worker pool** (`packages/core/src/host/worker-pool.ts`,
 `WidgetHost.Options.workerPool`, `?pool=N`, `TW_POOL=N pnpm test:compat`): the
 worker protocol's `init` is `warm` (QuickJS + bundle) + `start` (the widget);
@@ -128,7 +139,8 @@ git submodule update --init           # QuickJS (TelegramMessenger/quickjs fork)
 corepack pnpm install                 # pnpm is not on PATH here
 corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "dev")
 corepack pnpm test:unit
-corepack pnpm test:attacks            # 93 files, canary hits must be 0
+corepack pnpm test:attacks            # 98 files, canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
+corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
 corepack pnpm test:compat             # → docs/compat-report.md
 corepack pnpm test:generated          # → docs/compat-report-generated.md
 corepack pnpm test:lifecycle          # off-screen pause (frames stop, timers 1 Hz, visibilitychange)
@@ -144,7 +156,7 @@ corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetS
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 23 tests; 89 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
+cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 30 tests; 98 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 26 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
 TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile --blitz --dpr 2 --png-dir /tmp/gen-cg   # Blitz laid out by Rust, painted by CoreGraphics/CoreText (apps/renderer-blitz/src/cg.rs, Apple only; twb_set_backend in the C ABI); three-way gallery: corepack pnpm tsx scripts/blitz-experiment/gallery-native.mts reports/blitz-experiment/native/generated vello=DIR:TABLE cg=DIR:TABLE litehtml=DIR:TABLE --strips 20; on the simulator: SIMCTL_CHILD_TWB_BACKEND=cg xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz (iOS emoji paint only on this backend); Android twin: apps/renderer-blitz/src/dl.rs records the scene as a display list, CanvasScene.kt replays it with Canvas.drawGlyphs — `--es renderer blitz_canvas` in the demo (Blitz·Canvas in the picker)
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 29 tests; the same flags as --blitz
@@ -154,11 +166,11 @@ corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile
 cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:connectedDebugAndroidTest   # needs a booted emulator (AVD twidget-35)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose
 scripts/android-bench.sh webview|blitz|litehtml|none 20 [prewarm]   # renderer start-up/memory bench in the Android demo (needs installDebug + emulator); POOLS=1 = validator pool; python3 -I scripts/android-bench-print.py --table <names>; docs/android-renderer-bench.md
-xcodebuild test -scheme WidgetSandbox -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # the test scheme SwiftPM generates; corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
 cd apps/ios/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemo -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' CODE_SIGNING_ALLOWED=NO -derivedDataPath /tmp/twidget-sim && xcrun simctl install booted /tmp/twidget-sim/Build/Products/Debug-iphonesimulator/TwidgetDemo.app && xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz   # demo on the Blitz renderer (--litehtml: litehtml); the pre-build phases run apps/renderer-blitz/build-apple.sh (rustup cargo) and apps/renderer-litehtml/build-apple.sh (cmake + ninja)
 cd apps/renderer-litehtml && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-litehtml-tests && ./build/twidget-litehtml-run msgs.json out.png --width 360 --dpr 2   # litehtml core on the host: 6 tests; msgs.json from `pnpm tsx packages/core/scripts/sandbox-node.ts <widget> --ops-file msgs.json`
 xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --autorun feed --feed max --feed-count 40 --feed-scroll step   # chat feed (iOS only): scripted scroll, feed-report.json in the app container; `--feed baseline`, `--feed-set pools=false,…`; build with -configuration Release for numbers (docs/chat-feed-ios.md); the feed has the web feed's bar: renderer WebView | Blitz | litehtml switched live, pool on/off, hostile bubble, corpus, count, reset, ▶ scroll (`--feed-set renderer=blitz,hostile=cpu-raf-burn,corpus=showcase`)
-xcodebuild test -scheme WidgetSandbox -destination 'platform=macOS'   # 21 tests; the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # MACOS_TESTS; the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
 cd apps/macos/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemoMac -destination 'platform=macOS' -derivedDataPath /tmp/twidget-mac && /tmp/twidget-mac/Build/Products/Debug/TwidgetDemoMac.app/Contents/MacOS/TwidgetDemoMac --autorun attacks   # also generated|compat|pause; reports in ~/Library/Application Support/org.telegram.widgetsandbox.TwidgetDemoMac
 ```
 
@@ -204,5 +216,19 @@ validation off the main thread, snapshot-and-drop in the list — all
 profile (`corpus/showcase/README.md`), 21/21 on `pnpm test:showcase`, the web
 feed's default corpus (the **corpus** select / `?corpus=common` keeps the flat set);
 not in the native demos yet.
-Open: `Intl.formatToParts`, the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
+2026-10-16: the `telegram-macos` integration branch (opt-in `features`:
+`webAnimations`, `canvasWords`, `binaryOps` with the Swift `NativeValidator`,
+`morphUpdates`; the `strict`/`compat` policy and user activation; the
+TelegramMessenger/quickjs fork as a submodule; the Swift feed and pools) merged
+with `tdesktop` and hardened before it becomes `main` (`docs/decisions.md`,
+"Pre-release hardening"): `strict` by default everywhere, budgets over
+`data-*`/`aria-*` and CSS strings, one canvas payload per reference, `anim`
+keyframe members and per-renderer animation state, 3D only in debug builds,
+`features` on Android and the web, shortest/locale-free numbers in `json.h`.
+Release plan and decisions: `docs/branches-review.md`, `docs/widget-state.md`
+(v1 storage), `docs/bridge-discussion.md` (SDK v1), `docs/server-task.md`;
+the web product renderer is the shadow DOM one (D2).
+Open: review and fuzzing of the 22 allocator/interpreter commits in the
+QuickJS fork, a reproducible build of `packages/quickjs-wasm/dist`, versions
+and tags (VERSION.json), profile v1, SDK v1 and storage, `Intl.formatToParts`, the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.

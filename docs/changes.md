@@ -3,18 +3,19 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Policy: `compat` (default) and `strict`
+## Policy: `strict` (default) and `compat`
 
-Hosts choose a policy: `SandboxConfig.policy` / `WidgetHost.Options.policy` (Swift, Kotlin), `SandboxConfig.policy` / `WidgetHostOptions.policy` (C++), `config.policy` / `WidgetHost` option `policy` (TS). `compat` is the default and keeps the limits hosts had before; `strict` is what the Telegram apps and the web demo use.
+Hosts choose a policy: `SandboxConfig.policy` / `WidgetHost.Options.policy` (Swift, Kotlin), `SandboxConfig.policy` / `WidgetHostOptions.policy` (C++), `config.policy` / `WidgetHost` option `policy` (TS). **`strict` is the default on every host** (it used to be `compat`); `compat` keeps the limits hosts had before the hardening and is meant for tests and tooling. Kotlin and C++ take a string: anything but exactly `"compat"` is strict.
 
-| | compat (default) | strict |
+| | strict (default) | compat |
 |---|---|---|
-| Privileged bridge calls | forwarded as before | need a real user gesture (one click or key press on the visible widget unlocks one call; `ready` is exempt), else `activation-blocked` |
-| Text nodes, string properties, Path2D data | 2 MB | 64 KB |
-| Canvas string arguments | 4 MB | 64 KB |
-| Complex-script text (units >= U+0590) | not budgeted | 8192 units per document (`text-budget`) |
+| Privileged bridge calls | need a real user gesture (one click or key press on the visible widget unlocks one call; `ready` is exempt), else `activation-blocked` | forwarded as before |
+| Text nodes, string properties, Path2D data | 64 KB | 2 MB |
+| Canvas string arguments | 64 KB | 4 MB |
+| Visible text: text nodes, `value`/`placeholder`/`alt`/`label`/`title`, `data-*`, `aria-*`, strings in `style` attributes, `style` ops and stylesheets | 256 Ki units per document, 8192 complex-script units (`text-budget`), churn bucket (`text-churn`) | not budgeted |
+| `attr()` in CSS | only the budgeted attributes above | any attribute |
 
-The validator learns the policy through `__twValidator.setPolicy('strict')` (glue `__v_setPolicy`), sent only for `strict`, so glue built against an older validator bundle keeps working. The native node model reads the limits from `__twValidator.tables()`, which reflect the policy.
+The validator learns the policy through `__twValidator.setPolicy('strict')` (glue `__v_setPolicy`), sent only for `strict`, so glue built against an older validator bundle keeps working. The native node model reads the limits and the budgeted attribute names from `__twValidator.tables()`, which reflect the policy.
 
 ## Visible by default
 
@@ -31,11 +32,36 @@ Under `strict` also: complex-script text changes draw from 8192 words refilling 
 
 ## Opt-in (nothing changes until the host lists them)
 
-- `config.features`: `canvasWords`, `binaryOps` (native node model validates binary batches), `webAnimations` (Element.animate and the `anim` message).
+- `config.features`: `canvasWords`, `binaryOps` (native node model validates binary batches), `webAnimations` (Element.animate and the `anim` message). Android (`SandboxConfig.features`, `WidgetHost.Options.features`) and the web (`WidgetHostOptions.features`, plus `libraries`) take them now; every glue drops what it does not implement (see the table below).
 - `WidgetHost.Options.assetResolver` (iOS/macOS): `icon:` images expanded to `data:image/` before validation.
 - `WidgetHost.Options.sideChannels` (iOS/macOS): side channels such as `Widget3DChannel`.
 - `WidgetHost.Options` (iOS/macOS) keep their old defaults (`asyncValidation` and `sharedValidatorThread` false, the widget starts on the renderer's `ready`, `parallelBoot` only prewarms the runtime). New: `startBeforeRendererReady` runs the widget while the renderer loads. Ops, queries, bridge calls, logs and diagnostics reach the main thread in the order the widget produced them in both validation modes.
 - `SandboxResources.provide` (iOS/macOS): extra bundled libraries such as three.js.
+
+## Swift-only
+
+What exists only in the Swift glue (iOS, macOS). Everything here is opt-in; the
+other hosts drop the feature names they do not implement.
+
+| Feature | Swift | Node harness | Web | Kotlin | C++ |
+|---|---|---|---|---|---|
+| `webAnimations`, `noInPlaceText`, `noAttrFast`, `noCanvasRect` | yes | yes | yes | yes | yes |
+| `canvasWords` (word payloads, `CanvasWords.swift`) | yes | yes | no | no | no |
+| `binaryOps` + native node model (`NativeValidator.swift`, `NativeAnimValidator.swift`) | yes | decoder only | no | no | no |
+| `morphUpdates` (`morph {html}`) | yes | yes | no | no | no |
+| `icon:` images (`assetResolver`, `IconExpansion.swift`) | yes | no | no | no | no |
+| Side channels (`Widget3DChannel`; debug builds only) | yes | no | no | no | no |
+| Extra bundled libraries (`SandboxResources.provide`) | yes | yes | yes (`libraries`) | no | no |
+| Engine/renderer/validator pools, `WidgetFeed`, `WidgetBubble`, typed ops, WebKit view reuse | yes | — | worker pool only | validator pool only | no |
+
+## Hardening before main (2026-10-16)
+
+- A canvas word payload may be referenced once per batch; a binary batch that repeats a key is rejected whole.
+- `anim` keyframe values may not be named `offset`, `easing`, `composite` or `computed-offset`; renderers keep animation state per widget and cancel an animation whose update fails; the web worker forwards `anim` only with `webAnimations`.
+- The native node model rejects non-finite `prop` numbers like the script validator.
+- `completeEditorCommand` is accepted only on a `<textarea>` with integer arguments.
+- `Widget3DChannel` exposes `__tw3d` only in `DEBUG` builds (or with `TWIDGET_EXPERIMENTAL_3D`); release builds report a `3d` diag instead.
+- The desktop `json.h` prints the shortest round-trip number on every target and parses numbers in the C locale.
 
 ## Embedding contracts
 

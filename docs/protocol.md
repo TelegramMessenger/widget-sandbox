@@ -42,7 +42,7 @@ frame, script) and *before* every sync query.
 | `rm` | `id` | remove node and forget its subtree |
 | `style` | `id, name, value, important?` | set one inline style property (`value: ''` removes) |
 | `prop` | `id, name, value` | set a DOM property: `value`, `checked`, `indeterminate`, `selectedIndex`, `selected`, `scrollTop`, `scrollLeft` |
-| `call` | `id, method, args?` | call a method: `focus blur select scrollIntoView scrollTo scrollBy setSelectionRange setPointerCapture releasePointerCapture showModal show close reset showPopover hidePopover togglePopover observeResize unobserveResize` |
+| `call` | `id, method, args?` | call a method: `focus blur select scrollIntoView scrollTo scrollBy setSelectionRange setPointerCapture releasePointerCapture showModal show close reset showPopover hidePopover togglePopover observeResize unobserveResize completeEditorCommand` (the last only for native editors, see "Native editor commands") |
 | `canvas` | `id, cmds: CanvasCmd[]` | replay 2D canvas commands on `<canvas id>` |
 
 ### Canvas commands
@@ -69,7 +69,18 @@ object references: `{g: gid}` gradient/pattern, `{p: pid}` Path2D,
 `config.features` lists the optional forms a host understands; absent or
 empty means plain JSON only, which every host, glue and renderer speaks, so
 web, Android and desktop keep working unchanged. The shim uses a form only when
-the feature is listed **and** the glue installed the matching function.
+the feature is listed **and** the glue installed the matching function. Each
+glue passes on only the features it implements and drops the rest:
+
+| feature | web (`WidgetHostOptions.features`) | Node harness | Swift | Kotlin | C++ |
+|---|---|---|---|---|---|
+| `webAnimations` | yes | yes | yes | yes | yes |
+| `noInPlaceText`, `noAttrFast`, `noCanvasRect` (opt-outs) | yes | yes | yes | yes | yes |
+| `canvasWords`, `binaryOps` | no | yes | yes | no | no |
+| `morphUpdates` | no | yes | yes | no | no |
+
+The Swift-only forms are performance paths for Telegram macOS; see
+`docs/changes.md` for the full list of what stays Swift-only.
 
 ### Web Animations (`webAnimations`)
 
@@ -101,10 +112,17 @@ times finite and within 24 h, playback rate within ±1000, easings from the CSS
 easing grammar, and at most 1024 live script animations (`animation-limit`).
 Every keyframe value goes through the same CSS property sanitizer as
 `element.style` (no `url()` other than `#fragment`, no `expression()`), and
-`animation-*` / `transition-*` properties are dropped. Rejected records are
+`animation-*` / `transition-*` properties are dropped, and so are the keyframe
+member names `offset`, `easing`, `composite` and `computed-offset`, so a value
+can never override the checked keyframe fields. Rejected records are
 reported as `protocol-violation` and a live one becomes a `remove` record.
 The renderer gets `{type: 'anim', now, anims}`, where `now` is the sandbox
-clock at delivery so it can map `startTime` onto its own timeline.
+clock at delivery so it can map `startTime` onto its own timeline. Renderers
+keep animation state per widget (`AnimationState` in `renderer/web-animations.ts`;
+the shadow-DOM renderer puts many widgets in one page), apply a CSS animation
+record only to the animation whose effect target is the record's `target`, and
+cancel a script animation whose update throws instead of leaving it running. The
+web worker forwards `anim` only when `webAnimations` is enabled.
 
 ### Canvas words (`canvasWords`)
 
@@ -130,8 +148,13 @@ Command K maps 1:1 onto the JSON command array; non-finite numbers mean JSON
 ill-formed UTF-16) turns that canvas back into JSON arrays for the frame. At
 most 64 payloads per batch, 2 M words and 2 M string units per payload; the
 glue validates payloads (the same rules as JSON commands) and drops malformed
-ones. The Node harness decodes payloads back into JSON (`canvasWords: true`,
-`decodeCanvasWords`); the Swift glue validates them natively.
+ones. A payload key may be referenced **once per batch**: in a binary batch a
+second `canvas` op with the same key rejects the whole batch (`BinaryOps`
+`canvasKey`), in a JSON batch only the first placeholder is spliced and a
+repeated one reaches the validator without commands and is rejected, so one
+payload is never expanded or validated twice. The Node harness decodes payloads
+back into JSON (`canvasWords: true`, `decodeCanvasWords`); the Swift glue
+validates them natively.
 
 ## Host → renderer: `RenderOp`
 
@@ -248,6 +271,23 @@ interface WidgetEvent {
 `value`/`checked`/`selectedIndex` of the target form control travel with every
 event, which is how the sandbox mirror of control state stays current.
 
+### Native editor commands
+
+Two event fields exist for native renderers that run their own text editing
+(the twidget renderers, not the WebView or shadow-DOM renderers, which ignore
+them):
+
+- `defaultActions: true` on a `click`: the renderer did not perform the form
+  control's default action itself, so the shim does (a submit button submits
+  its form through `requestSubmit`).
+- `editorGeneration`, `editorCommand` (safe integers) on a `keydown` of Enter in
+  a `<textarea>`: the renderer holds the newline until the widget had its say.
+  The shim dispatches `keydown` and `keypress`, flushes the batch and calls
+  `completeEditorCommand(generation, command, allowDefault)` on the textarea;
+  the renderer inserts the newline only when `allowDefault` is 1. The validator
+  accepts this `call` only on a `<textarea>`, with non-negative integer
+  arguments and `allowDefault` 0 or 1.
+
 ### preventDefault
 
 `preventDefault()` in the sandbox runs after the renderer has already
@@ -293,10 +333,17 @@ Diagnostic kinds added by the runtime limits: `timer-limit` (shim, once),
 `timer-limit-enforced` (glue backstop — a shim bug), `cpu-throttled` (glue, at
 most once per second).
 
-Inside the worker the QuickJS context has exactly one capability,
+Inside the worker the QuickJS context has one capability,
 `__host(kind: string, arg: string): string | number | undefined`, with kinds
 `ops query now timer clearTimer raf log diag listen pd anim bridge intl random stat`,
-plus `__hostBinary()` to fetch the binary part of the last query answer.
+plus `__hostBinary()` to fetch the binary part of the last query answer and,
+when the host enabled them, `__hostCanvas` (`canvasWords`) and `__hostOps`
+(`binaryOps`). The bundle captures them and the glue deletes all of them from
+the global object before widget code runs. One more function exists only in
+Swift debug builds: `__tw3d`, the 3D side channel of the twidget kit
+(`Widget3DChannel`, `WidgetHost.Options.sideChannels`), which hands buffers to
+a Metal backend past the validator. It is compiled out of release builds
+(`DEBUG || TWIDGET_EXPERIMENTAL_3D`); see decisions.md, "3D side channel".
 
 ### User activation for privileged bridge calls
 
@@ -327,6 +374,8 @@ glue gates in the engine (`activationEvent(json, gesture)`). See decisions.md,
 | `cpuKillAfterMs` | 0 (off) | kill once throttling has lasted this long without a gap longer than one window |
 | `maxTimers` | 256 | live `setTimeout` + `setInterval` slots; the shim throws `RangeError` past it, the glue refuses as a backstop; timer delays are clamped to 24 h |
 | `visible` | true | initial visibility (see `visibility` below) |
+| `policy` | `strict` | `strict`: privileged bridge calls need a user gesture, text values are capped at 64 KB, visible text is budgeted (text nodes, visible and `data-*` / `aria-*` attributes, strings in CSS), `attr()` reads only budgeted attributes. `compat`: the limits before that hardening, for tests and tooling. Anything but exactly `compat` is `strict` |
+| `features` | `[]` | opt-in wire forms (see "Features"); each glue drops the ones it does not implement |
 | `viewport`, `theme` | | as before |
 
 The policy that counts and decides lives in trusted glue only:
