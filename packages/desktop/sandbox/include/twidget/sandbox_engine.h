@@ -42,11 +42,16 @@ struct SandboxConfig {
     double innerHeight = 300;
     double devicePixelRatio = 1;
     std::string theme = "light";
-    /// "compat" (default) or "strict": strict gates privileged bridge calls on a user gesture.
-    std::string policy = "compat";
+    /// "strict" (default): privileged bridge calls need a user gesture, text values are capped at
+    /// 64 KB and visible text is budgeted. "compat": the behaviour before that hardening, for tests
+    /// and tooling. Anything but exactly "compat" is strict (isStrictPolicy).
+    std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
     std::vector<std::string> features;
 };
+
+/// Fail-closed policy parsing, the twin of resolvePolicy in src/shared/protocol.ts.
+inline bool isStrictPolicy(const std::string& policy) { return policy != "compat"; }
 
 struct SandboxStats {
     double jsMs = 0;

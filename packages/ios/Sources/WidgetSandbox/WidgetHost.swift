@@ -72,7 +72,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         /// Boot hosts that the feed creates ahead of the viewport on a background queue (WidgetPreparer) and adopt them once their first content is laid out.
         public var backgroundBoot = false
         public var assetResolver: WidgetAssetResolver?
-        public var policy: SandboxPolicy = .compat
+        /// `.strict` unless a test or tool asks for `.compat` (SandboxPolicy).
+        public var policy: SandboxPolicy = .strict
         public init() {}
     }
 

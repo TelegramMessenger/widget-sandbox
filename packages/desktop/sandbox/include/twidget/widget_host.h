@@ -44,8 +44,8 @@ struct WidgetHostOptions {
     bool visible = true;
     /// Device pixel ratio the engine boots with; the renderer's `size` report overrides it.
     double devicePixelRatio = 1;
-    /// "compat" (default) or "strict": the gesture gate, 64 KB text caps and the complex-script budget.
-    std::string policy = "compat";
+    /// "strict" (default; anything but "compat") or "compat": the gesture gate, 64 KB text caps and the text budgets.
+    std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
     std::vector<std::string> features;
 };

@@ -62,8 +62,15 @@ describe('user activation: harness', () => {
     assert.ok(r.diags.filter((d) => d.kind === 'activation-blocked').length >= 4);
   });
 
-  it('the default compat policy forwards every bridge call, as before the gate', async () => {
-    const r = await runWidget(widget, { timerRounds: 2 });
+  it('strict is the default, and anything but compat is strict', async () => {
+    for (const policy of [undefined, 'Compat', 'compact'] as const) {
+      const r = await runWidget(widget, { timerRounds: 2, policy: policy as 'compat' | undefined });
+      assert.deepEqual(r.bridge.map((b: any) => b[0]), ['ready'], String(policy));
+    }
+  });
+
+  it('the compat policy forwards every bridge call, as before the gate', async () => {
+    const r = await runWidget(widget, { timerRounds: 2, policy: 'compat' });
     const calls = r.bridge.map((b: any) => b[0] + ':' + JSON.stringify(b[1]));
     assert.ok(calls.includes('sendMessage:["timer"]'), JSON.stringify(calls));
     assert.ok(calls.includes('openLink:["https://example.com/boot"]'), JSON.stringify(calls));

@@ -175,7 +175,7 @@ export class Validator {
   get policy(): ValidatorPolicy { return this.policyName; }
 
   setPolicy(policy: ValidatorPolicy) {
-    this.policyName = policy === 'strict' ? 'strict' : 'compat';
+    this.policyName = policy === 'compat' ? 'compat' : 'strict';
     this.limits = policyLimits(this.policyName);
   }
   private out: RenderOp[] = [];

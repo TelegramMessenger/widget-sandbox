@@ -355,7 +355,7 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         auto pair = Json::parse(arg);
         if (!pair || !pair->isArray() || pair->size() != 2 || !pair->arr()[0].isString()) return HostReturn::undefined();
         std::string name = truncate(pair->arr()[0].asString(), 64);
-        if (config_.policy == "strict" && name != "ready") {
+        if (isStrictPolicy(config_.policy) && name != "ready") {
             if (!(activeGesture_ > consumedGesture_ && visible_)) {
                 if (blockedBridgeReported_ < 20 && delegate_) {
                     blockedBridgeReported_++;

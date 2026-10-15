@@ -152,7 +152,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
-  validator.setPolicy(opts.policy === 'strict' ? 'strict' : 'compat');
+  const policy = opts.policy === 'compat' ? 'compat' : 'strict';
+  validator.setPolicy(policy);
   const timers = new Map<number, number>();
   let activeGesture = 0;
   let consumedGesture = 0;
@@ -194,7 +195,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'bridge': {
         const call = JSON.parse(arg);
         const method = String(call?.[0] ?? '');
-        if (opts.policy === 'strict' && !UNPRIVILEGED_BRIDGE_METHODS.has(method)) {
+        if (policy === 'strict' && !UNPRIVILEGED_BRIDGE_METHODS.has(method)) {
           if (!(activeGesture > consumedGesture)) {
             res.diags.push({ kind: 'activation-blocked', detail: `${method} ignored outside a user gesture` });
             return vm.undefined;

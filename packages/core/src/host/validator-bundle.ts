@@ -72,7 +72,7 @@ const v = () => {
     return '';
   },
   setPolicy(policy: string) {
-    v().setPolicy(policy === 'strict' ? 'strict' : 'compat');
+    v().setPolicy(policy === 'compat' ? 'compat' : 'strict');
     return '';
   },
   tables() {

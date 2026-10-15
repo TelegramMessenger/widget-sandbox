@@ -201,13 +201,19 @@ export interface SandboxConfig {
   /** Extra bundled libraries the host serves under /libs/<file> (loader.ts `provideLibrary`); glue only, never sent to the sandbox. */
   libraries?: { name: string; file: string; patterns: string[] }[];
   /**
-   * `compat` (default): the behaviour hosts had before the hardening below. `strict`: privileged
-   * bridge calls need a user gesture, text values are capped at 64 KB and complex-script text is budgeted.
+   * `strict` (default): privileged bridge calls need a user gesture, text values are capped at
+   * 64 KB and visible text is budgeted. `compat`: the behaviour hosts had before that hardening,
+   * for tests and tooling. Anything but exactly `compat` means `strict` (`resolvePolicy`).
    */
   policy?: SandboxPolicy;
 }
 
 export type SandboxPolicy = 'compat' | 'strict';
+
+/** Fail-closed policy parsing shared by every TS host: a typo or a missing value is `strict`. */
+export function resolvePolicy(policy: unknown): SandboxPolicy {
+  return policy === 'compat' ? 'compat' : 'strict';
+}
 
 /** Defaults shared by every host (the native configs repeat them). */
 export const LIMIT_DEFAULTS = {

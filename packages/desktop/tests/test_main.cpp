@@ -14,9 +14,7 @@
 #ifdef TW_HAVE_LITEHTML
 #include "twidget/litehtml_renderer.h"
 #endif
-#if defined(TW_HAVE_BLITZ) || defined(TW_HAVE_LITEHTML)
 #include "twidget/widget_host.h"
-#endif
 
 #include <chrono>
 #include <clocale>
@@ -391,10 +389,10 @@ TEST(hidden_timers_are_coalesced_to_one_hertz) {
     CHECK(!r.host.died);
 }
 
-/// `ready` needs no gesture; a privileged call from a timer is refused and reported,
-/// the same call from the handler of a trusted click goes through once.
 TEST(compat_policy_forwards_every_bridge_call) {
-    Run r("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>");
+    SandboxConfig compat = testConfig();
+    compat.policy = "compat";
+    Run r("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>", compat);
     r.host.waitUntil([&] { for (auto& b : r.host.bridge) if (b.first == "sendMessage") return true; return false; }, 3);
     auto l = r.host.lock();
     bool sent = false, blocked = false;
@@ -404,9 +402,27 @@ TEST(compat_policy_forwards_every_bridge_call) {
     CHECK(!blocked);
 }
 
+/// The default policy is strict, and so is any value but exactly "compat".
+TEST(policy_is_strict_by_default_and_fails_closed) {
+    CHECK(SandboxConfig().policy == "strict");
+    CHECK(WidgetHostOptions().policy == "strict");
+    CHECK(isStrictPolicy("strict"));
+    CHECK(isStrictPolicy("Strict"));
+    CHECK(isStrictPolicy("Compat"));
+    CHECK(isStrictPolicy(""));
+    CHECK(!isStrictPolicy("compat"));
+    SandboxConfig typo = testConfig();
+    typo.policy = "compat ";
+    Run r("<script>setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>", typo);
+    r.host.waitUntil([&] { for (auto& d : r.host.diags) if (d.first == "activation-blocked") return true; return false; }, 3);
+    auto l = r.host.lock();
+    for (auto& b : r.host.bridge) CHECK(b.first != "sendMessage");
+}
+
+/// `ready` needs no gesture; a privileged call from a timer is refused and reported,
+/// the same call from the handler of a trusted click goes through once.
 TEST(bridge_and_timers) {
     SandboxConfig strict = testConfig();
-    strict.policy = "strict";
     Run r("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);"
           "document.getElementById('b').addEventListener('click', () => { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });</script>", strict);
     r.host.waitUntil([&] { for (auto& d : r.host.diags) if (d.first == "activation-blocked") return true; return false; }, 3);

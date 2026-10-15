@@ -32,9 +32,16 @@ data class SandboxConfig(
     var maxTimers: Int = 256,
     /** Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz. */
     var visible: Boolean = true,
-    /** "compat" (default) or "strict": strict gates privileged bridge calls on a user gesture. */
-    var policy: String = "compat",
+    /**
+     * "strict" (default): privileged bridge calls need a user gesture, text values are capped at 64 KB
+     * and visible text is budgeted. "compat": the behaviour before that hardening, for tests and tooling.
+     * Anything but exactly "compat" is strict ([isStrictPolicy]), so a typo never weakens the sandbox.
+     */
+    var policy: String = "strict",
 )
+
+/** Fail-closed policy parsing, the twin of `resolvePolicy` in src/shared/protocol.ts. */
+fun isStrictPolicy(policy: String): Boolean = policy != "compat"
 
 data class SandboxStats(
     var jsMs: Double = 0.0,
@@ -382,7 +389,7 @@ class SandboxEngine(
                     val args = pair.opt(1)
                     val argsJson = if (args == null || args == JSONObject.NULL) "null" else JSONObject.wrap(args)?.toString() ?: "null"
                     val name = pair.getString(0).take(64)
-                    if (config.policy == "strict" && name !in UserActivation.UNPRIVILEGED_BRIDGE_METHODS && !activation.consume(visible)) {
+                    if (isStrictPolicy(config.policy) && name !in UserActivation.UNPRIVILEGED_BRIDGE_METHODS && !activation.consume(visible)) {
                         if (blockedBridgeReported < 20) {
                             blockedBridgeReported += 1
                             delegate?.onDiag(this, "activation-blocked", "$name ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the $currentKind task)")

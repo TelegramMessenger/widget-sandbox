@@ -227,8 +227,16 @@ class SandboxEngineTest {
     }
 
     @Test
+    fun policyIsStrictByDefaultAndFailsClosed() {
+        assertEquals("strict", SandboxConfig(innerWidth = 1.0, innerHeight = 1.0, devicePixelRatio = 1.0, theme = "light").policy)
+        assertTrue(isStrictPolicy("Strict"))
+        assertTrue(isStrictPolicy("compat "))
+        assertFalse(isStrictPolicy("compat"))
+    }
+
+    @Test
     fun bridgeAndTimers() {
-        val (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>")
+        val (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>") { it.policy = "compat" }
         val deadline = System.nanoTime() + 3_000_000_000L
         while (System.nanoTime() < deadline && !d.bridge.any { it.first == "sendMessage" }) Thread.sleep(50)
         assertTrue(d.bridge.any { it.first == "ready" })

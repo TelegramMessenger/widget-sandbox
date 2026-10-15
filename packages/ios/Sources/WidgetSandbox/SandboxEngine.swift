@@ -10,7 +10,9 @@ import Foundation
 import WidgetSandboxProtocol
 import QuartzCore
 
-/// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts.
+/// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): privileged
+/// bridge calls need a user gesture, text values are capped at 64 KB and visible text is budgeted.
+/// `compat`: the behaviour before that hardening, for tests and tooling.
 public enum SandboxPolicy: String {
     case compat
     case strict
@@ -36,7 +38,7 @@ public struct SandboxConfig {
     /// Optional wire forms the host understands (docs/protocol.md, "Features"); empty means plain JSON.
     /// `canvasWords`: canvas commands arrive as word payloads and are spliced back into the ops JSON.
     public var features: Set<String> = []
-    public var policy: SandboxPolicy = .compat
+    public var policy: SandboxPolicy = .strict
 
     public init(innerWidth: Double, innerHeight: Double, devicePixelRatio: Double, theme: String) {
         self.innerWidth = innerWidth
