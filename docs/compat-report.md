@@ -1,6 +1,6 @@
 # Compat report
 
-Generated 2026-10-16T11:04:38.425Z by `pnpm test:compat`.
+Generated 2026-10-16T13:39:51.453Z by `pnpm test:compat`.
 
 **20 / 20 supported widgets pass (100%).** 2 known-unsupported widgets checked for graceful fallback: 2 ok.
 
@@ -8,28 +8,28 @@ Pass = sandbox loaded without JS errors, the scripted interaction produced the e
 
 | Widget | Pass | Behaviour (sandbox) | Pixel diff | Tolerance | JS ms | Ops | Sync queries (cache hits) | Diagnostics | Note |
 |---|---|---|---|---|---|---|---|---|---|
-| tabs.html | ✅ | ok | 0.00% | 2% | 23 | 131 | 0 (0) |  |  |
-| fragment.html | ✅ | ok | 0.00% | 2% | 13 | 91 | 0 (0) |  |  |
-| calculator.html | ✅ | ok | 0.00% | 2% | 18 | 122 | 0 (0) |  |  |
-| form-validation.html | ✅ | ok | 0.00% | 2% | 16 | 86 | 0 (0) |  |  |
+| tabs.html | ✅ | ok | 0.00% | 2% | 25 | 131 | 0 (0) |  |  |
+| fragment.html | ✅ | ok | 0.00% | 2% | 17 | 91 | 0 (0) |  |  |
+| calculator.html | ✅ | ok | 0.00% | 2% | 19 | 122 | 0 (0) |  |  |
+| form-validation.html | ✅ | ok | 0.00% | 2% | 17 | 86 | 0 (0) |  |  |
 | sortable-table.html | ✅ | ok | 0.00% | 2% | 22 | 235 | 0 (0) |  |  |
-| quiz.html | ✅ | ok | 0.00% | 2% | 16 | 130 | 0 (0) |  |  |
+| quiz.html | ✅ | ok | 0.00% | 2% | 17 | 130 | 0 (0) |  |  |
 | svg-chart.html | ✅ | ok | 0.00% | 2% | 23 | 125 | 6 (0) |  |  |
-| d3-bar.html | ✅ | ok | 0.11% | 2% | 76 | 160 | 1 (0) |  |  |
-| d3-line.html | ✅ | ok | 0.00% | 2% | 82 | 206 | 3 (1) |  |  |
-| chartjs-line.html | ✅ | ok | 0.99% | 5% | 74 | 68 | 25 (37) |  |  |
-| chartjs-bar.html | ✅ | ok | 0.00% | 5% | 62 | 63 | 24 (37) |  |  |
+| d3-bar.html | ✅ | ok | 0.11% | 2% | 77 | 160 | 1 (0) |  |  |
+| d3-line.html | ✅ | ok | 0.00% | 2% | 75 | 206 | 3 (1) |  |  |
+| chartjs-line.html | ✅ | ok | 1.30% | 5% | 79 | 68 | 25 (37) |  |  |
+| chartjs-bar.html | ✅ | ok | 0.00% | 5% | 64 | 63 | 24 (37) |  |  |
 | css-animation.html | ✅ | ok | 0.00% | 100% | 13 | 48 | 0 (0) |  | spinner frame differs by timing |
-| clock.html | ✅ | ok | 0.38% | 100% | 24 | 42 | 0 (0) |  | time of day differs |
-| raf-animation.html | ✅ | ok | 3.25% | 100% | 50 | 244 | 4 (4) |  | ball position depends on frame timing |
-| drag.html | ✅ | ok | 0.00% | 2% | 13 | 32 | 0 (0) |  |  |
+| clock.html | ✅ | ok | 0.26% | 100% | 47 | 42 | 0 (0) |  | time of day differs |
+| raf-animation.html | ✅ | ok | 3.19% | 100% | 44 | 208 | 3 (3) |  | ball position depends on frame timing |
+| drag.html | ✅ | ok | 0.00% | 2% | 12 | 32 | 0 (0) |  |  |
 | inputs.html | ✅ | ok | 0.00% | 2% | 17 | 107 | 0 (0) |  |  |
 | local-storage.html | ✅ | ok | 0.00% | 2% | 15 | 54 | 0 (0) |  |  |
-| dark-mode.html | ✅ | ok | 0.63% | 6% | 14 | 49 | 5 (0) |  | bridge line differs by design (reference has no TelegramWidget) |
-| dark-mode.html (dark theme) | ✅ | ok | 0.62% | 6% | 12 | 49 | 5 (0) |  | host-owned colour scheme; bridge line differs by design |
-| stepper.html | ✅ | ok | 0.00% | 2% | 15 | 68 | 0 (0) |  |  |
+| dark-mode.html | ✅ | ok | 0.63% | 6% | 15 | 49 | 5 (0) |  | bridge line differs by design (reference has no TelegramWidget) |
+| dark-mode.html (dark theme) | ✅ | ok | 0.62% | 6% | 14 | 49 | 5 (0) |  | host-owned colour scheme; bridge line differs by design |
+| stepper.html | ✅ | ok | 0.00% | 2% | 17 | 68 | 0 (0) |  |  |
 | three-js.html | ✅ | ok | 0.00% | 100% | 9 | 38 | 0 (0) | script-skipped×1: external script not available: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js | expected unsupported: Three.js/WebGL → fallback text |
-| webgl.html | ✅ | ok | 54.06% | 100% | 9 | 38 | 0 (0) | unsupported×1: WebGL | expected unsupported: WebGL → 2D fallback |
+| webgl.html | ✅ | ok | 54.06% | 100% | 10 | 38 | 0 (0) | unsupported×1: WebGL | expected unsupported: WebGL → 2D fallback |
 
 ## Failures and top causes
 

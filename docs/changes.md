@@ -3,6 +3,77 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.1.0 — release notes (2026-10-16)
+
+The first tagged state of the framework: the integration branch `telegram-macos`
+with the pre-release hardening, verified on every platform (`docs/branches-review.md`
+§7 is the plan; the per-suite numbers are in the tag's commit history and CLAUDE.md).
+
+**In the tag**
+
+- The sandbox on five hosts — Swift (iOS + macOS), Kotlin, C++ core, web (Worker
+  + Shadow DOM renderer) and the Node harness — on one QuickJS: the
+  TelegramMessenger/quickjs fork at c24d6b0 (uncatchable interrupt and OOM in every
+  engine path), as a submodule, with precompiled bytecode next to each bundle.
+- `strict` policy by default everywhere; user activation from a pointer press only;
+  runtime limits (CPU quota, timer cap, memory cap, off-screen pause, frozen last frame).
+- Opt-in features: `webAnimations` on every host; `canvasWords`, `binaryOps` with the
+  Swift `NativeValidator`, `morphUpdates` Swift-only.
+- Renderers: WKWebView / WebView / Shadow DOM as products; Blitz and litehtml as
+  prototypes behind the same seam.
+- The widget profile conformance set, `packages/conformance` (`CLIENTS.md`), and the
+  corpora: 98 attacks, compat, generated, common, showcase, 116 ported HTML bubbles.
+- Docs for client teams: `docs/integration.md`, `docs/tgw-format.md`,
+  `docs/decisions.md` ("Profile v1"), `docs/widget-state.md`, `docs/bridge-discussion.md`,
+  `docs/server-task.md`.
+
+**Not in the tag yet** (the next milestones)
+
+- `profile.json` and a validator that enforces the profile (drops form controls,
+  `:scope`, `@scope`, `env()`, named fonts, …); `CSS.supports` / `@supports` and
+  `TelegramWidget.profile` answered from it; the client-styled `<button>` template.
+- SDK v1 (the `TelegramWidget` API and the bridge) and widget storage (`docs/widget-state.md`);
+  the PoC scope is taps only, no bridge.
+- `VERSION.json`, CI, a reproducible build of `packages/quickjs-wasm/dist`, published
+  Maven and npm artifacts.
+- Renderer and engine pools on Android and the desktop core (the validator pool is on
+  Android); `Intl.formatToParts`.
+
+**Known issues**
+
+- *Web: a widget's `focus()` still reaches the renderer* and takes the keyboard focus
+  from the chat input, on the iframe and the Shadow DOM renderer (conformance
+  `auto/21-no-keyboard`, `js.focus`, marked expected-to-fail). Key events are still
+  forwarded to the widget, though no key counts as a gesture any more. Both go with
+  profile v1; until then a web client restores the chat input's focus itself.
+- *Text selection is not disabled* by the web renderers (D18): dragging over a widget
+  selects its text. Profile v1; native containers disable it in the view.
+- *Shadow DOM renderer*: `showPopover()` puts the popover in the page's top layer
+  (drawn over the chat), `showModal()` degrades to `show()`, `pointerenter` /
+  `mouseenter` never reach the widget, `@property` is ignored (browsers ignore it in
+  shadow trees), `:scope` at the top level is dropped while the iframe matches it.
+- *Form controls* (`input`, `select`, `textarea`, …) are still accepted and drawn by each
+  engine in its own way; profile v1 drops them (`docs/decisions.md`).
+- *Shim gaps found by the conformance set*: `getComputedStyle` answers `""` for
+  shorthands (`white-space`, `overflow`, `margin`); CSS nesting `.a{.b{}}` is lost
+  (`& .b` survives); `animation*` / `transitionend` events carry no `animationName`,
+  `elapsedTime`, `propertyName`; `getElementsByClassName` is not live; canvas
+  `drawImage(off-DOM canvas)` draws nothing.
+- *Android instrumented suite on the emulator*: `GestureTest.rangeSliderAndInnerScrollerKeepTheGesture`
+  fails on AVD twidget-35 (API 35, software GLES): the first WebView in the test
+  process takes ~25 s to initialise against the test's 15 s load deadline, and under
+  host load the renderer's gesture decision misses `GestureWebView`'s 150 ms timeout, so
+  the list scrolls. Three other tests time out when the host is loaded; all pass
+  alone. Not a framework regression; rerun on a hardware-GPU emulator or a phone.
+- *Timing-sensitive tests*: `binary-ops.test.ts` "same render ops as JSON: clock.html"
+  (the widget prints `new Date()`), `shim.test.ts` "defers timers once the widget has
+  burnt its quota", Swift `CanvasWordsTests.testWordPayloadsSpliceToTheSameJSONAsTheJSONPath`
+  (a 1 ms timer races the hand-driven frames), desktop `cpu_quota_throttles_greedy_timer`:
+  each fails now and then under load and passes alone.
+- *htmlbubbles-ported*: 108–110 of 116 pass; the rest are time-based or random
+  drawings and one intentional JS error (`corpus/htmlbubbles-ported/README.md`).
+- *3D channel* (`__tw3d`): debug builds only.
+
 ## Policy: `strict` (default) and `compat`
 
 Hosts choose a policy: `SandboxConfig.policy` / `WidgetHost.Options.policy` (Swift, Kotlin), `SandboxConfig.policy` / `WidgetHostOptions.policy` (C++), `config.policy` / `WidgetHost` option `policy` (TS). **`strict` is the default on every host** (it used to be `compat`); `compat` keeps the limits hosts had before the hardening and is meant for tests and tooling. Kotlin and C++ take a string: anything but exactly `"compat"` is strict.

@@ -18,9 +18,42 @@ Dev tooling for `packages/core`; nothing here is a product path.
   `/corpus/*`, `/reference/*`, `/blitz/*`, `/litehtml/*`.
 - `tests/unit/` — the wasm renderers through the validator (skipped until built).
 
+## From a fresh clone
+
+Checked from a fresh `git clone` on macOS (Apple silicon), 2026-10-14; Windows
+not tried. Clone into a path without spaces or non-ASCII characters: the
+scripts derive the repo root from `new URL(import.meta.url).pathname`, which
+percent-encodes them (on Windows it yields `/C:/…`).
+
+Node ≥ 22.12 with corepack (bundled up to Node 24; on Node 25+
+`npm install -g corepack`); pnpm itself comes from the `packageManager` pin.
+
 ```bash
+corepack pnpm install
 corepack pnpm dev            # from the repo root; http://127.0.0.1:5173/?file=compat/tabs.html
 corepack pnpm dev --port 5174
+```
+
+Open `127.0.0.1`, not `localhost`: Vite listens on 127.0.0.1 only, and the
+port is strict (`--port` when 5173 is taken). The chat feed is `?feed=1`.
+
+The Blitz and litehtml toggles (the dev app's checkboxes, the feed's renderer
+switch, compare all) need their wasm builds in `apps/renderer-*/pkg-web/`
+(gitignored); the dev server reads them from disk, no restart. The toolchain,
+once (`--version` = the `wasm-bindgen` version in
+`apps/renderer-blitz/Cargo.lock`; the build script says so when they differ):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+brew install emscripten      # Linux: emsdk, with emcc on PATH
+```
+
+Then, and again after a pull that touches `apps/renderer-*`:
+
+```bash
+corepack pnpm build:blitz-web       # cargo, adds the wasm32 target on first run; ~2 min → 8 MB wasm
+corepack pnpm build:litehtml-web    # em++; ~30 s → 1.4 MB wasm
 ```
 
 Editing `packages/core/src` or this directory while a Playwright suite runs

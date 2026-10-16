@@ -25,6 +25,11 @@ pnpm workspace). A framework change touches `packages/` only.
   `org.telegram.widgetsandbox:widget-sandbox` (its own settings.gradle.kts).
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
+- `packages/conformance` — the widget profile conformance set that ships with the
+  framework tag: `catalogue.json` (244 profile features, in / out / candidate), `auto/`
+  (21 self-checking widgets), `visual/` (13 widgets for the test channel), `refs/`,
+  `manifest.json`, `tools/report.mjs`; `CLIENTS.md` tells a client team how to run it
+  on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`.
 - `apps/web` — the dev app, chat feed demo, bench pages and the Playwright
   harness page (`src/main.ts` exposes `window.__tw`); `apps/ios/DemoApp`,
   `apps/macos/DemoApp`, `apps/android` (demo + the renderer modules, a second
@@ -162,6 +167,8 @@ TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile 
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 38 tests with both; the same flags as --blitz
 corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscripten) → apps/renderer-litehtml/pkg-web; the dev UI's litehtml toggle / ?litehtml=1, TW_RENDERER=litehtml pnpm test:generated, apps/web/tests/unit/litehtml-wasm.test.ts
 # dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
+corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance
+corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
 corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # widget profile draft (docs/widget-profile-draft.md): 53 feature probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
 cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:connectedDebugAndroidTest   # needs a booted emulator (AVD twidget-35)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose
@@ -232,6 +239,9 @@ the web product renderer is the shadow DOM one (D2).
 commits kept) and the submodule moved to fork master c24d6b0: an uncatchable exception (CPU interrupt,
 out of memory) is a runtime state, so a Promise executor, thenable, async generator or iterator
 `return()` can no longer swallow the CPU limit; `.qbc` unchanged, `packages/quickjs-wasm/dist` rebuilt.
+Same day: the conformance set moved from `corpus/conformance` to `packages/conformance` so it
+ships with the tag; `v0.1.0` release notes and known issues in `docs/changes.md`, the client
+integration guide `docs/integration.md`, the `.tgw` format in `docs/tgw-format.md`.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), profile v1, SDK v1 and storage, `Intl.formatToParts`, the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
