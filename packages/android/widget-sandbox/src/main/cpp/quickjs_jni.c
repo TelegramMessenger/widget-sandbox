@@ -364,12 +364,16 @@ static jbyteArray n_compile_bytecode(JNIEnv *env, jobject thiz, jlong handle, jb
     Ctx *c = ctx_of(handle);
     enter(c, env);
     jsize len = (*env)->GetArrayLength(env, code);
-    jbyte *src = (*env)->GetByteArrayElements(env, code, NULL);
+    /* JS_Eval reads input[len], which must be 0: a copy, like n_eval (the array's own bytes end where they end). */
+    char *src = (char *)malloc((size_t)len + 1);
+    if (!src) { raise_text(c, "out of memory (compile buffer)"); c->env = NULL; return NULL; }
+    (*env)->GetByteArrayRegion(env, code, 0, len, (jbyte *)src);
+    src[len] = 0;
     const char *fn = (*env)->GetStringUTFChars(env, filename, NULL);
     size_t out_len = 0;
-    uint8_t *blob = src ? qjs_compile_bytecode(c->ctx, (const char *)src, (size_t)len, fn, &out_len) : NULL;
+    uint8_t *blob = qjs_compile_bytecode(c->ctx, src, (size_t)len, fn, &out_len);
     (*env)->ReleaseStringUTFChars(env, filename, fn);
-    if (src) (*env)->ReleaseByteArrayElements(env, code, src, JNI_ABORT);
+    free(src);
     jbyteArray out = NULL;
     if (!blob) {
         raise_pending(c);
