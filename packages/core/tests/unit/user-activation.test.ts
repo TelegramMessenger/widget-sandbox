@@ -7,13 +7,12 @@ import { GESTURE_TTL_MS, GestureCounter, HostActivationGate, isUserActivation } 
 import { runWidget } from '../../scripts/sandbox-node.ts';
 
 describe('user activation: policy', () => {
-  it('counts clicks and presses of Enter or Space, not other keys, repeats, Command shortcuts or moves', () => {
-    assert.ok(isUserActivation({ type: 'click' }));
-    assert.ok(isUserActivation({ type: 'keydown', key: 'Enter' }));
-    assert.ok(isUserActivation({ type: 'keydown', key: ' ' }));
-    for (const key of ['a', 'Escape', 'Tab', 'ArrowDown', 'PageDown', 'Shift', 'F5', 'Spacebar', 'enter', undefined]) assert.ok(!isUserActivation({ type: 'keydown', key }), String(key));
-    assert.ok(!isUserActivation({ type: 'keydown', key: 'Enter', repeat: true }));
-    assert.ok(!isUserActivation({ type: 'keydown', key: 'Enter', modifiers: 4 }));
+  it('counts pointer presses and pointer clicks, never a key, a keyboard click or a move', () => {
+    assert.ok(isUserActivation({ type: 'click', detail: 1 }));
+    assert.ok(isUserActivation({ type: 'pointerdown' }));
+    for (const key of ['Enter', ' ', 'a', 'Escape', 'Tab', 'ArrowDown']) assert.ok(!isUserActivation({ type: 'keydown', key } as any), key);
+    assert.ok(!isUserActivation({ type: 'click', detail: 0 }), 'the click Enter or Space activates');
+    assert.ok(!isUserActivation({ type: 'click' }), 'no click count');
     assert.ok(!isUserActivation({ type: 'mousemove' }));
     assert.ok(!isUserActivation({ type: 'scroll' }));
   });
@@ -22,27 +21,18 @@ describe('user activation: policy', () => {
     const c = new GestureCounter();
     assert.deepEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick'].map((type) => c.gestureFor({ type })), [1, 1, 1, 1, 1, 1]);
     assert.equal(c.gestureFor({ type: 'pointerdown' }), 2);
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 3);
-    assert.equal(c.gestureFor({ type: 'keydown', key: ' ' }), 4);
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'Tab' }), 0);
+    assert.equal(c.gestureFor({ type: 'click', detail: 1 }), 2, 'the click that ends the press');
+    assert.equal(c.gestureFor({ type: 'click', detail: 1 }), 3, 'a click forwarded alone is its own press');
     assert.equal(c.gestureFor({ type: 'mousemove' }), 0);
   });
 
-  it('an Enter or Space press and the click it activates are one gesture, also while the key is held', () => {
+  it('keys and keyboard clicks are never a gesture', () => {
     const c = new GestureCounter();
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 1);
-    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 1, 'the click Enter activates');
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter', repeat: true }), 0);
-    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 1, 'the click of a held key');
-    assert.equal(c.gestureFor({ type: 'keydown', key: ' ' }), 2);
-    assert.equal(c.gestureFor({ type: 'keyup', key: ' ' }), 0);
-    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 2, 'Space clicks on keyup');
-    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 3, 'a second keyboard click without a key press is a new gesture');
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 4);
-    assert.equal(c.gestureFor({ type: 'click', detail: 1 }), 5, 'a pointer click after a key press is its own gesture');
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 6);
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'Tab' }), 0);
-    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 6, 'keys that are not a gesture do not close the press');
+    for (const key of ['Enter', ' ', 'Tab']) assert.equal(c.gestureFor({ type: 'keydown', key } as any), 0, key);
+    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 0, 'the click Enter or Space activates');
+    assert.equal(c.gestureFor({ type: 'dblclick', detail: 0 }), 0);
+    assert.equal(c.gestureFor({ type: 'click', detail: 1 }), 1, 'a pointer click still is');
+    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 0, 'a keyboard click after it is not');
   });
 
   it('accepts each issued gesture once, while visible and recent, and nothing the host did not issue', () => {

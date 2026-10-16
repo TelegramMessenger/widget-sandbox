@@ -9,7 +9,7 @@ Hosts choose a policy: `SandboxConfig.policy` / `WidgetHost.Options.policy` (Swi
 
 | | strict (default) | compat |
 |---|---|---|
-| Privileged bridge calls | need a real user gesture (one click or Enter/Space press on the visible widget unlocks one call; `ready` is exempt; only renderer events marked `trusted` count), else `activation-blocked` | forwarded as before |
+| Privileged bridge calls | need a real user gesture (one pointer press on the visible widget unlocks one call, keys never do; `ready` is exempt; only renderer events marked `trusted` count), else `activation-blocked` | forwarded as before |
 | Text nodes, string properties, Path2D data | 64 KB | 2 MB |
 | Canvas string arguments | 64 KB | 4 MB |
 | Visible text: text nodes, `value`/`placeholder`/`alt`/`label`/`title`, `data-*`, `aria-*`, strings in `style` attributes, `style` ops and stylesheets | 256 Ki units per document, 8192 complex-script units (`text-budget`), churn bucket (`text-churn`) | not budgeted |
@@ -62,8 +62,7 @@ other hosts drop the feature names they do not implement.
 - `completeEditorCommand` is accepted only on a `<textarea>` with integer arguments.
 - `Widget3DChannel` exposes `__tw3d` only in `DEBUG` builds (or with `TWIDGET_EXPERIMENTAL_3D`); release builds report a `3d` diag instead.
 - The desktop `json.h` prints the shortest round-trip number on every target and parses numbers in the C locale.
-- Gestures: every host counts only renderer events marked `trusted`; a key gesture is a press of Enter or Space, and the click it activates (`detail` 0) is the same gesture.
-  - Interim: the profile v1 milestone removes keyboard input altogether (decisions.md, "Profile v1: no keyboard, no form controls", D4). Renderers then stop forwarding key events, the five glue copies and the web host drop `keydown` from the gesture set, and user activation comes from a pointer press only.
+- Gestures: every host counts only renderer events marked `trusted`, and only pointer presses: no `keydown`, and a click starts a gesture only with `detail` ≥ 1 (the click Enter or Space activates has 0).
 - `CallSite.getFunction` / `getThis` answer `undefined` inside the sandbox (the shim no longer leaks its closures through `Error.prepareStackTrace`).
 - Provided-library patterns must compile on their own (an unbalanced `)` could unanchor them); `icon:` is matched case-sensitively and limited per widget (256 distinct tokens, 2 MB of answers).
 - The Node harness quantizes frame times to 100 µs and gates gestures on visibility (`RunOptions.visible`).
@@ -79,7 +78,7 @@ other hosts drop the feature names they do not implement.
 ## API
 
 - Swift: `SandboxPolicy`, `SandboxConfig.policy`, `WidgetHost.Options.policy` and `TrustedValidator.setPolicy` are new. Additions only otherwise, with default implementations for new protocol requirements (`SandboxEngineDelegate` ops/binaryOps/anim, `Renderer.acceptsTypedOps`/`send(ops:)`). New parameters with defaults: `EnginePool.take(features:)`, `SandboxEngine.init(resources:features:)`, `WidgetHost.init(... executor:shell:)` (function references to the old signatures no longer type-check). New products `WidgetSandboxProtocol`, `CQuickJS`. Minimum macOS lowered from 13 to 10.13.
-- Kotlin: `SandboxEngine.Delegate.onAnim` has a default body; Java implementers of the interface must implement it (no `-Xjvm-default`). `GestureCounter.gestureFor` takes the event's `detail` as a new last parameter (default 0).
+- Kotlin: `SandboxEngine.Delegate.onAnim` has a default body; Java implementers of the interface must implement it (no `-Xjvm-default`). `GestureCounter.gestureFor(type, detail)` and `UserActivation.isUserActivation(type, detail)` take the event type and its `detail` only (the key, repeat and modifier parameters are gone with keyboard gestures); `UserActivation.ACTIVATION_KEYS` is removed.
 - C++: `SandboxEngineDelegate::onAnim` is a non-pure virtual at the end of the vtable, but new data members change the layout of `QuickJSContext`, `SandboxEngine` and `WidgetHost`: prebuilt consumers must recompile. New class `GestureCounter` (the host's gesture numbering); `WidgetHost::isUserActivation` forwards to it.
 - TS: protocol additions only (`anims` query, `anim` messages, `trusted` on events, `gesture` on bridge and events, `features`). No exports removed, no diag kinds renamed. New diag kinds: `activation-blocked`, `text-budget`, `animation-limit`, `icon-limit`, `3d`, `3d-rejected`, `3d-stopped`.
 - `LIMIT_DEFAULTS` are unchanged.

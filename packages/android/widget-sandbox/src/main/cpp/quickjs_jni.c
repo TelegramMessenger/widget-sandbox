@@ -364,7 +364,7 @@ static jbyteArray n_compile_bytecode(JNIEnv *env, jobject thiz, jlong handle, jb
     Ctx *c = ctx_of(handle);
     enter(c, env);
     jsize len = (*env)->GetArrayLength(env, code);
-    /* JS_Eval reads input[len], which must be 0: a copy, like n_eval (the array's own bytes end where they end). */
+    /* JS_Eval reads input[len], which must be NUL: a Java array has no terminator, so copy it (as n_eval does). */
     char *src = (char *)malloc((size_t)len + 1);
     if (!src) { raise_text(c, "out of memory (compile buffer)"); c->env = NULL; return NULL; }
     (*env)->GetByteArrayRegion(env, code, 0, len, (jbyte *)src);

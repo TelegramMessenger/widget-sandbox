@@ -7,48 +7,35 @@ import org.junit.Test
 
 class UserActivationTest {
     @Test
-    fun keyAndClickRules() {
-        assertTrue(UserActivation.isUserActivation("click", null, false, 0))
-        assertTrue(UserActivation.isUserActivation("keydown", "Enter", false, 0))
-        assertTrue(UserActivation.isUserActivation("keydown", " ", false, 0))
-        for (key in listOf("a", "Escape", "Tab", "ArrowDown", "PageDown", "Shift", "enter", null)) assertFalse(key.toString(), UserActivation.isUserActivation("keydown", key, false, 0))
-        assertFalse(UserActivation.isUserActivation("keydown", "Enter", true, 0))
-        assertFalse(UserActivation.isUserActivation("keydown", "Enter", false, 4))
-        assertFalse(UserActivation.isUserActivation("mousemove", null, false, 0))
-        assertFalse(UserActivation.isUserActivation("scroll", null, false, 0))
+    fun pointerRulesNoKeys() {
+        assertTrue(UserActivation.isUserActivation("click", 1.0))
+        assertTrue(UserActivation.isUserActivation("pointerdown"))
+        assertFalse("the click Enter or Space activates", UserActivation.isUserActivation("click", 0.0))
+        assertFalse(UserActivation.isUserActivation("keydown"))
+        assertFalse(UserActivation.isUserActivation("mousemove"))
+        assertFalse(UserActivation.isUserActivation("scroll"))
     }
 
     @Test
     fun onePhysicalPressIsOneGesture() {
         val c = GestureCounter()
-        val press = listOf("pointerdown", "mousedown", "pointerup", "mouseup", "click").map { c.gestureFor(it, null, false, 0) }
+        val press = listOf("pointerdown", "mousedown", "pointerup", "mouseup", "click").map { c.gestureFor(it) }
         assertEquals(listOf(1, 1, 1, 1, 1), press)
-        assertEquals(1, c.gestureFor("dblclick", null, false, 0))
-        assertEquals(2, c.gestureFor("pointerdown", null, false, 0))
-        assertEquals(2, c.gestureFor("click", null, false, 0, 1.0))
-        assertEquals(3, c.gestureFor("keydown", "Enter", false, 0))
-        assertEquals(4, c.gestureFor("keydown", " ", false, 0))
-        assertEquals(0, c.gestureFor("keydown", "Tab", false, 0))
-        assertEquals(0, c.gestureFor("mousemove", null, false, 0))
-        assertEquals(5, c.gestureFor("click", null, false, 0, 1.0))
+        assertEquals(1, c.gestureFor("dblclick"))
+        assertEquals(2, c.gestureFor("pointerdown"))
+        assertEquals(2, c.gestureFor("click", 1.0))
+        assertEquals(0, c.gestureFor("mousemove"))
+        assertEquals(3, c.gestureFor("click", 1.0))
     }
 
     @Test
-    fun anEnterOrSpacePressAndItsClickAreOneGesture() {
+    fun keysAndKeyboardClicksAreNeverAGesture() {
         val c = GestureCounter()
-        assertEquals(1, c.gestureFor("keydown", "Enter", false, 0))
-        assertEquals(1, c.gestureFor("click", null, false, 0, 0.0))
-        assertEquals(0, c.gestureFor("keydown", "Enter", true, 0))
-        assertEquals(1, c.gestureFor("click", null, false, 0, 0.0))
-        assertEquals(2, c.gestureFor("keydown", " ", false, 0))
-        assertEquals(0, c.gestureFor("keyup", " ", false, 0))
-        assertEquals(2, c.gestureFor("click", null, false, 0, 0.0))
-        assertEquals(3, c.gestureFor("click", null, false, 0, 0.0))
-        assertEquals(4, c.gestureFor("keydown", "Enter", false, 0))
-        assertEquals(5, c.gestureFor("click", null, false, 0, 1.0))
-        assertEquals(6, c.gestureFor("keydown", "Enter", false, 0))
-        assertEquals(0, c.gestureFor("keydown", "Tab", false, 0))
-        assertEquals(6, c.gestureFor("click", null, false, 0, 0.0))
+        assertEquals(0, c.gestureFor("keydown"))
+        assertEquals(0, c.gestureFor("click", 0.0))
+        assertEquals(0, c.gestureFor("dblclick", 0.0))
+        assertEquals(1, c.gestureFor("click", 1.0))
+        assertEquals(0, c.gestureFor("click", 0.0))
     }
 
     @Test

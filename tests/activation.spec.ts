@@ -1,7 +1,7 @@
 // User activation (docs/decisions.md): privileged bridge calls need a real
-// gesture. Playwright's clicks and key presses are trusted input
-// (isTrusted = true); scripted clicks, timers and the frame's own
-// dispatchEvent are not.
+// pointer gesture. Playwright's clicks are trusted input (isTrusted = true);
+// key presses are trusted too but never a gesture (widgets get no keyboard),
+// and neither are scripted clicks, timers or the frame's own dispatchEvent.
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -47,11 +47,17 @@ test('one real click unlocks exactly one call, made in its own handler', async (
   await expect.poll(async () => (await calls(page)).length).toBe(3);
 });
 
-test('a real key press is a gesture too', async ({ page }) => {
+test('a real key press is not a gesture (widgets get no keyboard)', async ({ page }) => {
   const f = await load(page);
-  await f.locator('#i').click();
+  await page.waitForTimeout(300);
+  await f.locator('#b').focus();
+  const before = await blocked(page);
   await f.locator('#i').press('Enter');
-  await expect.poll(() => calls(page)).toContain('sendMessage:["enter"]');
+  await f.locator('#b').press('Enter');
+  await f.locator('#b').press(' ');
+  await expect.poll(() => blocked(page)).toBeGreaterThan(before);
+  await page.waitForTimeout(300);
+  expect(await calls(page)).toEqual(['ready:[]']);
 });
 
 test('a hidden widget cannot use a gesture', async ({ page }) => {

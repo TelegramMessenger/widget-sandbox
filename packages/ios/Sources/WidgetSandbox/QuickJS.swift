@@ -188,10 +188,12 @@ public final class QuickJSContext {
     /// Compiles `code` into the same container the build ships (tests).
     public func compileBytecode(_ code: String, filename: String) throws -> Data {
         enterJS()
-        var code = code
+        // JS_Eval reads input[len], which must be NUL; String.withUTF8 does not promise a terminator.
+        var bytes = Array(code.utf8)
+        bytes.append(0)
         var len = 0
-        let blob = code.withUTF8 { s in
-            s.withMemoryRebound(to: CChar.self) { qjs_compile_bytecode(context, $0.baseAddress, $0.count, filename, &len) }
+        let blob = bytes.withUnsafeBufferPointer { buf in
+            buf.baseAddress!.withMemoryRebound(to: CChar.self, capacity: buf.count) { qjs_compile_bytecode(context, $0, buf.count - 1, filename, &len) }
         }
         guard let blob else { throw takeException() }
         defer { qjs_free_bytecode(context, blob) }

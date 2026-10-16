@@ -77,12 +77,12 @@ struct WidgetDiagnostics {
     bool hasLog(const std::string& text) const { for (auto& l : logs) if (l.second == text) return true; return false; }
 };
 
-/// Host side of user activation: one physical press (pointerdown, mousedown, pointerup, mouseup, click, dblclick) or one key
-/// press is one gesture. The click an Enter or Space press activates (`detail` 0) belongs to that press, and so does every
-/// click of the key held down. Twin of GestureCounter in UserActivation.kt and user-activation.ts.
+/// Host side of user activation: one physical pointer press (pointerdown, mousedown, pointerup, mouseup, click, dblclick)
+/// is one gesture; keys never are. A click without a click count (detail 0, what Enter or Space on a focused control
+/// produces) counts only as the end of an open press. Twin of GestureCounter in UserActivation.kt and user-activation.ts.
 class GestureCounter {
 public:
-    /// Clicks and presses of Enter or Space (not a repeat, not a Command shortcut, modifier bit 4).
+    /// A pointer press or release, or a click with a click count (detail > 0).
     static bool isUserActivation(const Json& ev);
     /// The gesture number for this renderer event, 0 when it is not a user activation.
     int gestureFor(const Json& ev);

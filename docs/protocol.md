@@ -359,12 +359,12 @@ a Metal backend past the validator. It is compiled out of release builds
 `bridge` methods other than `ready` (`openLink`, `sendMessage`, anchors the
 shim turns into `openLink`) are privileged: the glue forwards one only while
 the task of a trusted user gesture runs on a visible widget, and one gesture
-unlocks one call. A gesture is one physical press (`pointerdown`, `mousedown`,
-`pointerup`, `mouseup`, `click`, `dblclick` of the same press) or one press of
-Enter or Space (`keydown` with `key` `"Enter"` or `" "`, not a repeat, not a
-Command shortcut); the click such a key press activates (`detail` 0) and the
-clicks of the key held down belong to that press. Other keys (Tab, arrows,
-letters, Escape) are not gestures. Only renderer `event` messages with
+unlocks one call. A gesture is one physical pointer press (`pointerdown`,
+`mousedown`, `pointerup`, `mouseup`, `click`, `dblclick` of the same press).
+Keys are never gestures: widgets get no keyboard. A `click` or `dblclick`
+starts a gesture only with a click count (`detail` ≥ 1); the click that Enter
+or Space on a focused control produces has `detail` 0 and counts only as the
+end of a pointer press already open. Only renderer `event` messages with
 `trusted: true` count, on every host: the WebView/iframe renderer sets it from
 the DOM event's `isTrusted`, and a renderer without a script-driven document
 (Blitz, litehtml) sets it on every input event; a renderer behind the

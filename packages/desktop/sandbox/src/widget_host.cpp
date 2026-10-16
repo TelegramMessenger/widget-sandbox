@@ -422,35 +422,35 @@ void WidgetHost::changed() {
     if (onChange) onChange(diagnostics());
 }
 
-static bool isActivationKey(const std::string& key) { return key == "Enter" || key == " "; }
-
 bool GestureCounter::isUserActivation(const Json& ev) {
     if (!ev.isObject()) return false;
     const std::string& type = ev["type"].asString();
-    static const char* types[] = {"click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown"};
+    // Pointer presses only: widgets get no keyboard (docs/decisions.md, "Profile v1").
+    static const char* types[] = {"click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup"};
     bool known = false;
     for (const char* t : types) known = known || type == t;
     if (!known) return false;
-    if (type == "keydown") return isActivationKey(ev["key"].asString()) && !ev["repeat"].asBool() && (ev["modifiers"].asInt() & 4) == 0;
+    // A click made by a pointer has a click count; the click Enter or Space activates has detail 0.
+    if (type == "click" || type == "dblclick") return ev["detail"].asNumber() > 0;
     return true;
 }
 
 int GestureCounter::gestureFor(const Json& ev) {
     if (!ev.isObject()) return 0;
     const std::string& type = ev["type"].asString();
-    if (type == "keydown" && ev["repeat"].asBool() && isActivationKey(ev["key"].asString())) {
-        pressOpen_ = false;
-        lastType_ = type;
-        return 0;
-    }
-    if (!isUserActivation(ev)) return 0;
     bool continues = false;
     if (type == "mousedown") continues = lastType_ == "pointerdown";
-    else if (type == "pointerup" || type == "mouseup") continues = pressOpen_;
-    else if (type == "click") continues = pressOpen_ || (lastType_ == "keydown" && !(ev["detail"].asNumber() > 0));
+    else if (type == "pointerup" || type == "mouseup" || type == "click") continues = pressOpen_;
     else if (type == "dblclick") continues = lastType_ == "click";
+    else if (type != "pointerdown") return 0;
+    if (!continues && !isUserActivation(ev)) {
+        // A keyboard click ends any chain: a dblclick after it is not the pointer's.
+        pressOpen_ = false;
+        lastType_.clear();
+        return 0;
+    }
     if (!continues) number_++;
-    pressOpen_ = type != "click" && type != "dblclick" && type != "keydown";
+    pressOpen_ = type != "click" && type != "dblclick";
     lastType_ = type;
     return number_;
 }
