@@ -51,9 +51,9 @@ A `.tgw` document is gzip of a UTF-8 HTML document with MIME type
 `application/x-tgwidget`, stored and served like a sticker file (`.tgs` is gzip
 of Lottie JSON), made by the server from the bot's plain HTML or reused by file
 id, with one limit of 128 KB of HTML on the server. It is the path for big
-widgets and comes **after** mini-widgets; its server work is described in
-`docs/server-task.md`, which predates the mini-widget decision and still
-describes this model.
+widgets and comes **after** mini-widgets; `docs/server-task.md` (the server
+brief for the mini-widget block) asks for a block schema that can later take a
+document variant next to the inline bytes.
 
 Until then `.tgw` exists only as the **test-channel format**: a debug flag in
 each client renders `.tgw` documents posted to the shared test channel as
