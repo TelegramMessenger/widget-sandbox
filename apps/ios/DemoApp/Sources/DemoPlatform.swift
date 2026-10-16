@@ -54,8 +54,23 @@ enum DemoAutorun {
         return args[i + 1]
     }()
 
+    /// `--features binaryOps,canvasWords`: the wire forms the demo's widgets advertise
+    /// (`WidgetHost.Options.features`); with `binaryOps` the validator runs the native
+    /// node model, which the Playwright suites never exercise.
+    static var features: Set<String> = []
+
+    /// The demo's host options: the package defaults plus the launch arguments above.
+    static var hostOptions: WidgetHost.Options {
+        var o = WidgetModel.defaultOptions
+        o.features = features
+        return o
+    }
+
     static func applyLaunchArguments() {
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--features"), i + 1 < args.count {
+            features = Set(args[i + 1].split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+        }
         if args.contains("--blitz") { DemoRenderer.kind = .blitz }
         if args.contains("--litehtml") { DemoRenderer.kind = .litehtml }
         if args.contains("--webview") || args.contains("--no-blitz") { DemoRenderer.kind = .webview }

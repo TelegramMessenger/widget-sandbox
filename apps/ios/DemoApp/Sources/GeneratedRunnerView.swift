@@ -75,7 +75,7 @@ struct GeneratedRunnerView: View {
         for group in groups {
             for file in Corpus.files(in: group) {
                 status = "loading \(group)/\(file)"
-                guard let model = try? WidgetModel(html: Corpus.html(group: group, file: file), theme: "light", width: 360, rendererFactory: DemoRenderer.factory) else { continue }
+                guard let model = try? WidgetModel(html: Corpus.html(group: group, file: file), theme: "light", width: 360, options: DemoAutorun.hostOptions, rendererFactory: DemoRenderer.factory) else { continue }
                 current = model
                 let deadline = Date().addingTimeInterval(8)
                 while Date() < deadline, !model.diagnostics.loaded, model.diagnostics.dead == nil {
