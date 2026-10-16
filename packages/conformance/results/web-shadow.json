@@ -1,39 +1,41 @@
 {
  "schema": 1,
+ "profile": 1,
  "client": {
   "platform": "web",
-  "renderer": "iframe",
+  "renderer": "shadow",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
+  "framework": "459a3be",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-16T09:33:45.739Z",
-  "commit": "77a2225"
+  "date": "2026-10-16T11:01:17.927Z",
+  "commit": "459a3be"
  },
  "summary": {
   "in": {
-   "pass": 135,
+   "pass": 134,
    "partial": 5,
-   "fail": 0,
+   "fail": 1,
    "xfail": 8,
    "xpass": 0,
    "skip": 0,
    "untested": 4
   },
   "candidate": {
-   "pass": 46,
+   "pass": 45,
    "partial": 2,
-   "fail": 0,
+   "fail": 1,
    "xfail": 0,
    "xpass": 0,
    "skip": 1,
    "untested": 0
   },
   "out": {
-   "pass": 16,
+   "pass": 17,
    "partial": 0,
-   "fail": 1,
+   "fail": 0,
    "xfail": 26,
    "xpass": 0,
    "skip": 0,
@@ -2402,7 +2404,7 @@
      "kind": "check",
      "name": "button has a visible background or border",
      "status": "pass",
-     "detail": "239,239,239,1",
+     "detail": "107,107,107,1",
      "theme": "dark",
      "width": 360
     },
@@ -2420,7 +2422,7 @@
      "kind": "check",
      "name": "button has a visible background or border",
      "status": "pass",
-     "detail": "239,239,239,1",
+     "detail": "107,107,107,1",
      "theme": "dark",
      "width": 430
     },
@@ -2681,7 +2683,7 @@
      "kind": "check",
      "name": "a[href=#…] is a link (UA link colour, underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "158,158,255,1",
      "theme": "dark",
      "width": 360
     },
@@ -2690,7 +2692,7 @@
      "kind": "check",
      "name": "a[href=#…] is a link (UA link colour, underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "158,158,255,1",
      "theme": "dark",
      "width": 430
     },
@@ -2780,7 +2782,7 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "158,158,255,1",
      "theme": "dark",
      "width": 360
     },
@@ -2798,7 +2800,7 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "158,158,255,1",
      "theme": "dark",
      "width": 430
     },
@@ -3430,8 +3432,8 @@
    "status": "out",
    "verdict": "xfail",
    "counts": {
-    "xpass": 13,
-    "xfail": 7
+    "xpass": 10,
+    "xfail": 10
    },
    "evidence": [
     {
@@ -3439,7 +3441,7 @@
      "kind": "check",
      "name": "showModal does not put the dialog in the top layer (:modal never matches)",
      "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
+     "detail": "255,255,255,1; expected to fail: the validator does not enforce the profile yet",
      "theme": "dark",
      "width": 360
     },
@@ -3466,7 +3468,7 @@
      "kind": "check",
      "name": "a popover stays inside the widget",
      "status": "xfail",
-     "detail": "popover at 150,87 (59x29); expected to fail: showPopover puts the element in the top layer",
+     "detail": "popover at 220,419 (59x29); expected to fail: showPopover puts the element in the top layer",
      "theme": "dark",
      "width": 360
     },
@@ -3475,7 +3477,7 @@
      "kind": "check",
      "name": "showModal does not put the dialog in the top layer (:modal never matches)",
      "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
+     "detail": "255,255,255,1; expected to fail: the validator does not enforce the profile yet",
      "theme": "dark",
      "width": 430
     },
@@ -3501,8 +3503,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "a popover stays inside the widget",
-     "status": "xpass",
-     "detail": "popover at 185,75 (59x29); expected to fail: showPopover puts the element in the top layer",
+     "status": "xfail",
+     "detail": "popover at 255,419 (59x29); expected to fail: showPopover puts the element in the top layer",
      "theme": "dark",
      "width": 430
     },
@@ -3538,7 +3540,7 @@
      "kind": "check",
      "name": "a popover stays inside the widget",
      "status": "xfail",
-     "detail": "popover at 150,87 (59x29); expected to fail: showPopover puts the element in the top layer",
+     "detail": "popover at 220,419 (59x29); expected to fail: showPopover puts the element in the top layer",
      "theme": "light",
      "width": 360
     },
@@ -3573,8 +3575,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "a popover stays inside the widget",
-     "status": "xpass",
-     "detail": "popover at 165,75 (59x29); expected to fail: showPopover puts the element in the top layer",
+     "status": "xfail",
+     "detail": "popover at 235,419 (59x29); expected to fail: showPopover puts the element in the top layer",
      "theme": "light",
      "width": 390
     },
@@ -3609,8 +3611,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "a popover stays inside the widget",
-     "status": "xpass",
-     "detail": "popover at 185,75 (59x29); expected to fail: showPopover puts the element in the top layer",
+     "status": "xfail",
+     "detail": "popover at 255,419 (59x29); expected to fail: showPopover puts the element in the top layer",
      "theme": "light",
      "width": 430
     }
@@ -11954,7 +11956,7 @@
      "kind": "stage",
      "name": "filter-url",
      "status": "xfail",
-     "detail": "diff 28.8 % of ink (max 5 %); the validator does not enforce the profile yet",
+     "detail": "diff 30.4 % of ink (max 5 %); the validator does not enforce the profile yet",
      "theme": "light",
      "width": 360
     },
@@ -11963,7 +11965,7 @@
      "kind": "stage",
      "name": "filter-url",
      "status": "xfail",
-     "detail": "diff 28.8 % of ink (max 5 %); the validator does not enforce the profile yet",
+     "detail": "diff 30.4 % of ink (max 5 %); the validator does not enforce the profile yet",
      "theme": "light",
      "width": 390
     },
@@ -11972,7 +11974,7 @@
      "kind": "stage",
      "name": "filter-url",
      "status": "xfail",
-     "detail": "diff 28.8 % of ink (max 5 %); the validator does not enforce the profile yet",
+     "detail": "diff 30.4 % of ink (max 5 %); the validator does not enforce the profile yet",
      "theme": "light",
      "width": 430
     }
@@ -15607,17 +15609,17 @@
   },
   "sel.host-scoped": {
    "status": "out",
-   "verdict": "fail",
+   "verdict": "pass",
    "counts": {
-    "fail": 5
+    "pass": 5
    },
    "evidence": [
     {
      "test": "auto/07-selectors",
      "kind": "check",
      "name": ":scope at the top level matches nothing",
-     "status": "fail",
-     "detail": "62,0,0,1",
+     "status": "pass",
+     "detail": "0,0,0,1",
      "theme": "dark",
      "width": 360
     },
@@ -15625,8 +15627,8 @@
      "test": "auto/07-selectors",
      "kind": "check",
      "name": ":scope at the top level matches nothing",
-     "status": "fail",
-     "detail": "62,0,0,1",
+     "status": "pass",
+     "detail": "0,0,0,1",
      "theme": "dark",
      "width": 430
     },
@@ -15634,8 +15636,8 @@
      "test": "auto/07-selectors",
      "kind": "check",
      "name": ":scope at the top level matches nothing",
-     "status": "fail",
-     "detail": "62,0,0,1",
+     "status": "pass",
+     "detail": "0,0,0,1",
      "theme": "light",
      "width": 360
     },
@@ -15643,8 +15645,8 @@
      "test": "auto/07-selectors",
      "kind": "check",
      "name": ":scope at the top level matches nothing",
-     "status": "fail",
-     "detail": "62,0,0,1",
+     "status": "pass",
+     "detail": "0,0,0,1",
      "theme": "light",
      "width": 390
     },
@@ -15652,8 +15654,8 @@
      "test": "auto/07-selectors",
      "kind": "check",
      "name": ":scope at the top level matches nothing",
-     "status": "fail",
-     "detail": "62,0,0,1",
+     "status": "pass",
+     "detail": "0,0,0,1",
      "theme": "light",
      "width": 430
     }
@@ -16805,17 +16807,17 @@
   },
   "at.property": {
    "status": "candidate",
-   "verdict": "pass",
+   "verdict": "fail",
    "counts": {
-    "pass": 6
+    "fail": 6
    },
    "evidence": [
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property initial-value",
-     "status": "pass",
-     "detail": "got 25, want 25 ±0.5",
+     "status": "fail",
+     "detail": "got 344, want 25 ±0.5",
      "theme": "dark",
      "width": 360
     },
@@ -16823,8 +16825,8 @@
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property initial-value",
-     "status": "pass",
-     "detail": "got 25, want 25 ±0.5",
+     "status": "fail",
+     "detail": "got 374, want 25 ±0.5",
      "theme": "dark",
      "width": 390
     },
@@ -16832,8 +16834,8 @@
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property initial-value",
-     "status": "pass",
-     "detail": "got 25, want 25 ±0.5",
+     "status": "fail",
+     "detail": "got 414, want 25 ±0.5",
      "theme": "dark",
      "width": 430
     },
@@ -16841,8 +16843,8 @@
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property initial-value",
-     "status": "pass",
-     "detail": "got 25, want 25 ±0.5",
+     "status": "fail",
+     "detail": "got 344, want 25 ±0.5",
      "theme": "light",
      "width": 360
     },
@@ -16850,8 +16852,8 @@
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property initial-value",
-     "status": "pass",
-     "detail": "got 25, want 25 ±0.5",
+     "status": "fail",
+     "detail": "got 374, want 25 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -16859,8 +16861,8 @@
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property initial-value",
-     "status": "pass",
-     "detail": "got 25, want 25 ±0.5",
+     "status": "fail",
+     "detail": "got 414, want 25 ±0.5",
      "theme": "light",
      "width": 430
     }
@@ -17970,7 +17972,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "159.70000000000002",
+     "detail": "160.10000000000002",
      "theme": "dark",
      "width": 360
     },
@@ -18078,7 +18080,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "153.90000000000003",
+     "detail": "143.90000000000003",
      "theme": "dark",
      "width": 430
     },
@@ -18186,7 +18188,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "160.9",
+     "detail": "150.3",
      "theme": "light",
      "width": 360
     },
@@ -18321,7 +18323,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "145.7",
+     "detail": "154.9",
      "theme": "light",
      "width": 390
     },
@@ -18456,7 +18458,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "159.10000000000002",
+     "detail": "149.40000000000003",
      "theme": "light",
      "width": 430
     },
@@ -21511,9 +21513,63 @@
    "status": "out",
    "verdict": "xfail",
    "counts": {
-    "xfail": 2
+    "xfail": 10
    },
    "evidence": [
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "focus() does not make :focus match in the renderer",
+     "status": "xfail",
+     "detail": "9,9,9,1; expected to fail: focus() still reaches the shim and the renderer",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "focus() does not make :focus match in the renderer",
+     "status": "xfail",
+     "detail": "9,9,9,1; expected to fail: focus() still reaches the shim and the renderer",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "focus() does not make :focus match in the renderer",
+     "status": "xfail",
+     "detail": "9,9,9,1; expected to fail: focus() still reaches the shim and the renderer",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame",
+     "theme": "light",
+     "width": 360
+    },
     {
      "test": "auto/21-no-keyboard",
      "kind": "check",
@@ -21528,9 +21584,27 @@
      "kind": "host",
      "name": "focus() from the widget leaves the chat input focused",
      "status": "xfail",
-     "detail": "focus on iframe.widget-frame",
+     "detail": "focus moved to div.widget-frame",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "focus() does not make :focus match in the renderer",
+     "status": "xfail",
+     "detail": "9,9,9,1; expected to fail: focus() still reaches the shim and the renderer",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame",
+     "theme": "light",
+     "width": 430
     }
    ]
   },
@@ -21645,7 +21719,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "153,169,185",
+     "detail": "153,170,186",
      "theme": "dark",
      "width": 360
     },
@@ -21654,7 +21728,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "148,164,180",
+     "detail": "163,180,197",
      "theme": "dark",
      "width": 430
     },
@@ -21663,7 +21737,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "150,166,182",
+     "detail": "151,168,185",
      "theme": "light",
      "width": 360
     },
@@ -21672,7 +21746,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "144,160,176",
+     "detail": "144,161,177",
      "theme": "light",
      "width": 390
     },
@@ -21681,7 +21755,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "148,164,181",
+     "detail": "151,168,184",
      "theme": "light",
      "width": 430
     }
@@ -24598,7 +24672,7 @@
      "kind": "check",
      "name": "click on the tapped element with coordinates inside it",
      "status": "pass",
-     "detail": "42,42 in 10,28",
+     "detail": "42,41.234375 in 10,28",
      "theme": "dark",
      "width": 360
     },
@@ -24607,7 +24681,7 @@
      "kind": "check",
      "name": "click on the tapped element with coordinates inside it",
      "status": "pass",
-     "detail": "42,42 in 10,28",
+     "detail": "42,41.234375 in 10,28",
      "theme": "dark",
      "width": 430
     },
@@ -24616,7 +24690,7 @@
      "kind": "check",
      "name": "click on the tapped element with coordinates inside it",
      "status": "pass",
-     "detail": "42,42 in 10,28",
+     "detail": "42,41.234375 in 10,28",
      "theme": "light",
      "width": 360
     },
@@ -24625,7 +24699,7 @@
      "kind": "check",
      "name": "click on the tapped element with coordinates inside it",
      "status": "pass",
-     "detail": "42,42 in 10,28",
+     "detail": "42,41.234375 in 10,28",
      "theme": "light",
      "width": 390
     },
@@ -24634,7 +24708,7 @@
      "kind": "check",
      "name": "click on the tapped element with coordinates inside it",
      "status": "pass",
-     "detail": "42,42 in 10,28",
+     "detail": "42,41.234375 in 10,28",
      "theme": "light",
      "width": 430
     }
@@ -24948,16 +25022,16 @@
   },
   "input.hover-events": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "fail",
    "counts": {
-    "pass": 5
+    "fail": 5
    },
    "evidence": [
     {
      "test": "auto/17-drag-hover",
      "kind": "check",
      "name": "pointerenter, pointerover, mouseenter reach the widget",
-     "status": "pass",
+     "status": "fail",
      "detail": "",
      "theme": "dark",
      "width": 360
@@ -24966,7 +25040,7 @@
      "test": "auto/17-drag-hover",
      "kind": "check",
      "name": "pointerenter, pointerover, mouseenter reach the widget",
-     "status": "pass",
+     "status": "fail",
      "detail": "",
      "theme": "dark",
      "width": 430
@@ -24975,7 +25049,7 @@
      "test": "auto/17-drag-hover",
      "kind": "check",
      "name": "pointerenter, pointerover, mouseenter reach the widget",
-     "status": "pass",
+     "status": "fail",
      "detail": "",
      "theme": "light",
      "width": 360
@@ -24984,7 +25058,7 @@
      "test": "auto/17-drag-hover",
      "kind": "check",
      "name": "pointerenter, pointerover, mouseenter reach the widget",
-     "status": "pass",
+     "status": "fail",
      "detail": "",
      "theme": "light",
      "width": 390
@@ -24993,7 +25067,7 @@
      "test": "auto/17-drag-hover",
      "kind": "check",
      "name": "pointerenter, pointerover, mouseenter reach the widget",
-     "status": "pass",
+     "status": "fail",
      "detail": "",
      "theme": "light",
      "width": 430
@@ -25112,7 +25186,7 @@
    "status": "out",
    "verdict": "xfail",
    "counts": {
-    "xfail": 6
+    "xfail": 10
    },
    "evidence": [
     {
@@ -25166,8 +25240,44 @@
      "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
      "status": "xfail",
      "detail": "{\"keydown\":4,\"keyup\":4,\"keypress\":3,\"beforeinput\":0,\"input\":0}; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
+     "status": "xfail",
+     "detail": "{\"keydown\":4,\"keyup\":4,\"keypress\":3,\"beforeinput\":0,\"input\":0}; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
+     "status": "xfail",
+     "detail": "{\"keydown\":4,\"keyup\":4,\"keypress\":3,\"beforeinput\":0,\"input\":0}; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
+     "status": "xfail",
+     "detail": "{\"keydown\":4,\"keyup\":4,\"keypress\":3,\"beforeinput\":0,\"input\":0}; expected to fail: key events are still delivered (D4 not enforced yet)",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
+     "status": "xfail",
+     "detail": "{\"keydown\":4,\"keyup\":4,\"keypress\":3,\"beforeinput\":0,\"input\":0}; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "light",
+     "width": 430
     }
    ]
   },
@@ -25175,7 +25285,7 @@
    "status": "out",
    "verdict": "xfail",
    "counts": {
-    "xfail": 1
+    "xfail": 5
    },
    "evidence": [
     {
@@ -25184,8 +25294,44 @@
      "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
      "status": "xfail",
      "detail": "button 3, link 2 clicks; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
+     "status": "xfail",
+     "detail": "button 3, link 2 clicks; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
+     "status": "xfail",
+     "detail": "button 3, link 2 clicks; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
+     "status": "xfail",
+     "detail": "button 3, link 2 clicks; expected to fail: key events are still delivered (D4 not enforced yet)",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
+     "status": "xfail",
+     "detail": "button 3, link 2 clicks; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "light",
+     "width": 430
     }
    ]
   },
@@ -25193,7 +25339,7 @@
    "status": "out",
    "verdict": "xfail",
    "counts": {
-    "xfail": 1
+    "xfail": 5
    },
    "evidence": [
     {
@@ -25202,8 +25348,44 @@
      "name": "a key press does not unlock openLink",
      "status": "xfail",
      "detail": "openLink ×4 (want 0)",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)",
+     "theme": "light",
+     "width": 430
     }
    ]
   },
@@ -27039,9 +27221,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 34,
-    "xfail": 1,
-    "fail": 1
+    "pass": 35,
+    "xfail": 1
    },
    "stages": [],
    "host": []
@@ -27058,9 +27239,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 34,
-    "xfail": 1,
-    "fail": 1
+    "pass": 35,
+    "xfail": 1
    },
    "stages": [],
    "host": []
@@ -27077,9 +27257,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 34,
-    "xfail": 1,
-    "fail": 1
+    "pass": 35,
+    "xfail": 1
    },
    "stages": [],
    "host": []
@@ -27096,9 +27275,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 34,
-    "xfail": 1,
-    "fail": 1
+    "pass": 35,
+    "xfail": 1
    },
    "stages": [],
    "host": []
@@ -27115,9 +27293,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 34,
-    "xfail": 1,
-    "fail": 1
+    "pass": 35,
+    "xfail": 1
    },
    "stages": [],
    "host": []
@@ -27134,9 +27311,9 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 20,
+    "pass": 19,
     "xfail": 3,
-    "fail": 1
+    "fail": 2
    },
    "stages": [],
    "host": []
@@ -27153,9 +27330,9 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 20,
+    "pass": 19,
     "xfail": 3,
-    "fail": 1
+    "fail": 2
    },
    "stages": [],
    "host": []
@@ -27172,9 +27349,9 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 20,
+    "pass": 19,
     "xfail": 3,
-    "fail": 1
+    "fail": 2
    },
    "stages": [],
    "host": []
@@ -27191,9 +27368,9 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 20,
+    "pass": 19,
     "xfail": 3,
-    "fail": 1
+    "fail": 2
    },
    "stages": [],
    "host": []
@@ -27210,9 +27387,9 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 20,
+    "pass": 19,
     "xfail": 3,
-    "fail": 1
+    "fail": 2
    },
    "stages": [],
    "host": []
@@ -27229,9 +27406,9 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 20,
+    "pass": 19,
     "xfail": 3,
-    "fail": 1
+    "fail": 2
    },
    "stages": [],
    "host": []
@@ -27340,7 +27517,7 @@
     },
     {
      "name": "filter-url",
-     "diff": 0.2882,
+     "diff": 0.3036,
      "status": "xfail"
     }
    ],
@@ -27414,7 +27591,7 @@
     },
     {
      "name": "filter-url",
-     "diff": 0.2882,
+     "diff": 0.3036,
      "status": "xfail"
     }
    ],
@@ -27488,7 +27665,7 @@
     },
     {
      "name": "filter-url",
-     "diff": 0.2882,
+     "diff": 0.3036,
      "status": "xfail"
     }
    ],
@@ -28803,12 +28980,13 @@
    "width": 360,
    "loaded": true,
    "dead": null,
-   "status": "done",
+   "status": "awaiting",
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6,
+    "fail": 1,
+    "pass": 5,
     "skip": 1
    },
    "stages": [],
@@ -28821,12 +28999,13 @@
    "width": 430,
    "loaded": true,
    "dead": null,
-   "status": "done",
+   "status": "awaiting",
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6,
+    "fail": 1,
+    "pass": 5,
     "skip": 1
    },
    "stages": [],
@@ -28839,12 +29018,13 @@
    "width": 360,
    "loaded": true,
    "dead": null,
-   "status": "done",
+   "status": "awaiting",
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6,
+    "fail": 1,
+    "pass": 5,
     "skip": 1
    },
    "stages": [
@@ -28863,12 +29043,13 @@
    "width": 390,
    "loaded": true,
    "dead": null,
-   "status": "done",
+   "status": "awaiting",
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6,
+    "fail": 1,
+    "pass": 5,
     "skip": 1
    },
    "stages": [
@@ -28887,12 +29068,13 @@
    "width": 430,
    "loaded": true,
    "dead": null,
-   "status": "done",
+   "status": "awaiting",
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6,
+    "fail": 1,
+    "pass": 5,
     "skip": 1
    },
    "stages": [
@@ -28936,8 +29118,8 @@
    "skippedActions": [],
    "counts": {
     "pass": 7,
-    "xfail": 9,
-    "xpass": 3
+    "xfail": 10,
+    "xpass": 2
    },
    "stages": [],
    "host": []
@@ -28974,8 +29156,8 @@
    "skippedActions": [],
    "counts": {
     "pass": 7,
-    "xfail": 9,
-    "xpass": 3
+    "xfail": 10,
+    "xpass": 2
    },
    "stages": [],
    "host": []
@@ -28993,8 +29175,8 @@
    "skippedActions": [],
    "counts": {
     "pass": 7,
-    "xfail": 9,
-    "xpass": 3
+    "xfail": 10,
+    "xpass": 2
    },
    "stages": [],
    "host": []
@@ -29159,6 +29341,96 @@
   {
    "id": "auto/21-no-keyboard",
    "set": "auto",
+   "theme": "dark",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "xfail": 3
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "js.focus",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame"
+    },
+    {
+     "id": "input.key-gesture",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)"
+    }
+   ]
+  },
+  {
+   "id": "auto/21-no-keyboard",
+   "set": "auto",
+   "theme": "dark",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "xfail": 3
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "js.focus",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame"
+    },
+    {
+     "id": "input.key-gesture",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)"
+    }
+   ]
+  },
+  {
+   "id": "auto/21-no-keyboard",
+   "set": "auto",
+   "theme": "light",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "xfail": 3
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "js.focus",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame"
+    },
+    {
+     "id": "input.key-gesture",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)"
+    }
+   ]
+  },
+  {
+   "id": "auto/21-no-keyboard",
+   "set": "auto",
    "theme": "light",
    "width": 390,
    "loaded": true,
@@ -29176,7 +29448,37 @@
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
      "status": "xfail",
-     "detail": "focus on iframe.widget-frame"
+     "detail": "focus moved to div.widget-frame"
+    },
+    {
+     "id": "input.key-gesture",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)"
+    }
+   ]
+  },
+  {
+   "id": "auto/21-no-keyboard",
+   "set": "auto",
+   "theme": "light",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "xfail": 3
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "js.focus",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus moved to div.widget-frame"
     },
     {
      "id": "input.key-gesture",

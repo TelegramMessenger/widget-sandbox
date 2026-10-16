@@ -1,4 +1,4 @@
-// Conformance harness, inlined into every widget of corpus/conformance by
+// Conformance harness, inlined into every widget of packages/conformance by
 // scripts/conformance/build.ts (between the conformance:harness markers).
 // Plain ES2017 so it runs in QuickJS (sandbox), a browser (native reference)
 // and any renderer's host. The result is published as JSON in the

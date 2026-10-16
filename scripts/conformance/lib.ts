@@ -5,24 +5,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 
 export const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
-export const CONF = path.join(ROOT, 'corpus', 'conformance');
+export const CONF = path.join(ROOT, 'packages', 'conformance');
 export const SETS = ['auto', 'visual'] as const;
 export type SetName = (typeof SETS)[number];
 
 /** Default stage sizes (CSS px) and the auto set's grid. */
 export const STAGE = { auto: { w: 80, h: 60 }, visual: { w: 150, h: 90 } };
 export const AUTO_GRID = { left: 8, top: 8, dx: 88, dy: 68, perRow: 4 };
-/**
- * Pixel diff: a stage fails when the differing pixels exceed this share of its
- * ink (pixels that are not the white stage background in either image), so a
- * blank render of a sparse stage fails as clearly as a wrong colour; pixelmatch
- * colour threshold, anti-aliased pixels ignored.
- */
-export const DIFF = { maxRatio: 0.05, threshold: 0.12 };
+/** The pixel rule lives in the package (packages/conformance/tools/diff.mjs), shared with every client's runner. */
+export { DIFF, judgeStage } from '../../packages/conformance/tools/diff.mjs';
 
 /**
  * Scripted input, in widget CSS px or by target name (the widget publishes
@@ -175,10 +169,11 @@ function resolve(p: Point, pub: Published | null): [number, number] {
 }
 
 /** Perform the scripted actions. Returns the actions that could not be delivered on this surface (with the catalogue IDs they feed). */
-export async function perform(page: Page, actions: Action[], surface: InputSurface, published: () => Promise<Published | null>): Promise<{ skipped: string[]; ids: string[] }> {
+export async function perform(page: Page, actions: Action[], surface: InputSurface, published: () => Promise<Published | null>): Promise<{ skipped: string[]; ids: string[]; indices: number[] }> {
   const skipped: string[] = [];
   const ids: string[] = [];
-  const skip = (a: Action, what: string) => { skipped.push(what); ids.push(...(a.ids ?? [])); };
+  const indices: number[] = [];
+  const skip = (a: Action, what: string) => { skipped.push(what); ids.push(...(a.ids ?? [])); indices.push(actions.indexOf(a)); };
   for (const a of actions) {
     const pub = await published();
     const o = await surface.origin();
@@ -209,7 +204,7 @@ export async function perform(page: Page, actions: Action[], surface: InputSurfa
     // Let the event cross the worker and the widget react before the next gesture (and keep taps apart from double-clicks).
     await page.waitForTimeout(Number(process.env.CONF_GAP ?? 350));
   }
-  return { skipped, ids };
+  return { skipped, ids, indices };
 }
 
 /** Crop a CSS-px rect out of a DPR-scaled PNG whose widget origin is at device pixel (ox, oy). */
@@ -220,48 +215,6 @@ export function crop(png: PNG, x: number, y: number, w: number, h: number, dpr: 
   const cw = Math.max(0, Math.min(out.width, png.width - sx)), ch = Math.max(0, Math.min(out.height, png.height - sy));
   if (cw > 0 && ch > 0 && sx >= 0 && sy >= 0) PNG.bitblt(png, out, sx, sy, cw, ch, 0, 0);
   return out;
-}
-
-/** Differing pixels (pixelmatch, anti-aliasing ignored) as a share of the ink and of the area; writes the diff image when asked. */
-export function diffStats(a: PNG, b: PNG, diffFile?: string): { ink: number; area: number } {
-  const w = Math.max(a.width, b.width), h = Math.max(a.height, b.height);
-  const pad = (img: PNG) => { if (img.width === w && img.height === h) return img; const o = new PNG({ width: w, height: h }); o.data.fill(255); PNG.bitblt(img, o, 0, 0, img.width, img.height, 0, 0); return o; };
-  const A = pad(a), B = pad(b);
-  const out = diffFile ? new PNG({ width: w, height: h }) : null;
-  const n = pixelmatch(A.data, B.data, out?.data ?? null, w, h, { threshold: DIFF.threshold, includeAA: false });
-  if (out && diffFile) fs.writeFileSync(diffFile, PNG.sync.write(out));
-  let ink = 0;
-  const inked = (d: Buffer, i: number) => d[i + 3] > 16 && (d[i] < 240 || d[i + 1] < 240 || d[i + 2] < 240);
-  for (let i = 0; i < A.data.length; i += 4) if (inked(A.data, i) || inked(B.data, i)) ink++;
-  return { ink: n / Math.max(ink, 1), area: n / (w * h) };
-}
-
-/** Pixels within a small distance of a #rgb / #rrggbb colour. */
-export function colorCount(png: PNG, hex: string, tol = 60): number {
-  const h = hex.replace('#', '');
-  const f = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(f.slice(i, i + 2), 16));
-  let n = 0;
-  for (let i = 0; i < png.data.length; i += 4) if (Math.abs(png.data[i] - r) + Math.abs(png.data[i + 1] - g) + Math.abs(png.data[i + 2] - b) < tol) n++;
-  return n;
-}
-
-/** The colour rule of StageInfo.colors: each colour about as present as in the reference (0.4×–2.5×; absent stays absent). */
-export function colorsMatch(got: PNG, ref: PNG, colors: string[]): { ok: boolean; detail: string } {
-  const parts: string[] = [];
-  let ok = true;
-  for (const c of colors) {
-    const want = colorCount(ref, c), have = colorCount(got, c);
-    const good = want < 20 ? have < 20 + want : have >= 0.4 * want && have <= 2.5 * want;
-    ok &&= good;
-    parts.push(`${c} ${have}/${want}px`);
-  }
-  return { ok, detail: parts.join(', ') };
-}
-
-/** Share of differing pixels in the ink (see DIFF). */
-export function diffRatio(a: PNG, b: PNG, diffFile?: string): number {
-  return diffStats(a, b, diffFile).ink;
 }
 
 export function refPath(w: Widget, stage: string, engine: string, theme: 'light' | 'dark'): string {

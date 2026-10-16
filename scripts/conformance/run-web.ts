@@ -1,4 +1,4 @@
-// Web runner of the conformance set: every widget of corpus/conformance on the
+// Web runner of the conformance set: every widget of packages/conformance on the
 // web dev app (apps/web) through the real pipeline (QuickJS worker → validator
 // → renderer), on each renderer: iframe, shadow (Shadow DOM, the web product
 // renderer), blitz and litehtml (wasm, when built). For each widget it
@@ -12,18 +12,20 @@
 //   - checks the host-side expectations (bridge calls, height).
 // Output: reports/conformance/<renderer>/<widget>.json (+ stage crops and diffs)
 // and the per-renderer report reports/conformance/<renderer>.json; report.ts
-// turns those into corpus/conformance/results/.
+// writes the run files, packages/conformance/tools/report.mjs judges them (the
+// same tool every client runs on its own run files).
 //
 // Needs the dev server of this checkout:  corepack pnpm dev --port 5175
 //   corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5175 \
 //     [--renderers iframe,shadow,blitz,litehtml] [--set auto,visual] [--only 03-layout] \
 //     [--themes light,dark] [--widths 390] [--features webAnimations] [--policy strict]
 
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
-import { DIFF, ROOT, autoStagePos, colorsMatch, crop, diffRatio, listWidgets, perform, refPath, type Published, type Widget } from './lib';
+import { ROOT, autoStagePos, crop, judgeStage, listWidgets, perform, refPath, type Published, type Widget } from './lib';
 
 const args = process.argv.slice(2);
 const opt = (name: string, def?: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : def);
@@ -38,18 +40,23 @@ const ONLY = opt('only');
 const DPR = 2;
 const OUT = path.join(ROOT, 'reports', 'conformance');
 
-export interface StageResult { name: string; covers: string[]; diff: number | null; ref: string | null; maxDiff: number; status: 'pass' | 'fail' | 'xfail' | 'xpass' | 'skip'; detail?: string }
-export interface HostResult { id: string; name: string; status: string; detail: string }
+/** One run in the run-file format of packages/conformance/run.schema.json (plus a few web-only extras). */
 export interface WidgetRun {
   id: string; set: string; renderer: string; theme: string; width: number;
   loaded: boolean; dead: string | null; status: string; ms: number;
   checks: [string, string, string, string][];
-  stages: StageResult[]; host: HostResult[];
-  skippedActions: string[]; errors: string[]; diags: Record<string, number>; height: number;
+  /** Stage crops (paths relative to the run file); report.mjs judges them against the references. */
+  stages: { name: string; crop: string }[];
+  /** What the host saw, for the manifest's host checks. */
+  observed: { bridge: { method: string; args: unknown[] }[]; height: number; chatFocused: boolean; focusHolder: string; syntheticInput: boolean };
+  /** Indices into the manifest's actions that this renderer could not deliver. */
+  skippedActions: number[];
+  errors: string[]; diags: Record<string, number>;
   /** Stage rects as the widget measured them in this renderer (CSS px). */
   stageRects?: Record<string, number[]>;
 }
 
+const commit = () => { try { return execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim(); } catch { return ''; } };
 const canvasRenderer = (r: string) => r === 'blitz' || r === 'litehtml';
 
 async function setup(page: Page, renderer: string, theme: string) {
@@ -125,20 +132,20 @@ async function runWidget(page: Page, w: Widget, renderer: string, theme: 'light'
   // Before any input: does the chat input still have the focus?
   const chatFocused = await page.evaluate(() => document.activeElement?.id === 'conf-chat-input');
   const focusHolder = await page.evaluate(() => { const a = document.activeElement; return a ? a.tagName.toLowerCase() + (a.id ? '#' + a.id : '') + (a.className && typeof a.className === 'string' ? '.' + a.className.split(' ')[0] : '') : 'none'; });
-  let skippedActions: string[] = [];
-  let skippedIds: string[] = [];
+  let skippedNames: string[] = [];
+  let skippedActions: number[] = [];
   if (w.meta.actions?.length && pub) {
     const wrap = page.locator('[data-conf-el]');
-    ({ skipped: skippedActions, ids: skippedIds } = await perform(page, w.meta.actions, {
+    ({ skipped: skippedNames, indices: skippedActions } = await perform(page, w.meta.actions, {
       origin: async () => { const b = await wrap.boundingBox(); return { x: b?.x ?? 0, y: b?.y ?? 0 }; },
       setTheme: async (t) => { await page.evaluate((t) => (window as any).__tw.setTheme(t), t); },
       setVisible: async (v) => { await page.evaluate((v) => (window as any).__tw.setVisible(v), v); },
       tapOnly: canvasRenderer(renderer) ? async (x, y) => { await page.evaluate(([x, y]) => (window as any).__tw.tap(x, y), [x, y]); } : undefined,
     }, () => published(page)));
-    pub = await waitStatus(page, ['done'], skippedActions.length ? 3_000 : 10_000);
+    pub = await waitStatus(page, ['done'], skippedNames.length ? 3_000 : 10_000);
   }
-  // Checks fed by input this surface cannot deliver (canvas renderers: taps only) are not judged.
-  const checks = (pub?.checks ?? []).map((c) => (skippedIds.includes(c[0]) ? [c[0], c[1], 'skip', 'input not deliverable on this renderer: ' + skippedActions.join(', ')] : c) as [string, string, string, string]);
+  // Raw checks: report.mjs skips the ones fed by skippedActions (input this renderer cannot receive).
+  const checks = pub?.checks ?? [];
   if (canvasRenderer(renderer)) await page.waitForFunction((r) => ((window as any).__tw[r]?.paints ?? 0) > 0, renderer, { timeout: 15_000 }).catch(() => {});
   await page.waitForTimeout(250);
   const state = await page.evaluate(() => { const s = (window as any).__tw.state; return { loaded: s.loaded, dead: s.dead, diags: s.diags, logs: s.logs, bridge: s.bridge, height: s.height }; });
@@ -146,7 +153,9 @@ async function runWidget(page: Page, w: Widget, renderer: string, theme: 'light'
   const dir = path.join(OUT, renderer, w.set);
   fs.mkdirSync(dir, { recursive: true });
   const tag = `${w.stem}.${theme}.${width}`;
-  const stages: StageResult[] = [];
+  const stages: { name: string; crop: string }[] = [];
+  /** For the console only: the run file carries the crops, report.mjs judges them. */
+  const preview: string[] = [];
   if (w.set === 'auto' && w.stages.length) {
     // The renderer element can sit at a fractional CSS position; its content is snapped to device pixels,
     // an element screenshot is clipped at whole CSS pixels: crop from the viewport at the snapped origin.
@@ -154,62 +163,29 @@ async function runWidget(page: Page, w: Widget, renderer: string, theme: 'light'
     const shot = PNG.sync.read(await page.screenshot({ animations: 'allow', caret: 'hide' }));
     const ox = Math.round((box?.x ?? 0) * DPR), oy = Math.round((box?.y ?? 0) * DPR);
     w.stages.forEach((s, i) => {
-      const covers = s.covers;
-      const maxDiff = s.maxDiff ?? DIFF.maxRatio;
       if (!s.themes.includes(theme)) return;
       const pos = autoStagePos(i);
       const got = crop(shot, pos[0], pos[1], s.w, s.h, DPR, ox, oy);
-      fs.writeFileSync(path.join(dir, `${tag}.${s.name}.png`), PNG.sync.write(got));
-      let best: { diff: number; ref: string; colors?: { ok: boolean; detail: string } } | null = null;
-      for (const engine of ['chromium', 'webkit']) {
-        const ref = refPath(w, s.name, engine, theme);
-        if (!fs.existsSync(ref)) continue;
-        const refPng = PNG.sync.read(fs.readFileSync(ref));
-        const d = diffRatio(got, refPng, path.join(dir, `${tag}.${s.name}.${engine}.diff.png`));
-        const colors = s.colors ? colorsMatch(got, refPng, s.colors) : undefined;
-        const score = d + (colors && !colors.ok ? 1 : 0);
-        if (!best || score < best.diff + (best.colors && !best.colors.ok ? 1 : 0)) best = { diff: d, ref: engine, colors };
-      }
-      const ok = best !== null && best.diff <= maxDiff && (!best.colors || best.colors.ok);
-      // A stage that shows the effect of input this renderer cannot receive (a drag) is not judged.
-      const undeliverable = covers.some((c) => skippedIds.includes(c));
-      const status = best === null || undeliverable ? 'skip' : s.xfail ? (ok ? 'xpass' : 'xfail') : ok ? 'pass' : 'fail';
-      stages.push({ name: s.name, covers, diff: best ? Math.round(best.diff * 10000) / 10000 : null, ref: best?.ref ?? null, maxDiff, status, detail: [best?.colors?.detail, s.xfail].filter(Boolean).join('; ') || undefined });
+      const file = path.join(dir, `${tag}.${s.name}.png`);
+      fs.writeFileSync(file, PNG.sync.write(got));
+      stages.push({ name: s.name, crop: path.relative(OUT, file) });
+      const refs = ['chromium', 'webkit'].map((engine) => ({ engine, file: refPath(w, s.name, engine, theme) })).filter((r) => fs.existsSync(r.file)).map((r) => ({ engine: r.engine, png: PNG.sync.read(fs.readFileSync(r.file)) }));
+      const j = judgeStage(got, refs, s);
+      preview.push(`${s.name} ${j.diff === null ? '?' : (j.diff * 100).toFixed(1) + '%'}${j.status === 'pass' ? '' : ' ' + j.status}`);
     });
-  }
-
-  const host: HostResult[] = [];
-  for (const h of w.meta.host ?? []) {
-    if (h.gesture && canvasRenderer(renderer)) { host.push({ id: h.id, name: h.name, status: 'skip', detail: 'synthetic taps grant no user gesture' }); continue; }
-    let ok = true;
-    let detail = '';
-    if (h.bridge) {
-      const calls = (state.bridge as { method: string; args: unknown[] }[]).filter((b) => b.method === h.bridge!.method && (h.bridge!.arg === undefined || b.args[0] === h.bridge!.arg));
-      ok &&= calls.length === h.bridge.count;
-      detail += `${h.bridge.method} ×${calls.length} (want ${h.bridge.count})`;
-    }
-    if (h.focus === 'chat') {
-      ok &&= chatFocused;
-      detail += `${detail ? '; ' : ''}focus on ${focusHolder}`;
-    }
-    if (h.height) {
-      ok &&= (h.height.min === undefined || state.height >= h.height.min) && (h.height.max === undefined || state.height <= h.height.max);
-      detail += `${detail ? '; ' : ''}height ${state.height}`;
-    }
-    host.push({ id: h.id, name: h.name, status: h.xfail ? (ok ? 'xpass' : 'xfail') : ok ? 'pass' : 'fail', detail });
   }
 
   const run: WidgetRun = {
     id: w.id, set: w.set, renderer, theme, width,
     loaded: !!state.loaded && !state.dead, dead: state.dead, status: pub?.status ?? 'no result', ms: Date.now() - t0,
-    checks, stages, host, skippedActions,
+    checks, stages, skippedActions,
+    observed: { bridge: state.bridge, height: state.height, chatFocused, focusHolder, syntheticInput: canvasRenderer(renderer) },
     errors: (state.logs as { level: string; text: string }[]).filter((l) => l.level === 'error').map((l) => String(l.text).split('\n')[0].slice(0, 200)),
     diags: Object.fromEntries(Object.entries(state.diags as Record<string, { count: number }>).map(([k, v]) => [k, v.count])),
-    height: state.height,
     stageRects: pub?.stages,
   };
   fs.writeFileSync(path.join(dir, `${tag}.json`), JSON.stringify(run, null, 1));
-  return run;
+  return Object.assign(run, { preview });
 }
 
 async function main() {
@@ -230,9 +206,10 @@ async function main() {
           try {
             const r = await runWidget(page, w, renderer, theme, width);
             if (canvasRenderer(renderer) && r.diags[`${renderer}-init`] && !r.loaded) available = false;
-            runs.push(r);
+            const { preview: _p, ...entry } = r as WidgetRun & { preview: string[] };
+            runs.push(entry);
             const n = r.checks.reduce((m: Record<string, number>, c) => ({ ...m, [c[2]]: (m[c[2]] ?? 0) + 1 }), {});
-            const st = r.stages.map((s) => `${s.name} ${s.diff === null ? '?' : (s.diff * 100).toFixed(1) + '%'}${s.status === 'pass' ? '' : ' ' + s.status}`).join(', ');
+            const st = (r as WidgetRun & { preview: string[] }).preview.join(', ');
             console.log(`${renderer.padEnd(8)} ${w.id.padEnd(28)} ${theme.padEnd(5)} ${width} ${r.status.padEnd(8)} ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(' ')}${st ? ' | ' + st : ''}${r.dead ? ' DEAD ' + r.dead.slice(0, 80) : ''}${r.errors.length ? ` | ${r.errors.length} errors` : ''}`);
           } catch (e) {
             console.log(`${renderer} ${w.id} ${theme} ${width}: runner error ${(e as Error).message.split('\n')[0]}`);
@@ -252,7 +229,7 @@ async function main() {
       runs.unshift(...prev.filter((r) => !fresh.has(key(r))));
       runs.sort((a, b) => key(a).localeCompare(key(b)));
     }
-    fs.writeFileSync(path.join(OUT, `${renderer}.json`), JSON.stringify({ renderer, platform: 'web', engine: `Chromium ${browser.version()} (headless, Playwright)`, origin: ORIGIN, features: FEATURES.split(',').filter(Boolean), policy: POLICY, date: new Date().toISOString(), runs }, null, 1));
+    fs.writeFileSync(path.join(OUT, `${renderer}.json`), JSON.stringify({ renderer, platform: 'web', engine: `Chromium ${browser.version()} (headless, Playwright)`, framework: commit(), commit: commit(), origin: ORIGIN, features: FEATURES.split(',').filter(Boolean), policy: POLICY, date: new Date().toISOString(), runs }, null, 1));
     await ctx.close();
   }
   await browser.close();

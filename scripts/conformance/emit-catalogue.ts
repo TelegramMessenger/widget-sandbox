@@ -1,5 +1,5 @@
-// Writes corpus/conformance/catalogue.json (machine-readable, the seed for
-// profile.json) and corpus/conformance/catalogue.md (the same as tables) from
+// Writes packages/conformance/catalogue.json (machine-readable, the seed for
+// profile.json) and packages/conformance/catalogue.md (the same as tables) from
 // scripts/conformance/catalogue.ts. Coverage columns come from manifest.json
 // when it exists.
 //
@@ -10,7 +10,7 @@ import path from 'node:path';
 import { CATALOGUE, CATALOGUE_VERSION, DECISIONS, type Feature } from './catalogue';
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
-const dir = path.join(root, 'corpus', 'conformance');
+const dir = path.join(root, 'packages', 'conformance');
 
 export function emitCatalogue(): void {
   fs.mkdirSync(dir, { recursive: true });
