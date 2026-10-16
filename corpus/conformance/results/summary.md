@@ -1,17 +1,17 @@
 # Conformance results
 
-Generated 2026-10-16 09:29 UTC by `scripts/conformance/report.ts` from the runs of `scripts/conformance/run-web.ts` (commit c7b91a8, Chromium 153.0.8010.12 (headless, Playwright), policy strict, features webAnimations). Per-renderer reports in the common format: [web-iframe.json](web-iframe.json), [web-shadow.json](web-shadow.json), [web-blitz.json](web-blitz.json), [web-litehtml.json](web-litehtml.json).
+Generated 2026-10-16 09:33 UTC by `scripts/conformance/report.ts` from the runs of `scripts/conformance/run-web.ts` (commit 77a2225, Chromium 153.0.8010.12 (headless, Playwright), policy strict, features webAnimations). Per-renderer reports in the common format: [web-iframe.json](web-iframe.json), [web-shadow.json](web-shadow.json), [web-blitz.json](web-blitz.json), [web-litehtml.json](web-litehtml.json).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
 ## Totals
 
-| Renderer | in (152) ✅ / ◐ / ❌ / ⏳ | candidate (49) ✅ / ◐ / ❌ | out (40) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
+| Renderer | in (152) ✅ / ◐ / ❌ / ⏳ | candidate (49) ✅ / ◐ / ❌ | out (43) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|---|
-| web iframe | 135 / 5 / 0 / 8 | 46 / 2 / 0 | 16 / 23 / 1 | 100 / 100 | 0 |
-| web shadow | 134 / 5 / 1 / 8 | 45 / 2 / 1 | 17 / 23 / 0 | 100 / 100 | 0 |
-| web blitz | 88 / 26 / 23 / 7 | 18 / 8 / 21 | 14 / 12 / 4 | 22 / 22 | 0 |
-| web litehtml | 53 / 39 / 46 / 6 | 6 / 7 / 34 | 15 / 11 / 3 | 22 / 22 | 0 |
+| web iframe | 135 / 5 / 0 / 8 | 46 / 2 / 0 | 16 / 26 / 1 | 101 / 101 | 0 |
+| web shadow | 134 / 5 / 1 / 8 | 45 / 2 / 1 | 17 / 26 / 0 | 101 / 101 | 0 |
+| web blitz | 88 / 26 / 23 / 7 | 18 / 8 / 21 | 14 / 13 / 4 | 23 / 23 | 0 |
+| web litehtml | 53 / 39 / 46 / 6 | 6 / 7 / 34 | 15 / 11 / 3 | 23 / 23 | 0 |
 
 ## Candidates
 
@@ -259,6 +259,7 @@ Membership decided by measurement (D3: in when every client draws it).
 | `anim.magic-move` | ✅ | ✅ | ✅ | ✅ | – |
 | `canvas.readback` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
 | `canvas.webgl` | ✅ | ✅ | ✅ | ✅ | – |
+| `js.focus` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
 | `js.network` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.navigation` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.dialogs` | ✅ | ✅ | ✅ | ✅ | – |
@@ -269,6 +270,8 @@ Membership decided by measurement (D3: in when every client draws it).
 | `tw.send-message` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `input.long-press` | ⏳ | ⏳ | – | – | ⏳ |
 | `input.keyboard` | ⏳ | ⏳ | – | – | ⏳ |
+| `input.key-activation` | ⏳ | ⏳ | – | – | ⏳ |
+| `input.key-gesture` | ⏳ | ⏳ | – | – | · |
 | `input.wheel-scroll` | ⏳ | ⏳ | – | – | ⏳ |
 
 `*` in the profile if every client draws it (D3a).

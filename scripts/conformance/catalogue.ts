@@ -91,7 +91,7 @@ h('attr.legacy-presentational', 'align, valign, bgcolor, border, cellpadding, ce
 h('attr.event-handlers', 'Inline on* handler attributes (run inside QuickJS, never reach the renderer)', 'in', 'today', 'host', { match: { attrs: ['on*'] } });
 h('attr.contenteditable', 'contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize', 'out', 'proposed', 'kept', { match: { attrs: ['contenteditable', 'spellcheck', 'inputmode', 'enterkeyhint', 'autocapitalize'] }, neutralise: 'drop the attribute', note: 'Editing is form input; text selection is forbidden (D18).' });
 h('attr.draggable', 'draggable (HTML drag and drop)', 'out', 'D4', 'kept', { match: { attrs: ['draggable'] }, neutralise: 'drop the attribute; drag in v1 is pointer events' });
-h('attr.tabindex', 'tabindex, autofocus (keyboard focus)', 'out', 'D4', 'kept', { match: { attrs: ['tabindex'] }, neutralise: 'drop the attribute (keyboard later)' });
+h('attr.tabindex', 'tabindex, autofocus, accesskey (keyboard focus and shortcuts)', 'out', 'D4', 'kept', { match: { attrs: ['tabindex', 'autofocus', 'accesskey'] }, neutralise: 'drop the attributes (no keyboard: D4)', note: 'Today tabindex is kept, autofocus is dropped silently, accesskey is not on the allowlist.' });
 
 // ───────────── SVG ─────────────
 const s = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('svg', 'svg.' + id, title, st, d, t, x);
@@ -204,7 +204,7 @@ sel('before-after', '::before, ::after', 'in', 'D3a', 'kept', { match: { selecto
 sel('first-letter-line', '::first-letter, ::first-line, ::marker', 'candidate', 'proposed', 'kept', { match: { selectors: ['::first-letter', '::first-line', '::marker'] } });
 sel('hover', ':hover (progressive enhancement: desktop with a pointer; no-op on touch)', 'in', 'D3', 'kept', { match: { selectors: [':hover'] } });
 sel('active', ':active (pressed feedback while a tap is down)', 'in', 'proposed', 'kept', { match: { selectors: [':active'] }, note: 'Used by 32 % of the HTMLBubbles demos for tap feedback.' });
-sel('focus', ':focus, :focus-visible, :focus-within', 'out', 'D4', 'kept', { match: { selectors: [':focus', ':focus-visible', ':focus-within'] }, neutralise: 'never matches (no keyboard focus in v1)' });
+sel('focus', ':focus, :focus-visible, :focus-within', 'out', 'D4', 'kept', { match: { selectors: [':focus', ':focus-visible', ':focus-within'] }, neutralise: 'never matches (the widget never owns keyboard focus: D4)' });
 sel('form-state', ':checked, :disabled, :enabled, :valid, :invalid, :placeholder-shown, ::placeholder', 'out', 'D3a', 'kept', { match: { selectors: [':checked', ':disabled', ':enabled', ':valid', ':invalid', ':placeholder-shown', '::placeholder'] }, neutralise: 'follows the forms decision' });
 sel('host-scoped', ':host, :host-context(), ::slotted(), ::part(), :scope', 'out', 'inv6', 'stripped', { match: { selectors: [':host', ':host-context', '::slotted', '::part', ':scope'] }, neutralise: 'the rule is dropped (Shadow DOM scope); in a document scope they match nothing' });
 sel('target', ':target', 'out', 'proposed', 'kept', { match: { selectors: [':target'] }, neutralise: 'never matches (no navigation)' });
@@ -274,6 +274,7 @@ js('layout.resize-observer', 'ResizeObserver', 'in', 'today', 'host', { match: {
 js('layout.intersection-observer', 'IntersectionObserver (emulated: always visible)', 'in', 'today', 'emulated', { match: { apis: ['IntersectionObserver'] } });
 js('layout.element-from-point', 'document.elementFromPoint', 'in', 'today', 'host', { match: { apis: ['document.elementFromPoint'] } });
 js('layout.measure-text', 'Text measurement through canvas measureText (fonts of the client)', 'in', 'today', 'host', { match: { apis: ['CanvasRenderingContext2D.measureText'] } });
+js('focus', 'element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus', 'out', 'D4', 'kept', { match: { apis: ['HTMLElement.focus', 'HTMLElement.blur', 'HTMLInputElement.select', 'setSelectionRange'] }, neutralise: 'the call op is dropped: focus stays in the chat input', note: 'Today focus() reaches the renderer as a call op and moves the page focus into the bubble.' });
 js('timers', 'setTimeout / setInterval / clear*, ordering, clamped delays', 'in', 'today', 'kept', { match: { apis: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] } });
 js('raf', 'requestAnimationFrame / cancelAnimationFrame (frames from the renderer)', 'in', 'today', 'kept', { match: { apis: ['requestAnimationFrame', 'cancelAnimationFrame'] } });
 js('microtasks', 'Promise, async/await, queueMicrotask', 'in', 'today', 'kept', { match: { apis: ['Promise', 'queueMicrotask'] } });
@@ -317,7 +318,9 @@ inp('drag', 'Drag: pointermove with buttons while pressed, setPointerCapture, mo
 inp('hover-events', 'pointerover/enter/leave/out, mouseover/enter/leave (desktop pointer only)', 'in', 'D3', 'kept', { match: { events: ['pointerover', 'pointerenter', 'pointerleave', 'pointerout', 'mouseover', 'mouseenter', 'mouseleave', 'mouseout', 'mousemove'] } });
 inp('dblclick', 'dblclick', 'candidate', 'proposed', 'kept', { match: { events: ['dblclick'] }, note: 'Double tap is the bubble\'s reaction gesture (designers).' });
 inp('long-press', 'contextmenu / long press', 'out', 'proposed', 'kept', { match: { events: ['contextmenu'] }, neutralise: 'the bubble menu wins; no contextmenu event' });
-inp('keyboard', 'keydown / keyup / keypress, focus and blur', 'out', 'D4', 'kept', { match: { events: ['keydown', 'keyup', 'keypress', 'focus', 'blur', 'focusin', 'focusout'] }, neutralise: 'no keyboard in v1' });
+inp('keyboard', 'Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys', 'out', 'D4', 'kept', { match: { events: ['keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'focus', 'blur', 'focusin', 'focusout'] }, neutralise: 'the renderer never forwards key events; the widget never owns keyboard focus' });
+inp('key-activation', 'Enter / Space activate a focused button or link (a click from the keyboard)', 'out', 'D4', 'kept', { match: { events: ['click'] }, neutralise: 'keys do nothing in a widget: no synthetic click from Enter or Space' });
+inp('key-gesture', 'A key press counts as a user gesture for privileged bridge calls', 'out', 'D4', 'kept', { match: { apis: ['TelegramWidget.openLink'] }, neutralise: 'only taps (pointer presses) grant a gesture', note: 'Today a keydown (not Escape, not a repeat or a Command shortcut) unlocks one privileged call (protocol.md, User activation).' });
 inp('wheel-scroll', 'wheel and scroll events', 'out', 'D3a', 'kept', { match: { events: ['wheel', 'scroll'] }, neutralise: 'no scrolling inside a widget' });
 inp('user-activation', 'Privileged calls (openLink) only in the task of a real tap; not from timers or synthetic clicks', 'in', 'D8', 'kept', { match: { apis: ['TelegramWidget.openLink'] } });
 inp('prevent-default', 'preventDefault on pointer events keeps the gesture in the widget (learned by the renderer)', 'in', 'D4', 'kept', { match: { apis: ['Event.preventDefault'] } });
@@ -349,7 +352,7 @@ export const DECISIONS: Record<string, string> = {
   D3: 'A feature is in when every client draws it; :hover is the exception (progressive enhancement)',
   D3a: 'v1: canvas 2D; Web Animations, filter, backdrop-filter if clients draw them; out: forms, inner scroll, 3D transforms, magic move; CSS animations and transitions in',
   D3b: 'Fonts: system generic families only, other names dropped',
-  D4: 'Input: taps in the PoC, drag in v1, keyboard later',
+  D4: 'Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)',
   D5: 'strict policy everywhere; webAnimations and morphUpdates from the profile',
   D6: '3D (__tw3d) cut from the release',
   D8: 'SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage',

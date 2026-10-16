@@ -8,8 +8,8 @@
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-16T09:24:03.121Z",
-  "commit": "c7b91a8"
+  "date": "2026-10-16T09:33:50.901Z",
+  "commit": "77a2225"
  },
  "summary": {
   "in": {
@@ -34,9 +34,9 @@
    "pass": 14,
    "partial": 0,
    "fail": 4,
-   "xfail": 12,
+   "xfail": 13,
    "xpass": 7,
-   "skip": 3,
+   "skip": 5,
    "untested": 0
   }
  },
@@ -6255,6 +6255,34 @@
     }
    ]
   },
+  "js.focus": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1,
+    "xpass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "focus() does not make :focus match in the renderer",
+     "status": "xfail",
+     "detail": "9,9,9,1; expected to fail: focus() still reaches the shim and the renderer",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xpass",
+     "detail": "focus on input#conf-chat-input",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
   "js.timers": {
    "status": "in",
    "verdict": "pass",
@@ -7242,7 +7270,7 @@
    "status": "out",
    "verdict": "skip",
    "counts": {
-    "skip": 1
+    "skip": 2
    },
    "evidence": [
     {
@@ -7251,6 +7279,51 @@
      "name": "no keydown reaches the widget",
      "status": "skip",
      "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: key, key, key, key",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.key-activation": {
+   "status": "out",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: key, key, key, key",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.key-gesture": {
+   "status": "out",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "a key press does not unlock openLink",
+     "status": "skip",
+     "detail": "synthetic taps grant no user gesture",
      "theme": "light",
      "width": 390
     }
@@ -8385,6 +8458,42 @@
      "name": "the bubble grows with the widget and is clipped at the cap (900px)",
      "status": "pass",
      "detail": "height 900"
+    }
+   ]
+  },
+  {
+   "id": "auto/21-no-keyboard",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [
+    "key",
+    "key",
+    "key",
+    "key"
+   ],
+   "counts": {
+    "skip": 2,
+    "xfail": 1
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "js.focus",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xpass",
+     "detail": "focus on input#conf-chat-input"
+    },
+    {
+     "id": "input.key-gesture",
+     "name": "a key press does not unlock openLink",
+     "status": "skip",
+     "detail": "synthetic taps grant no user gesture"
     }
    ]
   },

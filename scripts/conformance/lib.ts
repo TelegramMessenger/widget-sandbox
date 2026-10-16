@@ -55,6 +55,8 @@ export interface HostCheck {
   gesture?: boolean;
   /** Bubble height reported by the host, CSS px. */
   height?: { min?: number; max?: number };
+  /** 'chat': the chat's input field (focused by the runner before the widget loads) still has the focus once the widget has run its own checks, before any input. */
+  focus?: 'chat';
   xfail?: string;
 }
 

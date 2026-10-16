@@ -23,9 +23,9 @@
   }
  },
  "coverage": {
-  "auto": 237,
+  "auto": 240,
   "visual": 87,
-  "catalogue": 241,
+  "catalogue": 244,
   "external": {
    "limit.nodes": "corpus/attacks (pnpm test:attacks): node flood",
    "limit.cpu": "corpus/attacks and tests/lifecycle.spec.ts: CPU quota, deferral, kill",
@@ -6024,6 +6024,123 @@
    ],
    "stages": [],
    "bytes": 15961
+  },
+  {
+   "id": "auto/21-no-keyboard",
+   "set": "auto",
+   "file": "auto/21-no-keyboard.html",
+   "title": "No keyboard (D4): key events never reach the widget, Enter/Space do not activate buttons or links, focus() does not take the focus from the chat input, a key press is not a user gesture for the bridge",
+   "hint": "Type in the chat input field: the widget must not steal the focus. Tap “button”, press Enter, Space and A; tap “link”, press Enter; tap Finish.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "input.key-activation",
+    "input.key-gesture",
+    "input.keyboard",
+    "js.focus"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
+    {
+     "tap": "btn",
+     "ids": [
+      "input.key-activation"
+     ]
+    },
+    {
+     "key": "Enter",
+     "ids": [
+      "input.keyboard",
+      "input.key-activation",
+      "input.key-gesture"
+     ]
+    },
+    {
+     "key": "Space",
+     "ids": [
+      "input.keyboard",
+      "input.key-activation",
+      "input.key-gesture"
+     ]
+    },
+    {
+     "key": "a",
+     "ids": [
+      "input.keyboard",
+      "input.key-gesture"
+     ]
+    },
+    {
+     "tap": "lnk",
+     "ids": [
+      "input.key-activation"
+     ]
+    },
+    {
+     "key": "Enter",
+     "ids": [
+      "input.keyboard",
+      "input.key-activation",
+      "input.key-gesture"
+     ]
+    },
+    {
+     "tap": "finish"
+    }
+   ],
+   "host": [
+    {
+     "id": "js.focus",
+     "name": "focus() from the widget leaves the chat input focused",
+     "focus": "chat",
+     "xfail": "focus() still reaches the renderer"
+    },
+    {
+     "id": "input.key-gesture",
+     "name": "a key press does not unlock openLink",
+     "bridge": {
+      "method": "openLink",
+      "arg": "https://example.org/conformance/key",
+      "count": 0
+     },
+     "gesture": true,
+     "xfail": "a keydown still counts as a user gesture"
+    }
+   ],
+   "checks": [
+    {
+     "id": "input.keyboard",
+     "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
+     "native": {
+      "chromium": "xfail"
+     }
+    },
+    {
+     "id": "input.key-activation",
+     "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
+     "native": {
+      "chromium": "xfail"
+     }
+    },
+    {
+     "id": "js.focus",
+     "name": "focus() does not make :focus match in the renderer",
+     "native": {
+      "chromium": "xfail"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 15492
   },
   {
    "id": "visual/01-boxes",

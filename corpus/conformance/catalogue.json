@@ -5,7 +5,7 @@
     "D3": "A feature is in when every client draws it; :hover is the exception (progressive enhancement)",
     "D3a": "v1: canvas 2D; Web Animations, filter, backdrop-filter if clients draw them; out: forms, inner scroll, 3D transforms, magic move; CSS animations and transitions in",
     "D3b": "Fonts: system generic families only, other names dropped",
-    "D4": "Input: taps in the PoC, drag in v1, keyboard later",
+    "D4": "Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)",
     "D5": "strict policy everywhere; webAnimations and morphUpdates from the profile",
     "D6": "3D (__tw3d) cut from the release",
     "D8": "SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage",
@@ -630,16 +630,19 @@
     {
       "id": "html.attr.tabindex",
       "area": "html",
-      "title": "tabindex, autofocus (keyboard focus)",
+      "title": "tabindex, autofocus, accesskey (keyboard focus and shortcuts)",
       "status": "out",
       "decision": "D4",
       "today": "kept",
       "match": {
         "attrs": [
-          "tabindex"
+          "tabindex",
+          "autofocus",
+          "accesskey"
         ]
       },
-      "neutralise": "drop the attribute (keyboard later)"
+      "neutralise": "drop the attributes (no keyboard: D4)",
+      "note": "Today tabindex is kept, autofocus is dropped silently, accesskey is not on the allowlist."
     },
     {
       "id": "svg.shapes",
@@ -2241,7 +2244,7 @@
           ":focus-within"
         ]
       },
-      "neutralise": "never matches (no keyboard focus in v1)"
+      "neutralise": "never matches (the widget never owns keyboard focus: D4)"
     },
     {
       "id": "sel.form-state",
@@ -3115,6 +3118,24 @@
       }
     },
     {
+      "id": "js.focus",
+      "area": "js",
+      "title": "element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus",
+      "status": "out",
+      "decision": "D4",
+      "today": "kept",
+      "match": {
+        "apis": [
+          "HTMLElement.focus",
+          "HTMLElement.blur",
+          "HTMLInputElement.select",
+          "setSelectionRange"
+        ]
+      },
+      "neutralise": "the call op is dropped: focus stays in the chat input",
+      "note": "Today focus() reaches the renderer as a call op and moves the page focus into the bubble."
+    },
+    {
       "id": "js.timers",
       "area": "js",
       "title": "setTimeout / setInterval / clear*, ordering, clamped delays",
@@ -3684,7 +3705,7 @@
     {
       "id": "input.keyboard",
       "area": "input",
-      "title": "keydown / keyup / keypress, focus and blur",
+      "title": "Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys",
       "status": "out",
       "decision": "D4",
       "today": "kept",
@@ -3693,13 +3714,44 @@
           "keydown",
           "keyup",
           "keypress",
+          "beforeinput",
+          "input",
           "focus",
           "blur",
           "focusin",
           "focusout"
         ]
       },
-      "neutralise": "no keyboard in v1"
+      "neutralise": "the renderer never forwards key events; the widget never owns keyboard focus"
+    },
+    {
+      "id": "input.key-activation",
+      "area": "input",
+      "title": "Enter / Space activate a focused button or link (a click from the keyboard)",
+      "status": "out",
+      "decision": "D4",
+      "today": "kept",
+      "match": {
+        "events": [
+          "click"
+        ]
+      },
+      "neutralise": "keys do nothing in a widget: no synthetic click from Enter or Space"
+    },
+    {
+      "id": "input.key-gesture",
+      "area": "input",
+      "title": "A key press counts as a user gesture for privileged bridge calls",
+      "status": "out",
+      "decision": "D4",
+      "today": "kept",
+      "match": {
+        "apis": [
+          "TelegramWidget.openLink"
+        ]
+      },
+      "neutralise": "only taps (pointer presses) grant a gesture",
+      "note": "Today a keydown (not Escape, not a repeat or a Command shortcut) unlocks one privileged call (protocol.md, User activation)."
     },
     {
       "id": "input.wheel-scroll",

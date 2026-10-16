@@ -1,6 +1,6 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 241 features: 152 in (4 conditional on every renderer drawing them), 40 out, 49 candidates. Decision `proposed` marks this catalogue's own proposals (58).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 244 features: 152 in (4 conditional on every renderer drawing them), 43 out, 49 candidates. Decision `proposed` marks this catalogue's own proposals (58).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
@@ -11,12 +11,12 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | at-rule | 13 | 4 | 2 | 7 | 13 |
 | animation | 8 | 7 | 1 | 0 | 8 |
 | canvas | 21 | 13 | 2 | 6 | 21 |
-| js | 33 | 24 | 7 | 2 | 33 |
+| js | 34 | 24 | 8 | 2 | 34 |
 | sdk | 8 | 7 | 1 | 0 | 8 |
-| input | 12 | 7 | 3 | 2 | 12 |
+| input | 14 | 7 | 5 | 2 | 14 |
 | limit | 8 | 8 | 0 | 0 | 4 |
 | behaviour | 5 | 5 | 0 | 0 | 5 |
-| **all** | 241 | 152 | 40 | 49 | 237 |
+| **all** | 244 | 152 | 43 | 49 | 240 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the validator and shim do now under `strict`), **tests** (conformance widgets that judge it).
 
@@ -57,7 +57,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `html.attr.event-handlers` | Inline on* handler attributes (run inside QuickJS, never reach the renderer) | in | today | host |  | auto/02-attributes-images |
 | `html.attr.contenteditable` | contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize<br><sub>Editing is form input; text selection is forbidden (D18).</sub> | out | proposed | kept | drop the attribute | auto/02-attributes-images |
 | `html.attr.draggable` | draggable (HTML drag and drop) | out | D4 | kept | drop the attribute; drag in v1 is pointer events | auto/02-attributes-images |
-| `html.attr.tabindex` | tabindex, autofocus (keyboard focus) | out | D4 | kept | drop the attribute (keyboard later) | auto/02-attributes-images |
+| `html.attr.tabindex` | tabindex, autofocus, accesskey (keyboard focus and shortcuts)<br><sub>Today tabindex is kept, autofocus is dropped silently, accesskey is not on the allowlist.</sub> | out | D4 | kept | drop the attributes (no keyboard: D4) | auto/02-attributes-images |
 
 ## svg
 
@@ -168,7 +168,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `sel.first-letter-line` | ::first-letter, ::first-line, ::marker | candidate | proposed | kept |  | auto/07-selectors |
 | `sel.hover` | :hover (progressive enhancement: desktop with a pointer; no-op on touch) | in | D3 | kept |  | auto/07-selectors, auto/17-drag-hover, visual/11-interaction |
 | `sel.active` | :active (pressed feedback while a tap is down)<br><sub>Used by 32 % of the HTMLBubbles demos for tap feedback.</sub> | in | proposed | kept |  | auto/16-sdk-taps, visual/11-interaction |
-| `sel.focus` | :focus, :focus-visible, :focus-within | out | D4 | kept | never matches (no keyboard focus in v1) | auto/07-selectors |
+| `sel.focus` | :focus, :focus-visible, :focus-within | out | D4 | kept | never matches (the widget never owns keyboard focus: D4) | auto/07-selectors |
 | `sel.form-state` | :checked, :disabled, :enabled, :valid, :invalid, :placeholder-shown, ::placeholder | out | D3a | kept | follows the forms decision | auto/18-out-of-profile |
 | `sel.host-scoped` | :host, :host-context(), ::slotted(), ::part(), :scope | out | inv6 | stripped | the rule is dropped (Shadow DOM scope); in a document scope they match nothing | auto/07-selectors |
 | `sel.target` | :target | out | proposed | kept | never matches (no navigation) | auto/07-selectors |
@@ -246,6 +246,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `js.layout.intersection-observer` | IntersectionObserver (emulated: always visible) | in | today | emulated |  | auto/14-dom-layout-api |
 | `js.layout.element-from-point` | document.elementFromPoint | in | today | host |  | auto/14-dom-layout-api |
 | `js.layout.measure-text` | Text measurement through canvas measureText (fonts of the client) | in | today | host |  | auto/14-dom-layout-api |
+| `js.focus` | element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus<br><sub>Today focus() reaches the renderer as a call op and moves the page focus into the bubble.</sub> | out | D4 | kept | the call op is dropped: focus stays in the chat input | auto/21-no-keyboard |
 | `js.timers` | setTimeout / setInterval / clear*, ordering, clamped delays | in | today | kept |  | auto/15-js-runtime |
 | `js.raf` | requestAnimationFrame / cancelAnimationFrame (frames from the renderer) | in | today | kept |  | auto/15-js-runtime |
 | `js.microtasks` | Promise, async/await, queueMicrotask | in | today | kept |  | auto/15-js-runtime |
@@ -293,7 +294,9 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `input.hover-events` | pointerover/enter/leave/out, mouseover/enter/leave (desktop pointer only) | in | D3 | kept |  | auto/17-drag-hover |
 | `input.dblclick` | dblclick<br><sub>Double tap is the bubble's reaction gesture (designers).</sub> | candidate | proposed | kept |  | auto/16-sdk-taps |
 | `input.long-press` | contextmenu / long press | out | proposed | kept | the bubble menu wins; no contextmenu event | auto/16-sdk-taps |
-| `input.keyboard` | keydown / keyup / keypress, focus and blur | out | D4 | kept | no keyboard in v1 | auto/16-sdk-taps |
+| `input.keyboard` | Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys | out | D4 | kept | the renderer never forwards key events; the widget never owns keyboard focus | auto/16-sdk-taps, auto/21-no-keyboard |
+| `input.key-activation` | Enter / Space activate a focused button or link (a click from the keyboard) | out | D4 | kept | keys do nothing in a widget: no synthetic click from Enter or Space | auto/21-no-keyboard |
+| `input.key-gesture` | A key press counts as a user gesture for privileged bridge calls<br><sub>Today a keydown (not Escape, not a repeat or a Command shortcut) unlocks one privileged call (protocol.md, User activation).</sub> | out | D4 | kept | only taps (pointer presses) grant a gesture | auto/21-no-keyboard |
 | `input.wheel-scroll` | wheel and scroll events | out | D3a | kept | no scrolling inside a widget | auto/16-sdk-taps |
 | `input.user-activation` | Privileged calls (openLink) only in the task of a real tap; not from timers or synthetic clicks | in | D8 | kept |  | auto/16-sdk-taps |
 | `input.prevent-default` | preventDefault on pointer events keeps the gesture in the widget (learned by the renderer) | in | D4 | kept |  | auto/16-sdk-taps |
@@ -326,7 +329,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D3**: A feature is in when every client draws it; :hover is the exception (progressive enhancement)
 - **D3a**: v1: canvas 2D; Web Animations, filter, backdrop-filter if clients draw them; out: forms, inner scroll, 3D transforms, magic move; CSS animations and transitions in
 - **D3b**: Fonts: system generic families only, other names dropped
-- **D4**: Input: taps in the PoC, drag in v1, keyboard later
+- **D4**: Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)
 - **D5**: strict policy everywhere; webAnimations and morphUpdates from the profile
 - **D6**: 3D (__tw3d) cut from the release
 - **D8**: SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage

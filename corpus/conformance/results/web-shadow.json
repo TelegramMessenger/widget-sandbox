@@ -8,8 +8,8 @@
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-16T09:26:52.965Z",
-  "commit": "c7b91a8"
+  "date": "2026-10-16T09:33:49.015Z",
+  "commit": "77a2225"
  },
  "summary": {
   "in": {
@@ -34,7 +34,7 @@
    "pass": 17,
    "partial": 0,
    "fail": 0,
-   "xfail": 23,
+   "xfail": 26,
    "xpass": 0,
    "skip": 0,
    "untested": 0
@@ -21507,6 +21507,33 @@
     }
    ]
   },
+  "js.focus": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "focus() does not make :focus match in the renderer",
+     "status": "xfail",
+     "detail": "9,9,9,1; expected to fail: focus() still reaches the shim and the renderer",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus on div.widget-frame",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
   "js.timers": {
    "status": "in",
    "verdict": "pass",
@@ -25085,7 +25112,7 @@
    "status": "out",
    "verdict": "xfail",
    "counts": {
-    "xfail": 5
+    "xfail": 6
    },
    "evidence": [
     {
@@ -25132,6 +25159,51 @@
      "detail": "1 events; expected to fail: keyboard events are still delivered",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
+     "status": "xfail",
+     "detail": "{\"keydown\":4,\"keyup\":4,\"keypress\":3,\"beforeinput\":0,\"input\":0}; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.key-activation": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "check",
+     "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
+     "status": "xfail",
+     "detail": "button 3, link 2 clicks; expected to fail: key events are still delivered (D4 not enforced yet)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.key-gesture": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/21-no-keyboard",
+     "kind": "host",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
@@ -29081,6 +29153,36 @@
      "name": "the bubble grows with the widget and is clipped at the cap (900px)",
      "status": "pass",
      "detail": "height 900"
+    }
+   ]
+  },
+  {
+   "id": "auto/21-no-keyboard",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "xfail": 3
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "js.focus",
+     "name": "focus() from the widget leaves the chat input focused",
+     "status": "xfail",
+     "detail": "focus on div.widget-frame"
+    },
+    {
+     "id": "input.key-gesture",
+     "name": "a key press does not unlock openLink",
+     "status": "xfail",
+     "detail": "openLink ×4 (want 0)"
     }
    ]
   },

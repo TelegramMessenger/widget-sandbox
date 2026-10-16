@@ -69,6 +69,16 @@ async function load(page: Page, w: Widget, width: number) {
     bubble.style.padding = '0';
     bubble.style.borderRadius = '0';
     bubble.style.boxShadow = 'none';
+    // A stand-in for the chat's input field, focused while the widget boots (host check `focus: 'chat'`).
+    let chatInput = document.getElementById('conf-chat-input') as HTMLInputElement | null;
+    if (!chatInput) {
+      chatInput = document.createElement('input');
+      chatInput.id = 'conf-chat-input';
+      chatInput.placeholder = 'chat input';
+      chatInput.style.cssText = 'position:fixed;left:8px;bottom:8px;width:200px;z-index:10';
+      document.body.appendChild(chatInput);
+    }
+    chatInput.focus();
     const tw = (window as any).__tw;
     const conf: any = ((window as any).__conf = { html: null as number | null, attr: null as string | null, ops: 0 });
     tw.load(html, name);
@@ -112,6 +122,9 @@ async function runWidget(page: Page, w: Widget, renderer: string, theme: 'light'
   await load(page, w, width);
   await page.waitForFunction(() => { const s = (window as any).__tw.state; return s.loaded || s.dead; }, null, { timeout: 60_000 }).catch(() => {});
   let pub = await waitStatus(page, ['done', 'awaiting'], 20_000);
+  // Before any input: does the chat input still have the focus?
+  const chatFocused = await page.evaluate(() => document.activeElement?.id === 'conf-chat-input');
+  const focusHolder = await page.evaluate(() => { const a = document.activeElement; return a ? a.tagName.toLowerCase() + (a.id ? '#' + a.id : '') + (a.className && typeof a.className === 'string' ? '.' + a.className.split(' ')[0] : '') : 'none'; });
   let skippedActions: string[] = [];
   let skippedIds: string[] = [];
   if (w.meta.actions?.length && pub) {
@@ -174,6 +187,10 @@ async function runWidget(page: Page, w: Widget, renderer: string, theme: 'light'
       const calls = (state.bridge as { method: string; args: unknown[] }[]).filter((b) => b.method === h.bridge!.method && (h.bridge!.arg === undefined || b.args[0] === h.bridge!.arg));
       ok &&= calls.length === h.bridge.count;
       detail += `${h.bridge.method} ×${calls.length} (want ${h.bridge.count})`;
+    }
+    if (h.focus === 'chat') {
+      ok &&= chatFocused;
+      detail += `${detail ? '; ' : ''}focus on ${focusHolder}`;
     }
     if (h.height) {
       ok &&= (h.height.min === undefined || state.height >= h.height.min) && (h.height.max === undefined || state.height <= h.height.max);

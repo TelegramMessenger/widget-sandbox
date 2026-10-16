@@ -10,14 +10,14 @@ It is built around one **feature catalogue** and two widget sets:
 
 | | |
 |---|---|
-| [`catalogue.json`](catalogue.json) / [`catalogue.md`](catalogue.md) | 241 profile features with stable IDs (`css.display.grid`, `canvas.filter`, `tw.profile`, …). Each is marked in / out / candidate, together with the decision it comes from (D3a, D3b, D4, D18, D23, the invariants, or `proposed` for this catalogue's own proposals), what the pipeline does with it today, and the keys a validator table would match. It is the seed for `profile.json`. The source is `scripts/conformance/catalogue.ts`. |
-| [`auto/`](auto) | **Automatic set**, 20 dense widgets for runners and CI. Each one asserts layout, computed style, APIs and events itself and publishes the result machine-readably. Pixel stages are diffed against reference PNGs. |
+| [`catalogue.json`](catalogue.json) / [`catalogue.md`](catalogue.md) | 244 profile features with stable IDs (`css.display.grid`, `canvas.filter`, `tw.profile`, …). Each is marked in / out / candidate, together with the decision it comes from (D3a, D3b, D4, D18, D23, the invariants, or `proposed` for this catalogue's own proposals), what the pipeline does with it today, and the keys a validator table would match. It is the seed for `profile.json`. The source is `scripts/conformance/catalogue.ts`. |
+| [`auto/`](auto) | **Automatic set**, 21 dense widgets for runners and CI. Each one asserts layout, computed style, APIs and events itself and publishes the result machine-readably. Pixel stages are diffed against reference PNGs. |
 | [`visual/`](visual) | **Visual set**, 13 readable widgets for people: the shared Telegram test channel. Each row shows a group of features drawn live next to an embedded reference picture, with a one-line caption saying what to compare. Interactive rows carry a one-line instruction. Files are numbered in reading order. |
 | [`manifest.json`](manifest.json) | Maps each test to its catalogue IDs, kind (self / pixel / interactive), stages with rects and reference files, scripted actions, host-side checks, themes and widths, and what native Chromium/WebKit answer to each check. Also gives coverage per set. |
 | [`refs/`](refs) | Reference PNGs for every stage: native headless Chromium (and WebKit where installed), DPR 2. Dark-theme variants are added for stages that depend on the theme. |
 | [`results/`](results) | Reports of the renderers run so far in the common format, plus [`summary.md`](results/summary.md). |
 
-Coverage: the automatic set covers 237 of the 241 catalogue IDs. That is every in-profile and candidate ID, and every out ID except the four listed under `coverage.external` in the manifest, which the attack suite and the server check. The visual set covers the 87 IDs that only a person can judge: gradients, shadows, filters, text, canvas, animations, SVG, images, interaction and theme.
+Coverage: the automatic set covers 240 of the 244 catalogue IDs. That is every in-profile and candidate ID, and every out ID except the four listed under `coverage.external` in the manifest, which the attack suite and the server check. The visual set covers the 87 IDs that only a person can judge: gradients, shadows, filters, text, canvas, animations, SVG, images, interaction and theme.
 
 ## How a widget reports
 
@@ -94,7 +94,7 @@ A native runner produces the same **run file** and hands it to `report.ts`. Per 
    - `wait`.
    Then wait for `done` again. Report the actions the platform cannot deliver in `skippedActions`; the checks listed in their `ids` count as skipped.
 4. Take a screenshot of the widget view at DPR 2 and crop each stage at `manifest.tests[].stages[].rect` (CSS px from the widget's top-left). Compare it with `refs/` using the rule above.
-5. Check `host` expectations from the manifest: how many bridge calls with that method and first argument, and the bubble height the host gave the widget.
+5. Check `host` expectations from the manifest: how many bridge calls with that method and first argument, the bubble height the host gave the widget, and (`focus: "chat"`) whether the chat's input field still has the keyboard focus after the widget booted, before any input (focus the input before loading the widget).
 6. Write `{renderer, platform, engine, policy, features, date, runs: [...]}`. Each entry in `runs` is `{id, set, theme, width, loaded, dead, status, checks, stages:[{name, covers, diff, status, maxDiff}], host:[{id, name, status, detail}], errors, skippedActions}`, exactly what `run-web.ts` writes to `reports/conformance/<renderer>.json`. Then run:
 
 ```bash
