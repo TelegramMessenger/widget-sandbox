@@ -63,6 +63,7 @@ other hosts drop the feature names they do not implement.
 - `Widget3DChannel` exposes `__tw3d` only in `DEBUG` builds (or with `TWIDGET_EXPERIMENTAL_3D`); release builds report a `3d` diag instead.
 - The desktop `json.h` prints the shortest round-trip number on every target and parses numbers in the C locale.
 - Gestures: every host counts only renderer events marked `trusted`; a key gesture is a press of Enter or Space, and the click it activates (`detail` 0) is the same gesture.
+  - Interim: the profile v1 milestone removes keyboard input altogether (decisions.md, "Profile v1: no keyboard, no form controls", D4). Renderers then stop forwarding key events, the five glue copies and the web host drop `keydown` from the gesture set, and user activation comes from a pointer press only.
 - `CallSite.getFunction` / `getThis` answer `undefined` inside the sandbox (the shim no longer leaks its closures through `Error.prepareStackTrace`).
 - Provided-library patterns must compile on their own (an unbalanced `)` could unanchor them); `icon:` is matched case-sensitively and limited per widget (256 distinct tokens, 2 MB of answers).
 - The Node harness quantizes frame times to 100 µs and gates gestures on visibility (`RunOptions.visible`).
