@@ -1,0 +1,309 @@
+<!doctype html>
+<html data-test="auto/12-canvas">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conformance: canvas 2D</title>
+<!-- conformance {"title":"Canvas 2D: rectangles, paths, line styles, gradients (conic is a candidate), patterns, transforms, clipping, text and measureText, alpha, compositing, shadows, ctx.filter, Path2D, drawImage, ImageData, hit testing, HiDPI backing store; WebGL and read-back out"} -->
+<!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111;background:transparent}@media (prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#conf-summary{font-weight:400;margin-left:6px}#conf-summary.good{color:#1a7f37}#conf-summary.bad{color:#c62828}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}.v-head{margin:8px 10px 2px;font-weight:600;font-size:15px}.v-hint{margin:0 10px 6px;font-size:12px}.v-row{display:flex;flex-wrap:wrap;align-items:flex-start;margin:6px 10px 10px}.v-row>[data-stage]{margin-right:8px}.v-ref{display:block;background:#fff}.v-cap{width:100%;margin-top:3px;font-size:12px}.v-tag{font-size:10px;font-weight:600;margin-right:4px;padding:0 4px;border-radius:3px;background:#8884}[data-stage="rect"]{left:8px;top:8px;width:80px;height:60px}[data-stage="path"]{left:96px;top:8px;width:80px;height:60px}[data-stage="line-style"]{left:184px;top:8px;width:80px;height:60px}[data-stage="gradients"]{left:272px;top:8px;width:80px;height:60px}[data-stage="conic"]{left:8px;top:76px;width:80px;height:60px}[data-stage="pattern"]{left:96px;top:76px;width:80px;height:60px}[data-stage="transform"]{left:184px;top:76px;width:80px;height:60px}[data-stage="clip"]{left:272px;top:76px;width:80px;height:60px}[data-stage="text"]{left:8px;top:144px;width:80px;height:60px}[data-stage="alpha"]{left:96px;top:144px;width:80px;height:60px}[data-stage="composite"]{left:184px;top:144px;width:80px;height:60px}[data-stage="shadow"]{left:272px;top:144px;width:80px;height:60px}[data-stage="filter"]{left:8px;top:212px;width:80px;height:60px}[data-stage="path2d"]{left:96px;top:212px;width:80px;height:60px}[data-stage="draw-image"]{left:184px;top:212px;width:80px;height:60px}[data-stage="image-data"]{left:272px;top:212px;width:80px;height:60px}.conf-stages{height:280px}</style><script>var T = (function () {
+  'use strict';
+  var root = document.documentElement;
+  var ID = root.getAttribute('data-test') || 'unknown';
+  var sandbox = typeof TelegramWidget !== 'undefined';
+  var mode = window.__conformanceMode || (sandbox ? 'sandbox' : 'native');
+  var checks = [];
+  var byKey = {};
+  var started = false, finished = false, awaiting = false, deadline = 0;
+  var queue = [];
+  var panelTimer = 0;
+  var targets = {}, targetRects = null, stageRects = null;
+
+  function fmt(v) {
+    if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+    if (typeof v === 'string') return JSON.stringify(v.length > 60 ? v.slice(0, 60) + '…' : v);
+    try { return JSON.stringify(v); } catch (e) { return String(v); }
+  }
+
+  function record(id, name, ok, detail, opts) {
+    opts = opts || {};
+    var st;
+    if (ok === null) st = 'skip';
+    else if (ok === 'pending') st = 'pending';
+    else if (opts.xfail) st = ok ? 'xpass' : 'xfail';
+    else st = ok ? 'pass' : 'fail';
+    var key = id + '|' + name;
+    var c = byKey[key];
+    if (!c) { c = byKey[key] = { id: id, name: name }; checks.push(c); }
+    c.status = st;
+    c.detail = detail ? String(detail).slice(0, 160) : '';
+    if (opts.xfail && (st === 'xfail' || st === 'xpass')) c.detail = (c.detail ? c.detail + '; ' : '') + 'expected to fail: ' + opts.xfail;
+    schedulePublish();
+    return st;
+  }
+
+  /** Run fn now (or after start); fn returns true/false, [bool, detail], or null to skip. Exceptions fail the check. */
+  function check(id, name, fn, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) return record(id, name, null, 'sandbox only', opts);
+    if (opts.nativeOnly && sandbox) return record(id, name, null, 'native only', opts);
+    var r;
+    try { r = typeof fn === 'function' ? fn() : fn; } catch (e) { return record(id, name, false, 'threw ' + (e && e.name ? e.name + ': ' : '') + (e && e.message), opts); }
+    if (r === null || r === undefined) return record(id, name, null, 'not applicable', opts);
+    if (Array.isArray(r)) return record(id, name, !!r[0], r[1], opts);
+    return record(id, name, !!r, '', opts);
+  }
+
+  function eq(id, name, actual, expected, opts) {
+    return check(id, name, function () { return [actual === expected, 'got ' + fmt(actual) + ', want ' + fmt(expected)]; }, opts);
+  }
+  function near(id, name, actual, expected, tol, opts) {
+    return check(id, name, function () { return [typeof actual === 'number' && Math.abs(actual - expected) <= tol, 'got ' + fmt(actual) + ', want ' + fmt(expected) + ' ±' + tol]; }, opts);
+  }
+
+  /** A check resolved later (an event, a timer): pending until pass()/fail() or the deadline. */
+  function wait(id, name, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) { record(id, name, null, 'sandbox only', opts); return { pass: function () {}, fail: function () {}, done: true }; }
+    record(id, name, 'pending', opts.hint || '', opts);
+    var h = {
+      done: false,
+      pass: function (d) { if (!h.done) { h.done = true; record(id, name, true, d, opts); maybeFinish(); } },
+      fail: function (d) { if (!h.done) { h.done = true; record(id, name, false, d, opts); maybeFinish(); } },
+      result: function (ok, d) { ok ? h.pass(d) : h.fail(d); },
+      skip: function (d) { if (!h.done) { h.done = true; record(id, name, null, d, opts); maybeFinish(); } },
+    };
+    return h;
+  }
+
+  function rect(el) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    var r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+  }
+  function cs(el, prop, pseudo) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    return getComputedStyle(el, pseudo || null).getPropertyValue(prop).trim();
+  }
+  /** Normalised computed colour "r,g,b,a" (a 0–1, two decimals) from rgb()/rgba(). */
+  function color(el, prop, pseudo) {
+    var v = cs(el, prop || 'background-color', pseudo);
+    var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/.exec(v);
+    if (!m) return v;
+    var a = m[4] === undefined ? 1 : m[4].slice(-1) === '%' ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+    return Math.round(+m[1]) + ',' + Math.round(+m[2]) + ',' + Math.round(+m[3]) + ',' + Math.round(a * 100) / 100;
+  }
+
+  function counts() {
+    var n = { pass: 0, fail: 0, xfail: 0, xpass: 0, skip: 0, pending: 0 };
+    for (var i = 0; i < checks.length; i++) n[checks[i].status]++;
+    return n;
+  }
+
+  function status() {
+    if (finished) return 'done';
+    if (!started) return 'running';
+    var n = counts();
+    if (queue.length) return 'running';
+    if (n.pending === 0) return 'done';
+    return awaiting ? 'awaiting' : 'running';
+  }
+
+  function publish() {
+    panelTimer = 0;
+    var st = status();
+    if (st === 'done') finished = true;
+    var n = counts();
+    var out = { v: 1, id: ID, mode: mode, status: st, n: n, checks: checks.map(function (c) { return [c.id, c.name, c.status, c.detail]; }) };
+    // Interactive widgets: targets are re-measured on every publish, so a runner taps where things are now.
+    if (targetRects && st !== 'done') { try { measureTargets(); } catch (e) {} }
+    if (targetRects) out.targets = targetRects;
+    if (stageRects) out.stages = stageRects;
+    root.setAttribute('data-conformance', JSON.stringify(out));
+    var p = document.getElementById('conf-summary');
+    if (p) {
+      p.textContent = (st === 'done' ? '' : st + ' · ') + 'pass ' + n.pass + ' · fail ' + n.fail + (n.xfail ? ' · xfail ' + n.xfail : '') + (n.xpass ? ' · XPASS ' + n.xpass : '') + (n.skip ? ' · skip ' + n.skip : '') + (n.pending ? ' · pending ' + n.pending : '');
+      p.className = n.fail || n.xpass ? 'bad' : n.pending ? '' : 'good';
+    }
+    var list = document.getElementById('conf-list');
+    if (list) {
+      var lines = [];
+      for (var i = 0; i < checks.length; i++) {
+        var c = checks[i];
+        if (list.hasAttribute('data-all') || c.status === 'fail' || c.status === 'xpass' || c.status === 'pending')
+          lines.push({ 'pass': '✓ ', 'fail': '✗ ', 'xfail': '· ', 'xpass': '! ', 'skip': '– ', 'pending': '… ' }[c.status] + c.id + ' — ' + c.name + (c.detail && c.status !== 'pass' ? ' (' + c.detail + ')' : ''));
+      }
+      list.textContent = lines.join('\n');
+    }
+    if (st === 'done' && typeof console !== 'undefined') console.log('[conformance] ' + ID + ' ' + JSON.stringify(n));
+  }
+  function schedulePublish() { if (!panelTimer) panelTimer = setTimeout(publish, 0); }
+
+  function maybeFinish() {
+    if (!started || queue.length) return;
+    var n = counts();
+    if (n.pending === 0) { finished = true; publish(); }
+    else schedulePublish();
+  }
+
+  /** Mark the remaining pending checks failed (no event arrived) and finish. */
+  function timeout() {
+    for (var i = 0; i < checks.length; i++) if (checks[i].status === 'pending') { checks[i].status = 'fail'; checks[i].detail = (checks[i].detail ? checks[i].detail + '; ' : '') + 'timed out'; }
+    finished = true;
+    publish();
+  }
+
+  /** Steps run in order after the first frames; a step may return a delay in ms before the next one. */
+  function step(fn) { queue.push(fn); }
+  function r4(el) { var r = el.getBoundingClientRect(); return [Math.round(r.left * 10) / 10, Math.round(r.top * 10) / 10, Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }
+  function measureTargets() {
+    targetRects = {};
+    for (var k in targets) { var el = typeof targets[k] === 'string' ? document.querySelector(targets[k]) : targets[k]; if (el) targetRects[k] = r4(el); }
+  }
+  function measure() {
+    measureTargets();
+    stageRects = {};
+    var st = document.querySelectorAll('[data-stage]');
+    for (var i = 0; i < st.length; i++) stageRects[st[i].getAttribute('data-stage')] = r4(st[i]);
+  }
+  function next() {
+    if (!started && targetRects === null) { try { measure(); } catch (e) { record('harness', 'measure threw', false, e && e.message); } }
+    if (!queue.length) { started = true; if (deadline) setTimeout(timeout, deadline); maybeFinish(); return; }
+    var fn = queue.shift();
+    var delay = 0;
+    try { delay = fn() || 0; } catch (e) { record('harness', 'step threw', false, e && e.message); }
+    setTimeout(next, delay);
+  }
+
+  /**
+   * Start after the renderer had a chance to lay out (two frames, a fallback
+   * timer when frames do not come). `awaitInput: ms` keeps the widget in
+   * `awaiting` until its pending checks resolve or the time is up.
+   */
+  function run(opts) {
+    opts = opts || {};
+    if (opts.awaitInput) { awaiting = true; deadline = opts.awaitInput; }
+    else if (opts.deadline) deadline = opts.deadline;
+    publish();
+    var went = false;
+    var go = function () { if (!went) { went = true; setTimeout(next, opts.settle || 60); } };
+    try { requestAnimationFrame(function () { requestAnimationFrame(go); }); } catch (e) {}
+    setTimeout(go, 400);
+  }
+
+  // Reference mode (native rendering for the expected images): a stage with a
+  // <template data-ref="name"> gets the template's markup instead of its own.
+  function swapRefs() {
+    var ts = document.querySelectorAll('template[data-ref]');
+    for (var i = 0; i < ts.length; i++) {
+      var name = ts[i].getAttribute('data-ref');
+      var st = document.querySelector('[data-stage="' + name + '"]');
+      if (st) { st.innerHTML = ts[i].innerHTML; st.setAttribute('data-ref-applied', ''); }
+    }
+  }
+  /** Draw into a stage from script; skipped in reference mode when the stage has a template. */
+  function stage(name, draw) {
+    var el = document.querySelector('[data-stage="' + name + '"]');
+    if (!el) return;
+    if (mode === 'ref' && document.querySelector('template[data-ref="' + name + '"]')) return;
+    try { draw(el); } catch (e) { record('harness', 'stage ' + name + ' threw', false, e && e.message); }
+  }
+  if (mode === 'ref') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', swapRefs); else swapRefs();
+  }
+
+  return {
+    id: ID, sandbox: sandbox, mode: mode, check: check, eq: eq, near: near, wait: wait, ok: function (id, name, cond, detail, opts) { return check(id, name, function () { return [cond, detail]; }, opts); },
+    rect: rect, cs: cs, color: color, step: step, run: run, stage: stage, publish: publish,
+    /** A named element the runner may tap or drag (its rect is published as targets[name] when the run starts). */
+    target: function (name, el) { targets[name] = el; },
+    remeasure: function () { measure(); schedulePublish(); },
+    skip: function (id, name, why) { return record(id, name, null, why); },
+  };
+})();</script><!-- /conformance:harness -->
+<style>
+.conf-probes{font:13px/16px sans-serif}
+[data-stage] canvas{display:block;width:80px;height:60px}
+</style>
+</head>
+<body>
+<div class="conf-stages">
+  <div data-stage="rect" data-covers="html.el.canvas canvas.rect canvas.colors canvas.hidpi"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="path" data-covers="canvas.path"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="line-style" data-covers="canvas.line-style"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="gradients" data-covers="canvas.gradients"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="conic" data-covers="canvas.conic-gradient"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="pattern" data-covers="canvas.pattern"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="transform" data-covers="canvas.transform"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="clip" data-covers="canvas.clip"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="text" data-covers="canvas.text" data-max-diff="0.5" data-colors="#222 #36c"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="alpha" data-covers="canvas.alpha"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="composite" data-covers="canvas.composite"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="shadow" data-covers="canvas.shadow" data-max-diff="0.1"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="filter" data-covers="canvas.filter" data-max-diff="0.1"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="path2d" data-covers="canvas.path2d"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="draw-image" data-covers="canvas.draw-image"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="image-data" data-covers="canvas.image-data"><canvas width="160" height="120"></canvas></div>
+</div>
+<div class="conf-head">12 · Canvas 2D <span id="conf-summary"></span></div>
+<div class="conf-probes">
+  <img id="src-img" width="20" height="10" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAPElEQVR4AcXBQQEAIBCAMKTShTKTnQxlBz9s687wa8/hl0QkIhGJSEQiEpGIRCQiEYlIRCISkYhEJCKRBx5KAo1ZaufhAAAAAElFTkSuQmCC">
+  <canvas id="probe" width="40" height="20" style="width:40px;height:20px"></canvas>
+</div>
+<div id="conf-list"></div>
+<script>
+function ctx(name) { var c = document.querySelector('[data-stage="' + name + '"] canvas').getContext('2d'); c.scale(2, 2); return c; }
+var R = '#cc3333', B = '#3366cc', G = '#33aa33', O = '#ee8833';
+T.stage('rect', function () { var c = ctx('rect'); c.fillStyle = R; c.fillRect(8, 8, 40, 30); c.strokeStyle = B; c.lineWidth = 4; c.strokeRect(30, 20, 40, 30); c.clearRect(14, 14, 10, 10); c.fillStyle = 'rgba(51,170,51,0.8)'; c.fillRect(56, 4, 18, 12); });
+T.stage('path', function () { var c = ctx('path'); c.fillStyle = R; c.beginPath(); c.arc(20, 20, 14, 0, Math.PI * 1.5); c.lineTo(20, 20); c.closePath(); c.fill(); c.strokeStyle = B; c.lineWidth = 3; c.beginPath(); c.moveTo(40, 50); c.bezierCurveTo(50, 10, 70, 10, 76, 50); c.quadraticCurveTo(60, 58, 40, 50); c.stroke(); c.fillStyle = G; c.beginPath(); c.ellipse(20, 46, 14, 8, 0.3, 0, Math.PI * 2); c.fill(); c.beginPath(); c.roundRect(44, 4, 32, 14, 6); c.fill(); c.fillStyle = O; c.beginPath(); c.rect(48, 26, 24, 16); c.rect(54, 30, 12, 8); c.fill('evenodd'); });
+T.stage('line-style', function () { var c = ctx('line-style'); c.strokeStyle = B; c.lineWidth = 8; c.lineCap = 'round'; c.beginPath(); c.moveTo(10, 12); c.lineTo(70, 12); c.stroke(); c.lineCap = 'square'; c.lineJoin = 'bevel'; c.strokeStyle = R; c.beginPath(); c.moveTo(10, 50); c.lineTo(25, 26); c.lineTo(40, 50); c.stroke(); c.lineJoin = 'miter'; c.miterLimit = 10; c.strokeStyle = G; c.beginPath(); c.moveTo(46, 50); c.lineTo(58, 26); c.lineTo(70, 50); c.stroke(); c.setLineDash([6, 4]); c.lineDashOffset = 2; c.lineWidth = 2; c.strokeStyle = '#222'; c.beginPath(); c.moveTo(6, 56); c.lineTo(76, 56); c.stroke(); });
+T.stage('gradients', function () { var c = ctx('gradients'); var g = c.createLinearGradient(0, 0, 80, 0); g.addColorStop(0, R); g.addColorStop(1, B); c.fillStyle = g; c.fillRect(0, 0, 80, 28); var r = c.createRadialGradient(40, 44, 2, 40, 44, 16); r.addColorStop(0, O); r.addColorStop(1, G); c.fillStyle = r; c.fillRect(0, 30, 80, 30); });
+T.stage('conic', function () { var c = ctx('conic'); if (!c.createConicGradient) return; var g = c.createConicGradient(0, 40, 30); g.addColorStop(0, R); g.addColorStop(0.25, O); g.addColorStop(0.5, G); g.addColorStop(0.75, B); g.addColorStop(1, R); c.fillStyle = g; c.beginPath(); c.arc(40, 30, 26, 0, Math.PI * 2); c.fill(); });
+T.stage('pattern', function () { var t = document.createElement('canvas'); t.width = 10; t.height = 10; var tc = t.getContext('2d'); tc.fillStyle = R; tc.fillRect(0, 0, 5, 5); tc.fillRect(5, 5, 5, 5); tc.fillStyle = '#fff'; tc.fillRect(5, 0, 5, 5); tc.fillRect(0, 5, 5, 5); var c = ctx('pattern'); var p = c.createPattern(t, 'repeat'); c.fillStyle = p; c.fillRect(0, 0, 80, 60); });
+T.stage('transform', function () { var c = ctx('transform'); c.save(); c.translate(40, 30); c.rotate(Math.PI / 6); c.fillStyle = R; c.fillRect(-15, -10, 30, 20); c.restore(); c.save(); c.setTransform(1.5 * 2, 0, 0, 1.5 * 2, 0, 0); c.fillStyle = B; c.fillRect(2, 2, 8, 8); c.restore(); c.save(); c.transform(1, 0, 0.5, 1, 0, 0); c.fillStyle = G; c.fillRect(40, 44, 16, 12); c.restore(); c.fillStyle = O; c.fillRect(66, 4, 10, 10); });
+T.stage('clip', function () { var c = ctx('clip'); c.beginPath(); c.arc(40, 30, 22, 0, Math.PI * 2); c.clip(); c.fillStyle = B; c.fillRect(0, 0, 80, 60); c.fillStyle = R; c.fillRect(0, 0, 40, 30); });
+T.stage('text', function () { var c = ctx('text'); c.fillStyle = '#222'; c.font = 'bold 22px sans-serif'; c.textBaseline = 'top'; c.textAlign = 'left'; c.fillText('Ag', 6, 6); c.strokeStyle = B; c.lineWidth = 1; c.font = '20px serif'; c.textAlign = 'right'; c.textBaseline = 'alphabetic'; c.strokeText('Wz', 74, 54); });
+T.stage('alpha', function () { var c = ctx('alpha'); c.fillStyle = R; c.fillRect(8, 8, 40, 30); c.globalAlpha = 0.5; c.fillStyle = B; c.fillRect(28, 20, 44, 32); });
+T.stage('composite', function () { var c = ctx('composite'); c.fillStyle = O; c.fillRect(8, 8, 44, 36); c.globalCompositeOperation = 'destination-out'; c.beginPath(); c.arc(30, 26, 10, 0, Math.PI * 2); c.fill(); c.globalCompositeOperation = 'multiply'; c.fillStyle = B; c.fillRect(36, 24, 36, 30); });
+T.stage('shadow', function () { var c = ctx('shadow'); c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 6; c.shadowOffsetX = 5; c.shadowOffsetY = 5; c.fillStyle = G; c.fillRect(14, 12, 40, 28); });
+T.stage('filter', function () { var c = ctx('filter'); c.filter = 'blur(2px)'; c.fillStyle = R; c.fillRect(16, 14, 48, 32); });
+T.stage('path2d', function () { var c = ctx('path2d'); var p = new Path2D('M10 50 L40 8 L70 50 Z'); c.fillStyle = B; c.fill(p); var q = new Path2D(); q.arc(40, 36, 8, 0, Math.PI * 2); c.fillStyle = O; c.fill(q); c.strokeStyle = R; c.lineWidth = 2; c.stroke(p); });
+var imgDrawn = T.wait('canvas.draw-image', 'drawImage of a loaded <img>');
+T.stage('draw-image', function () {
+  var c = ctx('draw-image');
+  var t = document.createElement('canvas'); t.width = 20; t.height = 20; var tc = t.getContext('2d'); tc.fillStyle = G; tc.fillRect(0, 0, 20, 20); tc.fillStyle = O; tc.fillRect(5, 5, 10, 10);
+  c.drawImage(t, 44, 26, 30, 30);
+  var img = document.getElementById('src-img');
+  var draw = function () { c.imageSmoothingEnabled = false; c.drawImage(img, 6, 6, 32, 16); c.drawImage(img, 0, 0, 20, 20, 6, 30, 16, 16); imgDrawn.pass(); };
+  if (img.complete && img.naturalWidth) draw(); else img.addEventListener('load', draw);
+});
+T.stage('image-data', function () { var c = document.querySelector('[data-stage="image-data"] canvas').getContext('2d'); var d = c.createImageData(60, 40); for (var i = 0; i < d.data.length; i += 4) { var x = (i / 4) % 60; d.data[i] = x < 30 ? 204 : 51; d.data[i + 1] = 51; d.data[i + 2] = x < 30 ? 51 : 204; d.data[i + 3] = 255; } c.putImageData(d, 40, 30); });
+if (T.mode === 'ref') imgDrawn.pass();
+
+T.step(function () {
+  var pc = document.getElementById('probe').getContext('2d');
+  T.eq('canvas.hidpi', 'the backing store keeps its width attribute', document.querySelector('[data-stage="rect"] canvas').width, 160);
+  pc.font = '16px sans-serif';
+  var m = pc.measureText('Hello');
+  T.ok('canvas.text', 'measureText gives a width', m.width > 20 && m.width < 60, String(m.width));
+  T.ok('canvas.text', 'measureText gives ascent/descent', m.actualBoundingBoxAscent > 5 && m.actualBoundingBoxDescent >= 0, m.actualBoundingBoxAscent + ' / ' + m.actualBoundingBoxDescent);
+  pc.beginPath(); pc.rect(5, 5, 10, 10);
+  T.ok('canvas.hit-test', 'isPointInPath inside / outside', pc.isPointInPath(10, 10) === true && pc.isPointInPath(30, 10) === false, pc.isPointInPath(10, 10) + ' ' + pc.isPointInPath(30, 10));
+  pc.lineWidth = 4;
+  T.ok('canvas.hit-test', 'isPointInStroke', pc.isPointInStroke(5, 10) === true, String(pc.isPointInStroke(5, 10)));
+  pc.fillStyle = 'rgb(200,10,20)'; pc.fillRect(0, 0, 4, 4);
+  var px = pc.getImageData(1, 1, 1, 1).data;
+  T.ok('canvas.image-data', 'getImageData reads back a pixel', Math.abs(px[0] - 200) < 3 && Math.abs(px[1] - 10) < 3 && Math.abs(px[2] - 20) < 3 && px[3] === 255, Array.prototype.slice.call(px).join(','));
+  var blobArg = 'none';
+  try { document.getElementById('probe').toBlob(function (b) { blobArg = b === null ? 'null' : 'blob'; }); } catch (e) { blobArg = 'threw'; }
+  var url = '';
+  try { url = document.getElementById('probe').toDataURL(); } catch (e) { url = 'threw'; }
+  T.ok('canvas.readback', 'toDataURL does not hand pixels back', !/^data:image\/png;base64,.{40}/.test(url), url.slice(0, 30), { xfail: 'toDataURL is still answered by the renderer' });
+  var gl = null;
+  try { gl = document.createElement('canvas').getContext('webgl'); } catch (e) { gl = null; }
+  T.eq('canvas.webgl', 'getContext("webgl") is null', gl, null, { sandboxOnly: true });
+  T.ok('canvas.webgl', 'OffscreenCanvas is not available', (function () { try { new OffscreenCanvas(1, 1); return false; } catch (e) { return true; } })(), '', { sandboxOnly: true });
+});
+T.run({ deadline: 3000 });
+</script>
+</body>
+</html>
