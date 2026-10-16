@@ -1,6 +1,6 @@
 # Compat report
 
-Generated 2026-10-12T10:51:52.174Z by `pnpm test:compat`.
+Generated 2026-10-15T23:40:20.101Z by `pnpm test:compat`.
 
 **20 / 20 supported widgets pass (100%).** 2 known-unsupported widgets checked for graceful fallback: 2 ok.
 
@@ -8,28 +8,28 @@ Pass = sandbox loaded without JS errors, the scripted interaction produced the e
 
 | Widget | Pass | Behaviour (sandbox) | Pixel diff | Tolerance | JS ms | Ops | Sync queries (cache hits) | Diagnostics | Note |
 |---|---|---|---|---|---|---|---|---|---|
-| tabs.html | ✅ | ok | 0.00% | 2% | 17 | 137 | 0 (0) |  |  |
-| fragment.html | ✅ | ok | 0.00% | 2% | 9 | 95 | 0 (0) |  |  |
-| calculator.html | ✅ | ok | 0.00% | 2% | 13 | 124 | 0 (0) |  |  |
-| form-validation.html | ✅ | ok | 0.00% | 2% | 12 | 88 | 0 (0) |  |  |
-| sortable-table.html | ✅ | ok | 0.00% | 2% | 17 | 240 | 0 (0) |  |  |
-| quiz.html | ✅ | ok | 0.00% | 2% | 12 | 132 | 0 (0) |  |  |
-| svg-chart.html | ✅ | ok | 0.00% | 2% | 17 | 127 | 6 (0) |  |  |
-| d3-bar.html | ✅ | ok | 0.11% | 2% | 74 | 164 | 1 (0) |  |  |
-| d3-line.html | ✅ | ok | 0.00% | 2% | 71 | 210 | 3 (1) |  |  |
-| chartjs-line.html | ✅ | ok | 1.34% | 5% | 77 | 70 | 25 (37) |  |  |
-| chartjs-bar.html | ✅ | ok | 0.00% | 5% | 56 | 65 | 24 (37) |  |  |
-| css-animation.html | ✅ | ok | 0.00% | 100% | 9 | 50 | 0 (0) |  | spinner frame differs by timing |
-| clock.html | ✅ | ok | 0.40% | 100% | 28 | 62 | 0 (0) |  | time of day differs |
-| raf-animation.html | ✅ | ok | 3.21% | 100% | 41 | 322 | 2 (4) |  | ball position depends on frame timing |
-| drag.html | ✅ | ok | 0.00% | 2% | 9 | 34 | 0 (0) |  |  |
-| inputs.html | ✅ | ok | 0.00% | 2% | 12 | 121 | 0 (0) |  |  |
-| local-storage.html | ✅ | ok | 0.00% | 2% | 10 | 56 | 0 (0) |  |  |
-| dark-mode.html | ✅ | ok | 0.63% | 6% | 11 | 57 | 5 (0) |  | bridge line differs by design (reference has no TelegramWidget) |
-| dark-mode.html (dark theme) | ✅ | ok | 0.62% | 6% | 10 | 57 | 5 (0) |  | host-owned colour scheme; bridge line differs by design |
-| stepper.html | ✅ | ok | 0.00% | 2% | 10 | 73 | 0 (0) |  |  |
-| three-js.html | ✅ | ok | 0.00% | 100% | 6 | 40 | 0 (0) | script-skipped×1: external script not available: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js | expected unsupported: Three.js/WebGL → fallback text |
-| webgl.html | ✅ | ok | 54.06% | 100% | 7 | 40 | 0 (0) | unsupported×1: WebGL | expected unsupported: WebGL → 2D fallback |
+| tabs.html | ✅ | ok | 0.00% | 2% | 23 | 131 | 0 (0) |  |  |
+| fragment.html | ✅ | ok | 0.00% | 2% | 13 | 91 | 0 (0) |  |  |
+| calculator.html | ✅ | ok | 0.00% | 2% | 16 | 122 | 0 (0) |  |  |
+| form-validation.html | ✅ | ok | 0.00% | 2% | 17 | 86 | 0 (0) |  |  |
+| sortable-table.html | ✅ | ok | 0.00% | 2% | 22 | 235 | 0 (0) |  |  |
+| quiz.html | ✅ | ok | 0.00% | 2% | 30 | 130 | 0 (0) |  |  |
+| svg-chart.html | ✅ | ok | 0.00% | 2% | 23 | 125 | 6 (0) |  |  |
+| d3-bar.html | ✅ | ok | 0.11% | 2% | 73 | 160 | 1 (0) |  |  |
+| d3-line.html | ✅ | ok | 0.00% | 2% | 73 | 206 | 3 (1) |  |  |
+| chartjs-line.html | ✅ | ok | 0.41% | 5% | 75 | 68 | 25 (37) |  |  |
+| chartjs-bar.html | ✅ | ok | 0.00% | 5% | 60 | 63 | 24 (37) |  |  |
+| css-animation.html | ✅ | ok | 0.00% | 100% | 11 | 48 | 0 (0) |  | spinner frame differs by timing |
+| clock.html | ✅ | ok | 0.43% | 100% | 25 | 42 | 0 (0) |  | time of day differs |
+| raf-animation.html | ✅ | ok | 3.18% | 100% | 40 | 235 | 4 (4) |  | ball position depends on frame timing |
+| drag.html | ✅ | ok | 0.00% | 2% | 12 | 32 | 0 (0) |  |  |
+| inputs.html | ✅ | ok | 0.00% | 2% | 17 | 107 | 0 (0) |  |  |
+| local-storage.html | ✅ | ok | 0.00% | 2% | 17 | 54 | 0 (0) |  |  |
+| dark-mode.html | ✅ | ok | 0.63% | 6% | 16 | 49 | 5 (0) |  | bridge line differs by design (reference has no TelegramWidget) |
+| dark-mode.html (dark theme) | ✅ | ok | 0.62% | 6% | 12 | 49 | 5 (0) |  | host-owned colour scheme; bridge line differs by design |
+| stepper.html | ✅ | ok | 0.00% | 2% | 16 | 68 | 0 (0) |  |  |
+| three-js.html | ✅ | ok | 0.00% | 100% | 9 | 38 | 0 (0) | script-skipped×1: external script not available: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js | expected unsupported: Three.js/WebGL → fallback text |
+| webgl.html | ✅ | ok | 54.06% | 100% | 8 | 38 | 0 (0) | unsupported×1: WebGL | expected unsupported: WebGL → 2D fallback |
 
 ## Failures and top causes
 

@@ -1,6 +1,6 @@
 # Compat report — htmlbubbles-ported
 
-Generated 2026-10-09T14:59:03.903Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-16T00:02:48.799Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## 01-design-crew: 13 / 13 pass (100%)
 
@@ -72,7 +72,7 @@ Generated 2026-10-09T14:59:03.903Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 06-weekly-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-weekly.html | ✅ | 0.00% | 0 |  |  |  |
 
-## 06-trip-lisbon: 7 / 9 pass (78%)
+## 06-trip-lisbon: 8 / 9 pass (89%)
 
 | Widget | Pass | Pixel diff | Clicks | Errors | Unsupported / blocked | Other diagnostics |
 |---|---|---|---|---|---|---|
@@ -81,10 +81,10 @@ Generated 2026-10-09T14:59:03.903Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 04-ana-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 05-tom-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-ana-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 09-me-bare.html | ❌ | 3.17% | 2 |  |  | cpu-throttled×1 |
-| 10-ana-bare.html | ❌ | 3.80% | 1 |  |  |  |
+| 09-me-bare.html | ❌ | 3.32% | 2 |  |  |  |
+| 10-ana-bare.html | ✅ | 0.07% | 1 |  |  |  |
 | 11-tom-bare.html | ✅ | 0.00% | 1 |  |  |  |
-| 12-ana.html | ✅ | 2.56% | 2 |  |  |  |
+| 12-ana.html | ✅ | 2.26% | 2 |  |  |  |
 
 ## 07-shop: 8 / 8 pass (100%)
 
@@ -92,12 +92,12 @@ Generated 2026-10-09T14:59:03.903Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 |---|---|---|---|---|---|---|
 | 01-shop.html | ✅ | 0.00% | 0 |  |  |  |
 | 02-shop-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 04-shop-bare.html | ✅ | 0.02% | 3 |  |  |  |
+| 04-shop-bare.html | ✅ | 0.11% | 3 |  |  |  |
 | 06-shop-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-shop-bare.html | ✅ | 0.00% | 3 |  |  |  |
 | 08-shop-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 09-shop.html | ✅ | 0.00% | 0 |  |  |  |
-| 10-shop.html | ✅ | 0.02% | 0 |  |  |  |
+| 10-shop.html | ✅ | 0.03% | 0 |  |  |  |
 
 ## 08-analytics: 10 / 10 pass (100%)
 
@@ -138,7 +138,7 @@ Generated 2026-10-09T14:59:03.903Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 06-kai-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-zoe-bare.html | ✅ | 0.00% | 1 |  |  |  |
 | 08-kai.html | ✅ | 0.00% | 4 |  |  |  |
-| 09-sam-bare.html | ✅ | 2.22% | 3 |  |  |  |
+| 09-sam-bare.html | ✅ | 2.23% | 3 |  |  |  |
 
 ## 11-live-scripts: 14 / 15 pass (93%)
 
@@ -149,13 +149,13 @@ Generated 2026-10-09T14:59:03.903Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 04-theo-bare.html | ✅ | 0.00% | 1 |  |  |  |
 | 05-nora.html | ✅ | 0.00% | 0 |  |  |  |
 | 06-nora-bare.html | ✅ | 0.00% | 2 |  |  |  |
-| 07-theo-bare.html | ✅ | 0.00% | 1 |  |  |  |
+| 07-theo-bare.html | ✅ | 0.21% | 1 |  |  |  |
 | 09-pixel.html | ✅ | 0.00% | 0 |  |  |  |
-| 10-pixel-bare.html | ✅ | 0.07% | 2 |  |  |  |
-| 11-nora-bare.html | ✅ | 1.22% | 3 |  |  |  |
+| 10-pixel-bare.html | ✅ | 0.05% | 2 |  |  |  |
+| 11-nora-bare.html | ✅ | 2.69% | 3 |  |  |  |
 | 13-pixel.html | ✅ | 0.00% | 0 |  |  |  |
 | 14-pixel-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 16-pixel-bare.html | ✅ | 0.89% | 1 |  |  |  |
+| 16-pixel-bare.html | ✅ | 0.69% | 1 |  |  |  |
 | 17-pixel-bare.html | ❌ | 0.00% | 2 | Uncaught ReferenceError: frobnicate is not defined |  |  |
 | 18-pixel-bare.html | ✅ | 1.11% | 0 |  | network-blocked: XMLHttpRequest; WebSocket wss://example.invalid | network-blocked×3 |
 | 19-nora.html | ✅ | 0.00% | 0 |  |  |  |
@@ -166,13 +166,13 @@ Generated 2026-10-09T14:59:03.903Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 |---|---|---|---|---|---|---|
 | 01-mo.html | ✅ | 0.00% | 0 |  |  |  |
 | 02-mo-bare.html | ✅ | 0.00% | 1 |  |  |  |
-| 03-mo-bare.html | ❌ | 9.95% | 2 |  |  |  |
-| 05-mo-bare.html | ❌ | 3.25% | 0 |  |  |  |
+| 03-mo-bare.html | ❌ | 10.40% | 2 |  |  |  |
+| 05-mo-bare.html | ❌ | 3.88% | 0 |  |  |  |
 | 06-mo-bare.html | ✅ | 1.17% | 1 |  |  |  |
-| 08-mo.html | ❌ | 8.91% | 0 |  |  |  |
-| 09-mo-bare.html | ✅ | 0.54% | 1 |  |  |  |
+| 08-mo.html | ❌ | 7.91% | 0 |  |  |  |
+| 09-mo-bare.html | ✅ | 0.44% | 1 |  |  |  |
 | 10-mo-bare.html | ❌ | 39.59% | 0 |  |  |  |
-| 11-mo-bare.html | ✅ | 0.22% | 0 |  |  |  |
+| 11-mo-bare.html | ✅ | 0.20% | 0 |  |  |  |
 | 12-mo-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 13-mo-bare.html | ✅ | 1.39% | 3 |  |  |  |
+| 13-mo-bare.html | ✅ | 2.47% | 3 |  |  |  |
 | 14-mo.html | ✅ | 0.00% | 0 |  |  |  |

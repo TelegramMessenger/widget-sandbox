@@ -1,6 +1,6 @@
 # Compat report — generated widgets
 
-Generated 2026-10-11T23:18:05.103Z by `pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-15T23:43:23.820Z by `pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## with-profile: 20 / 20 pass (100%)
 
@@ -17,14 +17,14 @@ Generated 2026-10-11T23:18:05.103Z by `pnpm test:generated`. Pass = loaded witho
 | 09-create-a-unit-converter-for-length-weight.html | ✅ | 0.00% | 4 |  |  |  |
 | 10-show-me-an-interactive-multiplication.html | ✅ | 0.00% | 0 |  |  |  |
 | 11-make-a-to-do-list-widget-where-i-can-add.html | ✅ | 0.00% | 4 |  |  |  |
-| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.28% | 0 |  |  |  |
+| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.24% | 0 |  |  |  |
 | 13-visualize-a-simple-project-timeline-gantt.html | ✅ | 0.00% | 4 |  |  |  |
 | 14-build-a-color-palette-generator-pick-a.html | ✅ | 0.00% | 4 |  |  |  |
 | 15-create-a-flashcard-widget-for-8-spanish.html | ✅ | 0.00% | 3 |  |  |  |
 | 16-make-a-bar-chart-of-the-top-6-programming.html | ✅ | 0.00% | 0 |  |  |  |
 | 17-show-a-tic-tac-toe-game-against-a-simple.html | ✅ | 0.34% | 4 |  |  |  |
 | 18-create-a-currency-converter-for-usd-eur.html | ✅ | 0.00% | 1 |  |  |  |
-| 19-make-a-step-by-step-recipe-card-for.html | ✅ | 1.15% | 4 |  |  |  |
+| 19-make-a-step-by-step-recipe-card-for.html | ✅ | 1.08% | 4 |  |  |  |
 | 20-build-a-habit-tracker-grid-for-one-month.html | ✅ | 0.00% | 4 |  |  |  |
 
 ## without-profile: 20 / 20 pass (100%)
@@ -42,12 +42,12 @@ Generated 2026-10-11T23:18:05.103Z by `pnpm test:generated`. Pass = loaded witho
 | 09-create-a-unit-converter-for-length-weight.html | ✅ | 0.00% | 4 |  |  |  |
 | 10-show-me-an-interactive-multiplication.html | ✅ | 0.00% | 0 |  |  |  |
 | 11-make-a-to-do-list-widget-where-i-can-add.html | ✅ | 0.00% | 4 |  | unsupported: alert/confirm/prompt (blocking dialogs) | unsupported×1 |
-| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.69% | 0 |  | tag-dropped: <link>; <link> | tag-dropped×2 |
+| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.55% | 0 |  | tag-dropped: <link>; <link> | tag-dropped×2 |
 | 13-visualize-a-simple-project-timeline-gantt.html | ✅ | 0.00% | 0 |  |  |  |
 | 14-build-a-color-palette-generator-pick-a.html | ✅ | 0.00% | 0 |  |  |  |
 | 15-create-a-flashcard-widget-for-8-spanish.html | ✅ | 0.00% | 2 |  |  |  |
 | 16-make-a-bar-chart-of-the-top-6-programming.html | ✅ | 0.00% | 0 |  |  |  |
 | 17-show-a-tic-tac-toe-game-against-a-simple.html | ✅ | 0.00% | 1 |  |  |  |
 | 18-create-a-currency-converter-for-usd-eur.html | ✅ | 0.00% | 1 |  | network-blocked: fetch https://api.exchangerate.host/latest?base=USD&symbols=EUR,GBP,JPY | network-blocked×1 |
-| 19-make-a-step-by-step-recipe-card-for.html | ✅ | 1.02% | 4 |  | url-blocked: background: url(https://images.unsplash.com/photo-1528207776546-365bb710ee93?w=800) | url-blocked×1 |
+| 19-make-a-step-by-step-recipe-card-for.html | ✅ | 0.98% | 4 |  | url-blocked: background: url(https://images.unsplash.com/photo-1528207776546-365bb710ee93?w=800) | url-blocked×1 |
 | 20-build-a-habit-tracker-grid-for-one-month.html | ✅ | 0.00% | 0 |  |  |  |
