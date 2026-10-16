@@ -15,6 +15,7 @@
 //   corepack pnpm tsx scripts/conformance/build.ts [--only 04-layout] [--no-refs] [--engines chromium,webkit]
 
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import { chromium, webkit, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
@@ -36,6 +37,15 @@ const HARNESS_JS = fs.readFileSync(path.join(harnessDir, 'harness.js'), 'utf8').
 const HARNESS_CSS = fs.readFileSync(path.join(harnessDir, 'harness.css'), 'utf8').trim();
 const BEGIN = '<!-- conformance:harness -->';
 const END = '<!-- /conformance:harness -->';
+// The client-SDK group (visual/sdk) uses the mini harness, so a widget fits a v1 mini-widget.
+const MINI_JS = fs.readFileSync(path.join(harnessDir, 'mini.js'), 'utf8').replace(/^\/\/.*\n/gm, '').trim();
+const MINI_CSS = fs.readFileSync(path.join(harnessDir, 'mini.css'), 'utf8').trim();
+const MINI_BEGIN = '<!-- conformance:mini -->';
+const MINI_END = '<!-- /conformance:mini -->';
+const SDK_MOCK = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'sdk-mock.js'), 'utf8');
+/** v1 mini-widgets (docs/tgw-format.md): at most 4 KB gzipped and 32 KB of HTML. */
+const MINI_LIMIT = { gzip: 4096, raw: 32768 };
+const isSdk = (w: Widget) => w.id.startsWith('visual/sdk/');
 
 // ───────────── 2. harness region ─────────────
 
@@ -55,6 +65,11 @@ function stageCss(w: Widget): string {
 }
 
 function withHarness(w: Widget): string {
+  if (w.html.includes(MINI_BEGIN)) {
+    const i = w.html.indexOf(MINI_BEGIN), j = w.html.indexOf(MINI_END);
+    if (j < 0) throw new Error(`${w.id}: no ${MINI_END}`);
+    return w.html.slice(0, i) + `${MINI_BEGIN}<style>${MINI_CSS.replace(/\n/g, '')}</style><script>${MINI_JS}</script>${MINI_END}` + w.html.slice(j + MINI_END.length);
+  }
   const region = `${BEGIN}<style>${HARNESS_CSS.replace(/\n/g, '')}${stageCss(w)}</style><script>${HARNESS_JS}</script>${END}`;
   const i = w.html.indexOf(BEGIN), j = w.html.indexOf(END);
   if (i < 0 || j < 0) throw new Error(`${w.id}: no ${BEGIN} … ${END} region`);
@@ -85,10 +100,10 @@ async function waitStatus(page: Page, want: string[], timeout: number): Promise<
   return last;
 }
 
-async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native'): Promise<Page> {
+async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdkMock = false): Promise<Page> {
   const page = await ctx.newPage();
   // The mode goes into the HTML, before the harness. Links never navigate in a native reference run.
-  const boot = `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true)</script>`;
+  const boot = `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true)</script>` + (sdkMock ? `<script>${SDK_MOCK}</script>` : '');
   // Served from a real (fake) origin, not about:blank, so storage works as in a WebView.
   const url = 'https://conformance.test/widget.html';
   await page.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html.replace(/<head>/i, '<head>' + boot) }));
@@ -99,7 +114,7 @@ async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'nati
 interface NativeResult { status: string; checks: [string, string, string, string][]; skipped: string[] }
 
 async function runNative(ctx: BrowserContext, w: Widget, html: string): Promise<NativeResult> {
-  const page = await openNative(ctx, html, 'native');
+  const page = await openNative(ctx, html, 'native', isSdk(w));
   let pub = await waitStatus(page, ['done', 'awaiting'], 15_000);
   let skipped: string[] = [];
   let skippedIds: string[] = [];
@@ -140,6 +155,24 @@ async function renderRefs(browsers: Record<string, Browser>, w: Widget, html: st
       }
       await ctx.close();
     }
+  }
+  return out;
+}
+
+/** Client-SDK group: the whole widget as the reference picture posted next to it (mock SDK, DPR 2, at most 1200 CSS px tall). */
+async function renderSdkRefs(browser: Browser, w: Widget, html: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const theme of (w.meta.themes ?? ['light']) as ('light' | 'dark')[]) {
+    const ctx = await newContext(browser, theme);
+    const page = await openNative(ctx, html, 'ref', true);
+    await waitStatus(page, ['done', 'awaiting'], 15_000);
+    await page.waitForTimeout(300);
+    const h = Math.min(1200, await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height)));
+    const file = path.join(CONF, 'refs', w.set, `${w.stem}${theme === 'dark' ? '.dark' : ''}.png`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    writeIfChanged(file, await page.screenshot({ clip: { x: 0, y: 0, width: WIDTH, height: Math.max(h, 40) }, animations: 'disabled', caret: 'hide' }));
+    out[theme] = path.relative(CONF, file);
+    await ctx.close();
   }
   return out;
 }
@@ -205,6 +238,9 @@ async function main() {
     const w = parseWidget(w0.set, w0.stem, html);
     process.stdout.write(`${w.id}: `);
     const refs = NO_REFS ? (entries.get(w.id)?.stages ?? []).reduce((m: any, s: any) => ({ ...m, [s.name]: s.refs }), {}) : await renderRefs(browsers, w, html);
+    const refImages = isSdk(w) ? (NO_REFS ? entries.get(w.id)?.refImages ?? {} : await renderSdkRefs(browsers.chromium, w, html)) : undefined;
+    const gzip = zlib.gzipSync(Buffer.from(html), { level: 9 }).length;
+    if (isSdk(w) && (gzip > MINI_LIMIT.gzip || Buffer.byteLength(html) > MINI_LIMIT.raw)) problems.push(`${w.id}: ${gzip} B gzipped / ${Buffer.byteLength(html)} B, over the mini-widget limit (${MINI_LIMIT.gzip} / ${MINI_LIMIT.raw})`);
     if (w.set === 'visual') html = embed(w, html);
     writeIfChanged(w.file, html);
 
@@ -232,7 +268,7 @@ async function main() {
     for (const c of checks) if (c.id === 'harness') problems.push(`${w.id}: harness error ${c.name}`);
     for (const c of checks) {
       const f = CATALOGUE.find((x) => x.id === c.id);
-      if (f?.status === 'in' && c.native.chromium === 'fail') problems.push(`${w.id}: in-profile check fails in native Chromium: ${c.id} — ${c.name}`);
+      if (!isSdk(w) && f?.status === 'in' && c.native.chromium === 'fail') problems.push(`${w.id}: in-profile check fails in native Chromium: ${c.id} — ${c.name}`);
     }
     // Visual-set templates are illustrations (end states, motion diagrams), not reftests: only the auto set is checked.
     if (w.set === 'auto') for (const [s, d] of Object.entries(sanity)) if (d > 0.02 && !w.stages.find((x) => x.name === s)?.xfail) problems.push(`${w.id}: stage ${s} drawn natively differs from its template by ${(d * 100).toFixed(1)} %`);
@@ -252,9 +288,11 @@ async function main() {
       checks: checks.map((c) => ({ id: c.id, name: c.name, native: c.native })),
       stages: w.stages.map((s, i) => ({ name: s.name, rect: stagePos(i), size: [s.w, s.h], covers: s.covers, themes: s.themes, reftest: s.reftest, maxDiff: s.maxDiff, colors: s.colors, xfail: s.xfail, refs: refs[s.name] ?? {}, nativeVsTemplate: sanity[s.name] })),
       bytes: Buffer.byteLength(html),
+      gzip,
+      ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending, refImages } : {}),
     });
     const n = native.chromium.checks.reduce((m: Record<string, number>, c) => ({ ...m, [c[2]]: (m[c[2]] ?? 0) + 1 }), {});
-    console.log(`${checks.length} checks (chromium: ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ')}), ${w.stages.length} stages, ${(Buffer.byteLength(html) / 1024).toFixed(1)} KB`);
+    console.log(`${checks.length} checks (chromium: ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ')}), ${w.stages.length} stages, ${(Buffer.byteLength(html) / 1024).toFixed(1)} KB (${(gzip / 1024).toFixed(1)} KB gzipped)`);
   }
   for (const b of Object.values(browsers)) await b.close();
 
@@ -270,6 +308,13 @@ async function main() {
     'limit.cpu': 'corpus/attacks and tests/lifecycle.spec.ts: CPU quota, deferral, kill',
     'limit.memory': 'corpus/attacks (pnpm test:attacks): memory cap',
     'limit.html-size': 'server-side (D20): not a client check',
+    // Client behaviour around the widget: judged by people with the client-SDK group (visual/sdk).
+    'behaviour.restart': 'visual/sdk/11-crash-restart (client behaviour)',
+    'behaviour.gesture-claim': 'visual/sdk/12-drag-gestures (client behaviour)',
+    'behaviour.storage-persist': 'visual/sdk/07, 08, 09 (client behaviour)',
+    'behaviour.storage-forward': 'visual/sdk/15-storage-forward (client behaviour; waits for the server)',
+    'behaviour.message-edit': 'visual/sdk/16-bot-edit (client behaviour; waits for the server)',
+    'behaviour.size-hint': 'visual/sdk/17-size-hint (client behaviour; waits for the server)',
   };
   const needAuto = CATALOGUE.filter((f) => f.status !== 'out' && !auto.has(f.id) && !external[f.id]).map((f) => f.id);
   const outUncovered = CATALOGUE.filter((f) => f.status === 'out' && !auto.has(f.id)).map((f) => f.id);
@@ -282,6 +327,21 @@ async function main() {
     tests,
   };
   fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 1) + '\n');
+  // The client-SDK group's post list for the test channel, from the manifest.
+  const sdk = tests.filter((t) => t.group === 'sdk');
+  if (sdk.length) {
+    const lines = [
+      '# Client SDK group: what each client implements on its side of SDK v1',
+      '',
+      'Generated by `scripts/conformance/build.ts` from the widget headers. Contract: `docs/sdk-v1.md`. Each widget is a v1 mini-widget (at most 4 KB gzipped, 32 KB of HTML); post it as a widget message with its picture as a separate image next to it (two pictures: light and dark). A tester does what the instruction says and checks the client against the expected behaviour. Rows marked *waits* need server support first; they are here so the client side can be built against them.',
+      '',
+      '| # | Widget | Picture | The tester | The client must | Contract | gzip |',
+      '|---|---|---|---|---|---|---|',
+      ...sdk.map((t) => `| ${t.id.split('/').pop().slice(0, 2)} | [${t.title}](${path.basename(t.file)})${t.pending ? `<br>*waits: ${t.pending}*` : ''} | ${Object.entries(t.refImages ?? {}).map(([k, v]) => `[${k}](../../${v})`).join(' · ')} | ${t.hint ?? ''} | ${t.expect ?? ''} | ${t.contract ?? ''} | ${(t.gzip / 1024).toFixed(1)} KB |`.replace(/\n/g, ' ')),
+      '',
+    ];
+    fs.writeFileSync(path.join(CONF, 'visual', 'sdk', 'README.md'), lines.join('\n'));
+  }
   emitCatalogue();
   console.log(`\nmanifest: ${tests.length} widgets; auto covers ${auto.size}, visual ${visual.size} of ${CATALOGUE.length}; in/candidate not in auto: ${needAuto.length}; out not in auto: ${outUncovered.length}`);
   if (needAuto.length) console.log('  not covered by auto: ' + needAuto.join(', '));

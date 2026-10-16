@@ -23,14 +23,20 @@
   }
  },
  "coverage": {
-  "auto": 240,
-  "visual": 87,
-  "catalogue": 244,
+  "auto": 245,
+  "visual": 105,
+  "catalogue": 255,
   "external": {
    "limit.nodes": "corpus/attacks (pnpm test:attacks): node flood",
    "limit.cpu": "corpus/attacks and tests/lifecycle.spec.ts: CPU quota, deferral, kill",
    "limit.memory": "corpus/attacks (pnpm test:attacks): memory cap",
-   "limit.html-size": "server-side (D20): not a client check"
+   "limit.html-size": "server-side (D20): not a client check",
+   "behaviour.restart": "visual/sdk/11-crash-restart (client behaviour)",
+   "behaviour.gesture-claim": "visual/sdk/12-drag-gestures (client behaviour)",
+   "behaviour.storage-persist": "visual/sdk/07, 08, 09 (client behaviour)",
+   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour; waits for the server)",
+   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour; waits for the server)",
+   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour; waits for the server)"
   },
   "notInAuto": [],
   "outNotInAuto": []
@@ -433,7 +439,8 @@
     }
    ],
    "stages": [],
-   "bytes": 22735
+   "bytes": 22735,
+   "gzip": 7785
   },
   {
    "id": "auto/02-attributes-images",
@@ -688,7 +695,8 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 22303
+   "bytes": 22303,
+   "gzip": 7328
   },
   {
    "id": "auto/03-layout",
@@ -1220,7 +1228,8 @@
      }
     }
    ],
-   "bytes": 29190
+   "bytes": 29190,
+   "gzip": 8617
   },
   {
    "id": "auto/04-values-units",
@@ -1477,7 +1486,8 @@
     }
    ],
    "stages": [],
-   "bytes": 18006
+   "bytes": 18006,
+   "gzip": 6055
   },
   {
    "id": "auto/05-colour-backgrounds",
@@ -1887,7 +1897,8 @@
      "nativeVsTemplate": 0.0143
     }
    ],
-   "bytes": 20974
+   "bytes": 20974,
+   "gzip": 6524
   },
   {
    "id": "auto/06-text-fonts",
@@ -2328,7 +2339,8 @@
      }
     }
    ],
-   "bytes": 24479
+   "bytes": 24479,
+   "gzip": 7721
   },
   {
    "id": "auto/07-selectors",
@@ -2616,7 +2628,8 @@
     }
    ],
    "stages": [],
-   "bytes": 19307
+   "bytes": 19307,
+   "gzip": 6342
   },
   {
    "id": "auto/08-at-rules",
@@ -2822,7 +2835,8 @@
     }
    ],
    "stages": [],
-   "bytes": 17854
+   "bytes": 17854,
+   "gzip": 5948
   },
   {
    "id": "auto/09-transforms-effects",
@@ -3184,7 +3198,8 @@
      "nativeVsTemplate": 0.3036
     }
    ],
-   "bytes": 20444
+   "bytes": 20444,
+   "gzip": 6430
   },
   {
    "id": "auto/10-css-animations",
@@ -3439,7 +3454,8 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 18000
+   "bytes": 18000,
+   "gzip": 5778
   },
   {
    "id": "auto/11-web-animations",
@@ -3669,7 +3685,8 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 17854
+   "bytes": 17854,
+   "gzip": 5789
   },
   {
    "id": "auto/12-canvas",
@@ -4166,7 +4183,8 @@
      }
     }
    ],
-   "bytes": 23780
+   "bytes": 23780,
+   "gzip": 7447
   },
   {
    "id": "auto/13-svg",
@@ -4478,7 +4496,8 @@
      "nativeVsTemplate": 0.641
     }
    ],
-   "bytes": 18710
+   "bytes": 18710,
+   "gzip": 6483
   },
   {
    "id": "auto/14-dom-layout-api",
@@ -4753,7 +4772,8 @@
     }
    ],
    "stages": [],
-   "bytes": 20067
+   "bytes": 20067,
+   "gzip": 6788
   },
   {
    "id": "auto/15-js-runtime",
@@ -4886,6 +4906,20 @@
     {
      "id": "limit.storage",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.storage",
+     "name": "the refused value is not stored",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.storage",
+     "name": "sessionStorage has the same 16 KB quota",
      "native": {
       "chromium": "skip"
      }
@@ -5172,13 +5206,14 @@
     }
    ],
    "stages": [],
-   "bytes": 23613
+   "bytes": 24214,
+   "gzip": 7978
   },
   {
    "id": "auto/16-sdk-taps",
    "set": "auto",
    "file": "auto/16-sdk-taps.html",
-   "title": "TelegramWidget SDK (ready, theme, themeParams, openLink with a gesture, openTelegramLink, haptics, profile, no sendMessage); taps: click, pointer and mouse events, :active, details toggle, links; dblclick; context menu, keyboard and wheel out",
+   "title": "TelegramWidget SDK v1 (ready, colorScheme, themeParams, isActive, onEvent, openLink and openTelegramLink with their URL rules and the 256-character limit, haptics, profile, no sendMessage); taps: click, pointer and mouse events, :active, details toggle, links; double tap, context menu, keyboard and wheel stay out",
    "hint": "Tap every button from top to bottom, then double-tap “dbl”, long-press or right-click “ctx”, press a key, scroll over “wheel”, tap Finish.",
    "kind": [
     "self",
@@ -5197,8 +5232,12 @@
     "input.tap",
     "input.user-activation",
     "input.wheel-scroll",
+    "limit.haptic-rate",
+    "limit.url-length",
     "sel.active",
+    "tw.events",
     "tw.haptic",
+    "tw.is-active",
     "tw.open-link",
     "tw.open-telegram-link",
     "tw.profile",
@@ -5289,7 +5328,8 @@
      "ids": [
       "input.long-press",
       "input.keyboard",
-      "input.wheel-scroll"
+      "input.wheel-scroll",
+      "input.dblclick"
      ]
     }
    ],
@@ -5331,6 +5371,15 @@
       "arg": "https://example.org/conformance/prevented",
       "count": 0
      }
+    },
+    {
+     "id": "limit.haptic-rate",
+     "name": "a burst of 20 haptics reaches the client as 5",
+     "bridge": {
+      "method": "haptic",
+      "count": 5
+     },
+     "xfail": "SDK v1 haptics not implemented yet"
     }
    ],
    "checks": [
@@ -5399,9 +5448,9 @@
     },
     {
      "id": "input.dblclick",
-     "name": "dblclick arrives",
+     "name": "no dblclick reaches the widget (the double tap stays with the bubble)",
      "native": {
-      "chromium": "pass"
+      "chromium": "xfail"
      }
     },
     {
@@ -5487,10 +5536,88 @@
      "native": {
       "chromium": "skip"
      }
+    },
+    {
+     "id": "tw.theme",
+     "name": "colorScheme is \"light\" or \"dark\" and equals theme",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.is-active",
+     "name": "isActive is true while the widget is on screen",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.events",
+     "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.theme-params",
+     "name": "themeParams carries every key as #rrggbb",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 257-character URL throws TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 256-character URL is accepted (dropped later without a press)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.open-telegram-link",
+     "name": "openTelegramLink accepts any t.me / telegram.me path",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.open-telegram-link",
+     "name": "openTelegramLink rejects other hosts and tg: with TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.haptic",
+     "name": "haptic methods return HapticFeedback for chaining",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.haptic",
+     "name": "an unknown style or type throws TypeError",
+     "native": {
+      "chromium": "skip"
+     }
     }
    ],
    "stages": [],
-   "bytes": 21440
+   "bytes": 25613,
+   "gzip": 8239
   },
   {
    "id": "auto/17-drag-hover",
@@ -5652,7 +5779,8 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 17620
+   "bytes": 17620,
+   "gzip": 6116
   },
   {
    "id": "auto/18-out-of-profile",
@@ -5815,7 +5943,8 @@
     }
    ],
    "stages": [],
-   "bytes": 17330
+   "bytes": 17330,
+   "gzip": 5860
   },
   {
    "id": "auto/19-limits",
@@ -5900,7 +6029,8 @@
     }
    ],
    "stages": [],
-   "bytes": 14821
+   "bytes": 14821,
+   "gzip": 5182
   },
   {
    "id": "auto/20-client-behaviour",
@@ -5915,7 +6045,10 @@
    "covers": [
     "behaviour.auto-height",
     "behaviour.offscreen-pause",
-    "behaviour.theme-switch"
+    "behaviour.theme-switch",
+    "limit.event-handlers",
+    "tw.is-active",
+    "tw.theme-params"
    ],
    "themes": [
     "light"
@@ -5929,7 +6062,9 @@
     {
      "theme": "dark",
      "ids": [
-      "behaviour.theme-switch"
+      "behaviour.theme-switch",
+      "limit.event-handlers",
+      "tw.theme-params"
      ]
     },
     {
@@ -5947,7 +6082,8 @@
     {
      "visible": false,
      "ids": [
-      "behaviour.offscreen-pause"
+      "behaviour.offscreen-pause",
+      "tw.is-active"
      ]
     },
     {
@@ -6020,10 +6156,32 @@
      "native": {
       "chromium": "skip"
      }
+    },
+    {
+     "id": "limit.event-handlers",
+     "name": "onEvent keeps at most 16 handlers per type: 20 registered, 16 called on a theme change",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.theme-params",
+     "name": "themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.is-active",
+     "name": "deactivated / activated fire and isActive follows visibility",
+     "native": {
+      "chromium": "skip"
+     }
     }
    ],
    "stages": [],
-   "bytes": 15961
+   "bytes": 17472,
+   "gzip": 6072
   },
   {
    "id": "auto/21-no-keyboard",
@@ -6112,8 +6270,7 @@
       "arg": "https://example.org/conformance/key",
       "count": 0
      },
-     "gesture": true,
-     "xfail": "a keydown still counts as a user gesture"
+     "gesture": true
     }
    ],
    "checks": [
@@ -6140,7 +6297,8 @@
     }
    ],
    "stages": [],
-   "bytes": 15492
+   "bytes": 15500,
+   "gzip": 5448
   },
   {
    "id": "visual/01-boxes",
@@ -6247,7 +6405,8 @@
      }
     }
    ],
-   "bytes": 38664
+   "bytes": 38664,
+   "gzip": 18512
   },
   {
    "id": "visual/02-colours-gradients",
@@ -6370,7 +6529,8 @@
      }
     }
    ],
-   "bytes": 75435
+   "bytes": 75435,
+   "gzip": 38737
   },
   {
    "id": "visual/03-text",
@@ -6501,7 +6661,8 @@
      }
     }
    ],
-   "bytes": 90231
+   "bytes": 90231,
+   "gzip": 55749
   },
   {
    "id": "visual/04-layout",
@@ -6615,7 +6776,8 @@
      }
     }
    ],
-   "bytes": 48501
+   "bytes": 48501,
+   "gzip": 23665
   },
   {
    "id": "visual/05-transforms-effects",
@@ -6746,7 +6908,8 @@
      }
     }
    ],
-   "bytes": 45616
+   "bytes": 45616,
+   "gzip": 20886
   },
   {
    "id": "visual/06-css-animations",
@@ -6821,7 +6984,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
      },
-     "nativeVsTemplate": 0.8421
+     "nativeVsTemplate": 0.8422
     },
     {
      "name": "steps",
@@ -6874,7 +7037,8 @@
      "nativeVsTemplate": 0.9827
     }
    ],
-   "bytes": 38039
+   "bytes": 38039,
+   "gzip": 16724
   },
   {
    "id": "visual/07-web-animations",
@@ -6921,7 +7085,7 @@
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
      },
-     "nativeVsTemplate": 0
+     "nativeVsTemplate": 0.0248
     },
     {
      "name": "seek",
@@ -6975,7 +7139,8 @@
      "nativeVsTemplate": 0.0153
     }
    ],
-   "bytes": 35207
+   "bytes": 35207,
+   "gzip": 15795
   },
   {
    "id": "visual/08-canvas",
@@ -7111,7 +7276,8 @@
      }
     }
    ],
-   "bytes": 73387
+   "bytes": 73387,
+   "gzip": 40441
   },
   {
    "id": "visual/09-svg",
@@ -7239,10 +7405,11 @@
      "refs": {
       "chromium": "refs/visual/09-svg/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.6865
+     "nativeVsTemplate": 0.6877
     }
    ],
-   "bytes": 61088
+   "bytes": 61088,
+   "gzip": 33619
   },
   {
    "id": "visual/10-images",
@@ -7338,7 +7505,8 @@
      }
     }
    ],
-   "bytes": 32891
+   "bytes": 32891,
+   "gzip": 12684
   },
   {
    "id": "visual/11-interaction",
@@ -7418,7 +7586,8 @@
     }
    ],
    "stages": [],
-   "bytes": 16152
+   "bytes": 16152,
+   "gzip": 5583
   },
   {
    "id": "visual/12-theme",
@@ -7468,7 +7637,8 @@
      }
     }
    ],
-   "bytes": 24609
+   "bytes": 24609,
+   "gzip": 11506
   },
   {
    "id": "visual/13-out-of-profile",
@@ -7573,7 +7743,656 @@
      "nativeVsTemplate": 0.4356
     }
    ],
-   "bytes": 37784
+   "bytes": 37784,
+   "gzip": 17313
+  },
+  {
+   "id": "visual/sdk/01-link-external",
+   "set": "visual",
+   "file": "visual/sdk/01-link-external.html",
+   "title": "openLink: the confirmation shows the full URL",
+   "hint": "Tap each button. Each time the client asks first and shows the whole URL (path, query; the IDN host in its xn-- form), then opens the browser.",
+   "kind": [],
+   "covers": [
+    "html.el.a-external",
+    "tw.open-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3436,
+   "gzip": 1746,
+   "group": "sdk",
+   "expect": "A native confirmation with the full URL and Open / Cancel; Open goes to the browser (or the in-app browser, as the client usually does).",
+   "contract": "docs/sdk-v1.md §2.5, §5.2",
+   "refImages": {
+    "light": "refs/visual/sdk/01-link-external.png"
+   }
+  },
+  {
+   "id": "visual/sdk/02-link-telegram",
+   "set": "visual",
+   "file": "visual/sdk/02-link-telegram.html",
+   "title": "openTelegramLink: t.me links open inside the client",
+   "hint": "Tap each button: the link opens inside Telegram (a channel, a post, a user), never in a browser.",
+   "kind": [],
+   "covers": [
+    "tw.open-telegram-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3209,
+   "gzip": 1581,
+   "group": "sdk",
+   "expect": "The client's own t.me handling, with its usual confirmations; no external browser.",
+   "contract": "docs/sdk-v1.md §2.5, §5.2",
+   "refImages": {
+    "light": "refs/visual/sdk/02-link-telegram.png"
+   }
+  },
+  {
+   "id": "visual/sdk/03-link-rejected",
+   "set": "visual",
+   "file": "visual/sdk/03-link-rejected.html",
+   "title": "Invalid links and links over 256 characters are rejected",
+   "hint": "Tap Try all: no dialog may appear for the bad links; then tap the 256-character link: that one asks.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "limit.url-length",
+    "tw.open-link",
+    "tw.open-telegram-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
+    {
+     "tap": "all",
+     "ids": [
+      "tw.open-link",
+      "tw.open-telegram-link",
+      "limit.url-length"
+     ]
+    },
+    {
+     "tap": "ok",
+     "ids": [
+      "limit.url-length"
+     ]
+    }
+   ],
+   "host": [],
+   "checks": [
+    {
+     "id": "tw.open-link",
+     "name": "openLink(http://example.org/) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(https://user:pw@example.org/) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(javascript:alert(1)) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(tg://resolve?domain=telegram) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(https://t.me/telegram) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-telegram-link",
+     "name": "openTelegramLink(https://example.org/) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "openLink(257 characters) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 256-character URL is accepted (the client asks)",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 4110,
+   "gzip": 1897,
+   "group": "sdk",
+   "expect": "No dialog for a non-https URL, user info, javascript:, tg:, a t.me URL through openLink or a 257-character URL (the widget gets a TypeError); a dialog for the 256-character one.",
+   "contract": "docs/sdk-v1.md §2.5, §2.11",
+   "refImages": {
+    "light": "refs/visual/sdk/03-link-rejected.png"
+   }
+  },
+  {
+   "id": "visual/sdk/04-link-timer",
+   "set": "visual",
+   "file": "visual/sdk/04-link-timer.html",
+   "title": "Links need a press: a timer cannot open one, one press opens one link",
+   "hint": "Tap the first button and wait 2 s: nothing opens. Tap the second: exactly one dialog, not two.",
+   "kind": [],
+   "covers": [
+    "input.user-activation",
+    "tw.open-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3174,
+   "gzip": 1551,
+   "group": "sdk",
+   "expect": "No dialog from the timer (the host drops it as activation-blocked); one dialog for the two calls of one press.",
+   "contract": "docs/sdk-v1.md §2.5 (user activation)",
+   "refImages": {
+    "light": "refs/visual/sdk/04-link-timer.png"
+   }
+  },
+  {
+   "id": "visual/sdk/05-haptics",
+   "set": "visual",
+   "file": "visual/sdk/05-haptics.html",
+   "title": "Haptics: every impact style, notification type and selection",
+   "hint": "On a phone tap each button: each one is felt, and they feel different. Desktop and web: nothing happens, no error.",
+   "kind": [],
+   "covers": [
+    "tw.haptic"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3341,
+   "gzip": 1631,
+   "group": "sdk",
+   "expect": "impact light/medium/heavy/rigid/soft, notification error/success/warning, selection played with the platform's generators; nothing on desktop and web.",
+   "contract": "docs/sdk-v1.md §2.6, §5.3",
+   "refImages": {
+    "light": "refs/visual/sdk/05-haptics.png"
+   }
+  },
+  {
+   "id": "visual/sdk/06-haptics-rate",
+   "set": "visual",
+   "file": "visual/sdk/06-haptics-rate.html",
+   "title": "Haptics rate limit: a burst of 5, then 10 per second",
+   "hint": "On a phone: Burst asks for 20 at once, you feel 5. Stream asks for 100 over 2 s, you feel about 25. Hidden: tap, scroll the bubble away within a second, nothing is felt.",
+   "kind": [],
+   "covers": [
+    "limit.haptic-rate",
+    "tw.haptic"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3413,
+   "gzip": 1693,
+   "group": "sdk",
+   "expect": "A bucket of 5 refilled at 10 per second; the rest dropped silently; nothing from a hidden widget.",
+   "contract": "docs/sdk-v1.md §2.6",
+   "refImages": {
+    "light": "refs/visual/sdk/06-haptics-rate.png"
+   }
+  },
+  {
+   "id": "visual/sdk/07-storage-recreate",
+   "set": "visual",
+   "file": "visual/sdk/07-storage-recreate.html",
+   "title": "Storage survives the widget being dropped and re-created",
+   "hint": "Tap +1 three times. Scroll far up the chat until the bubble is rebuilt (Started goes up), scroll back: both counters are still 3.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-persist",
+    "js.storage.local",
+    "js.storage.session"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3300,
+   "gzip": 1579,
+   "group": "sdk",
+   "expect": "localStorage and sessionStorage come back with the re-created widget (the client passes its copy at creation).",
+   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "refImages": {
+    "light": "refs/visual/sdk/07-storage-recreate.png"
+   }
+  },
+  {
+   "id": "visual/sdk/08-storage-restart",
+   "set": "visual",
+   "file": "visual/sdk/08-storage-restart.html",
+   "title": "localStorage survives an app restart, sessionStorage does not",
+   "hint": "Tap +1 twice. Quit the app completely and open this chat again: local is still 2, session is 0.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-persist",
+    "js.storage.local",
+    "js.storage.session"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3141,
+   "gzip": 1526,
+   "group": "sdk",
+   "expect": "localStorage is on disk per (account, chat, message); sessionStorage is in memory until the app restarts.",
+   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "refImages": {
+    "light": "refs/visual/sdk/08-storage-restart.png"
+   }
+  },
+  {
+   "id": "visual/sdk/09-storage-delete",
+   "set": "visual",
+   "file": "visual/sdk/09-storage-delete.html",
+   "title": "Storage is deleted with the message",
+   "hint": "Tap Fill (about 15 KB). Delete this message: the client's widget-storage debug listing (or its storage stats) no longer has an entry for it. The same after Clear cache.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-persist"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3177,
+   "gzip": 1584,
+   "group": "sdk",
+   "expect": "Both areas are deleted with the message, with the chat or its history, with the account and on Clear cache.",
+   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "refImages": {
+    "light": "refs/visual/sdk/09-storage-delete.png"
+   }
+  },
+  {
+   "id": "visual/sdk/10-storage-quota",
+   "set": "visual",
+   "file": "visual/sdk/10-storage-quota.html",
+   "title": "QuotaExceededError at 16 KB",
+   "hint": "Tap Fill: it writes 1 KB values until the client refuses; the line must say QuotaExceededError at 16 KB, for local and for session.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "limit.storage"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
+    {
+     "tap": "f",
+     "ids": [
+      "limit.storage"
+     ]
+    }
+   ],
+   "host": [],
+   "checks": [
+    {
+     "id": "limit.storage",
+     "name": "localStorage: QuotaExceededError after 40080 bytes",
+     "native": {
+      "chromium": "fail"
+     }
+    },
+    {
+     "id": "limit.storage",
+     "name": "sessionStorage: QuotaExceededError after 40080 bytes",
+     "native": {
+      "chromium": "fail"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 3357,
+   "gzip": 1665,
+   "group": "sdk",
+   "expect": "16384 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
+   "contract": "docs/sdk-v1.md §2.8",
+   "refImages": {
+    "light": "refs/visual/sdk/10-storage-quota.png"
+   }
+  },
+  {
+   "id": "visual/sdk/11-crash-restart",
+   "set": "visual",
+   "file": "visual/sdk/11-crash-restart.html",
+   "title": "After 2 crashes in a row the widget stays stopped",
+   "hint": "Tap Crash: the frame freezes with the Widget stopped badge. Scroll away and back: it starts again (Started 2). Crash again, scroll away and back: it stays stopped with the badge.",
+   "kind": [],
+   "covers": [
+    "behaviour.restart"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3232,
+   "gzip": 1592,
+   "group": "sdk",
+   "expect": "The frozen last frame with the localised badge; one rebuild after the first crash; none after the second, until the app restarts or the message gets new HTML.",
+   "contract": "docs/sdk-v1.md §2.7, §5.7",
+   "refImages": {
+    "light": "refs/visual/sdk/11-crash-restart.png"
+   }
+  },
+  {
+   "id": "visual/sdk/12-drag-gestures",
+   "set": "visual",
+   "file": "visual/sdk/12-drag-gestures.html",
+   "title": "Drag inside the widget versus the bubble's gestures",
+   "hint": "Drag the knob left and right: no swipe-to-reply, the list does not scroll. Swipe left on the grey area: swipe-to-reply. Double tap: the reaction appears. Long press: the bubble menu. The counters stay 0.",
+   "kind": [],
+   "covers": [
+    "behaviour.gesture-claim",
+    "input.dblclick",
+    "input.drag",
+    "input.long-press"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 4276,
+   "gzip": 1966,
+   "group": "sdk",
+   "expect": "The widget claims horizontal drags of the knob (touch-action: none, preventDefault); elsewhere the chat keeps swipe-to-reply and scrolling; double tap and long press stay with the bubble and never reach the widget.",
+   "contract": "docs/sdk-v1.md §3.5, §5.5",
+   "refImages": {
+    "light": "refs/visual/sdk/12-drag-gestures.png"
+   }
+  },
+  {
+   "id": "visual/sdk/13-max-height",
+   "set": "visual",
+   "file": "visual/sdk/13-max-height.html",
+   "title": "Taller than the cap: a hard clip",
+   "hint": "The widget is 3000 px tall. The bubble shows the top up to the client's maximum height and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
+   "kind": [],
+   "covers": [
+    "behaviour.auto-height"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3067,
+   "gzip": 1559,
+   "group": "sdk",
+   "expect": "The bubble's height is the client's cap (maximumHeight / maxHeightDp; 900 px on the web); content below is clipped.",
+   "contract": "docs/sdk-v1.md §5.6",
+   "refImages": {
+    "light": "refs/visual/sdk/13-max-height.png"
+   }
+  },
+  {
+   "id": "visual/sdk/14-theme-palette",
+   "set": "visual",
+   "file": "visual/sdk/14-theme-palette.html",
+   "title": "Theme palette: themeParams and --tg-theme-* follow the chat live",
+   "hint": "Each row: the swatch from themeParams and the one from the CSS variable are the same colour and match the chat. Switch the theme or night mode: all rows change at once, the counter goes up.",
+   "kind": [],
+   "covers": [
+    "behaviour.theme-switch",
+    "tw.events",
+    "tw.theme",
+    "tw.theme-params"
+   ],
+   "themes": [
+    "light",
+    "dark"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 4135,
+   "gzip": 1912,
+   "group": "sdk",
+   "expect": "Every themeParams key as #rrggbb, the same values as --tg-theme-* on the root, updated in one task with themeChanged.",
+   "contract": "docs/sdk-v1.md §2.3, §5.1",
+   "refImages": {
+    "light": "refs/visual/sdk/14-theme-palette.png",
+    "dark": "refs/visual/sdk/14-theme-palette.dark.png"
+   }
+  },
+  {
+   "id": "visual/sdk/15-storage-forward",
+   "set": "visual",
+   "file": "visual/sdk/15-storage-forward.html",
+   "title": "A forwarded copy has its own storage",
+   "hint": "Tap +1 three times, then forward this message to another chat: the copy shows 0, the original still 3. +1 on the copy does not change the original.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-forward"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 2935,
+   "gzip": 1462,
+   "group": "sdk",
+   "expect": "Storage keyed by (account, chat, message id): the destination chat's copy starts empty.",
+   "contract": "docs/sdk-v1.md §2.8",
+   "pending": "the server: forwarding messages with a widget block",
+   "refImages": {
+    "light": "refs/visual/sdk/15-storage-forward.png"
+   }
+  },
+  {
+   "id": "visual/sdk/16-bot-edit",
+   "set": "visual",
+   "file": "visual/sdk/16-bot-edit.html",
+   "title": "A bot edit: same HTML keeps the widget, new HTML restarts it on the same storage",
+   "hint": "Tap +1 twice. Ask the bot to edit the message with the same HTML: nothing restarts (Started stays). Ask for the edit with version 2: it shows v2, Started goes up, the count is still 2.",
+   "kind": [],
+   "covers": [
+    "behaviour.message-edit"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3142,
+   "gzip": 1545,
+   "group": "sdk",
+   "expect": "An edit with the same HTML keeps the running widget; with different HTML the widget restarts on the same storage.",
+   "contract": "docs/sdk-v1.md §2.8",
+   "pending": "the server: bots editing messages with a widget block",
+   "refImages": {
+    "light": "refs/visual/sdk/16-bot-edit.png"
+   }
+  },
+  {
+   "id": "visual/sdk/17-size-hint",
+   "set": "visual",
+   "file": "visual/sdk/17-size-hint.html",
+   "title": "The bubble takes the bot's size hint before load, then the real height",
+   "hint": "The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time.",
+   "kind": [],
+   "covers": [
+    "behaviour.auto-height",
+    "behaviour.size-hint"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 2935,
+   "gzip": 1500,
+   "group": "sdk",
+   "expect": "Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
+   "contract": "docs/sdk-v1.md §5.6",
+   "pending": "the server: the width / height fields of the widget block",
+   "refImages": {
+    "light": "refs/visual/sdk/17-size-hint.png"
+   }
   }
  ]
 }

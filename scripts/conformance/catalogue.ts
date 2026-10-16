@@ -300,11 +300,13 @@ js('fullscreen', 'requestFullscreen', 'out', 'D12a', 'stub', { match: { apis: ['
 // ───────────── TelegramWidget SDK ─────────────
 const tw = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('sdk', 'tw.' + id, title, st, d, t, x);
 tw('ready', 'TelegramWidget.ready()', 'in', 'D8', 'kept', { match: { apis: ['TelegramWidget.ready'] } });
-tw('theme', 'TelegramWidget.theme and onTheme(cb): "light" | "dark", called on change', 'in', 'D14', 'kept', { match: { apis: ['TelegramWidget.theme', 'TelegramWidget.onTheme'] } });
-tw('theme-params', 'themeParams palette and --tg-theme-* CSS variables, theme change event', 'in', 'D14', 'missing', { match: { apis: ['TelegramWidget.themeParams'], properties: ['--tg-theme-*'] } });
-tw('open-link', 'openLink(url): https only, in the task of a real tap, confirmed by the client with the full URL', 'in', 'D8', 'kept', { match: { apis: ['TelegramWidget.openLink'] } });
-tw('open-telegram-link', 'openTelegramLink(url) for t.me links', 'in', 'D8', 'missing', { match: { apis: ['TelegramWidget.openTelegramLink'] } });
-tw('haptic', 'Haptic feedback, rate-limited', 'in', 'D8', 'missing', { match: { apis: ['TelegramWidget.HapticFeedback'] } });
+tw('theme', 'TelegramWidget.colorScheme ("light" | "dark"); theme and onTheme(cb) kept as deprecated aliases', 'in', 'SDK', 'kept', { match: { apis: ['TelegramWidget.colorScheme', 'TelegramWidget.theme', 'TelegramWidget.onTheme'] }, note: 'Today only theme / onTheme exist.' });
+tw('theme-params', 'themeParams (every Mini Apps key, #rrggbb) and the --tg-theme-* / --tg-color-scheme variables on the root, updated in one task with themeChanged', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.themeParams'], properties: ['--tg-theme-*', '--tg-color-scheme'] } });
+tw('events', 'onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.onEvent', 'TelegramWidget.offEvent'] } });
+tw('is-active', 'TelegramWidget.isActive mirrors visibility (activated / deactivated)', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.isActive'] } });
+tw('open-link', 'openLink(url): an absolute https URL of at most 256 characters, no user info, not a t.me host; one call per pointer press; the client confirms showing the full URL', 'in', 'SDK', 'kept', { match: { apis: ['TelegramWidget.openLink'] }, note: 'Invalid arguments throw TypeError (v1); today any string goes to the host.' });
+tw('open-telegram-link', 'openTelegramLink(url): any https://t.me/… (telegram.me, telegram.dog) path, at most 256 characters, opened inside the client; tg: URLs refused', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.openTelegramLink'] } });
+tw('haptic', 'HapticFeedback: impactOccurred(light|medium|heavy|rigid|soft), notificationOccurred(error|success|warning), selectionChanged(); no gesture needed, visible widgets only', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.HapticFeedback'] }, note: 'Desktop and web accept the calls and play nothing.' });
 tw('profile', 'TelegramWidget.profile (integer) and isProfileAtLeast(n)', 'in', 'D23', 'missing', { match: { apis: ['TelegramWidget.profile', 'TelegramWidget.isProfileAtLeast'] } });
 tw('send-message', 'TelegramWidget.sendMessage', 'out', 'D8', 'kept', { match: { apis: ['TelegramWidget.sendMessage'] }, neutralise: 'removed from the SDK' });
 
@@ -316,8 +318,8 @@ inp('mouse-compat', 'mousedown / mouseup compatibility events of a tap', 'in', '
 inp('touch-events', 'touchstart / touchmove / touchend (touch clients only)', 'candidate', 'proposed', 'kept', { match: { events: ['touchstart', 'touchmove', 'touchend', 'touchcancel'] }, note: 'Desktop clients have none; widgets should use pointer events.' });
 inp('drag', 'Drag: pointermove with buttons while pressed, setPointerCapture, movementX/Y', 'in', 'D4', 'kept', { match: { events: ['pointermove'], apis: ['setPointerCapture', 'releasePointerCapture'] }, note: 'v1 (not the PoC): drag with gesture arbitration.' });
 inp('hover-events', 'pointerover/enter/leave/out, mouseover/enter/leave (desktop pointer only)', 'in', 'D3', 'kept', { match: { events: ['pointerover', 'pointerenter', 'pointerleave', 'pointerout', 'mouseover', 'mouseenter', 'mouseleave', 'mouseout', 'mousemove'] } });
-inp('dblclick', 'dblclick', 'candidate', 'proposed', 'kept', { match: { events: ['dblclick'] }, note: 'Double tap is the bubble\'s reaction gesture (designers).' });
-inp('long-press', 'contextmenu / long press', 'out', 'proposed', 'kept', { match: { events: ['contextmenu'] }, neutralise: 'the bubble menu wins; no contextmenu event' });
+inp('dblclick', 'dblclick / double tap', 'out', 'SDK', 'kept', { match: { events: ['dblclick'] }, neutralise: 'the double tap stays with the bubble (reaction); it never reaches the widget' });
+inp('long-press', 'contextmenu / long press', 'out', 'SDK', 'kept', { match: { events: ['contextmenu'] }, neutralise: 'the long press stays with the bubble (its menu); no contextmenu event' });
 inp('keyboard', 'Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys', 'out', 'D4', 'kept', { match: { events: ['keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'focus', 'blur', 'focusin', 'focusout'] }, neutralise: 'the renderer never forwards key events; the widget never owns keyboard focus' });
 inp('key-activation', 'Enter / Space activate a focused button or link (a click from the keyboard)', 'out', 'D4', 'kept', { match: { events: ['click'] }, neutralise: 'keys do nothing in a widget: no synthetic click from Enter or Space' });
 inp('key-gesture', 'A key press counts as a user gesture for privileged bridge calls', 'out', 'D4', 'kept', { match: { apis: ['TelegramWidget.openLink'] }, neutralise: 'only taps (pointer presses) grant a gesture', note: 'Today a keydown (not Escape, not a repeat or a Command shortcut) unlocks one privileged call (protocol.md, User activation).' });
@@ -333,7 +335,10 @@ lim('nodes', 'At most 50 000 nodes', 'in', 'today', 'kept');
 lim('timers', 'At most 256 live timers (RangeError past it)', 'in', 'today', 'kept');
 lim('cpu', 'CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice', 'in', 'today', 'kept');
 lim('memory', 'QuickJS heap 64 MB', 'in', 'today', 'kept');
-lim('storage', 'localStorage 16 KB per message (QuotaExceededError)', 'in', 'D17', 'missing');
+lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'missing');
+lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'missing');
+lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'missing');
+lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)', 'in', 'SDK', 'missing');
 lim('html-size', 'HTML up to 128 KB (server-side, .tgw)', 'in', 'D20', 'host', { note: 'Checked by the server, not the client; every conformance widget stays far below it.' });
 
 // ───────────── Client behaviour ─────────────
@@ -342,6 +347,12 @@ b('theme-switch', 'Live theme switch: prefers-color-scheme, light-dark() and onT
 b('offscreen-pause', 'Off-screen: frames stop, timers at most 1 Hz, visibilitychange fires', 'in', 'today', 'host');
 b('auto-height', 'The bubble takes the widget height; above the cap it is clipped hard', 'in', 'D12a', 'host');
 b('no-selection', 'No text selection in a widget (drag over text selects nothing)', 'in', 'D18', 'missing');
+b('restart', 'After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again', 'in', 'SDK', 'host', { note: 'The frozen frame and badge are the framework\'s (today); the restart count is the client\'s.' });
+b('gesture-claim', 'Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures', 'in', 'SDK', 'host', { note: 'onGestureClaim(x, y) per primary pointerdown (v1).' });
+b('storage-persist', 'localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message', 'in', 'SDK', 'host');
+b('storage-forward', 'A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty', 'in', 'SDK', 'host', { note: 'Waits for the server: forwarding rich blocks.' });
+b('message-edit', 'A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage', 'in', 'SDK', 'host', { note: 'Waits for the server: editing rich blocks.' });
+b('size-hint', 'Before load the bubble takes the bot\'s size hint (width + height: aspect ratio; width 0 + height: that height; none: the default placeholder), then the real height under the cap', 'in', 'D12a', 'host', { note: 'Waits for the server: the size fields of the rich block.' });
 b('policy-strict', 'strict policy on every client (gesture gate, text caps, budgets)', 'in', 'D5', 'kept');
 
 export const CATALOGUE: Feature[] = F;
@@ -356,6 +367,7 @@ export const DECISIONS: Record<string, string> = {
   D5: 'strict policy everywhere; webAnimations and morphUpdates from the profile',
   D6: '3D (__tw3d) cut from the release',
   D8: 'SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage',
+  SDK: 'docs/sdk-v1.md, the SDK v1 contract with Artem\'s answers of 2026-10-17: haptics without a gesture (bucket 5, 10/s), any t.me path, URL ≤ 256, 16 handlers per event type, stop after 2 consecutive crashes, double tap and long press stay with the bubble',
   D11: 'One widget model: classic DOM in the sandbox',
   D12a: 'Above the cap: hard clip, no fullscreen',
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',

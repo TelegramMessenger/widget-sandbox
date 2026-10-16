@@ -1,17 +1,17 @@
 # Conformance results
 
-Generated 2026-10-16 11:03 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 459a3be; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 459a3be; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 459a3be; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 459a3be; policy strict, features webAnimations).
+Generated 2026-10-16 23:48 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
 ## Totals
 
-| Renderer | in (152) ✅ / ◐ / ❌ / ⏳ | candidate (49) ✅ / ◐ / ❌ | out (43) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
+| Renderer | in (163) ✅ / ◐ / ❌ / ⏳ | candidate (48) ✅ / ◐ / ❌ | out (44) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|---|
-| web iframe | 135 / 5 / 0 / 8 | 46 / 2 / 0 | 16 / 26 / 1 | 105 / 105 | 0 |
-| web shadow | 134 / 5 / 1 / 8 | 45 / 2 / 1 | 17 / 26 / 0 | 105 / 105 | 0 |
-| web blitz | 88 / 26 / 23 / 7 | 18 / 8 / 21 | 14 / 13 / 4 | 23 / 23 | 0 |
-| web litehtml | 53 / 39 / 46 / 6 | 6 / 7 / 34 | 15 / 11 / 3 | 23 / 23 | 0 |
+| web iframe | 133 / 5 / 0 / 15 | 45 / 2 / 0 | 17 / 26 / 1 | 105 / 105 | 0 |
+| web shadow | 132 / 5 / 1 / 15 | 44 / 2 / 1 | 18 / 26 / 0 | 105 / 105 | 0 |
+| web blitz | 86 / 26 / 23 / 14 | 18 / 8 / 21 | 14 / 13 / 4 | 23 / 23 | 0 |
+| web litehtml | 51 / 39 / 46 / 13 | 6 / 7 / 34 | 15 / 11 / 3 | 23 / 23 | 0 |
 
 ## Candidates
 
@@ -67,7 +67,6 @@ Membership decided by measurement (D3: in when every client draws it).
 | `js.intl.format-to-parts` | Intl.NumberFormat/DateTimeFormat formatToParts | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.libraries` | Bundled libraries by CDN name: Chart.js 4, D3 7 (nothing is fetched) | ✅ | ✅ | ✅ | ✅ | – |
 | `input.touch-events` | touchstart / touchmove / touchend (touch clients only) | – | – | – | – | – |
-| `input.dblclick` | dblclick | ✅ | ✅ | – | – | ✅ |
 
 ## In the profile
 
@@ -199,9 +198,11 @@ Membership decided by measurement (D3: in when every client draws it).
 | `js.css-supports` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `js.visibility` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tw.ready` | ✅ | ✅ | ✅ | ✅ | – |
-| `tw.theme` | ✅ | ✅ | ✅ | ✅ | – |
+| `tw.theme` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `tw.theme-params` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.open-link` | ✅ | ✅ | ✅ | ✅ | – |
+| `tw.events` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `tw.is-active` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `tw.open-link` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `tw.open-telegram-link` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `tw.haptic` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `tw.profile` | ⏳ | ⏳ | ⏳ | ⏳ | – |
@@ -219,11 +220,20 @@ Membership decided by measurement (D3: in when every client draws it).
 | `limit.cpu` | · | · | · | · | · |
 | `limit.memory` | · | · | · | · | · |
 | `limit.storage` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `limit.url-length` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `limit.event-handlers` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `limit.haptic-rate` | ⏳ | ⏳ | ⏳ | ⏳ | · |
 | `limit.html-size` | · | · | · | · | · |
 | `behaviour.theme-switch` | ✅ | ✅ | ✅ | ✅ | – |
 | `behaviour.offscreen-pause` | ✅ | ✅ | ✅ | ✅ | – |
 | `behaviour.auto-height` | ✅ | ✅ | ✅ | ✅ | · |
 | `behaviour.no-selection` | ⏳ | ⏳ | – | – | · |
+| `behaviour.restart` | · | · | · | · | · |
+| `behaviour.gesture-claim` | · | · | · | · | · |
+| `behaviour.storage-persist` | · | · | · | · | · |
+| `behaviour.storage-forward` | · | · | · | · | · |
+| `behaviour.message-edit` | · | · | · | · | · |
+| `behaviour.size-hint` | · | · | · | · | · |
 | `behaviour.policy-strict` | ✅ | ✅ | ✅ | ◐ | ✅ |
 
 ## Out of the profile (pass = neutralised)
@@ -268,10 +278,11 @@ Membership decided by measurement (D3: in when every client draws it).
 | `js.blob-file` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.fullscreen` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.send-message` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `input.dblclick` | ⏳ | ⏳ | – | – | ⏳ |
 | `input.long-press` | ⏳ | ⏳ | – | – | ⏳ |
 | `input.keyboard` | ⏳ | ⏳ | – | – | ⏳ |
 | `input.key-activation` | ⏳ | ⏳ | – | – | ⏳ |
-| `input.key-gesture` | ⏳ | ⏳ | – | – | · |
+| `input.key-gesture` | ✅ | ✅ | – | – | · |
 | `input.wheel-scroll` | ⏳ | ⏳ | – | – | ⏳ |
 
 `*` in the profile if every client draws it (D3a).
@@ -311,7 +322,7 @@ Membership decided by measurement (D3: in when every client draws it).
 - `css.display.table`: 03-layout: table cells side by side, the second takes the rest (0/125 125/75)
 - `css.box.outline`: 05-colour-backgrounds: outline (diff 40.4 % of ink (max 5 %))
 - `css.box.float`: 03-layout: float:left pushes inline text right (text x 0); 03-layout: float:right sits at the right edge (got 30, want 200 ±0.5)
-- `css.background.basic`: 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background (diff 78.1 % of ink (max 5 %)); 05-colour-backgrounds: background-position (got "", want "1px 2px")
+- `css.background.basic`: 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background (diff 78.1 % of ink (max 5 %))
 - `css.gradient.radial`: 05-colour-backgrounds: radial (diff 48.9 % of ink (max 5 %))
 - `css.font.generic`: 06-text-fonts: monospace: i and M have the same advance (got 22, want 67.5 ±0.5); 06-text-fonts: serif and sans-serif are different faces (112.5 vs 112.5)
 - `css.font.basic`: 06-text-fonts: font-weight: 700 is wider than 400 (59 vs 59)
@@ -381,7 +392,7 @@ Membership decided by measurement (D3: in when every client draws it).
 - `css.overflow.clip`: 03-layout: overflow: hidden is computed (got "", want "hidden"); 03-layout: overflow: clip is computed (got "", want "clip")
 - `css.visibility`: 03-layout: visibility: hidden is skipped by hit testing (p); 03-layout: a hidden box keeps its size
 - `css.opacity`: 03-layout: computed opacity (got "", want "0.5"); 09-transforms-effects: opacity (diff 60.0 % of ink (max 5 %))
-- `css.color.basic`: 05-colour-backgrounds: named colour (got "0,0,0,0", want "102,51,153,1"); 05-colour-backgrounds: currentColor (got "", want "0,0,200,1"); 05-colour-backgrounds: basic (diff 25.0 % of ink (max 5 %)); 05-colour-backgrounds: named colour (got "0,0,0,0", want "102,51,153,1")
+- `css.color.basic`: 05-colour-backgrounds: named colour (got "0,0,0,0", want "102,51,153,1"); 05-colour-backgrounds: currentColor (got "", want "0,0,200,1"); 05-colour-backgrounds: named colour (got "0,0,0,0", want "102,51,153,1"); 05-colour-backgrounds: currentColor (got "", want "0,0,200,1")
 - `css.color.light-dark`: 05-colour-backgrounds: light-dark (diff 100.0 % of ink (max 5 %)); 05-colour-backgrounds: light-dark (diff 100.0 % of ink (max 5 %))
 - `css.background.basic`: 05-colour-backgrounds: background-image keeps the data: image; 05-colour-backgrounds: background-size (got "", want "10px 12px"); 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background-repeat (got "", want "no-repeat")
 - `css.font.generic`: 06-text-fonts: computed font-family keeps the generic name
@@ -452,3 +463,20 @@ For people (the test channel): judged by eye. Runners only check that each widge
 | visual/11-interaction | ✅ | ✅ | ✅ | ✅ |
 | visual/12-theme | ✅ | ✅ | ✅ | ✅ |
 | visual/13-out-of-profile | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/01-link-external | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/02-link-telegram | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/03-link-rejected | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/04-link-timer | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/05-haptics | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/06-haptics-rate | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/07-storage-recreate | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/08-storage-restart | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/09-storage-delete | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/10-storage-quota | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/11-crash-restart | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/12-drag-gestures | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/13-max-height | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/14-theme-palette | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/15-storage-forward | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/16-bot-edit | ✅ | ✅ | ✅ | ✅ |
+| visual/sdk/17-size-hint | ✅ | ✅ | ✅ | ✅ |

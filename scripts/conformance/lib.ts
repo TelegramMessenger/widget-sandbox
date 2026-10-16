@@ -64,6 +64,12 @@ export interface WidgetMeta {
   themes?: ('light' | 'dark')[];
   /** Catalogue IDs judged by a human only (visual set), beyond the stage covers. */
   covers?: string[];
+  /** Client-SDK group: what the client must do, in one line (the hint says what the tester does). */
+  expect?: string;
+  /** The section of docs/sdk-v1.md the test checks. */
+  contract?: string;
+  /** Not runnable yet: what it waits for (e.g. the server). */
+  pending?: string;
 }
 
 export interface StageInfo {
@@ -102,7 +108,9 @@ export function listWidgets(only?: string): Widget[] {
   for (const set of SETS) {
     const dir = path.join(CONF, set);
     if (!fs.existsSync(dir)) continue;
-    for (const f of fs.readdirSync(dir).sort()) {
+    // One level of groups: visual/sdk/01-links.html is `visual/sdk/01-links`.
+    const files = fs.readdirSync(dir).sort().flatMap((f) => (fs.statSync(path.join(dir, f)).isDirectory() ? fs.readdirSync(path.join(dir, f)).sort().map((g) => `${f}/${g}`) : [f]));
+    for (const f of files) {
       if (!f.endsWith('.html')) continue;
       const stem = f.slice(0, -5);
       const id = `${set}/${stem}`;

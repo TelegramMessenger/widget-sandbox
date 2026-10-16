@@ -1,6 +1,6 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 244 features: 152 in (4 conditional on every renderer drawing them), 43 out, 49 candidates. Decision `proposed` marks this catalogue's own proposals (58).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 255 features: 163 in (4 conditional on every renderer drawing them), 44 out, 48 candidates. Decision `proposed` marks this catalogue's own proposals (56).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
@@ -12,11 +12,11 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | animation | 8 | 7 | 1 | 0 | 8 |
 | canvas | 21 | 13 | 2 | 6 | 21 |
 | js | 34 | 24 | 8 | 2 | 34 |
-| sdk | 8 | 7 | 1 | 0 | 8 |
-| input | 14 | 7 | 5 | 2 | 14 |
-| limit | 8 | 8 | 0 | 0 | 4 |
-| behaviour | 5 | 5 | 0 | 0 | 5 |
-| **all** | 244 | 152 | 43 | 49 | 240 |
+| sdk | 10 | 9 | 1 | 0 | 10 |
+| input | 14 | 7 | 6 | 1 | 14 |
+| limit | 11 | 11 | 0 | 0 | 7 |
+| behaviour | 11 | 11 | 0 | 0 | 11 |
+| **all** | 255 | 163 | 44 | 48 | 251 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the validator and shim do now under `strict`), **tests** (conformance widgets that judge it).
 
@@ -43,7 +43,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `html.el.button` | <button> as a tappable box with UA look | in | D4 | kept |  | auto/01-html-elements |
 | `html.el.details` | details/summary: open state and toggle on tap<br><sub>Probes: drawn by Blitz and litehtml; it is a disclosure, not a form.</sub> | in | proposed | kept |  | auto/01-html-elements, auto/16-sdk-taps, visual/11-interaction |
 | `html.el.a-fragment` | <a href="#id">: no navigation, :target-free | in | today | kept |  | auto/01-html-elements, auto/16-sdk-taps |
-| `html.el.a-external` | <a href="https://…">: href becomes "#" + data-tg-link, the tap goes to openLink (with a gesture) | in | D8 | replaced |  | auto/01-html-elements, auto/16-sdk-taps, visual/11-interaction |
+| `html.el.a-external` | <a href="https://…">: href becomes "#" + data-tg-link, the tap goes to openLink (with a gesture) | in | D8 | replaced |  | auto/01-html-elements, auto/16-sdk-taps, visual/11-interaction, visual/sdk/01-link-external |
 | `html.el.forms` | Form controls: form, input (all types), select, option, optgroup, textarea, label, fieldset, legend, datalist, output<br><sub>Kept and drawn natively today.</sub> | out | D3a | kept | not decided: drop the control (no box) or render it as an inert span; the tests expect "no control is drawn" | auto/18-out-of-profile, visual/13-out-of-profile |
 | `html.el.progress-meter` | progress, meter (native gauges)<br><sub>Not input, but a native control look that differs per platform.</sub> | candidate | proposed | kept |  | auto/01-html-elements |
 | `html.el.dialog-popover` | dialog (show/showModal), popover attribute<br><sub>The top layer is the page: in the Shadow DOM renderer a modal dialog or popover is drawn over the whole chat, outside the bubble.</sub> | out | proposed | kept | drop the methods and the popover attributes; a dialog renders as a block | auto/18-out-of-profile, visual/13-out-of-profile |
@@ -250,8 +250,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `js.timers` | setTimeout / setInterval / clear*, ordering, clamped delays | in | today | kept |  | auto/15-js-runtime |
 | `js.raf` | requestAnimationFrame / cancelAnimationFrame (frames from the renderer) | in | today | kept |  | auto/15-js-runtime |
 | `js.microtasks` | Promise, async/await, queueMicrotask | in | today | kept |  | auto/15-js-runtime |
-| `js.storage.local` | localStorage: per (account, bot, message), preloaded, 16 KB, QuotaExceededError past it<br><sub>Today an in-memory map per widget instance with no quota.</sub> | in | D17 | emulated |  | auto/15-js-runtime |
-| `js.storage.session` | sessionStorage: same key, in memory until app restart | in | D17 | emulated |  | auto/15-js-runtime |
+| `js.storage.local` | localStorage: per (account, bot, message), preloaded, 16 KB, QuotaExceededError past it<br><sub>Today an in-memory map per widget instance with no quota.</sub> | in | D17 | emulated |  | auto/15-js-runtime, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
+| `js.storage.session` | sessionStorage: same key, in memory until app restart | in | D17 | emulated |  | auto/15-js-runtime, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
 | `js.intl` | Intl.NumberFormat, DateTimeFormat, PluralRules, RelativeTimeFormat, ListFormat, Collator (host ICU) | in | today | host |  | auto/15-js-runtime |
 | `js.intl.format-to-parts` | Intl.NumberFormat/DateTimeFormat formatToParts<br><sub>Open item: missing on iOS and Android glue.</sub> | candidate | proposed | missing |  | auto/15-js-runtime |
 | `js.locale` | navigator.language reflects the client locale<br><sub>Hard-coded en-US today; the release plan wants the real locale.</sub> | in | proposed | stub |  | auto/15-js-runtime |
@@ -274,11 +274,13 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
 | `tw.ready` | TelegramWidget.ready() | in | D8 | kept |  | auto/16-sdk-taps |
-| `tw.theme` | TelegramWidget.theme and onTheme(cb): "light" | "dark", called on change | in | D14 | kept |  | auto/16-sdk-taps, visual/12-theme |
-| `tw.theme-params` | themeParams palette and --tg-theme-* CSS variables, theme change event | in | D14 | missing |  | auto/16-sdk-taps, visual/12-theme |
-| `tw.open-link` | openLink(url): https only, in the task of a real tap, confirmed by the client with the full URL | in | D8 | kept |  | auto/16-sdk-taps, visual/11-interaction |
-| `tw.open-telegram-link` | openTelegramLink(url) for t.me links | in | D8 | missing |  | auto/16-sdk-taps |
-| `tw.haptic` | Haptic feedback, rate-limited | in | D8 | missing |  | auto/16-sdk-taps |
+| `tw.theme` | TelegramWidget.colorScheme ("light" | "dark"); theme and onTheme(cb) kept as deprecated aliases<br><sub>Today only theme / onTheme exist.</sub> | in | SDK | kept |  | auto/16-sdk-taps, visual/12-theme, visual/sdk/14-theme-palette |
+| `tw.theme-params` | themeParams (every Mini Apps key, #rrggbb) and the --tg-theme-* / --tg-color-scheme variables on the root, updated in one task with themeChanged | in | SDK | missing |  | auto/16-sdk-taps, auto/20-client-behaviour, visual/12-theme, visual/sdk/14-theme-palette |
+| `tw.events` | onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type | in | SDK | missing |  | auto/16-sdk-taps, visual/sdk/14-theme-palette |
+| `tw.is-active` | TelegramWidget.isActive mirrors visibility (activated / deactivated) | in | SDK | missing |  | auto/16-sdk-taps, auto/20-client-behaviour |
+| `tw.open-link` | openLink(url): an absolute https URL of at most 256 characters, no user info, not a t.me host; one call per pointer press; the client confirms showing the full URL<br><sub>Invalid arguments throw TypeError (v1); today any string goes to the host.</sub> | in | SDK | kept |  | auto/16-sdk-taps, visual/11-interaction, visual/sdk/01-link-external, visual/sdk/03-link-rejected, visual/sdk/04-link-timer |
+| `tw.open-telegram-link` | openTelegramLink(url): any https://t.me/… (telegram.me, telegram.dog) path, at most 256 characters, opened inside the client; tg: URLs refused | in | SDK | missing |  | auto/16-sdk-taps, visual/sdk/02-link-telegram, visual/sdk/03-link-rejected |
+| `tw.haptic` | HapticFeedback: impactOccurred(light|medium|heavy|rigid|soft), notificationOccurred(error|success|warning), selectionChanged(); no gesture needed, visible widgets only<br><sub>Desktop and web accept the calls and play nothing.</sub> | in | SDK | missing |  | auto/16-sdk-taps, visual/sdk/05-haptics, visual/sdk/06-haptics-rate |
 | `tw.profile` | TelegramWidget.profile (integer) and isProfileAtLeast(n) | in | D23 | missing |  | auto/16-sdk-taps |
 | `tw.send-message` | TelegramWidget.sendMessage | out | D8 | kept | removed from the SDK | auto/16-sdk-taps |
 
@@ -290,15 +292,15 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `input.pointer` | pointerdown / pointerup / pointercancel with coordinates, pointerId, pointerType, isPrimary | in | D4 | kept |  | auto/16-sdk-taps |
 | `input.mouse-compat` | mousedown / mouseup compatibility events of a tap | in | D4 | kept |  | auto/16-sdk-taps |
 | `input.touch-events` | touchstart / touchmove / touchend (touch clients only)<br><sub>Desktop clients have none; widgets should use pointer events.</sub> | candidate | proposed | kept |  | auto/17-drag-hover |
-| `input.drag` | Drag: pointermove with buttons while pressed, setPointerCapture, movementX/Y<br><sub>v1 (not the PoC): drag with gesture arbitration.</sub> | in | D4 | kept |  | auto/17-drag-hover, visual/11-interaction |
+| `input.drag` | Drag: pointermove with buttons while pressed, setPointerCapture, movementX/Y<br><sub>v1 (not the PoC): drag with gesture arbitration.</sub> | in | D4 | kept |  | auto/17-drag-hover, visual/11-interaction, visual/sdk/12-drag-gestures |
 | `input.hover-events` | pointerover/enter/leave/out, mouseover/enter/leave (desktop pointer only) | in | D3 | kept |  | auto/17-drag-hover |
-| `input.dblclick` | dblclick<br><sub>Double tap is the bubble's reaction gesture (designers).</sub> | candidate | proposed | kept |  | auto/16-sdk-taps |
-| `input.long-press` | contextmenu / long press | out | proposed | kept | the bubble menu wins; no contextmenu event | auto/16-sdk-taps |
+| `input.dblclick` | dblclick / double tap | out | SDK | kept | the double tap stays with the bubble (reaction); it never reaches the widget | auto/16-sdk-taps, visual/sdk/12-drag-gestures |
+| `input.long-press` | contextmenu / long press | out | SDK | kept | the long press stays with the bubble (its menu); no contextmenu event | auto/16-sdk-taps, visual/sdk/12-drag-gestures |
 | `input.keyboard` | Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys | out | D4 | kept | the renderer never forwards key events; the widget never owns keyboard focus | auto/16-sdk-taps, auto/21-no-keyboard |
 | `input.key-activation` | Enter / Space activate a focused button or link (a click from the keyboard) | out | D4 | kept | keys do nothing in a widget: no synthetic click from Enter or Space | auto/21-no-keyboard |
 | `input.key-gesture` | A key press counts as a user gesture for privileged bridge calls<br><sub>Today a keydown (not Escape, not a repeat or a Command shortcut) unlocks one privileged call (protocol.md, User activation).</sub> | out | D4 | kept | only taps (pointer presses) grant a gesture | auto/21-no-keyboard |
 | `input.wheel-scroll` | wheel and scroll events | out | D3a | kept | no scrolling inside a widget | auto/16-sdk-taps |
-| `input.user-activation` | Privileged calls (openLink) only in the task of a real tap; not from timers or synthetic clicks | in | D8 | kept |  | auto/16-sdk-taps |
+| `input.user-activation` | Privileged calls (openLink) only in the task of a real tap; not from timers or synthetic clicks | in | D8 | kept |  | auto/16-sdk-taps, visual/sdk/04-link-timer |
 | `input.prevent-default` | preventDefault on pointer events keeps the gesture in the widget (learned by the renderer) | in | D4 | kept |  | auto/16-sdk-taps |
 
 ## limit
@@ -311,17 +313,26 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `limit.timers` | At most 256 live timers (RangeError past it) | in | today | kept |  | auto/19-limits |
 | `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice | in | today | kept |  |  |
 | `limit.memory` | QuickJS heap 64 MB | in | today | kept |  |  |
-| `limit.storage` | localStorage 16 KB per message (QuotaExceededError) | in | D17 | missing |  | auto/15-js-runtime |
+| `limit.storage` | localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing | in | SDK | missing |  | auto/15-js-runtime, visual/sdk/10-storage-quota |
+| `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | missing |  | auto/16-sdk-taps, visual/sdk/03-link-rejected |
+| `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in | SDK | missing |  | auto/20-client-behaviour |
+| `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit) | in | SDK | missing |  | auto/16-sdk-taps, visual/sdk/06-haptics-rate |
 | `limit.html-size` | HTML up to 128 KB (server-side, .tgw)<br><sub>Checked by the server, not the client; every conformance widget stays far below it.</sub> | in | D20 | host |  |  |
 
 ## behaviour
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `behaviour.theme-switch` | Live theme switch: prefers-color-scheme, light-dark() and onTheme follow the chat theme without a reload | in | D14 | host |  | auto/20-client-behaviour, visual/12-theme |
+| `behaviour.theme-switch` | Live theme switch: prefers-color-scheme, light-dark() and onTheme follow the chat theme without a reload | in | D14 | host |  | auto/20-client-behaviour, visual/12-theme, visual/sdk/14-theme-palette |
 | `behaviour.offscreen-pause` | Off-screen: frames stop, timers at most 1 Hz, visibilitychange fires | in | today | host |  | auto/20-client-behaviour |
-| `behaviour.auto-height` | The bubble takes the widget height; above the cap it is clipped hard | in | D12a | host |  | auto/20-client-behaviour |
+| `behaviour.auto-height` | The bubble takes the widget height; above the cap it is clipped hard | in | D12a | host |  | auto/20-client-behaviour, visual/sdk/13-max-height, visual/sdk/17-size-hint |
 | `behaviour.no-selection` | No text selection in a widget (drag over text selects nothing) | in | D18 | missing |  | auto/17-drag-hover |
+| `behaviour.restart` | After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again<br><sub>The frozen frame and badge are the framework's (today); the restart count is the client's.</sub> | in | SDK | host |  | visual/sdk/11-crash-restart |
+| `behaviour.gesture-claim` | Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures<br><sub>onGestureClaim(x, y) per primary pointerdown (v1).</sub> | in | SDK | host |  | visual/sdk/12-drag-gestures |
+| `behaviour.storage-persist` | localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message | in | SDK | host |  | visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart, visual/sdk/09-storage-delete |
+| `behaviour.storage-forward` | A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty<br><sub>Waits for the server: forwarding rich blocks.</sub> | in | SDK | host |  | visual/sdk/15-storage-forward |
+| `behaviour.message-edit` | A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage<br><sub>Waits for the server: editing rich blocks.</sub> | in | SDK | host |  | visual/sdk/16-bot-edit |
+| `behaviour.size-hint` | Before load the bubble takes the bot's size hint (width + height: aspect ratio; width 0 + height: that height; none: the default placeholder), then the real height under the cap<br><sub>Waits for the server: the size fields of the rich block.</sub> | in | D12a | host |  | visual/sdk/17-size-hint |
 | `behaviour.policy-strict` | strict policy on every client (gesture gate, text caps, budgets) | in | D5 | kept |  | auto/19-limits |
 
 ## Decisions
@@ -333,6 +344,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D5**: strict policy everywhere; webAnimations and morphUpdates from the profile
 - **D6**: 3D (__tw3d) cut from the release
 - **D8**: SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage
+- **SDK**: docs/sdk-v1.md, the SDK v1 contract with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10/s), any t.me path, URL ≤ 256, 16 handlers per event type, stop after 2 consecutive crashes, double tap and long press stay with the bubble
 - **D11**: One widget model: classic DOM in the sandbox
 - **D12a**: Above the cap: hard clip, no fullscreen
 - **D14**: Theme: themeParams + --tg-theme-*, theme change event

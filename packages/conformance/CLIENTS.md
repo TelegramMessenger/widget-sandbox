@@ -155,6 +155,31 @@ How to read them by status:
 
 Send `<platform>-<renderer>.json` and `summary.md` to the widget-sandbox maintainers, or open a PR adding them to `packages/conformance/results/`.
 
+## The client SDK group (`visual/sdk/`)
+
+Seventeen small widgets test what **your client** implements on its side of SDK v1 (`docs/sdk-v1.md`, §5):
+- links (the confirmation with the full URL, t.me inside the client, rejected and over-long URLs, no link from a timer);
+- haptics of each kind and the rate limit;
+- storage (re-creation, app restart, deletion with the message, the 16 KB quota);
+- stopping after 2 consecutive crashes;
+- drag versus swipe-to-reply, with double tap and long press staying with the bubble;
+- the hard clip at the maximum height;
+- the theme palette with a live switch.
+
+Three of them wait for the server: storage of a forwarded copy, a bot editing the message, and the bubble size hint. They are here so you can build your side against them.
+
+Each widget is a v1 mini-widget (at most 4 KB gzipped). It carries a one-line instruction for the tester. Its expected client behaviour, contract section and reference picture are in [`visual/sdk/README.md`](visual/sdk/README.md), the post list for the test channel. Post the picture (`refs/visual/sdk/<name>.png`, plus `.dark.png` for the palette) as a separate image next to the widget.
+
+The automatic set checks the framework side of the same contract. In `auto/16`, `auto/15` and `auto/20` that covers:
+- argument checks and `TypeError`;
+- the 256-character URL limit and 16 handlers per event type;
+- the haptics bucket seen on the bridge;
+- `QuotaExceededError`;
+- `themeParams` on a theme switch;
+- `isActive`.
+
+These checks are ⏳ until the framework's SDK milestone lands in your tag.
+
 ## The visual set in the test channel
 
 `visual/01…13` are numbered in reading order. A bot posts them as ordinary widget messages: it sends the HTML and the server packs `.tgw`. Each row shows the widget drawn live by your client next to the reference picture, with one line saying what to compare. Interactive rows say what to tap or drag. Testers scroll through on a phone and report a row that does not match, with a screenshot. Fonts differ between platforms by design: compare the structure, not the letter shapes.

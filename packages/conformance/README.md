@@ -13,6 +13,7 @@ For any client it answers the question: which profile features does it support?
 | [`catalogue.json`](catalogue.json) / [`catalogue.md`](catalogue.md) | 244 profile features with stable IDs (`css.display.grid`, `canvas.filter`, `tw.profile`, …). Each is marked in / out / candidate, with the decision it comes from (D3a, D3b, D4, D18, D23, the invariants, or `proposed` for the catalogue's own proposals), what the pipeline does with it today, and the keys a validator table would match. It is the seed for `profile.json`. The source is `scripts/conformance/catalogue.ts`. |
 | [`auto/`](auto) | **Automatic set**, 21 dense widgets for runners and CI. Each one asserts layout, computed style, APIs and events itself and publishes the result. Pixel stages are diffed against reference PNGs. |
 | [`visual/`](visual) | **Visual set**, 13 readable widgets for people (the shared Telegram test channel). Each row shows a group of features drawn live next to an embedded reference picture, with a one-line caption. Interactive rows carry a one-line instruction. Numbered in reading order. |
+| [`visual/sdk/`](visual/sdk) | **Client SDK group**, 17 mini-widgets (≤ 4 KB gzipped each, the v1 delivery limit) for what each client implements of SDK v1. Their reference pictures are separate files (`refs/visual/sdk/`), posted next to them; [`visual/sdk/README.md`](visual/sdk/README.md) is the post list. They use the mini harness (`harness/mini.js`). |
 | [`manifest.json`](manifest.json) | Per test: catalogue IDs, kind (self / pixel / interactive), stages with rects and reference files, scripted actions, host checks, themes, and what native Chromium answers to each check. Also coverage per set. |
 | [`refs/`](refs) | Reference PNGs for every stage: native headless Chromium (and WebKit when installed), DPR 2, dark variants for theme-dependent stages. |
 | [`run.schema.json`](run.schema.json) | The run file every runner writes. |
@@ -95,8 +96,11 @@ The steps are in this order:
 - Keep auto widgets under 900 px tall (the host cap) and keep layout above the probes stable.
 - No external URLs except the CDN names of the bundled libraries.
 
+The client SDK group's pictures come from the same build. `scripts/conformance/sdk-mock.js` is a stand-in for `TelegramWidget` that follows the contract and uses a reference palette. Only the build injects it, so the pictures show the "SDK present" state. The build also flags any widget of the group over 4 KB gzipped or 32 KB.
+
 ## Known limits
 
+- The visual set (`visual/01…13`) does not fit a mini-widget: 5–55 KB gzipped, with embedded pictures. The test channel posts it as `.tgw` documents behind the debug flag until it is split.
 - References come from headless Chromium on macOS. WebKit references appear once Playwright's WebKit is installed, and the rule then takes the better of the two.
 - Text stages depend on platform fonts. They allow 50 % of the ink but check the feature's colours.
 - The web runner gives the canvas renderers (Blitz and litehtml wasm prototypes, which are not product renderers) only synthetic taps. Drags, hover, keys and wheel are skipped there, and so are gesture-gated host checks.
