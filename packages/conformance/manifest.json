@@ -7235,13 +7235,14 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/09-svg/smil.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.6865
     }
    ],
-   "bytes": 60775
+   "bytes": 61088
   },
   {
    "id": "visual/10-images",
