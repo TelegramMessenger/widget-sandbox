@@ -24,7 +24,7 @@ const REFERENCE_CSP =
 
 function listCorpus(): string[] {
   const out: string[] = [];
-  for (const group of ['compat', 'attacks', 'generated', 'htmlbubbles-ported', 'common', 'showcase']) {
+  for (const group of ['compat', 'attacks', 'generated', 'htmlbubbles-ported', 'common', 'showcase', 'conformance']) {
     const walk = (dir: string) => {
       if (!fs.existsSync(dir)) return;
       for (const name of fs.readdirSync(dir).sort()) {
