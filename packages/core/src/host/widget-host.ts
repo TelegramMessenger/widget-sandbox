@@ -241,7 +241,7 @@ export class WidgetHost {
         if (this.policy === 'strict' && !UNPRIVILEGED_BRIDGE_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
           if (this.blockedBridgeReported < 20) {
             this.blockedBridgeReported++;
-            this.opts.onDiag?.('activation-blocked', `${method.slice(0, 64)} ignored: it needs a user click or key press on the visible widget and runs in that event's handler`);
+            this.opts.onDiag?.('activation-blocked', `${method.slice(0, 64)} ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler`);
           }
           break;
         }

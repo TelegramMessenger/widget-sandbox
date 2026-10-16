@@ -88,6 +88,8 @@ export async function bundleSandbox(): Promise<string> {
 }
 
 let cachedBundle: string | null = null;
+/** Widget clocks tick in 100 µs steps, as in src/host/worker.ts (`now` and frame times alike). */
+const coarseNowMs = (ms: number) => Math.floor(ms / 0.1) * 0.1;
 
 export interface RunOptions {
   verbose?: boolean;
@@ -105,6 +107,8 @@ export interface RunOptions {
   attrFast?: boolean;
   /** Live-timer cap passed to the shim (default LIMIT_DEFAULTS.maxTimers). */
   maxTimers?: number;
+  /** Initial visibility (default true): a hidden widget gets no frames and cannot use a gesture, as in the worker and the web host. */
+  visible?: boolean;
   /** Steps run after the timer rounds: visibility changes and probes, in order (probe results land in RunResult.probes before `probes`). */
   script?: ({ visible: boolean } | { probe: string } | { morph: string })[];
   /** CPU quota per second (default: effectively unlimited, like the harness's 10 s cpuLimitMs; wasm under Node is slow). */
@@ -149,7 +153,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
   const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: true, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const policy = opts.policy === 'compat' ? 'compat' : 'strict';
@@ -157,6 +161,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const timers = new Map<number, number>();
   let activeGesture = 0;
   let consumedGesture = 0;
+  let visible = config.visible;
   const log = (...a: unknown[]) => opts.verbose && console.log(...a);
 
   const hostFn = vm.newFunction('__host', (k: QuickJSHandle, a?: QuickJSHandle) => {
@@ -175,7 +180,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         log('query', JSON.stringify(q), '→', JSON.stringify(answer));
         return vm.newString(JSON.stringify(answer));
       }
-      case 'now': return vm.newNumber(opts.now ? opts.now() : Math.floor(performance.now() / 0.1) * 0.1);
+      case 'now': return vm.newNumber(opts.now ? opts.now() : coarseNowMs(performance.now()));
       case 'timer': {
         const [id, delay] = JSON.parse(arg);
         if (timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }
@@ -196,8 +201,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         const call = JSON.parse(arg);
         const method = String(call?.[0] ?? '');
         if (policy === 'strict' && !UNPRIVILEGED_BRIDGE_METHODS.has(method)) {
-          if (!(activeGesture > consumedGesture)) {
-            res.diags.push({ kind: 'activation-blocked', detail: `${method} ignored outside a user gesture` });
+          if (!visible || !(activeGesture > consumedGesture)) {
+            res.diags.push({ kind: 'activation-blocked', detail: `${method} ignored outside a user gesture on the visible widget` });
             return vm.undefined;
           }
           consumedGesture = activeGesture;
@@ -353,7 +358,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   for (const ev of opts.events ?? []) {
     const { gesture, ...event } = ev as Record<string, unknown> & { gesture?: number };
     task('event', () => {
-      activeGesture = typeof gesture === 'number' ? gesture : 0;
+      activeGesture = visible && typeof gesture === 'number' && gesture > consumedGesture ? gesture : 0;
       try {
         tw('event', JSON.stringify(event));
       } finally {
@@ -364,12 +369,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   for (let round = 0; round < (opts.timerRounds ?? 2); round++) {
     const due = [...timers.keys()];
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
-    task('frame', () => tw('frame', String(performance.now())));
+    if (visible) task('frame', () => tw('frame', String(coarseNowMs(performance.now()))));
   }
   for (let round = 0; round < (opts.frames ?? 0); round++) {
     const due = [...timers.keys()];
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
-    task('frame', () => tw('frame', String(performance.now())));
+    if (visible) task('frame', () => tw('frame', String(coarseNowMs(performance.now()))));
   }
   const probe = (code: string) => {
     const r = vm.evalCode(`(function(){ try { return String(${code}); } catch (e) { return 'THREW ' + e; } })()`, 'probe.js');
@@ -378,7 +383,10 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     settle();
   };
   for (const step of opts.script ?? []) {
-    if ('visible' in step) task('visibility', () => tw('visibility', JSON.stringify({ visible: step.visible })));
+    if ('visible' in step) {
+      visible = step.visible;
+      task('visibility', () => tw('visibility', JSON.stringify({ visible: step.visible })));
+    }
     else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
     else probe(step.probe);
   }

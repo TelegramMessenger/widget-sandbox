@@ -77,6 +77,22 @@ struct WidgetDiagnostics {
     bool hasLog(const std::string& text) const { for (auto& l : logs) if (l.second == text) return true; return false; }
 };
 
+/// Host side of user activation: one physical press (pointerdown, mousedown, pointerup, mouseup, click, dblclick) or one key
+/// press is one gesture. The click an Enter or Space press activates (`detail` 0) belongs to that press, and so does every
+/// click of the key held down. Twin of GestureCounter in UserActivation.kt and user-activation.ts.
+class GestureCounter {
+public:
+    /// Clicks and presses of Enter or Space (not a repeat, not a Command shortcut, modifier bit 4).
+    static bool isUserActivation(const Json& ev);
+    /// The gesture number for this renderer event, 0 when it is not a user activation.
+    int gestureFor(const Json& ev);
+
+private:
+    int number_ = 0;
+    bool pressOpen_ = false;
+    std::string lastType_;
+};
+
 class WidgetHost final : public SandboxEngineDelegate {
 public:
     /// Throws JSError if the validator bundle fails to load. Nothing runs until `start()`.
@@ -136,15 +152,12 @@ public:
     void onStats(SandboxEngine&, const SandboxStats& stats) override;
     void onDied(SandboxEngine&, const std::string& reason) override;
 
-    /// Renderer events that count as a user gesture: clicks and key presses (not Escape, not a repeat, not a Command shortcut).
-    static bool isUserActivation(const Json& ev);
+    /// Renderer events that count as a user gesture: clicks and presses of Enter or Space (not a repeat, not a Command shortcut).
+    static bool isUserActivation(const Json& ev) { return GestureCounter::isUserActivation(ev); }
 
 private:
-    /// One physical press (pointerdown, mousedown, pointerup, mouseup, click, dblclick) or one key press is one gesture; 0 for other events.
-    int gestureFor(const Json& ev);
-    int gestureNumber_ = 0;
-    bool pressOpen_ = false;
-    std::string lastActivationType_;
+    /// Fed only the events the renderer marks `trusted`.
+    GestureCounter gestures_;
     struct PendingQuery {
         int id = 0;
         bool done = false;

@@ -251,3 +251,17 @@ describe('shim: pointer capture', () => {
   });
 
 });
+
+describe('harness: clocks', () => {
+  it('frame times tick in 100 µs steps, like the worker', async () => {
+    const r = await runWidget('<script>var ts = []; function f(t) { ts.push(t); if (ts.length < 4) requestAnimationFrame(f); } requestAnimationFrame(f);</script>', { frames: 6, probes: ['JSON.stringify(ts)'] });
+    const ts = JSON.parse(r.probes[0]) as number[];
+    assert.ok(ts.length >= 3, r.probes[0]);
+    for (const t of ts) assert.ok(Math.abs(t * 10 - Math.round(t * 10)) < 1e-6, String(t));
+  });
+
+  it('a hidden widget gets no frames', async () => {
+    const r = await runWidget('<script>var n = 0; requestAnimationFrame(function () { n++; });</script>', { frames: 4, visible: false, probes: ['n', 'document.hidden'] });
+    assert.deepEqual(r.probes, ['0', 'true']);
+  });
+});

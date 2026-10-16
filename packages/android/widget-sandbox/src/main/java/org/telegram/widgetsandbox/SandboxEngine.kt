@@ -401,7 +401,7 @@ class SandboxEngine(
                     if (isStrictPolicy(config.policy) && name !in UserActivation.UNPRIVILEGED_BRIDGE_METHODS && !activation.consume(visible)) {
                         if (blockedBridgeReported < 20) {
                             blockedBridgeReported += 1
-                            delegate?.onDiag(this, "activation-blocked", "$name ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the $currentKind task)")
+                            delegate?.onDiag(this, "activation-blocked", "$name ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler (called from the $currentKind task)")
                         }
                         return HostReturn.Undefined
                     }

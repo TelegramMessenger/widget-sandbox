@@ -562,7 +562,7 @@ public final class SandboxEngine {
                     guard activeGesture > consumedGesture, visible else {
                         if blockedBridgeReported < 20 {
                             blockedBridgeReported += 1
-                            delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the \(currentKind) task)")
+                            delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler (called from the \(currentKind) task)")
                         }
                         return .undefined
                     }

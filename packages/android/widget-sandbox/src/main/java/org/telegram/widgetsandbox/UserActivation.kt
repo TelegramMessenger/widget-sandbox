@@ -10,27 +10,39 @@ package org.telegram.widgetsandbox
 object UserActivation {
     val UNPRIVILEGED_BRIDGE_METHODS = setOf("ready")
     private val TYPES = setOf("click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown")
+    /** The keys that activate a focused control; Tab, arrows, letters and Escape are not a gesture. */
+    val ACTIVATION_KEYS = setOf("Enter", " ")
 
-    /** Clicks and key presses count; not Escape, not a key repeat, not a Command shortcut (modifier bit 4). */
+    /** Clicks and presses of Enter or Space count; not a key repeat, not a Command shortcut (modifier bit 4). */
     fun isUserActivation(type: String, key: String?, repeat: Boolean, modifiers: Int): Boolean {
         if (type !in TYPES) return false
-        if (type == "keydown") return key != "Escape" && !repeat && modifiers and 4 == 0
+        if (type == "keydown") return key in ACTIVATION_KEYS && !repeat && modifiers and 4 == 0
         return true
     }
 }
 
-/** Host side: one physical press (pointerdown … click / dblclick) or one key press is one gesture. */
+/**
+ * Host side: one physical press (pointerdown … click / dblclick) or one key press is one gesture.
+ * The click an Enter or Space press activates (`detail` 0) belongs to that press, and so does
+ * every click of the key held down. WidgetHost feeds it only events the renderer marks `trusted`.
+ */
 class GestureCounter {
     private var number = 0
     private var pressOpen = false
     private var lastType = ""
 
     /** The gesture number for this renderer event, 0 when it is not a user activation. */
-    fun gestureFor(type: String, key: String?, repeat: Boolean, modifiers: Int): Int {
+    fun gestureFor(type: String, key: String?, repeat: Boolean, modifiers: Int, detail: Double = 0.0): Int {
+        if (type == "keydown" && repeat && key in UserActivation.ACTIVATION_KEYS) {
+            pressOpen = false
+            lastType = type
+            return 0
+        }
         if (!UserActivation.isUserActivation(type, key, repeat, modifiers)) return 0
         val continues = when (type) {
             "mousedown" -> lastType == "pointerdown"
-            "pointerup", "mouseup", "click" -> pressOpen
+            "pointerup", "mouseup" -> pressOpen
+            "click" -> pressOpen || (lastType == "keydown" && !(detail > 0))
             "dblclick" -> lastType == "click"
             else -> false
         }

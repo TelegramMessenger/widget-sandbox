@@ -4,35 +4,50 @@
 // event's isTrusted), hands the number to the worker with the event, and
 // accepts a privileged bridge message only when it carries a gesture the host
 // issued, has not consumed yet and issued recently. Nothing the worker says
-// creates a gesture. Twin of the Swift/C++/Kotlin glue (GestureCounter,
-// ActivationGate in UserActivation.kt).
+// creates a gesture. Twin of the Swift/C++/Kotlin glue (WidgetHost.gesture(for:),
+// GestureCounter in widget_host.h and in UserActivation.kt), which also counts
+// only events the renderer marks `trusted`.
 
 export const UNPRIVILEGED_BRIDGE_METHODS = new Set(['ready']);
 const TYPES = new Set(['click', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'keydown']);
+/** The keys that activate a focused control; Tab, arrows, letters and Escape are not a gesture. */
+const ACTIVATION_KEYS = new Set(['Enter', ' ']);
 /** A privileged call must reach the host this soon after its gesture was issued. */
 export const GESTURE_TTL_MS = 5000;
 
-/** Clicks and key presses count; not Escape, not a key repeat, not a Command shortcut (modifier bit 4). */
-export function isUserActivation(ev: { type?: unknown; key?: unknown; repeat?: unknown; modifiers?: unknown }): boolean {
+type GestureEvent = { type?: unknown; key?: unknown; repeat?: unknown; modifiers?: unknown; detail?: unknown };
+
+/** Clicks and presses of Enter or Space count; not a key repeat, not a Command shortcut (modifier bit 4). */
+export function isUserActivation(ev: GestureEvent): boolean {
   const type = String(ev.type ?? '');
   if (!TYPES.has(type)) return false;
-  if (type === 'keydown') return ev.key !== 'Escape' && ev.repeat !== true && ((Number(ev.modifiers) | 0) & 4) === 0;
+  if (type === 'keydown') return ACTIVATION_KEYS.has(String(ev.key)) && ev.repeat !== true && ((Number(ev.modifiers) | 0) & 4) === 0;
   return true;
 }
 
-/** One physical press (pointerdown … click / dblclick) or one key press is one gesture. */
+/**
+ * One physical press (pointerdown … click / dblclick) or one key press is one
+ * gesture. The click an Enter or Space press activates (`detail` 0) belongs to
+ * that press, and so does every click of the key held down.
+ */
 export class GestureCounter {
   private n = 0;
   private pressOpen = false;
   private lastType = '';
 
   /** The gesture number for this event, 0 when it is not a user activation. */
-  gestureFor(ev: { type?: unknown; key?: unknown; repeat?: unknown; modifiers?: unknown }): number {
+  gestureFor(ev: GestureEvent): number {
+    const type = String(ev.type ?? '');
+    if (type === 'keydown' && ev.repeat === true && ACTIVATION_KEYS.has(String(ev.key))) {
+      this.pressOpen = false;
+      this.lastType = type;
+      return 0;
+    }
     if (!isUserActivation(ev)) return 0;
-    const type = String(ev.type);
     let continues = false;
     if (type === 'mousedown') continues = this.lastType === 'pointerdown';
-    else if (type === 'pointerup' || type === 'mouseup' || type === 'click') continues = this.pressOpen;
+    else if (type === 'pointerup' || type === 'mouseup') continues = this.pressOpen;
+    else if (type === 'click') continues = this.pressOpen || (this.lastType === 'keydown' && !(Number(ev.detail) > 0));
     else if (type === 'dblclick') continues = this.lastType === 'click';
     if (!continues) this.n++;
     this.pressOpen = type !== 'click' && type !== 'dblclick' && type !== 'keydown';
