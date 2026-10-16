@@ -1,15 +1,17 @@
 {
  "schema": 1,
+ "profile": 1,
  "client": {
   "platform": "web",
   "renderer": "blitz",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
+  "framework": "459a3be",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-16T09:33:50.901Z",
-  "commit": "77a2225"
+  "date": "2026-10-16T10:57:39.127Z",
+  "commit": "459a3be"
  },
  "summary": {
   "in": {
@@ -783,7 +785,7 @@
      "kind": "host",
      "name": "tapping an external <a href> goes to openLink",
      "status": "skip",
-     "detail": "synthetic taps grant no user gesture",
+     "detail": "synthetic input grants no user gesture",
      "theme": "light",
      "width": 390
     }
@@ -1429,7 +1431,7 @@
      "kind": "stage",
      "name": "filters",
      "status": "fail",
-     "detail": "diff 96.0 % of ink (max 10 %)",
+     "detail": "diff 96.4 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     }
@@ -2322,51 +2324,6 @@
      "name": "named colour",
      "status": "pass",
      "detail": "got \"102,51,153,1\", want \"102,51,153,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "#rgba hex",
-     "status": "pass",
-     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "hsl()",
-     "status": "pass",
-     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "currentColor",
-     "status": "pass",
-     "detail": "got \"0,0,200,1\", want \"0,0,200,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "transparent",
-     "status": "pass",
-     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "named colour",
-     "status": "pass",
-     "detail": "got \"102,51,153,1\", want \"102,51,153,1\"",
      "theme": "light",
      "width": 390
     },
@@ -2414,6 +2371,51 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "named colour",
+     "status": "pass",
+     "detail": "got \"102,51,153,1\", want \"102,51,153,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "#rgba hex",
+     "status": "pass",
+     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "hsl()",
+     "status": "pass",
+     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "currentColor",
+     "status": "pass",
+     "detail": "got \"0,0,200,1\", want \"0,0,200,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "transparent",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
+     "theme": "dark",
+     "width": 390
     }
    ]
   },
@@ -2448,15 +2450,6 @@
      "name": "color-mix() computes a colour",
      "status": "pass",
      "detail": "color(srgb 0.392157 0 0.392157)",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "color-mix() computes a colour",
-     "status": "pass",
-     "detail": "color(srgb 0.392157 0 0.392157)",
      "theme": "light",
      "width": 390
     },
@@ -2468,6 +2461,15 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "color-mix() computes a colour",
+     "status": "pass",
+     "detail": "color(srgb 0.392157 0 0.392157)",
+     "theme": "dark",
+     "width": 390
     }
    ]
   },
@@ -2478,24 +2480,6 @@
     "pass": 4
    },
    "evidence": [
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "light-dark() picks the chat theme",
-     "status": "pass",
-     "detail": "got \"4,5,6,1\", want \"4,5,6,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "stage",
-     "name": "light-dark",
-     "status": "pass",
-     "detail": "diff 0.0 % of ink (max 5 %)",
-     "theme": "dark",
-     "width": 390
-    },
     {
      "test": "auto/05-colour-backgrounds",
      "kind": "check",
@@ -2513,6 +2497,24 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "light-dark() picks the chat theme",
+     "status": "pass",
+     "detail": "got \"4,5,6,1\", want \"4,5,6,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "light-dark",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "dark",
+     "width": 390
     }
    ]
   },
@@ -2524,42 +2526,6 @@
     "fail": 3
    },
    "evidence": [
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-image keeps the data: image",
-     "status": "pass",
-     "detail": "url(\"data:image/png;base64,iVBORw0KGgoAA",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-size",
-     "status": "pass",
-     "detail": "got \"10px 12px\", want \"10px 12px\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-position",
-     "status": "fail",
-     "detail": "got \"\", want \"1px 2px\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-repeat",
-     "status": "pass",
-     "detail": "got \"no-repeat\", want \"no-repeat\"",
-     "theme": "dark",
-     "width": 390
-    },
     {
      "test": "auto/05-colour-backgrounds",
      "kind": "check",
@@ -2604,6 +2570,42 @@
      "detail": "diff 78.1 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-image keeps the data: image",
+     "status": "pass",
+     "detail": "url(\"data:image/png;base64,iVBORw0KGgoAA",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-size",
+     "status": "pass",
+     "detail": "got \"10px 12px\", want \"10px 12px\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-position",
+     "status": "fail",
+     "detail": "got \"\", want \"1px 2px\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-repeat",
+     "status": "pass",
+     "detail": "got \"no-repeat\", want \"no-repeat\"",
+     "theme": "dark",
+     "width": 390
     }
    ]
   },
@@ -2619,7 +2621,7 @@
      "kind": "stage",
      "name": "clip-text",
      "status": "fail",
-     "detail": "diff 62.6 % of ink (max 50 %); #c33 2640/567px, #36c 2520/629px",
+     "detail": "diff 62.5 % of ink (max 50 %); #c33 2640/567px, #36c 2520/629px",
      "theme": "light",
      "width": 390
     }
@@ -2655,7 +2657,7 @@
      "kind": "stage",
      "name": "radial",
      "status": "fail",
-     "detail": "diff 48.0 % of ink (max 5 %)",
+     "detail": "diff 48.9 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -2692,7 +2694,7 @@
      "name": "a remote url() never reaches the renderer",
      "status": "pass",
      "detail": "got \"none\", want \"none\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -2701,7 +2703,7 @@
      "name": "a remote url() never reaches the renderer",
      "status": "pass",
      "detail": "got \"none\", want \"none\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -3400,7 +3402,7 @@
      "kind": "stage",
      "name": "blur",
      "status": "fail",
-     "detail": "diff 38.6 % of ink (max 10 %)",
+     "detail": "diff 37.7 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     },
@@ -3463,7 +3465,7 @@
      "kind": "stage",
      "name": "backdrop",
      "status": "fail",
-     "detail": "diff 43.5 % of ink (max 10 %)",
+     "detail": "diff 43.1 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     }
@@ -4321,7 +4323,7 @@
      "kind": "check",
      "name": ":hover applies under a pointer",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -4339,7 +4341,7 @@
      "kind": "check",
      "name": ":active applies while pressed",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -4430,7 +4432,7 @@
      "name": "(min-width: 200px) applies",
      "status": "pass",
      "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4439,7 +4441,7 @@
      "name": "(max-width: 100px) does not",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4448,7 +4450,7 @@
      "name": "screen and (min-width) and (max-width)",
      "status": "pass",
      "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4457,7 +4459,7 @@
      "name": "matchMedia agrees with @media",
      "status": "pass",
      "detail": "got true, want true",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4466,7 +4468,7 @@
      "name": "(min-width: 200px) applies",
      "status": "pass",
      "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4475,7 +4477,7 @@
      "name": "(max-width: 100px) does not",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4484,7 +4486,7 @@
      "name": "screen and (min-width) and (max-width)",
      "status": "pass",
      "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4493,7 +4495,7 @@
      "name": "matchMedia agrees with @media",
      "status": "pass",
      "detail": "got true, want true",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4505,24 +4507,6 @@
     "pass": 4
    },
    "evidence": [
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "prefers-color-scheme follows the chat theme",
-     "status": "pass",
-     "detail": "got \"10,0,0,1\", want \"10,0,0,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "matchMedia(prefers-color-scheme) agrees",
-     "status": "pass",
-     "detail": "got true, want true",
-     "theme": "dark",
-     "width": 390
-    },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
@@ -4540,6 +4524,24 @@
      "detail": "got false, want false",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "prefers-color-scheme follows the chat theme",
+     "status": "pass",
+     "detail": "got \"10,0,0,1\", want \"10,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "matchMedia(prefers-color-scheme) agrees",
+     "status": "pass",
+     "detail": "got true, want true",
+     "theme": "dark",
+     "width": 390
     }
    ]
   },
@@ -4556,7 +4558,7 @@
      "name": "@media and matchMedia agree on reduced motion",
      "status": "pass",
      "detail": "got false, want false",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4565,7 +4567,7 @@
      "name": "@media and matchMedia agree on reduced motion",
      "status": "pass",
      "detail": "got false, want false",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4583,7 +4585,7 @@
      "name": "@media and matchMedia agree on (hover: hover)",
      "status": "fail",
      "detail": "got true, want false",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4592,7 +4594,7 @@
      "name": "@media and matchMedia agree on (pointer: coarse)",
      "status": "fail",
      "detail": "got false, want true",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4601,7 +4603,7 @@
      "name": "@media and matchMedia agree on (hover: hover)",
      "status": "fail",
      "detail": "got true, want false",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4610,7 +4612,7 @@
      "name": "@media and matchMedia agree on (pointer: coarse)",
      "status": "fail",
      "detail": "got false, want true",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4628,7 +4630,7 @@
      "name": "@media print never applies",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4637,7 +4639,7 @@
      "name": "@media print never applies",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4656,7 +4658,7 @@
      "name": "@supports (display: flex) holds",
      "status": "pass",
      "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4665,7 +4667,7 @@
      "name": "@supports (3D transform) is false: 3D is out of the profile",
      "status": "xfail",
      "detail": "21,0,0,1; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4674,7 +4676,7 @@
      "name": "@supports with and/not follows the profile",
      "status": "xfail",
      "detail": "got \"0,0,0,1\", want \"22,0,0,1\"; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4683,7 +4685,7 @@
      "name": "@supports (gap) holds",
      "status": "pass",
      "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4692,7 +4694,7 @@
      "name": "@supports (display: flex) holds",
      "status": "pass",
      "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4701,7 +4703,7 @@
      "name": "@supports (3D transform) is false: 3D is out of the profile",
      "status": "xfail",
      "detail": "21,0,0,1; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4710,7 +4712,7 @@
      "name": "@supports with and/not follows the profile",
      "status": "xfail",
      "detail": "got \"0,0,0,1\", want \"22,0,0,1\"; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4719,7 +4721,7 @@
      "name": "@supports (gap) holds",
      "status": "pass",
      "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4755,7 +4757,7 @@
      "name": "@import is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4764,7 +4766,7 @@
      "name": "@import is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4783,7 +4785,7 @@
      "name": "@container (min-width: 150px) on a 200px container",
      "status": "fail",
      "detail": "got \"0,0,0,1\", want \"30,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4792,7 +4794,7 @@
      "name": "@container (min-width: 500px) does not apply",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4801,7 +4803,7 @@
      "name": "@container (min-width: 150px) on a 200px container",
      "status": "fail",
      "detail": "got \"0,0,0,1\", want \"30,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4810,7 +4812,7 @@
      "name": "@container (min-width: 500px) does not apply",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4828,7 +4830,7 @@
      "name": "a later @layer wins regardless of source order",
      "status": "pass",
      "detail": "got \"40,0,0,1\", want \"40,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4837,7 +4839,7 @@
      "name": "a later @layer wins regardless of source order",
      "status": "pass",
      "detail": "got \"40,0,0,1\", want \"40,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4855,7 +4857,7 @@
      "name": "@property initial-value",
      "status": "pass",
      "detail": "got 25, want 25 ±0.5",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4864,7 +4866,7 @@
      "name": "@property initial-value",
      "status": "pass",
      "detail": "got 25, want 25 ±0.5",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4882,7 +4884,7 @@
      "name": "@scope is dropped",
      "status": "xpass",
      "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4891,7 +4893,7 @@
      "name": "@scope is dropped",
      "status": "xpass",
      "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -4910,7 +4912,7 @@
      "name": "nested rule .a { .b {} }",
      "status": "fail",
      "detail": "got 374, want 50 ±0.5",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4919,7 +4921,7 @@
      "name": "nested rule with & descendant",
      "status": "pass",
      "detail": "got 60, want 60 ±0.5",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4928,7 +4930,7 @@
      "name": "nested &.class",
      "status": "pass",
      "detail": "got \"60,0,0,1\", want \"60,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4937,7 +4939,7 @@
      "name": "rules after nested ones survive",
      "status": "pass",
      "detail": "got 33, want 33 ±0.5",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4946,7 +4948,7 @@
      "name": "nested rule .a { .b {} }",
      "status": "fail",
      "detail": "got 374, want 50 ±0.5",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4955,7 +4957,7 @@
      "name": "nested rule with & descendant",
      "status": "pass",
      "detail": "got 60, want 60 ±0.5",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4964,7 +4966,7 @@
      "name": "nested &.class",
      "status": "pass",
      "detail": "got \"60,0,0,1\", want \"60,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4973,7 +4975,7 @@
      "name": "rules after nested ones survive",
      "status": "pass",
      "detail": "got 33, want 33 ±0.5",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     }
    ]
@@ -5271,7 +5273,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "152.3",
+     "detail": "155.3",
      "theme": "light",
      "width": 390
     },
@@ -5587,7 +5589,7 @@
      "kind": "stage",
      "name": "text",
      "status": "fail",
-     "detail": "diff 68.9 % of ink (max 50 %); #222 0/932px, #36c 0/334px",
+     "detail": "diff 68.6 % of ink (max 50 %); #222 0/932px, #36c 0/334px",
      "theme": "light",
      "width": 390
     }
@@ -5641,7 +5643,7 @@
      "kind": "stage",
      "name": "shadow",
      "status": "fail",
-     "detail": "diff 94.5 % of ink (max 10 %)",
+     "detail": "diff 96.5 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     }
@@ -5659,7 +5661,7 @@
      "kind": "stage",
      "name": "filter",
      "status": "fail",
-     "detail": "diff 91.4 % of ink (max 10 %)",
+     "detail": "diff 91.3 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     }
@@ -6277,7 +6279,7 @@
      "kind": "host",
      "name": "focus() from the widget leaves the chat input focused",
      "status": "xpass",
-     "detail": "focus on input#conf-chat-input",
+     "detail": "chat input kept the focus",
      "theme": "light",
      "width": 390
     }
@@ -6322,7 +6324,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "156,174,190",
+     "detail": "150,166,183",
      "theme": "light",
      "width": 390
     }
@@ -7017,7 +7019,7 @@
      "kind": "host",
      "name": "openLink from a tap reaches the host once",
      "status": "skip",
-     "detail": "synthetic taps grant no user gesture",
+     "detail": "synthetic input grants no user gesture",
      "theme": "light",
      "width": 390
     }
@@ -7188,7 +7190,7 @@
      "kind": "check",
      "name": "pointerdown → pointermove (buttons=1) → pointerup moves the knob",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     },
@@ -7197,7 +7199,7 @@
      "kind": "check",
      "name": "setPointerCapture keeps moves coming past the element",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     },
@@ -7206,7 +7208,7 @@
      "kind": "check",
      "name": "movementX adds up to the distance",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7224,7 +7226,7 @@
      "kind": "check",
      "name": "pointerenter, pointerover, mouseenter reach the widget",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7242,7 +7244,7 @@
      "kind": "check",
      "name": "dblclick arrives",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7260,7 +7262,7 @@
      "kind": "check",
      "name": "no contextmenu event reaches the widget",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7278,7 +7280,7 @@
      "kind": "check",
      "name": "no keydown reaches the widget",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     },
@@ -7287,7 +7289,7 @@
      "kind": "check",
      "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: key, key, key, key",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7305,7 +7307,7 @@
      "kind": "check",
      "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: key, key, key, key",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7323,7 +7325,7 @@
      "kind": "host",
      "name": "a key press does not unlock openLink",
      "status": "skip",
-     "detail": "synthetic taps grant no user gesture",
+     "detail": "synthetic input grants no user gesture",
      "theme": "light",
      "width": 390
     }
@@ -7341,7 +7343,7 @@
      "kind": "check",
      "name": "no wheel event reaches the widget",
      "status": "skip",
-     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "detail": "input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7599,7 +7601,7 @@
      "kind": "stage",
      "name": "no-selection",
      "status": "skip",
-     "detail": "diff 34.0 % of ink (max 30 %); the client does not disable selection yet (D18)",
+     "detail": "diff 34.0 % of ink (max 30 %); input not deliverable on this renderer",
      "theme": "light",
      "width": 390
     }
@@ -7753,30 +7755,6 @@
   {
    "id": "auto/05-colour-backgrounds",
    "set": "auto",
-   "theme": "dark",
-   "width": 390,
-   "loaded": true,
-   "dead": null,
-   "status": "done",
-   "errors": [],
-   "harnessErrors": [],
-   "skippedActions": [],
-   "counts": {
-    "pass": 11,
-    "fail": 1
-   },
-   "stages": [
-    {
-     "name": "light-dark",
-     "diff": 0,
-     "status": "pass"
-    }
-   ],
-   "host": []
-  },
-  {
-   "id": "auto/05-colour-backgrounds",
-   "set": "auto",
    "theme": "light",
    "width": 390,
    "loaded": true,
@@ -7817,7 +7795,7 @@
     },
     {
      "name": "clip-text",
-     "diff": 0.6257,
+     "diff": 0.6249,
      "status": "fail"
     },
     {
@@ -7827,7 +7805,7 @@
     },
     {
      "name": "radial",
-     "diff": 0.4797,
+     "diff": 0.4886,
      "status": "fail"
     },
     {
@@ -7848,6 +7826,30 @@
     {
      "name": "object-fit",
      "diff": 0.0145,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/05-colour-backgrounds",
+   "set": "auto",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 11,
+    "fail": 1
+   },
+   "stages": [
+    {
+     "name": "light-dark",
+     "diff": 0,
      "status": "pass"
     }
    ],
@@ -7916,7 +7918,7 @@
   {
    "id": "auto/08-at-rules",
    "set": "auto",
-   "theme": "dark",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -7936,7 +7938,7 @@
   {
    "id": "auto/08-at-rules",
    "set": "auto",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -7982,7 +7984,7 @@
     },
     {
      "name": "blur",
-     "diff": 0.3864,
+     "diff": 0.3773,
      "status": "fail"
     },
     {
@@ -7997,7 +7999,7 @@
     },
     {
      "name": "backdrop",
-     "diff": 0.435,
+     "diff": 0.4311,
      "status": "fail"
     },
     {
@@ -8175,7 +8177,7 @@
     },
     {
      "name": "text",
-     "diff": 0.6888,
+     "diff": 0.6863,
      "status": "fail"
     },
     {
@@ -8190,12 +8192,12 @@
     },
     {
      "name": "shadow",
-     "diff": 0.9447,
+     "diff": 0.9654,
      "status": "fail"
     },
     {
      "name": "filter",
-     "diff": 0.9139,
+     "diff": 0.9133,
      "status": "fail"
     },
     {
@@ -8264,7 +8266,7 @@
     },
     {
      "name": "filters",
-     "diff": 0.9596,
+     "diff": 0.9637,
      "status": "fail"
     },
     {
@@ -8332,11 +8334,11 @@
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [
-    "press",
-    "dblclick",
-    "rightclick",
-    "key",
-    "wheel"
+    5,
+    6,
+    7,
+    9,
+    10
    ],
    "counts": {
     "pass": 8,
@@ -8350,7 +8352,7 @@
      "id": "tw.open-link",
      "name": "openLink from a tap reaches the host once",
      "status": "skip",
-     "detail": "synthetic taps grant no user gesture"
+     "detail": "synthetic input grants no user gesture"
     },
     {
      "id": "input.user-activation",
@@ -8362,7 +8364,7 @@
      "id": "html.el.a-external",
      "name": "tapping an external <a href> goes to openLink",
      "status": "skip",
-     "detail": "synthetic taps grant no user gesture"
+     "detail": "synthetic input grants no user gesture"
     },
     {
      "id": "input.prevent-default",
@@ -8383,10 +8385,10 @@
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [
-    "hover",
-    "drag",
-    "drag",
-    "drag"
+    0,
+    2,
+    3,
+    5
    ],
    "counts": {
     "skip": 6,
@@ -8472,10 +8474,10 @@
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [
-    "key",
-    "key",
-    "key",
-    "key"
+    1,
+    2,
+    3,
+    5
    ],
    "counts": {
     "skip": 2,
@@ -8487,13 +8489,13 @@
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
      "status": "xpass",
-     "detail": "focus on input#conf-chat-input"
+     "detail": "chat input kept the focus"
     },
     {
      "id": "input.key-gesture",
      "name": "a key press does not unlock openLink",
      "status": "skip",
-     "detail": "synthetic taps grant no user gesture"
+     "detail": "synthetic input grants no user gesture"
     }
    ]
   },
@@ -8660,8 +8662,8 @@
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [
-    "drag",
-    "hover"
+    4,
+    5
    ],
    "counts": {
     "pass": 1,
@@ -8673,7 +8675,7 @@
   {
    "id": "visual/12-theme",
    "set": "visual",
-   "theme": "dark",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -8688,7 +8690,7 @@
   {
    "id": "visual/12-theme",
    "set": "visual",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,

@@ -22,26 +22,34 @@ const REFERENCE_CSP =
   "img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; " +
   "child-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'";
 
+/** The conformance set ships with the framework (packages/conformance); the dev app lists it as the `conformance/` group. */
+const conformanceDir = path.join(repoRoot, 'packages', 'conformance');
+const groupDir = (group: string) => (group === 'conformance' ? conformanceDir : path.join(corpusDir, group));
+
 function listCorpus(): string[] {
   const out: string[] = [];
   for (const group of ['compat', 'attacks', 'generated', 'htmlbubbles-ported', 'common', 'showcase', 'conformance']) {
+    const base = groupDir(group);
     const walk = (dir: string) => {
       if (!fs.existsSync(dir)) return;
       for (const name of fs.readdirSync(dir).sort()) {
         const p = path.join(dir, name);
-        if (fs.statSync(p).isDirectory()) walk(p);
-        else if (name.endsWith('.html')) out.push(path.relative(corpusDir, p));
+        if (fs.statSync(p).isDirectory()) { if (group !== 'conformance' || name === 'auto' || name === 'visual' || dir !== base) walk(p); }
+        else if (name.endsWith('.html')) out.push(group + '/' + path.relative(base, p));
       }
     };
-    walk(path.join(corpusDir, group));
+    walk(base);
   }
   return out;
 }
 
-/** Resolve a corpus-relative path, refusing anything outside corpus/. */
+/** Resolve a corpus-relative path (`<group>/…`), refusing anything outside its group. */
 function corpusFile(rel: string): string | null {
-  const p = path.normalize(path.join(corpusDir, decodeURIComponent(rel)));
-  if (!p.startsWith(corpusDir + path.sep) || !p.endsWith('.html') || !fs.existsSync(p)) return null;
+  const decoded = decodeURIComponent(rel);
+  const group = decoded.split('/')[0];
+  const base = groupDir(group);
+  const p = path.normalize(path.join(base, decoded.slice(group.length + 1)));
+  if (!p.startsWith(base + path.sep) || !p.endsWith('.html') || !fs.existsSync(p)) return null;
   return p;
 }
 

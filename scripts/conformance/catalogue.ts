@@ -1,6 +1,6 @@
 // The widget profile feature catalogue: every feature a widget may use (or
 // tries to use), with a stable ID, its v1 status and the decision it comes
-// from. Source of corpus/conformance/catalogue.json (`pnpm tsx
+// from. Source of packages/conformance/catalogue.json (`pnpm tsx
 // scripts/conformance/build.ts catalogue`), which is meant to seed the
 // versioned profile.json of the release plan: `match` names the tags,
 // attributes, properties, values, selectors, at-rules, canvas members and JS
