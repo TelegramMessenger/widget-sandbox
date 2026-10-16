@@ -362,7 +362,7 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
             if (!(activeGesture_ > consumedGesture_ && visible_)) {
                 if (blockedBridgeReported_ < 20 && delegate_) {
                     blockedBridgeReported_++;
-                    delegate_->onDiag(*this, "activation-blocked", name + " ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the " + currentKind_ + " task)");
+                    delegate_->onDiag(*this, "activation-blocked", name + " ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler (called from the " + currentKind_ + " task)");
                 }
                 return HostReturn::undefined();
             }

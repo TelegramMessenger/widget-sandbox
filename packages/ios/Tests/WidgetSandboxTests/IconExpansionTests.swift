@@ -107,6 +107,48 @@ final class IconExpansionTests: XCTestCase {
         XCTAssertEqual(diags, ["icon-limit"])
     }
 
+    func testTheIconPrefixIsExactlyLowercase() throws {
+        for native in [false, true] {
+            let box = Box()
+            let v = try validator(native: native, box: box)
+            let out = v.processOps("[\(image(10, "ICON:airplane")),\(image(11, "Icon:airplane")),{\"op\":\"el\",\"id\":12,\"tag\":\"div\",\"attrs\":{}},{\"op\":\"ins\",\"parent\":3,\"id\":12,\"before\":null},{\"op\":\"style\",\"id\":12,\"name\":\"background-image\",\"value\":\"url(ICON:airplane), url('Icon:airplane')\",\"important\":false}]")
+            XCTAssertFalse(out.contains(Self.airplane), "native \(native) \(out.prefix(300))")
+            XCTAssertEqual(v.thread.sync { box.asked }, [], "native \(native)")
+            let css = v.processOps("[{\"op\":\"style\",\"id\":12,\"name\":\"background-image\",\"value\":\"URL(icon:airplane)\",\"important\":false}]")
+            XCTAssertTrue(css.contains(Self.airplane), "the CSS function name stays case-insensitive; native \(native) \(css.prefix(300))")
+        }
+    }
+
+    func testDistinctIconsAreLimitedPerWidget() {
+        var asked: [String] = []
+        var diags: [String] = []
+        let icons = IconExpansion(resolver: { icon in asked.append(icon); return Self.airplane }) { k, _ in diags.append(k) }
+        for batch in 0..<3 {
+            icons.beginBatch()
+            let text = "[\"" + (0..<200).map { "url(icon:n\(batch * 200 + $0))" }.joined(separator: " ") + "\"]"
+            _ = icons.expand(text)
+        }
+        XCTAssertEqual(asked.count, IconExpansion.maxIconsPerWidget)
+        XCTAssertEqual(diags, ["icon-limit"], "reported once per widget")
+        icons.beginBatch()
+        XCTAssertTrue(icons.expand("[\"url(icon:n0) url(icon:n599)\"]").contains("url(" + Self.airplane + ") url(icon:n599)"), "known tokens keep working, new ones stay unresolved")
+        XCTAssertEqual(asked.count, IconExpansion.maxIconsPerWidget)
+
+        let big = "data:image/png;base64," + String(repeating: "A", count: 60_000)
+        var bigAsked = 0
+        var bigDiags: [String] = []
+        let heavy = IconExpansion(resolver: { _ in bigAsked += 1; return big }) { k, _ in bigDiags.append(k) }
+        var expanded = 0
+        for batch in 0..<10 {
+            heavy.beginBatch()
+            let out = heavy.expand("[\"" + (0..<10).map { "url(icon:b\(batch * 10 + $0))" }.joined(separator: " ") + "\"]")
+            expanded += out.components(separatedBy: big).count - 1
+        }
+        XCTAssertEqual(expanded, IconExpansion.maxResolvedBytesPerWidget / big.utf8.count)
+        XCTAssertLessThanOrEqual(bigAsked, expanded + 1)
+        XCTAssertEqual(bigDiags, ["icon-limit"])
+    }
+
     private func render(_ html: String, options: WidgetHost.Options) -> (RecordingRenderer, WidgetHost) {
         let renderer = RecordingRenderer()
         let host = try! WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })

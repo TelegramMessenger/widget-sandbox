@@ -257,7 +257,7 @@ final class NativeValidatorDifferentialTests: XCTestCase {
         let icons = IconExpansion(resolver: IconExpansionTests.stubResolver) { _, _ in }
         XCTAssertNotNil(icons.dataURL("icon:airplane"))
         let values = ["icon:airplane", "icon:airplane?weight=bold", "icon:nope", "x icon:airplane", "url(icon:airplane)", "url('icon:airplane')", "url(\"icon:airplane\")", "url(\u{a0}icon:airplane)",
-                      "url(\u{2003}icon:airplane)", "url(\ticon:airplane)", "url(\nicon:airplane)", "URL(ICON:airplane)", "url( icon:airplane ) url(icon:airplane)", "url(\\\"icon:airplane)", "icon:airplane\n",
+                      "url(\u{2003}icon:airplane)", "url(\ticon:airplane)", "url(\nicon:airplane)", "URL(ICON:airplane)", "URL(icon:airplane)", "url(Icon:airplane)", "ICON:airplane", "url( icon:airplane ) url(icon:airplane)", "url(\\\"icon:airplane)", "icon:airplane\n",
                       "a:url(icon:airplane);b:url(icon:airplane)", "icon:" + String(repeating: "a", count: 97), "url(icon:airplane?x=" + String(repeating: "1", count: 401) + ")"]
         let keys = ["src", "href", "data-x", "1x", "fill", "style", "title"]
         var replaced = 0

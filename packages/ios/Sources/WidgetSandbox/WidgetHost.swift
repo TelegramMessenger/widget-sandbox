@@ -564,7 +564,8 @@ public final class WidgetHost: SandboxEngineDelegate {
             startEngine()
         case "event":
             if let ev = msg["ev"] {
-                if let gesture = gesture(for: ev) {
+                // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
+                if (msg["trusted"] as? Bool) == true, let gesture = gesture(for: ev) {
                     engine.activationEvent(json: Self.json(ev), gesture: gesture)
                 } else {
                     engine.event(json: Self.json(ev))
@@ -670,18 +671,28 @@ public final class WidgetHost: SandboxEngineDelegate {
     static func json(_ value: Any) -> String { SandboxEngine.json(value) }
 
     static let activationEventTypes: Set<String> = ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown"]
+    /// The keys that activate a focused control; Tab, arrows, letters and Escape are not a gesture.
+    static let activationKeys: Set<String> = ["Enter", " "]
     private var gestureNumber = 0
     private var pressOpen = false
     private var lastActivationType = ""
 
     /// One physical press (pointerdown, mousedown, pointerup, mouseup, click, dblclick) or one key press is one gesture.
+    /// The click an Enter or Space press activates (`detail` 0) belongs to that press, and so does every click of the key held down.
     private func gesture(for ev: Any) -> Int? {
-        guard Self.isUserActivation(ev), let type = (ev as? [String: Any])?["type"] as? String else { return nil }
+        guard let event = ev as? [String: Any], let type = event["type"] as? String else { return nil }
+        if type == "keydown", (event["repeat"] as? Bool) == true, let key = event["key"] as? String, Self.activationKeys.contains(key) {
+            pressOpen = false
+            lastActivationType = type
+            return nil
+        }
+        guard Self.isUserActivation(ev) else { return nil }
         let continues: Bool
         switch type {
         case "pointerdown": continues = false
         case "mousedown": continues = lastActivationType == "pointerdown"
-        case "pointerup", "mouseup", "click": continues = pressOpen
+        case "pointerup", "mouseup": continues = pressOpen
+        case "click": continues = pressOpen || (lastActivationType == "keydown" && ((event["detail"] as? NSNumber)?.doubleValue ?? 0) <= 0)
         case "dblclick": continues = lastActivationType == "click"
         default: continues = false
         }
@@ -691,12 +702,13 @@ public final class WidgetHost: SandboxEngineDelegate {
         return gestureNumber
     }
 
-    /// Renderer events that count as a user gesture: clicks and key presses (not Escape, not a repeat, not a Command shortcut).
+    /// Renderer events that count as a user gesture: clicks and presses of Enter or Space (not a repeat, not a Command shortcut).
     static func isUserActivation(_ ev: Any) -> Bool {
         guard let ev = ev as? [String: Any], let type = ev["type"] as? String, activationEventTypes.contains(type) else { return false }
         if type == "keydown" {
             let modifiers = (ev["modifiers"] as? NSNumber)?.intValue ?? 0
-            return ev["key"] as? String != "Escape" && (ev["repeat"] as? Bool) != true && modifiers & 4 == 0
+            guard let key = ev["key"] as? String, activationKeys.contains(key) else { return false }
+            return (ev["repeat"] as? Bool) != true && modifiers & 4 == 0
         }
         return true
     }

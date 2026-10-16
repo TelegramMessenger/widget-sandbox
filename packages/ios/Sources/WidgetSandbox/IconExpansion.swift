@@ -2,21 +2,30 @@ import Foundation
 
 public typealias WidgetAssetResolver = (String) -> String?
 
+/// `icon:<name>[?query]` tokens → the host resolver's `data:image/` URL, before validation. One instance per widget
+/// (`TrustedValidator.setAssetResolver`). The prefix is exactly `icon:`, lowercase; only the CSS function name `url(`
+/// is ASCII case-insensitive, as in CSS.
 final class IconExpansion {
     static let maxURLBytes = 64 * 1024
     static let maxIconsPerBatch = 1024
     static let maxBytesPerBatch = 2 << 20
-    static let maxCacheEntries = 512
+    /// Per widget: distinct tokens the resolver is ever asked for, and the bytes of its answers kept for the widget.
+    /// Past either, new tokens stay unresolved (blocked like any other non-`data:` URL); known ones keep working.
+    static let maxIconsPerWidget = 256
+    static let maxResolvedBytesPerWidget = 2 << 20
 
     private static let attribute = try! NSRegularExpression(pattern: "(\"(?!data\"|text\")[A-Za-z_:-]{1,32}\":\")(icon:[A-Za-z0-9_.-]{0,96}(?:\\?[A-Za-z0-9=&.%#_-]{0,400})?)(?=\")")
-    private static let url = try! NSRegularExpression(pattern: "(url\\((?:\\\\?[\"'])?\\s*)(icon:[A-Za-z0-9_.-]{0,96}(?:\\?[A-Za-z0-9=&.%#_-]{0,400})?)", options: [.caseInsensitive])
+    private static let url = try! NSRegularExpression(pattern: "((?i:url)\\((?:\\\\?[\"'])?\\s*)(icon:[A-Za-z0-9_.-]{0,96}(?:\\?[A-Za-z0-9=&.%#_-]{0,400})?)")
     private static let fieldValue = try! NSRegularExpression(pattern: "\\Aicon:[A-Za-z0-9_.-]{0,96}(?:\\?[A-Za-z0-9=&.%#_-]{0,400})?\\z")
     private static let fieldKey = try! NSRegularExpression(pattern: "\\A[A-Za-z_:-]{1,32}\\z")
-    private static let rawURL = try! NSRegularExpression(pattern: "(url\\((?:[\"'])?\\p{Z}*)(icon:[A-Za-z0-9_.-]{0,96}(?:\\?[A-Za-z0-9=&.%#_-]{0,400})?)", options: [.caseInsensitive])
+    private static let rawURL = try! NSRegularExpression(pattern: "((?i:url)\\((?:[\"'])?\\p{Z}*)(icon:[A-Za-z0-9_.-]{0,96}(?:\\?[A-Za-z0-9=&.%#_-]{0,400})?)")
 
     private let resolver: WidgetAssetResolver
     private let diag: (String, String) -> Void
+    /// Every token this widget asked for and the answer ("" for none); never evicted, at most `maxIconsPerWidget`.
     private var cache: [String: String] = [:]
+    private var resolvedBytes = 0
+    private var widgetLimitReported = false
     private var icons = 0
     private var bytes = 0
     private var limitReported = false
@@ -49,6 +58,13 @@ final class IconExpansion {
         diag("icon-limit", detail)
     }
 
+    /// The widget's own budget: reported once per widget, and the rest of the batch still expands known tokens.
+    private func widgetLimit(_ detail: String) {
+        if widgetLimitReported { return }
+        widgetLimitReported = true
+        diag("icon-limit", detail)
+    }
+
     func dataURL(_ icon: String) -> String? {
         guard icons < Self.maxIconsPerBatch else {
             limit("more than \(Self.maxIconsPerBatch) icon: URLs in one batch")
@@ -59,9 +75,20 @@ final class IconExpansion {
         if let hit = cache[icon] {
             url = hit
         } else {
-            url = resolver(icon).flatMap(Self.checked) ?? ""
-            if cache.count >= Self.maxCacheEntries { cache.removeAll() }
-            cache[icon] = url
+            guard cache.count < Self.maxIconsPerWidget, resolvedBytes < Self.maxResolvedBytesPerWidget else {
+                widgetLimit("more than \(Self.maxIconsPerWidget) distinct icon: tokens or \(Self.maxResolvedBytesPerWidget) bytes of icons in this widget")
+                return nil
+            }
+            let answer = resolver(icon).flatMap(Self.checked) ?? ""
+            if resolvedBytes + answer.utf8.count > Self.maxResolvedBytesPerWidget {
+                cache[icon] = ""
+                resolvedBytes = Self.maxResolvedBytesPerWidget
+                widgetLimit("more than \(Self.maxResolvedBytesPerWidget) bytes of icons in this widget")
+                return nil
+            }
+            resolvedBytes += answer.utf8.count
+            cache[icon] = answer
+            url = answer
         }
         if url.isEmpty { return nil }
         guard bytes + url.utf8.count <= Self.maxBytesPerBatch else {
@@ -87,6 +114,7 @@ final class IconExpansion {
         return expanded == value ? nil : expanded
     }
 
+    /// A cheap pre-filter (ASCII case-insensitive, so it may say yes for `ICON:`); the patterns above decide.
     static func mayContainIcon(_ json: String) -> Bool {
         let found = json.utf8.withContiguousStorageIfAvailable { mayContainIcon(bytes: $0) }
         return found ?? (json.range(of: "icon:", options: .caseInsensitive) != nil)

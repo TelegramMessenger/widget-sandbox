@@ -7,12 +7,13 @@ import { GESTURE_TTL_MS, GestureCounter, HostActivationGate, isUserActivation } 
 import { runWidget } from '../../scripts/sandbox-node.ts';
 
 describe('user activation: policy', () => {
-  it('counts clicks and key presses, not Escape, repeats, Command shortcuts or moves', () => {
+  it('counts clicks and presses of Enter or Space, not other keys, repeats, Command shortcuts or moves', () => {
     assert.ok(isUserActivation({ type: 'click' }));
-    assert.ok(isUserActivation({ type: 'keydown', key: 'a' }));
-    assert.ok(!isUserActivation({ type: 'keydown', key: 'Escape' }));
-    assert.ok(!isUserActivation({ type: 'keydown', key: 'a', repeat: true }));
-    assert.ok(!isUserActivation({ type: 'keydown', key: 'c', modifiers: 4 }));
+    assert.ok(isUserActivation({ type: 'keydown', key: 'Enter' }));
+    assert.ok(isUserActivation({ type: 'keydown', key: ' ' }));
+    for (const key of ['a', 'Escape', 'Tab', 'ArrowDown', 'PageDown', 'Shift', 'F5', 'Spacebar', 'enter', undefined]) assert.ok(!isUserActivation({ type: 'keydown', key }), String(key));
+    assert.ok(!isUserActivation({ type: 'keydown', key: 'Enter', repeat: true }));
+    assert.ok(!isUserActivation({ type: 'keydown', key: 'Enter', modifiers: 4 }));
     assert.ok(!isUserActivation({ type: 'mousemove' }));
     assert.ok(!isUserActivation({ type: 'scroll' }));
   });
@@ -21,9 +22,27 @@ describe('user activation: policy', () => {
     const c = new GestureCounter();
     assert.deepEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick'].map((type) => c.gestureFor({ type })), [1, 1, 1, 1, 1, 1]);
     assert.equal(c.gestureFor({ type: 'pointerdown' }), 2);
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'a' }), 3);
-    assert.equal(c.gestureFor({ type: 'keydown', key: 'b' }), 4);
+    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 3);
+    assert.equal(c.gestureFor({ type: 'keydown', key: ' ' }), 4);
+    assert.equal(c.gestureFor({ type: 'keydown', key: 'Tab' }), 0);
     assert.equal(c.gestureFor({ type: 'mousemove' }), 0);
+  });
+
+  it('an Enter or Space press and the click it activates are one gesture, also while the key is held', () => {
+    const c = new GestureCounter();
+    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 1);
+    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 1, 'the click Enter activates');
+    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter', repeat: true }), 0);
+    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 1, 'the click of a held key');
+    assert.equal(c.gestureFor({ type: 'keydown', key: ' ' }), 2);
+    assert.equal(c.gestureFor({ type: 'keyup', key: ' ' }), 0);
+    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 2, 'Space clicks on keyup');
+    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 3, 'a second keyboard click without a key press is a new gesture');
+    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 4);
+    assert.equal(c.gestureFor({ type: 'click', detail: 1 }), 5, 'a pointer click after a key press is its own gesture');
+    assert.equal(c.gestureFor({ type: 'keydown', key: 'Enter' }), 6);
+    assert.equal(c.gestureFor({ type: 'keydown', key: 'Tab' }), 0);
+    assert.equal(c.gestureFor({ type: 'click', detail: 0 }), 6, 'keys that are not a gesture do not close the press');
   });
 
   it('accepts each issued gesture once, while visible and recent, and nothing the host did not issue', () => {
@@ -60,6 +79,16 @@ describe('user activation: harness', () => {
     const r = await runWidget(widget, { timerRounds: 2, policy: 'strict', events: [{ type: 'click', targetId: button.id }, { type: 'click', targetId: button.id, gesture: 1 }, { type: 'click', targetId: button.id, gesture: 1 }] });
     assert.deepEqual(r.bridge.map((b: any) => b[0] + ':' + JSON.stringify(b[1])), ['ready:[]', 'sendMessage:["clicked"]']);
     assert.ok(r.diags.filter((d) => d.kind === 'activation-blocked').length >= 4);
+  });
+
+  it('a hidden widget cannot use a gesture', async () => {
+    const first = await runWidget(widget, { timerRounds: 2, policy: 'strict' });
+    const button = first.renderOps.find((o: any) => o.op === 'el' && o.tag === 'button') as any;
+    const hidden = await runWidget(widget, { timerRounds: 2, policy: 'strict', visible: false, events: [{ type: 'click', targetId: button.id, gesture: 1 }] });
+    assert.deepEqual(hidden.bridge.map((b: any) => b[0]), ['ready']);
+    assert.ok(hidden.diags.some((d) => d.kind === 'activation-blocked' && d.detail.startsWith('sendMessage')));
+    const shown = await runWidget(widget, { timerRounds: 2, policy: 'strict', events: [{ type: 'click', targetId: button.id, gesture: 1 }] });
+    assert.deepEqual(shown.bridge.map((b: any) => b[0]), ['ready', 'sendMessage']);
   });
 
   it('strict is the default, and anything but compat is strict', async () => {

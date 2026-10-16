@@ -339,7 +339,8 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         }
     } else if (type == "event") {
         if (const Json* ev = msg.find("ev")) {
-            if (int gesture = gestureFor(*ev)) engine_.activationEvent(ev->dump(), gesture);
+            // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
+            if (int gesture = msg["trusted"].asBool() ? gestures_.gestureFor(*ev) : 0) engine_.activationEvent(ev->dump(), gesture);
             else engine_.event(ev->dump());
         }
     } else if (type == "result") {
@@ -421,28 +422,37 @@ void WidgetHost::changed() {
     if (onChange) onChange(diagnostics());
 }
 
-bool WidgetHost::isUserActivation(const Json& ev) {
+static bool isActivationKey(const std::string& key) { return key == "Enter" || key == " "; }
+
+bool GestureCounter::isUserActivation(const Json& ev) {
     if (!ev.isObject()) return false;
     const std::string& type = ev["type"].asString();
     static const char* types[] = {"click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown"};
     bool known = false;
     for (const char* t : types) known = known || type == t;
     if (!known) return false;
-    if (type == "keydown") return ev["key"].asString() != "Escape" && !ev["repeat"].asBool() && (ev["modifiers"].asInt() & 4) == 0;
+    if (type == "keydown") return isActivationKey(ev["key"].asString()) && !ev["repeat"].asBool() && (ev["modifiers"].asInt() & 4) == 0;
     return true;
 }
 
-int WidgetHost::gestureFor(const Json& ev) {
-    if (!isUserActivation(ev)) return 0;
+int GestureCounter::gestureFor(const Json& ev) {
+    if (!ev.isObject()) return 0;
     const std::string& type = ev["type"].asString();
+    if (type == "keydown" && ev["repeat"].asBool() && isActivationKey(ev["key"].asString())) {
+        pressOpen_ = false;
+        lastType_ = type;
+        return 0;
+    }
+    if (!isUserActivation(ev)) return 0;
     bool continues = false;
-    if (type == "mousedown") continues = lastActivationType_ == "pointerdown";
-    else if (type == "pointerup" || type == "mouseup" || type == "click") continues = pressOpen_;
-    else if (type == "dblclick") continues = lastActivationType_ == "click";
-    if (!continues) gestureNumber_++;
+    if (type == "mousedown") continues = lastType_ == "pointerdown";
+    else if (type == "pointerup" || type == "mouseup") continues = pressOpen_;
+    else if (type == "click") continues = pressOpen_ || (lastType_ == "keydown" && !(ev["detail"].asNumber() > 0));
+    else if (type == "dblclick") continues = lastType_ == "click";
+    if (!continues) number_++;
     pressOpen_ = type != "click" && type != "dblclick" && type != "keydown";
-    lastActivationType_ = type;
-    return gestureNumber_;
+    lastType_ = type;
+    return number_;
 }
 
 } // namespace twidget
