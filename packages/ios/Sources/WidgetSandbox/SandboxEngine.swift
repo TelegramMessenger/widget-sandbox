@@ -851,7 +851,10 @@ public final class SandboxResources {
               !libraries.contains(where: { $0.name == library.name || $0.file == library.file }) else { return false }
         var compiled: [NSRegularExpression] = []
         for pattern in library.patterns {
-            guard pattern.utf16.count <= 1024, let regex = try? NSRegularExpression(pattern: "\\A(?:" + pattern + ")\\z", options: [.caseInsensitive]),
+            // Whole-URL match: the pattern must be a regular expression on its own first, so an unbalanced `)` (say `x)|(.*`)
+            // cannot close the anchoring group and leave an alternative unanchored.
+            guard pattern.utf16.count <= 1024, (try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])) != nil,
+                  let regex = try? NSRegularExpression(pattern: "\\A(?:" + pattern + ")\\z", options: [.caseInsensitive]),
                   !["", "https://example.invalid/x.js", "app:", "https://cdn.jsdelivr.net/npm/x.js"].contains(where: { Self.matches(regex, $0) }) else { return false }
             compiled.append(regex)
         }

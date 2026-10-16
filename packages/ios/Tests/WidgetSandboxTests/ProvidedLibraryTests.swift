@@ -88,10 +88,16 @@ final class ProvidedLibraryTests: XCTestCase {
         XCTAssertFalse(resources.provide(ProvidedLibrary(name: "x", file: "x.txt", patterns: ["^app:x$"], source: source)))
         XCTAssertFalse(resources.provide(ProvidedLibrary(name: "X Y", file: "x.js", patterns: ["^app:x$"], source: source)))
         XCTAssertFalse(resources.provide(ProvidedLibrary(name: "x", file: "x.js", patterns: [], source: source)))
-        for pattern in [".*", "^app:x$|.*", "https?://.*", "", "(", "^app:x$|^$", "^(?:https?://[^/]+/)?x\\.js$", String(repeating: "a", count: 2000)] {
+        // An unbalanced `)` would close the anchoring group: `\A(?:p)|(q)\z` matches any URL that starts with p.
+        for pattern in [".*", "^app:x$|.*", "https?://.*", "", "(", "^app:x$|^$", "^(?:https?://[^/]+/)?x\\.js$", String(repeating: "a", count: 2000),
+                        "https://cdn\\.example\\.com/lib)|(zzz", "app:x)|(.*", "a)(b", "\\Qapp:x)|(.*"] {
             XCTAssertFalse(resources.provide(ProvidedLibrary(name: "x", file: "x.js", patterns: [pattern], source: source)), pattern)
         }
+        XCTAssertNil(resources.library(for: "https://cdn.example.com/lib-evil.js"))
         XCTAssertTrue(resources.provide(ProvidedLibrary(name: "x", file: "x.js", patterns: ["app:x"], source: source)))
+        XCTAssertTrue(resources.provide(ProvidedLibrary(name: "z", file: "z.js", patterns: ["app:z|https://cdn\\.example\\.com/z(?:\\.min)?\\.js", "app:\\(z\\)|[)(]z"], source: source)))
+        for url in ["app:z", "https://cdn.example.com/z.min.js", "app:(z)", ")z"] { XCTAssertEqual(resources.library(for: url)?.name, "z", url) }
+        for url in ["app:zz", "https://cdn.example.com/z.js/x", "xapp:z"] { XCTAssertNil(resources.library(for: url), url) }
         XCTAssertNil(resources.library(for: "app:x/y"))
         XCTAssertNil(resources.library(for: "zapp:x"))
         XCTAssertEqual(resources.library(for: "app:x")?.name, "x")
