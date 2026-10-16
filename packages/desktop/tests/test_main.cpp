@@ -448,13 +448,12 @@ TEST(bridge_and_timers) {
 
 TEST(user_gestures_are_numbered_per_physical_press) {
     auto ev = [](const char* json) { return *Json::parse(json); };
-    CHECK(WidgetHost::isUserActivation(ev("{\"type\":\"click\"}")));
-    CHECK(WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\"Enter\"}")));
-    CHECK(WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\" \"}")));
-    for (const char* key : {"a", "Escape", "Tab", "ArrowDown", "PageDown", "Shift", "enter"})
+    CHECK(WidgetHost::isUserActivation(ev("{\"type\":\"click\",\"detail\":1}")));
+    CHECK(WidgetHost::isUserActivation(ev("{\"type\":\"pointerdown\"}")));
+    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"click\",\"detail\":0}")));
+    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"click\"}")));
+    for (const char* key : {"Enter", " ", "a", "Escape", "Tab", "ArrowDown"})
         CHECK_MSG(!WidgetHost::isUserActivation(ev(("{\"type\":\"keydown\",\"key\":\"" + std::string(key) + "\"}").c_str())), key);
-    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\"Enter\",\"repeat\":true}")));
-    CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"keydown\",\"key\":\"Enter\",\"modifiers\":4}")));
     CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"mousemove\"}")));
     CHECK(!WidgetHost::isUserActivation(ev("{\"type\":\"scroll\"}")));
 
@@ -463,18 +462,13 @@ TEST(user_gestures_are_numbered_per_physical_press) {
     for (const char* t : {"pointerdown", "mousedown", "pointerup", "mouseup", "click", "dblclick"}) press.push_back(c.gestureFor(ev(("{\"type\":\"" + std::string(t) + "\",\"detail\":1}").c_str())));
     CHECK(press == std::vector<int>({1, 1, 1, 1, 1, 1}));
     CHECK(c.gestureFor(ev("{\"type\":\"pointerdown\"}")) == 2);
-    // An Enter / Space press and the click it activates (detail 0) are one gesture, also while the key is held.
-    CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\"Enter\"}")) == 3);
-    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":0}")) == 3);
-    CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\"Enter\",\"repeat\":true}")) == 0);
-    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":0}")) == 3);
-    CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\" \"}")) == 4);
-    CHECK(c.gestureFor(ev("{\"type\":\"keyup\",\"key\":\" \"}")) == 0);
-    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":0}")) == 4);
-    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":0}")) == 5);
-    CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\"Enter\"}")) == 6);
-    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 7);
-    CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\"Tab\"}")) == 0);
+    CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\"Enter\"}")) == 0);
+    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":0}")) == 2); // the end of the open press
+    // No keyboard: neither a key nor the click Enter or Space activates (detail 0) starts a gesture.
+    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":0}")) == 0);
+    CHECK(c.gestureFor(ev("{\"type\":\"dblclick\",\"detail\":0}")) == 0);
+    CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 3);
+    CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\" \"}")) == 0);
     CHECK(c.gestureFor(ev("{\"type\":\"mousemove\"}")) == 0);
 }
 
@@ -491,7 +485,7 @@ struct ScriptedRenderer final : Renderer {
 };
 
 /// Only renderer events marked `trusted` (the DOM event's isTrusted; every input event of a native renderer) are gestures,
-/// and an Enter press with the click it activates unlocks one call.
+/// and only pointer ones: keys and the click Enter activates unlock nothing.
 TEST(gestures_need_the_renderers_trusted_flag) {
     ScriptedRenderer* renderer = nullptr;
     WidgetHost host("<button id='b'>go</button><script>TelegramWidget.ready(); var b = document.getElementById('b');"
@@ -524,11 +518,11 @@ TEST(gestures_need_the_renderers_trusted_flag) {
     event("{\"type\":\"click\",\"targetId\":5,\"detail\":0}", yes);
     event("{\"type\":\"keydown\",\"targetId\":5,\"key\":\"Tab\",\"code\":\"Tab\",\"repeat\":false,\"modifiers\":0}", yes);
     event(click, yes);
-    CHECK(host.waitUntil([&](const WidgetDiagnostics& d) { std::lock_guard<std::mutex> l(m); return sent.size() >= 2 && d.countDiag("activation-blocked") >= 7; }, 5));
+    CHECK(host.waitUntil([&](const WidgetDiagnostics& d) { std::lock_guard<std::mutex> l(m); return sent.size() >= 1 && d.countDiag("activation-blocked") >= 8; }, 5));
     sleepMs(100);
     std::lock_guard<std::mutex> l(m);
-    CHECK_MSG(sent == std::vector<std::string>({"[\"key Enter\"]", "[\"click 1\"]"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
-    CHECK(host.diagnostics().countDiag("activation-blocked") == 7);
+    CHECK_MSG(sent == std::vector<std::string>({"[\"click 1\"]"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
+    CHECK(host.diagnostics().countDiag("activation-blocked") == 8);
 }
 
 TEST(widget_code_cannot_reach_host_globals) {

@@ -296,7 +296,7 @@ class WidgetHost(
             }
             "event" -> (msg.opt("ev") as? JSONObject)?.let { ev ->
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
-                val gesture = if (msg.opt("trusted") == true) gestures.gestureFor(ev.optString("type"), ev.optString("key").ifEmpty { null }, ev.optBoolean("repeat", false), ev.optInt("modifiers", 0), ev.optDouble("detail", 0.0)) else 0
+                val gesture = if (msg.opt("trusted") == true) gestures.gestureFor(ev.optString("type"), ev.optDouble("detail", 0.0)) else 0
                 if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
             }
             "gesture" -> renderer.gestureDecision(msg.optBoolean("wants", false))

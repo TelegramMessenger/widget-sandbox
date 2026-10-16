@@ -113,7 +113,7 @@ final class UserActivationTests: XCTestCase {
         for type in ["mousemove", "mouseover", "animationend", "transitionend", "scroll", "focus", "input", "change", "submit", "load", "wheel", "keyup"] {
             h.event(["type": type, "targetId": Self.anchor])
         }
-        for (key, isRepeat, modifiers) in [("Escape", false, 0), ("Enter", true, 0), (" ", false, 4), ("Tab", false, 0), ("ArrowDown", false, 0), ("a", false, 0), ("PageDown", false, 0), ("Shift", false, 8)] {
+        for (key, isRepeat, modifiers) in [("Enter", false, 0), (" ", false, 0), ("Escape", false, 0), ("Enter", true, 0), (" ", false, 4), ("Tab", false, 0), ("ArrowDown", false, 0), ("a", false, 0), ("PageDown", false, 0), ("Shift", false, 8)] {
             h.event(["type": "keydown", "targetId": 4, "key": key, "code": key, "repeat": isRepeat, "modifiers": modifiers])
         }
         h.settle(0.5)
@@ -133,7 +133,8 @@ final class UserActivationTests: XCTestCase {
         XCTAssertEqual(h.privileged.map { $0.0 }, ["openLink"])
     }
 
-    func testEnterOrSpaceAndTheClickItActivatesAreOneGesture() {
+    /// Widgets get no keyboard: neither a key nor the click Enter or Space activates (`detail` 0) is a gesture.
+    func testKeysAndKeyboardClicksNeverActivate() {
         let h = Harness("<button id='b'>go</button><script>var b=document.getElementById('b');b.addEventListener('keydown',function(e){TelegramWidget.sendMessage('key '+e.key);});b.addEventListener('click',function(e){TelegramWidget.sendMessage('click '+e.detail);});</script>")
         let button = 5
         h.event(["type": "keydown", "targetId": button, "key": "Enter", "code": "Enter", "repeat": false, "modifiers": 0])
@@ -143,13 +144,15 @@ final class UserActivationTests: XCTestCase {
         h.event(["type": "keydown", "targetId": button, "key": " ", "code": "Space", "repeat": false, "modifiers": 0])
         h.event(["type": "keyup", "targetId": button, "key": " ", "code": "Space", "repeat": false, "modifiers": 0])
         h.event(["type": "click", "targetId": button, "detail": 0])
-        h.pump { h.privileged.count >= 2 }
-        h.settle()
-        XCTAssertEqual(h.privileged.map { $0.1 }, ["[\"key Enter\"]", "[\"key  \"]"])
-        XCTAssertEqual(h.blocked, 4)
+        h.settle(0.5)
+        XCTAssertEqual(h.privileged.map { $0.1 }, [])
+        XCTAssertEqual(h.blocked, 6)
         h.event(["type": "click", "targetId": button, "detail": 1])
-        h.pump { h.privileged.count >= 3 }
-        XCTAssertEqual(h.privileged.last?.1, "[\"click 1\"]", "a pointer click after a key press is its own gesture")
+        h.pump { !h.privileged.isEmpty }
+        XCTAssertEqual(h.privileged.map { $0.1 }, ["[\"click 1\"]"], "a pointer click still is a gesture")
+        h.event(["type": "click", "targetId": button, "detail": 0])
+        h.settle()
+        XCTAssertEqual(h.privileged.count, 1, "a keyboard click after it is not")
     }
 
     func testOnePhysicalPressIsOneGesture() {
@@ -177,11 +180,12 @@ final class UserActivationTests: XCTestCase {
         XCTAssertEqual(h.privileged.map { $0.0 }, ["sendMessage"])
     }
 
-    func testKeyPressActivates() {
+    func testKeyPressDoesNotActivate() {
         let h = Harness("<div>x</div><script>document.addEventListener('keydown',function(e){if(e.key==='Enter')TelegramWidget.sendMessage('go');});</script>")
         h.event(["type": "keydown", "targetId": 4, "key": "Enter", "code": "Enter", "repeat": false, "modifiers": 0])
-        h.pump { !h.privileged.isEmpty }
-        XCTAssertEqual(h.privileged.map { $0.0 }, ["sendMessage"])
+        h.settle(0.5)
+        XCTAssertEqual(h.privileged.count, 0)
+        XCTAssertEqual(h.blocked, 1)
     }
 
     func testHiddenWidgetCannotUseActivation() {

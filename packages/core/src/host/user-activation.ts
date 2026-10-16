@@ -9,26 +9,27 @@
 // only events the renderer marks `trusted`.
 
 export const UNPRIVILEGED_BRIDGE_METHODS = new Set(['ready']);
-const TYPES = new Set(['click', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'keydown']);
-/** The keys that activate a focused control; Tab, arrows, letters and Escape are not a gesture. */
-const ACTIVATION_KEYS = new Set(['Enter', ' ']);
+/** Pointer presses only: widgets get no keyboard (docs/decisions.md, "Profile v1"), so no key is a gesture. */
+const TYPES = new Set(['click', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup']);
 /** A privileged call must reach the host this soon after its gesture was issued. */
 export const GESTURE_TTL_MS = 5000;
 
-type GestureEvent = { type?: unknown; key?: unknown; repeat?: unknown; modifiers?: unknown; detail?: unknown };
+type GestureEvent = { type?: unknown; detail?: unknown };
 
-/** Clicks and presses of Enter or Space count; not a key repeat, not a Command shortcut (modifier bit 4). */
+/** A click made by a pointer has a click count; a click a key press activates has `detail` 0. */
+const pointerClick = (ev: GestureEvent) => Number(ev.detail) > 0;
+
+/** A pointer press or release, or a click with a click count. Keys never count. */
 export function isUserActivation(ev: GestureEvent): boolean {
   const type = String(ev.type ?? '');
   if (!TYPES.has(type)) return false;
-  if (type === 'keydown') return ACTIVATION_KEYS.has(String(ev.key)) && ev.repeat !== true && ((Number(ev.modifiers) | 0) & 4) === 0;
-  return true;
+  return type === 'click' || type === 'dblclick' ? pointerClick(ev) : true;
 }
 
 /**
- * One physical press (pointerdown … click / dblclick) or one key press is one
- * gesture. The click an Enter or Space press activates (`detail` 0) belongs to
- * that press, and so does every click of the key held down.
+ * One physical pointer press (pointerdown … click / dblclick) is one gesture.
+ * A click without a click count (`detail` 0: what Enter or Space on a focused
+ * control produces) is a gesture only as the end of a press already open.
  */
 export class GestureCounter {
   private n = 0;
@@ -38,19 +39,20 @@ export class GestureCounter {
   /** The gesture number for this event, 0 when it is not a user activation. */
   gestureFor(ev: GestureEvent): number {
     const type = String(ev.type ?? '');
-    if (type === 'keydown' && ev.repeat === true && ACTIVATION_KEYS.has(String(ev.key))) {
-      this.pressOpen = false;
-      this.lastType = type;
-      return 0;
-    }
-    if (!isUserActivation(ev)) return 0;
+    if (!TYPES.has(type)) return 0;
     let continues = false;
     if (type === 'mousedown') continues = this.lastType === 'pointerdown';
     else if (type === 'pointerup' || type === 'mouseup') continues = this.pressOpen;
-    else if (type === 'click') continues = this.pressOpen || (this.lastType === 'keydown' && !(Number(ev.detail) > 0));
+    else if (type === 'click') continues = this.pressOpen;
     else if (type === 'dblclick') continues = this.lastType === 'click';
+    if (!continues && !isUserActivation(ev)) {
+      // A keyboard click ends any chain: a dblclick after it is not the pointer's.
+      this.pressOpen = false;
+      this.lastType = '';
+      return 0;
+    }
     if (!continues) this.n++;
-    this.pressOpen = type !== 'click' && type !== 'dblclick' && type !== 'keydown';
+    this.pressOpen = type !== 'click' && type !== 'dblclick';
     this.lastType = type;
     return this.n;
   }

@@ -9,22 +9,20 @@ package org.telegram.widgetsandbox
  */
 object UserActivation {
     val UNPRIVILEGED_BRIDGE_METHODS = setOf("ready")
-    private val TYPES = setOf("click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "keydown")
-    /** The keys that activate a focused control; Tab, arrows, letters and Escape are not a gesture. */
-    val ACTIVATION_KEYS = setOf("Enter", " ")
+    /** Pointer presses only: widgets get no keyboard (docs/decisions.md, "Profile v1"), so no key is a gesture. */
+    private val TYPES = setOf("click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup")
 
-    /** Clicks and presses of Enter or Space count; not a key repeat, not a Command shortcut (modifier bit 4). */
-    fun isUserActivation(type: String, key: String?, repeat: Boolean, modifiers: Int): Boolean {
+    /** A pointer press or release, or a click with a click count (`detail` > 0; the click Enter or Space activates has 0). */
+    fun isUserActivation(type: String, detail: Double = 0.0): Boolean {
         if (type !in TYPES) return false
-        if (type == "keydown") return key in ACTIVATION_KEYS && !repeat && modifiers and 4 == 0
-        return true
+        return if (type == "click" || type == "dblclick") detail > 0 else true
     }
 }
 
 /**
- * Host side: one physical press (pointerdown … click / dblclick) or one key press is one gesture.
- * The click an Enter or Space press activates (`detail` 0) belongs to that press, and so does
- * every click of the key held down. WidgetHost feeds it only events the renderer marks `trusted`.
+ * Host side: one physical pointer press (pointerdown … click / dblclick) is one gesture; keys never are.
+ * A click without a click count counts only as the end of an open press. WidgetHost feeds it only
+ * events the renderer marks `trusted`.
  */
 class GestureCounter {
     private var number = 0
@@ -32,22 +30,22 @@ class GestureCounter {
     private var lastType = ""
 
     /** The gesture number for this renderer event, 0 when it is not a user activation. */
-    fun gestureFor(type: String, key: String?, repeat: Boolean, modifiers: Int, detail: Double = 0.0): Int {
-        if (type == "keydown" && repeat && key in UserActivation.ACTIVATION_KEYS) {
-            pressOpen = false
-            lastType = type
-            return 0
-        }
-        if (!UserActivation.isUserActivation(type, key, repeat, modifiers)) return 0
+    fun gestureFor(type: String, detail: Double = 0.0): Int {
         val continues = when (type) {
             "mousedown" -> lastType == "pointerdown"
-            "pointerup", "mouseup" -> pressOpen
-            "click" -> pressOpen || (lastType == "keydown" && !(detail > 0))
+            "pointerup", "mouseup", "click" -> pressOpen
             "dblclick" -> lastType == "click"
-            else -> false
+            "pointerdown" -> false
+            else -> return 0
+        }
+        if (!continues && !UserActivation.isUserActivation(type, detail)) {
+            // A keyboard click ends any chain: a dblclick after it is not the pointer's.
+            pressOpen = false
+            lastType = ""
+            return 0
         }
         if (!continues) number += 1
-        pressOpen = type != "click" && type != "dblclick" && type != "keydown"
+        pressOpen = type != "click" && type != "dblclick"
         lastType = type
         return number
     }

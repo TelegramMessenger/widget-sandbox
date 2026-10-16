@@ -656,9 +656,9 @@ The TypeScript validator and Swift native validator enforce the same accounting.
 
 - `openLink`, `sendMessage` and any future privileged bridge method act for the
   user, so a widget may only call them from the handler of a real gesture: one
-  physical press (`pointerdown` … `click`/`dblclick`) or one press of Enter or
-  Space (not a repeat, not a Command shortcut; the click it activates is the
-  same gesture) on the visible widget unlocks one call. Timers, frames,
+  physical pointer press (`pointerdown` … `click`/`dblclick`) on the visible
+  widget unlocks one call. Keys never do (no keyboard for widgets, "Profile
+  v1" below), nor does the click a key activates (`detail` 0). Timers, frames,
   promise jobs after the task, scripted `click()`/`dispatchEvent` and hidden
   widgets get an `activation-blocked` diag instead. `ready` stays free.
 - Native glue (Swift, Kotlin, C++): the host numbers gestures from renderer
@@ -1013,7 +1013,8 @@ closed after the hardening above:
   All four hosts now count only `trusted: true`. Blitz and litehtml have no
   script-driven document, so they mark every input event trusted; any other
   renderer behind the seam has to do the same or it gets no gestures.
-- **Only Enter and Space are key gestures, and one press is one gesture.** Any
+- **Only Enter and Space were key gestures, one press one gesture** (since
+  replaced: no key is a gesture, see "Profile v1"). Any
   non-repeat `keydown` used to count, so Tab or an arrow key while moving
   through the chat handed the focused widget an `openLink`, and Enter on a
   button was two gestures (the `keydown` and the click it activates). The
@@ -1084,8 +1085,11 @@ milestones; recorded here so the work in between does not drift from it.
 
 - **No keyboard input.** Widgets get no key events and never take keyboard
   focus: Enter or Space in a bubble would fight the chat's input field. User
-  activation for privileged bridge calls comes from a pointer press only
-  (this replaces the Enter/Space key gesture).
+  activation for privileged bridge calls comes from a pointer press only: no
+  `keydown` counts in any host, and a `click` starts a gesture only with a
+  click count (`detail` ≥ 1), so the click Enter or Space produces on a focused
+  control does not count either (done 2026-10-17, all hosts). Renderers still
+  forward key events and widgets can still take focus; both go with profile v1.
 - **Form controls are outside the profile.** `input`, `textarea`, `select`,
   `option`, `optgroup`, `datalist`, `form`, `progress` and `meter` are drawn by
   each engine in its own way (WebKit, Chromium, litehtml, Blitz), and text
