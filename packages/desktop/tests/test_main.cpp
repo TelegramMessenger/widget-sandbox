@@ -741,10 +741,11 @@ TEST(blitz_lays_out_answers_queries_and_paints) {
     CHECK(d.countDiag("renderer-violation") == 0);
 }
 
-/// A pointer from the host view is hit-tested by the document and reaches the widget's listener as a click.
+/// A pointer from the host view is hit-tested by the document and reaches the widget's listener as a click,
+/// marked trusted, so it is a user gesture for a privileged bridge call.
 TEST(blitz_click_reaches_the_widget) {
     BlitzRun r("<button id=\"b\" style=\"display:block;width:200px;height:60px;margin:0\">go</button>"
-               "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); });</script>");
+               "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); TelegramWidget.sendMessage('clicked'); });</script>");
     r.blitz->click(20, 20);
     CHECK_MSG(r.host.waitUntil([](const WidgetDiagnostics& d) { return d.hasLog("clicked b"); }, 3), "click reached the widget");
     r.blitz->click(300, 200);
@@ -753,6 +754,9 @@ TEST(blitz_click_reaches_the_widget) {
     int clicks = 0;
     for (auto& l : d.logs) if (l.second == "clicked b") clicks++;
     CHECK_MSG(clicks == 1, "a click outside the button must not fire it: " + std::to_string(clicks));
+    int sent = 0;
+    for (auto& b : d.bridge) if (b.first == "sendMessage") sent++;
+    CHECK_MSG(sent == 1, "the renderer marks its input trusted, so the click is a gesture: " + std::to_string(sent));
 }
 
 /// A killed runtime freezes the document: the last render stays, pointers stop reaching anything.
@@ -808,10 +812,11 @@ TEST(litehtml_lays_out_answers_queries_and_paints) {
     CHECK_MSG(r.lite->html().find("data-twid=") != std::string::npos, "the shadow tree was serialised");
 }
 
-/// A pointer is hit-tested by litehtml's render tree and reaches the widget's listener as a click.
+/// A pointer is hit-tested by litehtml's render tree and reaches the widget's listener as a click,
+/// marked trusted, so it is a user gesture for a privileged bridge call.
 TEST(litehtml_click_reaches_the_widget) {
     LitehtmlRun r("<button id=\"b\" style=\"display:block;width:200px;height:60px;margin:0\">go</button>"
-                  "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); });</script>");
+                  "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); TelegramWidget.sendMessage('clicked'); });</script>");
     r.lite->click(20, 20);
     CHECK_MSG(r.host.waitUntil([](const WidgetDiagnostics& d) { return d.hasLog("clicked b"); }, 3), "click reached the widget");
     r.lite->click(300, 200);
@@ -820,6 +825,9 @@ TEST(litehtml_click_reaches_the_widget) {
     int clicks = 0;
     for (auto& l : d.logs) if (l.second == "clicked b") clicks++;
     CHECK_MSG(clicks == 1, "a click outside the button must not fire it: " + std::to_string(clicks));
+    int sent = 0;
+    for (auto& b : d.bridge) if (b.first == "sendMessage") sent++;
+    CHECK_MSG(sent == 1, "the renderer marks its input trusted, so the click is a gesture: " + std::to_string(sent));
 }
 
 /// A killed runtime freezes the document: the last render stays, pointers stop reaching anything.
