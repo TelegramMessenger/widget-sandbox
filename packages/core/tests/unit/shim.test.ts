@@ -252,6 +252,20 @@ describe('shim: pointer capture', () => {
 
 });
 
+describe('glue: stack traces', () => {
+  it('CallSite.getFunction does not hand the shim\'s closures to widget code', async () => {
+    const r = await runWidget(`<button id="b">x</button><script>
+      var found = [], sites = 0;
+      Error.prepareStackTrace = function (e, frames) { frames.forEach(function (f) { sites++; var fn = f.getFunction(); if (fn !== undefined) found.push(String(f.getFunctionName())); }); return 'trace'; };
+      function look() { return new Error('probe').stack; }
+      document.getElementById('b').addEventListener('click', look);
+      setTimeout(look, 1);
+      requestAnimationFrame(look);
+      var direct = look();</script>`, { timerRounds: 2, events: [{ type: 'click', targetId: 5 }], probes: ['found.join(",")', 'sites > 6', 'direct', 'typeof Object.getOwnPropertyDescriptor(Object.getPrototypeOf((function () { var s; Error.prepareStackTrace = function (e, f) { s = f[0]; return ""; }; new Error().stack; return s; })()), "getFunction").value'] });
+    assert.deepEqual(r.probes, ['', 'true', 'trace', 'function']);
+  });
+});
+
 describe('harness: clocks', () => {
   it('frame times tick in 100 µs steps, like the worker', async () => {
     const r = await runWidget('<script>var ts = []; function f(t) { ts.push(t); if (ts.length < 4) requestAnimationFrame(f); } requestAnimationFrame(f);</script>', { frames: 6, probes: ['JSON.stringify(ts)'] });

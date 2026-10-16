@@ -4,6 +4,29 @@
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const G: any = globalThis;
 
+// QuickJS implements V8's stack-trace API: with `Error.prepareStackTrace` set,
+// `CallSite.getFunction()` returns the function of every frame, so a widget
+// handler could pick up the shim's closures (the dispatcher among them) from its
+// own stack. Every CallSite shares one prototype: its getFunction / getThis
+// answer undefined from now on, as V8 does for strict-mode frames.
+{
+  const E: any = Error;
+  const saved = E.prepareStackTrace;
+  let callSite: any = null;
+  try {
+    E.prepareStackTrace = (_error: unknown, sites: unknown[]) => {
+      callSite = Array.isArray(sites) && sites.length ? Object.getPrototypeOf(sites[0]) : null;
+      return '';
+    };
+    void new Error().stack;
+  } finally {
+    E.prepareStackTrace = saved;
+  }
+  for (const name of ['getFunction', 'getThis']) {
+    if (callSite && name in callSite) Object.defineProperty(callSite, name, { value: function () { return undefined; }, writable: false, enumerable: false, configurable: false });
+  }
+}
+
 G.btoa = (input: string): string => {
   const s = String(input);
   let out = '';
