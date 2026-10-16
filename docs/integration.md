@@ -16,7 +16,7 @@ keeps the last frame with a "Widget stopped" badge (`stoppedLabel`) and `onDead`
 fires — destroy or re-create, your choice.
 
 The rest of this page is in the order a client team meets it: pinning a
-release, the policy and features, the `.tgw` document, bubble sizing, input,
+release, the policy and features, the widget payload, bubble sizing, input,
 forwarding, then the per-platform API and the conformance set.
 
 ## Pinning a release
@@ -73,20 +73,30 @@ the same validated output (`docs/changes.md`, "Swift-only"); list them only on
 iOS/macOS and only after measuring. A feature the renderer behind your
 `Renderer` seam cannot draw must not be listed.
 
-## The widget document: `.tgw`
+## The widget payload
 
-A widget arrives as a document with MIME type `application/x-tgwidget`: gzip
-of one UTF-8 HTML file, made by the server from the bot's plain HTML
-(`docs/tgw-format.md`). The client downloads it like any document, `gunzip`s
-it and passes the text to `WidgetHost`. Do not add an HTML size check: the
-server enforces the single limit (128 KB of HTML) and may raise it without a
-client update; the sandbox is the security boundary.
+v1 starts with **mini-widgets**: the widget arrives inline in the `widget`
+block of the rich message as gzip of its UTF-8 HTML, at most 4 KB compressed
+and 32 KB uncompressed (`docs/tgw-format.md`). The server gzips the bot's
+plain HTML and enforces both limits. The client takes the bytes from the
+block, `gunzip`s them and passes the text to `WidgetHost`. Do not add size
+checks of your own: the limits live in the server's config and may move
+without a client update; the sandbox is the security boundary.
 
-Only the `widget` block of a bot's message in its private chat renders as a
-widget. For the PoC, before the server side exists, each client has a **debug
-flag** that renders `.tgw` documents posted to the shared test channel as
-widgets (off in release builds). The visual conformance set is posted there
-too (below).
+There is **no file download and no loading state for a file**: the bytes are
+already in the message. The only thing to show before the first frame is the
+bubble at the size the bot asked for (below) while the sandbox boots, which
+takes tens of milliseconds warm and a few hundred cold. An edited message
+carries new bytes: destroy the host and create a new one. A forwarded message
+carries a copy of the bytes.
+
+Big widgets as `.tgw` documents (`application/x-tgwidget`, 128 KB of HTML,
+downloaded like a sticker file) are **deferred**. For the PoC, before the
+server side exists, each client keeps a **debug flag** that renders `.tgw`
+documents posted to the shared test channel as widgets (off in release
+builds): gunzip the document and hand the HTML to `WidgetHost` the same way,
+with no size limit, because the conformance set posted there is larger than a
+mini-widget.
 
 ## Bubble sizing
 
@@ -274,5 +284,5 @@ every framework update; `catalogue.json` `version` is the profile version.
 - Persist anything, or share anything between widgets: each one is a fresh
   runtime with its own limits.
 - Load fonts, media or remote images: `data:` images only (`docs/decisions.md`).
-- Check the document's size or origin: the server packs `.tgw`, the client
-  trusts it and sandboxes the content.
+- Check the payload's size or origin: the server gzips it and enforces the
+  limits, the client trusts it and sandboxes the content.

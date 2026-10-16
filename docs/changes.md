@@ -23,6 +23,10 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
   prototypes behind the same seam.
 - The widget profile conformance set, `packages/conformance` (`CLIENTS.md`), and the
   corpora: 98 attacks, compat, generated, common, showcase, 116 ported HTML bubbles.
+- The delivery model for v1 (decided 2026-10-17): **mini-widgets**, gzip of the HTML carried
+  inline in the rich-message block, at most 4 KB compressed and 32 KB uncompressed,
+  server-made, no document and no download (`docs/tgw-format.md`). Big `.tgw` documents
+  are deferred; `.tgw` stays as the test-channel format behind the client debug flag.
 - Docs for client teams: `docs/integration.md`, `docs/tgw-format.md`,
   `docs/decisions.md` ("Profile v1"), `docs/widget-state.md`, `docs/bridge-discussion.md`,
   `docs/server-task.md`.
@@ -70,6 +74,10 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
   burnt its quota", Swift `CanvasWordsTests.testWordPayloadsSpliceToTheSameJSONAsTheJSONPath`
   (a 1 ms timer races the hand-driven frames), desktop `cpu_quota_throttles_greedy_timer`:
   each fails now and then under load and passes alone.
+- *No conformance widget fits a mini-widget yet*: the automatic set is 5.1–8.4 KB gzipped
+  (median 6.3 KB, all under 32 KB raw), the visual set 5.4–54.6 KB gzipped (median 18 KB,
+  embedded reference pictures). The test channel keeps posting them as `.tgw` documents under
+  the debug flag until the tests are split into 4 KB pieces.
 - *htmlbubbles-ported*: 108–110 of 116 pass; the rest are time-based or random
   drawings and one intentional JS error (`corpus/htmlbubbles-ported/README.md`).
 - *3D channel* (`__tw3d`): debug builds only.
