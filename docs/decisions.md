@@ -656,15 +656,17 @@ The TypeScript validator and Swift native validator enforce the same accounting.
 
 - `openLink`, `sendMessage` and any future privileged bridge method act for the
   user, so a widget may only call them from the handler of a real gesture: one
-  physical press (`pointerdown` … `click`/`dblclick`) or one key press (not
-  Escape, not a repeat, not a Command shortcut) on the visible widget unlocks
-  one call. Timers, frames, promise jobs after the task, scripted
-  `click()`/`dispatchEvent` and hidden widgets get an `activation-blocked`
-  diag instead. `ready` stays free.
+  physical press (`pointerdown` … `click`/`dblclick`) or one press of Enter or
+  Space (not a repeat, not a Command shortcut; the click it activates is the
+  same gesture) on the visible widget unlocks one call. Timers, frames,
+  promise jobs after the task, scripted `click()`/`dispatchEvent` and hidden
+  widgets get an `activation-blocked` diag instead. `ready` stays free.
 - Native glue (Swift, Kotlin, C++): the host numbers gestures from renderer
-  events and hands the number to the engine with the event; the engine opens
-  the gesture for that event's task only and consumes it with the first
-  privileged call. The renderer is trusted code and the only source of events.
+  events marked `trusted` and hands the number to the engine with the event;
+  the engine opens the gesture for that event's task only and consumes it with
+  the first privileged call. The renderer is trusted code and the only source
+  of events, but a WebView renderer also sees events its own page dispatched,
+  so the hosts take its word (`isTrusted`) like the web host does.
 - Web: the worker shares a thread with nothing trusted, but it is a separate
   realm whose glue we would rather not have to trust with this decision, so
   the main-thread host decides. The renderer marks an event `trusted` only
@@ -675,7 +677,7 @@ The TypeScript validator and Swift native validator enforce the same accounting.
   a real gesture once, which is what the gesture allowed anyway.
 - One policy in four copies: `packages/core/src/host/user-activation.ts`,
   `UserActivation.kt`, `WidgetHost.gesture(for:)` + `SandboxEngine` in Swift,
-  `WidgetHost::gestureFor` + `SandboxEngine` in C++, each with its tests
+  `GestureCounter` (`widget_host.h`) + `SandboxEngine` in C++, each with its tests
   (`user-activation.test.ts`, `UserActivationTest.kt`, `UserActivationTests`,
   `bridge_and_timers`); attack widgets `corpus/attacks/activation-*.html`.
 
@@ -998,6 +1000,53 @@ worker, the C++ engine's own list), and Android and the web take `features`
 only with parity tests (D13): the differential fuzz of `NativeValidator`
 against the script validator runs under both policies, and the attack corpus
 runs through the native model.
+
+### Review follow-ups: gestures, harness clock, library patterns, `icon:`, CallSite
+
+The lower-priority findings of `docs/branches-review.md` (§3.5–3.6, §4.10–4.13),
+closed after the hardening above:
+
+- **Native hosts require `trusted`** (§3.5, §4.10). Swift, Kotlin and C++ counted
+  any renderer event of a gesture type, the web host only `trusted` ones. No
+  validated op makes the WebView renderer dispatch a click today, but the
+  difference was one renderer feature away from a gesture forged by the widget.
+  All four hosts now count only `trusted: true`. Blitz and litehtml have no
+  script-driven document, so they mark every input event trusted; any other
+  renderer behind the seam has to do the same or it gets no gestures.
+- **Only Enter and Space are key gestures, and one press is one gesture.** Any
+  non-repeat `keydown` used to count, so Tab or an arrow key while moving
+  through the chat handed the focused widget an `openLink`, and Enter on a
+  button was two gestures (the `keydown` and the click it activates). The
+  click a key press activates comes with `detail` 0, which a pointer click
+  never has; that click, and the clicks of a held key, continue the key's
+  gesture. A pointer click (`detail` ≥ 1) after a key press is a new one.
+  Letters do not count either: a widget that sends on Enter still works, one
+  that would send on every keystroke does not.
+- **Node harness** (§3.6): frame times now tick in 100 µs steps like `now`
+  (the worker coarsens both), and the gesture gate checks visibility; a hidden
+  widget (`RunOptions.visible: false` or a `{visible: false}` step) gets no
+  frames, like the worker.
+- **Provided-library patterns** (§4.11). A pattern is wrapped as `^(?:p)$`
+  (TS) / `\A(?:p)\z` (Swift); `x)|(.*` closed the group early and left an
+  alternative unanchored, so a prefix pattern could claim every URL that starts
+  with it (the four probe URLs miss most such cases). A pattern now has to
+  compile on its own first: balanced, it cannot leave the group. Patterns and
+  bytecode stay trusted input from the kit.
+- **`icon:`** (§4.13): the prefix is exact (`icon:`, as the grammar says);
+  only `url(` keeps CSS's ASCII case-insensitivity. Next to the per-batch
+  limits a widget now has a budget of its own: 256 distinct tokens asked of
+  the resolver and 2 MB of answers kept. Without it a widget could cycle
+  through tokens and make the resolver run up to 1024 times per batch, and the
+  cache (512 entries of up to 64 KB, cleared when full) could hold 32 MB per
+  widget. The budget does not refill; known tokens keep expanding, which is
+  what a re-rendering widget needs.
+- **CallSite** (§4.12): the fork's `CallSite.getFunction()` returned the
+  function of every frame, so a widget handler could take the shim's closures,
+  the dispatcher among them, from its own stack. The shim's prelude now
+  replaces `getFunction` and `getThis` on the shared CallSite prototype with
+  functions that answer `undefined` (V8 does the same for strict frames). The
+  glue still checks gestures, limits and batches, so this was defence in
+  depth; `fn.caller` and `arguments.callee.caller` already answer `undefined`.
 
 ### `completeEditorCommand`
 
