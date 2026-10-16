@@ -37,6 +37,7 @@ const char *qjs_to_cstring(JSContext *ctx, JSValue v);
 void qjs_free_cstring(JSContext *ctx, const char *s);
 double qjs_to_float64(JSContext *ctx, JSValue v);
 
+/* `code` must have a NUL at code[len] (JS_Eval reads it); the same holds for qjs_compile_bytecode. */
 JSValue qjs_eval(JSContext *ctx, const char *code, size_t len, const char *filename, bool as_module);
 
 /* Precompiled bundles (dev-time `tools/qjsc`, loaded by every native port).
