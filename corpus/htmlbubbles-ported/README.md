@@ -101,8 +101,8 @@ those are limits of the screenshot method, not of the sandbox:
   the native reference iframe really hangs and the test times out.
 - `12-motion-lab/03-mo-bare.html` (confetti), `05-mo-bare.html` (equaliser),
   `06-trip-lisbon/11-tom-bare.html` (rolling dice) use `Math.random` per frame;
-  `12-motion-lab/08-mo.html` (typewriter) and `10-mo-bare.html` (1.5 s fake
-  load) are time-based, and the reference screenshot is taken ~800 ms later
+  `12-motion-lab/08-mo.html` (typewriter), `10-mo-bare.html` (1.5 s fake
+  load) and `13-mo-bare.html` (just over the 3 % tolerance) are time-based, and the reference screenshot is taken ~800 ms later
   than the sandbox one. Two runs never match pixel for pixel, and a loaded
   machine (`cpu-throttled` in the diagnostics column) adds a few more such
   rows, e.g. `06-trip-lisbon/09-me-bare.html`, `12-ana.html`.
