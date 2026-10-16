@@ -1027,3 +1027,40 @@ submit. What the per-widget CSP added, the web client's page CSP has to give:
 
 `TW_RENDERER=shadow corepack pnpm test:attacks` keeps measuring exactly what
 the frame used to add (0 canary hits, 0 requests).
+
+## Profile v1: no keyboard, no form controls, a client-styled `<button>` (Oct 2026)
+
+Decided 2026-10-17 (release plan D3a, D4). Implemented in the profile v1 and SDK
+milestones; recorded here so the work in between does not drift from it.
+
+- **No keyboard input.** Widgets get no key events and never take keyboard
+  focus: Enter or Space in a bubble would fight the chat's input field. User
+  activation for privileged bridge calls comes from a pointer press only
+  (this replaces the Enter/Space key gesture).
+- **Form controls are outside the profile.** `input`, `textarea`, `select`,
+  `option`, `optgroup`, `datalist`, `form`, `progress` and `meter` are drawn by
+  each engine in its own way (WebKit, Chromium, litehtml, Blitz), and text
+  entry needs a keyboard. The validator drops them; corpus widgets that use
+  them (inputs in 26 files, `select` in 8, `form` in 4, `textarea` in none) are
+  retagged as degraded or rewritten. `completeEditorCommand` goes with
+  `textarea`. If controls come back, they look like the client's own UI.
+- **`<button>` stays** (95 corpus files; the main tap target), and a button
+  the widget did not style is drawn in the client's own style. Any author CSS
+  wins over it.
+  - Layer: the renderer, as a user-agent-level stylesheet. Neither the
+    validator (it would change the cascade the author wrote) nor the shim (it
+    draws nothing; `getComputedStyle` answers from the renderer, so the widget
+    sees the client's real colours).
+  - Form: one template in `packages/core` that every renderer inserts as
+    trusted CSS before the widget's: `@layer tw-ua` declared first and
+    `:where(button)` selectors, so unlayered author rules beat it whatever
+    their specificity. It fixes the structure: base look, `:active`,
+    `:disabled`, `:hover` on desktop, no focus ring.
+  - Values are per-client tokens (background and text from `themeParams`,
+    radius, font, padding, height, pressed and disabled opacity) that the host
+    sets as variables on the renderer root and updates with the theme. Native
+    renderers bake the same template into their master CSS with the values
+    filled in.
+  - Height and padding tokens stay within a narrow range: they move the
+    bubble's height. Corpus references render with one fixed reference token
+    set so renderers stay comparable; per-client tokens are checked by eye.
