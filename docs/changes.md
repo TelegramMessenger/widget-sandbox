@@ -26,7 +26,7 @@ The validator learns the policy through `__twValidator.setPolicy('strict')` (glu
 | Out-of-memory is uncatchable on the web (fork wasm), as it already was on native | web, Node | none | Widgets that caught `InternalError: out of memory` now die. |
 | The host functions and `__twDispatch` are deleted from the global object after boot, and a sandbox bundle that fails to load (or cannot hide them) kills the widget before any widget code runs | all | none | A host loading an older JS bundle through `SandboxResources(bundle:)` gets every widget killed. |
 | In-place `textContent` updates and the attribute fast paths run by default | all | features `noInPlaceText`, `noAttrFast` | Same ops as the full paths (differential fuzz tests on TS and Swift). |
-| QuickJS is the TelegramMessenger/quickjs fork as a git submodule on every platform | all | none | SwiftPM and Xcode clone it for git dependencies; registry/zip copies without submodules fail to build. Web uses `packages/quickjs-wasm` (workspace package, committed build) instead of the npm variant. |
+| QuickJS is the TelegramMessenger/quickjs fork as a git submodule on every platform (pinned at c24d6b0: the CPU interrupt and out-of-memory are uncatchable in every engine path, including Promise executors, thenables, async generators and iterator `return()`) | all | none | SwiftPM and Xcode clone it for git dependencies; registry/zip copies without submodules fail to build. Web uses `packages/quickjs-wasm` (workspace package, committed build) instead of the npm variant. |
 
 Under `strict` also: complex-script text changes draw from 8192 words refilling at 1024 per second (`text-churn`), all platforms.
 

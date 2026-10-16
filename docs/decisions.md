@@ -742,6 +742,15 @@ first and alone, as a library with no renderer.
   the engine compiles from the shipped `.js`.
 - The fork makes out-of-memory uncatchable everywhere; the memory attacks that
   catch the error are now stopped like the ones that do not.
+- Fork master c24d6b0 (2026-10-16) makes the uncatchable state a property of
+  the runtime, not only a bit on the error object: until the embedder takes the
+  exception with `JS_GetException` outside any JS call, no catch block, Promise
+  executor, thenable, async generator, disposer, iterator `return()` or
+  `Error.prepareStackTrace` can observe it, and every interrupt poll raises it
+  again. Before it, `for (;;) new Promise(function () { for (;;) {} })` turned
+  the CPU interrupt into a rejection and never returned to the glue
+  (`docs/quickjs-fork-review.md`, section 3). The glue needs no change: every
+  host already calls `JS_GetException` at top level. Bytecode format unchanged.
 
 ## Bytecode precompilation of the bundles (Oct 2026)
 

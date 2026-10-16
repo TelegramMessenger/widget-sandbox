@@ -228,7 +228,10 @@ keyframe members and per-renderer animation state, 3D only in debug builds,
 Release plan and decisions: `docs/branches-review.md`, `docs/widget-state.md`
 (v1 storage), `docs/bridge-discussion.md` (SDK v1), `docs/server-task.md`;
 the web product renderer is the shadow DOM one (D2).
-Open: review and fuzzing of the 22 allocator/interpreter commits in the
-QuickJS fork, a reproducible build of `packages/quickjs-wasm/dist`, versions
+2026-10-16: the QuickJS fork reviewed (`docs/quickjs-fork-review.md`, all 22 allocator/interpreter
+commits kept) and the submodule moved to fork master c24d6b0: an uncatchable exception (CPU interrupt,
+out of memory) is a runtime state, so a Promise executor, thenable, async generator or iterator
+`return()` can no longer swallow the CPU limit; `.qbc` unchanged, `packages/quickjs-wasm/dist` rebuilt.
+Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), profile v1, SDK v1 and storage, `Intl.formatToParts`, the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
