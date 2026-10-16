@@ -157,11 +157,9 @@ final class UserActivationTests: XCTestCase {
         h.click(Self.anchor)
         h.settle()
         XCTAssertEqual(h.privileged.count, 0)
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.orderFrontRegardless()
-        window.contentView?.addSubview(h.host.view)
-        defer { window.orderOut(nil) }
+        let window = TestWindow.makeVisible()
+        window.attach(h.host.view)
+        defer { window.close() }
         h.host.setVisible(true)
         h.settle(0.1)
         h.click(Self.anchor)

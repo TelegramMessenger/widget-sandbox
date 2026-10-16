@@ -20,6 +20,11 @@ extension UIWindow {
         addSubview(view)
         view.frame = bounds
     }
+
+    /// `NSWindow.close()` for the shared test code: the window leaves the screen.
+    func close() {
+        isHidden = true
+    }
 }
 #elseif canImport(AppKit)
 import AppKit
