@@ -562,7 +562,7 @@ public final class SandboxEngine {
                     guard activeGesture > consumedGesture, visible else {
                         if blockedBridgeReported < 20 {
                             blockedBridgeReported += 1
-                            delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a user click or key press on the visible widget and runs in that event's handler (called from the \(currentKind) task)")
+                            delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler (called from the \(currentKind) task)")
                         }
                         return .undefined
                     }
@@ -851,7 +851,10 @@ public final class SandboxResources {
               !libraries.contains(where: { $0.name == library.name || $0.file == library.file }) else { return false }
         var compiled: [NSRegularExpression] = []
         for pattern in library.patterns {
-            guard pattern.utf16.count <= 1024, let regex = try? NSRegularExpression(pattern: "\\A(?:" + pattern + ")\\z", options: [.caseInsensitive]),
+            // Whole-URL match: the pattern must be a regular expression on its own first, so an unbalanced `)` (say `x)|(.*`)
+            // cannot close the anchoring group and leave an alternative unanchored.
+            guard pattern.utf16.count <= 1024, (try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])) != nil,
+                  let regex = try? NSRegularExpression(pattern: "\\A(?:" + pattern + ")\\z", options: [.caseInsensitive]),
                   !["", "https://example.invalid/x.js", "app:", "https://cdn.jsdelivr.net/npm/x.js"].contains(where: { Self.matches(regex, $0) }) else { return false }
             compiled.append(regex)
         }

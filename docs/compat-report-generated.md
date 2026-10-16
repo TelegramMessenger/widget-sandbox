@@ -1,6 +1,6 @@
 # Compat report — generated widgets
 
-Generated 2026-10-15T23:43:23.820Z by `pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-16T01:08:34.821Z by `pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## with-profile: 20 / 20 pass (100%)
 
@@ -17,7 +17,7 @@ Generated 2026-10-15T23:43:23.820Z by `pnpm test:generated`. Pass = loaded witho
 | 09-create-a-unit-converter-for-length-weight.html | ✅ | 0.00% | 4 |  |  |  |
 | 10-show-me-an-interactive-multiplication.html | ✅ | 0.00% | 0 |  |  |  |
 | 11-make-a-to-do-list-widget-where-i-can-add.html | ✅ | 0.00% | 4 |  |  |  |
-| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.24% | 0 |  |  |  |
+| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.16% | 0 |  |  |  |
 | 13-visualize-a-simple-project-timeline-gantt.html | ✅ | 0.00% | 4 |  |  |  |
 | 14-build-a-color-palette-generator-pick-a.html | ✅ | 0.00% | 4 |  |  |  |
 | 15-create-a-flashcard-widget-for-8-spanish.html | ✅ | 0.00% | 3 |  |  |  |
@@ -42,7 +42,7 @@ Generated 2026-10-15T23:43:23.820Z by `pnpm test:generated`. Pass = loaded witho
 | 09-create-a-unit-converter-for-length-weight.html | ✅ | 0.00% | 4 |  |  |  |
 | 10-show-me-an-interactive-multiplication.html | ✅ | 0.00% | 0 |  |  |  |
 | 11-make-a-to-do-list-widget-where-i-can-add.html | ✅ | 0.00% | 4 |  | unsupported: alert/confirm/prompt (blocking dialogs) | unsupported×1 |
-| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.55% | 0 |  | tag-dropped: <link>; <link> | tag-dropped×2 |
+| 12-create-a-countdown-to-new-year-with-days.html | ✅ | 0.86% | 0 |  | tag-dropped: <link>; <link> | tag-dropped×2 |
 | 13-visualize-a-simple-project-timeline-gantt.html | ✅ | 0.00% | 0 |  |  |  |
 | 14-build-a-color-palette-generator-pick-a.html | ✅ | 0.00% | 0 |  |  |  |
 | 15-create-a-flashcard-widget-for-8-spanish.html | ✅ | 0.00% | 2 |  |  |  |

@@ -39,8 +39,11 @@ final class UserActivationTests: XCTestCase {
         var privileged: [(String, String)] { bridge.filter { $0.0 != "ready" } }
         var blocked: Int { host.diagnostics.diags["activation-blocked"]?.count ?? 0 }
 
-        func event(_ ev: [String: Any]) {
-            let data = try! JSONSerialization.data(withJSONObject: ["type": "event", "ev": ev])
+        /// A renderer event; `trusted` as the WebView renderer reports the DOM event's isTrusted.
+        func event(_ ev: [String: Any], trusted: Bool? = true) {
+            var message: [String: Any] = ["type": "event", "ev": ev]
+            if let trusted { message["trusted"] = trusted }
+            let data = try! JSONSerialization.data(withJSONObject: message)
             renderer.onMessage?(String(decoding: data, as: UTF8.self))
         }
 
@@ -106,16 +109,47 @@ final class UserActivationTests: XCTestCase {
     }
 
     func testNonGestureEventsDoNotActivate() {
-        let h = Harness("<a id='a' href='https://example.com/x'>x</a><script>var a=document.getElementById('a');['mousemove','mouseover','animationend','transitionend','scroll','focus','input','change','submit','load','wheel','keyup'].forEach(function(t){a.addEventListener(t,function(){a.click();TelegramWidget.openLink('https://'+t+'.example');});});</script>")
+        let h = Harness("<a id='a' href='https://example.com/x'>x</a><script>var a=document.getElementById('a');['mousemove','mouseover','animationend','transitionend','scroll','focus','input','change','submit','load','wheel','keyup'].forEach(function(t){a.addEventListener(t,function(){a.click();TelegramWidget.openLink('https://'+t+'.example');});});document.addEventListener('keydown',function(e){TelegramWidget.openLink('https://key.example/'+encodeURIComponent(e.key));});</script>")
         for type in ["mousemove", "mouseover", "animationend", "transitionend", "scroll", "focus", "input", "change", "submit", "load", "wheel", "keyup"] {
             h.event(["type": type, "targetId": Self.anchor])
         }
-        h.event(["type": "keydown", "targetId": 4, "key": "Escape", "code": "Escape", "repeat": false, "modifiers": 0])
-        h.event(["type": "keydown", "targetId": 4, "key": "a", "code": "KeyA", "repeat": true, "modifiers": 0])
-        h.event(["type": "keydown", "targetId": 4, "key": "w", "code": "KeyW", "repeat": false, "modifiers": 4])
+        for (key, isRepeat, modifiers) in [("Escape", false, 0), ("Enter", true, 0), (" ", false, 4), ("Tab", false, 0), ("ArrowDown", false, 0), ("a", false, 0), ("PageDown", false, 0), ("Shift", false, 8)] {
+            h.event(["type": "keydown", "targetId": 4, "key": key, "code": key, "repeat": isRepeat, "modifiers": modifiers])
+        }
         h.settle(0.5)
         XCTAssertEqual(h.privileged.map { $0.1 }, [])
-        XCTAssertGreaterThanOrEqual(h.blocked, 12)
+        XCTAssertGreaterThanOrEqual(h.blocked, 20)
+    }
+
+    func testOnlyTrustedRendererEventsActivate() {
+        let h = Harness("<a id='a' href='https://example.com/x'>x</a>")
+        h.event(["type": "click", "targetId": Self.anchor, "detail": 1], trusted: false)
+        h.event(["type": "click", "targetId": Self.anchor, "detail": 1], trusted: nil)
+        h.settle()
+        XCTAssertEqual(h.privileged.count, 0)
+        XCTAssertEqual(h.blocked, 2)
+        h.event(["type": "click", "targetId": Self.anchor, "detail": 1])
+        h.pump { !h.privileged.isEmpty }
+        XCTAssertEqual(h.privileged.map { $0.0 }, ["openLink"])
+    }
+
+    func testEnterOrSpaceAndTheClickItActivatesAreOneGesture() {
+        let h = Harness("<button id='b'>go</button><script>var b=document.getElementById('b');b.addEventListener('keydown',function(e){TelegramWidget.sendMessage('key '+e.key);});b.addEventListener('click',function(e){TelegramWidget.sendMessage('click '+e.detail);});</script>")
+        let button = 5
+        h.event(["type": "keydown", "targetId": button, "key": "Enter", "code": "Enter", "repeat": false, "modifiers": 0])
+        h.event(["type": "click", "targetId": button, "detail": 0])
+        h.event(["type": "keydown", "targetId": button, "key": "Enter", "code": "Enter", "repeat": true, "modifiers": 0])
+        h.event(["type": "click", "targetId": button, "detail": 0])
+        h.event(["type": "keydown", "targetId": button, "key": " ", "code": "Space", "repeat": false, "modifiers": 0])
+        h.event(["type": "keyup", "targetId": button, "key": " ", "code": "Space", "repeat": false, "modifiers": 0])
+        h.event(["type": "click", "targetId": button, "detail": 0])
+        h.pump { h.privileged.count >= 2 }
+        h.settle()
+        XCTAssertEqual(h.privileged.map { $0.1 }, ["[\"key Enter\"]", "[\"key  \"]"])
+        XCTAssertEqual(h.blocked, 4)
+        h.event(["type": "click", "targetId": button, "detail": 1])
+        h.pump { h.privileged.count >= 3 }
+        XCTAssertEqual(h.privileged.last?.1, "[\"click 1\"]", "a pointer click after a key press is its own gesture")
     }
 
     func testOnePhysicalPressIsOneGesture() {

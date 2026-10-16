@@ -45,10 +45,17 @@ describe('provided libraries (loader)', () => {
       { ...THREE, name: 'd3' }, { ...THREE, file: 'd3.min.js' }, { ...THREE, file: '../x.js' }, { ...THREE, file: 'x.txt' }, { ...THREE, name: 'A B' },
       { ...THREE, patterns: [] }, { ...THREE, patterns: ['.*'] }, { ...THREE, patterns: ['app:x|.*'] }, { ...THREE, patterns: ['https?://.*'] },
       { ...THREE, patterns: ['('] }, { ...THREE, patterns: ['app:x|'] }, { ...THREE, patterns: ['x'.repeat(2000)] },
+      // An unbalanced `)` would close the anchoring group: `^(?:p)|(q)$` matches any URL that starts with p.
+      { ...THREE, patterns: [String.raw`https://cdn\.example\.com/lib)|(zzz`] }, { ...THREE, patterns: ['app:x)|(.*'] }, { ...THREE, patterns: ['a)(b'] },
+      { ...THREE, patterns: ['app:x\\'] },
     ]) assert.equal(provideLibrary(bad as any), false, JSON.stringify(bad).slice(0, 80));
+    assert.equal(resolveLibrary('https://cdn.example.com/lib-evil.js'), null);
     assert.ok(provideLibrary({ name: 'x', file: 'x.js', patterns: ['app:x'] }));
     assert.equal(provideLibrary({ name: 'y', file: 'x.js', patterns: ['app:y'] }), false);
     assert.equal(resolveLibrary('app:x/y'), null);
+    assert.ok(provideLibrary({ name: 'z', file: 'z.js', patterns: [String.raw`app:z|https://cdn\.example\.com/z(?:\.min)?\.js`, String.raw`app:\(z\)|[)(]z`] }), 'alternatives and escaped or bracketed parentheses stay inside the group');
+    for (const url of ['app:z', 'https://cdn.example.com/z.min.js', 'app:(z)', ')z']) assert.equal(resolveLibrary(url)?.name, 'z', url);
+    for (const url of ['app:zz', 'https://cdn.example.com/z.js/x', 'xapp:z']) assert.equal(resolveLibrary(url), null, url);
   });
 
   it('a widget loads the provided copy and gets nothing for a spoofed CDN URL', async () => {

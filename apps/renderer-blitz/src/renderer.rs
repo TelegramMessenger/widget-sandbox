@@ -709,8 +709,10 @@ impl Renderer {
             let mut driver = EventDriver::new(doc, handler);
             driver.handle_ui_event(ui);
         }
+        // Real input only (the document has no script that could dispatch events): trusted, like the
+        // WebView renderer's isTrusted, which the hosts require before they count a user gesture.
         for ev in events {
-            out.push(json!({ "type": "event", "ev": ev }));
+            out.push(json!({ "type": "event", "ev": ev, "trusted": true }));
         }
         self.dirty = true;
         out

@@ -2072,9 +2072,11 @@ void Renderer::dispatch(Json ev, std::vector<Json>& out) {
         pending_moves_.emplace_back(std::move(key), std::move(ev));
         return;
     }
-    // Anything else keeps its order relative to the moves before it.
+    // Anything else keeps its order relative to the moves before it. Every event here comes from real
+    // input (no script runs in this document): trusted, like the WebView renderer's isTrusted, which the
+    // hosts require before they count a user gesture.
     flush_moves(out);
-    out.push_back(Json::object().set("type", "event").set("ev", std::move(ev)));
+    out.push_back(Json::object().set("type", "event").set("ev", std::move(ev)).set("trusted", true));
 }
 
 void Renderer::flush_moves(std::vector<Json>& out) {

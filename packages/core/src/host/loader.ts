@@ -59,7 +59,10 @@ export function provideLibrary(spec: ProvidedLibrarySpec): boolean {
   for (const p of spec.patterns) {
     if (typeof p !== 'string' || p.length > 1024) return false;
     let re: RegExp;
-    try { re = new RegExp(`^(?:${p})$`, 'i'); } catch { return false; }
+    // Whole-URL match: `p` must be a regular expression on its own first, so an
+    // unbalanced `)` (say `x)|(.*`) cannot close the anchoring group and leave
+    // an alternative unanchored.
+    try { new RegExp(p, 'i'); re = new RegExp(`^(?:${p})$`, 'i'); } catch { return false; }
     if (PROBES.some((probe) => re.test(probe))) return false;
     patterns.push(re);
   }

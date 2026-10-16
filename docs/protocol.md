@@ -216,12 +216,18 @@ A host that knows a built-in icon set passes `assetResolver: (String) -> String?
 `TrustedValidator` replaces `icon:<name>[?query]` tokens with the resolver's answer: a
 whole JSON string value under any key except `data` and `text`, and `url(icon:…)` anywhere,
 in JSON batches and in binary op fields alike (`IconExpansion.swift`). The resolver only
-sees tokens of the grammar `icon:[A-Za-z0-9_.-]{0,96}(?:\?[A-Za-z0-9=&.%#_-]{0,400})?`.
+sees tokens of the grammar `icon:[A-Za-z0-9_.-]{0,96}(?:\?[A-Za-z0-9=&.%#_-]{0,400})?`;
+the prefix is exactly `icon:` (`ICON:` stays a blocked URL), only the CSS function
+name `url(` is ASCII case-insensitive.
 An answer is used only if it is a `data:image/` URL of at most 64 KB made of
 `[A-Za-z0-9-._~,/:=%;+]`, so it can never become a fetchable URL or break out of a
 JSON string or a CSS `url()`. A batch expands at most 1024 tokens and 2 MB
-(`icon-limit`, once per batch). The result is validated like any other `data:`
-image. Without a resolver `icon:` URLs are blocked like every other non-`data:` URL.
+(`icon-limit`, once per batch). A widget asks the resolver about at most 256
+distinct tokens and keeps at most 2 MB of its answers; past that, new tokens stay
+unresolved (`icon-limit`, once per widget) while the known ones keep expanding.
+The result is validated like any other `data:` image. Without a resolver `icon:`
+URLs are blocked like every other non-`data:` URL. Widgets can read the answers
+back (computed style, canvas), so a resolver hands out public icons only.
 
 ## Sync queries
 
@@ -339,7 +345,10 @@ Inside the worker the QuickJS context has one capability,
 plus `__hostBinary()` to fetch the binary part of the last query answer and,
 when the host enabled them, `__hostCanvas` (`canvasWords`) and `__hostOps`
 (`binaryOps`). The bundle captures them and the glue deletes all of them from
-the global object before widget code runs. One more function exists only in
+the global object before widget code runs. QuickJS implements V8's stack-trace
+API (`Error.prepareStackTrace`, `CallSite`); before any library code the shim
+makes `CallSite.getFunction` (and `getThis`, where present) answer `undefined`, so
+no stack frame hands widget code a shim closure. One more function exists only in
 Swift debug builds: `__tw3d`, the 3D side channel of the twidget kit
 (`Widget3DChannel`, `WidgetHost.Options.sideChannels`), which hands buffers to
 a Metal backend past the validator. It is compiled out of release builds
@@ -351,15 +360,20 @@ a Metal backend past the validator. It is compiled out of release builds
 shim turns into `openLink`) are privileged: the glue forwards one only while
 the task of a trusted user gesture runs on a visible widget, and one gesture
 unlocks one call. A gesture is one physical press (`pointerdown`, `mousedown`,
-`pointerup`, `mouseup`, `click`, `dblclick` of the same press) or one key press
-(`keydown`, not Escape, not a repeat, not a Command shortcut), as reported by
-the renderer; the host numbers gestures and hands them to the engine with the
-event. Calls from timers, frames, promises after the task, scripted
-`click()`/`dispatchEvent` or a hidden widget are dropped with an
-`activation-blocked` diag (at most 20). On the web the main-thread host
-decides: the renderer's `event` message carries `trusted` (the DOM event's
-`isTrusted`), the host's `event` to the worker carries `gesture: n` for
-trusted gestures, the worker tags `bridge` messages made in that task with
+`pointerup`, `mouseup`, `click`, `dblclick` of the same press) or one press of
+Enter or Space (`keydown` with `key` `"Enter"` or `" "`, not a repeat, not a
+Command shortcut); the click such a key press activates (`detail` 0) and the
+clicks of the key held down belong to that press. Other keys (Tab, arrows,
+letters, Escape) are not gestures. Only renderer `event` messages with
+`trusted: true` count, on every host: the WebView/iframe renderer sets it from
+the DOM event's `isTrusted`, and a renderer without a script-driven document
+(Blitz, litehtml) sets it on every input event; a renderer behind the
+`Renderer` seam that leaves it out gets no gestures. The host numbers gestures
+and hands them to the engine with the event. Calls from timers, frames,
+promises after the task, scripted `click()`/`dispatchEvent` or a hidden widget
+are dropped with an `activation-blocked` diag (at most 20). On the web the
+main-thread host decides: the host's `event` to the worker carries `gesture: n`
+for trusted gestures, the worker tags `bridge` messages made in that task with
 `gesture`, and the host accepts each issued gesture once, within 5 s. Native
 glue gates in the engine (`activationEvent(json, gesture)`). See decisions.md,
 "User activation".
