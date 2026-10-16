@@ -1,0 +1,291 @@
+<!doctype html>
+<html data-test="auto/05-colour-backgrounds">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conformance: colour and backgrounds</title>
+<!-- conformance {"title":"Colours, colour functions, light-dark(), backgrounds and data: images, gradients, box-shadow, outline, object-fit"} -->
+<!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111;background:transparent}@media (prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#conf-summary{font-weight:400;margin-left:6px}#conf-summary.good{color:#1a7f37}#conf-summary.bad{color:#c62828}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}.v-head{margin:8px 10px 2px;font-weight:600;font-size:15px}.v-hint{margin:0 10px 6px;font-size:12px}.v-row{display:flex;flex-wrap:wrap;align-items:flex-start;margin:6px 10px 10px}.v-row>[data-stage]{margin-right:8px}.v-ref{display:block;background:#fff}.v-cap{width:100%;margin-top:3px;font-size:12px}.v-tag{font-size:10px;font-weight:600;margin-right:4px;padding:0 4px;border-radius:3px;background:#8884}[data-stage="basic"]{left:8px;top:8px;width:80px;height:60px}[data-stage="modern"]{left:96px;top:8px;width:80px;height:60px}[data-stage="mix"]{left:184px;top:8px;width:80px;height:60px}[data-stage="light-dark"]{left:272px;top:8px;width:80px;height:60px}[data-stage="background"]{left:8px;top:76px;width:80px;height:60px}[data-stage="clip-text"]{left:96px;top:76px;width:80px;height:60px}[data-stage="linear"]{left:184px;top:76px;width:80px;height:60px}[data-stage="radial"]{left:272px;top:76px;width:80px;height:60px}[data-stage="conic"]{left:8px;top:144px;width:80px;height:60px}[data-stage="shadow"]{left:96px;top:144px;width:80px;height:60px}[data-stage="outline"]{left:184px;top:144px;width:80px;height:60px}[data-stage="object-fit"]{left:272px;top:144px;width:80px;height:60px}.conf-stages{height:212px}</style><script>var T = (function () {
+  'use strict';
+  var root = document.documentElement;
+  var ID = root.getAttribute('data-test') || 'unknown';
+  var sandbox = typeof TelegramWidget !== 'undefined';
+  var mode = window.__conformanceMode || (sandbox ? 'sandbox' : 'native');
+  var checks = [];
+  var byKey = {};
+  var started = false, finished = false, awaiting = false, deadline = 0;
+  var queue = [];
+  var panelTimer = 0;
+  var targets = {}, targetRects = null, stageRects = null;
+
+  function fmt(v) {
+    if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+    if (typeof v === 'string') return JSON.stringify(v.length > 60 ? v.slice(0, 60) + '…' : v);
+    try { return JSON.stringify(v); } catch (e) { return String(v); }
+  }
+
+  function record(id, name, ok, detail, opts) {
+    opts = opts || {};
+    var st;
+    if (ok === null) st = 'skip';
+    else if (ok === 'pending') st = 'pending';
+    else if (opts.xfail) st = ok ? 'xpass' : 'xfail';
+    else st = ok ? 'pass' : 'fail';
+    var key = id + '|' + name;
+    var c = byKey[key];
+    if (!c) { c = byKey[key] = { id: id, name: name }; checks.push(c); }
+    c.status = st;
+    c.detail = detail ? String(detail).slice(0, 160) : '';
+    if (opts.xfail && (st === 'xfail' || st === 'xpass')) c.detail = (c.detail ? c.detail + '; ' : '') + 'expected to fail: ' + opts.xfail;
+    schedulePublish();
+    return st;
+  }
+
+  /** Run fn now (or after start); fn returns true/false, [bool, detail], or null to skip. Exceptions fail the check. */
+  function check(id, name, fn, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) return record(id, name, null, 'sandbox only', opts);
+    if (opts.nativeOnly && sandbox) return record(id, name, null, 'native only', opts);
+    var r;
+    try { r = typeof fn === 'function' ? fn() : fn; } catch (e) { return record(id, name, false, 'threw ' + (e && e.name ? e.name + ': ' : '') + (e && e.message), opts); }
+    if (r === null || r === undefined) return record(id, name, null, 'not applicable', opts);
+    if (Array.isArray(r)) return record(id, name, !!r[0], r[1], opts);
+    return record(id, name, !!r, '', opts);
+  }
+
+  function eq(id, name, actual, expected, opts) {
+    return check(id, name, function () { return [actual === expected, 'got ' + fmt(actual) + ', want ' + fmt(expected)]; }, opts);
+  }
+  function near(id, name, actual, expected, tol, opts) {
+    return check(id, name, function () { return [typeof actual === 'number' && Math.abs(actual - expected) <= tol, 'got ' + fmt(actual) + ', want ' + fmt(expected) + ' ±' + tol]; }, opts);
+  }
+
+  /** A check resolved later (an event, a timer): pending until pass()/fail() or the deadline. */
+  function wait(id, name, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) { record(id, name, null, 'sandbox only', opts); return { pass: function () {}, fail: function () {}, done: true }; }
+    record(id, name, 'pending', opts.hint || '', opts);
+    var h = {
+      done: false,
+      pass: function (d) { if (!h.done) { h.done = true; record(id, name, true, d, opts); maybeFinish(); } },
+      fail: function (d) { if (!h.done) { h.done = true; record(id, name, false, d, opts); maybeFinish(); } },
+      result: function (ok, d) { ok ? h.pass(d) : h.fail(d); },
+      skip: function (d) { if (!h.done) { h.done = true; record(id, name, null, d, opts); maybeFinish(); } },
+    };
+    return h;
+  }
+
+  function rect(el) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    var r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+  }
+  function cs(el, prop, pseudo) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    return getComputedStyle(el, pseudo || null).getPropertyValue(prop).trim();
+  }
+  /** Normalised computed colour "r,g,b,a" (a 0–1, two decimals) from rgb()/rgba(). */
+  function color(el, prop, pseudo) {
+    var v = cs(el, prop || 'background-color', pseudo);
+    var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/.exec(v);
+    if (!m) return v;
+    var a = m[4] === undefined ? 1 : m[4].slice(-1) === '%' ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+    return Math.round(+m[1]) + ',' + Math.round(+m[2]) + ',' + Math.round(+m[3]) + ',' + Math.round(a * 100) / 100;
+  }
+
+  function counts() {
+    var n = { pass: 0, fail: 0, xfail: 0, xpass: 0, skip: 0, pending: 0 };
+    for (var i = 0; i < checks.length; i++) n[checks[i].status]++;
+    return n;
+  }
+
+  function status() {
+    if (finished) return 'done';
+    if (!started) return 'running';
+    var n = counts();
+    if (queue.length) return 'running';
+    if (n.pending === 0) return 'done';
+    return awaiting ? 'awaiting' : 'running';
+  }
+
+  function publish() {
+    panelTimer = 0;
+    var st = status();
+    if (st === 'done') finished = true;
+    var n = counts();
+    var out = { v: 1, id: ID, mode: mode, status: st, n: n, checks: checks.map(function (c) { return [c.id, c.name, c.status, c.detail]; }) };
+    // Interactive widgets: targets are re-measured on every publish, so a runner taps where things are now.
+    if (targetRects && st !== 'done') { try { measureTargets(); } catch (e) {} }
+    if (targetRects) out.targets = targetRects;
+    if (stageRects) out.stages = stageRects;
+    root.setAttribute('data-conformance', JSON.stringify(out));
+    var p = document.getElementById('conf-summary');
+    if (p) {
+      p.textContent = (st === 'done' ? '' : st + ' · ') + 'pass ' + n.pass + ' · fail ' + n.fail + (n.xfail ? ' · xfail ' + n.xfail : '') + (n.xpass ? ' · XPASS ' + n.xpass : '') + (n.skip ? ' · skip ' + n.skip : '') + (n.pending ? ' · pending ' + n.pending : '');
+      p.className = n.fail || n.xpass ? 'bad' : n.pending ? '' : 'good';
+    }
+    var list = document.getElementById('conf-list');
+    if (list) {
+      var lines = [];
+      for (var i = 0; i < checks.length; i++) {
+        var c = checks[i];
+        if (list.hasAttribute('data-all') || c.status === 'fail' || c.status === 'xpass' || c.status === 'pending')
+          lines.push({ 'pass': '✓ ', 'fail': '✗ ', 'xfail': '· ', 'xpass': '! ', 'skip': '– ', 'pending': '… ' }[c.status] + c.id + ' — ' + c.name + (c.detail && c.status !== 'pass' ? ' (' + c.detail + ')' : ''));
+      }
+      list.textContent = lines.join('\n');
+    }
+    if (st === 'done' && typeof console !== 'undefined') console.log('[conformance] ' + ID + ' ' + JSON.stringify(n));
+  }
+  function schedulePublish() { if (!panelTimer) panelTimer = setTimeout(publish, 0); }
+
+  function maybeFinish() {
+    if (!started || queue.length) return;
+    var n = counts();
+    if (n.pending === 0) { finished = true; publish(); }
+    else schedulePublish();
+  }
+
+  /** Mark the remaining pending checks failed (no event arrived) and finish. */
+  function timeout() {
+    for (var i = 0; i < checks.length; i++) if (checks[i].status === 'pending') { checks[i].status = 'fail'; checks[i].detail = (checks[i].detail ? checks[i].detail + '; ' : '') + 'timed out'; }
+    finished = true;
+    publish();
+  }
+
+  /** Steps run in order after the first frames; a step may return a delay in ms before the next one. */
+  function step(fn) { queue.push(fn); }
+  function r4(el) { var r = el.getBoundingClientRect(); return [Math.round(r.left * 10) / 10, Math.round(r.top * 10) / 10, Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }
+  function measureTargets() {
+    targetRects = {};
+    for (var k in targets) { var el = typeof targets[k] === 'string' ? document.querySelector(targets[k]) : targets[k]; if (el) targetRects[k] = r4(el); }
+  }
+  function measure() {
+    measureTargets();
+    stageRects = {};
+    var st = document.querySelectorAll('[data-stage]');
+    for (var i = 0; i < st.length; i++) stageRects[st[i].getAttribute('data-stage')] = r4(st[i]);
+  }
+  function next() {
+    if (!started && targetRects === null) { try { measure(); } catch (e) { record('harness', 'measure threw', false, e && e.message); } }
+    if (!queue.length) { started = true; if (deadline) setTimeout(timeout, deadline); maybeFinish(); return; }
+    var fn = queue.shift();
+    var delay = 0;
+    try { delay = fn() || 0; } catch (e) { record('harness', 'step threw', false, e && e.message); }
+    setTimeout(next, delay);
+  }
+
+  /**
+   * Start after the renderer had a chance to lay out (two frames, a fallback
+   * timer when frames do not come). `awaitInput: ms` keeps the widget in
+   * `awaiting` until its pending checks resolve or the time is up.
+   */
+  function run(opts) {
+    opts = opts || {};
+    if (opts.awaitInput) { awaiting = true; deadline = opts.awaitInput; }
+    else if (opts.deadline) deadline = opts.deadline;
+    publish();
+    var went = false;
+    var go = function () { if (!went) { went = true; setTimeout(next, opts.settle || 60); } };
+    try { requestAnimationFrame(function () { requestAnimationFrame(go); }); } catch (e) {}
+    setTimeout(go, 400);
+  }
+
+  // Reference mode (native rendering for the expected images): a stage with a
+  // <template data-ref="name"> gets the template's markup instead of its own.
+  function swapRefs() {
+    var ts = document.querySelectorAll('template[data-ref]');
+    for (var i = 0; i < ts.length; i++) {
+      var name = ts[i].getAttribute('data-ref');
+      var st = document.querySelector('[data-stage="' + name + '"]');
+      if (st) { st.innerHTML = ts[i].innerHTML; st.setAttribute('data-ref-applied', ''); }
+    }
+  }
+  /** Draw into a stage from script; skipped in reference mode when the stage has a template. */
+  function stage(name, draw) {
+    var el = document.querySelector('[data-stage="' + name + '"]');
+    if (!el) return;
+    if (mode === 'ref' && document.querySelector('template[data-ref="' + name + '"]')) return;
+    try { draw(el); } catch (e) { record('harness', 'stage ' + name + ' threw', false, e && e.message); }
+  }
+  if (mode === 'ref') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', swapRefs); else swapRefs();
+  }
+
+  return {
+    id: ID, sandbox: sandbox, mode: mode, check: check, eq: eq, near: near, wait: wait, ok: function (id, name, cond, detail, opts) { return check(id, name, function () { return [cond, detail]; }, opts); },
+    rect: rect, cs: cs, color: color, step: step, run: run, stage: stage, publish: publish,
+    /** A named element the runner may tap or drag (its rect is published as targets[name] when the run starts). */
+    target: function (name, el) { targets[name] = el; },
+    remeasure: function () { measure(); schedulePublish(); },
+    skip: function (id, name, why) { return record(id, name, null, why); },
+  };
+})();</script><!-- /conformance:harness -->
+<style>
+:root{color-scheme:light dark}
+.q{position:absolute;width:40px;height:30px}
+.q1{left:0;top:0}.q2{left:40px;top:0}.q3{left:0;top:30px}.q4{left:40px;top:30px}
+.full{position:absolute;inset:0}
+.s-ld{position:absolute;inset:10px;background:light-dark(#e83,#36c)}
+.s-bg{position:absolute;inset:0;background:linear-gradient(rgba(255,255,255,.5),rgba(255,255,255,0)) 0 0/100% 30px no-repeat,url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAAARElEQVR4AaXBQQGAMBDAsK6WThSasIAFLKABLSgYnybrmWHvmJM9CSSQQIIJJJBAAgnWXMPe/fJDAgkkkEACCSSQQIIPxdUFNX2dZRwAAAAASUVORK5CYII=) 5px 5px/20px 20px repeat}
+.s-clip{position:absolute;left:4px;top:-8px;font:900 64px/76px sans-serif;background:linear-gradient(90deg,#c33,#36c);-webkit-background-clip:text;background-clip:text;color:transparent}
+.s-lin{position:absolute;left:0;top:0;width:80px;height:30px;background:linear-gradient(90deg,#c33,#36c)}
+.s-rlin{position:absolute;left:0;top:30px;width:80px;height:30px;background:repeating-linear-gradient(45deg,#3a3 0 6px,#fff 6px 12px)}
+.s-rad{position:absolute;left:0;top:0;width:40px;height:60px;background:radial-gradient(circle at 50% 50%,#e83 0,#e83 8px,#36c 20px)}
+.s-rrad{position:absolute;left:40px;top:0;width:40px;height:60px;background:repeating-radial-gradient(circle,#c33 0 4px,#fff 4px 8px)}
+.s-conic{position:absolute;left:10px;top:0;width:60px;height:60px;border-radius:50%;background:conic-gradient(#c33 0 25%,#e83 0 50%,#3a3 0 75%,#36c 0)}
+.s-shadow{position:absolute;left:14px;top:12px;width:30px;height:24px;background:#fff;box-shadow:16px 12px 0 2px #36c,inset 0 0 0 4px #c33}
+.s-outline{position:absolute;left:18px;top:16px;width:44px;height:28px;background:#ddd;outline:3px dashed #c33;outline-offset:4px}
+.s-of{position:absolute;top:10px;width:34px;height:40px;background:#eee}
+</style>
+</head>
+<body>
+<div class="conf-stages">
+  <div data-stage="basic" data-covers="css.color.basic"><div class="q q1" style="background:rebeccapurple"></div><div class="q q2" style="background:#3a3"></div><div class="q q3" style="background:rgba(204,51,51,.5)"></div><div class="q q4" style="background:hsl(210 60% 50%)"></div></div>
+  <div data-stage="modern" data-covers="css.color.modern"><div class="q q1" style="background:oklch(0.62 0.19 30)"></div><div class="q q2" style="background:lab(55 -40 40)"></div><div class="q q3" style="background:hwb(220 20% 20%)"></div><div class="q q4" style="background:color(srgb 0.9 0.6 0.1)"></div></div>
+  <div data-stage="mix" data-covers="css.color.mix"><div class="q q1" style="background:color-mix(in srgb,#c33 50%,#36c)"></div><div class="q q2" style="background:color-mix(in srgb,#3a3,white 40%)"></div><div class="q q3" style="background:color-mix(in oklab,#e83,#36c)"></div><div class="q q4" style="background:color-mix(in srgb,#000 20%,transparent)"></div></div>
+  <div data-stage="light-dark" data-themes="light dark" data-covers="css.color.light-dark"><div class="s-ld"></div></div>
+  <div data-stage="background" data-covers="css.background.basic"><div class="s-bg"></div></div>
+  <div data-stage="clip-text" data-covers="css.background.clip-text" data-max-diff="0.5" data-colors="#c33 #36c"><div class="s-clip">W</div></div>
+  <div data-stage="linear" data-covers="css.gradient.linear"><div class="s-lin"></div><div class="s-rlin"></div></div>
+  <div data-stage="radial" data-covers="css.gradient.radial"><div class="s-rad"></div><div class="s-rrad"></div></div>
+  <div data-stage="conic" data-covers="css.gradient.conic"><div class="s-conic"></div></div>
+  <div data-stage="shadow" data-covers="css.box.shadow"><div class="s-shadow"></div></div>
+  <div data-stage="outline" data-covers="css.box.outline"><div class="s-outline"></div></div>
+  <div data-stage="object-fit" data-covers="css.box.object-fit"><img class="s-of" style="left:4px;object-fit:cover" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAPElEQVR4AcXBQQEAIBCAMKTShTKTnQxlBz9s687wa8/hl0QkIhGJSEQiEpGIRCQiEYlIRCISkYhEJCKRBx5KAo1ZaufhAAAAAElFTkSuQmCC"><img class="s-of" style="left:42px;object-fit:contain;object-position:0 100%" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAPElEQVR4AcXBQQEAIBCAMKTShTKTnQxlBz9s687wa8/hl0QkIhGJSEQiEpGIRCQiEYlIRCISkYhEJCKRBx5KAo1ZaufhAAAAAElFTkSuQmCC"></div>
+</div>
+<div class="conf-head">05 · Colour and backgrounds <span id="conf-summary"></span></div>
+<div class="conf-probes">
+  <div id="c-named" style="background:rebeccapurple;width:4px;height:4px"></div>
+  <div id="c-hex4" style="background:#f008;width:4px;height:4px"></div>
+  <div id="c-hsl" style="background:hsl(120,100%,25%);width:4px;height:4px"></div>
+  <div id="c-cur" style="color:rgb(0,0,200);border:1px solid currentColor;width:4px;height:4px"></div>
+  <div id="c-tr" style="background:transparent;width:4px;height:4px"></div>
+  <div id="c-ld" style="background:light-dark(rgb(1,2,3),rgb(4,5,6));width:4px;height:4px"></div>
+  <div id="c-mix" style="background:color-mix(in srgb,rgb(200,0,0) 50%,rgb(0,0,200));width:4px;height:4px"></div>
+  <div id="bg" style="background:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAAARElEQVR4AaXBQQGAMBDAsK6WThSasIAFLKABLSgYnybrmWHvmJM9CSSQQIIJJJBAAgnWXMPe/fJDAgkkkEACCSSQQIIPxdUFNX2dZRwAAAAASUVORK5CYII=) 1px 2px/10px 12px no-repeat;width:4px;height:4px"></div>
+  <div id="bg-remote" style="background-image:url(https://example.org/x.png);width:4px;height:4px"></div>
+</div>
+<div id="conf-list"></div>
+<script>
+var CS = T.cs, C = T.color;
+T.step(function () {
+  T.eq('css.color.basic', 'named colour', C('#c-named'), '102,51,153,1');
+  T.eq('css.color.basic', '#rgba hex', C('#c-hex4'), '255,0,0,0.53');
+  T.eq('css.color.basic', 'hsl()', C('#c-hsl'), '0,128,0,1');
+  T.eq('css.color.basic', 'currentColor', C('#c-cur', 'border-top-color'), '0,0,200,1');
+  T.eq('css.color.basic', 'transparent', C('#c-tr'), '0,0,0,0');
+  var dark = (typeof TelegramWidget !== 'undefined' ? TelegramWidget.theme : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+  T.eq('css.color.light-dark', 'light-dark() picks the chat theme', C('#c-ld'), dark ? '4,5,6,1' : '1,2,3,1');
+  T.ok('css.color.mix', 'color-mix() computes a colour', /^(100,0,100,1|color\(srgb 0\.39)/.test(C('#c-mix')), C('#c-mix'));
+  T.ok('css.background.basic', 'background-image keeps the data: image', /url\(["']?data:image\/png/.test(CS('#bg', 'background-image')), CS('#bg', 'background-image').slice(0, 40));
+  T.eq('css.background.basic', 'background-size', CS('#bg', 'background-size'), '10px 12px');
+  T.eq('css.background.basic', 'background-position', CS('#bg', 'background-position'), '1px 2px');
+  T.eq('css.background.basic', 'background-repeat', CS('#bg', 'background-repeat'), 'no-repeat');
+  T.eq('css.url.remote', 'a remote url() never reaches the renderer', CS('#bg-remote', 'background-image'), 'none', { sandboxOnly: true });
+});
+T.run();
+</script>
+<template data-ref="basic"><div style="position:absolute;left:0;top:0;width:40px;height:30px;background:#663399"></div><div style="position:absolute;left:40px;top:0;width:40px;height:30px;background:#33aa33"></div><div style="position:absolute;left:0;top:30px;width:40px;height:30px;background:#e59999"></div><div style="position:absolute;left:40px;top:30px;width:40px;height:30px;background:#3380cc"></div></template>
+<template data-ref="object-fit"><div style="position:absolute;left:4px;top:10px;width:34px;height:40px;background:#eee"><div style="position:absolute;left:0;top:0;width:17px;height:40px;background:#cc3333"></div><div style="position:absolute;left:17px;top:0;width:17px;height:40px;background:#3366cc"></div></div><div style="position:absolute;left:42px;top:10px;width:34px;height:40px;background:#eee"><div style="position:absolute;left:0;top:23px;width:17px;height:17px;background:#cc3333"></div><div style="position:absolute;left:17px;top:23px;width:17px;height:17px;background:#3366cc"></div></div></template>
+</body>
+</html>

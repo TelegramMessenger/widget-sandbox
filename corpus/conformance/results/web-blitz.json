@@ -1,0 +1,8610 @@
+{
+ "schema": 1,
+ "client": {
+  "platform": "web",
+  "renderer": "blitz",
+  "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
+  "policy": "strict",
+  "features": [
+   "webAnimations"
+  ],
+  "date": "2026-10-16T09:24:03.121Z",
+  "commit": "c7b91a8"
+ },
+ "summary": {
+  "in": {
+   "pass": 88,
+   "partial": 26,
+   "fail": 23,
+   "xfail": 7,
+   "xpass": 0,
+   "skip": 4,
+   "untested": 4
+  },
+  "candidate": {
+   "pass": 18,
+   "partial": 8,
+   "fail": 21,
+   "xfail": 0,
+   "xpass": 0,
+   "skip": 2,
+   "untested": 0
+  },
+  "out": {
+   "pass": 14,
+   "partial": 0,
+   "fail": 4,
+   "xfail": 12,
+   "xpass": 7,
+   "skip": 3,
+   "untested": 0
+  }
+ },
+ "features": {
+  "html.el.structure": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 3,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "p has 1em block margins",
+     "status": "pass",
+     "detail": "got 13, want 13 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "br starts a new line",
+     "status": "pass",
+     "detail": "66 → 82",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "hr draws a rule",
+     "status": "pass",
+     "detail": "340x2",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "wbr is a break opportunity",
+     "status": "fail",
+     "detail": "h 16",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.headings": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "h1 > h2 > … > h6 font sizes",
+     "status": "pass",
+     "detail": "26,19.5,15.2031,13,10.7969,8.70313",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "headings are bold",
+     "status": "pass",
+     "detail": "700,700",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.sections": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "sectioning elements are blocks",
+     "status": "pass",
+     "detail": "block,block,block,block,block,block,block,block,block,block",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "address is italic",
+     "status": "pass",
+     "detail": "got \"italic\", want \"italic\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.inline-text": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 6,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "b, strong are bold",
+     "status": "pass",
+     "detail": "700,700",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "i, em, cite, dfn, var are italic",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "u, ins underline; s, del strike",
+     "status": "pass",
+     "detail": "underline / line-through",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "code, kbd, samp are monospace",
+     "status": "pass",
+     "detail": "monospace",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "mark has a highlight",
+     "status": "pass",
+     "detail": "255,235,59,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "small is smaller",
+     "status": "pass",
+     "detail": "10.8281px",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "q adds quotation marks",
+     "status": "fail",
+     "detail": "16.5 vs 16.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.sub-sup": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "fail": 1,
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "sub sits lower, sup higher",
+     "status": "fail",
+     "detail": "base 420-443 sub 443 sup 420",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "sub and sup are smaller",
+     "status": "pass",
+     "detail": "10.8281px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.pre": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "pre keeps the line break",
+     "status": "pass",
+     "detail": "h 32",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "pre is monospace",
+     "status": "pass",
+     "detail": "monospace",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.blockquote": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "blockquote is indented 40px",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "figure is indented 40px",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.lists": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 5
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "ul is padded 40px",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "ul items have discs",
+     "status": "pass",
+     "detail": "got \"disc\", want \"disc\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "ol items are numbered",
+     "status": "pass",
+     "detail": "got \"decimal\", want \"decimal\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "dd is indented 40px",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "menu is a padded list",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.table": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 4,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "cells sit side by side",
+     "status": "pass",
+     "detail": "48 / 48",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "colspan=2 spans both columns",
+     "status": "pass",
+     "detail": "got 80, want 80 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "rowspan=2 spans two rows",
+     "status": "fail",
+     "detail": "12 vs 12",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "caption sits above the rows",
+     "status": "pass",
+     "detail": "0 / 625",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "th is bold and centred",
+     "status": "pass",
+     "detail": "700 center",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.ruby": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "fail": 1,
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "rt is drawn above the base",
+     "status": "fail",
+     "detail": "rt 673-713 ruby 673-713",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "rt is smaller",
+     "status": "pass",
+     "detail": "10px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.legacy": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "pass": 5,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "center centres",
+     "status": "pass",
+     "detail": "-moz-center",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "font color=red",
+     "status": "fail",
+     "detail": "got \"17,17,17,1\", want \"255,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "big is bigger",
+     "status": "pass",
+     "detail": "15.5938px",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "tt is monospace",
+     "status": "pass",
+     "detail": "monospace",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "strike is struck through",
+     "status": "pass",
+     "detail": "line-through",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "nobr does not wrap",
+     "status": "pass",
+     "detail": "78.359375x16",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.img": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "fail": 3,
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "PNG decodes (naturalWidth 2)",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "GIF decodes (naturalWidth 1)",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "width/height attributes size the image",
+     "status": "pass",
+     "detail": "20x10",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "img inside picture is drawn",
+     "status": "pass",
+     "detail": "12",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "stage",
+     "name": "raster",
+     "status": "fail",
+     "detail": "diff 80.5 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.img-svg": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "fail": 1,
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "SVG image decodes (naturalWidth 10)",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "stage",
+     "name": "svgimg",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.img-other-formats": {
+   "status": "out",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "BMP is refused (placeholder, not the 2px image)",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "ICO is refused (placeholder, not the 2px image)",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.img-remote": {
+   "status": "out",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "a remote image becomes the 48px placeholder",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.canvas": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "rect",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.button": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "button has a box with padding",
+     "status": "pass",
+     "detail": "58x20",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "button has a visible background or border",
+     "status": "pass",
+     "detail": "239,239,239,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.details": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 3,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "closed details is only as tall as its summary",
+     "status": "pass",
+     "detail": "16 vs 16",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "open details shows its content",
+     "status": "pass",
+     "detail": "h 20",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "summary is a list item (disclosure marker)",
+     "status": "pass",
+     "detail": "got \"list-item\", want \"list-item\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "tapping summary opens details (toggle event)",
+     "status": "fail",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.a-fragment": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "a[href=#…] is a link (UA link colour, underline)",
+     "status": "pass",
+     "detail": "0,0,238,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "tapping a #fragment link does not leave the widget",
+     "status": "pass",
+     "detail": "still here",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.a-external": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3,
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "an external href never reaches the renderer (a[href^=https] does not match)",
+     "status": "pass",
+     "detail": "0,0,238,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "it is still drawn as a link",
+     "status": "pass",
+     "detail": "underline",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "an external link tap reaches the widget as a click",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "host",
+     "name": "tapping an external <a href> goes to openLink",
+     "status": "skip",
+     "detail": "synthetic taps grant no user gesture",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.forms": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "pass": 1,
+    "xfail": 6,
+    "xpass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "form submission never navigates (submit reaches the widget)",
+     "status": "pass",
+     "detail": "still here",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "input type=text is not drawn",
+     "status": "xfail",
+     "detail": "306x22; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "checkbox is not drawn",
+     "status": "xfail",
+     "detail": "14x14; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "radio is not drawn",
+     "status": "xfail",
+     "detail": "14x14; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "range is not drawn",
+     "status": "xfail",
+     "detail": "6x6; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "select is not drawn",
+     "status": "xpass",
+     "detail": "0x0; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "textarea is not drawn",
+     "status": "xfail",
+     "detail": "306x22; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "fieldset is not drawn",
+     "status": "xfail",
+     "detail": "31.5x32.671875; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.progress-meter": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "progress is drawn",
+     "status": "fail",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "meter is drawn",
+     "status": "fail",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.dialog-popover": {
+   "status": "out",
+   "verdict": "xpass",
+   "counts": {
+    "xpass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "showModal does not put the dialog in the top layer (:modal never matches)",
+     "status": "xpass",
+     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "a shown dialog stays where the widget put it",
+     "status": "xpass",
+     "detail": "dialog at 8,162 (51x26), its place 8,162; expected to fail: showModal puts the dialog in the top layer",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "showPopover does not open a top-layer popover",
+     "status": "xpass",
+     "detail": "17,17,17,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "a popover stays inside the widget",
+     "status": "xpass",
+     "detail": "popover at 8,162 (0x0); expected to fail: showPopover puts the element in the top layer",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.unknown": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "an unknown element renders inline",
+     "status": "pass",
+     "detail": "got \"inline\", want \"inline\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/01-html-elements",
+     "kind": "check",
+     "name": "it renders as an inert span: its type selector does not match",
+     "status": "pass",
+     "detail": "17,17,17,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.media": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "video is dropped",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "audio is dropped",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.el.embedding": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "iframe is dropped",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "object is dropped",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "embed is dropped",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": "MathML is dropped",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.global": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 2,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "hidden hides",
+     "status": "pass",
+     "detail": "none",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "style attribute applies",
+     "status": "pass",
+     "detail": "17x5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "lang reaches the renderer (:lang(ru))",
+     "status": "fail",
+     "detail": "got \"17,17,17,1\", want \"0,100,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.dir": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 1,
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "dir=rtl sets direction",
+     "status": "pass",
+     "detail": "got \"rtl\", want \"rtl\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "dir=rtl lays out inline boxes right to left",
+     "status": "fail",
+     "detail": "a 188 b 198",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "dir=auto with Hebrew text resolves to rtl",
+     "status": "fail",
+     "detail": "got \"ltr\", want \"rtl\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.data-aria": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "data-* reaches attribute selectors",
+     "status": "pass",
+     "detail": "got \"0,0,150,1\", want \"0,0,150,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "aria-* reaches attribute selectors",
+     "status": "pass",
+     "detail": "got \"150,0,0,1\", want \"150,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.legacy-presentational": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "pass": 2,
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "align=center centres",
+     "status": "pass",
+     "detail": "-moz-center",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "bgcolor paints the cell",
+     "status": "pass",
+     "detail": "got \"255,0,0,1\", want \"255,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "cellpadding pads the cell",
+     "status": "fail",
+     "detail": "got 1, want 5 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "border=1 draws a table border",
+     "status": "fail",
+     "detail": "0px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.event-handlers": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "an inline onclick handler runs",
+     "status": "pass",
+     "detail": "got \"2\", want \"2\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.contenteditable": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "contenteditable does not reach the renderer",
+     "status": "xfail",
+     "detail": "1,1,1,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.draggable": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "draggable does not reach the renderer",
+     "status": "xfail",
+     "detail": "2,2,2,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "html.attr.tabindex": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/02-attributes-images",
+     "kind": "check",
+     "name": "tabindex does not reach the renderer",
+     "status": "xfail",
+     "detail": "3,3,3,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.shapes": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "fail": 2,
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "check",
+     "name": "getBBox() of a rect",
+     "status": "fail",
+     "detail": "0,0,0,0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/13-svg",
+     "kind": "check",
+     "name": "getTotalLength() of a path",
+     "status": "fail",
+     "detail": "got 0, want 40 ±0.1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "shapes",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.structure": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "check",
+     "name": "viewBox scales content (10 user units → 20px)",
+     "status": "fail",
+     "detail": "0 at -8",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "structure",
+     "status": "fail",
+     "detail": "diff 10.9 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.text": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "check",
+     "name": "getComputedTextLength() of a text",
+     "status": "fail",
+     "detail": "0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "text",
+     "status": "fail",
+     "detail": "diff 67.7 % of ink (max 50 %); #222 0/696px, #c33 0/235px, #36c 0/204px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.gradients": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "gradients",
+     "status": "fail",
+     "detail": "diff 97.1 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.css": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "pass": 1,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "check",
+     "name": "a stylesheet fill reaches SVG (computed fill)",
+     "status": "pass",
+     "detail": "rgb(204, 51, 51)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "css",
+     "status": "fail",
+     "detail": "diff 91.9 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.clip-mask": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "clip-mask",
+     "status": "fail",
+     "detail": "diff 57.5 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.filters": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "filters",
+     "status": "fail",
+     "detail": "diff 96.0 % of ink (max 10 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.smil": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "smil",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.foreign-object": {
+   "status": "out",
+   "verdict": "xpass",
+   "counts": {
+    "xpass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "foreign-object",
+     "status": "xpass",
+     "detail": "diff 0.0 % of ink (max 5 %); the validator keeps foreignObject",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "svg.image": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/13-svg",
+     "kind": "stage",
+     "name": "image",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.display.basic": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "a block fills the container width",
+     "status": "pass",
+     "detail": "got 200, want 200 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "inline boxes share a line",
+     "status": "pass",
+     "detail": "i1 8,191 i2 24.21875,191",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "inline-block keeps its width on the line",
+     "status": "pass",
+     "detail": "w 30 x 39.625",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "display:none has no box",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.display.flex": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 8
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "row places children side by side",
+     "status": "pass",
+     "detail": "0,40,80",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "justify-content: space-between",
+     "status": "pass",
+     "detail": "got 200, want 200 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "align-items: center",
+     "status": "pass",
+     "detail": "got 10, want 10 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "flex-direction: column stacks",
+     "status": "pass",
+     "detail": "0,10",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "flex-wrap moves the third item to a new line",
+     "status": "pass",
+     "detail": "0,10",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "flex-grow takes the free space",
+     "status": "pass",
+     "detail": "got 160, want 160 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "order: -1 comes first",
+     "status": "pass",
+     "detail": "a 48 b 8",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "stage",
+     "name": "flex",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.gap.flex": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "gap between flex items",
+     "status": "pass",
+     "detail": "got 50, want 50 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "row-gap between wrapped lines",
+     "status": "pass",
+     "detail": "got 16, want 16 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "stage",
+     "name": "flex",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.display.grid": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 5
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "grid-template-columns: 50px 1fr",
+     "status": "pass",
+     "detail": "50 / 54 146",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "auto-placement wraps to the next row",
+     "status": "pass",
+     "detail": "0,14",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "repeat(4, 1fr) gives equal tracks",
+     "status": "pass",
+     "detail": "0/50 50/50 100/50 150/50",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "grid-column: 2 / span 2 on row 2",
+     "status": "pass",
+     "detail": "40,10 w 80",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "stage",
+     "name": "grid",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.display.table": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "table cells side by side, the second takes the rest",
+     "status": "fail",
+     "detail": "0/125 125/75",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.display.other": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "display: flow-root contains its float",
+     "status": "pass",
+     "detail": "got 24, want 24 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "display: contents children join the flex row",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.size": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "width: 50%",
+     "status": "pass",
+     "detail": "got 100, want 100 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "min-width wins over width",
+     "status": "pass",
+     "detail": "got 30, want 30 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "max-width caps width",
+     "status": "pass",
+     "detail": "got 60, want 60 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "width: fit-content shrinks to the text",
+     "status": "pass",
+     "detail": "w 8",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.spacing": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "margin-left offsets the box",
+     "status": "pass",
+     "detail": "got 10, want 10 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "margin: 0 auto centres",
+     "status": "pass",
+     "detail": "got 75, want 75 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "padding adds to the box",
+     "status": "pass",
+     "detail": "got 30, want 30 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "negative margin pulls the box up",
+     "status": "pass",
+     "detail": "got -10, want -10 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.border": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "a 5px border adds 10px",
+     "status": "pass",
+     "detail": "30x20",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "stage",
+     "name": "border",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.radius": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "stage",
+     "name": "radius",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.sizing": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "border-box keeps the declared width",
+     "status": "pass",
+     "detail": "got 50, want 50 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "content-box adds the padding",
+     "status": "pass",
+     "detail": "got 70, want 70 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.aspect-ratio": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "aspect-ratio: 2 makes a 60px wide box 30px high",
+     "status": "pass",
+     "detail": "got 30, want 30 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.logical": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "margin-inline-start in LTR",
+     "status": "pass",
+     "detail": "got 20, want 20 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "inline-size",
+     "status": "pass",
+     "detail": "got 44, want 44 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "padding-block adds to the height",
+     "status": "pass",
+     "detail": "got 20, want 20 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "margin-inline-start in RTL is a right margin",
+     "status": "pass",
+     "detail": "got 180, want 180 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.outline": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 2,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "outline does not change the box",
+     "status": "pass",
+     "detail": "30x10",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "computed outline is 4px solid",
+     "status": "pass",
+     "detail": "4px solid",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "outline",
+     "status": "fail",
+     "detail": "diff 40.4 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.shadow": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "shadow",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.float": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "float:left pushes inline text right",
+     "status": "fail",
+     "detail": "text x 0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "float:right sits at the right edge",
+     "status": "fail",
+     "detail": "got 30, want 200 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.columns": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "column-count: 2 puts the third block in column two",
+     "status": "fail",
+     "detail": "0,20",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.box.object-fit": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "object-fit",
+     "status": "pass",
+     "detail": "diff 1.5 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.position.relative-absolute": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "absolute: left/top inside a relative parent",
+     "status": "pass",
+     "detail": "7,5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "inset: 0 fills the parent",
+     "status": "pass",
+     "detail": "200x30",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "right/bottom anchor to the far edges",
+     "status": "pass",
+     "detail": "197,28",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "relative: left/top shift the box",
+     "status": "pass",
+     "detail": "12,3",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.position.fixed": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "fixed is placed against the bubble",
+     "status": "pass",
+     "detail": "3,4",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.position.sticky": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "sticky is neutralised to relative",
+     "status": "xfail",
+     "detail": "sticky; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.position.z-index": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "the higher z-index is on top",
+     "status": "pass",
+     "detail": "hi",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.overflow.clip": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "overflow: hidden clips hit testing",
+     "status": "pass",
+     "detail": "under",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "overflow: hidden is computed",
+     "status": "pass",
+     "detail": "got \"hidden\", want \"hidden\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "overflow: clip is computed",
+     "status": "pass",
+     "detail": "got \"clip\", want \"clip\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "stage",
+     "name": "radius",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.overflow.scroll": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "overflow: auto is neutralised to hidden",
+     "status": "xfail",
+     "detail": "auto; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.visibility": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "visibility: hidden is skipped by hit testing",
+     "status": "pass",
+     "detail": "under",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "a hidden box keeps its size",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.opacity": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/03-layout",
+     "kind": "check",
+     "name": "computed opacity",
+     "status": "pass",
+     "detail": "got \"0.5\", want \"0.5\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "opacity",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.color.basic": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 11
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "named colour",
+     "status": "pass",
+     "detail": "got \"102,51,153,1\", want \"102,51,153,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "#rgba hex",
+     "status": "pass",
+     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "hsl()",
+     "status": "pass",
+     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "currentColor",
+     "status": "pass",
+     "detail": "got \"0,0,200,1\", want \"0,0,200,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "transparent",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "named colour",
+     "status": "pass",
+     "detail": "got \"102,51,153,1\", want \"102,51,153,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "#rgba hex",
+     "status": "pass",
+     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "hsl()",
+     "status": "pass",
+     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "currentColor",
+     "status": "pass",
+     "detail": "got \"0,0,200,1\", want \"0,0,200,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "transparent",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "basic",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.color.modern": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "modern",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.color.mix": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "color-mix() computes a colour",
+     "status": "pass",
+     "detail": "color(srgb 0.392157 0 0.392157)",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "color-mix() computes a colour",
+     "status": "pass",
+     "detail": "color(srgb 0.392157 0 0.392157)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "mix",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.color.light-dark": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "light-dark() picks the chat theme",
+     "status": "pass",
+     "detail": "got \"4,5,6,1\", want \"4,5,6,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "light-dark",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "light-dark() picks the chat theme",
+     "status": "pass",
+     "detail": "got \"1,2,3,1\", want \"1,2,3,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "light-dark",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.background.basic": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 6,
+    "fail": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-image keeps the data: image",
+     "status": "pass",
+     "detail": "url(\"data:image/png;base64,iVBORw0KGgoAA",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-size",
+     "status": "pass",
+     "detail": "got \"10px 12px\", want \"10px 12px\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-position",
+     "status": "fail",
+     "detail": "got \"\", want \"1px 2px\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-repeat",
+     "status": "pass",
+     "detail": "got \"no-repeat\", want \"no-repeat\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-image keeps the data: image",
+     "status": "pass",
+     "detail": "url(\"data:image/png;base64,iVBORw0KGgoAA",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-size",
+     "status": "pass",
+     "detail": "got \"10px 12px\", want \"10px 12px\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-position",
+     "status": "fail",
+     "detail": "got \"\", want \"1px 2px\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-repeat",
+     "status": "pass",
+     "detail": "got \"no-repeat\", want \"no-repeat\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "background",
+     "status": "fail",
+     "detail": "diff 78.1 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.background.clip-text": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "clip-text",
+     "status": "fail",
+     "detail": "diff 62.6 % of ink (max 50 %); #c33 2640/567px, #36c 2520/629px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.gradient.linear": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "linear",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.gradient.radial": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "radial",
+     "status": "fail",
+     "detail": "diff 48.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.gradient.conic": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "conic",
+     "status": "fail",
+     "detail": "diff 72.1 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.url.remote": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "a remote url() never reaches the renderer",
+     "status": "pass",
+     "detail": "got \"none\", want \"none\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "a remote url() never reaches the renderer",
+     "status": "pass",
+     "detail": "got \"none\", want \"none\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.font.generic": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "fail": 2,
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "monospace: i and M have the same advance",
+     "status": "fail",
+     "detail": "got 22, want 67.5 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "computed font-family keeps the generic name",
+     "status": "pass",
+     "detail": "monospace",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "serif and sans-serif are different faces",
+     "status": "fail",
+     "detail": "112.5 vs 112.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "system-ui renders",
+     "status": "pass",
+     "detail": "112.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.font.ui-families": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "fail": 1,
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "ui-monospace: i and M have the same advance",
+     "status": "fail",
+     "detail": "got 22, want 67.5 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "ui-rounded with a fallback renders",
+     "status": "pass",
+     "detail": "14.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.font.named": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xpass": 1,
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "a named family is dropped: \"Courier New\" alone is not monospace",
+     "status": "xpass",
+     "detail": "22 vs 67.5; expected to fail: the validator does not drop font names yet (D3b)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "a named family is dropped from the list (\"Times New Roman\", sans-serif → sans-serif)",
+     "status": "xfail",
+     "detail": "\"Times New Roman\", sans-serif; expected to fail: the validator does not drop font names yet (D3b)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.font.face": {
+   "status": "out",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "@font-face is dropped: the fallback monospace is used",
+     "status": "fail",
+     "detail": "got 22, want 67.5 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.font.basic": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 4,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "font-size: 20px gives a taller line",
+     "status": "pass",
+     "detail": "23",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "font-weight: 700 is wider than 400",
+     "status": "fail",
+     "detail": "59 vs 59",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "font-style: italic",
+     "status": "pass",
+     "detail": "got \"italic\", want \"italic\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "font shorthand",
+     "status": "pass",
+     "detail": "700 15px",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "line-height: 30px",
+     "status": "pass",
+     "detail": "got 30, want 30 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.font.variant-numeric": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "tabular-nums: 1111 as wide as 0000",
+     "status": "pass",
+     "detail": "got 33.5, want 33.5 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "font-feature-settings \"tnum\"",
+     "status": "pass",
+     "detail": "got 33.5, want 33.5 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.align": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "text-align: center",
+     "status": "pass",
+     "detail": "got 59.99, want 60 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "text-align: right",
+     "status": "pass",
+     "detail": "got 120, want 120 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "text-align: end in RTL is the left edge",
+     "status": "pass",
+     "detail": "got 0, want 0 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "text-indent",
+     "status": "pass",
+     "detail": "got 20, want 20 ±1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.decoration": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "text-decoration: underline",
+     "status": "pass",
+     "detail": "underline",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "stage",
+     "name": "decoration",
+     "status": "pass",
+     "detail": "diff 42.5 % of ink (max 50 %); #c33 135/160px, #36c 335/258px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.transform": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "text-transform: uppercase widens",
+     "status": "pass",
+     "detail": "27 vs 23.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "letter-spacing: 5px adds 5px per letter",
+     "status": "pass",
+     "detail": "got 20, want 20 ±1.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "word-spacing: 10px adds 10px per space",
+     "status": "pass",
+     "detail": "got 20, want 20 ±1.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.white-space": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "nowrap keeps one line",
+     "status": "pass",
+     "detail": "16",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "pre keeps the newline",
+     "status": "pass",
+     "detail": "32",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "pre-wrap keeps the spaces",
+     "status": "pass",
+     "detail": "33 vs 20.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "pre-line keeps the newline, collapses the spaces",
+     "status": "pass",
+     "detail": "32",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.wrap": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "overflow-wrap: anywhere breaks a long word",
+     "status": "pass",
+     "detail": "40x64",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "word-break: break-all breaks a long word",
+     "status": "pass",
+     "detail": "80",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.overflow": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "stage",
+     "name": "ellipsis",
+     "status": "fail",
+     "detail": "diff 27.1 % of ink (max 50 %); #36c 0/70px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.line-clamp": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "-webkit-line-clamp: 2 shows two lines",
+     "status": "fail",
+     "detail": "got 112, want 32 ±1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.shadow": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "stage",
+     "name": "text-shadow",
+     "status": "fail",
+     "detail": "diff 51.0 % of ink (max 50 %); #e83 0/1650px, #36c 1304/2317px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.vertical-align": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "vertical-align top and bottom",
+     "status": "pass",
+     "detail": "0 / 0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.list-style": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "list-style-position: inside moves the text right",
+     "status": "pass",
+     "detail": "59.796875 vs 48",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "list-style-type: none",
+     "status": "pass",
+     "detail": "got \"none\", want \"none\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.writing-mode": {
+   "status": "out",
+   "verdict": "xpass",
+   "counts": {
+    "xpass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "writing-mode is neutralised (text stays horizontal)",
+     "status": "xpass",
+     "detail": "300x16; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.rtl": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "Hebrew in dir=rtl starts at the right edge",
+     "status": "pass",
+     "detail": "got 128, want 128 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "Arabic lam-alef is shaped (ligature narrower than its letters)",
+     "status": "pass",
+     "detail": "11.5 vs 21",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.emoji": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 3,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "emoji glyph has an advance",
+     "status": "pass",
+     "detail": "21",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "flag sequence is one glyph",
+     "status": "pass",
+     "detail": "24.5 vs 21",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "ZWJ sequence is one glyph",
+     "status": "pass",
+     "detail": "24.5 vs 21",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "stage",
+     "name": "emoji",
+     "status": "fail",
+     "detail": "diff 89.6 % of ink (max 50 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.text.selection": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/06-text-fonts",
+     "kind": "check",
+     "name": "user-select: text cannot re-enable selection",
+     "status": "xfail",
+     "detail": "got \"text\", want \"none\"; expected to fail: the client does not disable selection yet (D18)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.transform.2d": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "fail": 4,
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "translateX(30px) moves the box",
+     "status": "fail",
+     "detail": "got 0, want 30 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "rotate(90deg) swaps the bounding box",
+     "status": "fail",
+     "detail": "40x20",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "scale(2) with transform-origin 0 0",
+     "status": "fail",
+     "detail": "110 10",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "the translate property",
+     "status": "fail",
+     "detail": "150,0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "transform-2d",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.transform.3d": {
+   "status": "out",
+   "verdict": "xpass",
+   "counts": {
+    "xpass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "rotateY(60deg) is dropped: the box keeps its width",
+     "status": "xpass",
+     "detail": "got 40, want 40 ±0.5; expected to fail: the validator does not strip 3D transforms yet",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "transform-3d",
+     "status": "xpass",
+     "detail": "diff 0.0 % of ink (max 5 %); the validator does not strip 3D transforms yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.filter.blur-brightness-drop-shadow": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 1,
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "filter functions are kept",
+     "status": "pass",
+     "detail": "blur(2px) brightness(1.5) drop-shadow(rgb(255, 0, 0) 1px 1px 0px)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "blur",
+     "status": "fail",
+     "detail": "diff 38.6 % of ink (max 10 %)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "brightness-drop-shadow",
+     "status": "fail",
+     "detail": "diff 68.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.filter.other": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "filter-other",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.filter.url": {
+   "status": "out",
+   "verdict": "xpass",
+   "counts": {
+    "xpass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "filter-url",
+     "status": "xpass",
+     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.backdrop-filter": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "backdrop",
+     "status": "fail",
+     "detail": "diff 43.5 % of ink (max 10 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.blend": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "blend",
+     "status": "fail",
+     "detail": "diff 12.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.clip-path": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "clip-path",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.mask": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "stage",
+     "name": "mask",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.pointer-events": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "pointer-events: none lets hits through",
+     "status": "pass",
+     "detail": "pe-under",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "check",
+     "name": "a tap through a pointer-events: none overlay hits the button below",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.touch-action": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "touch-action reaches the renderer",
+     "status": "pass",
+     "detail": "got \"none\", want \"none\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.cursor": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/09-transforms-effects",
+     "kind": "check",
+     "name": "cursor reaches the renderer",
+     "status": "pass",
+     "detail": "got \"pointer\", want \"pointer\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.units": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 9
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "em",
+     "status": "pass",
+     "detail": "got 26, want 26 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "rem",
+     "status": "pass",
+     "detail": "got 32, want 32 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "%",
+     "status": "pass",
+     "detail": "got 100, want 100 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "ch is the width of \"0\"",
+     "status": "pass",
+     "detail": "got 82.7, want 82.7 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "ex is positive",
+     "status": "pass",
+     "detail": "26",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "pt (12pt = 16px)",
+     "status": "pass",
+     "detail": "got 16, want 16 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "in (1in = 96px)",
+     "status": "pass",
+     "detail": "got 96, want 96 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "cm (2.54cm = 96px)",
+     "status": "pass",
+     "detail": "got 96, want 96 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "mm (25.4mm = 96px)",
+     "status": "pass",
+     "detail": "got 96, want 96 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.vw": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "50vw is half the bubble width (innerWidth)",
+     "status": "pass",
+     "detail": "got 195, want 195 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "50vw is half the root width",
+     "status": "pass",
+     "detail": "got 195, want 195 ±1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.vh": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "10vh agrees with innerHeight",
+     "status": "pass",
+     "detail": "got 31.59, want 31.6 ±1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.math": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 5
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "calc(50% - 10px)",
+     "status": "pass",
+     "detail": "got 90, want 90 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "min(50px, 30%)",
+     "status": "pass",
+     "detail": "got 50, want 50 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "max(10px, 20%)",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "clamp(20px, 50%, 60px)",
+     "status": "pass",
+     "detail": "got 60, want 60 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "calc() with var()",
+     "status": "pass",
+     "detail": "got 22, want 22 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.custom-properties": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 5
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "var() from :root",
+     "status": "pass",
+     "detail": "got 30, want 30 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "var() fallback",
+     "status": "pass",
+     "detail": "got 33, want 33 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "custom properties inherit",
+     "status": "pass",
+     "detail": "got \"0,120,0,1\", want \"0,120,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "getPropertyValue reads a custom property",
+     "status": "pass",
+     "detail": "got \"rgb(0,120,0)\", want \"rgb(0,120,0)\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "style.setProperty(--x) from script",
+     "status": "pass",
+     "detail": "got 44, want 44 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.keywords": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 5
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "width: inherit",
+     "status": "pass",
+     "detail": "got 77, want 77 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "display: initial is inline",
+     "status": "pass",
+     "detail": "got \"inline\", want \"inline\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "color: unset inherits",
+     "status": "pass",
+     "detail": "got \"0,0,140,1\", want \"0,0,140,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "display: revert is the UA block",
+     "status": "pass",
+     "detail": "got \"block\", want \"block\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "!important beats the style attribute",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.content": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 3,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "::before content takes space",
+     "status": "pass",
+     "detail": "31.625",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "content: attr(data-label)",
+     "status": "pass",
+     "detail": "22.203125",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "counters: counter-reset / increment / counter()",
+     "status": "fail",
+     "detail": "normal",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "quotes",
+     "status": "pass",
+     "detail": "\"«\" \"»\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "css.value.env": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/04-values-units",
+     "kind": "check",
+     "name": "env() resolves to its fallback or is dropped",
+     "status": "xfail",
+     "detail": "w 0; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.basic": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 17
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "type selector",
+     "status": "pass",
+     "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "class selector",
+     "status": "pass",
+     "detail": "got \"2,0,0,1\", want \"2,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "id selector",
+     "status": "pass",
+     "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "universal selector",
+     "status": "pass",
+     "detail": "got \"4,0,0,1\", want \"4,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "[attr]",
+     "status": "pass",
+     "detail": "got \"5,0,0,1\", want \"5,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "[attr=v]",
+     "status": "pass",
+     "detail": "got \"6,0,0,1\", want \"6,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "[attr^=v]",
+     "status": "pass",
+     "detail": "got \"7,0,0,1\", want \"7,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "[attr$=v]",
+     "status": "pass",
+     "detail": "got \"8,0,0,1\", want \"8,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "[attr*=v]",
+     "status": "pass",
+     "detail": "got \"9,0,0,1\", want \"9,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "[attr~=v]",
+     "status": "pass",
+     "detail": "got \"10,0,0,1\", want \"10,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "[attr|=v]",
+     "status": "pass",
+     "detail": "got \"11,0,0,1\", want \"11,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "descendant combinator",
+     "status": "pass",
+     "detail": "got \"12,0,0,1\", want \"12,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "child combinator",
+     "status": "pass",
+     "detail": "got \"13,0,0,1\", want \"13,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "adjacent sibling +",
+     "status": "pass",
+     "detail": "got \"14,0,0,1\", want \"14,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "general sibling ~",
+     "status": "pass",
+     "detail": "got \"15,0,0,1\", want \"15,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "selector list",
+     "status": "pass",
+     "detail": "got \"16,0,0,1\", want \"16,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "a class added from script restyles",
+     "status": "pass",
+     "detail": "got \"70,0,0,1\", want \"70,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.structural": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 5
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":first-child, :nth-child(3), :nth-last-child(2), :last-child",
+     "status": "pass",
+     "detail": "20,0,0,1 0,0,0,1 22,0,0,1 23,0,0,1 21,0,0,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":first-of-type, :nth-of-type(2), :last-of-type",
+     "status": "pass",
+     "detail": "25,0,0,1 0,0,0,1 24,0,0,1 26,0,0,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":only-child",
+     "status": "pass",
+     "detail": "got \"27,0,0,1\", want \"27,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":empty",
+     "status": "pass",
+     "detail": "got \"28,0,0,1\", want \"28,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":not(:empty)",
+     "status": "pass",
+     "detail": "got \"29,0,0,1\", want \"29,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.is-where": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":is()",
+     "status": "pass",
+     "detail": "got \"30,0,0,1\", want \"30,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":where() matches",
+     "status": "pass",
+     "detail": "got \"31,0,0,1\", want \"31,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":where() has zero specificity",
+     "status": "pass",
+     "detail": "got \"33,0,0,1\", want \"33,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.has": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":has() matches the parent of .badge only",
+     "status": "fail",
+     "detail": "17,17,17,1 / 17,17,17,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.root": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":root custom property reaches descendants",
+     "status": "pass",
+     "detail": "got \"50,0,0,1\", want \"50,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.before-after": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 1,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "::before box takes space",
+     "status": "pass",
+     "detail": "got \"ok\", want \"ok\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "::after computed style",
+     "status": "fail",
+     "detail": "got \"17,17,17,1\", want \"51,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.first-letter-line": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "::first-letter computed style",
+     "status": "fail",
+     "detail": "got \"13px\", want \"26px\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "::first-line computed style",
+     "status": "fail",
+     "detail": "got \"17,17,17,1\", want \"52,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": "::marker computed style",
+     "status": "fail",
+     "detail": "got \"17,17,17,1\", want \"53,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.hover": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1,
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":hover rules are kept and do not match without a pointer",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "check",
+     "name": ":hover applies under a pointer",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.active": {
+   "status": "in",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": ":active applies while pressed",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.focus": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":focus never matches (no keyboard focus in v1)",
+     "status": "xfail",
+     "detail": "61,0,0,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.form-state": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/18-out-of-profile",
+     "kind": "check",
+     "name": ":checked does not match (the control is gone)",
+     "status": "xfail",
+     "detail": "7,7,7,1; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.host-scoped": {
+   "status": "out",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":scope at the top level matches nothing",
+     "status": "fail",
+     "detail": "62,0,0,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "sel.target": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/07-selectors",
+     "kind": "check",
+     "name": ":target never matches",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.media.width": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 8
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "(min-width: 200px) applies",
+     "status": "pass",
+     "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "(max-width: 100px) does not",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "screen and (min-width) and (max-width)",
+     "status": "pass",
+     "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "matchMedia agrees with @media",
+     "status": "pass",
+     "detail": "got true, want true",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "(min-width: 200px) applies",
+     "status": "pass",
+     "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "(max-width: 100px) does not",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "screen and (min-width) and (max-width)",
+     "status": "pass",
+     "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "matchMedia agrees with @media",
+     "status": "pass",
+     "detail": "got true, want true",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.media.color-scheme": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "prefers-color-scheme follows the chat theme",
+     "status": "pass",
+     "detail": "got \"10,0,0,1\", want \"10,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "matchMedia(prefers-color-scheme) agrees",
+     "status": "pass",
+     "detail": "got true, want true",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "prefers-color-scheme follows the chat theme",
+     "status": "pass",
+     "detail": "got \"11,0,0,1\", want \"11,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "matchMedia(prefers-color-scheme) agrees",
+     "status": "pass",
+     "detail": "got false, want false",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.media.reduced-motion": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media and matchMedia agree on reduced motion",
+     "status": "pass",
+     "detail": "got false, want false",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media and matchMedia agree on reduced motion",
+     "status": "pass",
+     "detail": "got false, want false",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.media.hover-pointer": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media and matchMedia agree on (hover: hover)",
+     "status": "fail",
+     "detail": "got true, want false",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media and matchMedia agree on (pointer: coarse)",
+     "status": "fail",
+     "detail": "got false, want true",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media and matchMedia agree on (hover: hover)",
+     "status": "fail",
+     "detail": "got true, want false",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media and matchMedia agree on (pointer: coarse)",
+     "status": "fail",
+     "detail": "got false, want true",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.media.other": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media print never applies",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@media print never applies",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.supports": {
+   "status": "in",
+   "verdict": "xfail",
+   "counts": {
+    "pass": 4,
+    "xfail": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports (display: flex) holds",
+     "status": "pass",
+     "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports (3D transform) is false: 3D is out of the profile",
+     "status": "xfail",
+     "detail": "21,0,0,1; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports with and/not follows the profile",
+     "status": "xfail",
+     "detail": "got \"0,0,0,1\", want \"22,0,0,1\"; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports (gap) holds",
+     "status": "pass",
+     "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports (display: flex) holds",
+     "status": "pass",
+     "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports (3D transform) is false: 3D is out of the profile",
+     "status": "xfail",
+     "detail": "21,0,0,1; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports with and/not follows the profile",
+     "status": "xfail",
+     "detail": "got \"0,0,0,1\", want \"22,0,0,1\"; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@supports (gap) holds",
+     "status": "pass",
+     "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.keyframes": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "keyframes",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.import-namespace": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@import is dropped",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@import is dropped",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.container": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "fail": 2,
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@container (min-width: 150px) on a 200px container",
+     "status": "fail",
+     "detail": "got \"0,0,0,1\", want \"30,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@container (min-width: 500px) does not apply",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@container (min-width: 150px) on a 200px container",
+     "status": "fail",
+     "detail": "got \"0,0,0,1\", want \"30,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@container (min-width: 500px) does not apply",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.layer": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "a later @layer wins regardless of source order",
+     "status": "pass",
+     "detail": "got \"40,0,0,1\", want \"40,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "a later @layer wins regardless of source order",
+     "status": "pass",
+     "detail": "got \"40,0,0,1\", want \"40,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.property": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@property initial-value",
+     "status": "pass",
+     "detail": "got 25, want 25 ±0.5",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@property initial-value",
+     "status": "pass",
+     "detail": "got 25, want 25 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.exotic": {
+   "status": "out",
+   "verdict": "xpass",
+   "counts": {
+    "xpass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@scope is dropped",
+     "status": "xpass",
+     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "@scope is dropped",
+     "status": "xpass",
+     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "at.nesting": {
+   "status": "candidate",
+   "verdict": "partial",
+   "counts": {
+    "fail": 2,
+    "pass": 6
+   },
+   "evidence": [
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "nested rule .a { .b {} }",
+     "status": "fail",
+     "detail": "got 374, want 50 ±0.5",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "nested rule with & descendant",
+     "status": "pass",
+     "detail": "got 60, want 60 ±0.5",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "nested &.class",
+     "status": "pass",
+     "detail": "got \"60,0,0,1\", want \"60,0,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "rules after nested ones survive",
+     "status": "pass",
+     "detail": "got 33, want 33 ±0.5",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "nested rule .a { .b {} }",
+     "status": "fail",
+     "detail": "got 374, want 50 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "nested rule with & descendant",
+     "status": "pass",
+     "detail": "got 60, want 60 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "nested &.class",
+     "status": "pass",
+     "detail": "got \"60,0,0,1\", want \"60,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "rules after nested ones survive",
+     "status": "pass",
+     "detail": "got 33, want 33 ±0.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.transition": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "a transition with a negative delay starts part-way",
+     "status": "pass",
+     "detail": "got 35, want 35 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "transition",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.keyframes": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 4,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "a paused animation at -2.5s of 10s is at 25%",
+     "status": "pass",
+     "detail": "got 10, want 10 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "keyframes",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "alternate",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "colour",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "fill-forwards",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.play-state": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "paused stays put",
+     "status": "pass",
+     "detail": "got 10, want 10 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "keyframes",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.easing": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "steps(4, end) at 37.5% is the first step",
+     "status": "pass",
+     "detail": "got 25, want 25 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "ease-in at 50% lags behind linear",
+     "status": "pass",
+     "detail": "28.921875",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "stage",
+     "name": "steps",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.events": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 6
+   },
+   "evidence": [
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "animationstart fires",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "animationend fires",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "animation events carry animationName and elapsedTime",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "animationiteration fires twice",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "transitionend fires",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/10-css-animations",
+     "kind": "check",
+     "name": "transitionend carries propertyName",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.waapi": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 9,
+    "fail": 6
+   },
+   "evidence": [
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "finished resolves for a 100ms animation",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "Element.animate returns an Animation",
+     "status": "pass",
+     "detail": "object",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "paused + currentTime: playState",
+     "status": "pass",
+     "detail": "got \"paused\", want \"paused\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "currentTime reads back",
+     "status": "pass",
+     "detail": "got 500, want 500 ±1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "getComputedTiming().progress",
+     "status": "pass",
+     "detail": "got 0.5, want 0.5 ±0.001",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "the renderer applies the seeked frame (computed transform)",
+     "status": "fail",
+     "detail": "got NaN, want 20 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "element.getAnimations() lists it",
+     "status": "pass",
+     "detail": "1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "document.getAnimations() lists script and CSS animations",
+     "status": "pass",
+     "detail": "4",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "document.timeline.currentTime is a number",
+     "status": "pass",
+     "detail": "152.3",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "cancel() removes the animation",
+     "status": "pass",
+     "detail": "got 0, want 0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "a seek is visible to a layout query in the same task",
+     "status": "fail",
+     "detail": "got 20, want 45 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "a seeked width animation lays out in a later task",
+     "status": "fail",
+     "detail": "got 20, want 45 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "stage",
+     "name": "animate",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "stage",
+     "name": "offsets",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "stage",
+     "name": "easing",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.waapi-css-control": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "a CSS animation shows up in getAnimations()",
+     "status": "fail",
+     "detail": "0 undefined",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "pause() + currentTime seek a CSS animation",
+     "status": "fail",
+     "detail": "got undefined, want \"paused\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "check",
+     "name": "the renderer shows the seeked CSS frame",
+     "status": "fail",
+     "detail": "got 0, want 10 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/11-web-animations",
+     "kind": "stage",
+     "name": "css-control",
+     "status": "fail",
+     "detail": "diff 66.7 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "anim.magic-move": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "no View Transitions (document.startViewTransition)",
+     "status": "pass",
+     "detail": "got \"undefined\", want \"undefined\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.rect": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "rect",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.path": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "path",
+     "status": "fail",
+     "detail": "diff 90.7 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.line-style": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "line-style",
+     "status": "fail",
+     "detail": "diff 91.9 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.colors": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "rect",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.gradients": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "gradients",
+     "status": "fail",
+     "detail": "diff 98.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.conic-gradient": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "conic",
+     "status": "fail",
+     "detail": "diff 92.8 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.pattern": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "pattern",
+     "status": "fail",
+     "detail": "diff 50.5 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.transform": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "transform",
+     "status": "fail",
+     "detail": "diff 94.4 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.clip": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "clip",
+     "status": "fail",
+     "detail": "diff 95.8 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.text": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 2,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "measureText gives a width",
+     "status": "pass",
+     "detail": "40.5546875",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "measureText gives ascent/descent",
+     "status": "pass",
+     "detail": "14.8515625 / 3.7734375",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "text",
+     "status": "fail",
+     "detail": "diff 68.9 % of ink (max 50 %); #222 0/932px, #36c 0/334px",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.alpha": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "alpha",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.composite": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "composite",
+     "status": "fail",
+     "detail": "diff 98.5 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.shadow": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "shadow",
+     "status": "fail",
+     "detail": "diff 94.5 % of ink (max 10 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.filter": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "filter",
+     "status": "fail",
+     "detail": "diff 91.4 % of ink (max 10 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.path2d": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "path2d",
+     "status": "fail",
+     "detail": "diff 91.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.draw-image": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "drawImage of a loaded <img>",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "draw-image",
+     "status": "fail",
+     "detail": "diff 96.4 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.image-data": {
+   "status": "candidate",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "getImageData reads back a pixel",
+     "status": "fail",
+     "detail": "0,0,0,0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "image-data",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.hit-test": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "isPointInPath inside / outside",
+     "status": "fail",
+     "detail": "false false",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "isPointInStroke",
+     "status": "fail",
+     "detail": "false",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.hidpi": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 1,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "the backing store keeps its width attribute",
+     "status": "pass",
+     "detail": "got 160, want 160",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/12-canvas",
+     "kind": "stage",
+     "name": "rect",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.readback": {
+   "status": "out",
+   "verdict": "xpass",
+   "counts": {
+    "xpass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "toDataURL does not hand pixels back",
+     "status": "xpass",
+     "detail": "data:,; expected to fail: toDataURL is still answered by the renderer",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "canvas.webgl": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "getContext(\"webgl\") is null",
+     "status": "pass",
+     "detail": "got null, want null",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/12-canvas",
+     "kind": "check",
+     "name": "OffscreenCanvas is not available",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.dom.core": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 7
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "createElement + appendChild renders",
+     "status": "pass",
+     "detail": "200x12",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "insertAdjacentHTML is parsed in the sandbox and rendered",
+     "status": "pass",
+     "detail": "58",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "insertBefore orders the nodes",
+     "status": "pass",
+     "detail": "46 < 62",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "classList and dataset",
+     "status": "pass",
+     "detail": "x v",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "cloneNode(true) renders a deep copy",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "a removed node has no box",
+     "status": "pass",
+     "detail": "0x0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "innerHTML replaces the children",
+     "status": "pass",
+     "detail": "1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.dom.query": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 2,
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "querySelectorAll",
+     "status": "pass",
+     "detail": "got 6, want 6",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "closest and matches",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "getElementsByClassName is live",
+     "status": "fail",
+     "detail": "0 → 0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.dom.style": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "element.style and setProperty",
+     "status": "pass",
+     "detail": "33 1,2,3,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "style.cssText replaces the declarations",
+     "status": "pass",
+     "detail": "21 0,0,0,0",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "removeProperty",
+     "status": "pass",
+     "detail": "56.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.dom.events": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "capture, target, bubble order and detail",
+     "status": "pass",
+     "detail": "got \"capture,target:7,bubble\", want \"capture,target:7,bubble\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "preventDefault: dispatchEvent returns false, defaultPrevented",
+     "status": "pass",
+     "detail": "false true",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "once listener runs once",
+     "status": "pass",
+     "detail": "got 1, want 1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "stopPropagation",
+     "status": "pass",
+     "detail": "got \"btn\", want \"btn\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.rect": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "fail": 1,
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "getClientRects of a wrapped inline gives one rect per line",
+     "status": "fail",
+     "detail": "1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "getBoundingClientRect has DOMRect fields",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.box": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 2,
+    "fail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "offsetWidth includes padding and border",
+     "status": "pass",
+     "detail": "got 116, want 116",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "clientWidth excludes the border",
+     "status": "pass",
+     "detail": "got 110, want 110",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "scrollHeight of overflowing content",
+     "status": "fail",
+     "detail": "got 136, want 70",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "offsetParent",
+     "status": "fail",
+     "detail": "got false, want true",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.computed-style": {
+   "status": "in",
+   "verdict": "partial",
+   "counts": {
+    "pass": 2,
+    "fail": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "longhand (width)",
+     "status": "pass",
+     "detail": "got \"100px\", want \"100px\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "shorthand white-space",
+     "status": "fail",
+     "detail": "got \"\", want \"nowrap\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "shorthand overflow",
+     "status": "fail",
+     "detail": "got \"\", want \"hidden\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "shorthand margin",
+     "status": "fail",
+     "detail": "got \"\", want \"4px 0px\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "camelCase property access",
+     "status": "pass",
+     "detail": "got \"3px\", want \"3px\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.match-media": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "matchMedia evaluates a width query",
+     "status": "pass",
+     "detail": "got true, want true",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "matchMedia(…).media",
+     "status": "pass",
+     "detail": "got \"(min-width:1px)\", want \"(min-width:1px)\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.resize-observer": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "ResizeObserver reports the new width",
+     "status": "fail",
+     "detail": "timed out",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.intersection-observer": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "IntersectionObserver reports the element (visible)",
+     "status": "pass",
+     "detail": "true",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.element-from-point": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "elementFromPoint finds the element",
+     "status": "pass",
+     "detail": "efp",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.layout.measure-text": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/14-dom-layout-api",
+     "kind": "check",
+     "name": "measureText agrees with DOM text width",
+     "status": "pass",
+     "detail": "got 98.52, want 98.52 ±1.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.timers": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "timeouts fire in delay order, after microtasks",
+     "status": "pass",
+     "detail": "p,q,t0:xy,t10,t20",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "setInterval repeats until cleared",
+     "status": "pass",
+     "detail": "3 ticks",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.raf": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "requestAnimationFrame: three frames with increasing timestamps",
+     "status": "pass",
+     "detail": "156,174,190",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.microtasks": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "async/await",
+     "status": "pass",
+     "detail": "42",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "Promise.all / allSettled",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.storage.local": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 4
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "setItem / getItem / property access / length / key",
+     "status": "pass",
+     "detail": "2",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "removeItem / missing key is null",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "values are strings (JSON round trip)",
+     "status": "pass",
+     "detail": "got 2, want 2",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "10 KB fits",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.storage.session": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "sessionStorage works and is separate",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.intl": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 8
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "NumberFormat currency",
+     "status": "pass",
+     "detail": "got \"$1,234.50\", want \"$1,234.50\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "NumberFormat ru grouping",
+     "status": "pass",
+     "detail": "got \"1 234,5\", want \"1 234,5\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "DateTimeFormat UTC",
+     "status": "pass",
+     "detail": "got \"1/1/1970\", want \"1/1/1970\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "PluralRules",
+     "status": "pass",
+     "detail": "got \"one,few\", want \"one,few\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "RelativeTimeFormat",
+     "status": "pass",
+     "detail": "got \"yesterday\", want \"yesterday\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "ListFormat",
+     "status": "pass",
+     "detail": "got \"a, b, and c\", want \"a, b, and c\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "Collator",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "toLocaleString uses Intl",
+     "status": "pass",
+     "detail": "1,234.5",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.intl.format-to-parts": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "NumberFormat.formatToParts",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "DateTimeFormat.formatToParts",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.locale": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "navigator.language is a BCP 47 tag",
+     "status": "pass",
+     "detail": "en-US",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "navigator.languages starts with navigator.language",
+     "status": "pass",
+     "detail": "en-US,en",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.crypto-random": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "getRandomValues fills the array",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "randomUUID is a v4 UUID",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "Math.random in [0, 1)",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.builtins": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 6
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "TextEncoder",
+     "status": "pass",
+     "detail": "got \"195,169\", want \"195,169\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "TextDecoder",
+     "status": "pass",
+     "detail": "got \"Я\", want \"Я\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "URL and URLSearchParams",
+     "status": "pass",
+     "detail": "t.me",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "structuredClone",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "AbortController",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "atob / btoa",
+     "status": "pass",
+     "detail": "got \"hi\", want \"hi\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.eval": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "eval",
+     "status": "pass",
+     "detail": "got 3, want 3",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "new Function",
+     "status": "pass",
+     "detail": "got 8, want 8",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.css-supports": {
+   "status": "in",
+   "verdict": "xfail",
+   "counts": {
+    "pass": 3,
+    "xfail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "CSS.supports(\"display\", \"flex\")",
+     "status": "pass",
+     "detail": "got true, want true",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "CSS.supports rejects an invalid value",
+     "status": "xfail",
+     "detail": "got true, want false; expected to fail: CSS.supports always returns true (D23)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "CSS.supports(\"transform\", \"rotateY(10deg)\") is false: 3D is out",
+     "status": "xfail",
+     "detail": "got true, want false; expected to fail: CSS.supports is not answered from the profile yet (D23)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "CSS.supports(\"(display: flex) and (gap: 1px)\")",
+     "status": "pass",
+     "detail": "got true, want true",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "CSS.escape",
+     "status": "pass",
+     "detail": "got \"a\\\\ b\", want \"a\\\\ b\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.visibility": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "document is visible",
+     "status": "pass",
+     "detail": "visible",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.libraries": {
+   "status": "candidate",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "Chart.js by its CDN name",
+     "status": "pass",
+     "detail": "4.5.1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "D3 by its CDN name",
+     "status": "pass",
+     "detail": "7.9.0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.network": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "fetch rejects with NetworkDisabledError",
+     "status": "pass",
+     "detail": "NetworkDisabledError",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "XHR, WebSocket, EventSource, RTCPeerConnection, Worker, sendBeacon, importScripts throw NetworkDisabledError",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.navigation": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "location assignment does not navigate",
+     "status": "pass",
+     "detail": "about:srcdoc",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "window.open returns null",
+     "status": "pass",
+     "detail": "got null, want null",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.dialogs": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "confirm → false, prompt → null, alert does not block",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.device": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "clipboard.writeText and share reject",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "no geolocation or media devices; vibrate is false",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.shadow-dom": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "attachShadow throws",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.blob-file": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "URL.createObjectURL gives no URL",
+     "status": "pass",
+     "detail": "got \"\", want \"\"",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "js.fullscreen": {
+   "status": "out",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "requestFullscreen rejects",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.ready": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "TelegramWidget.ready()",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.theme": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "theme is \"light\" or \"dark\" and onTheme calls back at once",
+     "status": "pass",
+     "detail": "light / light",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.theme-params": {
+   "status": "in",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "themeParams has the palette (bg_color, text_color, …)",
+     "status": "xfail",
+     "detail": "expected to fail: themeParams not implemented (D14)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "--tg-theme-bg-color is defined for CSS",
+     "status": "xfail",
+     "detail": "1,2,3,1; expected to fail: --tg-theme-* not implemented (D14)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.open-link": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1,
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "openLink is callable in the task of a tap",
+     "status": "pass",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "host",
+     "name": "openLink from a tap reaches the host once",
+     "status": "skip",
+     "detail": "synthetic taps grant no user gesture",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.open-telegram-link": {
+   "status": "in",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "openTelegramLink exists",
+     "status": "xfail",
+     "detail": "expected to fail: not implemented (D8)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.haptic": {
+   "status": "in",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "haptic feedback exists",
+     "status": "xfail",
+     "detail": "expected to fail: not implemented (D8)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.profile": {
+   "status": "in",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "TelegramWidget.profile is a positive integer",
+     "status": "xfail",
+     "detail": "undefined; expected to fail: not implemented (D23)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "isProfileAtLeast(1) is true, isProfileAtLeast(999) false",
+     "status": "xfail",
+     "detail": "expected to fail: not implemented (D23)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "tw.send-message": {
+   "status": "out",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "sendMessage is not in the SDK",
+     "status": "xfail",
+     "detail": "expected to fail: still present (D8 removes it)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.tap": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "click on the tapped element with coordinates inside it",
+     "status": "pass",
+     "detail": "42,42 in 10,28",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.pointer": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "pointerdown → pointerup → click, primary pointer with an id and type",
+     "status": "pass",
+     "detail": "pointerdown,pointerup,click touch",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.mouse-compat": {
+   "status": "in",
+   "verdict": "fail",
+   "counts": {
+    "fail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "mousedown → mouseup on a tap",
+     "status": "fail",
+     "detail": "pointerdown,pointerup,click",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.touch-events": {
+   "status": "candidate",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "check",
+     "name": "touchstart/touchend on a touch client",
+     "status": "skip",
+     "detail": "no touch input here",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.drag": {
+   "status": "in",
+   "verdict": "skip",
+   "counts": {
+    "skip": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "check",
+     "name": "pointerdown → pointermove (buttons=1) → pointerup moves the knob",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "check",
+     "name": "setPointerCapture keeps moves coming past the element",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "check",
+     "name": "movementX adds up to the distance",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.hover-events": {
+   "status": "in",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "check",
+     "name": "pointerenter, pointerover, mouseenter reach the widget",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: hover, drag, drag, drag",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.dblclick": {
+   "status": "candidate",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "dblclick arrives",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.long-press": {
+   "status": "out",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "no contextmenu event reaches the widget",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.keyboard": {
+   "status": "out",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "no keydown reaches the widget",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.wheel-scroll": {
+   "status": "out",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "no wheel event reaches the widget",
+     "status": "skip",
+     "detail": "input not deliverable on this renderer: press, dblclick, rightclick, key, wheel",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.user-activation": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "host",
+     "name": "openLink from a timer is blocked",
+     "status": "pass",
+     "detail": "openLink ×0 (want 0)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "input.prevent-default": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "check",
+     "name": "preventDefault on a link click is honoured",
+     "status": "pass",
+     "detail": "true",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/16-sdk-taps",
+     "kind": "host",
+     "name": "preventDefault on a link tap: no openLink",
+     "status": "pass",
+     "detail": "openLink ×0 (want 0)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "limit.text-node": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "a 60 KB text node renders",
+     "status": "pass",
+     "detail": "16",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "a text node over 64 KB is refused",
+     "status": "pass",
+     "detail": "0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "limit.text-budget": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "3000 CJK characters render",
+     "status": "pass",
+     "detail": "16",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "past 8192 complex-script units in the document the text is refused",
+     "status": "pass",
+     "detail": "0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "limit.nodes": {
+   "status": "in",
+   "verdict": "untested",
+   "counts": {},
+   "evidence": []
+  },
+  "limit.timers": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "the 257th live timer throws RangeError",
+     "status": "pass",
+     "detail": "254 made, RangeError",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "limit.cpu": {
+   "status": "in",
+   "verdict": "untested",
+   "counts": {},
+   "evidence": []
+  },
+  "limit.memory": {
+   "status": "in",
+   "verdict": "untested",
+   "counts": {},
+   "evidence": []
+  },
+  "limit.storage": {
+   "status": "in",
+   "verdict": "xfail",
+   "counts": {
+    "xfail": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/15-js-runtime",
+     "kind": "check",
+     "name": "over 16 KB per message: setItem throws QuotaExceededError",
+     "status": "xfail",
+     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "limit.html-size": {
+   "status": "in",
+   "verdict": "untested",
+   "counts": {},
+   "evidence": []
+  },
+  "behaviour.theme-switch": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 2
+   },
+   "evidence": [
+    {
+     "test": "auto/20-client-behaviour",
+     "kind": "check",
+     "name": "switching to dark: onTheme, matchMedia, @media and light-dark() follow",
+     "status": "pass",
+     "detail": "dark: matchMedia true, light-dark 2,2,2,1, @media 4,4,4,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/20-client-behaviour",
+     "kind": "check",
+     "name": "switching back to light: all four follow again",
+     "status": "pass",
+     "detail": "light: matchMedia false, light-dark 1,1,1,1, @media 3,3,3,1",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "behaviour.offscreen-pause": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/20-client-behaviour",
+     "kind": "check",
+     "name": "visibilitychange: hidden, then visible again",
+     "status": "pass",
+     "detail": "2.4 s hidden",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/20-client-behaviour",
+     "kind": "check",
+     "name": "no animation frames while hidden",
+     "status": "pass",
+     "detail": "0 frames in 2.4 s",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/20-client-behaviour",
+     "kind": "check",
+     "name": "timers run at most once per second while hidden",
+     "status": "pass",
+     "detail": "1 ticks of a 50 ms interval in 2.4 s",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "behaviour.auto-height": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/20-client-behaviour",
+     "kind": "host",
+     "name": "the bubble grows with the widget and is clipped at the cap (900px)",
+     "status": "pass",
+     "detail": "height 900",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "behaviour.no-selection": {
+   "status": "in",
+   "verdict": "skip",
+   "counts": {
+    "skip": 1
+   },
+   "evidence": [
+    {
+     "test": "auto/17-drag-hover",
+     "kind": "stage",
+     "name": "no-selection",
+     "status": "skip",
+     "detail": "diff 34.0 % of ink (max 30 %); the client does not disable selection yet (D18)",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  },
+  "behaviour.policy-strict": {
+   "status": "in",
+   "verdict": "pass",
+   "counts": {
+    "pass": 3
+   },
+   "evidence": [
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "a 300 KB data-* attribute does not reach the renderer",
+     "status": "pass",
+     "detail": "17,17,17,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "attr() of a text attribute (data-*) works",
+     "status": "pass",
+     "detail": "15.484375",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/19-limits",
+     "kind": "check",
+     "name": "attr() of a non-text attribute (class) is dropped",
+     "status": "pass",
+     "detail": "0",
+     "theme": "light",
+     "width": 390
+    }
+   ]
+  }
+ },
+ "tests": [
+  {
+   "id": "auto/01-html-elements",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 43,
+    "fail": 8
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/02-attributes-images",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 11,
+    "pass": 10,
+    "xfail": 3
+   },
+   "stages": [
+    {
+     "name": "raster",
+     "diff": 0.8049,
+     "status": "fail"
+    },
+    {
+     "name": "svgimg",
+     "diff": 0,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/03-layout",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 49,
+    "fail": 4,
+    "xfail": 2
+   },
+   "stages": [
+    {
+     "name": "flex",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "grid",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "radius",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "border",
+     "diff": 0.0003,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/04-values-units",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 30,
+    "fail": 1,
+    "xfail": 1
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/05-colour-backgrounds",
+   "set": "auto",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 11,
+    "fail": 1
+   },
+   "stages": [
+    {
+     "name": "light-dark",
+     "diff": 0,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/05-colour-backgrounds",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 11,
+    "fail": 1
+   },
+   "stages": [
+    {
+     "name": "basic",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "modern",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "mix",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "light-dark",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "background",
+     "diff": 0.7806,
+     "status": "fail"
+    },
+    {
+     "name": "clip-text",
+     "diff": 0.6257,
+     "status": "fail"
+    },
+    {
+     "name": "linear",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "radial",
+     "diff": 0.4797,
+     "status": "fail"
+    },
+    {
+     "name": "conic",
+     "diff": 0.7213,
+     "status": "fail"
+    },
+    {
+     "name": "shadow",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "outline",
+     "diff": 0.4042,
+     "status": "fail"
+    },
+    {
+     "name": "object-fit",
+     "diff": 0.0145,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/06-text-fonts",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 6,
+    "pass": 31,
+    "xpass": 2,
+    "xfail": 2
+   },
+   "stages": [
+    {
+     "name": "ellipsis",
+     "diff": 0.2709,
+     "status": "fail"
+    },
+    {
+     "name": "text-shadow",
+     "diff": 0.5101,
+     "status": "fail"
+    },
+    {
+     "name": "emoji",
+     "diff": 0.8958,
+     "status": "fail"
+    },
+    {
+     "name": "decoration",
+     "diff": 0.4248,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/07-selectors",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 29,
+    "fail": 6,
+    "xfail": 1
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/08-at-rules",
+   "set": "auto",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17,
+    "fail": 4,
+    "xfail": 2,
+    "xpass": 1
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/08-at-rules",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17,
+    "fail": 4,
+    "xfail": 2,
+    "xpass": 1
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/09-transforms-effects",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 4,
+    "xpass": 1,
+    "pass": 4
+   },
+   "stages": [
+    {
+     "name": "transform-2d",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "transform-3d",
+     "diff": 0,
+     "status": "xpass"
+    },
+    {
+     "name": "blur",
+     "diff": 0.3864,
+     "status": "fail"
+    },
+    {
+     "name": "brightness-drop-shadow",
+     "diff": 0.6804,
+     "status": "fail"
+    },
+    {
+     "name": "filter-other",
+     "diff": 1,
+     "status": "fail"
+    },
+    {
+     "name": "backdrop",
+     "diff": 0.435,
+     "status": "fail"
+    },
+    {
+     "name": "blend",
+     "diff": 0.1196,
+     "status": "fail"
+    },
+    {
+     "name": "clip-path",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "mask",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "opacity",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "filter-url",
+     "diff": 0,
+     "status": "xpass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/10-css-animations",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 6,
+    "pass": 5
+   },
+   "stages": [
+    {
+     "name": "keyframes",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "alternate",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "steps",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "colour",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "fill-forwards",
+     "diff": 1,
+     "status": "fail"
+    },
+    {
+     "name": "transition",
+     "diff": 0,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/11-web-animations",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 9,
+    "fail": 6
+   },
+   "stages": [
+    {
+     "name": "animate",
+     "diff": 1,
+     "status": "fail"
+    },
+    {
+     "name": "css-control",
+     "diff": 0.6667,
+     "status": "fail"
+    },
+    {
+     "name": "offsets",
+     "diff": 1,
+     "status": "fail"
+    },
+    {
+     "name": "easing",
+     "diff": 1,
+     "status": "fail"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/12-canvas",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 4,
+    "pass": 5,
+    "xpass": 1
+   },
+   "stages": [
+    {
+     "name": "rect",
+     "diff": 1,
+     "status": "fail"
+    },
+    {
+     "name": "path",
+     "diff": 0.9068,
+     "status": "fail"
+    },
+    {
+     "name": "line-style",
+     "diff": 0.9192,
+     "status": "fail"
+    },
+    {
+     "name": "gradients",
+     "diff": 0.9798,
+     "status": "fail"
+    },
+    {
+     "name": "conic",
+     "diff": 0.9276,
+     "status": "fail"
+    },
+    {
+     "name": "pattern",
+     "diff": 0.5052,
+     "status": "fail"
+    },
+    {
+     "name": "transform",
+     "diff": 0.9437,
+     "status": "fail"
+    },
+    {
+     "name": "clip",
+     "diff": 0.9579,
+     "status": "fail"
+    },
+    {
+     "name": "text",
+     "diff": 0.6888,
+     "status": "fail"
+    },
+    {
+     "name": "alpha",
+     "diff": 1,
+     "status": "fail"
+    },
+    {
+     "name": "composite",
+     "diff": 0.9853,
+     "status": "fail"
+    },
+    {
+     "name": "shadow",
+     "diff": 0.9447,
+     "status": "fail"
+    },
+    {
+     "name": "filter",
+     "diff": 0.9139,
+     "status": "fail"
+    },
+    {
+     "name": "path2d",
+     "diff": 0.9104,
+     "status": "fail"
+    },
+    {
+     "name": "draw-image",
+     "diff": 0.964,
+     "status": "fail"
+    },
+    {
+     "name": "image-data",
+     "diff": 1,
+     "status": "fail"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/13-svg",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 4,
+    "pass": 1
+   },
+   "stages": [
+    {
+     "name": "shapes",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "structure",
+     "diff": 0.1094,
+     "status": "fail"
+    },
+    {
+     "name": "text",
+     "diff": 0.6774,
+     "status": "fail"
+    },
+    {
+     "name": "gradients",
+     "diff": 0.9714,
+     "status": "fail"
+    },
+    {
+     "name": "css",
+     "diff": 0.9189,
+     "status": "fail"
+    },
+    {
+     "name": "clip-mask",
+     "diff": 0.5746,
+     "status": "fail"
+    },
+    {
+     "name": "filters",
+     "diff": 0.9596,
+     "status": "fail"
+    },
+    {
+     "name": "smil",
+     "diff": 1,
+     "status": "fail"
+    },
+    {
+     "name": "image",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "foreign-object",
+     "diff": 0,
+     "status": "xpass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/14-dom-layout-api",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 8,
+    "pass": 26
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/15-js-runtime",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 50,
+    "xfail": 3
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/16-sdk-taps",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "awaiting",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [
+    "press",
+    "dblclick",
+    "rightclick",
+    "key",
+    "wheel"
+   ],
+   "counts": {
+    "pass": 8,
+    "fail": 2,
+    "skip": 5,
+    "xfail": 7
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "tw.open-link",
+     "name": "openLink from a tap reaches the host once",
+     "status": "skip",
+     "detail": "synthetic taps grant no user gesture"
+    },
+    {
+     "id": "input.user-activation",
+     "name": "openLink from a timer is blocked",
+     "status": "pass",
+     "detail": "openLink ×0 (want 0)"
+    },
+    {
+     "id": "html.el.a-external",
+     "name": "tapping an external <a href> goes to openLink",
+     "status": "skip",
+     "detail": "synthetic taps grant no user gesture"
+    },
+    {
+     "id": "input.prevent-default",
+     "name": "preventDefault on a link tap: no openLink",
+     "status": "pass",
+     "detail": "openLink ×0 (want 0)"
+    }
+   ]
+  },
+  {
+   "id": "auto/17-drag-hover",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "awaiting",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [
+    "hover",
+    "drag",
+    "drag",
+    "drag"
+   ],
+   "counts": {
+    "skip": 6,
+    "pass": 1
+   },
+   "stages": [
+    {
+     "name": "no-selection",
+     "diff": 0.3402,
+     "status": "skip"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/18-out-of-profile",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 7,
+    "xfail": 7,
+    "xpass": 5
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/19-limits",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 8
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/20-client-behaviour",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 5
+   },
+   "stages": [],
+   "host": [
+    {
+     "id": "behaviour.auto-height",
+     "name": "the bubble grows with the widget and is clipped at the cap (900px)",
+     "status": "pass",
+     "detail": "height 900"
+    }
+   ]
+  },
+  {
+   "id": "visual/01-boxes",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/02-colours-gradients",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/03-text",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/04-layout",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/05-transforms-effects",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/06-css-animations",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 1
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/07-web-animations",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/08-canvas",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/09-svg",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/10-images",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/11-interaction",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "awaiting",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [
+    "drag",
+    "hover"
+   ],
+   "counts": {
+    "pass": 1,
+    "fail": 2
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/12-theme",
+   "set": "visual",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/12-theme",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/13-out-of-profile",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  }
+ ]
+}

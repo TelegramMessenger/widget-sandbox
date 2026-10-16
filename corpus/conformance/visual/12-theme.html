@@ -1,0 +1,247 @@
+<!doctype html>
+<html data-test="visual/12-theme">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Widget profile: theme</title>
+<!-- conformance {"title":"Theme: light-dark(), prefers-color-scheme and onTheme follow the chat theme live; --tg-theme-* palette (not implemented yet)","hint":"Switch the chat between light and dark: the live box must match the picture for the current theme.","covers":["css.color.light-dark","at.media.color-scheme","tw.theme","behaviour.theme-switch","tw.theme-params"]} -->
+<!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111;background:transparent}@media (prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#conf-summary{font-weight:400;margin-left:6px}#conf-summary.good{color:#1a7f37}#conf-summary.bad{color:#c62828}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}.v-head{margin:8px 10px 2px;font-weight:600;font-size:15px}.v-hint{margin:0 10px 6px;font-size:12px}.v-row{display:flex;flex-wrap:wrap;align-items:flex-start;margin:6px 10px 10px}.v-row>[data-stage]{margin-right:8px}.v-ref{display:block;background:#fff}.v-cap{width:100%;margin-top:3px;font-size:12px}.v-tag{font-size:10px;font-weight:600;margin-right:4px;padding:0 4px;border-radius:3px;background:#8884}[data-stage="theme"]{width:150px;height:90px}</style><script>var T = (function () {
+  'use strict';
+  var root = document.documentElement;
+  var ID = root.getAttribute('data-test') || 'unknown';
+  var sandbox = typeof TelegramWidget !== 'undefined';
+  var mode = window.__conformanceMode || (sandbox ? 'sandbox' : 'native');
+  var checks = [];
+  var byKey = {};
+  var started = false, finished = false, awaiting = false, deadline = 0;
+  var queue = [];
+  var panelTimer = 0;
+  var targets = {}, targetRects = null, stageRects = null;
+
+  function fmt(v) {
+    if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+    if (typeof v === 'string') return JSON.stringify(v.length > 60 ? v.slice(0, 60) + '…' : v);
+    try { return JSON.stringify(v); } catch (e) { return String(v); }
+  }
+
+  function record(id, name, ok, detail, opts) {
+    opts = opts || {};
+    var st;
+    if (ok === null) st = 'skip';
+    else if (ok === 'pending') st = 'pending';
+    else if (opts.xfail) st = ok ? 'xpass' : 'xfail';
+    else st = ok ? 'pass' : 'fail';
+    var key = id + '|' + name;
+    var c = byKey[key];
+    if (!c) { c = byKey[key] = { id: id, name: name }; checks.push(c); }
+    c.status = st;
+    c.detail = detail ? String(detail).slice(0, 160) : '';
+    if (opts.xfail && (st === 'xfail' || st === 'xpass')) c.detail = (c.detail ? c.detail + '; ' : '') + 'expected to fail: ' + opts.xfail;
+    schedulePublish();
+    return st;
+  }
+
+  /** Run fn now (or after start); fn returns true/false, [bool, detail], or null to skip. Exceptions fail the check. */
+  function check(id, name, fn, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) return record(id, name, null, 'sandbox only', opts);
+    if (opts.nativeOnly && sandbox) return record(id, name, null, 'native only', opts);
+    var r;
+    try { r = typeof fn === 'function' ? fn() : fn; } catch (e) { return record(id, name, false, 'threw ' + (e && e.name ? e.name + ': ' : '') + (e && e.message), opts); }
+    if (r === null || r === undefined) return record(id, name, null, 'not applicable', opts);
+    if (Array.isArray(r)) return record(id, name, !!r[0], r[1], opts);
+    return record(id, name, !!r, '', opts);
+  }
+
+  function eq(id, name, actual, expected, opts) {
+    return check(id, name, function () { return [actual === expected, 'got ' + fmt(actual) + ', want ' + fmt(expected)]; }, opts);
+  }
+  function near(id, name, actual, expected, tol, opts) {
+    return check(id, name, function () { return [typeof actual === 'number' && Math.abs(actual - expected) <= tol, 'got ' + fmt(actual) + ', want ' + fmt(expected) + ' ±' + tol]; }, opts);
+  }
+
+  /** A check resolved later (an event, a timer): pending until pass()/fail() or the deadline. */
+  function wait(id, name, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) { record(id, name, null, 'sandbox only', opts); return { pass: function () {}, fail: function () {}, done: true }; }
+    record(id, name, 'pending', opts.hint || '', opts);
+    var h = {
+      done: false,
+      pass: function (d) { if (!h.done) { h.done = true; record(id, name, true, d, opts); maybeFinish(); } },
+      fail: function (d) { if (!h.done) { h.done = true; record(id, name, false, d, opts); maybeFinish(); } },
+      result: function (ok, d) { ok ? h.pass(d) : h.fail(d); },
+      skip: function (d) { if (!h.done) { h.done = true; record(id, name, null, d, opts); maybeFinish(); } },
+    };
+    return h;
+  }
+
+  function rect(el) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    var r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+  }
+  function cs(el, prop, pseudo) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    return getComputedStyle(el, pseudo || null).getPropertyValue(prop).trim();
+  }
+  /** Normalised computed colour "r,g,b,a" (a 0–1, two decimals) from rgb()/rgba(). */
+  function color(el, prop, pseudo) {
+    var v = cs(el, prop || 'background-color', pseudo);
+    var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/.exec(v);
+    if (!m) return v;
+    var a = m[4] === undefined ? 1 : m[4].slice(-1) === '%' ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+    return Math.round(+m[1]) + ',' + Math.round(+m[2]) + ',' + Math.round(+m[3]) + ',' + Math.round(a * 100) / 100;
+  }
+
+  function counts() {
+    var n = { pass: 0, fail: 0, xfail: 0, xpass: 0, skip: 0, pending: 0 };
+    for (var i = 0; i < checks.length; i++) n[checks[i].status]++;
+    return n;
+  }
+
+  function status() {
+    if (finished) return 'done';
+    if (!started) return 'running';
+    var n = counts();
+    if (queue.length) return 'running';
+    if (n.pending === 0) return 'done';
+    return awaiting ? 'awaiting' : 'running';
+  }
+
+  function publish() {
+    panelTimer = 0;
+    var st = status();
+    if (st === 'done') finished = true;
+    var n = counts();
+    var out = { v: 1, id: ID, mode: mode, status: st, n: n, checks: checks.map(function (c) { return [c.id, c.name, c.status, c.detail]; }) };
+    // Interactive widgets: targets are re-measured on every publish, so a runner taps where things are now.
+    if (targetRects && st !== 'done') { try { measureTargets(); } catch (e) {} }
+    if (targetRects) out.targets = targetRects;
+    if (stageRects) out.stages = stageRects;
+    root.setAttribute('data-conformance', JSON.stringify(out));
+    var p = document.getElementById('conf-summary');
+    if (p) {
+      p.textContent = (st === 'done' ? '' : st + ' · ') + 'pass ' + n.pass + ' · fail ' + n.fail + (n.xfail ? ' · xfail ' + n.xfail : '') + (n.xpass ? ' · XPASS ' + n.xpass : '') + (n.skip ? ' · skip ' + n.skip : '') + (n.pending ? ' · pending ' + n.pending : '');
+      p.className = n.fail || n.xpass ? 'bad' : n.pending ? '' : 'good';
+    }
+    var list = document.getElementById('conf-list');
+    if (list) {
+      var lines = [];
+      for (var i = 0; i < checks.length; i++) {
+        var c = checks[i];
+        if (list.hasAttribute('data-all') || c.status === 'fail' || c.status === 'xpass' || c.status === 'pending')
+          lines.push({ 'pass': '✓ ', 'fail': '✗ ', 'xfail': '· ', 'xpass': '! ', 'skip': '– ', 'pending': '… ' }[c.status] + c.id + ' — ' + c.name + (c.detail && c.status !== 'pass' ? ' (' + c.detail + ')' : ''));
+      }
+      list.textContent = lines.join('\n');
+    }
+    if (st === 'done' && typeof console !== 'undefined') console.log('[conformance] ' + ID + ' ' + JSON.stringify(n));
+  }
+  function schedulePublish() { if (!panelTimer) panelTimer = setTimeout(publish, 0); }
+
+  function maybeFinish() {
+    if (!started || queue.length) return;
+    var n = counts();
+    if (n.pending === 0) { finished = true; publish(); }
+    else schedulePublish();
+  }
+
+  /** Mark the remaining pending checks failed (no event arrived) and finish. */
+  function timeout() {
+    for (var i = 0; i < checks.length; i++) if (checks[i].status === 'pending') { checks[i].status = 'fail'; checks[i].detail = (checks[i].detail ? checks[i].detail + '; ' : '') + 'timed out'; }
+    finished = true;
+    publish();
+  }
+
+  /** Steps run in order after the first frames; a step may return a delay in ms before the next one. */
+  function step(fn) { queue.push(fn); }
+  function r4(el) { var r = el.getBoundingClientRect(); return [Math.round(r.left * 10) / 10, Math.round(r.top * 10) / 10, Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }
+  function measureTargets() {
+    targetRects = {};
+    for (var k in targets) { var el = typeof targets[k] === 'string' ? document.querySelector(targets[k]) : targets[k]; if (el) targetRects[k] = r4(el); }
+  }
+  function measure() {
+    measureTargets();
+    stageRects = {};
+    var st = document.querySelectorAll('[data-stage]');
+    for (var i = 0; i < st.length; i++) stageRects[st[i].getAttribute('data-stage')] = r4(st[i]);
+  }
+  function next() {
+    if (!started && targetRects === null) { try { measure(); } catch (e) { record('harness', 'measure threw', false, e && e.message); } }
+    if (!queue.length) { started = true; if (deadline) setTimeout(timeout, deadline); maybeFinish(); return; }
+    var fn = queue.shift();
+    var delay = 0;
+    try { delay = fn() || 0; } catch (e) { record('harness', 'step threw', false, e && e.message); }
+    setTimeout(next, delay);
+  }
+
+  /**
+   * Start after the renderer had a chance to lay out (two frames, a fallback
+   * timer when frames do not come). `awaitInput: ms` keeps the widget in
+   * `awaiting` until its pending checks resolve or the time is up.
+   */
+  function run(opts) {
+    opts = opts || {};
+    if (opts.awaitInput) { awaiting = true; deadline = opts.awaitInput; }
+    else if (opts.deadline) deadline = opts.deadline;
+    publish();
+    var went = false;
+    var go = function () { if (!went) { went = true; setTimeout(next, opts.settle || 60); } };
+    try { requestAnimationFrame(function () { requestAnimationFrame(go); }); } catch (e) {}
+    setTimeout(go, 400);
+  }
+
+  // Reference mode (native rendering for the expected images): a stage with a
+  // <template data-ref="name"> gets the template's markup instead of its own.
+  function swapRefs() {
+    var ts = document.querySelectorAll('template[data-ref]');
+    for (var i = 0; i < ts.length; i++) {
+      var name = ts[i].getAttribute('data-ref');
+      var st = document.querySelector('[data-stage="' + name + '"]');
+      if (st) { st.innerHTML = ts[i].innerHTML; st.setAttribute('data-ref-applied', ''); }
+    }
+  }
+  /** Draw into a stage from script; skipped in reference mode when the stage has a template. */
+  function stage(name, draw) {
+    var el = document.querySelector('[data-stage="' + name + '"]');
+    if (!el) return;
+    if (mode === 'ref' && document.querySelector('template[data-ref="' + name + '"]')) return;
+    try { draw(el); } catch (e) { record('harness', 'stage ' + name + ' threw', false, e && e.message); }
+  }
+  if (mode === 'ref') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', swapRefs); else swapRefs();
+  }
+
+  return {
+    id: ID, sandbox: sandbox, mode: mode, check: check, eq: eq, near: near, wait: wait, ok: function (id, name, cond, detail, opts) { return check(id, name, function () { return [cond, detail]; }, opts); },
+    rect: rect, cs: cs, color: color, step: step, run: run, stage: stage, publish: publish,
+    /** A named element the runner may tap or drag (its rect is published as targets[name] when the run starts). */
+    target: function (name, el) { targets[name] = el; },
+    remeasure: function () { measure(); schedulePublish(); },
+    skip: function (id, name, why) { return record(id, name, null, why); },
+  };
+})();</script><!-- /conformance:harness -->
+<style>
+:root{color-scheme:light dark}
+.a{position:absolute}
+.ld{left:10px;top:15px;width:60px;height:60px;border-radius:10px;background:light-dark(#e83,#36c)}
+.mq{left:80px;top:15px;width:60px;height:60px;border-radius:30px;background:#ec3}
+@media (prefers-color-scheme:dark){.mq{background:#a3a}}
+.ref-dark{display:none}
+@media (prefers-color-scheme:dark){.ref-light{display:none}.ref-dark{display:block}}
+#tp{margin:6px 10px;padding:8px 10px;border-radius:10px;background:var(--tg-theme-secondary-bg-color,#8884);color:var(--tg-theme-text-color,inherit);font:13px system-ui}
+#now{margin:0 10px;font:13px system-ui}
+</style>
+</head>
+<body>
+<div class="v-head">12 · Theme</div>
+<div class="v-hint">Switch the chat theme: the live box (left) must match the picture for the current theme (right).</div>
+<div class="v-row"><div data-stage="theme" data-themes="light dark"><div class="a ld"></div><div class="a mq"></div></div><img class="v-ref ref-light" alt="" data-ref-img="theme" width="150" height="90" src="data:image/jpeg;base64,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"><img class="v-ref ref-dark" data-ref-theme="dark" alt="" data-ref-img="theme" width="150" height="90" src="data:image/jpeg;base64,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"><div class="v-cap">Light: orange square, yellow circle. Dark: blue square, purple circle.</div></div>
+<div id="now">Theme reported to the widget: <b id="theme">?</b></div>
+<div id="tp">This panel uses the chat palette (--tg-theme-*); until the SDK has it, it stays grey.</div>
+<script>
+if (typeof TelegramWidget !== 'undefined') TelegramWidget.onTheme(function (t) { document.getElementById('theme').textContent = t; });
+else document.getElementById('theme').textContent = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+T.run();
+</script>
+</body>
+</html>

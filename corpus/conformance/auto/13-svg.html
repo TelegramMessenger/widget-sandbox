@@ -1,0 +1,265 @@
+<!doctype html>
+<html data-test="auto/13-svg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conformance: inline SVG</title>
+<!-- conformance {"title":"Inline SVG: shapes with presentation attributes, g/use/symbol/viewBox, text, gradients, CSS on SVG, clipPath/mask, filters, SMIL, <image>, foreignObject out; SVG geometry queries"} -->
+<!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111;background:transparent}@media (prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#conf-summary{font-weight:400;margin-left:6px}#conf-summary.good{color:#1a7f37}#conf-summary.bad{color:#c62828}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}.v-head{margin:8px 10px 2px;font-weight:600;font-size:15px}.v-hint{margin:0 10px 6px;font-size:12px}.v-row{display:flex;flex-wrap:wrap;align-items:flex-start;margin:6px 10px 10px}.v-row>[data-stage]{margin-right:8px}.v-ref{display:block;background:#fff}.v-cap{width:100%;margin-top:3px;font-size:12px}.v-tag{font-size:10px;font-weight:600;margin-right:4px;padding:0 4px;border-radius:3px;background:#8884}[data-stage="shapes"]{left:8px;top:8px;width:80px;height:60px}[data-stage="structure"]{left:96px;top:8px;width:80px;height:60px}[data-stage="text"]{left:184px;top:8px;width:80px;height:60px}[data-stage="gradients"]{left:272px;top:8px;width:80px;height:60px}[data-stage="css"]{left:8px;top:76px;width:80px;height:60px}[data-stage="clip-mask"]{left:96px;top:76px;width:80px;height:60px}[data-stage="filters"]{left:184px;top:76px;width:80px;height:60px}[data-stage="smil"]{left:272px;top:76px;width:80px;height:60px}[data-stage="image"]{left:8px;top:144px;width:80px;height:60px}[data-stage="foreign-object"]{left:96px;top:144px;width:80px;height:60px}.conf-stages{height:212px}</style><script>var T = (function () {
+  'use strict';
+  var root = document.documentElement;
+  var ID = root.getAttribute('data-test') || 'unknown';
+  var sandbox = typeof TelegramWidget !== 'undefined';
+  var mode = window.__conformanceMode || (sandbox ? 'sandbox' : 'native');
+  var checks = [];
+  var byKey = {};
+  var started = false, finished = false, awaiting = false, deadline = 0;
+  var queue = [];
+  var panelTimer = 0;
+  var targets = {}, targetRects = null, stageRects = null;
+
+  function fmt(v) {
+    if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+    if (typeof v === 'string') return JSON.stringify(v.length > 60 ? v.slice(0, 60) + '…' : v);
+    try { return JSON.stringify(v); } catch (e) { return String(v); }
+  }
+
+  function record(id, name, ok, detail, opts) {
+    opts = opts || {};
+    var st;
+    if (ok === null) st = 'skip';
+    else if (ok === 'pending') st = 'pending';
+    else if (opts.xfail) st = ok ? 'xpass' : 'xfail';
+    else st = ok ? 'pass' : 'fail';
+    var key = id + '|' + name;
+    var c = byKey[key];
+    if (!c) { c = byKey[key] = { id: id, name: name }; checks.push(c); }
+    c.status = st;
+    c.detail = detail ? String(detail).slice(0, 160) : '';
+    if (opts.xfail && (st === 'xfail' || st === 'xpass')) c.detail = (c.detail ? c.detail + '; ' : '') + 'expected to fail: ' + opts.xfail;
+    schedulePublish();
+    return st;
+  }
+
+  /** Run fn now (or after start); fn returns true/false, [bool, detail], or null to skip. Exceptions fail the check. */
+  function check(id, name, fn, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) return record(id, name, null, 'sandbox only', opts);
+    if (opts.nativeOnly && sandbox) return record(id, name, null, 'native only', opts);
+    var r;
+    try { r = typeof fn === 'function' ? fn() : fn; } catch (e) { return record(id, name, false, 'threw ' + (e && e.name ? e.name + ': ' : '') + (e && e.message), opts); }
+    if (r === null || r === undefined) return record(id, name, null, 'not applicable', opts);
+    if (Array.isArray(r)) return record(id, name, !!r[0], r[1], opts);
+    return record(id, name, !!r, '', opts);
+  }
+
+  function eq(id, name, actual, expected, opts) {
+    return check(id, name, function () { return [actual === expected, 'got ' + fmt(actual) + ', want ' + fmt(expected)]; }, opts);
+  }
+  function near(id, name, actual, expected, tol, opts) {
+    return check(id, name, function () { return [typeof actual === 'number' && Math.abs(actual - expected) <= tol, 'got ' + fmt(actual) + ', want ' + fmt(expected) + ' ±' + tol]; }, opts);
+  }
+
+  /** A check resolved later (an event, a timer): pending until pass()/fail() or the deadline. */
+  function wait(id, name, opts) {
+    opts = opts || {};
+    if (opts.sandboxOnly && !sandbox) { record(id, name, null, 'sandbox only', opts); return { pass: function () {}, fail: function () {}, done: true }; }
+    record(id, name, 'pending', opts.hint || '', opts);
+    var h = {
+      done: false,
+      pass: function (d) { if (!h.done) { h.done = true; record(id, name, true, d, opts); maybeFinish(); } },
+      fail: function (d) { if (!h.done) { h.done = true; record(id, name, false, d, opts); maybeFinish(); } },
+      result: function (ok, d) { ok ? h.pass(d) : h.fail(d); },
+      skip: function (d) { if (!h.done) { h.done = true; record(id, name, null, d, opts); maybeFinish(); } },
+    };
+    return h;
+  }
+
+  function rect(el) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    var r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+  }
+  function cs(el, prop, pseudo) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    return getComputedStyle(el, pseudo || null).getPropertyValue(prop).trim();
+  }
+  /** Normalised computed colour "r,g,b,a" (a 0–1, two decimals) from rgb()/rgba(). */
+  function color(el, prop, pseudo) {
+    var v = cs(el, prop || 'background-color', pseudo);
+    var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/.exec(v);
+    if (!m) return v;
+    var a = m[4] === undefined ? 1 : m[4].slice(-1) === '%' ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+    return Math.round(+m[1]) + ',' + Math.round(+m[2]) + ',' + Math.round(+m[3]) + ',' + Math.round(a * 100) / 100;
+  }
+
+  function counts() {
+    var n = { pass: 0, fail: 0, xfail: 0, xpass: 0, skip: 0, pending: 0 };
+    for (var i = 0; i < checks.length; i++) n[checks[i].status]++;
+    return n;
+  }
+
+  function status() {
+    if (finished) return 'done';
+    if (!started) return 'running';
+    var n = counts();
+    if (queue.length) return 'running';
+    if (n.pending === 0) return 'done';
+    return awaiting ? 'awaiting' : 'running';
+  }
+
+  function publish() {
+    panelTimer = 0;
+    var st = status();
+    if (st === 'done') finished = true;
+    var n = counts();
+    var out = { v: 1, id: ID, mode: mode, status: st, n: n, checks: checks.map(function (c) { return [c.id, c.name, c.status, c.detail]; }) };
+    // Interactive widgets: targets are re-measured on every publish, so a runner taps where things are now.
+    if (targetRects && st !== 'done') { try { measureTargets(); } catch (e) {} }
+    if (targetRects) out.targets = targetRects;
+    if (stageRects) out.stages = stageRects;
+    root.setAttribute('data-conformance', JSON.stringify(out));
+    var p = document.getElementById('conf-summary');
+    if (p) {
+      p.textContent = (st === 'done' ? '' : st + ' · ') + 'pass ' + n.pass + ' · fail ' + n.fail + (n.xfail ? ' · xfail ' + n.xfail : '') + (n.xpass ? ' · XPASS ' + n.xpass : '') + (n.skip ? ' · skip ' + n.skip : '') + (n.pending ? ' · pending ' + n.pending : '');
+      p.className = n.fail || n.xpass ? 'bad' : n.pending ? '' : 'good';
+    }
+    var list = document.getElementById('conf-list');
+    if (list) {
+      var lines = [];
+      for (var i = 0; i < checks.length; i++) {
+        var c = checks[i];
+        if (list.hasAttribute('data-all') || c.status === 'fail' || c.status === 'xpass' || c.status === 'pending')
+          lines.push({ 'pass': '✓ ', 'fail': '✗ ', 'xfail': '· ', 'xpass': '! ', 'skip': '– ', 'pending': '… ' }[c.status] + c.id + ' — ' + c.name + (c.detail && c.status !== 'pass' ? ' (' + c.detail + ')' : ''));
+      }
+      list.textContent = lines.join('\n');
+    }
+    if (st === 'done' && typeof console !== 'undefined') console.log('[conformance] ' + ID + ' ' + JSON.stringify(n));
+  }
+  function schedulePublish() { if (!panelTimer) panelTimer = setTimeout(publish, 0); }
+
+  function maybeFinish() {
+    if (!started || queue.length) return;
+    var n = counts();
+    if (n.pending === 0) { finished = true; publish(); }
+    else schedulePublish();
+  }
+
+  /** Mark the remaining pending checks failed (no event arrived) and finish. */
+  function timeout() {
+    for (var i = 0; i < checks.length; i++) if (checks[i].status === 'pending') { checks[i].status = 'fail'; checks[i].detail = (checks[i].detail ? checks[i].detail + '; ' : '') + 'timed out'; }
+    finished = true;
+    publish();
+  }
+
+  /** Steps run in order after the first frames; a step may return a delay in ms before the next one. */
+  function step(fn) { queue.push(fn); }
+  function r4(el) { var r = el.getBoundingClientRect(); return [Math.round(r.left * 10) / 10, Math.round(r.top * 10) / 10, Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }
+  function measureTargets() {
+    targetRects = {};
+    for (var k in targets) { var el = typeof targets[k] === 'string' ? document.querySelector(targets[k]) : targets[k]; if (el) targetRects[k] = r4(el); }
+  }
+  function measure() {
+    measureTargets();
+    stageRects = {};
+    var st = document.querySelectorAll('[data-stage]');
+    for (var i = 0; i < st.length; i++) stageRects[st[i].getAttribute('data-stage')] = r4(st[i]);
+  }
+  function next() {
+    if (!started && targetRects === null) { try { measure(); } catch (e) { record('harness', 'measure threw', false, e && e.message); } }
+    if (!queue.length) { started = true; if (deadline) setTimeout(timeout, deadline); maybeFinish(); return; }
+    var fn = queue.shift();
+    var delay = 0;
+    try { delay = fn() || 0; } catch (e) { record('harness', 'step threw', false, e && e.message); }
+    setTimeout(next, delay);
+  }
+
+  /**
+   * Start after the renderer had a chance to lay out (two frames, a fallback
+   * timer when frames do not come). `awaitInput: ms` keeps the widget in
+   * `awaiting` until its pending checks resolve or the time is up.
+   */
+  function run(opts) {
+    opts = opts || {};
+    if (opts.awaitInput) { awaiting = true; deadline = opts.awaitInput; }
+    else if (opts.deadline) deadline = opts.deadline;
+    publish();
+    var went = false;
+    var go = function () { if (!went) { went = true; setTimeout(next, opts.settle || 60); } };
+    try { requestAnimationFrame(function () { requestAnimationFrame(go); }); } catch (e) {}
+    setTimeout(go, 400);
+  }
+
+  // Reference mode (native rendering for the expected images): a stage with a
+  // <template data-ref="name"> gets the template's markup instead of its own.
+  function swapRefs() {
+    var ts = document.querySelectorAll('template[data-ref]');
+    for (var i = 0; i < ts.length; i++) {
+      var name = ts[i].getAttribute('data-ref');
+      var st = document.querySelector('[data-stage="' + name + '"]');
+      if (st) { st.innerHTML = ts[i].innerHTML; st.setAttribute('data-ref-applied', ''); }
+    }
+  }
+  /** Draw into a stage from script; skipped in reference mode when the stage has a template. */
+  function stage(name, draw) {
+    var el = document.querySelector('[data-stage="' + name + '"]');
+    if (!el) return;
+    if (mode === 'ref' && document.querySelector('template[data-ref="' + name + '"]')) return;
+    try { draw(el); } catch (e) { record('harness', 'stage ' + name + ' threw', false, e && e.message); }
+  }
+  if (mode === 'ref') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', swapRefs); else swapRefs();
+  }
+
+  return {
+    id: ID, sandbox: sandbox, mode: mode, check: check, eq: eq, near: near, wait: wait, ok: function (id, name, cond, detail, opts) { return check(id, name, function () { return [cond, detail]; }, opts); },
+    rect: rect, cs: cs, color: color, step: step, run: run, stage: stage, publish: publish,
+    /** A named element the runner may tap or drag (its rect is published as targets[name] when the run starts). */
+    target: function (name, el) { targets[name] = el; },
+    remeasure: function () { measure(); schedulePublish(); },
+    skip: function (id, name, why) { return record(id, name, null, why); },
+  };
+})();</script><!-- /conformance:harness -->
+<style>
+.conf-probes{font:13px/16px sans-serif}
+[data-stage] svg{display:block}
+.sv-a{fill:#c33;stroke:#36c;stroke-width:3}
+.sv-b{fill:none;stroke:#3a3;stroke-width:4;stroke-dasharray:6 3}
+.sv-c{fill:#e83}
+.sv-c:hover{fill:#000}
+</style>
+</head>
+<body>
+<div class="conf-stages">
+  <div data-stage="shapes" data-covers="svg.shapes"><svg width="80" height="60"><rect x="4" y="4" width="30" height="20" fill="#c33"/><circle cx="56" cy="16" r="12" fill="#36c" stroke="#222" stroke-width="2"/><ellipse cx="18" cy="44" rx="14" ry="8" fill="#3a3"/><line x1="40" y1="34" x2="76" y2="56" stroke="#e83" stroke-width="4" stroke-linecap="round"/><polyline points="40,56 50,40 60,56" fill="none" stroke="#a3a" stroke-width="3"/><polygon points="64,34 76,34 70,46" fill="#333"/></svg></div>
+  <div data-stage="structure" data-covers="svg.structure"><svg width="80" height="60" viewBox="0 0 40 30"><defs><symbol id="cf-sym" viewBox="0 0 10 10"><path d="M0 0H10V10Z" fill="#36c"/></symbol></defs><g transform="translate(4 4) rotate(10)"><rect width="12" height="8" fill="#c33"/></g><use href="#cf-sym" x="22" y="2" width="14" height="14"/><use href="#cf-sym" x="4" y="16" width="10" height="10" transform="scale(1.2)"/></svg></div>
+  <div data-stage="text" data-covers="svg.text" data-max-diff="0.5" data-colors="#222 #c33 #36c"><svg width="80" height="60"><text x="4" y="24" font-family="sans-serif" font-size="20" font-weight="bold" fill="#222">Ab<tspan fill="#c33" dy="6">c</tspan></text><text x="76" y="52" text-anchor="end" font-family="serif" font-size="16" fill="#36c">xyz</text></svg></div>
+  <div data-stage="gradients" data-covers="svg.gradients"><svg width="80" height="60"><defs><linearGradient id="cf-lg" x1="0" x2="1"><stop offset="0" stop-color="#c33"/><stop offset="1" stop-color="#36c"/></linearGradient><radialGradient id="cf-rg"><stop offset="0" stop-color="#e83"/><stop offset="1" stop-color="#3a3"/></radialGradient></defs><rect width="80" height="28" fill="url(#cf-lg)"/><circle cx="40" cy="44" r="14" fill="url(#cf-rg)"/></svg></div>
+  <div data-stage="css" data-covers="svg.css"><svg width="80" height="60"><rect class="sv-a" x="6" y="6" width="30" height="22"/><circle class="sv-b" cx="58" cy="18" r="12"/><path class="sv-c" d="M10 50 L40 34 L70 50 Z"/></svg></div>
+  <div data-stage="clip-mask" data-covers="svg.clip-mask"><svg width="80" height="60"><defs><clipPath id="cf-cp"><circle cx="20" cy="30" r="16"/></clipPath><mask id="cf-mk"><rect x="44" y="6" width="32" height="48" fill="#fff"/><rect x="52" y="20" width="16" height="20" fill="#000"/></mask></defs><rect width="40" height="60" fill="#36c" clip-path="url(#cf-cp)"/><rect x="40" width="40" height="60" fill="#c33" mask="url(#cf-mk)"/></svg></div>
+  <div data-stage="filters" data-covers="svg.filters" data-max-diff="0.1"><svg width="80" height="60"><defs><filter id="cf-ds" x="-20%" y="-20%" width="160%" height="160%"><feOffset in="SourceAlpha" dx="4" dy="4" result="o"/><feGaussianBlur in="o" stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect x="14" y="12" width="40" height="28" fill="#3a3" filter="url(#cf-ds)"/></svg></div>
+  <div data-stage="smil" data-covers="svg.smil"><svg width="80" height="60"><rect x="4" y="20" width="20" height="20" fill="#e83"><animate attributeName="x" from="4" to="50" dur="0.2s" fill="freeze"/></rect></svg></div>
+  <div data-stage="image" data-covers="svg.image"><svg width="80" height="60"><image x="10" y="10" width="60" height="40" preserveAspectRatio="none" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAIAAABwJOjsAAAAPElEQVR4AcXBQQEAIBCAMKTShTKTnQxlBz9s687wa8/hl0QkIhGJSEQiEpGIRCQiEYlIRCISkYhEJCKRBx5KAo1ZaufhAAAAAElFTkSuQmCC"/></svg></div>
+  <div data-stage="foreign-object" data-covers="svg.foreign-object" data-xfail="the validator keeps foreignObject"><svg width="80" height="60"><rect x="4" y="4" width="72" height="52" fill="#eee"/><foreignObject x="10" y="10" width="60" height="40"><div xmlns="http://www.w3.org/1999/xhtml" style="width:60px;height:40px;background:#c33"></div></foreignObject></svg></div>
+</div>
+<div class="conf-head">13 · Inline SVG <span id="conf-summary"></span></div>
+<div class="conf-probes">
+  <svg id="geo" width="120" height="40" viewBox="0 0 60 20"><rect id="g-rect" x="5" y="2" width="10" height="8" fill="#c33"/><path id="g-path" d="M0 15 H40" stroke="#36c"/><text id="g-text" x="20" y="10" font-size="8" font-family="sans-serif">Hello</text></svg>
+</div>
+<div id="conf-list"></div>
+<script>
+T.step(function () {
+  var bb = document.getElementById('g-rect').getBBox();
+  T.ok('svg.shapes', 'getBBox() of a rect', bb.x === 5 && bb.y === 2 && bb.width === 10 && bb.height === 8, [bb.x, bb.y, bb.width, bb.height].join(','));
+  T.near('svg.shapes', 'getTotalLength() of a path', document.getElementById('g-path').getTotalLength(), 40, 0.1);
+  T.ok('svg.text', 'getComputedTextLength() of a text', document.getElementById('g-text').getComputedTextLength() > 10, String(document.getElementById('g-text').getComputedTextLength()));
+  var r = T.rect('#g-rect'), s = T.rect('#geo');
+  T.ok('svg.structure', 'viewBox scales content (10 user units → 20px)', Math.abs(r.w - 20) < 0.5 && Math.abs(r.x - s.x - 10) < 0.5, r.w + ' at ' + (r.x - s.x));
+  T.ok('svg.css', 'a stylesheet fill reaches SVG (computed fill)', /rgb\(204, 51, 51\)|#c33/i.test(T.cs('.sv-a', 'fill')), T.cs('.sv-a', 'fill'));
+});
+T.run({ settle: 400 });
+</script>
+<template data-ref="foreign-object"><svg width="80" height="60" style="display:block"><rect x="4" y="4" width="72" height="52" fill="#eee"/></svg></template>
+<template data-ref="smil"><svg width="80" height="60" style="display:block"><rect x="50" y="20" width="20" height="20" fill="#e83"/></svg></template>
+</body>
+</html>
