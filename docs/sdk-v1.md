@@ -1,6 +1,7 @@
 # SDK v1: the widget contract
 
-Status: contract for the framework and the client teams, 2026-10-16. It fixes
+Status: contract for the framework and the client teams, 2026-10-16; its open
+questions were decided on 2026-10-17 (§6). It fixes
 what a widget can call, what travels between sandbox, host and renderer, what
 every host exposes and what every client implements, so that client teams can
 build their side in parallel with the PoC. Decisions behind it: release plan
@@ -9,9 +10,8 @@ D4, D7a, D8, D9, D12, D14, D17, D18, D19, D22, D23, and the decisions of
 `docs/decisions.md`, "Profile v1"). Background: `docs/bridge-discussion.md`
 ("Решено"), `docs/widget-state.md` §7.
 
-Each item is marked **today** (in the framework now) or **v1** (to be built in
-the framework's SDK milestone). Values marked *proposed* are this document's
-choice where no decision exists yet; they are listed again in §6.
+Each item is marked **today** (in the framework now) or **v1** (built in the
+framework for v0.1.0, before the release is pushed, §7).
 
 Related documents, not repeated here: `docs/integration.md` (embedding the
 host on each platform), `docs/tgw-format.md` (the `.tgw` file and the rich
@@ -28,9 +28,9 @@ block), `docs/protocol.md` (the full wire protocol), `docs/changes.md`
 | links | validates the URL, lets one call through per pointer press | shows the confirmation with the full URL, opens it |
 | haptics | validates, rate-limits, drops calls from hidden widgets | plays them (or ignores them on desktop and web) |
 | storage | preload at start, per-task commits, the quota | persists per message, deletes with the message, chat, account, "Clear cache" |
-| gestures | reports per press which drag axes the widget takes | arbitrates with swipe-to-reply, list scroll, long press, double tap |
+| gestures | reports per press which drag axes the widget takes; never delivers a double tap or a long press | arbitrates drags with swipe-to-reply and list scroll; keeps double tap and long press for the bubble |
 | size | reports the content height | sizes the bubble from the bot's hint before load, caps it, clips |
-| failures | freezes the last frame with a badge and reports `dead` | restarts at most 2–3 times in a row, then leaves it stopped |
+| failures | freezes the last frame with a badge and reports `dead` | rebuilds it after a crash; after 2 crashes in a row leaves it stopped |
 
 ## 2. Widget-facing API
 
@@ -139,18 +139,20 @@ Other form controls are outside the profile and dropped by the validator.
 ### 2.5 Links (D8)
 
 - `openLink(url)` opens an external page. `url` must be an absolute `https:`
-  URL of at most 2048 characters (*proposed*), without user name or password,
+  URL of at most 256 characters, without user name or password,
   whose host is not `t.me`, `telegram.me` or `telegram.dog`.
 - `openTelegramLink(url)` opens a Telegram link: `https://t.me/…` (also
-  `telegram.me`, `telegram.dog`), at most 2048 characters. `tg:` URLs are not
-  accepted.
+  `telegram.me`, `telegram.dog`), at most 256 characters, any path, as in Mini
+  Apps: the client's own `t.me` handler confirms the dangerous ones (proxy,
+  login, language and the like). `tg:` URLs are not accepted.
 - An invalid argument throws `TypeError` in the widget synchronously (the shim
   checks the syntax; the glue checks it again). A valid call returns
   `undefined` and goes to the host.
 - **User activation** (today, `docs/protocol.md`, "User activation"): the glue
   forwards a call only while the task of a real pointer press on the visible
   widget runs, and one press unlocks one call shared by both methods. A press
-  is `pointerdown` … `click` / `dblclick` from the renderer, marked `trusted`;
+  is `pointerdown` … `click` from the renderer, marked `trusted` (v1 never
+  delivers `dblclick`, §2.10);
   keys never count (D4: no keyboard input or focus at all), nor does a click a
   key produced (`detail` 0), a scripted `click()`, a timer, a frame or a promise
   job after the task. Blocked calls are dropped without an exception and
@@ -165,9 +167,9 @@ Other form controls are outside the profile and dropped by the validator.
 - `impactOccurred`, `notificationOccurred`, `selectionChanged` as in Mini
   Apps' `HapticFeedback`. An unknown style or type throws `TypeError`.
 - Delivered only while the widget is visible. Rate limit per widget: a bucket
-  of 5 calls refilled at 10 per second (*proposed*); calls over the limit or
+  of 5 calls refilled at 10 per second; calls over the limit or
   from a hidden widget are dropped without an exception and reported once per
-  second as `haptic-limit`. No user gesture is required (*proposed*, §6).
+  second as `haptic-limit`. No user gesture is required.
 - Desktop and web clients accept the calls and play nothing.
 
 ### 2.7 Lifecycle
@@ -227,16 +229,17 @@ default locale is the same (v1; today always `en-US`).
 | `navigator.clipboard.writeText`, `readText`, `navigator.share` | reject with `NotAllowedError`, nothing sent to the host (today `writeText` reaches the host as `clipboard`, v1 stops that) |
 | `fetch`, `XMLHttpRequest`, `WebSocket`, … | throw `NetworkDisabledError` (invariant 5, today) |
 | keyboard | no key events, no keyboard focus (D4; the renderers and glue drop key events in profile v1) |
+| double tap, long press | belong to the bubble (§5.5): `dblclick` and `contextmenu` are never delivered, and a touch the client takes for either ends for the widget with `pointercancel` and no `click` |
 
 ### 2.11 Errors and limits
 
 | call | invalid arguments | outside the rules | other limits |
 |---|---|---|---|
-| `openLink`, `openTelegramLink` | `TypeError` | dropped, `activation-blocked` (no press, hidden, press used) | 2048 characters; one call per press |
+| `openLink`, `openTelegramLink` | `TypeError` | dropped, `activation-blocked` (no press, hidden, press used) | 256 characters; one call per press |
 | haptics | `TypeError` | dropped, `haptic-limit` (hidden, over the bucket) | bucket 5, 10 per second |
 | `localStorage`, `sessionStorage` | — | `QuotaExceededError` | 16 KB per area |
 | `isProfileAtLeast` | `false` | — | — |
-| `onEvent`, `offEvent` | ignored (unknown type or non-function) | — | 64 handlers per type (*proposed*) |
+| `onEvent`, `offEvent` | ignored (unknown type or non-function) | — | 16 handlers per type; further ones are ignored |
 | `ready` | — | — | — |
 
 Diagnostics go to the host's diagnostics (`onDiag` / `WidgetDiagnostics`),
@@ -476,7 +479,7 @@ ignore them.
 - At creation, pass the stored `local` area and the in-memory `session` area as
   `storage`.
 - On `onStorageCommit(area, values)`: keep `values` as the new content of that
-  area. Write `local` to disk with a short delay (*proposed*: 1 s) and at once
+  area. Write `local` to disk with a short delay (for example 1 s) and at once
   when the widget is hidden or destroyed and when the app goes to the
   background or terminates. Keep `session` in memory only.
 - Delete both areas with the message, with the chat or its history, with the
@@ -492,9 +495,12 @@ ignore them.
   suppresses swipe-to-reply and other horizontal chat gestures for it), `y`
   vertical ones (the client keeps the list from scrolling). With neither, the
   touch belongs to the chat as usual, and the widget still gets its taps.
-- Long press, double tap and swipe-to-reply on a bubble with a widget follow
-  the designers' rules (§6). The Android WebView renderer already applies `y` to
-  its parent itself.
+- Double tap and long press always belong to the bubble: the quick reaction
+  and the message menu (a right click on desktop). The widget never gets
+  `dblclick` or `contextmenu`; a touch the client takes for either ends for the
+  widget with `pointercancel` and no `click`. The widget gets single taps and,
+  in v1, drags. The Android WebView renderer already applies `y` to its parent
+  itself.
 - No keyboard: the client never routes key events to the widget, and the
   chat's input field keeps the focus.
 
@@ -504,7 +510,8 @@ ignore them.
   bubble with that aspect ratio at the bubble's width; with `width = 0` and
   `height = H`, at height `H`; with neither, the default placeholder (height
   from the designers) (D12b; the rich block's fields are in
-  `docs/tgw-format.md`).
+  `docs/tgw-format.md`). The hint is tested end to end only once the server
+  sends it; the test channel has no debug convention for it.
 - After the first render, use the height the host reports (`onChange` →
   `height`, web `onResize`), capped at the client's maximum (`maximumHeight`,
   `maxHeightDp`, the web host's 900 px today), and cache it per message for the
@@ -519,33 +526,43 @@ ignore them.
 - When the host reports `dead`, the last frame stays with the badge
   (`stoppedLabel`, localised by the client).
 - The client may build a new host for the message the next time the bubble is
-  shown, at most 2–3 times in a row (*proposed*: 3); after that the widget stays
-  stopped until the app restarts or the message is edited with new HTML.
+  shown; after 2 crashes in a row the widget stays stopped until the app
+  restarts or the message is edited with new HTML (D22).
 
 ### 5.8 Visibility
 
 Call `setVisible(false)` when the bubble leaves the screen and when the app
 goes to the background, `setVisible(true)` when it is back.
 
-## 6. Out of v1 and open questions
+## 6. Out of v1 and the decisions of 2026-10-17
 
 Out of v1: sending messages or data to the bot and bot callbacks; inline mode
 and sharing; payments; the viewer's identity; popups; `MainButton`; per-bot
 `DeviceStorage` and cloud storage; keyboard input; form controls other than
-`<button>`; fullscreen; accessibility (D21); MCP Apps transport (D19, later).
+`<button>`; double taps and long presses on the widget; `TelegramWidget.platform`;
+a `linkOpened` event; fullscreen; accessibility (D21); MCP Apps transport (D19,
+later).
 
-Open, with this document's proposal:
+The questions this contract left open, as decided on 2026-10-17:
 
-1. Haptics without a gesture: allowed while visible, with the rate limit
-   (proposed), or only within the task of a pointer press?
-2. Rate limit numbers: haptics bucket 5 at 10 per second; URL length 2048;
-   64 handlers per event type; 3 restarts.
-3. `openTelegramLink` paths: any `t.me` path through the client's own handler
-   (proposed), or a deny-list (`proxy`, `socks`, `login`, `setlanguage`, …) in the
-   glue?
-4. `TelegramWidget.platform` (`ios`, `android`, `macos`, `desktop`, `web`): useful
-   for layout tweaks, a little fingerprinting; not in v1 (proposed).
-5. Bubble gestures: does a double tap on the widget's area react, does a long
-   press open the menu while the widget takes a drag (designers).
-6. Should `openLink` report back whether the user opened the link (an
-   `linkOpened` event)? Not in v1 (proposed).
+1. Haptics need no gesture: allowed while the widget is visible, with the rate
+   limit of §2.6 (a bucket of 5, refilled at 10 per second).
+2. Limits: URLs at most 256 characters, at most 16 handlers per event type, and
+   the widget stays stopped after 2 crashes in a row (D22, which said 2–3).
+3. `openTelegramLink` takes any `t.me` path, as in Mini Apps; the client's own
+   handler confirms the dangerous ones. No deny-list in the glue.
+4. No `TelegramWidget.platform` in v1.
+5. Double tap and long press always stay with the bubble (the reaction, the
+   message menu): the widget gets single taps and, in v1, drags (§5.5).
+6. No `linkOpened` event in v1: the widget is not told whether the user opened
+   the link.
+7. The bubble size from the bot's `width` and `height` is tested once the server
+   exists; there is no debug convention for the test channel.
+
+## 7. The framework milestone
+
+SDK v1 is implemented in the framework as part of v0.1.0, before the release
+is pushed: the shim, all five glue copies and the Node harness, with tests.
+The corpus widgets that call `sendMessage` are reworked at the same time (their
+state kept in `localStorage`, or `openLink` instead) and the corpus READMEs
+updated; the attack files keep calling it to check that it is gone.
