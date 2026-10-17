@@ -1,41 +1,52 @@
 // Builds packages/conformance (the conformance set shipped with the framework) from its widget files:
 //   1. catalogue.json / catalogue.md from scripts/conformance/catalogue.ts;
-//   2. the harness region of every widget (harness CSS + JS, stage geometry);
+//   2. the harness region of every widget: the harness CSS of its set, the
+//      harness JS bundled with only the exports the widget uses and minified
+//      (esbuild), the stage geometry; every widget must fit a v1 mini-widget
+//      with a margin (SIZE_LIMIT), or the build fails;
 //   3. reference images: every stage rendered natively by headless Chromium
 //      (and WebKit when Playwright has it installed) at DPR 2, in reference mode
 //      (a stage with <template data-ref> gets the template's markup), with the
 //      renderer's UA stylesheet from profile.json (the unstyled <button>) →
 //      packages/conformance/refs/<set>/<widget>/<stage>.<engine>[.dark].png;
-//   4. the visual set's embedded reference images (<img data-ref-img>);
+//   4. the reference pictures posted next to the visual set and the client-SDK
+//      group in the test channel: the whole widget rendered natively at the
+//      reference width (refs/visual/<widget>[.dark].png);
 //   5. the native run of every widget (no template swap): what a plain
 //      browser engine says to each check, recorded in the manifest as a sanity
 //      reference for the tests themselves;
 //   6. manifest.json: test → catalogue IDs, kind, stages and references,
-//      actions, host checks, themes and widths, coverage per set.
+//      actions, host checks, themes and widths, coverage per set;
+//   7. channel.json: the posting order for the test channel.
 //
 //   corepack pnpm tsx scripts/conformance/build.ts [--only 04-layout] [--no-refs] [--engines chromium,webkit]
+//   corepack pnpm tsx scripts/conformance/build.ts --sizes [--only …]   # sizes and the size gate only: no browser, nothing written
 
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { chromium, webkit, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
-import { AUTO_GRID, CONF, ROOT, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
+import { AUTO_GRID, CONF, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : undefined);
 const ONLY = opt('only');
-const NO_REFS = args.includes('--no-refs');
+const SIZES = args.includes('--sizes');
+const NO_REFS = args.includes('--no-refs') || SIZES;
 const ENGINES = (opt('engines') ?? 'chromium,webkit').split(',');
 const WIDTH = 390;
 const DPR = 2;
 
 const harnessDir = path.join(CONF, 'harness');
-const HARNESS_JS = fs.readFileSync(path.join(harnessDir, 'harness.js'), 'utf8').replace(/^\/\/.*\n/gm, '').trim();
-const HARNESS_CSS = fs.readFileSync(path.join(harnessDir, 'harness.css'), 'utf8').trim();
+// esbuild comes with the core package (its dev dependency); the conformance set needs nothing of its own.
+const esbuild = createRequire(path.join(ROOT, 'packages', 'core', 'package.json'))('esbuild');
+const minCss = (file: string) => esbuild.transformSync(fs.readFileSync(path.join(harnessDir, file), 'utf8'), { loader: 'css', minify: true }).code.trim();
+const HARNESS_CSS: Record<string, string> = { auto: minCss('harness.css') + minCss('auto.css'), visual: minCss('harness.css') + minCss('visual.css') };
 const BEGIN = '<!-- conformance:harness -->';
 const END = '<!-- /conformance:harness -->';
 // The client-SDK group (visual/sdk) uses the mini harness, so a widget fits a v1 mini-widget.
@@ -44,8 +55,13 @@ const MINI_CSS = fs.readFileSync(path.join(harnessDir, 'mini.css'), 'utf8').trim
 const MINI_BEGIN = '<!-- conformance:mini -->';
 const MINI_END = '<!-- /conformance:mini -->';
 const SDK_MOCK = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'sdk-mock.js'), 'utf8');
-/** v1 mini-widgets (docs/tgw-format.md): at most 4 KB gzipped and 32 KB of HTML. */
-const MINI_LIMIT = { gzip: 4096, raw: 32768 };
+/**
+ * v1 mini-widgets (docs/tgw-format.md): the server refuses more than 4 KB gzipped or 32 KB of HTML
+ * (INPUT_MEDIA_WIDGET_TOO_LARGE). We do not know its gzip level, so every widget stays within
+ * 3800 bytes at both level 6 and level 9.
+ */
+const SIZE_LIMIT = { gzip: 3800, raw: 32768 };
+const sizeOf = (html: string) => { const b = Buffer.from(html); return { raw: b.length, gzip6: zlib.gzipSync(b, { level: 6 }).length, gzip9: zlib.gzipSync(b, { level: 9 }).length }; };
 const isSdk = (w: Widget) => w.id.startsWith('visual/sdk/');
 /** The renderer's UA stylesheet (profile.json tables.uaStylesheet): every renderer draws an unstyled <button> with it, so the native runs do too. */
 const PROFILE_FILE = path.join(ROOT, 'packages', 'core', 'profile.json');
@@ -54,19 +70,32 @@ if (!UA_CSS) console.log('no profile.json uaStylesheet: native runs use the engi
 
 // ───────────── 2. harness region ─────────────
 
+/** Auto set: stages sit on a fixed grid (auto.css places the first one; these rules the others, by position). */
 function stageCss(w: Widget): string {
   const rules: string[] = [];
-  w.stages.forEach((s, i) => {
-    if (w.set === 'auto') {
-      const [x, y] = autoStagePos(i);
-      rules.push(`[data-stage="${s.name}"]{left:${x}px;top:${y}px;width:${s.w}px;height:${s.h}px}`);
-    } else rules.push(`[data-stage="${s.name}"]{width:${s.w}px;height:${s.h}px}`);
-  });
-  if (w.set === 'auto' && w.stages.length) {
-    const rows = Math.ceil(w.stages.length / AUTO_GRID.perRow);
-    rules.push(`.conf-stages{height:${AUTO_GRID.top + rows * AUTO_GRID.dy}px}`);
+  const n = w.stages.length;
+  if (w.set === 'auto' && n) {
+    for (let c = 1; c < Math.min(n, AUTO_GRID.perRow); c++) rules.push(`.conf-stages>:nth-child(${AUTO_GRID.perRow}n+${c + 1}){left:${AUTO_GRID.left + c * AUTO_GRID.dx}px}`);
+    for (let r = 1; r * AUTO_GRID.perRow < n; r++) rules.push(`.conf-stages>:nth-child(n+${r * AUTO_GRID.perRow + 1}){top:${AUTO_GRID.top + r * AUTO_GRID.dy}px}`);
+    rules.push(`.conf-stages{height:${AUTO_GRID.top + Math.ceil(n / AUTO_GRID.perRow) * AUTO_GRID.dy}px}`);
   }
+  // A stage of another size than its set's default.
+  for (const s of w.stages) if (s.w !== STAGE[w.set].w || s.h !== STAGE[w.set].h) rules.push(`[data-stage="${s.name}"]{width:${s.w}px;height:${s.h}px}`);
   return rules.join('');
+}
+
+/** The harness JS for one widget: only the exports it uses (T.ok, T.run, …), bundled and minified, as `var T`. */
+function harnessJs(body: string): string {
+  const names = [...new Set([...body.matchAll(/\bT\.([a-zA-Z]+)/g)].map((m) => m[1]).concat('run'))].sort();
+  const list = /id="conf-list"/.test(body) ? "import { list } from './harness.js'; list();\n" : '';
+  const out = esbuild.buildSync({
+    stdin: { contents: `${list}export { ${names.join(', ')} } from './harness.js';`, resolveDir: harnessDir, loader: 'js' },
+    bundle: true, format: 'esm', minify: true, write: false, target: 'es2017', charset: 'utf8', legalComments: 'none',
+  }).outputFiles[0].text.trim();
+  const m = /export\s*\{([^}]*)\};?$/.exec(out);
+  if (!m) throw new Error('harness bundle has no export list');
+  const members = m[1].split(',').map((p: string) => { const [local, as] = p.trim().split(/\s+as\s+/); return `${as ?? local}:${local}`; });
+  return `var T=function(){${out.slice(0, m.index)}return{${members.join(',')}}}();`;
 }
 
 function withHarness(w: Widget): string {
@@ -75,9 +104,10 @@ function withHarness(w: Widget): string {
     if (j < 0) throw new Error(`${w.id}: no ${MINI_END}`);
     return w.html.slice(0, i) + `${MINI_BEGIN}<style>${MINI_CSS.replace(/\n/g, '')}</style><script>${MINI_JS}</script>${MINI_END}` + w.html.slice(j + MINI_END.length);
   }
-  const region = `${BEGIN}<style>${HARNESS_CSS.replace(/\n/g, '')}${stageCss(w)}</style><script>${HARNESS_JS}</script>${END}`;
   const i = w.html.indexOf(BEGIN), j = w.html.indexOf(END);
   if (i < 0 || j < 0) throw new Error(`${w.id}: no ${BEGIN} … ${END} region`);
+  const body = w.html.slice(0, i) + w.html.slice(j + END.length);
+  const region = `${BEGIN}<style>${HARNESS_CSS[w.set]}${stageCss(w)}</style><script>${harnessJs(body)}</script>${END}`;
   return w.html.slice(0, i) + region + w.html.slice(j + END.length);
 }
 
@@ -105,15 +135,19 @@ async function waitStatus(page: Page, want: string[], timeout: number): Promise<
   return last;
 }
 
-async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdkMock = false): Promise<Page> {
+/** In reference mode every stage with a <template data-ref="name"> gets the template's markup (after the widget's own scripts ran). */
+const SWAP = "document.addEventListener('DOMContentLoaded',function(){[].forEach.call(document.querySelectorAll('template[data-ref]'),function(t){var s=document.querySelector('[data-stage=\"'+t.getAttribute('data-ref')+'\"]');if(s)s.innerHTML=t.innerHTML})})";
+
+/** sdk: 'mock' = the SDK stand-in (client-SDK group pictures); 'palette' = only the reference palette and background (visual set pictures). */
+async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdk: 'mock' | 'palette' | false = false): Promise<Page> {
   const page = await ctx.newPage();
   // The mode goes into the HTML, before the harness. Links never navigate in a native reference run.
-  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true)</script>` + (sdkMock ? `<script>${SDK_MOCK}</script>` : '');
+  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true);${mode === 'ref' ? SWAP : ''}</script>` + (sdk ? `<script>${sdk === 'palette' ? 'window.__conformanceNoSdk=1;' : ''}${SDK_MOCK}</script>` : '');
   // Served from a real (fake) origin, not about:blank, so storage works as in a WebView.
   const url = 'https://conformance.test/widget.html';
   await page.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html.replace(/<head>/i, '<head>' + boot) }));
   // The SDK group's pictures show clock times (11-crash-restart): a fixed clock keeps them the same on every build.
-  if (sdkMock) await page.clock.setFixedTime(new Date('2026-10-17T12:00:00'));
+  if (sdk) await page.clock.setFixedTime(new Date('2026-10-17T12:00:00'));
   await page.goto(url, { waitUntil: 'load' });
   return page;
 }
@@ -121,7 +155,7 @@ async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'nati
 interface NativeResult { status: string; checks: [string, string, string, string][]; skipped: string[] }
 
 async function runNative(ctx: BrowserContext, w: Widget, html: string): Promise<NativeResult> {
-  const page = await openNative(ctx, html, 'native', isSdk(w));
+  const page = await openNative(ctx, html, 'native', isSdk(w) && 'mock');
   let pub = await waitStatus(page, ['done', 'awaiting'], 15_000);
   let skipped: string[] = [];
   let skippedIds: string[] = [];
@@ -155,10 +189,6 @@ async function renderRefs(browsers: Record<string, Browser>, w: Widget, html: st
         const buf = await loc.screenshot({ animations: 'allow', caret: 'hide' });
         writeIfChanged(file, buf);
         ((out[s.name] ??= {})[`${engine}${theme === 'dark' ? '.dark' : ''}`] = path.relative(CONF, file));
-        if (w.set === 'visual' && engine === 'chromium') {
-          const jpg = await loc.screenshot({ type: 'jpeg', quality: 82, animations: 'allow', caret: 'hide' });
-          embedded.set(`${w.id}#${s.name}${theme === 'dark' ? '#dark' : ''}`, 'data:image/jpeg;base64,' + jpg.toString('base64'));
-        }
       }
       await ctx.close();
     }
@@ -166,15 +196,22 @@ async function renderRefs(browsers: Record<string, Browser>, w: Widget, html: st
   return out;
 }
 
-/** Client-SDK group: the whole widget as the reference picture posted next to it (mock SDK, DPR 2, at most 1200 CSS px tall). */
-async function renderSdkRefs(browser: Browser, w: Widget, html: string): Promise<Record<string, string>> {
+/** The visual set's and the client-SDK group's themes: a picture per theme. */
+const pictureThemes = (w: Widget) => (w.meta.themes ?? (w.stages.some((s) => s.themes.includes('dark')) ? ['light', 'dark'] : ['light'])) as ('light' | 'dark')[];
+
+/**
+ * The reference picture posted next to a visual or client-SDK widget in the test channel: the whole widget
+ * rendered natively in reference mode at the reference width, DPR 2, on the reference palette's background
+ * (the SDK group with the SDK stand-in), at most 2000 CSS px tall (1200 for the SDK group) → refs/visual/<widget>[.dark].png.
+ */
+async function renderPictures(browser: Browser, w: Widget, html: string): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  for (const theme of (w.meta.themes ?? ['light']) as ('light' | 'dark')[]) {
+  for (const theme of pictureThemes(w)) {
     const ctx = await newContext(browser, theme);
-    const page = await openNative(ctx, html, 'ref', true);
+    const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette');
     await waitStatus(page, ['done', 'awaiting'], 15_000);
     await page.waitForTimeout(300);
-    const h = Math.min(1200, await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height)));
+    const h = Math.min(isSdk(w) ? 1200 : 2000, await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height)));
     const file = path.join(CONF, 'refs', w.set, `${w.stem}${theme === 'dark' ? '.dark' : ''}.png`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     writeIfChanged(file, await page.screenshot({ clip: { x: 0, y: 0, width: WIDTH, height: Math.max(h, 40) }, animations: 'disabled', caret: 'hide' }));
@@ -203,20 +240,6 @@ async function selfVsRef(browser: Browser, w: Widget, html: string): Promise<Rec
   return res;
 }
 
-const embedded = new Map<string, string>();
-
-function embed(w: Widget, html: string): string {
-  return html.replace(/<img\b([^>]*?)\sdata-ref-img="([^"]+)"([^>]*)>/g, (all, a: string, name: string, b: string) => {
-    // data-ref-theme="dark": the dark-theme reference of a theme-dependent stage.
-    const dark = /\sdata-ref-theme="dark"/.test(a + b);
-    const src = embedded.get(`${w.id}#${name}${dark ? '#dark' : ''}`);
-    const st = w.stages.find((s) => s.name === name);
-    if (!src || !st) return all;
-    const rest = (a + b).replace(/\s(src|width|height)="[^"]*"/g, '');
-    return `<img${rest} data-ref-img="${name}" width="${st.w}" height="${st.h}" src="${src}">`;
-  });
-}
-
 function writeIfChanged(file: string, data: string | Buffer) {
   if (fs.existsSync(file) && Buffer.compare(fs.readFileSync(file), Buffer.from(data)) === 0) return;
   fs.writeFileSync(file, data);
@@ -224,10 +247,30 @@ function writeIfChanged(file: string, data: string | Buffer) {
 
 // ───────────── main ─────────────
 
+/** The size gate: every widget is a v1 mini-widget, with a margin. */
+function checkSize(w: Widget, html: string): string | null {
+  const z = sizeOf(html);
+  return z.raw > SIZE_LIMIT.raw || z.gzip6 > SIZE_LIMIT.gzip || z.gzip9 > SIZE_LIMIT.gzip
+    ? `${w.id}: ${z.gzip6} / ${z.gzip9} B gzipped (level 6 / 9), ${z.raw} B of HTML; the limit is ${SIZE_LIMIT.gzip} / ${SIZE_LIMIT.raw}`
+    : null;
+}
+
+/** --sizes: the built size of every widget and the gate, without a browser and without writing anything. */
+function sizesOnly(widgets: Widget[]) {
+  let over = 0;
+  for (const w of widgets) {
+    const html = withHarness(w), z = sizeOf(html), bad = checkSize(w, html);
+    if (bad) over++;
+    console.log(`${w.id.padEnd(40)} ${String(z.raw).padStart(6)} B  gzip ${String(z.gzip6).padStart(5)} / ${String(z.gzip9).padStart(5)}${bad ? `  OVER by ${Math.max(z.gzip6, z.gzip9) - SIZE_LIMIT.gzip}` : ''}`);
+  }
+  if (over) { console.log(`\n${over} widget(s) over the limit (${SIZE_LIMIT.gzip} B gzipped at level 6 and 9, ${SIZE_LIMIT.raw} B of HTML)`); process.exitCode = 1; }
+}
+
 async function main() {
+  const widgets = listWidgets(ONLY);
+  if (SIZES) return sizesOnly(widgets);
   emitCatalogue();
   const ids = new Set(CATALOGUE.map((f) => f.id));
-  const widgets = listWidgets(ONLY);
   const browsers: Record<string, Browser> = {};
   for (const e of ENGINES) {
     try { browsers[e] = await (e === 'webkit' ? webkit : chromium).launch(); }
@@ -239,16 +282,17 @@ async function main() {
   const prev = readJson<{ tests: any[] }>(manifestFile, { tests: [] });
   const entries = new Map<string, any>(prev.tests.map((t) => [t.id, t]));
   const problems: string[] = [];
+  const tooLarge: string[] = [];
 
   for (const w0 of widgets) {
     let html = withHarness(w0);
     const w = parseWidget(w0.set, w0.stem, html);
     process.stdout.write(`${w.id}: `);
     const refs = NO_REFS ? (entries.get(w.id)?.stages ?? []).reduce((m: any, s: any) => ({ ...m, [s.name]: s.refs }), {}) : await renderRefs(browsers, w, html);
-    const refImages = isSdk(w) ? (NO_REFS ? entries.get(w.id)?.refImages ?? {} : await renderSdkRefs(browsers.chromium, w, html)) : undefined;
-    const gzip = zlib.gzipSync(Buffer.from(html), { level: 9 }).length;
-    if (isSdk(w) && (gzip > MINI_LIMIT.gzip || Buffer.byteLength(html) > MINI_LIMIT.raw)) problems.push(`${w.id}: ${gzip} B gzipped / ${Buffer.byteLength(html)} B, over the mini-widget limit (${MINI_LIMIT.gzip} / ${MINI_LIMIT.raw})`);
-    if (w.set === 'visual') html = embed(w, html);
+    const refImages = w.set === 'visual' ? (NO_REFS ? entries.get(w.id)?.refImages ?? {} : await renderPictures(browsers.chromium, w, html)) : undefined;
+    const size = sizeOf(html);
+    const bad = checkSize(w, html);
+    if (bad) tooLarge.push(bad);
     writeIfChanged(w.file, html);
 
     const native: Record<string, NativeResult> = {};
@@ -296,12 +340,14 @@ async function main() {
       host: w.meta.host ?? [],
       checks: checks.map((c) => ({ id: c.id, name: c.name, native: c.native })),
       stages: w.stages.map((s, i) => ({ name: s.name, rect: stagePos(i), size: [s.w, s.h], covers: s.covers, themes: s.themes, reftest: s.reftest, maxDiff: s.maxDiff, colors: s.colors, xfail: s.xfail, refs: refs[s.name] ?? {}, nativeVsTemplate: sanity[s.name] })),
-      bytes: Buffer.byteLength(html),
-      gzip,
-      ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending, refImages } : {}),
+      bytes: size.raw,
+      gzip: size.gzip9,
+      gzip6: size.gzip6,
+      ...(refImages ? { refImages } : {}),
+      ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending } : {}),
     });
     const n = native.chromium.checks.reduce((m: Record<string, number>, c) => ({ ...m, [c[2]]: (m[c[2]] ?? 0) + 1 }), {});
-    console.log(`${checks.length} checks (chromium: ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ')}), ${w.stages.length} stages, ${(Buffer.byteLength(html) / 1024).toFixed(1)} KB (${(gzip / 1024).toFixed(1)} KB gzipped)`);
+    console.log(`${checks.length} checks (chromium: ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ')}), ${w.stages.length} stages, ${(size.raw / 1024).toFixed(1)} KB (${size.gzip6} / ${size.gzip9} B gzipped)${bad ? ' TOO LARGE' : ''}`);
   }
   for (const b of Object.values(browsers)) await b.close();
 
@@ -351,10 +397,50 @@ async function main() {
     ];
     fs.writeFileSync(path.join(CONF, 'visual', 'sdk', 'README.md'), lines.join('\n'));
   }
+  writeChannel(tests);
   emitCatalogue();
   console.log(`\nmanifest: ${tests.length} widgets; auto covers ${auto.size}, visual ${visual.size} of ${CATALOGUE.length}; in/candidate not in auto: ${needAuto.length}; out not in auto: ${outUncovered.length}`);
   if (needAuto.length) console.log('  not covered by auto: ' + needAuto.join(', '));
   if (problems.length) { console.log('\nproblems:'); for (const p of problems) console.log('  ' + p); }
+  if (tooLarge.length) {
+    console.log(`\ntoo large for a mini-widget (${SIZE_LIMIT.gzip} B gzipped at level 6 and 9, ${SIZE_LIMIT.raw} B of HTML):`);
+    for (const p of tooLarge) console.log('  ' + p);
+    process.exitCode = 1;
+  }
+}
+
+/**
+ * Size anchors (inputMediaWidget width / height, CSS px, 0 = auto) for widgets the test bot sends more than
+ * once or with a size: a header's "anchors" ([[width, height], …]) wins. 17-size-hint is sent three times (its hint).
+ */
+const ANCHORS: Record<string, [number, number][]> = { 'visual/sdk/17-size-hint': [[360, 180], [0, 300], [0, 0]] };
+
+/** channel.json: the test channel's posting order (the visual set, the client-SDK group, then the automatic set), one entry per message. */
+function writeChannel(tests: any[]) {
+  const order = (t: any) => (t.set === 'visual' ? (t.group === 'sdk' ? 1 : 0) : 2);
+  const posts: any[] = [];
+  for (const t of [...tests].sort((a, b) => order(a) - order(b) || a.id.localeCompare(b.id))) {
+    const header = parseWidget(t.set, t.id.slice(t.set.length + 1), fs.readFileSync(path.join(CONF, t.file), 'utf8')).meta as any;
+    const check = t.set === 'auto'
+      ? 'the widget checks itself: its result line at the bottom must say "done" and show no "fail" (each failure is listed under it)'
+      : t.group === 'sdk' ? `${t.hint ?? ''} The client must: ${t.expect ?? ''}` : t.hint ?? 'compare with the picture';
+    for (const [width, height] of header.anchors ?? ANCHORS[t.id] ?? [[0, 0]]) {
+      posts.push({
+        widget: t.file,
+        width, height,
+        caption: `${t.id} · ${t.title}. ${check}`.replace(/\s+/g, ' ').trim(),
+        photos: Object.values(t.refImages ?? {}),
+        gzip: Math.max(t.gzip, t.gzip6 ?? 0),
+        ...(t.pending ? { pending: t.pending } : {}),
+      });
+    }
+  }
+  const channel = {
+    $comment: 'Generated by scripts/conformance/build.ts: the test channel, in posting order. A test bot sends each widget as a layer-233 message (inputMediaWidget: html = the file, width / height = the anchors, 0 = auto) with its caption, then the photos (the reference pictures, light then dark) as a separate message next to it. Bots post only into private chats; the shared channel is filled by forwarding.',
+    version: 1,
+    posts,
+  };
+  fs.writeFileSync(path.join(CONF, 'channel.json'), JSON.stringify(channel, null, 1) + '\n');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

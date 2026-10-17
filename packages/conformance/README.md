@@ -11,21 +11,22 @@ For any client it answers the question: which profile features does it support?
 | | |
 |---|---|
 | [`catalogue.json`](catalogue.json) / [`catalogue.md`](catalogue.md) | 255 profile features with stable IDs (`css.display.grid`, `canvas.filter`, `tw.profile`, …). Each is marked in / out / candidate, with the decision it comes from (D3a, D3b, D4, D18, D23, the invariants, or `proposed` for the catalogue's own proposals), what the pipeline of the tag does with it (`today`: kept, stripped, replaced, resolved, … with profile 1 enforced and SDK v1; the legend is at the end of `catalogue.md`), and the keys a validator table would match. Profile 1 is frozen in `packages/core/profile.json` (2026-10-17), which is the source: the catalogue takes its statuses, decisions and neutralisations, so profile 1 has no candidates. `profile.json` lists the same 255 IDs, the SDK v1 limits and client behaviours included. The source is `scripts/conformance/catalogue.ts`; `emit-catalogue.ts` overlays `profile.json` when the branch has it. |
-| [`auto/`](auto) | **Automatic set**, 21 dense widgets for runners and CI. Each one asserts layout, computed style, APIs and events itself and publishes the result. Pixel stages are diffed against reference PNGs. |
-| [`visual/`](visual) | **Visual set**, 13 readable widgets for people (the shared Telegram test channel). Each row shows a group of features drawn live next to an embedded reference picture, with a one-line caption. Interactive rows carry a one-line instruction. Numbered in reading order. |
-| [`visual/sdk/`](visual/sdk) | **Client SDK group**, 17 mini-widgets (≤ 4 KB gzipped each, the v1 delivery limit) for what each client implements of SDK v1. Their reference pictures are separate files (`refs/visual/sdk/`), posted next to them; [`visual/sdk/README.md`](visual/sdk/README.md) is the post list. They use the mini harness (`harness/mini.js`). |
+| [`auto/`](auto) | **Automatic set**, 38 dense widgets for runners and CI (a topic too large for one mini-widget is split into parts: `03-layout-a`, `-b`, …). Each one asserts layout, computed style, APIs and events itself and publishes the result. Pixel stages are diffed against reference PNGs. |
+| [`visual/`](visual) | **Visual set**, 13 readable widgets for people (the shared Telegram test channel). Each row shows a group of features drawn live, with a one-line caption; the reference picture of the whole widget (`refs/visual/<widget>.png`, `.dark.png` for theme-dependent ones) is posted as a photo next to it. Interactive rows carry a one-line instruction. Numbered in reading order. |
+| [`visual/sdk/`](visual/sdk) | **Client SDK group**, 17 widgets for what each client implements of SDK v1. Their reference pictures are `refs/visual/sdk/<widget>.png`, posted next to them; [`visual/sdk/README.md`](visual/sdk/README.md) is the post list. They use the mini harness (`harness/mini.js`). |
+| [`channel.json`](channel.json) | The test channel in posting order: per message the widget, its size anchors, the caption and the reference photos. A test bot sends them as layer-233 messages. |
 | [`manifest.json`](manifest.json) | Per test: catalogue IDs, kind (self / pixel / interactive), stages with rects and reference files, scripted actions, host checks, themes, and what native Chromium answers to each check. Also coverage per set. |
-| [`refs/`](refs) | Reference PNGs for every stage: native headless Chromium (and WebKit when installed), DPR 2, dark variants for theme-dependent stages. |
+| [`refs/`](refs) | Reference PNGs for every stage (`refs/<set>/<widget>/<stage>.chromium[.dark].png`, for the automatic diff) and the pictures posted next to the visual and SDK widgets (`refs/visual/<widget>[.dark].png`): native headless Chromium (and WebKit when installed), DPR 2, the reference width 390. |
 | [`run.schema.json`](run.schema.json) | The run file every runner writes. |
 | [`tools/`](tools) | `report.mjs`, the report (run files → per-renderer JSON + `summary.md`); `diff.mjs`, the pixel rule; `png.mjs`. No dependencies, Node ≥ 18. |
-| [`harness/`](harness) | The harness inlined into every widget (checks, result attribute, stage swap for references). |
+| [`harness/`](harness) | The harness inlined into every widget: `harness.js` (checks, the result attribute; the build bundles only the functions a widget uses), `harness.css` + `auto.css` / `visual.css`, and `mini.js` / `mini.css` for the SDK group. |
 | [`results/`](results) | Reports of the renderers run so far, plus [`summary.md`](results/summary.md). |
 
 Coverage: the automatic set covers 245 of the 255 catalogue IDs. The other ten are listed under `coverage.external` in the manifest: four limits the attack suite and the server check, and six client behaviours the client SDK group tests. The visual set covers the 105 IDs that a person should also see: gradients, shadows, filters, text, canvas, animations, SVG, images, interaction, theme and the client SDK.
 
 ## How a widget reports
 
-Every widget is one self-contained HTML file: no external resources, `data:` images only. A product widget is mini-HTML (at most 4 KB after gzip and 32 KB uncompressed, `docs/tgw-format.md`); the conformance widgets are larger and travel as `.tgw` files in the test channel.
+Every widget is one self-contained HTML file: no external resources, `data:` images only. Every widget is a mini-widget, like a product widget (at most 4 KB after gzip and 32 KB uncompressed, `docs/tgw-format.md`): the build keeps each one under 3800 bytes of gzip at levels 6 and 9, since the server's level is unknown, and fails otherwise. A test bot sends every widget as a layer-233 message with its reference picture posted next to it, in the order of `channel.json`.
 
 The harness writes the result as JSON into the `data-conformance` attribute of `<html>`. Any host reads it from its own validated ops: it is the `attr` op on the element that the `el` op adopted as `html`.
 
@@ -46,10 +47,11 @@ Interactive widgets publish `targets`, the rects of what to tap or drag, measure
 
 The steps are in this order:
 
-1. Rebuild the set after editing a widget, the harness or the catalogue. This regenerates the catalogue, inlines the harness, renders the references and records the native answers in the manifest:
+1. Rebuild the set after editing a widget, the harness or the catalogue. This regenerates the catalogue, inlines the harness, renders the references and the posted pictures, records the native answers in the manifest and writes `channel.json`. It fails when a widget is over the size limit; `--sizes` checks only the sizes, in a second, without a browser:
 
    ```bash
    corepack pnpm tsx scripts/conformance/build.ts
+   corepack pnpm tsx scripts/conformance/build.ts --sizes
    ```
 
 2. Start the dev server. From a worktree, use a port no other checkout uses:
@@ -64,7 +66,7 @@ The steps are in this order:
    corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5175
    ```
 
-   The defaults are the product configuration: `strict`, `webAnimations`, width 390, DPR 2. Options: `--renderers shadow`, `--set auto`, `--only 12-canvas`, `--themes light,dark`, `--widths 360,390,430`.
+   The defaults are the product configuration: `strict`, `webAnimations`, width 390, DPR 2. Options: `--renderers shadow`, `--set auto`, `--only 12-canvas-a`, `--themes light,dark`, `--widths 360,390,430`.
 
 4. Judge the run files into the reports. This is the same tool the clients run:
 
@@ -87,20 +89,20 @@ The steps are in this order:
   | `T.target(name, el)` | Publishes a tap or drag target. |
   | `T.run({awaitInput, deadline})` | Starts the widget. |
 
-  Options: `opts.xfail: 'reason'` for known gaps, `opts.sandboxOnly` for what a plain browser cannot do.
+  Options: `opts.xfail: 'reason'` for known gaps, `opts.sandboxOnly` for what a plain browser cannot do. Also `T.rect`, `T.cs`, `T.color`, `T.stage`, `T.skip`, `T.sandbox`, `T.mode`. The build inlines only the functions a widget calls, minified, so the harness costs about 0.9 KB of gzip in a visual widget and 1.3–1.6 KB in an automatic one.
 - Pixel stages are `<div data-stage="name" data-covers="ids" [data-themes] [data-max-diff] [data-colors] [data-xfail]>` with fixed colours on the white stage:
   - auto set: an 80×60 grid at the top;
   - visual set: 150×90, in flow.
 
   A `<template data-ref="name">` at the end of the body gives the expected rendering when it differs from what Chromium draws. Script-drawn stages go through `T.stage(name, draw)`.
 - Keep auto widgets under 600 px tall (the host cap since v0.1.0) and keep layout above the probes stable.
-- No external URLs except the CDN names of the bundled libraries.
+- Keep every widget under the size limit (`build.ts --sizes`). When a topic outgrows it, split it into parts (`NN-topic-a`, `-b`) with the same check ids and names, rather than trimming what a check measures.
+- No external URLs; v1 has no bundled libraries.
 
-The client SDK group's pictures come from the same build. `scripts/conformance/sdk-mock.js` is a stand-in for `TelegramWidget` that follows the contract and uses a reference palette. Only the build injects it, so the pictures show the "SDK present" state. The build also flags any widget of the group over 4 KB gzipped or 32 KB.
+The posted pictures come from the same build: the whole widget in reference mode (templates swapped in) at 390 px, DPR 2, on the reference palette's background. For the client SDK group, `scripts/conformance/sdk-mock.js` is a stand-in for `TelegramWidget` that follows the contract and uses that palette, so the pictures show the "SDK present" state; the visual set gets only the palette. Only the build injects it.
 
 ## Known limits
 
-- The automatic set (5.1–8.4 KB gzipped) and the visual set `visual/01…13` (5.4–54.6 KB, embedded pictures) do not fit a mini-widget: the server rejects them with `INPUT_MEDIA_WIDGET_TOO_LARGE`, so no bot can send them. In the test channel they stay as `.tgw` files, rendered by the clients under their debug flag through the same path as `messageMediaWidget` from the gunzipped file, until the tests are split into pieces of at most 4 KB. `visual/sdk` fits and travels as real layer-233 messages (a test bot, then forwarding).
 - References come from headless Chromium on macOS. WebKit references appear once Playwright's WebKit is installed, and the rule then takes the better of the two.
 - Text stages depend on platform fonts. They allow 50 % of the ink but check the feature's colours.
 - The web runner gives the canvas renderers (Blitz and litehtml wasm prototypes, which are not product renderers) only synthetic taps. Drags, hover, keys and wheel are skipped there, and so are gesture-gated host checks.

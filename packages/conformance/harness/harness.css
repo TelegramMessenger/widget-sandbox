@@ -1,19 +1,4 @@
-html,body{margin:0;padding:0}
-body{font:13px/1.35 system-ui,sans-serif;color:#111;background:transparent}
+html,body{margin:0}
+body{font:13px/1.35 system-ui,sans-serif;color:#111}
 @media (prefers-color-scheme:dark){body{color:#e8e8e8}}
 [data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}
-.conf-stages{position:relative}
-.conf-stages>[data-stage]{position:absolute}
-.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#conf-summary{font-weight:400;margin-left:6px}
-#conf-summary.good{color:#1a7f37}
-#conf-summary.bad{color:#c62828}
-#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;overflow-wrap:anywhere}
-.conf-probes{margin:0 8px}
-.v-head{margin:8px 10px 2px;font-weight:600;font-size:15px}
-.v-hint{margin:0 10px 6px;font-size:12px}
-.v-row{display:flex;flex-wrap:wrap;align-items:flex-start;margin:6px 10px 10px}
-.v-row>[data-stage]{margin-right:8px}
-.v-ref{display:block;background:#fff}
-.v-cap{width:100%;margin-top:3px;font-size:12px}
-.v-tag{font-size:10px;font-weight:600;margin-right:4px;padding:0 4px;border-radius:3px;background:#8884}

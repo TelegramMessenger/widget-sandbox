@@ -10,24 +10,25 @@ You need three things: the framework tag, your own host and renderer, and Node �
 
 | | |
 |---|---|
-| `auto/*.html` | The automatic set: 21 widgets that check themselves. Required. |
+| `auto/*.html` | The automatic set: 38 widgets that check themselves. Required. |
 | `visual/*.html` | The visual set: 13 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
+| `channel.json` | The test channel in posting order: per message the widget, its size anchors, the caption and the reference photos. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
 | `catalogue.json` | The profile features with their IDs and status (in / out), as `packages/core/profile.json` freezes them, plus the SDK v1 limits, and what the framework does with each (`today`; legend in `catalogue.md`). `version` is the profile version. |
-| `refs/` | Reference PNGs of the stages (headless Chromium, DPR 2). |
+| `refs/` | Reference PNGs of the stages (headless Chromium, DPR 2), and the pictures posted next to the visual and SDK widgets (`refs/visual/<widget>[.dark].png`). |
 | `run.schema.json` | The run file your runner writes. |
 | `tools/report.mjs` | Turns run files into the report. |
 | `tools/diff.mjs` | The pixel rule, if you prefer to judge stages yourself. |
 
-The widgets are ordinary widget HTML: one file, `data:` images only, no network. Load them exactly as you load a widget from a message.
+The widgets are ordinary widget HTML: one file, `data:` images only, no network, each a mini-widget (under 4 KB of gzip). Load them exactly as you load a widget from a message.
 
 ## What a widget tells you
 
 Each widget runs its checks and publishes the result as JSON in the `data-conformance` attribute of its `<html>` element:
 
 ```json
-{"v":1,"id":"auto/03-layout","status":"done",
- "n":{"pass":53,"fail":0,"xfail":2,"xpass":0,"skip":0,"pending":0},
+{"v":1,"id":"auto/03-layout-a","status":"done",
+ "n":{"pass":17,"fail":0,"xfail":0,"xpass":0,"skip":0,"pending":0},
  "checks":[["css.display.flex","row places children side by side","pass",""], …],
  "targets":{"knob":[x,y,w,h]}, "stages":{"flex":[8,8,80,60]}}
 ```
@@ -86,9 +87,9 @@ Write everything into one run file per renderer, following `run.schema.json`:
   "platform": "ios", "renderer": "wkwebview", "engine": "iOS 26.1, iPhone 17", "framework": "v1.0.0",
   "policy": "strict", "features": ["webAnimations"], "date": "2026-10-20T10:00:00Z",
   "runs": [{
-    "id": "auto/03-layout", "theme": "light", "width": 390, "loaded": true, "dead": null, "status": "done",
+    "id": "auto/03-layout-a", "theme": "light", "width": 390, "loaded": true, "dead": null, "status": "done",
     "checks": [["css.display.flex", "row places children side by side", "pass", ""]],
-    "stages": [{ "name": "flex", "crop": "crops/03-layout.light.flex.png" }],
+    "stages": [{ "name": "flex", "crop": "crops/03-layout-a.light.flex.png" }],
     "observed": { "bridge": [], "height": 512, "chatFocused": true, "syntheticInput": false },
     "skippedActions": [], "errors": []
   }]
@@ -180,9 +181,11 @@ The automatic set checks the framework side of the same contract. In `auto/16`, 
 
 They need SDK v1 in the framework (`docs/sdk-v1.md`).
 
-## The visual set in the test channel
+## The whole set in the test channel
 
-`visual/01…13` are numbered in reading order. They are larger than 4 KB gzipped (5.4–54.6 KB), so the server rejects them with `INPUT_MEDIA_WIDGET_TOO_LARGE` and no bot can send them: they stay in the channel as `.tgw` files (gzip of the HTML), which your client renders under its debug flag through the same path as `messageMediaWidget`, from the gunzipped file, until the tests are split into pieces of at most 4 KB. The `visual/sdk` widgets fit the limit and travel as real layer-233 messages: a test bot sends them to a tester's private chat and the messages are forwarded into the channel. Each row shows the widget drawn live by your client next to the reference picture, with one line saying what to compare. Interactive rows say what to tap or drag. Testers scroll through on a phone and report a row that does not match, with a screenshot. Fonts differ between platforms by design: compare the structure, not the letter shapes.
+Every widget of the set is a mini-widget, so a test bot sends all of them as real layer-233 messages (`inputMediaWidget` with the HTML; bots may post only into private chats, so a tester forwards them into the shared channel). `channel.json` is the posting order: the visual set (`visual/01…13`, in reading order), the client SDK group, then the automatic set. Each post has the widget, its size anchors (`width` / `height`, `0` = auto), a caption saying what to check, and the reference photos to post right after it: `refs/visual/<widget>.png`, plus `.dark.png` for the theme-dependent ones.
+
+In a visual widget each row shows a group of features drawn live by your client, with one line saying what to compare with the same row of the picture. Interactive rows say what to tap or drag. Testers scroll through on a phone and report a row that does not match, with a screenshot. Fonts differ between platforms by design: compare the structure, not the letter shapes. An automatic widget reports itself: its result line at the bottom must say `done` and show no `fail` count (each failing check is listed under it). `.tgw` is only a local development format; nothing in the channel needs it.
 
 ## When the framework changes
 

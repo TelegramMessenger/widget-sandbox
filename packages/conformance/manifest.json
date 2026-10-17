@@ -34,40 +34,27 @@
    "behaviour.restart": "visual/sdk/11-crash-restart (client behaviour)",
    "behaviour.gesture-claim": "visual/sdk/12-drag-gestures (client behaviour)",
    "behaviour.storage-persist": "visual/sdk/07, 08, 09 (client behaviour)",
-   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour)",
-   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour)",
-   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour)"
+   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour; waits for the server)",
+   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour; waits for the server)",
+   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour; waits for the server)"
   },
   "notInAuto": [],
   "outNotInAuto": []
  },
  "tests": [
   {
-   "id": "auto/01-html-elements",
+   "id": "auto/01-html-elements-a",
    "set": "auto",
-   "file": "auto/01-html-elements.html",
-   "title": "HTML elements and their UA styles: text, headings, sections, lists, tables, ruby, legacy, unknown, details, button, links, gauges",
+   "file": "auto/01-html-elements-a.html",
+   "title": "HTML elements and their UA styles: text structure, headings, sections, inline text",
    "kind": [
     "self"
    ],
    "covers": [
-    "html.el.a-external",
-    "html.el.a-fragment",
-    "html.el.blockquote",
-    "html.el.button",
-    "html.el.details",
     "html.el.headings",
     "html.el.inline-text",
-    "html.el.legacy",
-    "html.el.lists",
-    "html.el.pre",
-    "html.el.progress-meter",
-    "html.el.ruby",
     "html.el.sections",
-    "html.el.structure",
-    "html.el.sub-sup",
-    "html.el.table",
-    "html.el.unknown"
+    "html.el.structure"
    ],
    "themes": [
     "light"
@@ -184,21 +171,39 @@
      "native": {
       "chromium": "pass"
      }
-    },
-    {
-     "id": "html.el.sub-sup",
-     "name": "sub sits lower, sup higher",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "html.el.sub-sup",
-     "name": "sub and sup are smaller",
-     "native": {
-      "chromium": "pass"
-     }
-    },
+    }
+   ],
+   "stages": [],
+   "bytes": 7737,
+   "gzip": 3499,
+   "gzip6": 3501
+  },
+  {
+   "id": "auto/01-html-elements-b",
+   "set": "auto",
+   "file": "auto/01-html-elements-b.html",
+   "title": "HTML elements and their UA styles: pre, blockquote, lists, tables, ruby",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "html.el.blockquote",
+    "html.el.lists",
+    "html.el.pre",
+    "html.el.ruby",
+    "html.el.table"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
     {
      "id": "html.el.pre",
      "name": "pre keeps the line break",
@@ -309,6 +314,55 @@
      "name": "rt keeps the text size (a plain span)",
      "native": {
       "chromium": "fail"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 6678,
+   "gzip": 3114,
+   "gzip6": 3114
+  },
+  {
+   "id": "auto/01-html-elements-c",
+   "set": "auto",
+   "file": "auto/01-html-elements-c.html",
+   "title": "HTML elements and their UA styles: sub/sup, legacy, unknown, details, button, links, gauges",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "html.el.a-external",
+    "html.el.a-fragment",
+    "html.el.button",
+    "html.el.details",
+    "html.el.legacy",
+    "html.el.progress-meter",
+    "html.el.sub-sup",
+    "html.el.unknown"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "html.el.sub-sup",
+     "name": "sub sits lower, sup higher",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "html.el.sub-sup",
+     "name": "sub and sup are smaller",
+     "native": {
+      "chromium": "pass"
      }
     },
     {
@@ -439,17 +493,17 @@
     }
    ],
    "stages": [],
-   "bytes": 22963,
-   "gzip": 7865
+   "bytes": 7882,
+   "gzip": 3484,
+   "gzip6": 3488
   },
   {
-   "id": "auto/02-attributes-images",
+   "id": "auto/02-attributes-images-a",
    "set": "auto",
-   "file": "auto/02-attributes-images.html",
-   "title": "Global attributes, dir, data-/aria-, legacy presentational attributes, inline handlers, out-of-profile attributes; <img> formats, remote images",
+   "file": "auto/02-attributes-images-a.html",
+   "title": "Global attributes, dir, data-/aria-, legacy presentational attributes, inline handlers, out-of-profile attributes; img width/height, picture",
    "kind": [
-    "self",
-    "pixel"
+    "self"
    ],
    "covers": [
     "html.attr.contenteditable",
@@ -460,10 +514,7 @@
     "html.attr.global",
     "html.attr.legacy-presentational",
     "html.attr.tabindex",
-    "html.el.img",
-    "html.el.img-other-formats",
-    "html.el.img-remote",
-    "html.el.img-svg"
+    "html.el.img"
    ],
    "themes": [
     "light"
@@ -476,48 +527,6 @@
    "actions": [],
    "host": [],
    "checks": [
-    {
-     "id": "html.el.img",
-     "name": "PNG decodes (naturalWidth 2)",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "html.el.img",
-     "name": "GIF decodes (naturalWidth 1)",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "html.el.img-svg",
-     "name": "an SVG image is refused: the 48px placeholder (profile 1: out)",
-     "native": {
-      "chromium": "fail"
-     }
-    },
-    {
-     "id": "html.el.img-other-formats",
-     "name": "BMP is refused (placeholder, not the 2px image)",
-     "native": {
-      "chromium": "fail"
-     }
-    },
-    {
-     "id": "html.el.img-other-formats",
-     "name": "ICO is refused (placeholder, not the 2px image)",
-     "native": {
-      "chromium": "fail"
-     }
-    },
-    {
-     "id": "html.el.img-remote",
-     "name": "a remote image becomes the 48px placeholder",
-     "native": {
-      "chromium": "skip"
-     }
-    },
     {
      "id": "html.el.img",
      "name": "width/height attributes size the image",
@@ -645,6 +654,80 @@
      }
     }
    ],
+   "stages": [],
+   "bytes": 8008,
+   "gzip": 3431,
+   "gzip6": 3432
+  },
+  {
+   "id": "auto/02-attributes-images-b",
+   "set": "auto",
+   "file": "auto/02-attributes-images-b.html",
+   "title": "<img> formats, remote images",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "html.el.img",
+    "html.el.img-other-formats",
+    "html.el.img-remote",
+    "html.el.img-svg"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "html.el.img",
+     "name": "PNG decodes (naturalWidth 2)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "html.el.img",
+     "name": "GIF decodes (naturalWidth 1)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "html.el.img-svg",
+     "name": "an SVG image is refused: the 48px placeholder (profile 1: out)",
+     "native": {
+      "chromium": "fail"
+     }
+    },
+    {
+     "id": "html.el.img-other-formats",
+     "name": "BMP is refused (placeholder, not the 2px image)",
+     "native": {
+      "chromium": "fail"
+     }
+    },
+    {
+     "id": "html.el.img-other-formats",
+     "name": "ICO is refused (placeholder, not the 2px image)",
+     "native": {
+      "chromium": "fail"
+     }
+    },
+    {
+     "id": "html.el.img-remote",
+     "name": "a remote image becomes the 48px placeholder",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
    "stages": [
     {
      "name": "raster",
@@ -666,7 +749,7 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/02-attributes-images/raster.chromium.png"
+      "chromium": "refs/auto/02-attributes-images-b/raster.chromium.png"
      },
      "nativeVsTemplate": 0
     },
@@ -690,48 +773,29 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/02-attributes-images/svgimg.chromium.png"
+      "chromium": "refs/auto/02-attributes-images-b/svgimg.chromium.png"
      },
      "nativeVsTemplate": 0.9853
     }
    ],
-   "bytes": 22421,
-   "gzip": 7356
+   "bytes": 9004,
+   "gzip": 3501,
+   "gzip6": 3506
   },
   {
-   "id": "auto/03-layout",
+   "id": "auto/03-layout-a",
    "set": "auto",
-   "file": "auto/03-layout.html",
-   "title": "Layout and box model: display, flex, gap, grid, table, sizes, spacing, positioning, overflow",
+   "file": "auto/03-layout-a.html",
+   "title": "Layout and box model (1/3): display, flex, gap, grid",
    "kind": [
     "self",
     "pixel"
    ],
    "covers": [
-    "css.box.aspect-ratio",
-    "css.box.border",
-    "css.box.columns",
-    "css.box.float",
-    "css.box.logical",
-    "css.box.outline",
-    "css.box.radius",
-    "css.box.size",
-    "css.box.sizing",
-    "css.box.spacing",
     "css.display.basic",
     "css.display.flex",
     "css.display.grid",
-    "css.display.other",
-    "css.display.table",
-    "css.gap.flex",
-    "css.opacity",
-    "css.overflow.clip",
-    "css.overflow.scroll",
-    "css.position.fixed",
-    "css.position.relative-absolute",
-    "css.position.sticky",
-    "css.position.z-index",
-    "css.visibility"
+    "css.gap.flex"
    ],
    "themes": [
     "light"
@@ -862,28 +926,94 @@
      "native": {
       "chromium": "pass"
      }
+    }
+   ],
+   "stages": [
+    {
+     "name": "flex",
+     "rect": [
+      8,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.display.flex",
+      "css.gap.flex"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/03-layout-a/flex.chromium.png"
+     },
+     "nativeVsTemplate": 0
     },
     {
-     "id": "css.display.table",
-     "name": "table cells side by side, the second takes the rest",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "css.display.other",
-     "name": "display: flow-root is dropped: the float is not contained (profile 1: out)",
-     "native": {
-      "chromium": "fail"
-     }
-    },
-    {
-     "id": "css.display.other",
-     "name": "display: contents is dropped: the span stays one flex item",
-     "native": {
-      "chromium": "fail"
-     }
-    },
+     "name": "grid",
+     "rect": [
+      96,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.display.grid"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/03-layout-a/grid.chromium.png"
+     },
+     "nativeVsTemplate": 0
+    }
+   ],
+   "bytes": 10062,
+   "gzip": 3585,
+   "gzip6": 3594
+  },
+  {
+   "id": "auto/03-layout-b",
+   "set": "auto",
+   "file": "auto/03-layout-b.html",
+   "title": "Layout and box model (2/3): sizes, spacing, border, box-sizing, aspect-ratio, logical properties, outline, float, columns",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "css.box.aspect-ratio",
+    "css.box.border",
+    "css.box.columns",
+    "css.box.float",
+    "css.box.logical",
+    "css.box.outline",
+    "css.box.size",
+    "css.box.sizing",
+    "css.box.spacing"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
     {
      "id": "css.box.size",
      "name": "width: 50%",
@@ -1030,6 +1160,90 @@
      "native": {
       "chromium": "fail"
      }
+    }
+   ],
+   "stages": [
+    {
+     "name": "border",
+     "rect": [
+      8,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.box.border"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": false,
+     "refs": {
+      "chromium": "refs/auto/03-layout-b/border.chromium.png"
+     }
+    }
+   ],
+   "bytes": 8487,
+   "gzip": 3452,
+   "gzip6": 3456
+  },
+  {
+   "id": "auto/03-layout-c",
+   "set": "auto",
+   "file": "auto/03-layout-c.html",
+   "title": "Layout and box model (3/3): table, flow-root, contents, radius, positioning, z-index, overflow, visibility, opacity",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "css.box.radius",
+    "css.display.other",
+    "css.display.table",
+    "css.opacity",
+    "css.overflow.clip",
+    "css.overflow.scroll",
+    "css.position.fixed",
+    "css.position.relative-absolute",
+    "css.position.sticky",
+    "css.position.z-index",
+    "css.visibility"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "css.display.table",
+     "name": "table cells side by side, the second takes the rest",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.other",
+     "name": "display: flow-root is dropped: the float is not contained (profile 1: out)",
+     "native": {
+      "chromium": "fail"
+     }
+    },
+    {
+     "id": "css.display.other",
+     "name": "display: contents is dropped: the span stays one flex item",
+     "native": {
+      "chromium": "fail"
+     }
     },
     {
      "id": "css.position.relative-absolute",
@@ -1132,58 +1346,9 @@
    ],
    "stages": [
     {
-     "name": "flex",
-     "rect": [
-      8,
-      8,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.display.flex",
-      "css.gap.flex"
-     ],
-     "themes": [
-      "light"
-     ],
-     "reftest": true,
-     "refs": {
-      "chromium": "refs/auto/03-layout/flex.chromium.png"
-     },
-     "nativeVsTemplate": 0
-    },
-    {
-     "name": "grid",
-     "rect": [
-      96,
-      8,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.display.grid"
-     ],
-     "themes": [
-      "light"
-     ],
-     "reftest": true,
-     "refs": {
-      "chromium": "refs/auto/03-layout/grid.chromium.png"
-     },
-     "nativeVsTemplate": 0
-    },
-    {
      "name": "radius",
      "rect": [
-      184,
+      8,
       8,
       80,
       60
@@ -1201,35 +1366,13 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/03-layout/radius.chromium.png"
-     }
-    },
-    {
-     "name": "border",
-     "rect": [
-      272,
-      8,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.box.border"
-     ],
-     "themes": [
-      "light"
-     ],
-     "reftest": false,
-     "refs": {
-      "chromium": "refs/auto/03-layout/border.chromium.png"
+      "chromium": "refs/auto/03-layout-c/radius.chromium.png"
      }
     }
    ],
-   "bytes": 29181,
-   "gzip": 8595
+   "bytes": 9296,
+   "gzip": 3645,
+   "gzip6": 3646
   },
   {
    "id": "auto/04-values-units",
@@ -1486,32 +1629,24 @@
     }
    ],
    "stages": [],
-   "bytes": 17972,
-   "gzip": 6036
+   "bytes": 9381,
+   "gzip": 3738,
+   "gzip6": 3740
   },
   {
-   "id": "auto/05-colour-backgrounds",
+   "id": "auto/05-colour-backgrounds-a",
    "set": "auto",
-   "file": "auto/05-colour-backgrounds.html",
-   "title": "Colours, colour functions, light-dark(), backgrounds and data: images, gradients, box-shadow, outline, object-fit",
+   "file": "auto/05-colour-backgrounds-a.html",
+   "title": "Colour and backgrounds (1/2): colours, colour functions, light-dark()",
    "kind": [
     "self",
     "pixel"
    ],
    "covers": [
-    "css.background.basic",
-    "css.background.clip-text",
-    "css.box.object-fit",
-    "css.box.outline",
-    "css.box.shadow",
     "css.color.basic",
     "css.color.light-dark",
     "css.color.mix",
-    "css.color.modern",
-    "css.gradient.conic",
-    "css.gradient.linear",
-    "css.gradient.radial",
-    "css.url.remote"
+    "css.color.modern"
    ],
    "themes": [
     "light",
@@ -1573,7 +1708,142 @@
      "native": {
       "chromium": "fail"
      }
+    }
+   ],
+   "stages": [
+    {
+     "name": "basic",
+     "rect": [
+      8,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.color.basic"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/05-colour-backgrounds-a/basic.chromium.png"
+     },
+     "nativeVsTemplate": 0
     },
+    {
+     "name": "modern",
+     "rect": [
+      96,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.color.modern"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/05-colour-backgrounds-a/modern.chromium.png"
+     },
+     "nativeVsTemplate": 1
+    },
+    {
+     "name": "mix",
+     "rect": [
+      184,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.color.mix"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/05-colour-backgrounds-a/mix.chromium.png"
+     },
+     "nativeVsTemplate": 1
+    },
+    {
+     "name": "light-dark",
+     "rect": [
+      272,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.color.light-dark"
+     ],
+     "themes": [
+      "light",
+      "dark"
+     ],
+     "reftest": false,
+     "refs": {
+      "chromium": "refs/auto/05-colour-backgrounds-a/light-dark.chromium.png",
+      "chromium.dark": "refs/auto/05-colour-backgrounds-a/light-dark.chromium.dark.png"
+     }
+    }
+   ],
+   "bytes": 6947,
+   "gzip": 2826,
+   "gzip6": 2830
+  },
+  {
+   "id": "auto/05-colour-backgrounds-b",
+   "set": "auto",
+   "file": "auto/05-colour-backgrounds-b.html",
+   "title": "Colour and backgrounds (2/2): backgrounds and data: images, gradients, box-shadow, outline, object-fit",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "css.background.basic",
+    "css.background.clip-text",
+    "css.box.object-fit",
+    "css.box.outline",
+    "css.box.shadow",
+    "css.gradient.conic",
+    "css.gradient.linear",
+    "css.gradient.radial",
+    "css.url.remote"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
     {
      "id": "css.background.basic",
      "name": "background-image keeps the data: image",
@@ -1612,107 +1882,10 @@
    ],
    "stages": [
     {
-     "name": "basic",
-     "rect": [
-      8,
-      8,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.color.basic"
-     ],
-     "themes": [
-      "light"
-     ],
-     "reftest": true,
-     "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/basic.chromium.png"
-     },
-     "nativeVsTemplate": 0
-    },
-    {
-     "name": "modern",
-     "rect": [
-      96,
-      8,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.color.modern"
-     ],
-     "themes": [
-      "light"
-     ],
-     "reftest": true,
-     "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/modern.chromium.png"
-     },
-     "nativeVsTemplate": 1
-    },
-    {
-     "name": "mix",
-     "rect": [
-      184,
-      8,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.color.mix"
-     ],
-     "themes": [
-      "light"
-     ],
-     "reftest": true,
-     "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/mix.chromium.png"
-     },
-     "nativeVsTemplate": 1
-    },
-    {
-     "name": "light-dark",
-     "rect": [
-      272,
-      8,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.color.light-dark"
-     ],
-     "themes": [
-      "light",
-      "dark"
-     ],
-     "reftest": false,
-     "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/light-dark.chromium.png",
-      "chromium.dark": "refs/auto/05-colour-backgrounds/light-dark.chromium.dark.png"
-     }
-    },
-    {
      "name": "background",
      "rect": [
       8,
-      76,
+      8,
       80,
       60
      ],
@@ -1728,14 +1901,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/background.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/background.chromium.png"
      }
     },
     {
      "name": "clip-text",
      "rect": [
       96,
-      76,
+      8,
       80,
       60
      ],
@@ -1756,7 +1929,7 @@
       "#36c"
      ],
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/clip-text.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/clip-text.chromium.png"
      },
      "nativeVsTemplate": 0.5998
     },
@@ -1764,7 +1937,7 @@
      "name": "linear",
      "rect": [
       184,
-      76,
+      8,
       80,
       60
      ],
@@ -1780,14 +1953,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/linear.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/linear.chromium.png"
      }
     },
     {
      "name": "radial",
      "rect": [
       272,
-      76,
+      8,
       80,
       60
      ],
@@ -1803,14 +1976,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/radial.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/radial.chromium.png"
      }
     },
     {
      "name": "conic",
      "rect": [
       8,
-      144,
+      76,
       80,
       60
      ],
@@ -1826,14 +1999,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/conic.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/conic.chromium.png"
      }
     },
     {
      "name": "shadow",
      "rect": [
       96,
-      144,
+      76,
       80,
       60
      ],
@@ -1849,14 +2022,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/shadow.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/shadow.chromium.png"
      }
     },
     {
      "name": "outline",
      "rect": [
       184,
-      144,
+      76,
       80,
       60
      ],
@@ -1872,14 +2045,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/outline.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/outline.chromium.png"
      }
     },
     {
      "name": "object-fit",
      "rect": [
       272,
-      144,
+      76,
       80,
       60
      ],
@@ -1895,22 +2068,22 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/05-colour-backgrounds/object-fit.chromium.png"
+      "chromium": "refs/auto/05-colour-backgrounds-b/object-fit.chromium.png"
      },
      "nativeVsTemplate": 0.0143
     }
    ],
-   "bytes": 21224,
-   "gzip": 6548
+   "bytes": 8311,
+   "gzip": 3201,
+   "gzip6": 3200
   },
   {
-   "id": "auto/06-text-fonts",
+   "id": "auto/06-text-fonts-a",
    "set": "auto",
-   "file": "auto/06-text-fonts.html",
-   "title": "Fonts (generic families, named families and @font-face out), font properties, tabular numbers, alignment, decoration, transforms, white-space, wrapping, ellipsis, line clamp, text-shadow, vertical-align, lists, writing-mode, RTL and shaping, emoji, selection",
+   "file": "auto/06-text-fonts-a.html",
+   "title": "Fonts (generic families, named families and @font-face out), font properties, tabular numbers",
    "kind": [
-    "self",
-    "pixel"
+    "self"
    ],
    "covers": [
     "css.font.basic",
@@ -1918,21 +2091,7 @@
     "css.font.generic",
     "css.font.named",
     "css.font.ui-families",
-    "css.font.variant-numeric",
-    "css.text.align",
-    "css.text.decoration",
-    "css.text.emoji",
-    "css.text.line-clamp",
-    "css.text.list-style",
-    "css.text.overflow",
-    "css.text.rtl",
-    "css.text.selection",
-    "css.text.shadow",
-    "css.text.transform",
-    "css.text.vertical-align",
-    "css.text.white-space",
-    "css.text.wrap",
-    "css.text.writing-mode"
+    "css.font.variant-numeric"
    ],
    "themes": [
     "light"
@@ -2063,7 +2222,43 @@
      "native": {
       "chromium": "pass"
      }
-    },
+    }
+   ],
+   "stages": [],
+   "bytes": 7958,
+   "gzip": 3205,
+   "gzip6": 3206
+  },
+  {
+   "id": "auto/06-text-fonts-b",
+   "set": "auto",
+   "file": "auto/06-text-fonts-b.html",
+   "title": "Alignment, decoration, transforms, white-space, wrapping, line clamp, vertical-align, lists, writing-mode",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "css.text.align",
+    "css.text.decoration",
+    "css.text.line-clamp",
+    "css.text.list-style",
+    "css.text.transform",
+    "css.text.vertical-align",
+    "css.text.white-space",
+    "css.text.wrap",
+    "css.text.writing-mode"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
     {
      "id": "css.text.align",
      "name": "text-align: center",
@@ -2196,7 +2391,41 @@
      "native": {
       "chromium": "fail"
      }
-    },
+    }
+   ],
+   "stages": [],
+   "bytes": 8385,
+   "gzip": 3356,
+   "gzip6": 3357
+  },
+  {
+   "id": "auto/06-text-fonts-c",
+   "set": "auto",
+   "file": "auto/06-text-fonts-c.html",
+   "title": "Ellipsis, text-shadow, emoji and decoration (pixels), RTL and shaping, emoji, selection",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "css.text.decoration",
+    "css.text.emoji",
+    "css.text.overflow",
+    "css.text.rtl",
+    "css.text.selection",
+    "css.text.shadow"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
     {
      "id": "css.text.rtl",
      "name": "Hebrew in dir=rtl starts at the right edge",
@@ -2265,7 +2494,7 @@
       "#36c"
      ],
      "refs": {
-      "chromium": "refs/auto/06-text-fonts/ellipsis.chromium.png"
+      "chromium": "refs/auto/06-text-fonts-c/ellipsis.chromium.png"
      }
     },
     {
@@ -2293,7 +2522,7 @@
       "#36c"
      ],
      "refs": {
-      "chromium": "refs/auto/06-text-fonts/text-shadow.chromium.png"
+      "chromium": "refs/auto/06-text-fonts-c/text-shadow.chromium.png"
      },
      "nativeVsTemplate": 0.3521
     },
@@ -2318,7 +2547,7 @@
      "reftest": false,
      "maxDiff": 0.5,
      "refs": {
-      "chromium": "refs/auto/06-text-fonts/emoji.chromium.png"
+      "chromium": "refs/auto/06-text-fonts-c/emoji.chromium.png"
      }
     },
     {
@@ -2346,33 +2575,24 @@
       "#36c"
      ],
      "refs": {
-      "chromium": "refs/auto/06-text-fonts/decoration.chromium.png"
+      "chromium": "refs/auto/06-text-fonts-c/decoration.chromium.png"
      }
     }
    ],
-   "bytes": 24655,
-   "gzip": 7744
+   "bytes": 6719,
+   "gzip": 2974,
+   "gzip6": 2976
   },
   {
-   "id": "auto/07-selectors",
+   "id": "auto/07-selectors-a",
    "set": "auto",
-   "file": "auto/07-selectors.html",
-   "title": "Selectors: type, class, id, attributes, combinators, structural pseudo-classes, :is/:where, :has, :root, pseudo-elements, :hover kept, :focus and host-scoped selectors out",
+   "file": "auto/07-selectors-a.html",
+   "title": "Selectors: type, class, id, attributes, combinators",
    "kind": [
     "self"
    ],
    "covers": [
-    "sel.basic",
-    "sel.before-after",
-    "sel.first-letter-line",
-    "sel.focus",
-    "sel.has",
-    "sel.host-scoped",
-    "sel.hover",
-    "sel.is-where",
-    "sel.root",
-    "sel.structural",
-    "sel.target"
+    "sel.basic"
    ],
    "themes": [
     "light"
@@ -2496,7 +2716,45 @@
      "native": {
       "chromium": "pass"
      }
-    },
+    }
+   ],
+   "stages": [],
+   "bytes": 5971,
+   "gzip": 2611,
+   "gzip6": 2612
+  },
+  {
+   "id": "auto/07-selectors-b",
+   "set": "auto",
+   "file": "auto/07-selectors-b.html",
+   "title": "Selectors: structural pseudo-classes, :is/:where, :has, :root, pseudo-elements, :hover kept, :focus and host-scoped selectors out",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "sel.basic",
+    "sel.before-after",
+    "sel.first-letter-line",
+    "sel.focus",
+    "sel.has",
+    "sel.host-scoped",
+    "sel.hover",
+    "sel.is-where",
+    "sel.root",
+    "sel.structural",
+    "sel.target"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
     {
      "id": "sel.structural",
      "name": ":first-child, :nth-child(3), :nth-last-child(2), :last-child",
@@ -2639,8 +2897,9 @@
     }
    ],
    "stages": [],
-   "bytes": 19344,
-   "gzip": 6314
+   "bytes": 8461,
+   "gzip": 3466,
+   "gzip6": 3466
   },
   {
    "id": "auto/08-at-rules",
@@ -2846,30 +3105,23 @@
     }
    ],
    "stages": [],
-   "bytes": 18166,
-   "gzip": 5991
+   "bytes": 9570,
+   "gzip": 3692,
+   "gzip6": 3694
   },
   {
-   "id": "auto/09-transforms-effects",
+   "id": "auto/09-transforms-effects-a",
    "set": "auto",
-   "file": "auto/09-transforms-effects.html",
-   "title": "2D transforms, 3D transforms out, filter (blur, brightness, drop-shadow; others; url() out), backdrop-filter, blend modes, clip-path, mask, opacity, pointer-events, touch-action, cursor",
+   "file": "auto/09-transforms-effects-a.html",
+   "title": "2D transforms, 3D transforms out, filter (blur, brightness, drop-shadow; others; url() out)",
    "kind": [
     "self",
     "pixel"
    ],
    "covers": [
-    "css.backdrop-filter",
-    "css.blend",
-    "css.clip-path",
-    "css.cursor",
     "css.filter.blur-brightness-drop-shadow",
     "css.filter.other",
     "css.filter.url",
-    "css.mask",
-    "css.opacity",
-    "css.pointer-events",
-    "css.touch-action",
     "css.transform.2d",
     "css.transform.3d"
    ],
@@ -2920,27 +3172,6 @@
      }
     },
     {
-     "id": "css.pointer-events",
-     "name": "pointer-events: none lets hits through",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "css.touch-action",
-     "name": "touch-action reaches the renderer",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "css.cursor",
-     "name": "cursor reaches the renderer",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
      "id": "css.filter.blur-brightness-drop-shadow",
      "name": "filter functions are kept",
      "native": {
@@ -2969,7 +3200,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/transform-2d.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-a/transform-2d.chromium.png"
      }
     },
     {
@@ -2992,7 +3223,7 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/transform-3d.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-a/transform-3d.chromium.png"
      },
      "nativeVsTemplate": 0.411
     },
@@ -3017,7 +3248,7 @@
      "reftest": false,
      "maxDiff": 0.1,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/blur.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-a/blur.chromium.png"
      }
     },
     {
@@ -3040,7 +3271,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/brightness-drop-shadow.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-a/brightness-drop-shadow.chromium.png"
      }
     },
     {
@@ -3063,15 +3294,97 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/filter-other.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-a/filter-other.chromium.png"
      },
      "nativeVsTemplate": 1
     },
     {
-     "name": "backdrop",
+     "name": "filter-url",
      "rect": [
       96,
       76,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.filter.url"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/09-transforms-effects-a/filter-url.chromium.png"
+     },
+     "nativeVsTemplate": 0.3036
+    }
+   ],
+   "bytes": 8717,
+   "gzip": 3278,
+   "gzip6": 3278
+  },
+  {
+   "id": "auto/09-transforms-effects-b",
+   "set": "auto",
+   "file": "auto/09-transforms-effects-b.html",
+   "title": "Backdrop-filter, blend modes, clip-path, mask, opacity, pointer-events, touch-action, cursor",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "css.backdrop-filter",
+    "css.blend",
+    "css.clip-path",
+    "css.cursor",
+    "css.mask",
+    "css.opacity",
+    "css.pointer-events",
+    "css.touch-action"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "css.pointer-events",
+     "name": "pointer-events: none lets hits through",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.touch-action",
+     "name": "touch-action reaches the renderer",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.cursor",
+     "name": "cursor reaches the renderer",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [
+    {
+     "name": "backdrop",
+     "rect": [
+      8,
+      8,
       80,
       60
      ],
@@ -3088,14 +3401,14 @@
      "reftest": false,
      "maxDiff": 0.1,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/backdrop.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-b/backdrop.chromium.png"
      }
     },
     {
      "name": "blend",
      "rect": [
-      184,
-      76,
+      96,
+      8,
       80,
       60
      ],
@@ -3111,15 +3424,15 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/blend.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-b/blend.chromium.png"
      },
      "nativeVsTemplate": 0.1199
     },
     {
      "name": "clip-path",
      "rect": [
-      272,
-      76,
+      184,
+      8,
       80,
       60
      ],
@@ -3135,15 +3448,15 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/clip-path.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-b/clip-path.chromium.png"
      },
-     "nativeVsTemplate": 0.5154
+     "nativeVsTemplate": 0.5156
     },
     {
      "name": "mask",
      "rect": [
+      272,
       8,
-      144,
       80,
       60
      ],
@@ -3159,15 +3472,15 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/mask.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-b/mask.chromium.png"
      },
      "nativeVsTemplate": 0.7492
     },
     {
      "name": "opacity",
      "rect": [
-      96,
-      144,
+      8,
+      76,
       80,
       60
      ],
@@ -3183,36 +3496,13 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/09-transforms-effects/opacity.chromium.png"
+      "chromium": "refs/auto/09-transforms-effects-b/opacity.chromium.png"
      }
-    },
-    {
-     "name": "filter-url",
-     "rect": [
-      184,
-      144,
-      80,
-      60
-     ],
-     "size": [
-      80,
-      60
-     ],
-     "covers": [
-      "css.filter.url"
-     ],
-     "themes": [
-      "light"
-     ],
-     "reftest": true,
-     "refs": {
-      "chromium": "refs/auto/09-transforms-effects/filter-url.chromium.png"
-     },
-     "nativeVsTemplate": 0.3036
     }
    ],
-   "bytes": 21311,
-   "gzip": 6448
+   "bytes": 6986,
+   "gzip": 2843,
+   "gzip6": 2843
   },
   {
    "id": "auto/10-css-animations",
@@ -3467,8 +3757,9 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 18000,
-   "gzip": 5778
+   "bytes": 9195,
+   "gzip": 3518,
+   "gzip6": 3518
   },
   {
    "id": "auto/11-web-animations",
@@ -3698,39 +3989,31 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 17854,
-   "gzip": 5789
+   "bytes": 9362,
+   "gzip": 3611,
+   "gzip6": 3611
   },
   {
-   "id": "auto/12-canvas",
+   "id": "auto/12-canvas-a",
    "set": "auto",
-   "file": "auto/12-canvas.html",
-   "title": "Canvas 2D: rectangles, paths, line styles, gradients (conic is a candidate), patterns, transforms, clipping, text and measureText, alpha, compositing, shadows, ctx.filter, Path2D, drawImage, ImageData, hit testing, HiDPI backing store; WebGL and read-back out",
+   "file": "auto/12-canvas-a.html",
+   "title": "Canvas 2D (1/2): rectangles, paths, line styles, gradients (conic is a candidate), measureText, hit testing, HiDPI backing store; WebGL and read-back out",
    "kind": [
     "self",
     "pixel"
    ],
    "covers": [
-    "canvas.alpha",
-    "canvas.clip",
     "canvas.colors",
-    "canvas.composite",
     "canvas.conic-gradient",
-    "canvas.draw-image",
-    "canvas.filter",
     "canvas.gradients",
     "canvas.hidpi",
     "canvas.hit-test",
     "canvas.image-data",
     "canvas.line-style",
     "canvas.path",
-    "canvas.path2d",
-    "canvas.pattern",
     "canvas.readback",
     "canvas.rect",
-    "canvas.shadow",
     "canvas.text",
-    "canvas.transform",
     "canvas.webgl",
     "html.el.canvas"
    ],
@@ -3745,13 +4028,6 @@
    "actions": [],
    "host": [],
    "checks": [
-    {
-     "id": "canvas.draw-image",
-     "name": "drawImage of a loaded <img>",
-     "native": {
-      "chromium": "pass"
-     }
-    },
     {
      "id": "canvas.hidpi",
      "name": "the backing store keeps its width attribute",
@@ -3840,7 +4116,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/rect.chromium.png"
+      "chromium": "refs/auto/12-canvas-a/rect.chromium.png"
      }
     },
     {
@@ -3863,7 +4139,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/path.chromium.png"
+      "chromium": "refs/auto/12-canvas-a/path.chromium.png"
      }
     },
     {
@@ -3886,7 +4162,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/line-style.chromium.png"
+      "chromium": "refs/auto/12-canvas-a/line-style.chromium.png"
      }
     },
     {
@@ -3909,7 +4185,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/gradients.chromium.png"
+      "chromium": "refs/auto/12-canvas-a/gradients.chromium.png"
      }
     },
     {
@@ -3932,14 +4208,61 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/conic.chromium.png"
+      "chromium": "refs/auto/12-canvas-a/conic.chromium.png"
      }
-    },
+    }
+   ],
+   "bytes": 8884,
+   "gzip": 3633,
+   "gzip6": 3635
+  },
+  {
+   "id": "auto/12-canvas-b",
+   "set": "auto",
+   "file": "auto/12-canvas-b.html",
+   "title": "Canvas 2D (2/2): patterns, transforms, clipping, text, alpha, compositing, shadows, ctx.filter, Path2D, drawImage, ImageData",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "canvas.alpha",
+    "canvas.clip",
+    "canvas.composite",
+    "canvas.draw-image",
+    "canvas.filter",
+    "canvas.image-data",
+    "canvas.path2d",
+    "canvas.pattern",
+    "canvas.shadow",
+    "canvas.text",
+    "canvas.transform"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "canvas.draw-image",
+     "name": "drawImage of a loaded <img>",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [
     {
      "name": "pattern",
      "rect": [
-      96,
-      76,
+      8,
+      8,
       80,
       60
      ],
@@ -3955,14 +4278,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/pattern.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/pattern.chromium.png"
      }
     },
     {
      "name": "transform",
      "rect": [
-      184,
-      76,
+      96,
+      8,
       80,
       60
      ],
@@ -3978,14 +4301,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/transform.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/transform.chromium.png"
      }
     },
     {
      "name": "clip",
      "rect": [
-      272,
-      76,
+      184,
+      8,
       80,
       60
      ],
@@ -4001,14 +4324,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/clip.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/clip.chromium.png"
      }
     },
     {
      "name": "text",
      "rect": [
+      272,
       8,
-      144,
       80,
       60
      ],
@@ -4029,14 +4352,14 @@
       "#36c"
      ],
      "refs": {
-      "chromium": "refs/auto/12-canvas/text.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/text.chromium.png"
      }
     },
     {
      "name": "alpha",
      "rect": [
-      96,
-      144,
+      8,
+      76,
       80,
       60
      ],
@@ -4052,14 +4375,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/alpha.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/alpha.chromium.png"
      }
     },
     {
      "name": "composite",
      "rect": [
-      184,
-      144,
+      96,
+      76,
       80,
       60
      ],
@@ -4075,14 +4398,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/composite.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/composite.chromium.png"
      }
     },
     {
      "name": "shadow",
      "rect": [
-      272,
-      144,
+      184,
+      76,
       80,
       60
      ],
@@ -4099,14 +4422,14 @@
      "reftest": false,
      "maxDiff": 0.1,
      "refs": {
-      "chromium": "refs/auto/12-canvas/shadow.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/shadow.chromium.png"
      }
     },
     {
      "name": "filter",
      "rect": [
-      8,
-      212,
+      272,
+      76,
       80,
       60
      ],
@@ -4123,14 +4446,14 @@
      "reftest": false,
      "maxDiff": 0.1,
      "refs": {
-      "chromium": "refs/auto/12-canvas/filter.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/filter.chromium.png"
      }
     },
     {
      "name": "path2d",
      "rect": [
-      96,
-      212,
+      8,
+      144,
       80,
       60
      ],
@@ -4146,14 +4469,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/path2d.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/path2d.chromium.png"
      }
     },
     {
      "name": "draw-image",
      "rect": [
-      184,
-      212,
+      96,
+      144,
       80,
       60
      ],
@@ -4169,14 +4492,14 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/draw-image.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/draw-image.chromium.png"
      }
     },
     {
      "name": "image-data",
      "rect": [
-      272,
-      212,
+      184,
+      144,
       80,
       60
      ],
@@ -4192,31 +4515,27 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/12-canvas/image-data.chromium.png"
+      "chromium": "refs/auto/12-canvas-b/image-data.chromium.png"
      }
     }
    ],
-   "bytes": 23974,
-   "gzip": 7500
+   "bytes": 9138,
+   "gzip": 3610,
+   "gzip6": 3612
   },
   {
-   "id": "auto/13-svg",
+   "id": "auto/13-svg-a",
    "set": "auto",
-   "file": "auto/13-svg.html",
-   "title": "Inline SVG: shapes with presentation attributes, g/use/symbol/viewBox, text, gradients, CSS on SVG, clipPath/mask, filters, SMIL, <image>, foreignObject out; SVG geometry queries",
+   "file": "auto/13-svg-a.html",
+   "title": "Inline SVG (1/2): shapes with presentation attributes, g/use/symbol/viewBox, text, gradients, CSS on SVG; SVG geometry queries",
    "kind": [
     "self",
     "pixel"
    ],
    "covers": [
-    "svg.clip-mask",
     "svg.css",
-    "svg.filters",
-    "svg.foreign-object",
     "svg.gradients",
-    "svg.image",
     "svg.shapes",
-    "svg.smil",
     "svg.structure",
     "svg.text"
    ],
@@ -4288,7 +4607,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/13-svg/shapes.chromium.png"
+      "chromium": "refs/auto/13-svg-a/shapes.chromium.png"
      }
     },
     {
@@ -4311,7 +4630,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/13-svg/structure.chromium.png"
+      "chromium": "refs/auto/13-svg-a/structure.chromium.png"
      }
     },
     {
@@ -4340,7 +4659,7 @@
       "#36c"
      ],
      "refs": {
-      "chromium": "refs/auto/13-svg/text.chromium.png"
+      "chromium": "refs/auto/13-svg-a/text.chromium.png"
      }
     },
     {
@@ -4363,7 +4682,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/13-svg/gradients.chromium.png"
+      "chromium": "refs/auto/13-svg-a/gradients.chromium.png"
      }
     },
     {
@@ -4386,14 +4705,46 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/auto/13-svg/css.chromium.png"
+      "chromium": "refs/auto/13-svg-a/css.chromium.png"
      }
-    },
+    }
+   ],
+   "bytes": 7136,
+   "gzip": 3242,
+   "gzip6": 3241
+  },
+  {
+   "id": "auto/13-svg-b",
+   "set": "auto",
+   "file": "auto/13-svg-b.html",
+   "title": "Inline SVG (2/2): clipPath/mask, filters, SMIL, <image>, foreignObject out",
+   "kind": [
+    "pixel"
+   ],
+   "covers": [
+    "svg.clip-mask",
+    "svg.filters",
+    "svg.foreign-object",
+    "svg.image",
+    "svg.smil"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [
     {
      "name": "clip-mask",
      "rect": [
-      96,
-      76,
+      8,
+      8,
       80,
       60
      ],
@@ -4409,15 +4760,15 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/13-svg/clip-mask.chromium.png"
+      "chromium": "refs/auto/13-svg-b/clip-mask.chromium.png"
      },
      "nativeVsTemplate": 0.5746
     },
     {
      "name": "filters",
      "rect": [
-      184,
-      76,
+      96,
+      8,
       80,
       60
      ],
@@ -4434,15 +4785,15 @@
      "reftest": true,
      "maxDiff": 0.1,
      "refs": {
-      "chromium": "refs/auto/13-svg/filters.chromium.png"
+      "chromium": "refs/auto/13-svg-b/filters.chromium.png"
      },
      "nativeVsTemplate": 0.2697
     },
     {
      "name": "smil",
      "rect": [
-      272,
-      76,
+      184,
+      8,
       80,
       60
      ],
@@ -4458,15 +4809,15 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/13-svg/smil.chromium.png"
+      "chromium": "refs/auto/13-svg-b/smil.chromium.png"
      },
      "nativeVsTemplate": 1
     },
     {
      "name": "image",
      "rect": [
+      272,
       8,
-      144,
       80,
       60
      ],
@@ -4482,15 +4833,15 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/13-svg/image.chromium.png"
+      "chromium": "refs/auto/13-svg-b/image.chromium.png"
      },
-     "nativeVsTemplate": 0.9917
+     "nativeVsTemplate": 0.9915
     },
     {
      "name": "foreign-object",
      "rect": [
-      96,
-      144,
+      8,
+      76,
       80,
       60
      ],
@@ -4506,35 +4857,27 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/auto/13-svg/foreign-object.chromium.png"
+      "chromium": "refs/auto/13-svg-b/foreign-object.chromium.png"
      },
      "nativeVsTemplate": 0.641
     }
    ],
-   "bytes": 19100,
-   "gzip": 6493
+   "bytes": 5521,
+   "gzip": 2459,
+   "gzip6": 2458
   },
   {
-   "id": "auto/14-dom-layout-api",
+   "id": "auto/14-dom-layout-api-a",
    "set": "auto",
-   "file": "auto/14-dom-layout-api.html",
-   "title": "DOM building, queries, CSSOM, events; layout queries answered by the renderer: rects, boxes, computed style (incl. shorthands), matchMedia, ResizeObserver, IntersectionObserver, elementFromPoint, measureText",
+   "file": "auto/14-dom-layout-api-a.html",
+   "title": "DOM and layout APIs (1/2): DOM building, CSSOM, events",
    "kind": [
     "self"
    ],
    "covers": [
     "js.dom.core",
     "js.dom.events",
-    "js.dom.query",
-    "js.dom.style",
-    "js.layout.box",
-    "js.layout.computed-style",
-    "js.layout.element-from-point",
-    "js.layout.intersection-observer",
-    "js.layout.match-media",
-    "js.layout.measure-text",
-    "js.layout.rect",
-    "js.layout.resize-observer"
+    "js.dom.style"
    ],
    "themes": [
     "light"
@@ -4547,20 +4890,6 @@
    "actions": [],
    "host": [],
    "checks": [
-    {
-     "id": "js.layout.resize-observer",
-     "name": "ResizeObserver reports the new width",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "js.layout.intersection-observer",
-     "name": "IntersectionObserver reports the element (visible)",
-     "native": {
-      "chromium": "pass"
-     }
-    },
     {
      "id": "js.dom.core",
      "name": "createElement + appendChild renders",
@@ -4611,27 +4940,6 @@
      }
     },
     {
-     "id": "js.dom.query",
-     "name": "querySelectorAll",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "js.dom.query",
-     "name": "closest and matches",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "js.dom.query",
-     "name": "getElementsByClassName is live",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
      "id": "js.dom.style",
      "name": "element.style and setProperty",
      "native": {
@@ -4676,6 +4984,77 @@
     {
      "id": "js.dom.events",
      "name": "stopPropagation",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 7395,
+   "gzip": 3218,
+   "gzip6": 3217
+  },
+  {
+   "id": "auto/14-dom-layout-api-b",
+   "set": "auto",
+   "file": "auto/14-dom-layout-api-b.html",
+   "title": "DOM and layout APIs (2/2): DOM queries; layout queries answered by the renderer: rects, boxes, computed style (incl. shorthands), matchMedia, ResizeObserver, IntersectionObserver, elementFromPoint, measureText",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "js.dom.query",
+    "js.layout.box",
+    "js.layout.computed-style",
+    "js.layout.element-from-point",
+    "js.layout.intersection-observer",
+    "js.layout.match-media",
+    "js.layout.measure-text",
+    "js.layout.rect",
+    "js.layout.resize-observer"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "js.layout.resize-observer",
+     "name": "ResizeObserver reports the new width",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "js.layout.intersection-observer",
+     "name": "IntersectionObserver reports the element (visible)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "js.dom.query",
+     "name": "querySelectorAll",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "js.dom.query",
+     "name": "closest and matches",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "js.dom.query",
+     "name": "getElementsByClassName is live",
      "native": {
       "chromium": "pass"
      }
@@ -4787,40 +5166,24 @@
     }
    ],
    "stages": [],
-   "bytes": 20067,
-   "gzip": 6788
+   "bytes": 8084,
+   "gzip": 3513,
+   "gzip6": 3515
   },
   {
-   "id": "auto/15-js-runtime",
+   "id": "auto/15-js-runtime-a",
    "set": "auto",
-   "file": "auto/15-js-runtime.html",
-   "title": "Timers, frames, microtasks, storage (16 KB quota), Intl, locale, crypto, built-ins, eval, CSS.supports from the profile, visibility, bundled libraries; network, navigation, dialogs, device APIs, shadow DOM, blobs, fullscreen out",
+   "file": "auto/15-js-runtime-a.html",
+   "title": "JS runtime: timers, frames, microtasks, storage (16 KB quota)",
    "kind": [
     "self"
    ],
    "covers": [
-    "anim.magic-move",
-    "js.blob-file",
-    "js.builtins",
-    "js.crypto-random",
-    "js.css-supports",
-    "js.device",
-    "js.dialogs",
-    "js.eval",
-    "js.fullscreen",
-    "js.intl",
-    "js.intl.format-to-parts",
-    "js.libraries",
-    "js.locale",
     "js.microtasks",
-    "js.navigation",
-    "js.network",
     "js.raf",
-    "js.shadow-dom",
     "js.storage.local",
     "js.storage.session",
     "js.timers",
-    "js.visibility",
     "limit.storage"
    ],
    "themes": [
@@ -4860,27 +5223,6 @@
      "name": "async/await",
      "native": {
       "chromium": "pass"
-     }
-    },
-    {
-     "id": "js.network",
-     "name": "fetch rejects with NetworkDisabledError",
-     "native": {
-      "chromium": "skip"
-     }
-    },
-    {
-     "id": "js.device",
-     "name": "clipboard.writeText and share reject",
-     "native": {
-      "chromium": "skip"
-     }
-    },
-    {
-     "id": "js.fullscreen",
-     "name": "requestFullscreen rejects",
-     "native": {
-      "chromium": "skip"
      }
     },
     {
@@ -4945,7 +5287,43 @@
      "native": {
       "chromium": "pass"
      }
-    },
+    }
+   ],
+   "stages": [],
+   "bytes": 7149,
+   "gzip": 3059,
+   "gzip6": 3060
+  },
+  {
+   "id": "auto/15-js-runtime-b",
+   "set": "auto",
+   "file": "auto/15-js-runtime-b.html",
+   "title": "JS runtime: Intl, locale, crypto, built-ins, eval, CSS.supports from the profile, visibility, bundled libraries",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "js.builtins",
+    "js.crypto-random",
+    "js.css-supports",
+    "js.eval",
+    "js.intl",
+    "js.intl.format-to-parts",
+    "js.libraries",
+    "js.locale",
+    "js.visibility"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
     {
      "id": "js.intl",
      "name": "NumberFormat currency",
@@ -5162,6 +5540,62 @@
      "native": {
       "chromium": "skip"
      }
+    }
+   ],
+   "stages": [],
+   "bytes": 7763,
+   "gzip": 3378,
+   "gzip6": 3378
+  },
+  {
+   "id": "auto/15-js-runtime-c",
+   "set": "auto",
+   "file": "auto/15-js-runtime-c.html",
+   "title": "JS runtime: network, navigation, dialogs, device APIs, shadow DOM, blobs, fullscreen, View Transitions out",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "anim.magic-move",
+    "js.blob-file",
+    "js.device",
+    "js.dialogs",
+    "js.fullscreen",
+    "js.navigation",
+    "js.network",
+    "js.shadow-dom"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "js.network",
+     "name": "fetch rejects with NetworkDisabledError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "js.device",
+     "name": "clipboard.writeText and share reject",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "js.fullscreen",
+     "name": "requestFullscreen rejects",
+     "native": {
+      "chromium": "skip"
+     }
     },
     {
      "id": "js.network",
@@ -5221,45 +5655,29 @@
     }
    ],
    "stages": [],
-   "bytes": 23757,
-   "gzip": 7900
+   "bytes": 6725,
+   "gzip": 2995,
+   "gzip6": 2996
   },
   {
-   "id": "auto/16-sdk-taps",
+   "id": "auto/16-sdk-taps-a",
    "set": "auto",
-   "file": "auto/16-sdk-taps.html",
-   "title": "TelegramWidget SDK v1 (ready, colorScheme, themeParams, isActive, onEvent, openLink and openTelegramLink with their URL rules and the 256-character limit, haptics, profile, no sendMessage); taps: click, pointer and mouse events, :active, details toggle, links; double tap, context menu, keyboard and wheel stay out",
-   "hint": "Tap every button from top to bottom, then double-tap “dbl”, long-press or right-click “ctx”, press a key, scroll over “wheel”, tap Finish.",
+   "file": "auto/16-sdk-taps-a.html",
+   "title": "openLink: taps (click, pointer and mouse events), external and prevented links, a call from a timer, the URL rules and the 256-character limit",
+   "hint": "Tap every button from left to right.",
    "kind": [
     "self",
     "interactive"
    ],
    "covers": [
     "html.el.a-external",
-    "html.el.a-fragment",
-    "html.el.details",
-    "input.dblclick",
-    "input.keyboard",
-    "input.long-press",
     "input.mouse-compat",
     "input.pointer",
     "input.prevent-default",
     "input.tap",
     "input.user-activation",
-    "input.wheel-scroll",
-    "limit.haptic-rate",
     "limit.url-length",
-    "sel.active",
-    "tw.events",
-    "tw.haptic",
-    "tw.is-active",
-    "tw.open-link",
-    "tw.open-telegram-link",
-    "tw.profile",
-    "tw.ready",
-    "tw.send-message",
-    "tw.theme",
-    "tw.theme-params"
+    "tw.open-link"
    ],
    "themes": [
     "light"
@@ -5284,7 +5702,146 @@
      "ids": [
       "input.prevent-default"
      ]
+    }
+   ],
+   "host": [
+    {
+     "id": "tw.open-link",
+     "name": "openLink from a tap reaches the host once",
+     "bridge": {
+      "method": "openLink",
+      "arg": "https://example.org/conformance/tap",
+      "count": 1
+     },
+     "gesture": true
     },
+    {
+     "id": "input.user-activation",
+     "name": "openLink from a timer is blocked",
+     "bridge": {
+      "method": "openLink",
+      "arg": "https://example.org/conformance/timer",
+      "count": 0
+     }
+    },
+    {
+     "id": "html.el.a-external",
+     "name": "tapping an external <a href> goes to openLink",
+     "bridge": {
+      "method": "openLink",
+      "arg": "https://example.org/conformance/anchor",
+      "count": 1
+     },
+     "gesture": true
+    },
+    {
+     "id": "input.prevent-default",
+     "name": "preventDefault on a link tap: no openLink",
+     "bridge": {
+      "method": "openLink",
+      "arg": "https://example.org/conformance/prevented",
+      "count": 0
+     }
+    }
+   ],
+   "checks": [
+    {
+     "id": "input.tap",
+     "name": "click on the tapped element with coordinates inside it",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "input.pointer",
+     "name": "pointerdown → pointerup → click, primary pointer with an id and type",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "input.mouse-compat",
+     "name": "mousedown → mouseup on a tap",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink is callable in the task of a tap",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "html.el.a-external",
+     "name": "an external link tap reaches the widget as a click",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "input.prevent-default",
+     "name": "preventDefault on a link click is honoured",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 257-character URL throws TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 256-character URL is accepted (dropped later without a press)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 8493,
+   "gzip": 3646,
+   "gzip6": 3647
+  },
+  {
+   "id": "auto/16-sdk-taps-b",
+   "set": "auto",
+   "file": "auto/16-sdk-taps-b.html",
+   "title": "Taps: details toggle, #fragment links, :active; double tap, context menu, keyboard and wheel stay out",
+   "hint": "Tap “summary” and “frag”, press and hold “active”, then double-tap “dbl”, long-press or right-click “ctx”, tap “kbd” and press a key, scroll over “wheel”, tap Finish.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "html.el.a-fragment",
+    "html.el.details",
+    "input.dblclick",
+    "input.keyboard",
+    "input.long-press",
+    "input.wheel-scroll",
+    "sel.active"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
     {
      "tap": "summary",
      "ids": [
@@ -5348,97 +5905,8 @@
      ]
     }
    ],
-   "host": [
-    {
-     "id": "tw.open-link",
-     "name": "openLink from a tap reaches the host once",
-     "bridge": {
-      "method": "openLink",
-      "arg": "https://example.org/conformance/tap",
-      "count": 1
-     },
-     "gesture": true
-    },
-    {
-     "id": "input.user-activation",
-     "name": "openLink from a timer is blocked",
-     "bridge": {
-      "method": "openLink",
-      "arg": "https://example.org/conformance/timer",
-      "count": 0
-     }
-    },
-    {
-     "id": "html.el.a-external",
-     "name": "tapping an external <a href> goes to openLink",
-     "bridge": {
-      "method": "openLink",
-      "arg": "https://example.org/conformance/anchor",
-      "count": 1
-     },
-     "gesture": true
-    },
-    {
-     "id": "input.prevent-default",
-     "name": "preventDefault on a link tap: no openLink",
-     "bridge": {
-      "method": "openLink",
-      "arg": "https://example.org/conformance/prevented",
-      "count": 0
-     }
-    },
-    {
-     "id": "limit.haptic-rate",
-     "name": "a burst of 20 haptics reaches the client as 5",
-     "bridge": {
-      "method": "haptic",
-      "count": 5
-     }
-    }
-   ],
+   "host": [],
    "checks": [
-    {
-     "id": "input.tap",
-     "name": "click on the tapped element with coordinates inside it",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "input.pointer",
-     "name": "pointerdown → pointerup → click, primary pointer with an id and type",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "input.mouse-compat",
-     "name": "mousedown → mouseup on a tap",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "tw.open-link",
-     "name": "openLink is callable in the task of a tap",
-     "native": {
-      "chromium": "skip"
-     }
-    },
-    {
-     "id": "html.el.a-external",
-     "name": "an external link tap reaches the widget as a click",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "input.prevent-default",
-     "name": "preventDefault on a link click is honoured",
-     "native": {
-      "chromium": "pass"
-     }
-    },
     {
      "id": "html.el.details",
      "name": "tapping summary opens details (toggle event)",
@@ -5487,7 +5955,53 @@
      "native": {
       "chromium": "fail"
      }
-    },
+    }
+   ],
+   "stages": [],
+   "bytes": 7146,
+   "gzip": 3171,
+   "gzip6": 3172
+  },
+  {
+   "id": "auto/16-sdk-taps-c",
+   "set": "auto",
+   "file": "auto/16-sdk-taps-c.html",
+   "title": "TelegramWidget SDK v1: ready, colorScheme, themeParams, isActive, onEvent, openTelegramLink with its URL rules, haptics, profile, no sendMessage",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.haptic-rate",
+    "tw.events",
+    "tw.haptic",
+    "tw.is-active",
+    "tw.open-telegram-link",
+    "tw.profile",
+    "tw.ready",
+    "tw.send-message",
+    "tw.theme",
+    "tw.theme-params"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [
+    {
+     "id": "limit.haptic-rate",
+     "name": "a burst of 20 haptics reaches the client as 5",
+     "bridge": {
+      "method": "haptic",
+      "count": 5
+     }
+    }
+   ],
+   "checks": [
     {
      "id": "tw.ready",
      "name": "TelegramWidget.ready()",
@@ -5580,27 +6094,6 @@
      }
     },
     {
-     "id": "tw.open-link",
-     "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
-     "native": {
-      "chromium": "skip"
-     }
-    },
-    {
-     "id": "limit.url-length",
-     "name": "a 257-character URL throws TypeError",
-     "native": {
-      "chromium": "skip"
-     }
-    },
-    {
-     "id": "limit.url-length",
-     "name": "a 256-character URL is accepted (dropped later without a press)",
-     "native": {
-      "chromium": "skip"
-     }
-    },
-    {
      "id": "tw.open-telegram-link",
      "name": "openTelegramLink accepts any t.me / telegram.me path",
      "native": {
@@ -5630,8 +6123,9 @@
     }
    ],
    "stages": [],
-   "bytes": 24930,
-   "gzip": 8092
+   "bytes": 8286,
+   "gzip": 3473,
+   "gzip6": 3473
   },
   {
    "id": "auto/17-drag-hover",
@@ -5792,8 +6286,9 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 17667,
-   "gzip": 6122
+   "bytes": 8820,
+   "gzip": 3790,
+   "gzip6": 3791
   },
   {
    "id": "auto/18-out-of-profile",
@@ -5956,8 +6451,9 @@
     }
    ],
    "stages": [],
-   "bytes": 16981,
-   "gzip": 5779
+   "bytes": 8500,
+   "gzip": 3565,
+   "gzip6": 3565
   },
   {
    "id": "auto/19-limits",
@@ -6042,8 +6538,9 @@
     }
    ],
    "stages": [],
-   "bytes": 14821,
-   "gzip": 5182
+   "bytes": 6004,
+   "gzip": 2809,
+   "gzip6": 2811
   },
   {
    "id": "auto/20-client-behaviour",
@@ -6193,8 +6690,9 @@
     }
    ],
    "stages": [],
-   "bytes": 17579,
-   "gzip": 6104
+   "bytes": 8674,
+   "gzip": 3769,
+   "gzip6": 3769
   },
   {
    "id": "auto/21-no-keyboard",
@@ -6309,15 +6807,16 @@
     }
    ],
    "stages": [],
-   "bytes": 15310,
-   "gzip": 5372
+   "bytes": 6714,
+   "gzip": 3123,
+   "gzip6": 3123
   },
   {
    "id": "visual/01-boxes",
    "set": "visual",
    "file": "visual/01-boxes.html",
    "title": "Boxes: borders, radius, shadows, outline, opacity, overflow clipping",
-   "hint": "Each live box (left) should look like the reference picture (right).",
+   "hint": "Each box should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
    ],
@@ -6417,15 +6916,19 @@
      }
     }
    ],
-   "bytes": 38664,
-   "gzip": 18512
+   "bytes": 4657,
+   "gzip": 2008,
+   "gzip6": 2008,
+   "refImages": {
+    "light": "refs/visual/01-boxes.png"
+   }
   },
   {
    "id": "visual/02-colours-gradients",
    "set": "visual",
    "file": "visual/02-colours-gradients.html",
    "title": "Colours and gradients: linear, radial, conic (candidate), colour functions (candidates), background images",
-   "hint": "Each live box (left) should look like the reference picture (right).",
+   "hint": "Each box should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
    ],
@@ -6542,8 +7045,12 @@
      }
     }
    ],
-   "bytes": 73549,
-   "gzip": 37695
+   "bytes": 5458,
+   "gzip": 2443,
+   "gzip6": 2444,
+   "refImages": {
+    "light": "refs/visual/02-colours-gradients.png"
+   }
   },
   {
    "id": "visual/03-text",
@@ -6676,15 +7183,19 @@
      "nativeVsTemplate": 0.3384
     }
    ],
-   "bytes": 95605,
-   "gzip": 59661
+   "bytes": 7290,
+   "gzip": 2758,
+   "gzip6": 2762,
+   "refImages": {
+    "light": "refs/visual/03-text.png"
+   }
   },
   {
    "id": "visual/04-layout",
    "set": "visual",
    "file": "visual/04-layout.html",
    "title": "Layout: flex with gap, grid (candidate), table, positioning and z-index, float and multi-column (candidate)",
-   "hint": "Each live box (left) should look like the reference picture (right).",
+   "hint": "Each box should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
    ],
@@ -6792,15 +7303,19 @@
      "nativeVsTemplate": 0.1241
     }
    ],
-   "bytes": 48729,
-   "gzip": 23588
+   "bytes": 6336,
+   "gzip": 2441,
+   "gzip6": 2442,
+   "refImages": {
+    "light": "refs/visual/04-layout.png"
+   }
   },
   {
    "id": "visual/05-transforms-effects",
    "set": "visual",
    "file": "visual/05-transforms-effects.html",
    "title": "2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow; other filters, backdrop-filter, blend, clip-path, mask (candidates or conditional)",
-   "hint": "Each live box (left) should look like the reference picture (right). The 3D row must look flat.",
+   "hint": "Each box should look like the reference picture posted next to this message. The 3D row must look flat.",
    "kind": [
     "pixel"
    ],
@@ -6857,7 +7372,7 @@
      "refs": {
       "chromium": "refs/visual/05-transforms-effects/transform-3d.chromium.png"
      },
-     "nativeVsTemplate": 0.4333
+     "nativeVsTemplate": 0.4329
     },
     {
      "name": "filters",
@@ -6923,11 +7438,15 @@
      "refs": {
       "chromium": "refs/visual/05-transforms-effects/blend-clip-mask.chromium.png"
      },
-     "nativeVsTemplate": 0.4339
+     "nativeVsTemplate": 0.4332
     }
    ],
-   "bytes": 45452,
-   "gzip": 19102
+   "bytes": 7445,
+   "gzip": 2572,
+   "gzip6": 2581,
+   "refImages": {
+    "light": "refs/visual/05-transforms-effects.png"
+   }
   },
   {
    "id": "visual/06-css-animations",
@@ -7055,8 +7574,12 @@
      "nativeVsTemplate": 0.9827
     }
    ],
-   "bytes": 38039,
-   "gzip": 16724
+   "bytes": 8059,
+   "gzip": 2895,
+   "gzip6": 2896,
+   "refImages": {
+    "light": "refs/visual/06-css-animations.png"
+   }
   },
   {
    "id": "visual/07-web-animations",
@@ -7157,15 +7680,19 @@
      "nativeVsTemplate": 0.0153
     }
    ],
-   "bytes": 35207,
-   "gzip": 15795
+   "bytes": 7443,
+   "gzip": 2665,
+   "gzip6": 2668,
+   "refImages": {
+    "light": "refs/visual/07-web-animations.png"
+   }
   },
   {
    "id": "visual/08-canvas",
    "set": "visual",
    "file": "visual/08-canvas.html",
    "title": "Canvas 2D drawing: shapes and paths, line styles, gradients and patterns, text, transforms and clipping, alpha; shadows, ctx.filter and conic gradients (candidates); a chart",
-   "hint": "Each live canvas (left) should look like the reference picture (right).",
+   "hint": "Each canvas should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
    ],
@@ -7294,15 +7821,19 @@
      }
     }
    ],
-   "bytes": 70444,
-   "gzip": 38177
+   "bytes": 8450,
+   "gzip": 3403,
+   "gzip6": 3407,
+   "refImages": {
+    "light": "refs/visual/08-canvas.png"
+   }
   },
   {
    "id": "visual/09-svg",
    "set": "visual",
    "file": "visual/09-svg.html",
    "title": "Inline SVG: shapes, structure and viewBox, gradients, text; CSS on SVG, clipPath/mask, filters, SMIL (candidates)",
-   "hint": "Each live picture (left) should look like the reference (right). The last row moves.",
+   "hint": "Each picture should look like the reference picture posted next to this message. The last row moves.",
    "kind": [
     "pixel"
    ],
@@ -7407,7 +7938,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg/clip-filter.chromium.png"
      },
-     "nativeVsTemplate": 0.3952
+     "nativeVsTemplate": 0.3953
     },
     {
      "name": "smil",
@@ -7424,18 +7955,22 @@
      "refs": {
       "chromium": "refs/visual/09-svg/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7243
+     "nativeVsTemplate": 0.7244
     }
    ],
-   "bytes": 57291,
-   "gzip": 30658
+   "bytes": 7256,
+   "gzip": 3062,
+   "gzip6": 3062,
+   "refImages": {
+    "light": "refs/visual/09-svg.png"
+   }
   },
   {
    "id": "visual/10-images",
    "set": "visual",
    "file": "visual/10-images.html",
    "title": "Images: data: PNG, JPEG, GIF, WebP; SVG images (candidate); BMP/ICO and remote URLs out (placeholder); object-fit; background images",
-   "hint": "Each live row (left) should look like the reference (right).",
+   "hint": "Each row should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
    ],
@@ -7525,8 +8060,12 @@
      }
     }
    ],
-   "bytes": 31547,
-   "gzip": 11152
+   "bytes": 9300,
+   "gzip": 3164,
+   "gzip6": 3169,
+   "refImages": {
+    "light": "refs/visual/10-images.png"
+   }
   },
   {
    "id": "visual/11-interaction",
@@ -7606,14 +8145,18 @@
     }
    ],
    "stages": [],
-   "bytes": 16152,
-   "gzip": 5583
+   "bytes": 7094,
+   "gzip": 3134,
+   "gzip6": 3134,
+   "refImages": {
+    "light": "refs/visual/11-interaction.png"
+   }
   },
   {
    "id": "visual/12-theme",
    "set": "visual",
    "file": "visual/12-theme.html",
-   "title": "Theme: light-dark(), prefers-color-scheme and onTheme follow the chat theme live; --tg-theme-* palette (not implemented yet)",
+   "title": "Theme: light-dark(), prefers-color-scheme and onTheme follow the chat theme live; the --tg-theme-* palette",
    "hint": "Switch the chat between light and dark: the live box must match the picture for the current theme.",
    "kind": [
     "pixel"
@@ -7657,15 +8200,20 @@
      }
     }
    ],
-   "bytes": 24609,
-   "gzip": 11506
+   "bytes": 4027,
+   "gzip": 1976,
+   "gzip6": 1976,
+   "refImages": {
+    "light": "refs/visual/12-theme.png",
+    "dark": "refs/visual/12-theme.dark.png"
+   }
   },
   {
    "id": "visual/13-out-of-profile",
    "set": "visual",
    "file": "visual/13-out-of-profile.html",
    "title": "Out of the profile, neutralised the same way everywhere: form controls, inner scrolling, sticky, named fonts, 3D, popover over the chat",
-   "hint": "Each live box (left) must look like the reference (right): the out-of-profile feature is simply not there. Tap “Show popover”: nothing may appear outside this bubble.",
+   "hint": "Each box must look like the reference picture: the out-of-profile feature is simply not there. Tap “Show popover”: nothing may appear outside this bubble.",
    "kind": [
     "pixel",
     "interactive"
@@ -7709,7 +8257,7 @@
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/forms.chromium.png"
      },
-     "nativeVsTemplate": 0.6189
+     "nativeVsTemplate": 0.6195
     },
     {
      "name": "scroll-sticky",
@@ -7760,11 +8308,15 @@
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/three-d.chromium.png"
      },
-     "nativeVsTemplate": 0.4356
+     "nativeVsTemplate": 0.436
     }
    ],
-   "bytes": 37784,
-   "gzip": 17313
+   "bytes": 6373,
+   "gzip": 2620,
+   "gzip6": 2620,
+   "refImages": {
+    "light": "refs/visual/13-out-of-profile.png"
+   }
   },
   {
    "id": "visual/sdk/01-link-external",
@@ -7791,12 +8343,13 @@
    "stages": [],
    "bytes": 3436,
    "gzip": 1746,
-   "group": "sdk",
-   "expect": "A native confirmation with the full URL and Open / Cancel; Open goes to the browser (or the in-app browser, as the client usually does).",
-   "contract": "docs/sdk-v1.md §2.5, §5.2",
+   "gzip6": 1746,
    "refImages": {
     "light": "refs/visual/sdk/01-link-external.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "A native confirmation with the full URL and Open / Cancel; Open goes to the browser (or the in-app browser, as the client usually does).",
+   "contract": "docs/sdk-v1.md §2.5, §5.2"
   },
   {
    "id": "visual/sdk/02-link-telegram",
@@ -7822,12 +8375,13 @@
    "stages": [],
    "bytes": 3209,
    "gzip": 1581,
-   "group": "sdk",
-   "expect": "The client's own t.me handling, with its usual confirmations; no external browser.",
-   "contract": "docs/sdk-v1.md §2.5, §5.2",
+   "gzip6": 1581,
    "refImages": {
     "light": "refs/visual/sdk/02-link-telegram.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "The client's own t.me handling, with its usual confirmations; no external browser.",
+   "contract": "docs/sdk-v1.md §2.5, §5.2"
   },
   {
    "id": "visual/sdk/03-link-rejected",
@@ -7930,12 +8484,13 @@
    "stages": [],
    "bytes": 4110,
    "gzip": 1897,
-   "group": "sdk",
-   "expect": "No dialog for a non-https URL, user info, javascript:, tg:, a t.me URL through openLink or a 257-character URL (the widget gets a TypeError); a dialog for the 256-character one.",
-   "contract": "docs/sdk-v1.md §2.5, §2.11",
+   "gzip6": 1897,
    "refImages": {
     "light": "refs/visual/sdk/03-link-rejected.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "No dialog for a non-https URL, user info, javascript:, tg:, a t.me URL through openLink or a 257-character URL (the widget gets a TypeError); a dialog for the 256-character one.",
+   "contract": "docs/sdk-v1.md §2.5, §2.11"
   },
   {
    "id": "visual/sdk/04-link-timer",
@@ -7962,12 +8517,13 @@
    "stages": [],
    "bytes": 3174,
    "gzip": 1551,
-   "group": "sdk",
-   "expect": "No dialog from the timer (the host drops it as activation-blocked); one dialog for the two calls of one press.",
-   "contract": "docs/sdk-v1.md §2.5 (user activation)",
+   "gzip6": 1551,
    "refImages": {
     "light": "refs/visual/sdk/04-link-timer.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "No dialog from the timer (the host drops it as activation-blocked); one dialog for the two calls of one press.",
+   "contract": "docs/sdk-v1.md §2.5 (user activation)"
   },
   {
    "id": "visual/sdk/05-haptics",
@@ -7993,12 +8549,13 @@
    "stages": [],
    "bytes": 3341,
    "gzip": 1631,
-   "group": "sdk",
-   "expect": "impact light/medium/heavy/rigid/soft, notification error/success/warning, selection played with the platform's generators; nothing on desktop and web.",
-   "contract": "docs/sdk-v1.md §2.6, §5.3",
+   "gzip6": 1631,
    "refImages": {
     "light": "refs/visual/sdk/05-haptics.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "impact light/medium/heavy/rigid/soft, notification error/success/warning, selection played with the platform's generators; nothing on desktop and web.",
+   "contract": "docs/sdk-v1.md §2.6, §5.3"
   },
   {
    "id": "visual/sdk/06-haptics-rate",
@@ -8025,12 +8582,13 @@
    "stages": [],
    "bytes": 3413,
    "gzip": 1693,
-   "group": "sdk",
-   "expect": "A bucket of 5 refilled at 10 per second; the rest dropped silently; nothing from a hidden widget.",
-   "contract": "docs/sdk-v1.md §2.6",
+   "gzip6": 1693,
    "refImages": {
     "light": "refs/visual/sdk/06-haptics-rate.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "A bucket of 5 refilled at 10 per second; the rest dropped silently; nothing from a hidden widget.",
+   "contract": "docs/sdk-v1.md §2.6"
   },
   {
    "id": "visual/sdk/07-storage-recreate",
@@ -8058,12 +8616,13 @@
    "stages": [],
    "bytes": 3300,
    "gzip": 1579,
-   "group": "sdk",
-   "expect": "localStorage and sessionStorage come back with the re-created widget (the client passes its copy at creation).",
-   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "gzip6": 1580,
    "refImages": {
     "light": "refs/visual/sdk/07-storage-recreate.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "localStorage and sessionStorage come back with the re-created widget (the client passes its copy at creation).",
+   "contract": "docs/sdk-v1.md §2.8, §5.4"
   },
   {
    "id": "visual/sdk/08-storage-restart",
@@ -8091,12 +8650,13 @@
    "stages": [],
    "bytes": 3141,
    "gzip": 1526,
-   "group": "sdk",
-   "expect": "localStorage is on disk per (account, chat, message); sessionStorage is in memory until the app restarts.",
-   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "gzip6": 1526,
    "refImages": {
     "light": "refs/visual/sdk/08-storage-restart.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "localStorage is on disk per (account, chat, message); sessionStorage is in memory until the app restarts.",
+   "contract": "docs/sdk-v1.md §2.8, §5.4"
   },
   {
    "id": "visual/sdk/09-storage-delete",
@@ -8122,12 +8682,13 @@
    "stages": [],
    "bytes": 3177,
    "gzip": 1584,
-   "group": "sdk",
-   "expect": "Both areas are deleted with the message, with the chat or its history, with the account and on Clear cache.",
-   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "gzip6": 1584,
    "refImages": {
     "light": "refs/visual/sdk/09-storage-delete.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "Both areas are deleted with the message, with the chat or its history, with the account and on Clear cache.",
+   "contract": "docs/sdk-v1.md §2.8, §5.4"
   },
   {
    "id": "visual/sdk/10-storage-quota",
@@ -8178,12 +8739,13 @@
    "stages": [],
    "bytes": 3357,
    "gzip": 1665,
-   "group": "sdk",
-   "expect": "16384 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
-   "contract": "docs/sdk-v1.md §2.8",
+   "gzip6": 1665,
    "refImages": {
     "light": "refs/visual/sdk/10-storage-quota.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "16384 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
+   "contract": "docs/sdk-v1.md §2.8"
   },
   {
    "id": "visual/sdk/11-crash-restart",
@@ -8209,12 +8771,13 @@
    "stages": [],
    "bytes": 3232,
    "gzip": 1592,
-   "group": "sdk",
-   "expect": "The frozen last frame with the localised badge; one rebuild after the first crash; none after the second, until the app restarts or the message gets new HTML.",
-   "contract": "docs/sdk-v1.md §2.7, §5.7",
+   "gzip6": 1592,
    "refImages": {
     "light": "refs/visual/sdk/11-crash-restart.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "The frozen last frame with the localised badge; one rebuild after the first crash; none after the second, until the app restarts or the message gets new HTML.",
+   "contract": "docs/sdk-v1.md §2.7, §5.7"
   },
   {
    "id": "visual/sdk/12-drag-gestures",
@@ -8243,19 +8806,20 @@
    "stages": [],
    "bytes": 4276,
    "gzip": 1966,
-   "group": "sdk",
-   "expect": "The widget claims horizontal drags of the knob (touch-action: none, preventDefault); elsewhere the chat keeps swipe-to-reply and scrolling; double tap and long press stay with the bubble and never reach the widget.",
-   "contract": "docs/sdk-v1.md §3.5, §5.5",
+   "gzip6": 1966,
    "refImages": {
     "light": "refs/visual/sdk/12-drag-gestures.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "The widget claims horizontal drags of the knob (touch-action: none, preventDefault); elsewhere the chat keeps swipe-to-reply and scrolling; double tap and long press stay with the bubble and never reach the widget.",
+   "contract": "docs/sdk-v1.md §3.5, §5.5"
   },
   {
    "id": "visual/sdk/13-max-height",
    "set": "visual",
    "file": "visual/sdk/13-max-height.html",
    "title": "Taller than the cap: a hard clip",
-   "hint": "The widget is 3000 px tall. The bubble shows the top 600 px and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
+   "hint": "The widget is 3000 px tall. The bubble shows the top up to the client's maximum height and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
    "kind": [],
    "covers": [
     "behaviour.auto-height"
@@ -8274,12 +8838,13 @@
    "stages": [],
    "bytes": 3067,
    "gzip": 1559,
-   "group": "sdk",
-   "expect": "The bubble's height is the cap, 600 px on every client (the shared v0.1.0 value; maximumHeight / maxHeightDp / the web MAX_HEIGHT); content below is clipped.",
-   "contract": "docs/sdk-v1.md §5.6",
+   "gzip6": 1559,
    "refImages": {
     "light": "refs/visual/sdk/13-max-height.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "The bubble's height is the client's cap (maximumHeight / maxHeightDp; 900 px on the web); content below is clipped.",
+   "contract": "docs/sdk-v1.md §5.6"
   },
   {
    "id": "visual/sdk/14-theme-palette",
@@ -8309,13 +8874,14 @@
    "stages": [],
    "bytes": 4135,
    "gzip": 1912,
-   "group": "sdk",
-   "expect": "Every themeParams key as #rrggbb, the same values as --tg-theme-* on the root, updated in one task with themeChanged.",
-   "contract": "docs/sdk-v1.md §2.3, §5.1",
+   "gzip6": 1913,
    "refImages": {
     "light": "refs/visual/sdk/14-theme-palette.png",
     "dark": "refs/visual/sdk/14-theme-palette.dark.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "Every themeParams key as #rrggbb, the same values as --tg-theme-* on the root, updated in one task with themeChanged.",
+   "contract": "docs/sdk-v1.md §2.3, §5.1"
   },
   {
    "id": "visual/sdk/15-storage-forward",
@@ -8341,12 +8907,14 @@
    "stages": [],
    "bytes": 2935,
    "gzip": 1462,
+   "gzip6": 1462,
+   "refImages": {
+    "light": "refs/visual/sdk/15-storage-forward.png"
+   },
    "group": "sdk",
    "expect": "Storage keyed by (account, chat, message id): the destination chat's copy starts empty.",
    "contract": "docs/sdk-v1.md §2.8",
-   "refImages": {
-    "light": "refs/visual/sdk/15-storage-forward.png"
-   }
+   "pending": "the server: forwarding messages with a widget block"
   },
   {
    "id": "visual/sdk/16-bot-edit",
@@ -8372,19 +8940,21 @@
    "stages": [],
    "bytes": 3142,
    "gzip": 1545,
+   "gzip6": 1545,
+   "refImages": {
+    "light": "refs/visual/sdk/16-bot-edit.png"
+   },
    "group": "sdk",
    "expect": "An edit with the same HTML keeps the running widget; with different HTML the widget restarts on the same storage.",
    "contract": "docs/sdk-v1.md §2.8",
-   "refImages": {
-    "light": "refs/visual/sdk/16-bot-edit.png"
-   }
+   "pending": "the server: bots editing messages with a widget block"
   },
   {
    "id": "visual/sdk/17-size-hint",
    "set": "visual",
    "file": "visual/sdk/17-size-hint.html",
-   "title": "The bubble takes the bot's size anchors before load, then the content height",
-   "hint": "The bot sends this widget four times: width 0 + height 0 (the default placeholder, then the content height, 240 px), width 0 + height 300 (a fixed 300 px bubble that stays 300 after load), width 300 + height 0 (a 300 px wide widget, then its content height), and width 300 + height 300 (fixed both). The cached height is used next time the auto bubbles scroll in.",
+   "title": "The bubble takes the bot's size hint before load, then the real height",
+   "hint": "The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time.",
    "kind": [],
    "covers": [
     "behaviour.auto-height",
@@ -8404,12 +8974,14 @@
    "stages": [],
    "bytes": 2935,
    "gzip": 1500,
-   "group": "sdk",
-   "expect": "Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
-   "contract": "docs/sdk-v1.md §5.6",
+   "gzip6": 1500,
    "refImages": {
     "light": "refs/visual/sdk/17-size-hint.png"
-   }
+   },
+   "group": "sdk",
+   "expect": "Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
+   "contract": "docs/sdk-v1.md §5.6",
+   "pending": "the server: the width / height fields of the widget block"
   }
  ]
 }

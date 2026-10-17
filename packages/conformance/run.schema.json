@@ -20,7 +20,7 @@
         "type": "object",
         "required": ["id", "theme", "width", "loaded", "checks"],
         "properties": {
-          "id": { "type": "string", "description": "manifest.tests[].id, e.g. auto/03-layout" },
+          "id": { "type": "string", "description": "manifest.tests[].id, e.g. auto/03-layout-a" },
           "theme": { "type": "string", "enum": ["light", "dark"] },
           "width": { "type": "number", "description": "Widget width in CSS px (points / dp)." },
           "loaded": { "type": "boolean" },

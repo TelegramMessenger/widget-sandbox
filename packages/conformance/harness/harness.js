@@ -1,229 +1,121 @@
-// Conformance harness, inlined into every widget of packages/conformance by
-// scripts/conformance/build.ts (between the conformance:harness markers).
-// Plain ES2017 so it runs in QuickJS (sandbox), a browser (native reference)
-// and any renderer's host. The result is published as JSON in the
-// `data-conformance` attribute of <html>, which every host can read from the
-// validated ops (an `attr` op on the element the `el` op adopted as html):
+// Conformance harness. scripts/conformance/build.ts bundles, per widget, only
+// the exports the widget uses (T.ok, T.run, …), minifies them and inlines the
+// result as `var T` between the conformance:harness markers, so that every
+// widget fits a v1 mini-widget (4 KB gzipped). It runs in QuickJS (sandbox),
+// a browser (native reference) and any renderer's host. The result is JSON in
+// the `data-conformance` attribute of <html> (run.schema.json), which every
+// host reads from its validated ops:
 //
-//   {"v":1,"id":"auto/04-layout","mode":"sandbox","status":"running|awaiting|done",
+//   {"v":1,"id":"auto/04-values-units","mode":"sandbox","status":"running|awaiting|done",
 //    "n":{"pass":3,"fail":1,"xfail":0,"xpass":0,"skip":0,"pending":0},
-//    "checks":[["css.display.flex","row places children side by side","pass",""], …]}
+//    "checks":[["css.value.units","em, rem and %","pass",""], …],
+//    "targets":{"knob":[x,y,w,h]}, "stages":{"flex":[x,y,w,h]}}
 //
 // A check names one catalogue ID. Status: pass, fail, xfail (failed as
-// expected: the feature is not implemented yet), xpass (expected to fail but
-// passed), skip (not applicable here), pending (waiting for input or time).
-var T = (function () {
-  'use strict';
-  var root = document.documentElement;
-  var ID = root.getAttribute('data-test') || 'unknown';
-  var sandbox = typeof TelegramWidget !== 'undefined';
-  var mode = window.__conformanceMode || (sandbox ? 'sandbox' : 'native');
-  var checks = [];
-  var byKey = {};
-  var started = false, finished = false, awaiting = false, deadline = 0;
-  var queue = [];
-  var panelTimer = 0;
-  var targets = {}, targetRects = null, stageRects = null;
+// expected), xpass (expected to fail but passed), skip (not applicable),
+// pending (waiting for input or time). In reference mode (`ref`, the native
+// rendering of the expected images) build.ts swaps every stage that has a
+// <template data-ref="name"> for the template's markup, and stage() leaves
+// those stages alone.
 
-  function fmt(v) {
-    if (typeof v === 'number') return String(Math.round(v * 100) / 100);
-    if (typeof v === 'string') return JSON.stringify(v.length > 60 ? v.slice(0, 60) + '…' : v);
-    try { return JSON.stringify(v); } catch (e) { return String(v); }
-  }
+const D = document, root = D.documentElement;
+export const sandbox = typeof TelegramWidget != 'undefined';
+export const mode = window.__conformanceMode || (sandbox ? 'sandbox' : 'native');
+const checks = [], byKey = {}, queue = [], targets = {};
+let tRects, sRects, started, finished, awaiting, deadline, expire, timer;
+const $ = (el) => (typeof el == 'string' ? D.querySelector(el) : el);
+const fmt = (v) => JSON.stringify(typeof v == 'number' ? Math.round(v * 100) / 100 : v);
+const later = () => { timer = timer || setTimeout(publish, 0); };
 
-  function record(id, name, ok, detail, opts) {
-    opts = opts || {};
-    var st;
-    if (ok === null) st = 'skip';
-    else if (ok === 'pending') st = 'pending';
-    else if (opts.xfail) st = ok ? 'xpass' : 'xfail';
-    else st = ok ? 'pass' : 'fail';
-    var key = id + '|' + name;
-    var c = byKey[key];
-    if (!c) { c = byKey[key] = { id: id, name: name }; checks.push(c); }
-    c.status = st;
-    c.detail = detail ? String(detail).slice(0, 160) : '';
-    if (opts.xfail && (st === 'xfail' || st === 'xpass')) c.detail = (c.detail ? c.detail + '; ' : '') + 'expected to fail: ' + opts.xfail;
-    schedulePublish();
-    return st;
-  }
+function record(id, name, ok, detail, o) {
+  o = o || {};
+  const st = ok == null ? 'skip' : ok == 'pending' ? ok : (o.xfail ? 'x' : '') + (ok ? 'pass' : 'fail');
+  const c = byKey[id + '|' + name] || (byKey[id + '|' + name] = checks[checks.length] = [id, name]);
+  c[2] = st;
+  c[3] = (detail ? ('' + detail).slice(0, 160) : '') + (o.xfail && st[0] == 'x' ? ' (expected to fail: ' + o.xfail + ')' : '');
+  later();
+  return st;
+}
+/** fn (or a value) gives true/false, [bool, detail], or null/undefined to skip; a throw fails the check. */
+export function check(id, name, fn, o) {
+  if (o && o.sandboxOnly && !sandbox) return record(id, name, null, 'sandbox only', o);
+  let r;
+  try { r = typeof fn == 'function' ? fn() : fn; } catch (e) { return record(id, name, false, 'threw ' + e, o); }
+  return r == null ? record(id, name, null, 'not applicable', o) : record(id, name, r instanceof Array ? !!r[0] : !!r, r[1], o);
+}
+export const ok = (id, name, cond, detail, o) => check(id, name, [cond, detail], o);
+export const eq = (id, name, a, b, o) => check(id, name, [a === b, 'got ' + fmt(a) + ', want ' + fmt(b)], o);
+export const near = (id, name, a, b, tol, o) => check(id, name, [typeof a == 'number' && Math.abs(a - b) <= tol, 'got ' + fmt(a) + ', want ' + fmt(b) + ' ±' + tol], o);
+export const skip = (id, name, why) => record(id, name, null, why);
+/** A check resolved later (an event, a timer): pending until pass()/fail() or the deadline. */
+export function wait(id, name, o) {
+  // At the deadline (run's awaitInput or deadline) what still waits fails.
+  expire = () => { for (const c of checks) if (c[2] == 'pending') c[2] = 'fail', c[3] += ' (timed out)'; finished = 1; publish(); };
+  const end = (ok, d) => { if (!h.done) h.done = record(id, name, ok, d, o); };
+  const h = { done: o && o.sandboxOnly && !sandbox, pass: (d) => end(true, d), fail: (d) => end(false, d), skip: (d) => end(null, d), result: (ok, d) => end(!!ok, d) };
+  record(id, name, h.done ? null : 'pending', h.done ? 'sandbox only' : o && o.hint, o);
+  return h;
+}
+export const cs = (el, prop, pseudo) => getComputedStyle($(el), pseudo).getPropertyValue(prop).trim();
+export function rect(el) { const r = $(el).getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom }; }
+/** Normalised computed colour "r,g,b,a" (a 0–1, two decimals). */
+export function color(el, prop, pseudo) {
+  const v = cs(el, prop || 'background-color', pseudo), m = /rgba?\(\s*([\d.]+)\D+([\d.]+)\D+([\d.]+)(?:\D+([\d.]+)(%?))?/.exec(v);
+  return m ? [Math.round(m[1]), Math.round(m[2]), Math.round(m[3]), m[4] ? Math.round(m[4] * (m[5] ? 1 : 100)) / 100 : 1].join() : v;
+}
+/** Steps run in order after the first frames; a step may return a delay in ms before the next one. */
+export const step = (fn) => { queue.push(fn); };
+/** Draw into a stage from script; skipped in reference mode when the stage has a template. */
+export function stage(name, draw) {
+  const el = $('[data-stage="' + name + '"]');
+  if (el && !(mode == 'ref' && $('template[data-ref="' + name + '"]'))) try { draw(el); } catch (e) { record('harness', 'stage ' + name, false, e); }
+}
+/** A named element the runner may tap or drag (targets[name] in the result, re-measured on every publish so a runner taps where things are now). */
+export const target = (name, el) => {
+  targets[name] = el;
+  measureTargets = () => { tRects = {}; for (const k in targets) if ($(targets[k])) tRects[k] = r4($(targets[k])); };
+};
+let measureTargets = () => {};
 
-  /** Run fn now (or after start); fn returns true/false, [bool, detail], or null to skip. Exceptions fail the check. */
-  function check(id, name, fn, opts) {
-    opts = opts || {};
-    if (opts.sandboxOnly && !sandbox) return record(id, name, null, 'sandbox only', opts);
-    if (opts.nativeOnly && sandbox) return record(id, name, null, 'native only', opts);
-    var r;
-    try { r = typeof fn === 'function' ? fn() : fn; } catch (e) { return record(id, name, false, 'threw ' + (e && e.name ? e.name + ': ' : '') + (e && e.message), opts); }
-    if (r === null || r === undefined) return record(id, name, null, 'not applicable', opts);
-    if (Array.isArray(r)) return record(id, name, !!r[0], r[1], opts);
-    return record(id, name, !!r, '', opts);
-  }
-
-  function eq(id, name, actual, expected, opts) {
-    return check(id, name, function () { return [actual === expected, 'got ' + fmt(actual) + ', want ' + fmt(expected)]; }, opts);
-  }
-  function near(id, name, actual, expected, tol, opts) {
-    return check(id, name, function () { return [typeof actual === 'number' && Math.abs(actual - expected) <= tol, 'got ' + fmt(actual) + ', want ' + fmt(expected) + ' ±' + tol]; }, opts);
-  }
-
-  /** A check resolved later (an event, a timer): pending until pass()/fail() or the deadline. */
-  function wait(id, name, opts) {
-    opts = opts || {};
-    if (opts.sandboxOnly && !sandbox) { record(id, name, null, 'sandbox only', opts); return { pass: function () {}, fail: function () {}, done: true }; }
-    record(id, name, 'pending', opts.hint || '', opts);
-    var h = {
-      done: false,
-      pass: function (d) { if (!h.done) { h.done = true; record(id, name, true, d, opts); maybeFinish(); } },
-      fail: function (d) { if (!h.done) { h.done = true; record(id, name, false, d, opts); maybeFinish(); } },
-      result: function (ok, d) { ok ? h.pass(d) : h.fail(d); },
-      skip: function (d) { if (!h.done) { h.done = true; record(id, name, null, d, opts); maybeFinish(); } },
-    };
-    return h;
-  }
-
-  function rect(el) {
-    if (typeof el === 'string') el = document.querySelector(el);
-    var r = el.getBoundingClientRect();
-    return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
-  }
-  function cs(el, prop, pseudo) {
-    if (typeof el === 'string') el = document.querySelector(el);
-    return getComputedStyle(el, pseudo || null).getPropertyValue(prop).trim();
-  }
-  /** Normalised computed colour "r,g,b,a" (a 0–1, two decimals) from rgb()/rgba(). */
-  function color(el, prop, pseudo) {
-    var v = cs(el, prop || 'background-color', pseudo);
-    var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/.exec(v);
-    if (!m) return v;
-    var a = m[4] === undefined ? 1 : m[4].slice(-1) === '%' ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
-    return Math.round(+m[1]) + ',' + Math.round(+m[2]) + ',' + Math.round(+m[3]) + ',' + Math.round(a * 100) / 100;
-  }
-
-  function counts() {
-    var n = { pass: 0, fail: 0, xfail: 0, xpass: 0, skip: 0, pending: 0 };
-    for (var i = 0; i < checks.length; i++) n[checks[i].status]++;
-    return n;
-  }
-
-  function status() {
-    if (finished) return 'done';
-    if (!started) return 'running';
-    var n = counts();
-    if (queue.length) return 'running';
-    if (n.pending === 0) return 'done';
-    return awaiting ? 'awaiting' : 'running';
-  }
-
-  function publish() {
-    panelTimer = 0;
-    var st = status();
-    if (st === 'done') finished = true;
-    var n = counts();
-    var out = { v: 1, id: ID, mode: mode, status: st, n: n, checks: checks.map(function (c) { return [c.id, c.name, c.status, c.detail]; }) };
-    // Interactive widgets: targets are re-measured on every publish, so a runner taps where things are now.
-    if (targetRects && st !== 'done') { try { measureTargets(); } catch (e) {} }
-    if (targetRects) out.targets = targetRects;
-    if (stageRects) out.stages = stageRects;
-    root.setAttribute('data-conformance', JSON.stringify(out));
-    var p = document.getElementById('conf-summary');
-    if (p) {
-      p.textContent = (st === 'done' ? '' : st + ' · ') + 'pass ' + n.pass + ' · fail ' + n.fail + (n.xfail ? ' · xfail ' + n.xfail : '') + (n.xpass ? ' · XPASS ' + n.xpass : '') + (n.skip ? ' · skip ' + n.skip : '') + (n.pending ? ' · pending ' + n.pending : '');
-      p.className = n.fail || n.xpass ? 'bad' : n.pending ? '' : 'good';
-    }
-    var list = document.getElementById('conf-list');
-    if (list) {
-      var lines = [];
-      for (var i = 0; i < checks.length; i++) {
-        var c = checks[i];
-        if (list.hasAttribute('data-all') || c.status === 'fail' || c.status === 'xpass' || c.status === 'pending')
-          lines.push({ 'pass': '✓ ', 'fail': '✗ ', 'xfail': '· ', 'xpass': '! ', 'skip': '– ', 'pending': '… ' }[c.status] + c.id + ' — ' + c.name + (c.detail && c.status !== 'pass' ? ' (' + c.detail + ')' : ''));
-      }
-      list.textContent = lines.join('\n');
-    }
-    if (st === 'done' && typeof console !== 'undefined') console.log('[conformance] ' + ID + ' ' + JSON.stringify(n));
-  }
-  function schedulePublish() { if (!panelTimer) panelTimer = setTimeout(publish, 0); }
-
-  function maybeFinish() {
-    if (!started || queue.length) return;
-    var n = counts();
-    if (n.pending === 0) { finished = true; publish(); }
-    else schedulePublish();
-  }
-
-  /** Mark the remaining pending checks failed (no event arrived) and finish. */
-  function timeout() {
-    for (var i = 0; i < checks.length; i++) if (checks[i].status === 'pending') { checks[i].status = 'fail'; checks[i].detail = (checks[i].detail ? checks[i].detail + '; ' : '') + 'timed out'; }
-    finished = true;
-    publish();
-  }
-
-  /** Steps run in order after the first frames; a step may return a delay in ms before the next one. */
-  function step(fn) { queue.push(fn); }
-  function r4(el) { var r = el.getBoundingClientRect(); return [Math.round(r.left * 10) / 10, Math.round(r.top * 10) / 10, Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }
-  function measureTargets() {
-    targetRects = {};
-    for (var k in targets) { var el = typeof targets[k] === 'string' ? document.querySelector(targets[k]) : targets[k]; if (el) targetRects[k] = r4(el); }
-  }
-  function measure() {
-    measureTargets();
-    stageRects = {};
-    var st = document.querySelectorAll('[data-stage]');
-    for (var i = 0; i < st.length; i++) stageRects[st[i].getAttribute('data-stage')] = r4(st[i]);
-  }
-  function next() {
-    if (!started && targetRects === null) { try { measure(); } catch (e) { record('harness', 'measure threw', false, e && e.message); } }
-    if (!queue.length) { started = true; if (deadline) setTimeout(timeout, deadline); maybeFinish(); return; }
-    var fn = queue.shift();
-    var delay = 0;
-    try { delay = fn() || 0; } catch (e) { record('harness', 'step threw', false, e && e.message); }
-    setTimeout(next, delay);
-  }
-
-  /**
-   * Start after the renderer had a chance to lay out (two frames, a fallback
-   * timer when frames do not come). `awaitInput: ms` keeps the widget in
-   * `awaiting` until its pending checks resolve or the time is up.
-   */
-  function run(opts) {
-    opts = opts || {};
-    if (opts.awaitInput) { awaiting = true; deadline = opts.awaitInput; }
-    else if (opts.deadline) deadline = opts.deadline;
-    publish();
-    var went = false;
-    var go = function () { if (!went) { went = true; setTimeout(next, opts.settle || 60); } };
-    try { requestAnimationFrame(function () { requestAnimationFrame(go); }); } catch (e) {}
-    setTimeout(go, 400);
-  }
-
-  // Reference mode (native rendering for the expected images): a stage with a
-  // <template data-ref="name"> gets the template's markup instead of its own.
-  function swapRefs() {
-    var ts = document.querySelectorAll('template[data-ref]');
-    for (var i = 0; i < ts.length; i++) {
-      var name = ts[i].getAttribute('data-ref');
-      var st = document.querySelector('[data-stage="' + name + '"]');
-      if (st) { st.innerHTML = ts[i].innerHTML; st.setAttribute('data-ref-applied', ''); }
-    }
-  }
-  /** Draw into a stage from script; skipped in reference mode when the stage has a template. */
-  function stage(name, draw) {
-    var el = document.querySelector('[data-stage="' + name + '"]');
-    if (!el) return;
-    if (mode === 'ref' && document.querySelector('template[data-ref="' + name + '"]')) return;
-    try { draw(el); } catch (e) { record('harness', 'stage ' + name + ' threw', false, e && e.message); }
-  }
-  if (mode === 'ref') {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', swapRefs); else swapRefs();
-  }
-
-  return {
-    id: ID, sandbox: sandbox, mode: mode, check: check, eq: eq, near: near, wait: wait, ok: function (id, name, cond, detail, opts) { return check(id, name, function () { return [cond, detail]; }, opts); },
-    rect: rect, cs: cs, color: color, step: step, run: run, stage: stage, publish: publish,
-    /** A named element the runner may tap or drag (its rect is published as targets[name] when the run starts). */
-    target: function (name, el) { targets[name] = el; },
-    remeasure: function () { measure(); schedulePublish(); },
-    skip: function (id, name, why) { return record(id, name, null, why); },
+const r4 = (el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 10) / 10); };
+function publish() {
+  timer = 0;
+  if (started && !finished) measureTargets();
+  const n = { pass: 0, fail: 0, xfail: 0, xpass: 0, skip: 0, pending: 0 };
+  for (const c of checks) n[c[2]]++;
+  const idle = started && !queue.length, st = finished || idle && !n.pending ? 'done' : idle && awaiting ? 'awaiting' : 'running';
+  finished = st == 'done';
+  root.setAttribute('data-conformance', JSON.stringify({ v: 1, id: root.getAttribute('data-test'), mode, status: st, n, checks, targets: tRects, stages: sRects }));
+  if (show) show(st, n);
+}
+let show;
+/** For a person looking at the message (#conf-list): the counts, then what failed or still waits. build.ts calls it for widgets that have the list. */
+export function list() {
+  show = (st, n) => {
+    const lines = [st];
+    for (const k in n) if (n[k]) lines.push(k + ' ' + n[k]);
+    D.getElementById('conf-list').textContent = [lines.join(' · ')].concat(checks.filter((c) => /^(fail|xpass|pending)/.test(c[2])).map((c) => c.join(' · '))).join('\n');
   };
-})();
+}
+function next() {
+  // The stage rects (for the runners' crops) are measured once, before the first step.
+  if (!sRects) { sRects = {}; [].forEach.call(D.querySelectorAll('[data-stage]'), (s) => { sRects[s.getAttribute('data-stage')] = r4(s); }); }
+  if (!queue.length) {
+    started = 1;
+    if (deadline && expire) setTimeout(expire, deadline);
+    return later();
+  }
+  let d;
+  try { d = queue.shift()(); } catch (e) { record('harness', 'step', false, e); }
+  setTimeout(next, d || 0);
+}
+/** Start after the renderer laid out (two frames, or a fallback timer); awaitInput: ms keeps it `awaiting` until its pending checks resolve. */
+export function run(o) {
+  o = o || {};
+  awaiting = o.awaitInput;
+  deadline = o.awaitInput || o.deadline;
+  publish();
+  let go = () => { go = () => {}; setTimeout(next, o.settle || 60); };
+  try { requestAnimationFrame(() => requestAnimationFrame(() => go())); } catch (e) {}
+  setTimeout(() => go(), 400);
+}

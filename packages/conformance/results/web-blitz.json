@@ -5,13 +5,13 @@
   "platform": "web",
   "renderer": "blitz",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "3342023",
+  "framework": "b98ab86",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-17T09:17:05.870Z",
-  "commit": "3342023"
+  "date": "2026-10-17T13:06:08.392Z",
+  "commit": "b98ab86"
  },
  "summary": {
   "in": {
@@ -52,7 +52,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "p has 1em block margins",
      "status": "pass",
@@ -61,7 +61,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "br starts a new line",
      "status": "pass",
@@ -70,7 +70,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "hr draws a rule",
      "status": "pass",
@@ -79,7 +79,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "wbr is a break opportunity",
      "status": "fail",
@@ -97,7 +97,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "h1 > h2 > … > h6 font sizes",
      "status": "pass",
@@ -106,7 +106,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "headings are bold",
      "status": "pass",
@@ -124,7 +124,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "sectioning elements are blocks",
      "status": "pass",
@@ -133,7 +133,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "address is italic",
      "status": "pass",
@@ -152,7 +152,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "b, strong are bold",
      "status": "pass",
@@ -161,7 +161,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "i, em, cite, dfn, var are italic",
      "status": "pass",
@@ -170,7 +170,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "u, ins underline; s, del strike",
      "status": "pass",
@@ -179,7 +179,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "code, kbd, samp are monospace",
      "status": "pass",
@@ -188,7 +188,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "mark has a highlight",
      "status": "pass",
@@ -197,7 +197,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "small is smaller",
      "status": "pass",
@@ -206,7 +206,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-a",
      "kind": "check",
      "name": "q adds quotation marks",
      "status": "fail",
@@ -225,16 +225,16 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "sub sits lower, sup higher",
      "status": "fail",
-     "detail": "base 420-443 sub 443 sup 420",
+     "detail": "base 26-49 sub 49 sup 26",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "sub and sup are smaller",
      "status": "pass",
@@ -252,7 +252,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "pre keeps the line break",
      "status": "pass",
@@ -261,7 +261,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "pre is monospace",
      "status": "pass",
@@ -279,7 +279,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "blockquote is indented 40px",
      "status": "pass",
@@ -288,7 +288,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "figure is indented 40px",
      "status": "pass",
@@ -306,7 +306,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "ul is padded 40px",
      "status": "pass",
@@ -315,7 +315,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "ul items have discs",
      "status": "pass",
@@ -324,7 +324,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "ol items are numbered",
      "status": "pass",
@@ -333,7 +333,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "dd is indented 40px",
      "status": "pass",
@@ -342,7 +342,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "menu is a padded list",
      "status": "pass",
@@ -361,7 +361,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "cells sit side by side",
      "status": "pass",
@@ -370,7 +370,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "colspan=2 spans both columns",
      "status": "pass",
@@ -379,7 +379,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "rowspan=2 spans two rows",
      "status": "fail",
@@ -388,16 +388,16 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "caption sits above the rows",
      "status": "pass",
-     "detail": "0 / 625",
+     "detail": "0 / 206",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "th is bold and centred",
      "status": "pass",
@@ -415,16 +415,16 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "status": "pass",
-     "detail": "rt 673-713 ruby 673-713",
+     "detail": "rt 254-294 ruby 254-294",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "rt keeps the text size (a plain span)",
      "status": "pass",
@@ -442,7 +442,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "center becomes a div: no centring",
      "status": "pass",
@@ -451,7 +451,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "font becomes a span: color=red is dropped",
      "status": "pass",
@@ -460,7 +460,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "big becomes a span: normal size",
      "status": "pass",
@@ -469,7 +469,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "tt becomes a span: not monospace",
      "status": "pass",
@@ -478,7 +478,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "strike becomes a span: not struck",
      "status": "pass",
@@ -487,7 +487,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "nobr becomes a span: the text wraps",
      "status": "pass",
@@ -501,30 +501,12 @@
    "status": "in",
    "verdict": "partial",
    "counts": {
-    "fail": 3,
-    "pass": 2
+    "pass": 2,
+    "fail": 3
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
-     "kind": "check",
-     "name": "PNG decodes (naturalWidth 2)",
-     "status": "fail",
-     "detail": "timed out",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/02-attributes-images",
-     "kind": "check",
-     "name": "GIF decodes (naturalWidth 1)",
-     "status": "fail",
-     "detail": "timed out",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "width/height attributes size the image",
      "status": "pass",
@@ -533,7 +515,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "img inside picture is drawn",
      "status": "pass",
@@ -542,7 +524,25 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-b",
+     "kind": "check",
+     "name": "PNG decodes (naturalWidth 2)",
+     "status": "fail",
+     "detail": " (timed out)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images-b",
+     "kind": "check",
+     "name": "GIF decodes (naturalWidth 1)",
+     "status": "fail",
+     "detail": " (timed out)",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/02-attributes-images-b",
      "kind": "stage",
      "name": "raster",
      "status": "fail",
@@ -561,16 +561,16 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-b",
      "kind": "check",
      "name": "an SVG image is refused: the 48px placeholder (profile 1: out)",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-b",
      "kind": "stage",
      "name": "svgimg",
      "status": "pass",
@@ -588,20 +588,20 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-b",
      "kind": "check",
      "name": "BMP is refused (placeholder, not the 2px image)",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-b",
      "kind": "check",
      "name": "ICO is refused (placeholder, not the 2px image)",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     }
@@ -615,11 +615,11 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-b",
      "kind": "check",
      "name": "a remote image becomes the 48px placeholder",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     }
@@ -633,7 +633,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "rect",
      "status": "fail",
@@ -651,7 +651,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "button has a box with padding",
      "status": "pass",
@@ -660,7 +660,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "button has a visible background or border",
      "status": "pass",
@@ -679,7 +679,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "closed details is only as tall as its summary",
      "status": "pass",
@@ -688,7 +688,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "open details shows its content",
      "status": "pass",
@@ -697,7 +697,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "summary is a list item (disclosure marker)",
      "status": "pass",
@@ -706,7 +706,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-b",
      "kind": "check",
      "name": "tapping summary opens details (toggle event)",
      "status": "fail",
@@ -724,7 +724,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "a[href=#…] is a link (UA link colour, underline)",
      "status": "pass",
@@ -733,7 +733,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-b",
      "kind": "check",
      "name": "tapping a #fragment link does not leave the widget",
      "status": "pass",
@@ -752,7 +752,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
@@ -761,7 +761,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "it is still drawn as a link",
      "status": "pass",
@@ -770,7 +770,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "an external link tap reaches the widget as a click",
      "status": "pass",
@@ -779,7 +779,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "host",
      "name": "tapping an external <a href> goes to openLink",
      "status": "skip",
@@ -878,7 +878,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "progress is dropped (no box)",
      "status": "pass",
@@ -887,7 +887,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "meter is dropped (no box)",
      "status": "pass",
@@ -950,7 +950,7 @@
    },
    "evidence": [
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "an unknown element renders inline",
      "status": "pass",
@@ -959,7 +959,7 @@
      "width": 390
     },
     {
-     "test": "auto/01-html-elements",
+     "test": "auto/01-html-elements-c",
      "kind": "check",
      "name": "it renders as an inert span: its type selector does not match",
      "status": "pass",
@@ -1050,7 +1050,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "hidden hides",
      "status": "pass",
@@ -1059,7 +1059,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "style attribute applies",
      "status": "pass",
@@ -1068,7 +1068,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "lang reaches the renderer (:lang(ru))",
      "status": "fail",
@@ -1087,7 +1087,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "dir=rtl sets direction",
      "status": "pass",
@@ -1096,7 +1096,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "dir=rtl lays out inline boxes right to left",
      "status": "fail",
@@ -1105,7 +1105,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "dir=auto with Hebrew text resolves to rtl",
      "status": "fail",
@@ -1123,7 +1123,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "data-* reaches attribute selectors",
      "status": "pass",
@@ -1132,7 +1132,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "aria-* reaches attribute selectors",
      "status": "pass",
@@ -1150,7 +1150,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "align is dropped: no centring",
      "status": "pass",
@@ -1159,7 +1159,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "bgcolor is dropped",
      "status": "pass",
@@ -1168,7 +1168,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "cellpadding is dropped",
      "status": "pass",
@@ -1177,7 +1177,7 @@
      "width": 390
     },
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "border=1 is dropped",
      "status": "pass",
@@ -1195,7 +1195,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "an inline onclick handler runs",
      "status": "pass",
@@ -1213,7 +1213,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "contenteditable does not reach the renderer",
      "status": "pass",
@@ -1231,7 +1231,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "draggable does not reach the renderer",
      "status": "pass",
@@ -1249,7 +1249,7 @@
    },
    "evidence": [
     {
-     "test": "auto/02-attributes-images",
+     "test": "auto/02-attributes-images-a",
      "kind": "check",
      "name": "tabindex does not reach the renderer",
      "status": "pass",
@@ -1268,7 +1268,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "check",
      "name": "getBBox() of a rect",
      "status": "fail",
@@ -1277,7 +1277,7 @@
      "width": 390
     },
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "check",
      "name": "getTotalLength() of a path",
      "status": "fail",
@@ -1286,7 +1286,7 @@
      "width": 390
     },
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "stage",
      "name": "shapes",
      "status": "pass",
@@ -1304,7 +1304,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "check",
      "name": "viewBox scales content (10 user units → 20px)",
      "status": "fail",
@@ -1313,7 +1313,7 @@
      "width": 390
     },
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "stage",
      "name": "structure",
      "status": "fail",
@@ -1331,7 +1331,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "check",
      "name": "getComputedTextLength() of a text",
      "status": "fail",
@@ -1340,7 +1340,7 @@
      "width": 390
     },
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "stage",
      "name": "text",
      "status": "fail",
@@ -1358,7 +1358,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "stage",
      "name": "gradients",
      "status": "fail",
@@ -1377,7 +1377,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "check",
      "name": "a stylesheet fill reaches SVG (computed fill)",
      "status": "pass",
@@ -1386,7 +1386,7 @@
      "width": 390
     },
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-a",
      "kind": "stage",
      "name": "css",
      "status": "fail",
@@ -1404,7 +1404,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-b",
      "kind": "stage",
      "name": "clip-mask",
      "status": "pass",
@@ -1422,7 +1422,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-b",
      "kind": "stage",
      "name": "filters",
      "status": "pass",
@@ -1440,7 +1440,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-b",
      "kind": "stage",
      "name": "smil",
      "status": "pass",
@@ -1458,7 +1458,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-b",
      "kind": "stage",
      "name": "foreign-object",
      "status": "pass",
@@ -1476,7 +1476,7 @@
    },
    "evidence": [
     {
-     "test": "auto/13-svg",
+     "test": "auto/13-svg-b",
      "kind": "stage",
      "name": "image",
      "status": "pass",
@@ -1494,7 +1494,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "a block fills the container width",
      "status": "pass",
@@ -1503,16 +1503,16 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "inline boxes share a line",
      "status": "pass",
-     "detail": "i1 8,191 i2 24.21875,191",
+     "detail": "i1 8,112 i2 24.21875,112",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "inline-block keeps its width on the line",
      "status": "pass",
@@ -1521,7 +1521,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "display:none has no box",
      "status": "pass",
@@ -1539,7 +1539,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "row places children side by side",
      "status": "pass",
@@ -1548,7 +1548,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "justify-content: space-between",
      "status": "pass",
@@ -1557,7 +1557,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "align-items: center",
      "status": "pass",
@@ -1566,7 +1566,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "flex-direction: column stacks",
      "status": "pass",
@@ -1575,7 +1575,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "flex-wrap moves the third item to a new line",
      "status": "pass",
@@ -1584,7 +1584,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "flex-grow takes the free space",
      "status": "pass",
@@ -1593,7 +1593,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "order: -1 comes first",
      "status": "pass",
@@ -1602,7 +1602,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "stage",
      "name": "flex",
      "status": "pass",
@@ -1620,7 +1620,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "gap between flex items",
      "status": "pass",
@@ -1629,7 +1629,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "row-gap between wrapped lines",
      "status": "pass",
@@ -1638,7 +1638,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "stage",
      "name": "flex",
      "status": "pass",
@@ -1656,7 +1656,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "grid-template-columns: 50px 1fr",
      "status": "pass",
@@ -1665,7 +1665,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "auto-placement wraps to the next row",
      "status": "pass",
@@ -1674,7 +1674,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "repeat(4, 1fr) gives equal tracks",
      "status": "pass",
@@ -1683,7 +1683,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "check",
      "name": "grid-column: 2 / span 2 on row 2",
      "status": "pass",
@@ -1692,7 +1692,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-a",
      "kind": "stage",
      "name": "grid",
      "status": "pass",
@@ -1710,7 +1710,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "table cells side by side, the second takes the rest",
      "status": "fail",
@@ -1729,7 +1729,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "display: flow-root is dropped: the float is not contained (profile 1: out)",
      "status": "fail",
@@ -1738,7 +1738,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "display: contents is dropped: the span stays one flex item",
      "status": "pass",
@@ -1756,7 +1756,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "width: 50%",
      "status": "pass",
@@ -1765,7 +1765,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "min-width wins over width",
      "status": "pass",
@@ -1774,7 +1774,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "max-width caps width",
      "status": "pass",
@@ -1783,7 +1783,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "width: fit-content shrinks to the text",
      "status": "pass",
@@ -1801,7 +1801,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "margin-left offsets the box",
      "status": "pass",
@@ -1810,7 +1810,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "margin: 0 auto centres",
      "status": "pass",
@@ -1819,7 +1819,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "padding adds to the box",
      "status": "pass",
@@ -1828,7 +1828,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "negative margin pulls the box up",
      "status": "pass",
@@ -1846,7 +1846,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "a 5px border adds 10px",
      "status": "pass",
@@ -1855,7 +1855,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "stage",
      "name": "border",
      "status": "pass",
@@ -1873,7 +1873,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "stage",
      "name": "radius",
      "status": "pass",
@@ -1891,7 +1891,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "border-box keeps the declared width",
      "status": "pass",
@@ -1900,7 +1900,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "content-box adds the padding",
      "status": "pass",
@@ -1918,7 +1918,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "aspect-ratio: 2 makes a 60px wide box 30px high",
      "status": "pass",
@@ -1936,7 +1936,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "margin-inline-start is dropped (profile 1: out)",
      "status": "pass",
@@ -1945,7 +1945,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "inline-size is dropped: the block keeps its full width",
      "status": "pass",
@@ -1954,7 +1954,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "padding-block is dropped",
      "status": "pass",
@@ -1963,7 +1963,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "margin-inline-start is dropped in RTL too",
      "status": "pass",
@@ -1982,7 +1982,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "outline does not change the box",
      "status": "pass",
@@ -1991,7 +1991,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "computed outline is 4px solid",
      "status": "pass",
@@ -2000,7 +2000,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "outline",
      "status": "fail",
@@ -2018,7 +2018,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "shadow",
      "status": "pass",
@@ -2036,7 +2036,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "float:left pushes inline text right",
      "status": "fail",
@@ -2045,7 +2045,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "float:right sits at the right edge",
      "status": "fail",
@@ -2063,7 +2063,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-b",
      "kind": "check",
      "name": "column-count is dropped: one column (profile 1: out)",
      "status": "pass",
@@ -2081,7 +2081,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "object-fit",
      "status": "pass",
@@ -2099,7 +2099,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "absolute: left/top inside a relative parent",
      "status": "pass",
@@ -2108,7 +2108,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "inset: 0 fills the parent",
      "status": "pass",
@@ -2117,7 +2117,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "right/bottom anchor to the far edges",
      "status": "pass",
@@ -2126,7 +2126,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "relative: left/top shift the box",
      "status": "pass",
@@ -2144,7 +2144,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "fixed is placed against the bubble",
      "status": "pass",
@@ -2162,7 +2162,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "sticky is neutralised to relative",
      "status": "pass",
@@ -2180,7 +2180,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "the higher z-index is on top",
      "status": "pass",
@@ -2198,7 +2198,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "overflow: hidden clips hit testing",
      "status": "pass",
@@ -2207,7 +2207,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "overflow: hidden is computed",
      "status": "pass",
@@ -2216,7 +2216,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "overflow: clip is computed",
      "status": "pass",
@@ -2225,7 +2225,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "stage",
      "name": "radius",
      "status": "pass",
@@ -2243,7 +2243,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "overflow: auto is neutralised to hidden",
      "status": "pass",
@@ -2261,7 +2261,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "visibility: hidden is skipped by hit testing",
      "status": "pass",
@@ -2270,7 +2270,7 @@
      "width": 390
     },
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "a hidden box keeps its size",
      "status": "pass",
@@ -2288,7 +2288,7 @@
    },
    "evidence": [
     {
-     "test": "auto/03-layout",
+     "test": "auto/03-layout-c",
      "kind": "check",
      "name": "computed opacity",
      "status": "pass",
@@ -2297,7 +2297,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "stage",
      "name": "opacity",
      "status": "pass",
@@ -2315,7 +2315,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "named colour",
      "status": "pass",
@@ -2324,7 +2324,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "#rgba hex",
      "status": "pass",
@@ -2333,7 +2333,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "hsl()",
      "status": "pass",
@@ -2342,7 +2342,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "currentColor",
      "status": "pass",
@@ -2351,7 +2351,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "transparent",
      "status": "pass",
@@ -2360,7 +2360,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "stage",
      "name": "basic",
      "status": "pass",
@@ -2369,7 +2369,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "named colour",
      "status": "pass",
@@ -2378,7 +2378,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "#rgba hex",
      "status": "pass",
@@ -2387,7 +2387,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "hsl()",
      "status": "pass",
@@ -2396,7 +2396,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "currentColor",
      "status": "pass",
@@ -2405,7 +2405,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "transparent",
      "status": "pass",
@@ -2423,7 +2423,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "stage",
      "name": "modern",
      "status": "pass",
@@ -2441,7 +2441,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "color-mix() is dropped: no background (profile 1: out)",
      "status": "pass",
@@ -2450,7 +2450,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "stage",
      "name": "mix",
      "status": "pass",
@@ -2459,7 +2459,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "color-mix() is dropped: no background (profile 1: out)",
      "status": "pass",
@@ -2477,7 +2477,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "light-dark() picks the chat theme",
      "status": "pass",
@@ -2486,7 +2486,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "stage",
      "name": "light-dark",
      "status": "pass",
@@ -2495,7 +2495,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "check",
      "name": "light-dark() picks the chat theme",
      "status": "pass",
@@ -2504,7 +2504,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-a",
      "kind": "stage",
      "name": "light-dark",
      "status": "pass",
@@ -2518,12 +2518,12 @@
    "status": "in",
    "verdict": "partial",
    "counts": {
-    "pass": 6,
-    "fail": 3
+    "pass": 3,
+    "fail": 2
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "check",
      "name": "background-image keeps the data: image",
      "status": "pass",
@@ -2532,7 +2532,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "check",
      "name": "background-size",
      "status": "pass",
@@ -2541,7 +2541,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "check",
      "name": "background-position",
      "status": "fail",
@@ -2550,7 +2550,7 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "check",
      "name": "background-repeat",
      "status": "pass",
@@ -2559,48 +2559,12 @@
      "width": 390
     },
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "background",
      "status": "fail",
      "detail": "diff 78.1 % of ink (max 5 %)",
      "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-image keeps the data: image",
-     "status": "pass",
-     "detail": "url(\"data:image/png;base64,iVBORw0KGgoAA",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-size",
-     "status": "pass",
-     "detail": "got \"10px 12px\", want \"10px 12px\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-position",
-     "status": "fail",
-     "detail": "got \"\", want \"1px 2px\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-repeat",
-     "status": "pass",
-     "detail": "got \"no-repeat\", want \"no-repeat\"",
-     "theme": "dark",
      "width": 390
     }
    ]
@@ -2613,7 +2577,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "clip-text",
      "status": "pass",
@@ -2631,7 +2595,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "linear",
      "status": "pass",
@@ -2649,7 +2613,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "radial",
      "status": "fail",
@@ -2667,7 +2631,7 @@
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "stage",
      "name": "conic",
      "status": "fail",
@@ -2681,25 +2645,16 @@
    "status": "out",
    "verdict": "pass",
    "counts": {
-    "pass": 2
+    "pass": 1
    },
    "evidence": [
     {
-     "test": "auto/05-colour-backgrounds",
+     "test": "auto/05-colour-backgrounds-b",
      "kind": "check",
      "name": "a remote url() never reaches the renderer",
      "status": "pass",
      "detail": "got \"none\", want \"none\"",
      "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "a remote url() never reaches the renderer",
-     "status": "pass",
-     "detail": "got \"none\", want \"none\"",
-     "theme": "dark",
      "width": 390
     }
    ]
@@ -2713,7 +2668,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "monospace: i and M have the same advance",
      "status": "fail",
@@ -2722,7 +2677,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "computed font-family keeps the generic name",
      "status": "pass",
@@ -2731,7 +2686,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "serif and sans-serif are different faces",
      "status": "fail",
@@ -2740,7 +2695,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "system-ui renders",
      "status": "pass",
@@ -2759,7 +2714,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "ui-monospace: i and M have the same advance",
      "status": "fail",
@@ -2768,7 +2723,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "the validator adds a generic fallback (ui-monospace → …, monospace)",
      "status": "pass",
@@ -2777,7 +2732,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "ui-rounded with a fallback renders",
      "status": "pass",
@@ -2795,7 +2750,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "a named family is dropped: \"Courier New\" alone is not monospace",
      "status": "pass",
@@ -2804,7 +2759,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "a named family is dropped from the list (\"Times New Roman\", sans-serif → sans-serif)",
      "status": "pass",
@@ -2822,7 +2777,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "@font-face is dropped: the fallback monospace is used",
      "status": "fail",
@@ -2841,7 +2796,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "font-size: 20px gives a taller line",
      "status": "pass",
@@ -2850,7 +2805,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "font-weight: 700 is wider than 400",
      "status": "fail",
@@ -2859,7 +2814,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "font-style: italic",
      "status": "pass",
@@ -2868,7 +2823,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "font shorthand",
      "status": "pass",
@@ -2877,7 +2832,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "line-height: 30px",
      "status": "pass",
@@ -2895,7 +2850,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "tabular-nums: 1111 as wide as 0000",
      "status": "pass",
@@ -2904,7 +2859,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-a",
      "kind": "check",
      "name": "font-feature-settings \"tnum\"",
      "status": "pass",
@@ -2922,7 +2877,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "text-align: center",
      "status": "pass",
@@ -2931,7 +2886,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "text-align: right",
      "status": "pass",
@@ -2940,7 +2895,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "text-align: end in RTL is the left edge",
      "status": "pass",
@@ -2949,7 +2904,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "text-indent",
      "status": "pass",
@@ -2967,7 +2922,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "text-decoration: underline",
      "status": "pass",
@@ -2976,7 +2931,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "stage",
      "name": "decoration",
      "status": "pass",
@@ -2994,7 +2949,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "text-transform: uppercase widens",
      "status": "pass",
@@ -3003,7 +2958,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "letter-spacing: 5px adds 5px per letter",
      "status": "pass",
@@ -3012,7 +2967,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "word-spacing: 10px adds 10px per space",
      "status": "pass",
@@ -3030,7 +2985,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "nowrap keeps one line",
      "status": "pass",
@@ -3039,7 +2994,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "pre keeps the newline",
      "status": "pass",
@@ -3048,7 +3003,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "pre-wrap keeps the spaces",
      "status": "pass",
@@ -3057,7 +3012,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "pre-line keeps the newline, collapses the spaces",
      "status": "pass",
@@ -3075,7 +3030,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "overflow-wrap: anywhere breaks a long word",
      "status": "pass",
@@ -3084,7 +3039,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "word-break: break-all breaks a long word",
      "status": "pass",
@@ -3102,7 +3057,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "stage",
      "name": "ellipsis",
      "status": "fail",
@@ -3120,7 +3075,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "-webkit-line-clamp is dropped: all lines show (profile 1: out)",
      "status": "pass",
@@ -3138,7 +3093,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "stage",
      "name": "text-shadow",
      "status": "pass",
@@ -3156,7 +3111,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "vertical-align top and bottom",
      "status": "pass",
@@ -3174,7 +3129,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "list-style-position: inside moves the text right",
      "status": "pass",
@@ -3183,7 +3138,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "list-style-type: none",
      "status": "pass",
@@ -3201,7 +3156,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-b",
      "kind": "check",
      "name": "writing-mode is neutralised (text stays horizontal)",
      "status": "pass",
@@ -3219,7 +3174,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "check",
      "name": "Hebrew in dir=rtl starts at the right edge",
      "status": "pass",
@@ -3228,7 +3183,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "check",
      "name": "Arabic lam-alef is shaped (ligature narrower than its letters)",
      "status": "pass",
@@ -3247,7 +3202,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "check",
      "name": "emoji glyph has an advance",
      "status": "pass",
@@ -3256,7 +3211,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "check",
      "name": "flag sequence is one glyph",
      "status": "pass",
@@ -3265,7 +3220,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "check",
      "name": "ZWJ sequence is one glyph",
      "status": "pass",
@@ -3274,7 +3229,7 @@
      "width": 390
     },
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "stage",
      "name": "emoji",
      "status": "fail",
@@ -3292,7 +3247,7 @@
    },
    "evidence": [
     {
-     "test": "auto/06-text-fonts",
+     "test": "auto/06-text-fonts-c",
      "kind": "check",
      "name": "user-select: text cannot re-enable selection",
      "status": "fail",
@@ -3311,7 +3266,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "check",
      "name": "translateX(30px) moves the box",
      "status": "fail",
@@ -3320,7 +3275,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "check",
      "name": "rotate(90deg) swaps the bounding box",
      "status": "fail",
@@ -3329,7 +3284,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "check",
      "name": "scale(2) with transform-origin 0 0",
      "status": "fail",
@@ -3338,7 +3293,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "check",
      "name": "the translate property",
      "status": "fail",
@@ -3347,7 +3302,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "stage",
      "name": "transform-2d",
      "status": "pass",
@@ -3365,7 +3320,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "check",
      "name": "rotateY(60deg) is dropped: the box keeps its width",
      "status": "pass",
@@ -3374,7 +3329,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "stage",
      "name": "transform-3d",
      "status": "pass",
@@ -3393,7 +3348,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "check",
      "name": "filter functions are kept",
      "status": "pass",
@@ -3402,7 +3357,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "stage",
      "name": "blur",
      "status": "fail",
@@ -3411,7 +3366,7 @@
      "width": 390
     },
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "stage",
      "name": "brightness-drop-shadow",
      "status": "fail",
@@ -3429,7 +3384,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "stage",
      "name": "filter-other",
      "status": "pass",
@@ -3447,7 +3402,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-a",
      "kind": "stage",
      "name": "filter-url",
      "status": "pass",
@@ -3465,7 +3420,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "stage",
      "name": "backdrop",
      "status": "fail",
@@ -3483,7 +3438,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "stage",
      "name": "blend",
      "status": "pass",
@@ -3501,7 +3456,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "stage",
      "name": "clip-path",
      "status": "pass",
@@ -3519,7 +3474,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "stage",
      "name": "mask",
      "status": "pass",
@@ -3537,7 +3492,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "check",
      "name": "pointer-events: none lets hits through",
      "status": "pass",
@@ -3564,7 +3519,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "check",
      "name": "touch-action reaches the renderer",
      "status": "pass",
@@ -3582,7 +3537,7 @@
    },
    "evidence": [
     {
-     "test": "auto/09-transforms-effects",
+     "test": "auto/09-transforms-effects-b",
      "kind": "check",
      "name": "cursor reaches the renderer",
      "status": "pass",
@@ -3961,7 +3916,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "type selector",
      "status": "pass",
@@ -3970,7 +3925,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "class selector",
      "status": "pass",
@@ -3979,7 +3934,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "id selector",
      "status": "pass",
@@ -3988,7 +3943,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "universal selector",
      "status": "pass",
@@ -3997,7 +3952,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "[attr]",
      "status": "pass",
@@ -4006,7 +3961,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "[attr=v]",
      "status": "pass",
@@ -4015,7 +3970,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "[attr^=v]",
      "status": "pass",
@@ -4024,7 +3979,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "[attr$=v]",
      "status": "pass",
@@ -4033,7 +3988,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "[attr*=v]",
      "status": "pass",
@@ -4042,7 +3997,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "[attr~=v]",
      "status": "pass",
@@ -4051,7 +4006,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "[attr|=v]",
      "status": "pass",
@@ -4060,7 +4015,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "descendant combinator",
      "status": "pass",
@@ -4069,7 +4024,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "child combinator",
      "status": "pass",
@@ -4078,7 +4033,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "adjacent sibling +",
      "status": "pass",
@@ -4087,7 +4042,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "general sibling ~",
      "status": "pass",
@@ -4096,7 +4051,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-a",
      "kind": "check",
      "name": "selector list",
      "status": "pass",
@@ -4105,7 +4060,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": "a class added from script restyles",
      "status": "pass",
@@ -4123,7 +4078,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":first-child, :nth-child(3), :nth-last-child(2), :last-child",
      "status": "pass",
@@ -4132,7 +4087,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":first-of-type, :nth-of-type(2), :last-of-type",
      "status": "pass",
@@ -4141,7 +4096,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":only-child",
      "status": "pass",
@@ -4150,7 +4105,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":empty",
      "status": "pass",
@@ -4159,7 +4114,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":not(:empty)",
      "status": "pass",
@@ -4177,7 +4132,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":is()",
      "status": "pass",
@@ -4186,7 +4141,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":where() matches",
      "status": "pass",
@@ -4195,7 +4150,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":where() has zero specificity",
      "status": "pass",
@@ -4213,7 +4168,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":has() never matches (profile 1: out)",
      "status": "pass",
@@ -4231,7 +4186,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":root custom property reaches descendants",
      "status": "pass",
@@ -4250,7 +4205,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": "::before box takes space",
      "status": "pass",
@@ -4259,7 +4214,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": "::after computed style",
      "status": "fail",
@@ -4277,7 +4232,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": "::first-letter never matches",
      "status": "pass",
@@ -4286,7 +4241,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": "::first-line never matches",
      "status": "pass",
@@ -4295,7 +4250,7 @@
      "width": 390
     },
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": "::marker never matches",
      "status": "pass",
@@ -4314,7 +4269,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":hover rules are kept and do not match without a pointer",
      "status": "pass",
@@ -4341,7 +4296,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-b",
      "kind": "check",
      "name": ":active applies while pressed",
      "status": "skip",
@@ -4359,7 +4314,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":focus never matches (no keyboard focus in v1)",
      "status": "pass",
@@ -4395,7 +4350,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":scope at the top level matches nothing",
      "status": "pass",
@@ -4413,7 +4368,7 @@
    },
    "evidence": [
     {
-     "test": "auto/07-selectors",
+     "test": "auto/07-selectors-b",
      "kind": "check",
      "name": ":target never matches",
      "status": "pass",
@@ -5138,7 +5093,7 @@
      "kind": "check",
      "name": "animationstart fires",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
@@ -5147,7 +5102,7 @@
      "kind": "check",
      "name": "animationend fires",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
@@ -5156,7 +5111,7 @@
      "kind": "check",
      "name": "animation events carry animationName and elapsedTime",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
@@ -5165,7 +5120,7 @@
      "kind": "check",
      "name": "animationiteration fires twice",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
@@ -5174,7 +5129,7 @@
      "kind": "check",
      "name": "transitionend fires",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
@@ -5183,7 +5138,7 @@
      "kind": "check",
      "name": "transitionend carries propertyName",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     }
@@ -5247,7 +5202,7 @@
      "kind": "check",
      "name": "the renderer applies the seeked frame (computed transform)",
      "status": "fail",
-     "detail": "got NaN, want 20 ±0.5",
+     "detail": "got null, want 20 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -5274,7 +5229,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "154",
+     "detail": "126.1",
      "theme": "light",
      "width": 390
     },
@@ -5387,7 +5342,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "no View Transitions (document.startViewTransition)",
      "status": "pass",
@@ -5405,7 +5360,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "rect",
      "status": "fail",
@@ -5423,7 +5378,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "path",
      "status": "fail",
@@ -5441,7 +5396,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "line-style",
      "status": "fail",
@@ -5459,7 +5414,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "rect",
      "status": "fail",
@@ -5477,7 +5432,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "gradients",
      "status": "fail",
@@ -5495,7 +5450,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "conic",
      "status": "pass",
@@ -5513,7 +5468,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "pattern",
      "status": "pass",
@@ -5531,7 +5486,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "transform",
      "status": "fail",
@@ -5549,7 +5504,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "clip",
      "status": "fail",
@@ -5568,7 +5523,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "measureText gives a width",
      "status": "pass",
@@ -5577,7 +5532,7 @@
      "width": 390
     },
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "measureText gives ascent/descent",
      "status": "pass",
@@ -5586,7 +5541,7 @@
      "width": 390
     },
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "text",
      "status": "fail",
@@ -5604,7 +5559,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "alpha",
      "status": "fail",
@@ -5622,7 +5577,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "composite",
      "status": "fail",
@@ -5640,7 +5595,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "shadow",
      "status": "fail",
@@ -5658,7 +5613,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "filter",
      "status": "fail",
@@ -5676,7 +5631,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "path2d",
      "status": "fail",
@@ -5694,16 +5649,16 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "check",
      "name": "drawImage of a loaded <img>",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "draw-image",
      "status": "fail",
@@ -5721,7 +5676,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "getImageData returns transparent pixels (profile 1: out)",
      "status": "pass",
@@ -5730,7 +5685,7 @@
      "width": 390
     },
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-b",
      "kind": "stage",
      "name": "image-data",
      "status": "pass",
@@ -5748,7 +5703,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "isPointInPath inside / outside",
      "status": "fail",
@@ -5757,7 +5712,7 @@
      "width": 390
     },
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "isPointInStroke",
      "status": "fail",
@@ -5776,7 +5731,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "the backing store keeps its width attribute",
      "status": "pass",
@@ -5785,7 +5740,7 @@
      "width": 390
     },
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "stage",
      "name": "rect",
      "status": "fail",
@@ -5803,7 +5758,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "toDataURL does not hand pixels back",
      "status": "pass",
@@ -5821,7 +5776,7 @@
    },
    "evidence": [
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "getContext(\"webgl\") is null",
      "status": "pass",
@@ -5830,7 +5785,7 @@
      "width": 390
     },
     {
-     "test": "auto/12-canvas",
+     "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "OffscreenCanvas is not available",
      "status": "pass",
@@ -5848,7 +5803,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "createElement + appendChild renders",
      "status": "pass",
@@ -5857,25 +5812,25 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "insertAdjacentHTML is parsed in the sandbox and rendered",
      "status": "pass",
-     "detail": "58",
+     "detail": "38",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "insertBefore orders the nodes",
      "status": "pass",
-     "detail": "46 < 62",
+     "detail": "26 < 42",
      "theme": "light",
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "classList and dataset",
      "status": "pass",
@@ -5884,7 +5839,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "cloneNode(true) renders a deep copy",
      "status": "pass",
@@ -5893,7 +5848,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "a removed node has no box",
      "status": "pass",
@@ -5902,7 +5857,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "innerHTML replaces the children",
      "status": "pass",
@@ -5921,7 +5876,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "querySelectorAll",
      "status": "pass",
@@ -5930,7 +5885,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "closest and matches",
      "status": "pass",
@@ -5939,7 +5894,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "getElementsByClassName is live",
      "status": "fail",
@@ -5957,7 +5912,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "element.style and setProperty",
      "status": "pass",
@@ -5966,7 +5921,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "style.cssText replaces the declarations",
      "status": "pass",
@@ -5975,7 +5930,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "removeProperty",
      "status": "pass",
@@ -5993,7 +5948,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "capture, target, bubble order and detail",
      "status": "pass",
@@ -6002,7 +5957,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "preventDefault: dispatchEvent returns false, defaultPrevented",
      "status": "pass",
@@ -6011,7 +5966,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "once listener runs once",
      "status": "pass",
@@ -6020,7 +5975,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "stopPropagation",
      "status": "pass",
@@ -6039,7 +5994,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "getClientRects of a wrapped inline gives one rect per line",
      "status": "fail",
@@ -6048,7 +6003,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "getBoundingClientRect has DOMRect fields",
      "status": "pass",
@@ -6067,7 +6022,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "offsetWidth includes padding and border",
      "status": "pass",
@@ -6076,7 +6031,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "clientWidth excludes the border",
      "status": "pass",
@@ -6085,7 +6040,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "scrollHeight of overflowing content",
      "status": "fail",
@@ -6094,7 +6049,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "offsetParent",
      "status": "fail",
@@ -6113,7 +6068,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "longhand (width)",
      "status": "pass",
@@ -6122,7 +6077,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "shorthand white-space",
      "status": "fail",
@@ -6131,7 +6086,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "shorthand overflow",
      "status": "fail",
@@ -6140,7 +6095,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "shorthand margin",
      "status": "fail",
@@ -6149,7 +6104,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "camelCase property access",
      "status": "pass",
@@ -6167,7 +6122,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "matchMedia evaluates a width query",
      "status": "pass",
@@ -6176,7 +6131,7 @@
      "width": 390
     },
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "matchMedia(…).media",
      "status": "pass",
@@ -6194,11 +6149,11 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "ResizeObserver reports the new width",
      "status": "fail",
-     "detail": "timed out",
+     "detail": " (timed out)",
      "theme": "light",
      "width": 390
     }
@@ -6212,7 +6167,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "IntersectionObserver reports the element (visible)",
      "status": "pass",
@@ -6230,7 +6185,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "elementFromPoint finds the element",
      "status": "pass",
@@ -6248,7 +6203,7 @@
    },
    "evidence": [
     {
-     "test": "auto/14-dom-layout-api",
+     "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "measureText agrees with DOM text width",
      "status": "pass",
@@ -6293,7 +6248,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "timeouts fire in delay order, after microtasks",
      "status": "pass",
@@ -6302,7 +6257,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "setInterval repeats until cleared",
      "status": "pass",
@@ -6320,11 +6275,11 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "80,97,113",
+     "detail": "36,53,69",
      "theme": "light",
      "width": 390
     }
@@ -6338,7 +6293,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "async/await",
      "status": "pass",
@@ -6347,7 +6302,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "Promise.all / allSettled",
      "status": "pass",
@@ -6365,7 +6320,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "setItem / getItem / property access / length / key",
      "status": "pass",
@@ -6374,7 +6329,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "removeItem / missing key is null",
      "status": "pass",
@@ -6383,7 +6338,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "values are strings (JSON round trip)",
      "status": "pass",
@@ -6392,7 +6347,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "10 KB fits",
      "status": "pass",
@@ -6410,7 +6365,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "sessionStorage works and is separate",
      "status": "pass",
@@ -6428,7 +6383,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "NumberFormat currency",
      "status": "pass",
@@ -6437,7 +6392,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "NumberFormat ru grouping",
      "status": "pass",
@@ -6446,7 +6401,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "DateTimeFormat UTC",
      "status": "pass",
@@ -6455,7 +6410,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "PluralRules",
      "status": "pass",
@@ -6464,7 +6419,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "RelativeTimeFormat",
      "status": "pass",
@@ -6473,7 +6428,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "ListFormat",
      "status": "pass",
@@ -6482,7 +6437,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "Collator",
      "status": "pass",
@@ -6491,7 +6446,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "toLocaleString uses Intl",
      "status": "pass",
@@ -6509,7 +6464,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "NumberFormat.formatToParts",
      "status": "pass",
@@ -6518,7 +6473,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "DateTimeFormat.formatToParts",
      "status": "pass",
@@ -6536,7 +6491,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "navigator.language is a BCP 47 tag",
      "status": "pass",
@@ -6545,7 +6500,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "navigator.languages starts with navigator.language",
      "status": "pass",
@@ -6563,7 +6518,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "getRandomValues fills the array",
      "status": "pass",
@@ -6572,7 +6527,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "randomUUID is a v4 UUID",
      "status": "pass",
@@ -6581,7 +6536,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "Math.random in [0, 1)",
      "status": "pass",
@@ -6599,7 +6554,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "TextEncoder",
      "status": "pass",
@@ -6608,7 +6563,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "TextDecoder",
      "status": "pass",
@@ -6617,7 +6572,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "URL and URLSearchParams",
      "status": "pass",
@@ -6626,7 +6581,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "structuredClone",
      "status": "pass",
@@ -6635,7 +6590,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "AbortController",
      "status": "pass",
@@ -6644,7 +6599,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "atob / btoa",
      "status": "pass",
@@ -6662,7 +6617,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "eval",
      "status": "pass",
@@ -6671,7 +6626,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "new Function",
      "status": "pass",
@@ -6689,7 +6644,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "CSS.supports(\"display\", \"flex\")",
      "status": "pass",
@@ -6698,7 +6653,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "CSS.supports rejects an invalid value",
      "status": "pass",
@@ -6707,7 +6662,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "CSS.supports(\"transform\", \"rotateY(10deg)\") is false: 3D is out",
      "status": "pass",
@@ -6716,7 +6671,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "CSS.supports(\"(display: flex) and (gap: 1px)\")",
      "status": "pass",
@@ -6725,7 +6680,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "CSS.escape",
      "status": "pass",
@@ -6743,7 +6698,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "document is visible",
      "status": "pass",
@@ -6761,7 +6716,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "a Chart.js CDN script is an external script and is not run (profile 1: out)",
      "status": "pass",
@@ -6770,7 +6725,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-b",
      "kind": "check",
      "name": "a D3 CDN script is not run either",
      "status": "pass",
@@ -6788,7 +6743,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "fetch rejects with NetworkDisabledError",
      "status": "pass",
@@ -6797,7 +6752,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "XHR, WebSocket, EventSource, RTCPeerConnection, Worker, sendBeacon, importScripts throw NetworkDisabledError",
      "status": "pass",
@@ -6815,7 +6770,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "location assignment does not navigate",
      "status": "pass",
@@ -6824,7 +6779,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "window.open returns null",
      "status": "pass",
@@ -6842,7 +6797,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "confirm → false, prompt → null, alert does not block",
      "status": "pass",
@@ -6860,7 +6815,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "clipboard.writeText and share reject",
      "status": "pass",
@@ -6869,7 +6824,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "no geolocation or media devices; vibrate is false",
      "status": "pass",
@@ -6887,7 +6842,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "attachShadow throws",
      "status": "pass",
@@ -6905,7 +6860,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "URL.createObjectURL gives no URL",
      "status": "pass",
@@ -6923,7 +6878,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-c",
      "kind": "check",
      "name": "requestFullscreen rejects",
      "status": "pass",
@@ -6941,7 +6896,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "TelegramWidget.ready()",
      "status": "pass",
@@ -6959,7 +6914,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "theme is \"light\" or \"dark\" and onTheme calls back at once",
      "status": "pass",
@@ -6968,7 +6923,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "colorScheme is \"light\" or \"dark\" and equals theme",
      "status": "pass",
@@ -6987,7 +6942,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "themeParams has the palette (bg_color, text_color, …)",
      "status": "pass",
@@ -6996,7 +6951,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "--tg-theme-bg-color is defined for CSS",
      "status": "fail",
@@ -7005,7 +6960,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "themeParams carries every key as #rrggbb",
      "status": "pass",
@@ -7032,7 +6987,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
      "status": "pass",
@@ -7050,7 +7005,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "isActive is true while the widget is on screen",
      "status": "pass",
@@ -7078,7 +7033,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "openLink is callable in the task of a tap",
      "status": "pass",
@@ -7087,7 +7042,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
      "status": "pass",
@@ -7096,7 +7051,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "host",
      "name": "openLink from a tap reaches the host once",
      "status": "skip",
@@ -7114,7 +7069,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "openTelegramLink exists",
      "status": "pass",
@@ -7123,7 +7078,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "openTelegramLink accepts any t.me / telegram.me path",
      "status": "pass",
@@ -7132,7 +7087,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "openTelegramLink rejects other hosts and tg: with TypeError",
      "status": "pass",
@@ -7150,7 +7105,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "haptic feedback exists",
      "status": "pass",
@@ -7159,7 +7114,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "haptic methods return HapticFeedback for chaining",
      "status": "pass",
@@ -7168,7 +7123,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "an unknown style or type throws TypeError",
      "status": "pass",
@@ -7186,7 +7141,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "TelegramWidget.profile is a positive integer",
      "status": "pass",
@@ -7195,7 +7150,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "isProfileAtLeast(1) is true, isProfileAtLeast(999) false",
      "status": "pass",
@@ -7213,7 +7168,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "check",
      "name": "sendMessage is not in the SDK",
      "status": "pass",
@@ -7231,7 +7186,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "click on the tapped element with coordinates inside it",
      "status": "pass",
@@ -7249,7 +7204,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "pointerdown → pointerup → click, primary pointer with an id and type",
      "status": "pass",
@@ -7267,7 +7222,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "mousedown → mouseup on a tap",
      "status": "fail",
@@ -7357,7 +7312,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-b",
      "kind": "check",
      "name": "no dblclick reaches the widget (the double tap stays with the bubble)",
      "status": "skip",
@@ -7375,7 +7330,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-b",
      "kind": "check",
      "name": "no contextmenu event reaches the widget",
      "status": "skip",
@@ -7393,7 +7348,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-b",
      "kind": "check",
      "name": "no keydown reaches the widget",
      "status": "skip",
@@ -7456,7 +7411,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-b",
      "kind": "check",
      "name": "no wheel event reaches the widget",
      "status": "skip",
@@ -7474,7 +7429,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "host",
      "name": "openLink from a timer is blocked",
      "status": "pass",
@@ -7492,7 +7447,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "preventDefault on a link click is honoured",
      "status": "pass",
@@ -7501,7 +7456,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "host",
      "name": "preventDefault on a link tap: no openLink",
      "status": "pass",
@@ -7609,7 +7564,7 @@
    },
    "evidence": [
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
      "status": "pass",
@@ -7618,7 +7573,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "the refused value is not stored",
      "status": "pass",
@@ -7627,7 +7582,7 @@
      "width": 390
     },
     {
-     "test": "auto/15-js-runtime",
+     "test": "auto/15-js-runtime-a",
      "kind": "check",
      "name": "sessionStorage has the same 16 KB quota",
      "status": "pass",
@@ -7645,7 +7600,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "a 257-character URL throws TypeError",
      "status": "pass",
@@ -7654,7 +7609,7 @@
      "width": 390
     },
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-a",
      "kind": "check",
      "name": "a 256-character URL is accepted (dropped later without a press)",
      "status": "pass",
@@ -7690,7 +7645,7 @@
    },
    "evidence": [
     {
-     "test": "auto/16-sdk-taps",
+     "test": "auto/16-sdk-taps-c",
      "kind": "host",
      "name": "a burst of 20 haptics reaches the client as 5",
      "status": "pass",
@@ -7880,7 +7835,7 @@
  },
  "tests": [
   {
-   "id": "auto/01-html-elements",
+   "id": "auto/01-html-elements-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -7891,14 +7846,14 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 47,
-    "fail": 4
+    "pass": 13,
+    "fail": 2
    },
    "stages": [],
    "host": []
   },
   {
-   "id": "auto/02-attributes-images",
+   "id": "auto/01-html-elements-b",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -7909,8 +7864,61 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 9,
-    "pass": 15
+    "pass": 15,
+    "fail": 1
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/01-html-elements-c",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 1,
+    "pass": 19
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/02-attributes-images-a",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 15,
+    "fail": 3
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/02-attributes-images-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 6
    },
    "stages": [
     {
@@ -7927,7 +7935,7 @@
    "host": []
   },
   {
-   "id": "auto/03-layout",
+   "id": "auto/03-layout-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -7938,8 +7946,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 51,
-    "fail": 4
+    "pass": 17
    },
    "stages": [
     {
@@ -7951,15 +7958,53 @@
      "name": "grid",
      "diff": 0,
      "status": "pass"
-    },
-    {
-     "name": "radius",
-     "diff": 0,
-     "status": "pass"
-    },
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/03-layout-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 19,
+    "fail": 2
+   },
+   "stages": [
     {
      "name": "border",
      "diff": 0.0003,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/03-layout-c",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 2,
+    "pass": 15
+   },
+   "stages": [
+    {
+     "name": "radius",
+     "diff": 0,
      "status": "pass"
     }
    ],
@@ -7984,7 +8029,7 @@
    "host": []
   },
   {
-   "id": "auto/05-colour-backgrounds",
+   "id": "auto/05-colour-backgrounds-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -7995,8 +8040,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 11,
-    "fail": 1
+    "pass": 7
    },
    "stages": [
     {
@@ -8018,7 +8062,49 @@
      "name": "light-dark",
      "diff": 0,
      "status": "pass"
-    },
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/05-colour-backgrounds-a",
+   "set": "auto",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 7
+   },
+   "stages": [
+    {
+     "name": "light-dark",
+     "diff": 0,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/05-colour-backgrounds-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 4,
+    "fail": 1
+   },
+   "stages": [
     {
      "name": "background",
      "diff": 0.7806,
@@ -8063,31 +8149,7 @@
    "host": []
   },
   {
-   "id": "auto/05-colour-backgrounds",
-   "set": "auto",
-   "theme": "dark",
-   "width": 390,
-   "loaded": true,
-   "dead": null,
-   "status": "done",
-   "errors": [],
-   "harnessErrors": [],
-   "skippedActions": [],
-   "counts": {
-    "pass": 11,
-    "fail": 1
-   },
-   "stages": [
-    {
-     "name": "light-dark",
-     "diff": 0,
-     "status": "pass"
-    }
-   ],
-   "host": []
-  },
-  {
-   "id": "auto/06-text-fonts",
+   "id": "auto/06-text-fonts-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -8098,8 +8160,43 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 6,
-    "pass": 36
+    "fail": 5,
+    "pass": 12
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/06-text-fonts-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 19
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/06-text-fonts-c",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 5,
+    "fail": 1
    },
    "stages": [
     {
@@ -8126,7 +8223,7 @@
    "host": []
   },
   {
-   "id": "auto/07-selectors",
+   "id": "auto/07-selectors-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -8137,7 +8234,24 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 35,
+    "pass": 16
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/07-selectors-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 19,
     "fail": 1
    },
    "stages": [],
@@ -8178,7 +8292,7 @@
    "host": []
   },
   {
-   "id": "auto/09-transforms-effects",
+   "id": "auto/09-transforms-effects-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -8190,7 +8304,7 @@
    "skippedActions": [],
    "counts": {
     "fail": 4,
-    "pass": 5
+    "pass": 2
    },
    "stages": [
     {
@@ -8219,6 +8333,29 @@
      "status": "pass"
     },
     {
+     "name": "filter-url",
+     "diff": 0,
+     "status": "pass"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/09-transforms-effects-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 3
+   },
+   "stages": [
+    {
      "name": "backdrop",
      "diff": 0.4311,
      "status": "fail"
@@ -8240,11 +8377,6 @@
     },
     {
      "name": "opacity",
-     "diff": 0,
-     "status": "pass"
-    },
-    {
-     "name": "filter-url",
      "diff": 0,
      "status": "pass"
     }
@@ -8340,7 +8472,7 @@
    "host": []
   },
   {
-   "id": "auto/12-canvas",
+   "id": "auto/12-canvas-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -8351,8 +8483,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 3,
-    "pass": 7
+    "pass": 7,
+    "fail": 2
    },
    "stages": [
     {
@@ -8379,7 +8511,25 @@
      "name": "conic",
      "diff": 0,
      "status": "pass"
-    },
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/12-canvas-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 1
+   },
+   "stages": [
     {
      "name": "pattern",
      "diff": 0,
@@ -8439,7 +8589,7 @@
    "host": []
   },
   {
-   "id": "auto/13-svg",
+   "id": "auto/13-svg-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -8478,7 +8628,23 @@
      "name": "css",
      "diff": 0.9189,
      "status": "fail"
-    },
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/13-svg-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [
     {
      "name": "clip-mask",
      "diff": 0,
@@ -8508,7 +8674,24 @@
    "host": []
   },
   {
-   "id": "auto/14-dom-layout-api",
+   "id": "auto/14-dom-layout-api-a",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 14
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/14-dom-layout-api-b",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -8520,13 +8703,13 @@
    "skippedActions": [],
    "counts": {
     "fail": 8,
-    "pass": 26
+    "pass": 12
    },
    "stages": [],
    "host": []
   },
   {
-   "id": "auto/15-js-runtime",
+   "id": "auto/15-js-runtime-a",
    "set": "auto",
    "theme": "light",
    "width": 390,
@@ -8537,32 +8720,59 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 55
+    "pass": 13
    },
    "stages": [],
    "host": []
   },
   {
-   "id": "auto/16-sdk-taps",
+   "id": "auto/15-js-runtime-b",
    "set": "auto",
    "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,
-   "status": "awaiting",
+   "status": "done",
    "errors": [],
    "harnessErrors": [],
-   "skippedActions": [
-    5,
-    6,
-    7,
-    9,
-    10
-   ],
+   "skippedActions": [],
    "counts": {
-    "pass": 25,
-    "fail": 3,
-    "skip": 5
+    "pass": 31
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/15-js-runtime-c",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 11
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/16-sdk-taps-a",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 8,
+    "fail": 1
    },
    "stages": [],
    "host": [
@@ -8589,7 +8799,51 @@
      "name": "preventDefault on a link tap: no openLink",
      "status": "pass",
      "detail": "openLink ×0 (want 0)"
-    },
+    }
+   ]
+  },
+  {
+   "id": "auto/16-sdk-taps-b",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "awaiting",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [
+    2,
+    3,
+    4,
+    6,
+    7
+   ],
+   "counts": {
+    "fail": 1,
+    "pass": 1,
+    "skip": 5
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/16-sdk-taps-c",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 16,
+    "fail": 1
+   },
+   "stages": [],
+   "host": [
     {
      "id": "limit.haptic-rate",
      "name": "a burst of 20 haptics reaches the client as 5",

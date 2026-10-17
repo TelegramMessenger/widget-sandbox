@@ -17,7 +17,7 @@
 //
 // Needs the dev server of this checkout:  corepack pnpm dev --port 5175
 //   corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5175 \
-//     [--renderers iframe,shadow,blitz,litehtml] [--set auto,visual] [--only 03-layout] \
+//     [--renderers iframe,shadow,blitz,litehtml] [--set auto,visual] [--only 03-layout-a] \
 //     [--themes light,dark] [--widths 390] [--features webAnimations] [--policy strict]
 
 import { execSync } from 'node:child_process';

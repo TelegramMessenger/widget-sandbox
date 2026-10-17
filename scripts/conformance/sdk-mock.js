@@ -2,7 +2,9 @@
 // renders the client-SDK group (visual/sdk) natively for its reference pictures:
 // the widgets then show their "SDK present" state. It checks arguments as the
 // contract says and does nothing else (no dialogs, no haptics). The palette is a
-// reference palette for the pictures, not any client's.
+// reference palette for the pictures, not any client's. With
+// window.__conformanceNoSdk (the visual set's pictures) it sets only the palette
+// variables and the background, and no TelegramWidget.
 (function () {
   var P = {
     light: { bg_color: '#ffffff', text_color: '#000000', hint_color: '#707579', link_color: '#3390ec', button_color: '#3390ec', button_text_color: '#ffffff', secondary_bg_color: '#f4f4f5', accent_text_color: '#3390ec', subtitle_text_color: '#707579', destructive_text_color: '#e53935', section_bg_color: '#ffffff', section_header_text_color: '#3390ec', section_separator_color: '#e7e7e7', header_bg_color: '#ffffff', bottom_bar_bg_color: '#ffffff' },
@@ -14,6 +16,7 @@
   document.documentElement.style.setProperty('--tg-color-scheme', scheme);
   // The pictures show the widget on the bubble's background, as in a chat.
   document.documentElement.style.background = params.bg_color;
+  if (window.__conformanceNoSdk) return;
   // Subdomains count too (durov.t.me), as in the framework.
   var TG = /^([a-z0-9-]+\.)*(t\.me|telegram\.me|telegram\.dog)$/i;
   function url(u, telegram) {
