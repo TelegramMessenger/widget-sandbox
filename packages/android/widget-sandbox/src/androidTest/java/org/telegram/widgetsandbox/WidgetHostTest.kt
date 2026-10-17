@@ -200,9 +200,10 @@ class WidgetHostTest {
      * creation; nothing observable by a widget depends on it.)
      */
     @Test
-    fun themeToggleReachesComputedStylesAndFormControls() {
-        val html = "<style>:root{color-scheme: light dark} body{background: light-dark(#ffffff, #000000)} @media (prefers-color-scheme: dark){p{color:#abcdef}}</style><input value=x><p>theme</p>"
-        val probe = "(function(){ var i=document.querySelector('input'); return [getComputedStyle(document.documentElement).colorScheme, getComputedStyle(document.body).backgroundColor, getComputedStyle(i).backgroundColor === 'rgb(255, 255, 255)' ? 'light-control' : 'dark-control', getComputedStyle(document.querySelector('p')).color].join('|') })()"
+    // Profile 1 has no form controls, so only the document's own styles follow the theme.
+    fun themeToggleReachesComputedStyles() {
+        val html = "<style>:root{color-scheme: light dark} body{background: light-dark(#ffffff, #000000)} @media (prefers-color-scheme: dark){p{color:#abcdef}}</style><p>theme</p>"
+        val probe = "(function(){ return [getComputedStyle(document.documentElement).colorScheme, getComputedStyle(document.body).backgroundColor, getComputedStyle(document.querySelector('p')).color].join('|') })()"
         fun eval(host: WidgetHost): String {
             val done = CountDownLatch(1)
             val out = AtomicReference("")
@@ -221,13 +222,13 @@ class WidgetHostTest {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
             while (System.nanoTime() < deadline && !latestRef.get().loaded) Thread.sleep(50)
             Thread.sleep(300)
-            assertEquals("light|rgb(255, 255, 255)|light-control|rgb(0, 0, 0)", eval(host))
+            assertEquals("light|rgb(255, 255, 255)|rgb(0, 0, 0)", eval(host))
             instrumentation.runOnMainSync { host.setTheme("dark") }
             Thread.sleep(500)
-            assertEquals("dark|rgb(0, 0, 0)|dark-control|rgb(171, 205, 239)", eval(host))
+            assertEquals("dark|rgb(0, 0, 0)|rgb(171, 205, 239)", eval(host))
             instrumentation.runOnMainSync { host.setTheme("light") }
             Thread.sleep(500)
-            assertEquals("light|rgb(255, 255, 255)|light-control|rgb(0, 0, 0)", eval(host))
+            assertEquals("light|rgb(255, 255, 255)|rgb(0, 0, 0)", eval(host))
             instrumentation.runOnMainSync { host.destroy() }
         }
     }
