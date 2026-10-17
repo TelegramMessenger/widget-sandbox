@@ -3972,7 +3972,7 @@
    "id": "auto/12-canvas-a",
    "set": "auto",
    "file": "auto/12-canvas-a.html",
-   "title": "Canvas 2D (1/2): rectangles, paths, line styles, gradients (conic is a candidate), measureText, hit testing, HiDPI backing store; WebGL and read-back out",
+   "title": "Canvas 2D (1/2): rectangles, paths, line styles, gradients (conic out), measureText, hit testing, HiDPI backing store; WebGL and read-back out",
    "kind": [
     "self",
     "pixel"
@@ -4187,9 +4187,9 @@
      }
     }
    ],
-   "bytes": 8884,
-   "gzip": 3633,
-   "gzip6": 3635
+   "bytes": 8873,
+   "gzip": 3625,
+   "gzip6": 3627
   },
   {
    "id": "auto/12-canvas-b",
@@ -6896,7 +6896,7 @@
    "id": "visual/02-colours-gradients",
    "set": "visual",
    "file": "visual/02-colours-gradients.html",
-   "title": "Colours and gradients: linear, radial, conic (candidate), colour functions (candidates), background images",
+   "title": "Colours and gradients: linear, radial, conic; named, hex, rgb() and hsl() colours; colour functions out (hwb, lab, oklch, color(), color-mix); background images",
    "hint": "Each box should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
@@ -7013,9 +7013,9 @@
      }
     }
    ],
-   "bytes": 5458,
-   "gzip": 2443,
-   "gzip6": 2444,
+   "bytes": 5512,
+   "gzip": 2471,
+   "gzip6": 2472,
    "refImages": {
     "light": "refs/visual/02-colours-gradients.png"
    }
@@ -7024,7 +7024,7 @@
    "id": "visual/03-text",
    "set": "visual",
    "file": "visual/03-text.html",
-   "title": "Text: system font families, weights, decoration, alignment, ellipsis and line clamp (candidates), RTL and Arabic shaping, emoji, text-shadow (candidate)",
+   "title": "Text: system font families, weights, decoration, alignment, ellipsis, RTL and Arabic shaping, emoji; line clamp and text-shadow out",
    "hint": "Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
    "kind": [
     "pixel"
@@ -7149,9 +7149,9 @@
      }
     }
    ],
-   "bytes": 7290,
-   "gzip": 2758,
-   "gzip6": 2762,
+   "bytes": 7269,
+   "gzip": 2752,
+   "gzip6": 2756,
    "refImages": {
     "light": "refs/visual/03-text.png"
    }
@@ -7160,7 +7160,7 @@
    "id": "visual/04-layout",
    "set": "visual",
    "file": "visual/04-layout.html",
-   "title": "Layout: flex with gap, grid (candidate), table, positioning and z-index, float and multi-column (candidate)",
+   "title": "Layout: flex with gap, grid, table, positioning and z-index, float; multi-column out",
    "hint": "Each box should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
@@ -7268,9 +7268,9 @@
      }
     }
    ],
-   "bytes": 6336,
-   "gzip": 2441,
-   "gzip6": 2442,
+   "bytes": 6313,
+   "gzip": 2435,
+   "gzip6": 2435,
    "refImages": {
     "light": "refs/visual/04-layout.png"
    }
@@ -7279,7 +7279,7 @@
    "id": "visual/05-transforms-effects",
    "set": "visual",
    "file": "visual/05-transforms-effects.html",
-   "title": "2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow; other filters, backdrop-filter, blend, clip-path, mask (candidates or conditional)",
+   "title": "2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow and backdrop-filter blur/brightness; other filters, blend modes, clip-path and mask out",
    "hint": "Each box should look like the reference picture posted next to this message. The 3D row must look flat.",
    "kind": [
     "pixel"
@@ -7403,9 +7403,9 @@
      }
     }
    ],
-   "bytes": 7445,
-   "gzip": 2572,
-   "gzip6": 2581,
+   "bytes": 7449,
+   "gzip": 2556,
+   "gzip6": 2565,
    "refImages": {
     "light": "refs/visual/05-transforms-effects.png"
    }
@@ -7645,7 +7645,7 @@
    "id": "visual/08-canvas",
    "set": "visual",
    "file": "visual/08-canvas.html",
-   "title": "Canvas 2D drawing: shapes and paths, line styles, gradients and patterns, text, transforms and clipping, alpha; shadows, ctx.filter and conic gradients (candidates); a chart",
+   "title": "Canvas 2D drawing: shapes and paths, line styles, gradients and patterns, text, transforms and clipping, alpha; shadows, ctx.filter and conic gradients out; a chart",
    "hint": "Each canvas should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
@@ -7775,9 +7775,9 @@
      }
     }
    ],
-   "bytes": 8450,
-   "gzip": 3403,
-   "gzip6": 3407,
+   "bytes": 8441,
+   "gzip": 3400,
+   "gzip6": 3403,
    "refImages": {
     "light": "refs/visual/08-canvas.png"
    }
@@ -7786,7 +7786,7 @@
    "id": "visual/09-svg",
    "set": "visual",
    "file": "visual/09-svg.html",
-   "title": "Inline SVG: shapes, structure and viewBox, gradients, text; CSS on SVG, clipPath/mask, filters, SMIL (candidates)",
+   "title": "Inline SVG: shapes, structure and viewBox, gradients, text, CSS on SVG; clipPath/mask, filters and SMIL out",
    "hint": "Each picture should look like the reference picture posted next to this message. The last row moves.",
    "kind": [
     "pixel"
@@ -7910,9 +7910,9 @@
      }
     }
    ],
-   "bytes": 7256,
-   "gzip": 3062,
-   "gzip6": 3062,
+   "bytes": 7250,
+   "gzip": 3055,
+   "gzip6": 3055,
    "refImages": {
     "light": "refs/visual/09-svg.png"
    }
@@ -7921,7 +7921,7 @@
    "id": "visual/10-images",
    "set": "visual",
    "file": "visual/10-images.html",
-   "title": "Images: data: PNG, JPEG, GIF, WebP; SVG images (candidate); BMP/ICO and remote URLs out (placeholder); object-fit; background images",
+   "title": "Images: data: PNG, JPEG, GIF, WebP; object-fit; background images; SVG images, BMP/ICO and remote URLs out (placeholder)",
    "hint": "Each row should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
@@ -8010,9 +8010,9 @@
      }
     }
    ],
-   "bytes": 9300,
-   "gzip": 3164,
-   "gzip6": 3169,
+   "bytes": 9288,
+   "gzip": 3156,
+   "gzip6": 3161,
    "refImages": {
     "light": "refs/visual/10-images.png"
    }

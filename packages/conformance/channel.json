@@ -16,41 +16,41 @@
    "widget": "visual/02-colours-gradients.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/02-colours-gradients · Colours and gradients: linear, radial, conic (candidate), colour functions (candidates), background images. Each box should look like the reference picture posted next to this message.",
+   "caption": "visual/02-colours-gradients · Colours and gradients: linear, radial, conic; named, hex, rgb() and hsl() colours; colour functions out (hwb, lab, oklch, color(), color-mix); background images. Each box should look like the reference picture posted next to this message.",
    "photos": [
     "refs/visual/02-colours-gradients.png"
    ],
-   "gzip": 2444
+   "gzip": 2472
   },
   {
    "widget": "visual/03-text.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/03-text · Text: system font families, weights, decoration, alignment, ellipsis and line clamp (candidates), RTL and Arabic shaping, emoji, text-shadow (candidate). Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
+   "caption": "visual/03-text · Text: system font families, weights, decoration, alignment, ellipsis, RTL and Arabic shaping, emoji; line clamp and text-shadow out. Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
    "photos": [
     "refs/visual/03-text.png"
    ],
-   "gzip": 2762
+   "gzip": 2756
   },
   {
    "widget": "visual/04-layout.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/04-layout · Layout: flex with gap, grid (candidate), table, positioning and z-index, float and multi-column (candidate). Each box should look like the reference picture posted next to this message.",
+   "caption": "visual/04-layout · Layout: flex with gap, grid, table, positioning and z-index, float; multi-column out. Each box should look like the reference picture posted next to this message.",
    "photos": [
     "refs/visual/04-layout.png"
    ],
-   "gzip": 2442
+   "gzip": 2435
   },
   {
    "widget": "visual/05-transforms-effects.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/05-transforms-effects · 2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow; other filters, backdrop-filter, blend, clip-path, mask (candidates or conditional). Each box should look like the reference picture posted next to this message. The 3D row must look flat.",
+   "caption": "visual/05-transforms-effects · 2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow and backdrop-filter blur/brightness; other filters, blend modes, clip-path and mask out. Each box should look like the reference picture posted next to this message. The 3D row must look flat.",
    "photos": [
     "refs/visual/05-transforms-effects.png"
    ],
-   "gzip": 2581
+   "gzip": 2565
   },
   {
    "widget": "visual/06-css-animations.html",
@@ -76,31 +76,31 @@
    "widget": "visual/08-canvas.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/08-canvas · Canvas 2D drawing: shapes and paths, line styles, gradients and patterns, text, transforms and clipping, alpha; shadows, ctx.filter and conic gradients (candidates); a chart. Each canvas should look like the reference picture posted next to this message.",
+   "caption": "visual/08-canvas · Canvas 2D drawing: shapes and paths, line styles, gradients and patterns, text, transforms and clipping, alpha; shadows, ctx.filter and conic gradients out; a chart. Each canvas should look like the reference picture posted next to this message.",
    "photos": [
     "refs/visual/08-canvas.png"
    ],
-   "gzip": 3407
+   "gzip": 3403
   },
   {
    "widget": "visual/09-svg.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/09-svg · Inline SVG: shapes, structure and viewBox, gradients, text; CSS on SVG, clipPath/mask, filters, SMIL (candidates). Each picture should look like the reference picture posted next to this message. The last row moves.",
+   "caption": "visual/09-svg · Inline SVG: shapes, structure and viewBox, gradients, text, CSS on SVG; clipPath/mask, filters and SMIL out. Each picture should look like the reference picture posted next to this message. The last row moves.",
    "photos": [
     "refs/visual/09-svg.png"
    ],
-   "gzip": 3062
+   "gzip": 3055
   },
   {
    "widget": "visual/10-images.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/10-images · Images: data: PNG, JPEG, GIF, WebP; SVG images (candidate); BMP/ICO and remote URLs out (placeholder); object-fit; background images. Each row should look like the reference picture posted next to this message.",
+   "caption": "visual/10-images · Images: data: PNG, JPEG, GIF, WebP; object-fit; background images; SVG images, BMP/ICO and remote URLs out (placeholder). Each row should look like the reference picture posted next to this message.",
    "photos": [
     "refs/visual/10-images.png"
    ],
-   "gzip": 3169
+   "gzip": 3161
   },
   {
    "widget": "visual/11-interaction.html",
@@ -506,9 +506,9 @@
    "widget": "auto/12-canvas-a.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/12-canvas-a · Canvas 2D (1/2): rectangles, paths, line styles, gradients (conic is a candidate), measureText, hit testing, HiDPI backing store; WebGL and read-back out. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/12-canvas-a · Canvas 2D (1/2): rectangles, paths, line styles, gradients (conic out), measureText, hit testing, HiDPI backing store; WebGL and read-back out. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "gzip": 3635
+   "gzip": 3627
   },
   {
    "widget": "auto/12-canvas-b.html",
