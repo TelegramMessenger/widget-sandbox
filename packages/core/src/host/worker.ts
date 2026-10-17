@@ -12,7 +12,7 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 // QuickJS built from the TelegramMessenger/quickjs fork (packages/quickjs-wasm, decisions.md).
 import baseVariant from '@telegram/widget-sandbox-quickjs';
 import wasmUrl from '@telegram/widget-sandbox-quickjs/wasm?url';
-import { CpuBudget } from './cpu-budget';
+import { CpuBudget, queryBudgetMs } from './cpu-budget';
 import { MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
 
 import { STORAGE_QUOTA_BYTES } from '../shared/sdk-policy';
@@ -38,6 +38,9 @@ let payload: Uint8Array;
 let dead = false;
 let interrupted = false;
 let deadline = 0;
+/** Wall time this task's layout queries have blocked for, and whether that passed the task's query budget (docs/decisions.md, Runtime limits). */
+let taskQueryMs = 0;
+let queryLimitHit = false;
 /** Slice given to the running task (for the kill message); the boot task gets cpuLimitMs. */
 let currentSliceMs = 0;
 let currentKind = 'boot';
@@ -135,6 +138,7 @@ const decoder = new TextDecoder();
 function syncQuery(queryJson: string): string {
   let query: unknown;
   try { query = JSON.parse(queryJson); } catch { return '{"error":"bad query"}'; }
+  if (queryLimitHit) return '{"error":"query budget exceeded"}';
   const t0 = performance.now();
   Atomics.store(header, SAB_STATE, 1);
   post({ type: 'query', query });
@@ -143,6 +147,12 @@ function syncQuery(queryJson: string): string {
   deadline += dt; // time spent blocked is not widget CPU time
   stats.queries++;
   stats.queryMs += dt;
+  taskQueryMs += dt;
+  if (taskQueryMs > queryBudgetMs(currentSliceMs)) {
+    // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
+    queryLimitHit = true;
+    deadline = -Infinity;
+  }
   if (res === 'timed-out') {
     Atomics.store(header, SAB_STATE, 0);
     return '{"error":"timeout"}';
@@ -297,6 +307,9 @@ function describeError(err: QuickJSHandle): string {
 
 function handleError(err: QuickJSHandle, where: string) {
   const text = describeError(err);
+  if (interrupted && queryLimitHit) {
+    return kill(`Layout query limit exceeded: host queries blocked the renderer for more than ${queryBudgetMs(currentSliceMs).toFixed(0)} ms in one ${currentKind} task (${where})`);
+  }
   if (interrupted) {
     // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
     const quota = currentSliceMs < config.cpuLimitMs ? `; CPU quota: ${Math.max(0, config.cpuQuotaMs - budget.used(performance.now())).toFixed(0)} ms of ${config.cpuQuotaMs} ms per ${config.cpuQuotaWindowMs} ms left, so this ${currentKind} task got ${currentSliceMs.toFixed(0)} ms` : '';
@@ -386,6 +399,8 @@ function task(kind: string, sliceMs: number, fn: () => void) {
   currentKind = kind;
   currentSliceMs = sliceMs;
   excludeMs = 0;
+  taskQueryMs = 0;
+  queryLimitHit = false;
   const t0 = performance.now();
   const q0 = stats.queryMs;
   resetDeadline();
@@ -401,7 +416,7 @@ function task(kind: string, sliceMs: number, fn: () => void) {
   const now = performance.now();
   const cpuMs = now - t0 - (stats.queryMs - q0) - excludeMs;
   stats.jsMs += cpuMs;
-  budget.record(kind, cpuMs, now);
+  budget.record(kind, cpuMs + taskQueryMs, now); // layout queries count toward the quota: they cost the host as much as JS
   stats.cpuWindowMs = budget.used(now);
   if (now - lastMemCheck > 1000 && !dead) {
     lastMemCheck = now;

@@ -311,7 +311,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `limit.text-budget` | Document text budget 256 K units, complex-script text 8192 units (strict) | in | D5 | kept |  | auto/19-limits |
 | `limit.nodes` | At most 50 000 nodes | in | P1 | kept |  |  |
 | `limit.timers` | At most 256 live timers (RangeError past it) | in | P1 | kept |  | auto/19-limits |
-| `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice | in | P1 | kept |  |  |
+| `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task | in | P1 | kept |  |  |
 | `limit.memory` | QuickJS heap 64 MB | in | P1 | kept |  |  |
 | `limit.storage` | localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing | in | D17 | kept |  | auto/15-js-runtime-a, visual/sdk/10-storage-quota |
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | kept |  | auto/16-sdk-taps-a, visual/sdk/03-link-rejected |

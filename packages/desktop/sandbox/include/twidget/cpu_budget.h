@@ -10,6 +10,7 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <string_view>
 
 namespace twidget {
@@ -28,6 +29,10 @@ public:
     static constexpr double kFloorMs = 50;
     /// Kinds that may be postponed. `boot`, `event` and `visibility` always run.
     static bool deferrable(std::string_view kind);
+    /// A task's layout queries may block the host for at most this much, or the task's slice if that is longer.
+    static constexpr double kQueryBudgetMinMs = 100;
+    /// Layout-query budget of one task with `sliceMs` of CPU (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
+    static double queryBudgetMs(double sliceMs) { return std::max(sliceMs, kQueryBudgetMinMs); }
 
     CpuBudget(double cpuLimitMs, double cpuQuotaMs, double cpuQuotaWindowMs, double cpuKillAfterMs);
 

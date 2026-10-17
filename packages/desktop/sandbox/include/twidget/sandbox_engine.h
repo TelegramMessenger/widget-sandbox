@@ -201,6 +201,9 @@ private:
     double currentSliceMs_ = 0;
     std::string currentKind_ = "boot";
     double excludeMs_ = 0;
+    /// Wall time this task's layout queries have blocked for, and whether that passed the task's query budget.
+    double taskQueryMs_ = 0;
+    bool queryLimitHit_ = false;
     double lastThrottleDiag_ = -1e300;
     std::map<std::string, int> throttledSinceDiag_;
     std::vector<std::pair<std::string, std::string>> pendingBeforeBoot_;

@@ -334,7 +334,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | `limit.text-budget` | Document text budget 256 K units, complex-script text 8192 units (strict) | in |  | D5 |
 | `limit.nodes` | At most 50 000 nodes | in |  | P1 |
 | `limit.timers` | At most 256 live timers (RangeError past it) | in |  | P1 |
-| `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice | in |  | P1 |
+| `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task | in |  | P1 |
 | `limit.memory` | QuickJS heap 64 MB | in |  | P1 |
 | `limit.storage` | localStorage 16 KB per message (QuotaExceededError) | in |  | D17 |
 | `limit.html-size` | HTML up to 32 KB uncompressed and 4 KB after gzip (server-side) | in |  | D20 |

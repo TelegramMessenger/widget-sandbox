@@ -31,6 +31,10 @@ class CpuBudget(
         const val FLOOR_MS = 50.0
         /** Kinds that may be postponed. `boot`, `event` and `visibility` always run. */
         val DEFERRABLE = setOf("timer", "frame", "viewport", "resize", "theme", "bridge")
+        /** A task's layout queries may block the host for at most this much, or the task's slice if that is longer. */
+        const val QUERY_BUDGET_MIN_MS = 100.0
+        /** Layout-query budget of one task with [sliceMs] of CPU (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed. */
+        fun queryBudgetMs(sliceMs: Double): Double = maxOf(sliceMs, QUERY_BUDGET_MIN_MS)
     }
 
     constructor(config: SandboxConfig) : this(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs)

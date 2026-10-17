@@ -277,6 +277,12 @@ missing or malformed locale is `en-US` (before v1: always `en-US`).
 Diagnostics go to the host's diagnostics (`onDiag` / `WidgetDiagnostics`),
 never to the widget.
 
+A widget is killed, and its last frame kept (§5.7), for one of three reasons the
+host sees in `died` / `onDead`: `CPU limit exceeded` (more than the task's slice
+of continuous JS), `Layout query limit exceeded` (its synchronous layout queries
+blocked the renderer for more than max(slice, 100 ms) in one task; the queries
+also count toward the CPU quota) and `Memory limit exceeded (64 MB)`.
+
 ## 3. Protocol
 
 What carries the API between the sandbox (QuickJS), the host glue and the

@@ -179,6 +179,19 @@ test.describe('memory limit', () => {
 });
 
 test.describe('cpu quota', () => {
+  test('a forced-layout loop is killed by the layout-query budget, the host stays responsive', async ({ page }) => {
+    await resetCanary();
+    const t0 = Date.now();
+    await openAttack(page, 'layout-query-loop.html');
+    await waitDead(page);
+    const s = await twState(page);
+    expect(s.dead).toMatch(/^Layout query limit exceeded: host queries blocked the renderer for more than \d+ ms in one boot task/);
+    // The main thread answered the queries all along and is free now: a round trip through the page is instant.
+    expect(Date.now() - t0).toBeLessThan(15_000);
+    expect(await page.evaluate(() => 1 + 1)).toBe(2);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
   test('a greedy interval is throttled, not killed, and clicks still get through', async ({ page }) => {
     const f = await openAttack(page, 'cpu-greedy-timer.html');
     const js0 = (await twState(page)).stats.jsMs as number;

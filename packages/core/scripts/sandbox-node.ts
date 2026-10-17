@@ -13,7 +13,7 @@ import variant from '@telegram/widget-sandbox-quickjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CpuBudget } from '../src/host/cpu-budget.ts';
+import { CpuBudget, queryBudgetMs } from '../src/host/cpu-budget.ts';
 import {
   DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams,
   type StorageCommit, type ThemeParams, type WidgetAction,
@@ -107,6 +107,8 @@ export interface RunOptions {
   timerRounds?: number;
   /** Custom answers for sync queries. */
   answer?: (q: any) => unknown;
+  /** Continuous-execution slice per task (default 10 s, so a harness run never trips it); lower it to exercise the CPU and layout-query limits. */
+  cpuLimitMs?: number;
   /** Expressions evaluated inside the VM after load; results land in RunResult.probes. */
   probes?: string[];
   /** false: the shim always replaces a sole text child on textContent writes (the in-place update off). */
@@ -164,9 +166,15 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   rt.setMaxStackSize(1 << 20);
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
+  // The layout-query budget of the worker and the native glue (cpu-budget.ts queryBudgetMs): the harness answers queries in-process, so the
+  // time is the answer callback's, and the accounting is kept so a slow `answer` reproduces the kill.
+  let taskQueryMs = 0;
+  let queryLimitHit = false;
+  let currentSliceMs = 10_000;
+  let currentKind = 'boot';
   const vm = rt.newContext();
   const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
   if (opts.storage !== undefined) {
     const preload = checkStorageCommit(opts.storage);
     if (preload) config.storage = preload;
@@ -194,8 +202,14 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'query': {
         const q = JSON.parse(arg);
         res.queries.push(q);
+        if (queryLimitHit) return vm.newString('{"error":"query budget exceeded"}');
         const clean = validator.validateQuery(q);
+        const q0 = performance.now();
         const answer = clean ? opts.answer?.(clean) ?? defaultAnswer(clean) : { error: 'invalid query' };
+        const dt = performance.now() - q0;
+        deadline += dt; // time spent in the answer is not widget CPU time (as in the worker); the query budget below bounds it instead
+        taskQueryMs += dt;
+        if (taskQueryMs > queryBudgetMs(currentSliceMs)) { queryLimitHit = true; deadline = -Infinity; }
         log('query', JSON.stringify(q), '→', JSON.stringify(answer));
         return vm.newString(JSON.stringify(answer));
       }
@@ -322,7 +336,11 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const fail = (err: QuickJSHandle, where: string) => {
     const e = vm.dump(err);
     err.dispose();
-    const text = e && typeof e === 'object' ? `${e.name}: ${e.message}\n${e.stack ?? ''}` : String(e);
+    let text = e && typeof e === 'object' ? `${e.name}: ${e.message}\n${e.stack ?? ''}` : String(e);
+    if (queryLimitHit && /interrupted/.test(text)) {
+      text = `Layout query limit exceeded: host queries blocked the renderer for more than ${queryBudgetMs(currentSliceMs).toFixed(0)} ms in one ${currentKind} task`;
+      res.diags.push({ kind: 'query-limit', detail: text });
+    }
     res.logs.push({ level: 'error', text: `${where}: ${text}` });
     log('ERROR', where, text);
   };
@@ -381,8 +399,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     const d = budget.decide(kind, now);
     if (!d.run) { res.throttled++; res.diags.push({ kind: 'cpu-throttled', detail: `${kind} deferred until ${d.retryAt.toFixed(0)}` }); return; }
     deadline = Date.now() + d.sliceMs;
+    currentSliceMs = d.sliceMs;
+    currentKind = kind;
+    taskQueryMs = 0;
+    queryLimitHit = false;
     fn(); settle(); pump();
-    budget.record(kind, performance.now() - now, performance.now());
+    budget.record(kind, performance.now() - now, performance.now()); // wall time: includes the queries, as the worker's cpuMs + taskQueryMs does
   };
 
   task('boot', () => tw('boot', JSON.stringify({ html, config })));

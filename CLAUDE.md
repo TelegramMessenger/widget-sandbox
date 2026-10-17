@@ -154,7 +154,7 @@ git submodule update --init           # QuickJS (TelegramMessenger/quickjs fork)
 corepack pnpm install                 # pnpm is not on PATH here
 corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "dev")
 corepack pnpm test:unit
-corepack pnpm test:attacks            # 98 files, canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
+corepack pnpm test:attacks            # 99 files, canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
 corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md): theme variables on the renderer root, gesture claims, storage across a restart, locale, link and haptic actions; iframe + shadow
 corepack pnpm test:compat             # → docs/compat-report.md
@@ -172,7 +172,7 @@ corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetS
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 45 tests; 98 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
+cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 45 tests; 99 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 48 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
 TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile --blitz --dpr 2 --png-dir /tmp/gen-cg   # Blitz laid out by Rust, painted by CoreGraphics/CoreText (apps/renderer-blitz/src/cg.rs, Apple only; twb_set_backend in the C ABI); three-way gallery: corepack pnpm tsx scripts/blitz-experiment/gallery-native.mts reports/blitz-experiment/native/generated vello=DIR:TABLE cg=DIR:TABLE litehtml=DIR:TABLE --strips 20; on the simulator: SIMCTL_CHILD_TWB_BACKEND=cg xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz (iOS emoji paint only on this backend); Android twin: apps/renderer-blitz/src/dl.rs records the scene as a display list, CanvasScene.kt replays it with Canvas.drawGlyphs — `--es renderer blitz_canvas` in the demo (Blitz·Canvas in the picker)
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 51 tests with both; the same flags as --blitz

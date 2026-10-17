@@ -16,7 +16,10 @@ and CLAUDE.md).
   TelegramMessenger/quickjs fork at c24d6b0 (uncatchable interrupt and OOM in every
   engine path), as a submodule, with precompiled bytecode next to each bundle.
 - `strict` policy by default everywhere; user activation from a pointer press only;
-  runtime limits (CPU quota, timer cap, memory cap, off-screen pause, frozen last frame).
+  runtime limits (CPU quota, timer cap, memory cap, off-screen pause, frozen last frame, and
+  since 2026-10-17 a layout-query budget per task: queries that block the host for more than
+  max(slice, 100 ms) in one task kill the widget with "Layout query limit exceeded" and count
+  toward the CPU quota; `docs/decisions.md`, "Runtime limits").
 - Opt-in features: `webAnimations` on every host; `canvasWords`, `binaryOps` with the
   Swift `NativeValidator`, `morphUpdates` Swift-only.
 - Renderers: WKWebView / WebView / Shadow DOM as products; Blitz and litehtml as
@@ -24,7 +27,7 @@ and CLAUDE.md).
 - The widget profile conformance set, `packages/conformance` (`CLIENTS.md`): every widget
   fits a mini-widget (under 3800 bytes of gzip), so the test bot sends the whole set as
   layer-233 messages, each with its reference picture next to it (`channel.json`). And the
-  corpora: 98 attacks, compat, generated, common, showcase, 116 ported HTML bubbles.
+  corpora: 99 attacks, compat, generated, common, showcase, 116 ported HTML bubbles.
 - What a widget is (decided 2026-10-17): **mini-HTML**, one HTML document of at most 4 KB
   after gzip and 32 KB uncompressed, delivered right in the message as its own media.
   **The server API ships with this release: layer 233**, `inputMediaWidget width height html`
@@ -87,6 +90,11 @@ and CLAUDE.md).
   the web `WidgetHost` option `libraries` and `@telegram/widget-sandbox/host/loader`.
   `WidgetJS/libs/` and `libraries.json` are no longer shipped.
 - Diagnostics: a removal the profile causes is reported as `profile`; `library` is gone.
+- Kill reasons: next to `CPU limit exceeded` and `Memory limit exceeded` a host can now see
+  `Layout query limit exceeded: host queries blocked the renderer for more than N ms in one <kind>
+  task (…)` (`onDead` / `died`), and a widget's later queries in that task get
+  `{"error":"query budget exceeded"}`. The CPU budget policy gained `queryBudgetMs(sliceMs)`
+  (`QUERY_BUDGET_MIN_MS` 100) in all four copies.
 - SDK v1, every platform: the host takes a theme (`WidgetTheme`: colour scheme, palette,
   button tokens; the plain scheme is still accepted), a `locale` and a Web Storage
   preload (`storage`), and reports `onAction` (ready, openLink, openTelegramLink,

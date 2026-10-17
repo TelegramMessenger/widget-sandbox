@@ -544,6 +544,34 @@ The TypeScript validator and Swift native validator enforce the same accounting.
   throttle or kill a widget early there; the quota policy (`cpu-budget.ts` and
   its twins) is unchanged, only what the native glue feeds it.
 
+### Layout queries are bounded per task and charged to the quota (Oct 2026)
+
+A synchronous layout query (`offsetHeight`, `getBoundingClientRect`,
+`getComputedStyle`, …) blocks the sandbox thread until the host's renderer has
+answered. Only the CPU of the JS thread counted toward the slice, and the time
+spent waiting moved the deadline, so a widget looping on `a.style.width = …;
+a.offsetHeight` burned almost no CPU of its own, was never interrupted, and
+kept the renderer answering forever: the host was busy, the widget alive. Found
+by Misha on the macOS client (54bdfa5); now the rule on every host:
+
+- the wall time of a task's queries is summed (`taskQueryMs`); past
+  `queryBudgetMs(slice) = max(slice, 100 ms)` (`cpu-budget.ts` and its three
+  twins, checked against `tests/fixtures/cpu-budget.json`) the task is
+  interrupted at the next poll (the CPU deadline is moved into the past) and
+  killed with "Layout query limit exceeded: host queries blocked the renderer
+  for more than N ms in one <kind> task"; any further query of that task is
+  answered `{"error":"query budget exceeded"}`;
+- the query time is charged to the CPU quota together with the task's CPU
+  (`budget.record(kind, cpuMs + taskQueryMs)`): a layout-heavy widget pays for
+  what it costs the host, and the quota throttles it like a busy one;
+- both counters reset at the start of each task.
+
+The budget is per task, not per widget, so an ordinary widget that measures a
+few elements per frame is far from it (tens of queries at a millisecond each),
+while a forced-layout loop reaches it within the first task. The Node harness
+keeps the same accounting (its answers are in-process, so only a slow `answer`
+callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
+
 ### 256 timers, and an error instead of a hang
 
 - Telegram allows 16 timers; browsers have no limit. D3 transitions and

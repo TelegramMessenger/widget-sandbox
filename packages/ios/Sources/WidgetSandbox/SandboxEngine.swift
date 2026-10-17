@@ -683,7 +683,8 @@ public final class SandboxEngine {
         stats.queries += 1
         stats.queryMs += dt * 1000
         taskQueryMs += dt * 1000
-        if taskQueryMs > max(currentSliceMs, Self.queryBudgetMinMs) {
+        if taskQueryMs > CpuBudget.queryBudgetMs(sliceMs: currentSliceMs) {
+            // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
             queryLimitHit = true
             js.cpuDeadline = -.infinity
         }
@@ -714,7 +715,7 @@ public final class SandboxEngine {
     private func handleError(_ error: Error, where location: String) {
         let text = (error as? QuickJSError)?.description ?? String(describing: error)
         if js?.interrupted == true, queryLimitHit {
-            return kill("Layout query limit exceeded: host queries blocked the renderer for more than \(Int(max(currentSliceMs, Self.queryBudgetMinMs))) ms in one \(currentKind) task (\(location))")
+            return kill("Layout query limit exceeded: host queries blocked the renderer for more than \(Int(CpuBudget.queryBudgetMs(sliceMs: currentSliceMs))) ms in one \(currentKind) task (\(location))")
         }
         if js?.interrupted == true {
             // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
@@ -803,7 +804,6 @@ public final class SandboxEngine {
 
     static let wallBackstopFactor = 10.0
     static let wallBackstopMinMs = 5000.0
-    static let queryBudgetMinMs = 100.0
 
     /// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
     private func task(_ kind: String, sliceMs: Double, _ body: () -> Void) {
@@ -821,7 +821,7 @@ public final class SandboxEngine {
         stats.tasks += 1
         let cpuMs = (QuickJSContext.threadCPUTime() - c0) * 1000 - excludeMs
         stats.jsMs += cpuMs
-        budget.record(kind, cpuMs: cpuMs + taskQueryMs, now: Self.nowMs())
+        budget.record(kind, cpuMs: cpuMs + taskQueryMs, now: Self.nowMs()) // layout queries count toward the quota: they cost the host as much as JS
         stats.cpuWindowMs = budget.used(Self.nowMs())
         let now = CACurrentMediaTime()
         if now - lastMemCheck > 1, !dead {

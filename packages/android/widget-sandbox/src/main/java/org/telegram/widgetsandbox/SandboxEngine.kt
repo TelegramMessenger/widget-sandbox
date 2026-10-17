@@ -148,6 +148,9 @@ class SandboxEngine(
     private val budget = CpuBudget(config)
     /** Slice given to the running task in ms (for the kill message); the boot task gets cpuLimitMs. */
     private var currentSliceMs = 0.0
+    /** Wall time this task's layout queries have blocked for, and whether that passed the task's query budget. */
+    private var taskQueryMs = 0.0
+    private var queryLimitHit = false
     private var currentKind = "boot"
     /** JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms. */
     private var excludeMs = 0.0
@@ -504,12 +507,19 @@ class SandboxEngine(
     /** Blocks the engine thread until the host answers (the host must never wait for the engine). */
     private fun syncQuery(json: String): String {
         val delegate = delegate ?: return "{\"error\":\"no host\"}"
+        if (queryLimitHit) return "{\"error\":\"query budget exceeded\"}"
         val t0 = nowNs()
         val answer = delegate.onQuery(this, json)
         val dt = nowNs() - t0
         js?.let { it.deadlineNanos = it.deadlineNanos + dt } // time spent waiting is not widget CPU time
         stats.queries += 1
         stats.queryMs += dt / 1e6
+        taskQueryMs += dt / 1e6
+        if (taskQueryMs > CpuBudget.queryBudgetMs(currentSliceMs)) {
+            // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
+            queryLimitHit = true
+            js?.cpuDeadlineNanos = Long.MIN_VALUE
+        }
         lastBinary = answer.binary
         return answer.json
     }
@@ -530,6 +540,9 @@ class SandboxEngine(
 
     private fun handleError(error: QuickJSException, location: String) {
         val text = error.message ?: error.toString()
+        if (js?.interrupted == true && queryLimitHit) {
+            return kill("Layout query limit exceeded: host queries blocked the renderer for more than ${CpuBudget.queryBudgetMs(currentSliceMs).toInt()} ms in one $currentKind task ($location)")
+        }
         if (js?.interrupted == true) {
             // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
             val quota = if (currentSliceMs < config.cpuLimitMs) "; CPU quota: ${maxOf(0.0, config.cpuQuotaMs - budget.used(nowMs())).toInt()} ms of ${config.cpuQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms left, so this $currentKind task got ${currentSliceMs.toInt()} ms" else ""
@@ -638,6 +651,8 @@ class SandboxEngine(
         currentKind = kind
         currentSliceMs = sliceMs
         excludeMs = 0.0
+        taskQueryMs = 0.0
+        queryLimitHit = false
         val c0 = js?.threadCpuNanos() ?: 0L
         resetDeadline()
         body()
@@ -646,7 +661,7 @@ class SandboxEngine(
         stats.tasks += 1
         val cpuMs = ((js?.threadCpuNanos() ?: c0) - c0) / 1e6 - excludeMs
         stats.jsMs += cpuMs
-        budget.record(kind, cpuMs, nowMs())
+        budget.record(kind, cpuMs + taskQueryMs, nowMs()) // layout queries count toward the quota: they cost the host as much as JS
         stats.cpuWindowMs = budget.used(nowMs())
         val now = nowNs()
         if (now - lastMemCheck > 1_000_000_000L && !dead) {

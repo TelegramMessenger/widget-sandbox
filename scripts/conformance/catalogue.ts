@@ -346,7 +346,7 @@ lim('text-node', 'Text values (text node, string property) up to 64 KB (strict)'
 lim('text-budget', 'Document text budget 256 K units, complex-script text 8192 units (strict)', 'in', 'D5', 'kept');
 lim('nodes', 'At most 50 000 nodes', 'in', 'today', 'kept');
 lim('timers', 'At most 256 live timers (RangeError past it)', 'in', 'today', 'kept');
-lim('cpu', 'CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice', 'in', 'today', 'kept');
+lim('cpu', 'CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task', 'in', 'today', 'kept');
 lim('memory', 'QuickJS heap 64 MB', 'in', 'today', 'kept');
 lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'kept');
 lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'kept');

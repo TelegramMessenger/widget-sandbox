@@ -3895,7 +3895,7 @@
     {
       "id": "limit.cpu",
       "area": "limit",
-      "title": "CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice",
+      "title": "CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task",
       "status": "in",
       "decision": "P1",
       "today": "kept"

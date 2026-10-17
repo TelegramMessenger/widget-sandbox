@@ -190,6 +190,8 @@ TEST(cpu_budget_shared_fixture) {
                 b.record(kind->asString(), step["cpuMs"].asNumber(), at);
             } else if (const Json* kill = step.find("kill")) {
                 CHECK_MSG(b.shouldKill(at) == kill->asBool(), where);
+            } else if (const Json* slice = step.find("queryBudget")) {
+                CHECK_MSG(CpuBudget::queryBudgetMs(slice->asNumber()) == step["expect"].asNumber(), where);
             } else {
                 CHECK_MSG(false, where + ": unknown step");
             }
@@ -477,6 +479,39 @@ TEST(cpu_quota_throttles_greedy_timer) {
     // Unthrottled the interval would tick ~25 times in 2.5 s; 100 ms/s allows 2–3 per second.
     CHECK_MSG(ticks > 1, std::to_string(ticks));
     CHECK_MSG(ticks < 12, std::to_string(ticks) + " ticks: " + r.logsText());
+}
+
+/// The layout-query budget (CpuBudget::queryBudgetMs): a forced-layout loop burns no JS
+/// CPU of its own but keeps the host answering queries; with a slow renderer (5 ms per
+/// answer) it is killed with the layout-query reason instead of holding the renderer.
+/// The twin of QueryBudgetTests.swift and QueryBudgetTest.kt.
+TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
+    auto cfg = testConfig();
+    cfg.cpuLimitMs = 200;
+    Run r("<div id=a></div><script>const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }</script>", cfg, false);
+    r.host.answer = [](const Json&) -> std::optional<std::string> { std::this_thread::sleep_for(std::chrono::milliseconds(5)); return std::nullopt; };
+    auto t0 = std::chrono::steady_clock::now();
+    r.engine.start();
+    r.host.waitLoaded(10);
+    double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.died.has_value(), "alive after " + std::to_string(seconds) + " s, " + std::to_string(r.host.queries.size()) + " queries");
+    CHECK_MSG(r.host.died && r.host.died->rfind("Layout query limit exceeded", 0) == 0, r.host.died.value_or("alive"));
+    CHECK_MSG(seconds < 5, std::to_string(seconds) + " s");
+    CHECK_MSG(r.host.queries.size() < 120, std::to_string(r.host.queries.size()) + " queries");
+}
+
+TEST(ordinary_layout_queries_keep_the_widget_alive) {
+    auto cfg = testConfig();
+    cfg.cpuLimitMs = 200;
+    Run r("<div id=a></div><script>const a = document.getElementById('a'); for (let i = 0; i < 10; i++) { a.style.width = i + 'px'; a.offsetHeight; }</script>", cfg, false);
+    r.host.answer = [](const Json&) -> std::optional<std::string> { std::this_thread::sleep_for(std::chrono::milliseconds(2)); return std::nullopt; };
+    r.engine.start();
+    r.host.waitLoaded(10);
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(!r.host.died, r.host.died.value_or(""));
+    CHECK(!r.host.queries.empty());
 }
 
 /// Hidden: frames are neither requested nor delivered; on return the one

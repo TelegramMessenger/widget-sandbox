@@ -20,6 +20,10 @@ public struct CpuBudget {
     public static let floorMs = 50.0
     /// Kinds that may be postponed. `boot`, `event` and `visibility` always run.
     public static let deferrable: Set<String> = ["timer", "frame", "viewport", "resize", "theme", "bridge"]
+    /// A task's layout queries may block the host for at most this much, or the task's slice if that is longer.
+    public static let queryBudgetMinMs = 100.0
+    /// Layout-query budget of one task with `sliceMs` of CPU (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
+    public static func queryBudgetMs(sliceMs: Double) -> Double { max(sliceMs, queryBudgetMinMs) }
 
     private let cpuLimitMs: Double
     private let cpuQuotaMs: Double

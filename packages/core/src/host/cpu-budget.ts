@@ -26,6 +26,12 @@ export const BUCKETS = 10;
 export const FLOOR_MS = 50;
 /** Kinds that may be postponed. `boot`, `event` and `visibility` always run. */
 export const DEFERRABLE: ReadonlySet<string> = new Set(['timer', 'frame', 'viewport', 'resize', 'theme', 'bridge']);
+/** A task's layout queries may block the host for at most this much, or the task's slice if that is longer. */
+export const QUERY_BUDGET_MIN_MS = 100;
+/** Layout-query budget of one task with `sliceMs` of CPU: the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU; past this the task is interrupted and killed. */
+export function queryBudgetMs(sliceMs: number): number {
+  return Math.max(sliceMs, QUERY_BUDGET_MIN_MS);
+}
 
 export class CpuBudget {
   private readonly bucketMs: number;

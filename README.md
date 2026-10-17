@@ -90,7 +90,7 @@ submodule on first use, into `.cache/`).
 corepack pnpm install
 corepack pnpm dev                       # dev app on http://127.0.0.1:5173 — pick a corpus file, drop any .html
 corepack pnpm typecheck && corepack pnpm test:unit
-corepack pnpm test:attacks              # the security suite: 98 files, 0 canary hits
+corepack pnpm test:attacks              # the security suite: 99 files, 0 canary hits
 ```
 
 Native: `xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'`
@@ -162,7 +162,7 @@ tooling, consuming the packages the way a client would. `corpus/`, `tests/`
 | `apps/ios/DemoApp`, `apps/macos/DemoApp` | SwiftUI demos (the macOS one shares the iOS sources) with `--autorun attacks|generated|compat|pause` — see [apps/macos/README.md](apps/macos/README.md) |
 | `apps/android/` | the Compose demo and the Blitz / litehtml renderer modules; a second Gradle build over `packages/android` (`includeBuild`) |
 | `apps/renderer-blitz/`, `apps/renderer-litehtml/` | native renderer prototypes behind the `Renderer` seam (Rust crate; C++ core with vendored litehtml) — dev tooling, not a product path |
-| `corpus/attacks/` | one exfiltration vector per file (98) |
+| `corpus/attacks/` | one exfiltration vector per file (99) |
 | `corpus/compat/`, `corpus/common/`, `corpus/showcase/`, `corpus/generated/`, `corpus/htmlbubbles-ported/`, `corpus/out-of-profile/` | realistic widgets on profile 1 with scripted interactions; the out-of-profile set shows what the validator removes |
 | `tests/` | Playwright suites, canary server |
 | `docs/` | `integration.md`, `tgw-format.md`, `profile-v1.md`, `sdk-v1.md`, `changes.md`, `decisions.md`, `protocol.md`, `widget-runtime-profile.md`, the compat reports, `native-port-notes.md`, the renderer experiments |

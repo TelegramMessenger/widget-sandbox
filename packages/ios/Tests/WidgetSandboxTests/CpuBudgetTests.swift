@@ -24,6 +24,8 @@ final class CpuBudgetTests: XCTestCase {
                     b.record(kind, cpuMs: (step["cpuMs"] as! NSNumber).doubleValue, now: at)
                 } else if let kill = step["kill"] as? Bool {
                     XCTAssertEqual(b.shouldKill(at), kill, where_)
+                } else if let slice = step["queryBudget"] as? NSNumber {
+                    XCTAssertEqual(CpuBudget.queryBudgetMs(sliceMs: slice.doubleValue), (step["expect"] as! NSNumber).doubleValue, where_)
                 } else {
                     XCTFail("\(where_): unknown step")
                 }

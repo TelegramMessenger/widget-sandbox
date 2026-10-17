@@ -455,12 +455,19 @@ void SandboxEngine::rejectStorage(const std::string& detail) {
 /// Blocks the engine thread until the host answers (the host must never wait for the engine).
 std::string SandboxEngine::syncQuery(const std::string& json) {
     if (!delegate_) return "{\"error\":\"no host\"}";
+    if (queryLimitHit_) return "{\"error\":\"query budget exceeded\"}";
     double t0 = nowSeconds();
     QueryAnswer answer = delegate_->onQuery(*this, json);
     double dt = nowSeconds() - t0;
     js_->deadline += dt; // time spent waiting is not widget CPU time
     stats_.queries++;
     stats_.queryMs += dt * 1000;
+    taskQueryMs_ += dt * 1000;
+    if (taskQueryMs_ > CpuBudget::queryBudgetMs(currentSliceMs_)) {
+        // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
+        queryLimitHit_ = true;
+        js_->cpuDeadline = -std::numeric_limits<double>::infinity();
+    }
     lastBinary_ = std::move(answer.binary);
     return answer.json;
 }
@@ -480,6 +487,9 @@ void SandboxEngine::kill(const std::string& reason) {
 }
 
 void SandboxEngine::handleError(const std::string& text, const std::string& where) {
+    if (js_ && js_->interrupted && queryLimitHit_) {
+        return kill("Layout query limit exceeded: host queries blocked the renderer for more than " + std::to_string(int(CpuBudget::queryBudgetMs(currentSliceMs_))) + " ms in one " + currentKind_ + " task (" + where + ")");
+    }
     if (js_ && js_->interrupted) {
         // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
         std::string quota;
@@ -578,6 +588,8 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     currentKind_ = kind;
     currentSliceMs_ = sliceMs;
     excludeMs_ = 0;
+    taskQueryMs_ = 0;
+    queryLimitHit_ = false;
     double c0 = QuickJSContext::threadCpuTime();
     resetDeadline();
     body();
@@ -586,7 +598,7 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     stats_.tasks++;
     double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;
-    budget_.record(kind, cpuMs, nowMs());
+    budget_.record(kind, cpuMs + taskQueryMs_, nowMs()); // layout queries count toward the quota: they cost the host as much as JS
     stats_.cpuWindowMs = budget_.used(nowMs());
     double now = nowSeconds();
     if (now - lastMemCheck_ > 1 && !dead_) {

@@ -35,6 +35,7 @@ class CpuBudgetTest {
                     }
                     step.has("record") -> b.record(step.getString("record"), step.getDouble("cpuMs"), at)
                     step.has("kill") -> assertEquals(where, step.getBoolean("kill"), b.shouldKill(at))
+                    step.has("queryBudget") -> assertEquals(where, step.getDouble("expect"), CpuBudget.queryBudgetMs(step.getDouble("queryBudget")), 0.0)
                     else -> fail("$where: unknown step")
                 }
             }
