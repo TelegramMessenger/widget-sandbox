@@ -158,7 +158,7 @@ corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md):
 corepack pnpm test:compat             # → docs/compat-report.md
 corepack pnpm test:generated          # → docs/compat-report-generated.md
 corepack pnpm test:lifecycle          # off-screen pause (frames stop, timers 1 Hz, visibilitychange)
-corepack pnpm test:htmlbubbles        # 116 Telegram demos ported to classic widgets (corpus/htmlbubbles-ported) → docs/compat-report-htmlbubbles-ported.md; 108–110/116: 6–8 known screenshot-only or timing failures (see corpus/htmlbubbles-ported/README.md)
+corepack pnpm test:htmlbubbles        # 116 Telegram demos ported to classic widgets (corpus/htmlbubbles-ported) → docs/compat-report-htmlbubbles-ported.md; 107–110/116: 6–9 known screenshot-only or timing failures (see corpus/htmlbubbles-ported/README.md)
 TW_RENDERER=shadow corepack pnpm test:attacks   # the same suite on the Shadow DOM renderer (no iframe): must stay at 0 hits / 0 requests; also test:generated / test:common → docs/compat-report-<group>-shadow.md
 corepack pnpm tsx scripts/feed-bench.ts --counts 50,200 --mode ops,host --cv --pool 8,32 --out docs/feed-bench-web.md   # iframe vs shadow renderer in a feed of N bubbles (needs pnpm dev); ops = renderer only, host = full WidgetHost per bubble, --pool = also with a warmed worker pool
 corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://127.0.0.1:5173   # the feed's bench headless (6 renderer × pool cells × 5 passes × 60 bubbles, ~30 min; --combos iframe:on,blitz:off,…) → docs/feed-report-web.json + .md; needs pnpm dev and the two wasm builds

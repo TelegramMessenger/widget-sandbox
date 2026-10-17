@@ -142,10 +142,11 @@ and CLAUDE.md).
   so no bot can send them: the test channel keeps them as `.tgw` files (the development
   format) under the client debug flag until the tests are split into 4 KB pieces; everything
   that fits goes through real layer-233 messages from a test bot.
-- *htmlbubbles-ported*: 108–110 of 116 pass (2026-10-17, after the profile-1 rework); the rest
+- *htmlbubbles-ported*: 107–110 of 116 pass (2026-10-17, after the profile-1 rework); the rest
   are time-based or random drawings, the hang demo, one intentional JS error and
-  `06-trip-lisbon/09-me-bare`, a tall widget whose screenshot fails now and then when the
-  click pass scrolls the page (`corpus/htmlbubbles-ported/README.md`).
+  `06-trip-lisbon/09-me-bare`, a 690 px widget that fails steadily since the 600 px bubble
+  cap (its click pass scrolls the clipped document; before the cap it failed now and then)
+  (`corpus/htmlbubbles-ported/README.md`).
 - *Locale in the Intl fallbacks*: the Kotlin `IntlBridge` has no `numberOptions` /
   `dateOptions`, so `resolvedOptions().locale` does not show the client locale on Android
   (formatting and `navigator.language` do follow it); the C++ `BasicIntl` ignores the locale
