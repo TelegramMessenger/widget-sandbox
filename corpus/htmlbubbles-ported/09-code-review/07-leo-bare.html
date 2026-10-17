@@ -9,10 +9,10 @@
     --fg: light-dark(#000, #fff); --muted: light-dark(#6e6e73, #98989d);
     --card: light-dark(#fff, #1c1c1e); --border: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
     --blue: #007aff; --blue-h: #0a6ee0; --green: #34c759; --red: #ff3b30; --orange: #ff9500; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
   [hidden] { display: none !important; }
   p { margin: 0 0 8px 0; }
-  code { font-family: ui-monospace; font-size: 13px; padding: 1px 4px; border-radius: 4px; background-color: rgba(127,127,127,0.15); }
+  code { font-family: ui-monospace, monospace; font-size: 13px; padding: 1px 4px; border-radius: 4px; background-color: rgba(127,127,127,0.15); }
   .card { background-color: var(--card); border: 1px solid var(--border); border-radius: 14px; color: var(--fg); }
   .pad { padding: 12px 14px; }
   .muted { color: var(--muted); } .small { font-size: 12px; } .tiny { font-size: 11px; }
@@ -28,16 +28,16 @@
   svg { vertical-align: middle; }
 
   .api { width: 420px; max-width: 100%; }
-  .api .meth { font-family: ui-monospace; font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background-color: #34c759; color: #ffffff; margin-right: 8px; }
-  .api .ep { font-family: ui-monospace; font-size: 14px; font-weight: 700; }
+  .api .meth { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background-color: #34c759; color: #ffffff; margin-right: 8px; }
+  .api .ep { font-family: ui-monospace, monospace; font-size: 14px; font-weight: 700; }
   .api .pt { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0 10px 0; }
   .api .pt th { text-align: left; font-size: 10px; text-transform: uppercase; color: #8e8e93; padding: 4px 6px; border-bottom: 1px solid rgba(127,127,127,0.3); }
   .api .pt td { padding: 5px 6px; border-bottom: 1px solid rgba(127,127,127,0.12); vertical-align: top; }
   .api .pt tr.p:hover td { background-color: rgba(0,122,255,0.06); }
   .api .pt tr.on td { background-color: rgba(255,204,0,0.14); }
   .api .pt td.n { width: 112px; }
-  .api .pn { font-family: ui-monospace; font-weight: 700; }
-  .api .ty { font-family: ui-monospace; font-size: 10px; color: light-dark(#af52de, #da8ee7); }
+  .api .pn { font-family: ui-monospace, monospace; font-weight: 700; }
+  .api .ty { font-family: ui-monospace, monospace; font-size: 10px; color: light-dark(#af52de, #da8ee7); }
   .api .req { font-size: 9px; font-weight: 800; color: #ff3b30; }
   .api .more { font-size: 11px; color: #8e8e93; padding-top: 3px; }
   .api .tabs { display: flex; align-items: center; }
@@ -47,7 +47,7 @@
   .api .track { height: 2px; border-bottom: 1px solid rgba(127,127,127,0.25); }
   .api .ind { height: 2px; background-color: #007aff; transition: margin-left 320ms cubic-bezier(.33,1,.68,1), width 700ms cubic-bezier(.33,1,.68,1); }
   .api .code { background-color: #1e1e2e; border-radius: 0 0 10px 10px; padding: 8px 10px; }
-  .api pre { margin: 0; padding: 0; background-color: #1e1e2e; color: #cdd6f4; font-family: ui-monospace; font-size: 10.5px; line-height: 1.5; white-space: pre-wrap; border-radius: 0; }
+  .api pre { margin: 0; padding: 0; background-color: #1e1e2e; color: #cdd6f4; font-family: ui-monospace, monospace; font-size: 10.5px; line-height: 1.5; white-space: pre-wrap; border-radius: 0; }
   .api .s { color: #a6e3a1; } .api .kw { color: #cba6f7; } .api .nu { color: #fab387; } .api .fl { color: #89b4fa; }
   .api .mk { border-radius: 3px; color: #ffffff; background-color: rgba(255,214,10,0.32); transition: background-color 900ms cubic-bezier(.33,1,.68,1); }
   .api .mk.hot { background-color: rgba(255,214,10,0.77); transition: none; }

@@ -9,7 +9,7 @@
     --fg: light-dark(#000, #fff); --muted: light-dark(#6e6e73, #98989d);
     --card: light-dark(#fff, #1c1c1e); --border: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
     --purple: #af52de; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
   .card { background-color: var(--card); border: 1px solid var(--border); border-radius: 14px; color: var(--fg); }
   .pad { padding: 12px 14px; }
   .muted { color: var(--muted); } .small { font-size: 12px; } .tiny { font-size: 11px; }
@@ -88,7 +88,7 @@
       <span class="ib pu" id="prevBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M22 4v16L12 12zM12 4v16L2 12z"/></svg></span>
       <span class="play" id="playBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path id="playPath" d="M7 4l14 8-14 8z"/></svg></span>
       <span class="ib pu" id="nextBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2 4v16l10-8zM12 4v16l10-8z"/></svg></span>
-      <span class="ib" id="repeatBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/><text id="rep1" x="12" y="15.5" text-anchor="middle" font-size="9" font-weight="800" fill="currentColor" stroke="none" font-family="-apple-system, system-ui, sans-serif" hidden>1</text></svg></span>
+      <span class="ib" id="repeatBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/><text id="rep1" x="12" y="15.5" text-anchor="middle" font-size="9" font-weight="800" fill="currentColor" stroke="none" font-family="system-ui, sans-serif" style="display: none">1</text></svg></span>
     </div>
   </div>
   <div class="row" style="padding: 4px 14px 6px 14px"><span class="caps grow" id="qLabel">Up next</span><span class="tiny muted" id="repLabel"></span></div>
@@ -262,7 +262,7 @@ function syncTrack() {
   $('playPath').setAttribute('d', playing ? 'M6 4h4v16H6zM14 4h4v16h-4z' : 'M7 4l14 8-14 8z');
   $('shuffleBtn').classList.toggle('on', shuffle);
   $('repeatBtn').classList.toggle('on', repeat > 0);
-  $('rep1').hidden = repeat !== 2;
+  $('rep1').style.display = repeat === 2 ? '' : 'none'; // SVG has no hidden attribute
   $('qLabel').textContent = shuffle ? 'Shuffled queue' : 'Up next';
   $('repLabel').textContent = repeat === 2 ? 'Repeat one' : repeat === 1 ? 'Repeat all' : '';
   for (let t = 0; t < TRACKS.length; t++) {

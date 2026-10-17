@@ -11,7 +11,7 @@
     --fg: light-dark(#000, #fff); --muted: light-dark(#6e6e73, #98989d);
     --card: light-dark(#fff, #1c1c1e); --border: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
     --green: #34c759; --red: #ff3b30; --orange: #ff9500; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
   .card { background-color: var(--card); border: 1px solid var(--border); border-radius: 14px; color: var(--fg); }
   .pad { padding: 12px 14px; }
   .muted { color: var(--muted); } .tiny { font-size: 11px; }
@@ -19,8 +19,9 @@
   .t-green { color: var(--green); } .t-red { color: var(--red); } .t-orange { color: var(--orange); }
   .seen { width: 380px; max-width: 100%; }
   .seen .g { display: flex; flex-wrap: wrap; }
-  .seen .g span { width: 50%; font-size: 12px; font-family: ui-monospace; padding: 1px 0; white-space: nowrap; }
+  .seen .g span { width: 50%; font-size: 12px; font-family: ui-monospace, monospace; padding: 1px 0; white-space: nowrap; }
   .seen .g span i { font-style: normal; font-size: 10px; color: var(--muted); }
+  .seen #io span { width: 100%; } /* the verdicts are too long for a half-width monospace column */
 </style>
 <div class="card pad seen">
   <b>🔍 What can a script see?</b>
@@ -51,7 +52,7 @@ function rows(id, names, want, note) {
   }).join('');
 }
 rows('absent', ABSENT, false);
-rows('present', PRESENT, true, n => n === 'localStorage' ? 'in-memory' : n === 'navigator' ? 'no network' : '');
+rows('present', PRESENT, true, n => n === 'localStorage' ? 'per message' : n === 'navigator' ? 'no network' : '');
 rows('helpers', HELPERS, false, () => 'not needed');
 
 // For the I/O names, actually try: a name that exists is only fine if the call is refused.

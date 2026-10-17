@@ -6,11 +6,11 @@
 -->
 <style>
   :root { color-scheme: light dark; --fg: light-dark(#000, #fff); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
   /* app:aurora → gradient of the same size */
   .aurora { background-image: linear-gradient(160deg, #0b1a3a 0%, #123c6b 30%, #1fb389 55%, #8ef0c4 75%, #0b1a3a 100%); }
-  /* sf:star.fill?size=12&color=ffcc00 → 12 px inline SVG tile */
-  .stars { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z' fill='%23ffcc00'/%3E%3C/svg%3E"); }
+  /* sf:star.fill?size=12&color=ffcc00 → 12 px tile: the star path rasterised into a 24×24 PNG (profile 1 has no SVG images) */
+  .stars { background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAxElEQVR42tWVUQ0DIQyGKwEJSDgJSEHCJNTJSTgJM0ByEk5CJbAs6UOzlNE2I7k9/E/A/8FPKdAbwErB3QCFtQxwsJYAcm/QWXkFYBeA/dcAuXvXKawAVAAYBWxcKQ82ecdBCoB4DHlu4bVDQFVMoqqjE9TBbq0iaf4tIgqab9ZL9kJU81kVWSFDc0uZngbAGX0HyRFRigCKA1AiAFSyRhZZX/WsNcvmlj7ik83viACu3uA5aWqZ51zRO/D8dP/xJ98P8AJeAZ3tql0gxAAAAABJRU5ErkJggg=="); background-size: 12px 12px; }
 </style>
 <div style="height: 36px; border-radius: 8px; margin-bottom: 6px; background-image: linear-gradient(45deg, #ff9500 25%, #ffcc00 25%, #ffcc00 50%, #ff9500 50%, #ff9500 75%, #ffcc00 75%); background-size: 20px 20px"></div>
 <div style="height: 56px; border-radius: 8px; margin-bottom: 6px; background: radial-gradient(circle at 30% 40%, #ffffff, #5ac8fa 40%, #007aff)"></div>

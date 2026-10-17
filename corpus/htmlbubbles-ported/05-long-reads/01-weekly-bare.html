@@ -10,7 +10,7 @@
     --card: light-dark(#fff, #1c1c1e); --border: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
     --sep: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
     --blue: #007aff; --purple: #af52de; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
   p { margin: 0 0 8px 0; }
   h2 { margin: 4px 0 6px 0; line-height: 1.2; font-size: 19px; }
   ul { margin: 4px 0 8px 0; padding-left: 22px; } li { margin: 2px 0; }
@@ -41,7 +41,7 @@
   .art .body p { margin: 0 0 10px 0; }
   .art .drop { float: left; font-family: serif; font-size: 3.9em; line-height: 0.86; font-weight: 800; margin: 5px 8px 0 0; color: #7f5af0; }
   .art .pull { margin: 14px 0; padding: 4px 0 4px 16px; border-left: 4px solid #7f5af0; font-family: serif; font-size: 1.33em; line-height: 1.35; font-style: italic; }
-  .art .pull small { display: block; font-family: -apple-system, system-ui, sans-serif; font-style: normal; font-size: 12px; margin-top: 6px; }
+  .art .pull small { display: block; font-family: system-ui, sans-serif; font-style: normal; font-size: 12px; margin-top: 6px; }
   .art .fig { margin: 10px 0 12px 0; padding: 10px; border-radius: 12px; background-color: rgba(127,127,127,0.10); }
   .art .pipe { display: flex; flex-wrap: wrap; align-items: center; }
   .art .pipe .box { padding: 4px 8px; margin: 3px 0; border-radius: 8px; color: #ffffff; font-size: 11.5px; font-weight: 700; background-color: rgba(127,127,127,0.30); }
@@ -62,22 +62,22 @@
   .art .rel a { flex-grow: 1; flex-basis: 0; display: block; text-decoration: none; border-radius: 10px; border: 1px solid rgba(127,127,127,0.25); padding: 8px 10px; margin-right: 8px; font-size: 13px; line-height: 1.35; color: inherit; }
   .art .rel a:hover { background-color: rgba(127,127,127,0.10); }
   .art .tool { display: flex; align-items: center; margin: 10px 0 2px 0; }
-  .art .tb { padding: 3px 9px; margin-left: 4px; border-radius: 8px; font-size: 12px; font-weight: 600; line-height: 1.4; background-color: rgba(127,127,127,0.13); cursor: pointer; user-select: none; }
+  .art .tb { padding: 3px 9px; margin-left: 4px; border-radius: 8px; font-size: 12px; font-weight: 600; line-height: 1.4; background-color: rgba(127,127,127,0.13); cursor: pointer; }
   .art .tb:hover { background-color: rgba(127,127,127,0.26); }
   .art .tb.on { background-color: rgba(127,90,240,0.20); color: #7f5af0; }
   .art .prog { height: 4px; margin: 0 6px 0 10px; border-radius: 2px; background-color: rgba(127,127,127,0.2); }
   .art .prog div { height: 4px; border-radius: 2px; background-color: #7f5af0; width: 0%; transition: width 600ms cubic-bezier(.33,1,.68,1); }
   .art .toc { margin: 6px 0 4px 0; padding: 4px; border-radius: 10px; background-color: rgba(127,127,127,0.09); }
-  .art .toc .e { display: flex; align-items: center; padding: 4px 8px; border-radius: 7px; font-size: 13px; line-height: 1.4; cursor: pointer; user-select: none; }
+  .art .toc .e { display: flex; align-items: center; padding: 4px 8px; border-radius: 7px; font-size: 13px; line-height: 1.4; cursor: pointer; }
   .art .toc .e:hover { background-color: rgba(127,90,240,0.12); }
   .art .toc .e.on { background-color: rgba(127,90,240,0.20); font-weight: 600; }
   .art .toc .n { width: 22px; color: #7f5af0; font-weight: 700; }
   .art .pager { display: flex; justify-content: space-between; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(127,127,127,0.22); }
-  .art .pg { padding: 5px 12px; border-radius: 9px; font-size: 13px; font-weight: 600; line-height: 1.4; background-color: rgba(127,127,127,0.12); cursor: pointer; user-select: none; }
+  .art .pg { padding: 5px 12px; border-radius: 9px; font-size: 13px; font-weight: 600; line-height: 1.4; background-color: rgba(127,127,127,0.12); cursor: pointer; }
   .art .pg:hover { background-color: rgba(127,127,127,0.24); }
-  .art .more { text-align: center; padding: 8px; margin-top: 2px; border-radius: 10px; font-weight: 700; color: #ffffff; background-color: #7f5af0; cursor: pointer; user-select: none; }
+  .art .more { text-align: center; padding: 8px; margin-top: 2px; border-radius: 10px; font-weight: 700; color: #ffffff; background-color: #7f5af0; cursor: pointer; }
   .art .more:hover { background-color: #6a45dc; }
-  .art .fb { padding: 6px 14px; margin-right: 8px; line-height: 22px; border-radius: 9px; font-weight: 600; background-color: rgba(127,127,127,0.14); cursor: pointer; user-select: none; }
+  .art .fb { padding: 6px 14px; margin-right: 8px; line-height: 22px; border-radius: 9px; font-weight: 600; background-color: rgba(127,127,127,0.14); cursor: pointer; }
   .art .fb:hover { background-color: rgba(127,127,127,0.26); }
   .art .fb.on { background-color: #7f5af0; color: #ffffff; }
   .art .fb .emo { display: inline-block; font-size: 14px; }
