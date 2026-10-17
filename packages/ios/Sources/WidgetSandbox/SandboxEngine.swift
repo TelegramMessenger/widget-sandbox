@@ -153,6 +153,8 @@ public final class SandboxEngine {
     private var currentKind = "boot"
     /// JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms.
     private var excludeMs = 0.0
+    private var taskQueryMs = 0.0
+    private var queryLimitHit = false
     private var lastThrottleDiag = -Double.infinity
     private var throttledSinceDiag: [String: Int] = [:]
     private static func nowMs() -> Double { CACurrentMediaTime() * 1000 }
@@ -592,11 +594,19 @@ public final class SandboxEngine {
     private func syncQuery(_ json: String) -> String {
         guard let delegate else { return "{\"error\":\"no host\"}" }
         let t0 = CACurrentMediaTime()
+        if queryLimitHit {
+            return "{\"error\":\"query budget exceeded\"}"
+        }
         let (answer, binary) = delegate.engine(self, query: json)
         let dt = CACurrentMediaTime() - t0
         js.deadline += dt // time spent waiting is not widget CPU time
         stats.queries += 1
         stats.queryMs += dt * 1000
+        taskQueryMs += dt * 1000
+        if taskQueryMs > max(currentSliceMs, Self.queryBudgetMinMs) {
+            queryLimitHit = true
+            js.cpuDeadline = -.infinity
+        }
         lastBinary = binary
         return answer
     }
@@ -623,6 +633,9 @@ public final class SandboxEngine {
 
     private func handleError(_ error: Error, where location: String) {
         let text = (error as? QuickJSError)?.description ?? String(describing: error)
+        if js?.interrupted == true, queryLimitHit {
+            return kill("Layout query limit exceeded: host queries blocked the renderer for more than \(Int(max(currentSliceMs, Self.queryBudgetMinMs))) ms in one \(currentKind) task (\(location))")
+        }
         if js?.interrupted == true {
             // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
             let quota = currentSliceMs < config.cpuLimitMs ? "; CPU quota: \(Int(max(0, config.cpuQuotaMs - budget.used(Self.nowMs())))) ms of \(Int(config.cpuQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms left, so this \(currentKind) task got \(Int(currentSliceMs)) ms" : ""
@@ -715,6 +728,7 @@ public final class SandboxEngine {
 
     static let wallBackstopFactor = 10.0
     static let wallBackstopMinMs = 5000.0
+    static let queryBudgetMinMs = 100.0
 
     /// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
     private func task(_ kind: String, sliceMs: Double, _ body: () -> Void) {
@@ -722,6 +736,8 @@ public final class SandboxEngine {
         currentKind = kind
         currentSliceMs = sliceMs
         excludeMs = 0
+        taskQueryMs = 0
+        queryLimitHit = false
         let c0 = QuickJSContext.threadCPUTime()
         resetDeadline()
         body()
@@ -730,7 +746,7 @@ public final class SandboxEngine {
         stats.tasks += 1
         let cpuMs = (QuickJSContext.threadCPUTime() - c0) * 1000 - excludeMs
         stats.jsMs += cpuMs
-        budget.record(kind, cpuMs: cpuMs, now: Self.nowMs())
+        budget.record(kind, cpuMs: cpuMs + taskQueryMs, now: Self.nowMs())
         stats.cpuWindowMs = budget.used(Self.nowMs())
         let now = CACurrentMediaTime()
         if now - lastMemCheck > 1, !dead {
