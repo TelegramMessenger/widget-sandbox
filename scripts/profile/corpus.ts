@@ -9,7 +9,7 @@
 // established, and the impact per corpus is counted: how many widgets touch
 // at least one feature a class cannot render, and which features those are.
 // Output: reports/profile/corpus.json + Markdown tables on stdout for
-// widget profile 1 (docs/profile-v1.md).
+// docs/widget-profile-draft.md (historical) and widget profile 1 (docs/profile-v1.md).
 //
 //   corepack pnpm tsx scripts/profile/corpus.ts [--groups compat,generated]
 
