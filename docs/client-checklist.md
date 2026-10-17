@@ -54,10 +54,11 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 - [ ] The conformance automatic set on your renderer, with the report
       ([CLIENTS.md](../packages/conformance/CLIENTS.md)).
 - [ ] The attack corpus (`corpus/attacks`): 0 leaks, 0 outside requests.
-- [ ] The visual set in the test channel with the manual checklist — `visual/01…13` as
-      `.tgw` files under the debug flag (they are over 4 KB gzipped, the server rejects
-      them), `visual/sdk` as real layer-233 messages from the test bot: light and dark themes, rotation, system font size, RTL
-      locale, reduce motion, bubble re-creation on scroll, forward, edit.
+- [ ] The visual set in the test channel with the manual checklist: `visual/01…13` as
+      `.tgw` files under the debug flag (over 4 KB gzipped, the server rejects them),
+      `visual/sdk` as real layer-233 messages from the test bot. Check light and dark
+      themes, rotation, system font size, an RTL locale, reduce motion, bubble
+      re-creation on scroll, forward, edit.
 - [ ] A feed bench on a low-end device: many widgets in a list, scroll, memory.
 
 ## e. Send back
