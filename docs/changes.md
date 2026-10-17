@@ -71,6 +71,13 @@ and CLAUDE.md).
 
 **API changes for clients**
 
+- Bubble height bounds: the hosts clamp the reported height to **[50, 600]** by default
+  (was [24, 900]) — web `MIN_HEIGHT` / `MAX_HEIGHT`, Swift `minHeight` 50 and
+  `WidgetHost.Options.maximumHeight` 600, Kotlin `Options.minHeightDp` 50 / `maxHeightDp` 600,
+  C++ `WidgetHost` [50, 600] — the shared v0.1.0 sizing constants, with a minimum widget
+  width of 200 (`docs/integration.md`, "Bubble sizing": width 0 = the bubble's width, W = a
+  fixed width; height 0 = auto under 600, H = a fixed height). A client that needs other
+  bounds passes its own cap. The dev app's and the demos' reference mode clamp the same way.
 - Removed: `SandboxResources.provide`, `ProvidedLibrary`, `BundledLibrary`,
   `SandboxResources.libraries` / `library(for:)` / `librarySource` / `libraryBytecode` (Swift);
   `SandboxResources.libraries` / `library()` / `librarySource()` / `libraryBytecode()` (Kotlin);

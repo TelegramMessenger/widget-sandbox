@@ -1,6 +1,6 @@
 # Compat report — htmlbubbles-ported
 
-Generated 2026-10-17T10:20:48.306Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-17T12:38:51.915Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## 01-design-crew: 13 / 13 pass (100%)
 
@@ -72,7 +72,7 @@ Generated 2026-10-17T10:20:48.306Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 06-weekly-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-weekly.html | ✅ | 0.00% | 0 |  |  |  |
 
-## 06-trip-lisbon: 9 / 9 pass (100%)
+## 06-trip-lisbon: 7 / 9 pass (78%)
 
 | Widget | Pass | Pixel diff | Clicks | Errors | Unsupported / blocked | Other diagnostics |
 |---|---|---|---|---|---|---|
@@ -81,9 +81,9 @@ Generated 2026-10-17T10:20:48.306Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 04-ana-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 05-tom-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-ana-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 09-me-bare.html | ✅ | 0.00% | 2 |  |  |  |
-| 10-ana-bare.html | ✅ | 0.13% | 1 |  |  |  |
-| 11-tom-bare.html | ✅ | 0.00% | 1 |  |  |  |
+| 09-me-bare.html | ❌ | 16.86% | 2 |  |  |  |
+| 10-ana-bare.html | ✅ | 0.63% | 1 |  |  |  |
+| 11-tom-bare.html | ❌ | 4.48% | 1 |  |  |  |
 | 12-ana.html | ✅ | 1.88% | 2 |  |  |  |
 
 ## 07-shop: 8 / 8 pass (100%)

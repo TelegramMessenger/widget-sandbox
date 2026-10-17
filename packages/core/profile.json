@@ -4563,7 +4563,7 @@
    "title": "A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty",
    "status": "in",
    "decision": "SDK",
-   "note": "Waits for the server: forwarding rich blocks."
+   "note": "Testable with a test bot: forward its message into another chat; the copy starts with empty storage."
   },
   {
    "id": "behaviour.message-edit",
@@ -4571,15 +4571,15 @@
    "title": "A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage",
    "status": "in",
    "decision": "SDK",
-   "note": "Waits for the server: editing rich blocks."
+   "note": "Testable with a test bot: edit the message with the same and with new HTML."
   },
   {
    "id": "behaviour.size-hint",
    "area": "behaviour",
-   "title": "Before load the bubble takes the bot's size hint (width + height: aspect ratio; width 0 + height: that height; none: the default placeholder), then the real height under the cap",
+   "title": "Before load the bubble takes the bot's size anchors (width 0 = the bubble's width, W = a fixed width in [200, max]; height 0 = the placeholder, then the content height in [50, 600]; H = a fixed clamp(H, 50, 600)), cached per message",
    "status": "in",
    "decision": "D12a",
-   "note": "Waits for the server: the size fields of the rich block."
+   "note": "Testable with a test bot sending inputMediaWidget with the anchors set; 200 / 50 / 600 are the shared v0.1.0 constants."
   }
  ]
 }

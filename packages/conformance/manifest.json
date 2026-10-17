@@ -34,9 +34,9 @@
    "behaviour.restart": "visual/sdk/11-crash-restart (client behaviour)",
    "behaviour.gesture-claim": "visual/sdk/12-drag-gestures (client behaviour)",
    "behaviour.storage-persist": "visual/sdk/07, 08, 09 (client behaviour)",
-   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour; waits for the server)",
-   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour; waits for the server)",
-   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour; waits for the server)"
+   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour)",
+   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour)",
+   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour)"
   },
   "notInAuto": [],
   "outNotInAuto": []
@@ -8255,7 +8255,7 @@
    "set": "visual",
    "file": "visual/sdk/13-max-height.html",
    "title": "Taller than the cap: a hard clip",
-   "hint": "The widget is 3000 px tall. The bubble shows the top up to the client's maximum height and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
+   "hint": "The widget is 3000 px tall. The bubble shows the top 600 px and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
    "kind": [],
    "covers": [
     "behaviour.auto-height"
@@ -8275,7 +8275,7 @@
    "bytes": 3067,
    "gzip": 1559,
    "group": "sdk",
-   "expect": "The bubble's height is the client's cap (maximumHeight / maxHeightDp; 900 px on the web); content below is clipped.",
+   "expect": "The bubble's height is the cap, 600 px on every client (the shared v0.1.0 value; maximumHeight / maxHeightDp / the web MAX_HEIGHT); content below is clipped.",
    "contract": "docs/sdk-v1.md §5.6",
    "refImages": {
     "light": "refs/visual/sdk/13-max-height.png"
@@ -8344,7 +8344,6 @@
    "group": "sdk",
    "expect": "Storage keyed by (account, chat, message id): the destination chat's copy starts empty.",
    "contract": "docs/sdk-v1.md §2.8",
-   "pending": "the server: forwarding messages with a widget block",
    "refImages": {
     "light": "refs/visual/sdk/15-storage-forward.png"
    }
@@ -8376,7 +8375,6 @@
    "group": "sdk",
    "expect": "An edit with the same HTML keeps the running widget; with different HTML the widget restarts on the same storage.",
    "contract": "docs/sdk-v1.md §2.8",
-   "pending": "the server: bots editing messages with a widget block",
    "refImages": {
     "light": "refs/visual/sdk/16-bot-edit.png"
    }
@@ -8385,8 +8383,8 @@
    "id": "visual/sdk/17-size-hint",
    "set": "visual",
    "file": "visual/sdk/17-size-hint.html",
-   "title": "The bubble takes the bot's size hint before load, then the real height",
-   "hint": "The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time.",
+   "title": "The bubble takes the bot's size anchors before load, then the content height",
+   "hint": "The bot sends this widget four times: width 0 + height 0 (the default placeholder, then the content height, 240 px), width 0 + height 300 (a fixed 300 px bubble that stays 300 after load), width 300 + height 0 (a 300 px wide widget, then its content height), and width 300 + height 300 (fixed both). The cached height is used next time the auto bubbles scroll in.",
    "kind": [],
    "covers": [
     "behaviour.auto-height",
@@ -8407,9 +8405,8 @@
    "bytes": 2935,
    "gzip": 1500,
    "group": "sdk",
-   "expect": "Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
+   "expect": "Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
    "contract": "docs/sdk-v1.md §5.6",
-   "pending": "the server: the width / height fields of the widget block",
    "refImages": {
     "light": "refs/visual/sdk/17-size-hint.png"
    }

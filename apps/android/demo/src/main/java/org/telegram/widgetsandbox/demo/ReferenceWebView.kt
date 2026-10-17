@@ -81,7 +81,7 @@ class ReferenceWebView(context: Context, html: String, theme: String) {
               var post = function (m) { try { window.ref.post(JSON.stringify(m)); } catch (e) {} };
               var last = -1;
               var size = function () {
-                var h = Math.min(Math.max(Math.ceil(document.documentElement.getBoundingClientRect().height), 24), 900);
+                var h = Math.min(Math.max(Math.ceil(document.documentElement.getBoundingClientRect().height), 50), 600);
                 if (h !== last) { last = h; post({ type: 'size', height: h }); }
               };
               window.addEventListener('error', function (e) { post({ type: 'error', message: String(e.message || e.error || 'error').slice(0, 300) }); });

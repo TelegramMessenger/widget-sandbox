@@ -69,7 +69,7 @@ a profile): `100cqh` without a size container is the window, so `:host` became
 `container-type: size` and the same fixed point as the frame.
 
 Feed bench, `scripts/feed-bench.ts` → `docs/feed-bench-web.md` (900×900, five
-generated widgets round-robin, bubble heights clamped to 24–900 px as in
+generated widgets round-robin, bubble heights clamped to 24–900 px (the dev app's clamp at the time; 50–600 since v0.1.0) as in
 `WidgetHost`; `ready` — all bubbles have applied their ops, `task` — all main-thread
 time per `Performance.getMetrics`, heap/documents — deltas of the same counters):
 

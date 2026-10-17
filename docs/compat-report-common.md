@@ -1,6 +1,6 @@
 # Compat report — common
 
-Generated 2026-10-17T10:08:25.888Z by `CORPUS_GROUP=common pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-17T12:33:18.406Z by `CORPUS_GROUP=common pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## cards: 8 / 8 pass (100%)
 
@@ -45,8 +45,8 @@ Generated 2026-10-17T10:08:25.888Z by `CORPUS_GROUP=common pnpm test:generated`.
 
 | Widget | Pass | Pixel diff | Clicks | Errors | Unsupported / blocked | Other diagnostics |
 |---|---|---|---|---|---|---|
-| 01-clock-countdown.html | ✅ | 0.22% | 0 |  |  |  |
-| 02-progress-bars.html | ✅ | 0.87% | 1 |  |  |  |
+| 01-clock-countdown.html | ✅ | 0.24% | 0 |  |  |  |
+| 02-progress-bars.html | ✅ | 1.11% | 1 |  |  |  |
 | 03-counters.html | ✅ | 1.50% | 1 |  |  |  |
 | 04-deploy-log.html | ✅ | 0.00% | 1 |  |  |  |
 | 05-ticker.html | ✅ | 2.23% | 0 |  |  |  |

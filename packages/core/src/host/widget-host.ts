@@ -74,8 +74,9 @@ export interface WidgetHostOptions {
   features?: string[];
 }
 
-const MIN_HEIGHT = 24;
-const MAX_HEIGHT = 900;
+/** The shared bubble height bounds of v0.1.0 (docs/integration.md, "Bubble sizing"); the same on every client. */
+const MIN_HEIGHT = 50;
+const MAX_HEIGHT = 600;
 const encoder = new TextEncoder();
 
 export class WidgetHost {

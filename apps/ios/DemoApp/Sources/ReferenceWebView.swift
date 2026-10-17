@@ -134,7 +134,7 @@ final class ReferenceWebView: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
       var post = function (m) { try { window.webkit.messageHandlers.ref.postMessage(m); } catch (e) {} };
       var last = -1;
       var size = function () {
-        var h = Math.min(Math.max(Math.ceil(document.documentElement.getBoundingClientRect().height), 24), 900);
+        var h = Math.min(Math.max(Math.ceil(document.documentElement.getBoundingClientRect().height), 50), 600);
         if (h !== last) { last = h; post({ type: 'size', height: h }); }
       };
       window.addEventListener('error', function (e) { post({ type: 'error', message: String(e.message || e.error || 'error').slice(0, 300) }); });

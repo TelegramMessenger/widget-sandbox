@@ -329,7 +329,7 @@ function updateReference() {
   const size = () => {
     try {
       const d = f.contentDocument;
-      if (d?.documentElement) f.style.height = Math.min(Math.max(Math.ceil(d.documentElement.getBoundingClientRect().height), 24), 900) + 'px';
+      if (d?.documentElement) f.style.height = Math.min(Math.max(Math.ceil(d.documentElement.getBoundingClientRect().height), 50), 600) + 'px';
     } catch {}
   };
   // Same-origin frame: size it from inside (ResizeObserver) plus a slow fallback poll.

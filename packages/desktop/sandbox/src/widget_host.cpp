@@ -68,7 +68,8 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
     return c;
 }
 
-constexpr double kMinHeight = 24, kMaxHeight = 900;
+// The shared bubble height bounds of v0.1.0 (docs/integration.md, "Bubble sizing").
+constexpr double kMinHeight = 50, kMaxHeight = 600;
 
 } // namespace
 

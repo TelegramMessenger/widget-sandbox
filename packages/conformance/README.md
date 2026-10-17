@@ -93,7 +93,7 @@ The steps are in this order:
   - visual set: 150×90, in flow.
 
   A `<template data-ref="name">` at the end of the body gives the expected rendering when it differs from what Chromium draws. Script-drawn stages go through `T.stage(name, draw)`.
-- Keep auto widgets under 900 px tall (the host cap) and keep layout above the probes stable.
+- Keep auto widgets under 600 px tall (the host cap since v0.1.0) and keep layout above the probes stable.
 - No external URLs except the CDN names of the bundled libraries.
 
 The client SDK group's pictures come from the same build. `scripts/conformance/sdk-mock.js` is a stand-in for `TelegramWidget` that follows the contract and uses a reference palette. Only the build injects it, so the pictures show the "SDK present" state. The build also flags any widget of the group over 4 KB gzipped or 32 KB.

@@ -53,7 +53,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var cpuQuotaWindowMs = 1000.0
         public var cpuKillAfterMs = 0.0
         public var maxTimers = 256
-        public var maximumHeight: CGFloat = 900
+        /// The bubble's maximum height in points; 600 is the shared v0.1.0 value (docs/integration.md, "Bubble sizing").
+        public var maximumHeight: CGFloat = 600
         /// Initial visibility; change it later with `setVisible`.
         public var visible = true
         /// One WebKit environment (process pool, data store, content controller, rule list, scheme handler) for every renderer; see RendererEnvironment.
@@ -142,7 +143,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     private var qid = 0
     private var pendingQuery: PendingQuery?
     private let queryLock = NSLock()
-    private let minHeight: CGFloat = 24
+    private let minHeight: CGFloat = 50
     private let maxHeight: CGFloat
     private let createdAt = Date()
     private var opsSent = 0
@@ -156,7 +157,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         self.theme = widgetTheme
         let theme = widgetTheme.colorScheme.rawValue
         self.options = options
-        maxHeight = options.maximumHeight.isFinite ? max(24, options.maximumHeight) : 900
+        maxHeight = options.maximumHeight.isFinite ? max(50, options.maximumHeight) : 600
         ownerVisible = options.visible
         let scale = PlatformScreen.scale
         viewport = (Double(width), 300, scale)

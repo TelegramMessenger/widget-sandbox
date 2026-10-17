@@ -122,25 +122,36 @@ disk; it is never product delivery (`docs/tgw-format.md`).
 
 ## Bubble sizing
 
-The bot may send two optional integers with the message, `width` and
-`height`, in logical pixels (CSS px, pt, dp). The client decides the bubble
-geometry before the widget has loaded:
+`messageMediaWidget` carries two size anchors, `width` and `height`, in logical
+pixels (CSS px, pt, dp); `0` means auto and each axis is independent. Every
+axis of the bubble is bounded, auto included. The shared constants of v0.1.0,
+the same on every client and tunable in a later release: minimum width 200,
+height within **[50, 600]**.
 
-| `width` | `height` | bubble |
-|---|---|---|
-| > 0 | > 0 | the bubble keeps the aspect ratio `width : height` at the bubble width |
-| 0 | H | a fixed height of H at the bubble width |
-| absent | absent | the default placeholder height |
+| `width` | `height` | before the widget loads | after the first render |
+|---|---|---|---|
+| 0 | 0 | the default placeholder at the bubble's width | the content height the host reports, clamped to [50, 600], cached per message |
+| 0 | H | a bubble of height clamp(H, 50, 600) at the bubble's width | unchanged: the fixed height stays whatever the content reports |
+| W | 0 | a widget W px wide, W clamped to [200, the bubble's maximum width]; the default placeholder height | the content height, clamped to [50, 600], cached per message |
+| W | H | a fixed widget: width clamp(W, 200, max), height clamp(H, 50, 600) | unchanged |
 
-Then the widget loads and reports its real height (`onChange` / `onResize`):
-animate to it, keep it, and **cache it per message**, so the bubble opens at
-the right height next time the message scrolls in and the list does not jump.
-The host already clamps the reported height (`minHeight` 24, `maximumHeight`
-/ `maxHeightDp` 900 by default; the web client passes its own cap); set the
-cap to what your chat list tolerates. The cap is a **hard clip**: a widget
-taller than it is cut, it does not scroll inside the bubble, and there is no
-fullscreen or "open" button in v0.1.0. The height is the only size a widget
-controls; the width is always the bubble's.
+Width: `0` means the widget takes the bubble's width, the widest the chat
+gives a bubble; `W > 0` is a fixed-width widget, and the host is created with
+that width (`WidgetHost(width:)`, `widthDp`, the web host's container). Height:
+in auto mode use the height the host reports (`onChange` / `onResize`),
+clamped to [50, 600], and **cache it per message**, so the bubble opens at
+the right height next time the message scrolls in and the list does not jump;
+a fixed height is applied from the start and the reported height does not
+change it.
+
+The hosts clamp the reported height to these bounds by default since v0.1.0
+(web `MIN_HEIGHT` / `MAX_HEIGHT`, Swift `minHeight` 50 and `Options.maximumHeight`
+600, Kotlin `minHeightDp` 50 / `maxHeightDp` 600, C++ [50, 600]), so a client on
+defaults gets the rule; a client that needs other bounds passes its own cap.
+Content taller than the bubble's height (600 in auto mode, or the fixed height)
+is **hard-clipped**: it does not scroll inside the bubble, and there is no
+fullscreen or "open" button in v0.1.0. The width is never changed by the
+widget.
 
 ## Input
 

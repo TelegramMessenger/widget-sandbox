@@ -356,7 +356,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | `behaviour.storage-persist` | localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message | in |  | SDK |
 | `behaviour.storage-forward` | A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty | in |  | SDK |
 | `behaviour.message-edit` | A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage | in |  | SDK |
-| `behaviour.size-hint` | Before load the bubble takes the bot's size hint (width + height: aspect ratio; width 0 + height: that height; none: the default placeholder), then the real height under the cap | in |  | D12a |
+| `behaviour.size-hint` | Before load the bubble takes the bot's size anchors (width 0 = the bubble's width, W = a fixed width in [200, max]; height 0 = the placeholder, then the content height in [50, 600]; H = a fixed clamp(H, 50, 600)), cached per message | in |  | D12a |
 
 ## Tables
 

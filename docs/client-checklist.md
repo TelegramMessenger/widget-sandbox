@@ -21,8 +21,9 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       ([tgw-format.md](tgw-format.md), [integration.md, "The widget payload"](integration.md#the-widget-payload)).
 - [ ] Enable rendering with your own platform/version flag; without it, and on
       old layers, the message shows as unsupported media with its caption.
-- [ ] Bubble sizing from `width` / `height` before the widget loads; the host's
-      height afterwards, cached per message; hard clip at the cap, no fullscreen
+- [ ] Bubble sizing from the anchors: width 0 = the bubble's width, W = a fixed width in
+      [200, max]; height 0 = placeholder, then the content height in [50, 600] cached per
+      message, H = fixed clamp(H, 50, 600); hard clip at the bubble's height, no fullscreen
       ([integration.md, "Bubble sizing"](integration.md#bubble-sizing), [sdk-v1.md §5.6](sdk-v1.md#56-bubble-size)).
 - [ ] Taps only reach the widget; no text selection, no keyboard input, no focus
       ([integration.md, "Input"](integration.md#input)).

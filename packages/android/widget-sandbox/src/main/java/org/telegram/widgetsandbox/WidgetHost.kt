@@ -117,8 +117,9 @@ class WidgetHost(
         val maxTimers: Int = 256,
         /** Initial visibility; change it later with `setVisible`. */
         val visible: Boolean = true,
-        val minHeightDp: Double = 24.0,
-        val maxHeightDp: Double = 900.0,
+        /** The bubble height bounds in dp; 50 and 600 are the shared v0.1.0 values (docs/integration.md, "Bubble sizing"). */
+        val minHeightDp: Double = 50.0,
+        val maxHeightDp: Double = 600.0,
         /** Badge text shown by the renderer over a dead widget (user-facing, no error details). */
         val stoppedLabel: String = "Widget stopped",
         /** One JSThread for every validator instead of a thread per widget (TrustedValidator.sharedThread). */

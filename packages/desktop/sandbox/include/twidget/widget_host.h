@@ -97,7 +97,7 @@ struct WidgetDiagnostics {
     std::optional<std::string> dead;
     /// Last uncaught widget error (non-fatal), cleared once a later task completes without one.
     std::optional<std::string> lastError;
-    /// Document height in CSS px as the renderer reports it (clamped to [24, 900]).
+    /// Document height in CSS px as the renderer reports it (clamped to [50, 600]).
     double height = 0;
     /// Wall clock to the first `size` report that follows validated ops.
     std::optional<double> firstContentMs;

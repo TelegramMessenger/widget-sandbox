@@ -391,7 +391,7 @@ public enum WidgetAction { case ready, openLink(URL), openTelegramLink(URL), hap
 public struct WidgetGestureClaim { var x: Bool; var y: Bool }
 
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
-// Options: maximumHeight (900), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
+// Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
 var onChange: ((WidgetDiagnostics) -> Void)?           // height, loaded, rendered, dead, diags, actions
 var onError: ((String) -> Void)?
 var onAction: ((WidgetAction) -> Void)?
@@ -416,7 +416,7 @@ data class WidgetStorage(val local: Map<String, String> = emptyMap(), val sessio
 sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(kind, value?) }   // kind: impact | notification | selection
 
 WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
-// Options: minHeightDp (24), maxHeightDp (900), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload)
+// Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload)
 var onChange: ((WidgetDiagnostics) -> Unit)?               // … and actions
 var onError: ((String) -> Unit)?
 var onAction: ((WidgetAction) -> Unit)?
@@ -543,18 +543,21 @@ ignore them.
 
 ### 5.6 Bubble size
 
-- Before the widget loads: if the bot gave `width` and `height`, draw the
-  bubble with that aspect ratio at the bubble's width; with `width = 0` and
-  `height = H`, at height `H`; with neither, the default placeholder (height
-  from the designers) (D12b; the two optional numbers travel with
-  the widget bytes, `docs/tgw-format.md`). Test it with a test bot sending
-  `inputMediaWidget` with the anchors set.
-- After the first render, use the height the host reports (`onChange` →
-  `height`, web `onResize`), capped at the client's maximum (`maximumHeight`,
-  `maxHeightDp`, the web host's 900 px today), and cache it per message for the
-  next time the bubble is built.
-- Content beyond the cap is clipped: no inner scrolling (outside the
-  profile), no fullscreen button (D12a).
+- The size anchors `width` and `height` of `messageMediaWidget` (D12b; `0` =
+  auto, each axis independent, `docs/tgw-format.md`). Width `0`: the widget
+  takes the bubble's width; `W > 0`: a fixed-width widget, `W` clamped to
+  [200, the bubble's maximum width], and the host is created with that width.
+  Height `0`: the default placeholder before load, then the content height the
+  host reports (`onChange` → `height`, web `onResize`) clamped to [50, 600] and
+  cached per message; `H > 0`: a fixed height clamp(H, 50, 600) from the start,
+  unchanged by the content. The four combinations are tabulated in
+  `docs/integration.md` ("Bubble sizing"). 200 / 50 / 600 are the shared
+  v0.1.0 constants, the same on every client; the hosts clamp to [50, 600] by
+  default. Test it with a test bot sending `inputMediaWidget` with the anchors
+  set.
+- Content beyond the bubble's height (600 in auto mode, or the fixed height) is
+  clipped: no inner scrolling (outside the profile), no fullscreen button
+  (D12a).
 - No text selection in the bubble (D18); the renderers disable it in profile
   v1.
 

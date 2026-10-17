@@ -163,10 +163,10 @@ Seventeen small widgets test what **your client** implements on its side of SDK 
 - storage (re-creation, app restart, deletion with the message, the 16 KB quota);
 - stopping after 2 consecutive crashes;
 - drag versus swipe-to-reply, with double tap and long press staying with the bubble;
-- the hard clip at the maximum height;
+- the hard clip at the maximum height (600 px, the shared v0.1.0 value);
 - the theme palette with a live switch.
 
-Three of them wait for the server: storage of a forwarded copy, a bot editing the message, and the bubble size hint. They are here so you can build your side against them.
+Three of them need a test bot (layer 233): storage of a forwarded copy (forward the message into another chat), a bot editing the message, and the bubble size anchors (`inputMediaWidget` with `width` / `height`: 0 = auto, W = a fixed width in [200, max], H = a fixed height in [50, 600]; auto heights are clamped to [50, 600] and cached per message).
 
 Each widget is a v1 mini-widget (at most 4 KB gzipped). It carries a one-line instruction for the tester. Its expected client behaviour, contract section and reference picture are in [`visual/sdk/README.md`](visual/sdk/README.md), the post list for the test channel. Post the picture (`refs/visual/sdk/<name>.png`, plus `.dark.png` for the palette) as a separate image next to the widget.
 
