@@ -185,7 +185,9 @@ test.describe('cpu quota', () => {
     await openAttack(page, 'layout-query-loop.html');
     await waitDead(page);
     const s = await twState(page);
-    expect(s.dead).toMatch(/^Layout query limit exceeded: host queries blocked the renderer for more than \d+ ms in one boot task/);
+    // Which limit fires first depends on the renderer's answer time: the iframe's round trip makes the query budget the binding one
+    // ("Layout query limit exceeded"), the Shadow DOM renderer answers fast enough for the loop's own CPU to reach the slice first.
+    expect(s.dead).toMatch(/^(Layout query limit exceeded: host queries blocked the renderer for more than \d+ ms in one boot task|CPU limit exceeded: more than \d+ ms of continuous execution)/);
     // The main thread answered the queries all along and is free now: a round trip through the page is instant.
     expect(Date.now() - t0).toBeLessThan(15_000);
     expect(await page.evaluate(() => 1 + 1)).toBe(2);

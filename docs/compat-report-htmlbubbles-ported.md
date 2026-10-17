@@ -1,6 +1,6 @@
 # Compat report — htmlbubbles-ported
 
-Generated 2026-10-17T12:45:45.796Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-17T14:09:02.291Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## 01-design-crew: 13 / 13 pass (100%)
 
@@ -81,10 +81,10 @@ Generated 2026-10-17T12:45:45.796Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 04-ana-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 05-tom-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-ana-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 09-me-bare.html | ❌ | 16.86% | 2 |  |  |  |
-| 10-ana-bare.html | ✅ | 0.63% | 1 |  |  |  |
-| 11-tom-bare.html | ❌ | 4.48% | 1 |  |  |  |
-| 12-ana.html | ✅ | 1.30% | 2 |  |  |  |
+| 09-me-bare.html | ❌ | 15.65% | 2 |  |  |  |
+| 10-ana-bare.html | ✅ | 0.66% | 1 |  |  |  |
+| 11-tom-bare.html | ✅ | 0.00% | 1 |  |  |  |
+| 12-ana.html | ❌ | 23.01% | 2 |  |  |  |
 
 ## 07-shop: 8 / 8 pass (100%)
 
@@ -92,12 +92,12 @@ Generated 2026-10-17T12:45:45.796Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 |---|---|---|---|---|---|---|
 | 01-shop.html | ✅ | 0.00% | 0 |  |  |  |
 | 02-shop-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 04-shop-bare.html | ✅ | 0.15% | 3 |  |  |  |
+| 04-shop-bare.html | ✅ | 0.13% | 3 |  |  |  |
 | 06-shop-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-shop-bare.html | ✅ | 0.00% | 3 |  |  |  |
 | 08-shop-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 09-shop.html | ✅ | 0.00% | 0 |  |  |  |
-| 10-shop.html | ✅ | 0.04% | 0 |  |  |  |
+| 10-shop.html | ✅ | 0.02% | 0 |  |  |  |
 
 ## 08-analytics: 10 / 10 pass (100%)
 
@@ -138,7 +138,7 @@ Generated 2026-10-17T12:45:45.796Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 06-kai-bare.html | ✅ | 0.00% | 0 |  |  |  |
 | 07-zoe-bare.html | ✅ | 0.00% | 1 |  |  |  |
 | 08-kai.html | ✅ | 0.00% | 4 |  |  |  |
-| 09-sam-bare.html | ✅ | 1.90% | 3 |  |  |  |
+| 09-sam-bare.html | ✅ | 2.26% | 3 |  |  |  |
 
 ## 11-live-scripts: 14 / 15 pass (93%)
 
@@ -149,13 +149,13 @@ Generated 2026-10-17T12:45:45.796Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 | 04-theo-bare.html | ✅ | 0.00% | 1 |  |  |  |
 | 05-nora.html | ✅ | 0.00% | 0 |  |  |  |
 | 06-nora-bare.html | ✅ | 0.00% | 2 |  |  |  |
-| 07-theo-bare.html | ✅ | 0.24% | 1 |  |  |  |
+| 07-theo-bare.html | ✅ | 0.00% | 1 |  |  |  |
 | 09-pixel.html | ✅ | 0.00% | 0 |  |  |  |
 | 10-pixel-bare.html | ✅ | 0.03% | 2 |  |  |  |
-| 11-nora-bare.html | ✅ | 1.73% | 3 |  |  |  |
+| 11-nora-bare.html | ✅ | 2.11% | 3 |  |  |  |
 | 13-pixel.html | ✅ | 0.00% | 0 |  |  |  |
 | 14-pixel-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 16-pixel-bare.html | ✅ | 0.50% | 1 |  |  |  |
+| 16-pixel-bare.html | ✅ | 1.87% | 1 |  |  |  |
 | 17-pixel-bare.html | ❌ | 0.00% | 2 | Uncaught ReferenceError: frobnicate is not defined |  |  |
 | 18-pixel-bare.html | ✅ | 1.28% | 0 |  | network-blocked: XMLHttpRequest; WebSocket wss://example.invalid | network-blocked×3 |
 | 19-nora.html | ✅ | 0.00% | 0 |  |  |  |
@@ -166,13 +166,13 @@ Generated 2026-10-17T12:45:45.796Z by `CORPUS_GROUP=htmlbubbles-ported pnpm test
 |---|---|---|---|---|---|---|
 | 01-mo.html | ✅ | 0.00% | 0 |  |  |  |
 | 02-mo-bare.html | ✅ | 0.00% | 1 |  |  |  |
-| 03-mo-bare.html | ❌ | 11.09% | 2 |  |  |  |
-| 05-mo-bare.html | ❌ | 3.79% | 0 |  |  |  |
-| 06-mo-bare.html | ✅ | 1.17% | 1 |  |  |  |
-| 08-mo.html | ❌ | 7.56% | 0 |  |  |  |
-| 09-mo-bare.html | ✅ | 0.59% | 1 |  |  |  |
+| 03-mo-bare.html | ❌ | 10.80% | 2 |  |  |  |
+| 05-mo-bare.html | ❌ | 3.74% | 0 |  |  |  |
+| 06-mo-bare.html | ✅ | 1.18% | 1 |  |  |  |
+| 08-mo.html | ❌ | 7.32% | 0 |  |  |  |
+| 09-mo-bare.html | ✅ | 0.43% | 1 |  |  |  |
 | 10-mo-bare.html | ❌ | 40.20% | 0 |  |  |  |
-| 11-mo-bare.html | ✅ | 0.26% | 0 |  |  |  |
+| 11-mo-bare.html | ✅ | 0.18% | 0 |  |  |  |
 | 12-mo-bare.html | ✅ | 0.00% | 0 |  |  |  |
-| 13-mo-bare.html | ❌ | 5.00% | 3 |  |  |  |
+| 13-mo-bare.html | ❌ | 4.43% | 3 |  |  |  |
 | 14-mo.html | ✅ | 0.00% | 0 |  |  |  |
