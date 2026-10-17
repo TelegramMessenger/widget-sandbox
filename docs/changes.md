@@ -131,8 +131,10 @@ and CLAUDE.md).
   load and passes alone.
 - *No conformance widget fits a mini-widget yet*: the automatic set is 5.1–8.4 KB gzipped
   (median 6.3 KB, all under 32 KB raw), the visual set 5.4–54.6 KB gzipped (median 18 KB,
-  embedded reference pictures). The test channel keeps posting them as `.tgw` files (the
-  development format) under the debug flag until the tests are split into 4 KB pieces.
+  embedded reference pictures). The server rejects them with `INPUT_MEDIA_WIDGET_TOO_LARGE`,
+  so no bot can send them: the test channel keeps them as `.tgw` files (the development
+  format) under the client debug flag until the tests are split into 4 KB pieces; everything
+  that fits goes through real layer-233 messages from a test bot.
 - *htmlbubbles-ported*: 108–110 of 116 pass (2026-10-17, after the profile-1 rework); the rest
   are time-based or random drawings, the hang demo, one intentional JS error and
   `06-trip-lisbon/09-me-bare`, a tall widget whose screenshot fails now and then when the

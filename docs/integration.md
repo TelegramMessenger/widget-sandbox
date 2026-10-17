@@ -101,14 +101,24 @@ caption. Keep that fallback.
 list, notifications and search; without one show the localized "Widget" stub,
 as for other media without a caption.
 
-**Testing with a test bot.** Bots may send widgets only into their private chat
-with a user, so a test bot sends to a tester's chat; the shared test channel is
-filled by forwarding those messages (forwarding is allowed anywhere, and the
-copy works like the original). For widgets a bot cannot send, above all the
-conformance set, whose widgets are larger than 4 KB, a client may keep a
-development path behind its debug flag: `.tgw` files (gzip of the HTML) or
-HTML files from disk, loaded into `WidgetHost` the same way, with no size
-limit. It is not a product format.
+**Testing.** Two kinds of content reach the shared test channel:
+
+1. Widgets up to 4 KB of gzip travel as real layer-233 messages: a test bot
+   sends them to a tester's private chat (bots may send widgets only there)
+   and the messages are forwarded into the channel; the copy works like the
+   original. This covers the corpus widgets that fit, the client-SDK cases
+   (`packages/conformance/visual/sdk`), forward-copy storage, bot edits and
+   the size anchors from the bot.
+2. The conformance tests over 4 KB (the automatic set 5.1–8.4 KB, the visual
+   set 5.4–54.6 KB gzipped) cannot be sent by a bot: the server rejects them
+   with `INPUT_MEDIA_WIDGET_TOO_LARGE`. They stay in the channel as `.tgw`
+   files (gzip of the HTML), which a client renders under its debug flag
+   through the same path as `messageMediaWidget`, from the gunzipped file,
+   with no size limit. This lasts until the tests are split into pieces of at
+   most 4 KB (`docs/changes.md`, known issues).
+
+`.tgw` is the development format, for these files and for local HTML from
+disk; it is never product delivery (`docs/tgw-format.md`).
 
 ## Bubble sizing
 

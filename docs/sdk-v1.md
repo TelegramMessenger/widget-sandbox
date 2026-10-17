@@ -582,7 +582,9 @@ goes to the background, `setVisible(true)` when it is back.
 - The media caption is the preview and search text; without one, the localized
   "Widget" stub.
 - Test with a test bot in a tester's private chat and forward into the shared
-  test channel; bots cannot post widgets to channels.
+  test channel (bots may send widgets only to private chats); the conformance
+  tests over 4 KB stay in the channel as `.tgw` files under the debug flag
+  (`docs/integration.md`, "Testing").
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 

@@ -80,15 +80,28 @@ the server's to check, because the author cannot know how the server's gzip
 compresses. A bot that gets `INPUT_MEDIA_WIDGET_TOO_LARGE` for HTML under
 32 KB has hit the gzip limit.
 
-## `.tgw`: an optional development format
+## `.tgw`: the development format
 
 A `.tgw` file is gzip of a widget's HTML (MIME type `application/x-tgwidget`)
-as a document. It is **not a product format**: a client may support it behind
-its debug flag for local tests without a bot, for example to load the
-conformance set (`packages/conformance`), whose automatic and visual widgets
-are larger than a mini-widget and cannot be sent through `inputMediaWidget`,
-or any HTML file from disk. Product widgets come only as `messageMediaWidget`;
-a `.tgw` or `.html` a user uploads as a document is a file, not a widget.
+as a document. It is **never product delivery**: product widgets come only as
+`messageMediaWidget`, and a `.tgw` or `.html` a user uploads as a document is
+a file, not a widget. A client supports `.tgw` behind its debug flag, through
+the same path as `messageMediaWidget` but from the gunzipped file, for two
+uses:
+
+1. **Local tests without a bot**: any widget HTML from disk.
+2. **The oversized conformance tests in the shared test channel.** The
+   conformance widgets do not fit 4 KB of gzip (the automatic set is
+   5.1–8.4 KB, the visual set 5.4–54.6 KB), so the server rejects them with
+   `INPUT_MEDIA_WIDGET_TOO_LARGE` and no bot can send them; they stay in the
+   channel as `.tgw` files until they are split into pieces of at most 4 KB
+   (`docs/changes.md`, known issues).
+
+Everything that fits 4 KB of gzip goes through real layer-233 messages: a test
+bot sends it to a tester's private chat and the messages are forwarded into
+the channel. That covers the corpus widgets that fit, the client-SDK visual
+cases (`packages/conformance/visual/sdk`), forward-copy storage, bot edits and
+the size anchors.
 
 ## Profile and versions
 
