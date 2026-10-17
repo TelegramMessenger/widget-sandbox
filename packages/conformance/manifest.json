@@ -5221,8 +5221,8 @@
     }
    ],
    "stages": [],
-   "bytes": 24006,
-   "gzip": 7932
+   "bytes": 23757,
+   "gzip": 7900
   },
   {
    "id": "auto/16-sdk-taps",
@@ -5393,8 +5393,7 @@
      "bridge": {
       "method": "haptic",
       "count": 5
-     },
-     "xfail": "SDK v1 haptics not implemented yet"
+     }
     }
    ],
    "checks": [
@@ -5631,8 +5630,8 @@
     }
    ],
    "stages": [],
-   "bytes": 25331,
-   "gzip": 8196
+   "bytes": 24930,
+   "gzip": 8092
   },
   {
    "id": "auto/17-drag-hover",
@@ -6173,7 +6172,7 @@
     },
     {
      "id": "limit.event-handlers",
-     "name": "onEvent keeps at most 16 handlers per type: 20 registered, 16 called on a theme change",
+     "name": "onEvent keeps the first 16 handlers per type: of 1 checker + 20 counters, 15 counters run on a theme change",
      "native": {
       "chromium": "skip"
      }
@@ -6194,8 +6193,8 @@
     }
    ],
    "stages": [],
-   "bytes": 17472,
-   "gzip": 6072
+   "bytes": 17579,
+   "gzip": 6104
   },
   {
    "id": "auto/21-no-keyboard",
@@ -6273,8 +6272,7 @@
     {
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
-     "focus": "chat",
-     "xfail": "focus() still reaches the renderer"
+     "focus": "chat"
     },
     {
      "id": "input.key-gesture",
@@ -6311,8 +6309,8 @@
     }
    ],
    "stages": [],
-   "bytes": 15357,
-   "gzip": 5386
+   "bytes": 15310,
+   "gzip": 5372
   },
   {
    "id": "visual/01-boxes",

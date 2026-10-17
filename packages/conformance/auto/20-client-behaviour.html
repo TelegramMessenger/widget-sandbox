@@ -246,20 +246,21 @@ var toLight = T.wait('behaviour.theme-switch', 'switching back to light: all fou
 var hidden = T.wait('behaviour.offscreen-pause', 'visibilitychange: hidden, then visible again');
 var frames = T.wait('behaviour.offscreen-pause', 'no animation frames while hidden');
 var timers = T.wait('behaviour.offscreen-pause', 'timers run at most once per second while hidden');
-var V1 = TW ? { xfail: 'SDK v1 not implemented yet' } : { sandboxOnly: true };
-var limit16 = T.wait('limit.event-handlers', 'onEvent keeps at most 16 handlers per type: 20 registered, 16 called on a theme change', V1);
-var paramsLive = T.wait('tw.theme-params', 'themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires', V1);
-var activeEv = T.wait('tw.is-active', 'deactivated / activated fire and isActive follows visibility', V1);
+var SDK = TW ? {} : { sandboxOnly: true };
+var limit16 = T.wait('limit.event-handlers', 'onEvent keeps the first 16 handlers per type: of 1 checker + 20 counters, 15 counters run on a theme change', SDK);
+var paramsLive = T.wait('tw.theme-params', 'themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires', SDK);
+var activeEv = T.wait('tw.is-active', 'deactivated / activated fire and isActive follows visibility', SDK);
 var calls16 = 0, bgBefore = null, activeLog = [];
 if (TW && typeof TW.onEvent === 'function') {
-  for (var h = 0; h < 20; h++) TW.onEvent('themeChanged', function () { calls16++; });
   bgBefore = TW.themeParams && TW.themeParams.bg_color;
+  // The checker goes first, so it is one of the 16 handlers kept; 15 of the 20 counters after it run.
   TW.onEvent('themeChanged', function () {
     var p = TW.themeParams || {};
     var cssBg = getComputedStyle(document.documentElement).getPropertyValue('--tg-theme-bg-color').trim().toLowerCase();
     paramsLive.result(!!p.bg_color && p.bg_color !== bgBefore && cssBg === p.bg_color, 'bg ' + bgBefore + ' → ' + p.bg_color + ', css ' + cssBg);
-    setTimeout(function () { limit16.result(calls16 === 16, calls16 + ' calls'); }, 0);
+    setTimeout(function () { limit16.result(calls16 === 15, calls16 + ' of 20 counters called'); }, 0);
   });
+  for (var h = 0; h < 20; h++) TW.onEvent('themeChanged', function () { calls16++; });
   TW.onEvent('deactivated', function () { activeLog.push('deactivated:' + TW.isActive); });
   TW.onEvent('activated', function () { activeLog.push('activated:' + TW.isActive); activeEv.result(activeLog.join(',') === 'deactivated:false,activated:true', activeLog.join(',')); });
 }

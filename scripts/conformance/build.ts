@@ -112,6 +112,8 @@ async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'nati
   // Served from a real (fake) origin, not about:blank, so storage works as in a WebView.
   const url = 'https://conformance.test/widget.html';
   await page.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html.replace(/<head>/i, '<head>' + boot) }));
+  // The SDK group's pictures show clock times (11-crash-restart): a fixed clock keeps them the same on every build.
+  if (sdkMock) await page.clock.setFixedTime(new Date('2026-10-17T12:00:00'));
   await page.goto(url, { waitUntil: 'load' });
   return page;
 }

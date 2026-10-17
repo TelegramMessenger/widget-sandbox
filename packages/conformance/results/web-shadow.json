@@ -5,20 +5,20 @@
   "platform": "web",
   "renderer": "shadow",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "8552baa",
+  "framework": "3342023",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-17T02:29:30.242Z",
-  "commit": "8552baa"
+  "date": "2026-10-17T09:22:23.231Z",
+  "commit": "3342023"
  },
  "summary": {
   "in": {
-   "pass": 147,
+   "pass": 158,
    "partial": 5,
    "fail": 0,
-   "xfail": 11,
+   "xfail": 0,
    "xpass": 0,
    "skip": 0,
    "untested": 10
@@ -33,10 +33,10 @@
    "untested": 0
   },
   "out": {
-   "pass": 80,
+   "pass": 81,
    "partial": 0,
    "fail": 0,
-   "xfail": 1,
+   "xfail": 0,
    "xpass": 0,
    "skip": 1,
    "untested": 0
@@ -18013,7 +18013,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "159.3",
+     "detail": "172.10000000000002",
      "theme": "dark",
      "width": 360
     },
@@ -18121,7 +18121,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "157.7",
+     "detail": "163.10000000000002",
      "theme": "dark",
      "width": 430
     },
@@ -18229,7 +18229,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "148",
+     "detail": "164.50000000000003",
      "theme": "light",
      "width": 360
     },
@@ -18364,7 +18364,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "152.10000000000002",
+     "detail": "156.1",
      "theme": "light",
      "width": 390
     },
@@ -18499,7 +18499,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "153.3",
+     "detail": "160.10000000000002",
      "theme": "light",
      "width": 430
     },
@@ -21554,8 +21554,7 @@
    "status": "out",
    "verdict": "pass",
    "counts": {
-    "pass": 5,
-    "xpass": 5
+    "pass": 10
    },
    "evidence": [
     {
@@ -21571,7 +21570,7 @@
      "test": "auto/21-no-keyboard",
      "kind": "host",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus",
      "theme": "dark",
      "width": 360
@@ -21589,7 +21588,7 @@
      "test": "auto/21-no-keyboard",
      "kind": "host",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus",
      "theme": "dark",
      "width": 430
@@ -21607,7 +21606,7 @@
      "test": "auto/21-no-keyboard",
      "kind": "host",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus",
      "theme": "light",
      "width": 360
@@ -21625,7 +21624,7 @@
      "test": "auto/21-no-keyboard",
      "kind": "host",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus",
      "theme": "light",
      "width": 390
@@ -21643,7 +21642,7 @@
      "test": "auto/21-no-keyboard",
      "kind": "host",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus",
      "theme": "light",
      "width": 430
@@ -21761,7 +21760,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "80,97,112",
+     "detail": "79,94,111",
      "theme": "dark",
      "width": 360
     },
@@ -21770,7 +21769,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "77,94,109",
+     "detail": "101,120,134",
      "theme": "dark",
      "width": 430
     },
@@ -21779,7 +21778,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "83,97,114",
+     "detail": "88,105,121",
      "theme": "light",
      "width": 360
     },
@@ -21788,7 +21787,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "69,87,103",
+     "detail": "85,101,117",
      "theme": "light",
      "width": 390
     },
@@ -21797,7 +21796,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "78,94,111",
+     "detail": "94,110,127",
      "theme": "light",
      "width": 430
     }
@@ -22634,7 +22633,7 @@
      "kind": "check",
      "name": "navigator.languages starts with navigator.language",
      "status": "pass",
-     "detail": "en-US,en",
+     "detail": "en-US",
      "theme": "dark",
      "width": 360
     },
@@ -22652,7 +22651,7 @@
      "kind": "check",
      "name": "navigator.languages starts with navigator.language",
      "status": "pass",
-     "detail": "en-US,en",
+     "detail": "en-US",
      "theme": "dark",
      "width": 430
     },
@@ -22670,7 +22669,7 @@
      "kind": "check",
      "name": "navigator.languages starts with navigator.language",
      "status": "pass",
-     "detail": "en-US,en",
+     "detail": "en-US",
      "theme": "light",
      "width": 360
     },
@@ -22688,7 +22687,7 @@
      "kind": "check",
      "name": "navigator.languages starts with navigator.language",
      "status": "pass",
-     "detail": "en-US,en",
+     "detail": "en-US",
      "theme": "light",
      "width": 390
     },
@@ -22706,7 +22705,7 @@
      "kind": "check",
      "name": "navigator.languages starts with navigator.language",
      "status": "pass",
-     "detail": "en-US,en",
+     "detail": "en-US",
      "theme": "light",
      "width": 430
     }
@@ -24190,10 +24189,9 @@
   },
   "tw.theme": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "pass": 5,
-    "xfail": 5
+    "pass": 10
    },
    "evidence": [
     {
@@ -24209,8 +24207,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "colorScheme is \"light\" or \"dark\" and equals theme",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "dark",
      "theme": "dark",
      "width": 360
     },
@@ -24227,8 +24225,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "colorScheme is \"light\" or \"dark\" and equals theme",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "dark",
      "theme": "dark",
      "width": 430
     },
@@ -24245,8 +24243,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "colorScheme is \"light\" or \"dark\" and equals theme",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "light",
      "theme": "light",
      "width": 360
     },
@@ -24263,8 +24261,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "colorScheme is \"light\" or \"dark\" and equals theme",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "light",
      "theme": "light",
      "width": 390
     },
@@ -24281,8 +24279,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "colorScheme is \"light\" or \"dark\" and equals theme",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "light",
      "theme": "light",
      "width": 430
     }
@@ -24290,17 +24288,17 @@
   },
   "tw.theme-params": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 18
+    "pass": 18
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams has the palette (bg_color, text_color, …)",
-     "status": "xfail",
-     "detail": "expected to fail: themeParams not implemented (D14)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24308,8 +24306,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "--tg-theme-bg-color is defined for CSS",
-     "status": "xfail",
-     "detail": "1,2,3,1; expected to fail: --tg-theme-* not implemented (D14)",
+     "status": "pass",
+     "detail": "33,33,33,1",
      "theme": "dark",
      "width": 360
     },
@@ -24317,8 +24315,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams carries every key as #rrggbb",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24326,8 +24324,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams has the palette (bg_color, text_color, …)",
-     "status": "xfail",
-     "detail": "expected to fail: themeParams not implemented (D14)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24335,8 +24333,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "--tg-theme-bg-color is defined for CSS",
-     "status": "xfail",
-     "detail": "1,2,3,1; expected to fail: --tg-theme-* not implemented (D14)",
+     "status": "pass",
+     "detail": "33,33,33,1",
      "theme": "dark",
      "width": 430
     },
@@ -24344,8 +24342,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams carries every key as #rrggbb",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24353,8 +24351,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams has the palette (bg_color, text_color, …)",
-     "status": "xfail",
-     "detail": "expected to fail: themeParams not implemented (D14)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24362,8 +24360,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "--tg-theme-bg-color is defined for CSS",
-     "status": "xfail",
-     "detail": "1,2,3,1; expected to fail: --tg-theme-* not implemented (D14)",
+     "status": "pass",
+     "detail": "255,255,255,1",
      "theme": "light",
      "width": 360
     },
@@ -24371,8 +24369,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams carries every key as #rrggbb",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24380,8 +24378,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams has the palette (bg_color, text_color, …)",
-     "status": "xfail",
-     "detail": "expected to fail: themeParams not implemented (D14)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24389,8 +24387,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "--tg-theme-bg-color is defined for CSS",
-     "status": "xfail",
-     "detail": "1,2,3,1; expected to fail: --tg-theme-* not implemented (D14)",
+     "status": "pass",
+     "detail": "255,255,255,1",
      "theme": "light",
      "width": 390
     },
@@ -24398,8 +24396,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams carries every key as #rrggbb",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24407,8 +24405,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams has the palette (bg_color, text_color, …)",
-     "status": "xfail",
-     "detail": "expected to fail: themeParams not implemented (D14)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -24416,8 +24414,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "--tg-theme-bg-color is defined for CSS",
-     "status": "xfail",
-     "detail": "1,2,3,1; expected to fail: --tg-theme-* not implemented (D14)",
+     "status": "pass",
+     "detail": "255,255,255,1",
      "theme": "light",
      "width": 430
     },
@@ -24425,8 +24423,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "themeParams carries every key as #rrggbb",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -24434,8 +24432,8 @@
      "test": "auto/20-client-behaviour",
      "kind": "check",
      "name": "themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "bg #ffffff → #212121, css #212121",
      "theme": "light",
      "width": 360
     },
@@ -24443,8 +24441,8 @@
      "test": "auto/20-client-behaviour",
      "kind": "check",
      "name": "themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "bg #ffffff → #212121, css #212121",
      "theme": "light",
      "width": 390
     },
@@ -24452,8 +24450,8 @@
      "test": "auto/20-client-behaviour",
      "kind": "check",
      "name": "themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "bg #ffffff → #212121, css #212121",
      "theme": "light",
      "width": 430
     }
@@ -24461,17 +24459,17 @@
   },
   "tw.events": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 5
+    "pass": 5
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24479,8 +24477,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24488,8 +24486,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24497,8 +24495,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24506,8 +24504,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     }
@@ -24515,17 +24513,17 @@
   },
   "tw.is-active": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 8
+    "pass": 8
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "isActive is true while the widget is on screen",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "true",
      "theme": "dark",
      "width": 360
     },
@@ -24533,8 +24531,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "isActive is true while the widget is on screen",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "true",
      "theme": "dark",
      "width": 430
     },
@@ -24542,8 +24540,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "isActive is true while the widget is on screen",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "true",
      "theme": "light",
      "width": 360
     },
@@ -24551,8 +24549,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "isActive is true while the widget is on screen",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "true",
      "theme": "light",
      "width": 390
     },
@@ -24560,8 +24558,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "isActive is true while the widget is on screen",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "true",
      "theme": "light",
      "width": 430
     },
@@ -24569,8 +24567,8 @@
      "test": "auto/20-client-behaviour",
      "kind": "check",
      "name": "deactivated / activated fire and isActive follows visibility",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "deactivated:false,activated:true",
      "theme": "light",
      "width": 360
     },
@@ -24578,8 +24576,8 @@
      "test": "auto/20-client-behaviour",
      "kind": "check",
      "name": "deactivated / activated fire and isActive follows visibility",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "deactivated:false,activated:true",
      "theme": "light",
      "width": 390
     },
@@ -24587,8 +24585,8 @@
      "test": "auto/20-client-behaviour",
      "kind": "check",
      "name": "deactivated / activated fire and isActive follows visibility",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "deactivated:false,activated:true",
      "theme": "light",
      "width": 430
     }
@@ -24596,10 +24594,9 @@
   },
   "tw.open-link": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "pass": 10,
-    "xfail": 5
+    "pass": 15
    },
    "evidence": [
     {
@@ -24615,8 +24612,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24642,8 +24639,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24669,8 +24666,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24696,8 +24693,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24723,8 +24720,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -24741,17 +24738,17 @@
   },
   "tw.open-telegram-link": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 15
+    "pass": 15
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24759,8 +24756,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink accepts any t.me / telegram.me path",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24768,8 +24765,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink rejects other hosts and tg: with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24777,8 +24774,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24786,8 +24783,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink accepts any t.me / telegram.me path",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24795,8 +24792,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink rejects other hosts and tg: with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24804,8 +24801,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24813,8 +24810,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink accepts any t.me / telegram.me path",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24822,8 +24819,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink rejects other hosts and tg: with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24831,8 +24828,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24840,8 +24837,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink accepts any t.me / telegram.me path",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24849,8 +24846,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink rejects other hosts and tg: with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24858,8 +24855,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -24867,8 +24864,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink accepts any t.me / telegram.me path",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -24876,8 +24873,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "openTelegramLink rejects other hosts and tg: with TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     }
@@ -24885,17 +24882,17 @@
   },
   "tw.haptic": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 15
+    "pass": 15
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic feedback exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24903,8 +24900,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic methods return HapticFeedback for chaining",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24912,8 +24909,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "an unknown style or type throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -24921,8 +24918,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic feedback exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24930,8 +24927,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic methods return HapticFeedback for chaining",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24939,8 +24936,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "an unknown style or type throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -24948,8 +24945,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic feedback exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24957,8 +24954,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic methods return HapticFeedback for chaining",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24966,8 +24963,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "an unknown style or type throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -24975,8 +24972,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic feedback exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24984,8 +24981,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic methods return HapticFeedback for chaining",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -24993,8 +24990,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "an unknown style or type throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -25002,8 +24999,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic feedback exists",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D8)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -25011,8 +25008,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "haptic methods return HapticFeedback for chaining",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -25020,8 +25017,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "an unknown style or type throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     }
@@ -25128,17 +25125,17 @@
   },
   "tw.send-message": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 5
+    "pass": 5
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "sendMessage is not in the SDK",
-     "status": "xfail",
-     "detail": "expected to fail: still present (D8 removes it)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -25146,8 +25143,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "sendMessage is not in the SDK",
-     "status": "xfail",
-     "detail": "expected to fail: still present (D8 removes it)",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -25155,8 +25152,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "sendMessage is not in the SDK",
-     "status": "xfail",
-     "detail": "expected to fail: still present (D8 removes it)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -25164,8 +25161,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "sendMessage is not in the SDK",
-     "status": "xfail",
-     "detail": "expected to fail: still present (D8 removes it)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -25173,8 +25170,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "sendMessage is not in the SDK",
-     "status": "xfail",
-     "detail": "expected to fail: still present (D8 removes it)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     }
@@ -26388,17 +26385,17 @@
   },
   "limit.storage": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 15
+    "pass": 15
    },
    "evidence": [
     {
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "dark",
      "width": 360
     },
@@ -26406,8 +26403,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "the refused value is not stored",
-     "status": "xfail",
-     "detail": "20480; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "0",
      "theme": "dark",
      "width": 360
     },
@@ -26415,8 +26412,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "sessionStorage has the same 16 KB quota",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "dark",
      "width": 360
     },
@@ -26424,8 +26421,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "dark",
      "width": 430
     },
@@ -26433,8 +26430,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "the refused value is not stored",
-     "status": "xfail",
-     "detail": "20480; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "0",
      "theme": "dark",
      "width": 430
     },
@@ -26442,8 +26439,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "sessionStorage has the same 16 KB quota",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "dark",
      "width": 430
     },
@@ -26451,8 +26448,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "light",
      "width": 360
     },
@@ -26460,8 +26457,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "the refused value is not stored",
-     "status": "xfail",
-     "detail": "20480; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "0",
      "theme": "light",
      "width": 360
     },
@@ -26469,8 +26466,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "sessionStorage has the same 16 KB quota",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "light",
      "width": 360
     },
@@ -26478,8 +26475,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "light",
      "width": 390
     },
@@ -26487,8 +26484,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "the refused value is not stored",
-     "status": "xfail",
-     "detail": "20480; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "0",
      "theme": "light",
      "width": 390
     },
@@ -26496,8 +26493,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "sessionStorage has the same 16 KB quota",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "light",
      "width": 390
     },
@@ -26505,8 +26502,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "light",
      "width": 430
     },
@@ -26514,8 +26511,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "the refused value is not stored",
-     "status": "xfail",
-     "detail": "20480; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "0",
      "theme": "light",
      "width": 430
     },
@@ -26523,8 +26520,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "sessionStorage has the same 16 KB quota",
-     "status": "xfail",
-     "detail": "got \"no error\", want \"QuotaExceededError\"; expected to fail: storage quota not implemented (D17)",
+     "status": "pass",
+     "detail": "got \"QuotaExceededError\", want \"QuotaExceededError\"",
      "theme": "light",
      "width": 430
     }
@@ -26532,18 +26529,17 @@
   },
   "limit.url-length": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 5,
-    "pass": 5
+    "pass": 10
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "a 257-character URL throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 360
     },
@@ -26560,8 +26556,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "a 257-character URL throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "dark",
      "width": 430
     },
@@ -26578,8 +26574,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "a 257-character URL throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 360
     },
@@ -26596,8 +26592,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "a 257-character URL throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -26614,8 +26610,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "a 257-character URL throws TypeError",
-     "status": "xfail",
-     "detail": "expected to fail: SDK v1 not implemented yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 430
     },
@@ -26632,35 +26628,35 @@
   },
   "limit.event-handlers": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 3
+    "pass": 3
    },
    "evidence": [
     {
      "test": "auto/20-client-behaviour",
      "kind": "check",
-     "name": "onEvent keeps at most 16 handlers per type: 20 registered, 16 called on a theme change",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "name": "onEvent keeps the first 16 handlers per type: of 1 checker + 20 counters, 15 counters run on a theme change",
+     "status": "pass",
+     "detail": "15 of 20 counters called",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/20-client-behaviour",
      "kind": "check",
-     "name": "onEvent keeps at most 16 handlers per type: 20 registered, 16 called on a theme change",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "name": "onEvent keeps the first 16 handlers per type: of 1 checker + 20 counters, 15 counters run on a theme change",
+     "status": "pass",
+     "detail": "15 of 20 counters called",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/20-client-behaviour",
      "kind": "check",
-     "name": "onEvent keeps at most 16 handlers per type: 20 registered, 16 called on a theme change",
-     "status": "xfail",
-     "detail": "did not happen; expected to fail: SDK v1 not implemented yet",
+     "name": "onEvent keeps the first 16 handlers per type: of 1 checker + 20 counters, 15 counters run on a theme change",
+     "status": "pass",
+     "detail": "15 of 20 counters called",
      "theme": "light",
      "width": 430
     }
@@ -26668,17 +26664,17 @@
   },
   "limit.haptic-rate": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 5
+    "pass": 5
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "host",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)",
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)",
      "theme": "dark",
      "width": 360
     },
@@ -26686,8 +26682,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "host",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)",
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)",
      "theme": "dark",
      "width": 430
     },
@@ -26695,8 +26691,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "host",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)",
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)",
      "theme": "light",
      "width": 360
     },
@@ -26704,8 +26700,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "host",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)",
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)",
      "theme": "light",
      "width": 390
     },
@@ -26713,8 +26709,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "host",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)",
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)",
      "theme": "light",
      "width": 430
     }
@@ -29464,8 +29460,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 52,
-    "xfail": 3
+    "pass": 55
    },
    "stages": [],
    "host": []
@@ -29482,8 +29477,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 52,
-    "xfail": 3
+    "pass": 55
    },
    "stages": [],
    "host": []
@@ -29500,8 +29494,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 52,
-    "xfail": 3
+    "pass": 55
    },
    "stages": [],
    "host": []
@@ -29518,8 +29511,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 52,
-    "xfail": 3
+    "pass": 55
    },
    "stages": [],
    "host": []
@@ -29536,8 +29528,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 52,
-    "xfail": 3
+    "pass": 55
    },
    "stages": [],
    "host": []
@@ -29554,8 +29545,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 18,
-    "xfail": 15
+    "pass": 33
    },
    "stages": [],
    "host": [
@@ -29586,8 +29576,8 @@
     {
      "id": "limit.haptic-rate",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)"
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)"
     }
    ]
   },
@@ -29603,8 +29593,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 18,
-    "xfail": 15
+    "pass": 33
    },
    "stages": [],
    "host": [
@@ -29635,8 +29624,8 @@
     {
      "id": "limit.haptic-rate",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)"
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)"
     }
    ]
   },
@@ -29652,8 +29641,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 18,
-    "xfail": 15
+    "pass": 33
    },
    "stages": [],
    "host": [
@@ -29684,8 +29672,8 @@
     {
      "id": "limit.haptic-rate",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)"
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)"
     }
    ]
   },
@@ -29701,8 +29689,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 18,
-    "xfail": 15
+    "pass": 33
    },
    "stages": [],
    "host": [
@@ -29733,8 +29720,8 @@
     {
      "id": "limit.haptic-rate",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)"
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)"
     }
    ]
   },
@@ -29750,8 +29737,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 18,
-    "xfail": 15
+    "pass": 33
    },
    "stages": [],
    "host": [
@@ -29782,8 +29768,8 @@
     {
      "id": "limit.haptic-rate",
      "name": "a burst of 20 haptics reaches the client as 5",
-     "status": "xfail",
-     "detail": "haptic ×0 (want 5)"
+     "status": "pass",
+     "detail": "haptic ×5 (want 5)"
     }
    ]
   },
@@ -30077,8 +30063,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 5,
-    "xfail": 3
+    "pass": 8
    },
    "stages": [],
    "host": [
@@ -30102,8 +30087,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 5,
-    "xfail": 3
+    "pass": 8
    },
    "stages": [],
    "host": [
@@ -30127,8 +30111,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 5,
-    "xfail": 3
+    "pass": 8
    },
    "stages": [],
    "host": [
@@ -30159,7 +30142,7 @@
     {
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus"
     },
     {
@@ -30189,7 +30172,7 @@
     {
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus"
     },
     {
@@ -30219,7 +30202,7 @@
     {
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus"
     },
     {
@@ -30249,7 +30232,7 @@
     {
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus"
     },
     {
@@ -30279,7 +30262,7 @@
     {
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
-     "status": "xpass",
+     "status": "pass",
      "detail": "chat input kept the focus"
     },
     {
@@ -30546,8 +30529,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 7,
-    "pass": 1
+    "pass": 8
    },
    "stages": [],
    "host": []
@@ -30654,7 +30636,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 2
+    "pass": 2
    },
    "stages": [],
    "host": []

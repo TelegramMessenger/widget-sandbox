@@ -14,7 +14,8 @@
   document.documentElement.style.setProperty('--tg-color-scheme', scheme);
   // The pictures show the widget on the bubble's background, as in a chat.
   document.documentElement.style.background = params.bg_color;
-  var TG = /^(t\.me|telegram\.me|telegram\.dog)$/i;
+  // Subdomains count too (durov.t.me), as in the framework.
+  var TG = /^([a-z0-9-]+\.)*(t\.me|telegram\.me|telegram\.dog)$/i;
   function url(u, telegram) {
     if (typeof u !== 'string' || u.length > 256) throw new TypeError('URL must be a string of at most 256 characters');
     var m = /^https:\/\/([^/?#@]+)(?:[/?#]|$)/i.exec(u);

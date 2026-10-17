@@ -1,6 +1,6 @@
 # Conformance results
 
-Generated 2026-10-17 02:29 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; policy strict, features webAnimations).
+Generated 2026-10-17 09:22 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 3342023; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 3342023; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 3342023; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 3342023; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
@@ -8,10 +8,10 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 | Renderer | in (173) ✅ / ◐ / ❌ / ⏳ | out (82) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|
-| web iframe | 147 / 5 / 0 / 11 | 80 / 1 / 0 | 105 / 105 | 0 |
-| web shadow | 147 / 5 / 0 / 11 | 80 / 1 / 0 | 105 / 105 | 0 |
-| web blitz | 95 / 28 / 25 / 11 | 65 / 3 / 7 | 23 / 23 | 0 |
-| web litehtml | 56 / 40 / 52 / 11 | 59 / 4 / 12 | 23 / 23 | 0 |
+| web iframe | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 105 / 105 | 0 |
+| web shadow | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 105 / 105 | 0 |
+| web blitz | 105 / 29 / 25 / 0 | 66 / 2 / 7 | 23 / 23 | 0 |
+| web litehtml | 66 / 41 / 52 / 0 | 60 / 3 / 12 | 23 / 23 | 0 |
 
 ## In the profile
 
@@ -153,13 +153,13 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `js.css-supports` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.visibility` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tw.ready` | ✅ | ✅ | ✅ | ✅ | – |
-| `tw.theme` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.theme-params` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.events` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.is-active` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.open-link` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.open-telegram-link` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.haptic` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `tw.theme` | ✅ | ✅ | ✅ | ✅ | – |
+| `tw.theme-params` | ✅ | ✅ | ◐ | ◐ | – |
+| `tw.events` | ✅ | ✅ | ✅ | ✅ | – |
+| `tw.is-active` | ✅ | ✅ | ✅ | ✅ | – |
+| `tw.open-link` | ✅ | ✅ | ✅ | ✅ | – |
+| `tw.open-telegram-link` | ✅ | ✅ | ✅ | ✅ | – |
+| `tw.haptic` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.profile` | ✅ | ✅ | ✅ | ✅ | – |
 | `input.tap` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `input.pointer` | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -174,10 +174,10 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `limit.timers` | ✅ | ✅ | ✅ | ✅ | – |
 | `limit.cpu` | · | · | · | · | · |
 | `limit.memory` | · | · | · | · | · |
-| `limit.storage` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `limit.url-length` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `limit.event-handlers` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `limit.haptic-rate` | ⏳ | ⏳ | ⏳ | ⏳ | · |
+| `limit.storage` | ✅ | ✅ | ✅ | ✅ | – |
+| `limit.url-length` | ✅ | ✅ | ✅ | ✅ | – |
+| `limit.event-handlers` | ✅ | ✅ | ✅ | ✅ | – |
+| `limit.haptic-rate` | ✅ | ✅ | ✅ | ✅ | · |
 | `limit.html-size` | · | · | · | · | · |
 | `behaviour.theme-switch` | ✅ | ✅ | ✅ | ✅ | – |
 | `behaviour.offscreen-pause` | ✅ | ✅ | ✅ | ✅ | – |
@@ -269,7 +269,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `js.shadow-dom` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.blob-file` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.fullscreen` | ✅ | ✅ | ✅ | ✅ | – |
-| `tw.send-message` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `tw.send-message` | ✅ | ✅ | ✅ | ✅ | – |
 | `input.touch-events` | – | – | – | – | – |
 | `input.dblclick` | ✅ | ✅ | – | – | ❌ |
 | `input.long-press` | ✅ | ✅ | – | – | ❌ |
@@ -350,6 +350,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `js.layout.box`: 14-dom-layout-api: scrollHeight of overflowing content (got 136, want 70); 14-dom-layout-api: offsetParent (got false, want true)
 - `js.layout.computed-style`: 14-dom-layout-api: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api: shorthand overflow (got "", want "hidden"); 14-dom-layout-api: shorthand margin (got "", want "4px 0px")
 - `js.layout.resize-observer`: 14-dom-layout-api: ResizeObserver reports the new width (timed out)
+- `tw.theme-params`: 16-sdk-taps: --tg-theme-bg-color is defined for CSS (1,2,3,1); 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css )
 - `input.mouse-compat`: 16-sdk-taps: mousedown → mouseup on a tap (pointerdown,pointerup,click)
 
 ## web litehtml: in-profile failures
@@ -445,6 +446,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `js.layout.computed-style`: 14-dom-layout-api: longhand (width) (got "116.000000px", want "100px"); 14-dom-layout-api: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api: shorthand overflow (got "", want "hidden"); 14-dom-layout-api: shorthand margin (got "", want "4px 0px")
 - `js.layout.resize-observer`: 14-dom-layout-api: ResizeObserver reports the new width (timed out)
 - `js.layout.measure-text`: 14-dom-layout-api: measureText agrees with DOM text width (got 88.92, want 0 ±1.5)
+- `tw.theme-params`: 16-sdk-taps: --tg-theme-bg-color is defined for CSS (1,2,3,1); 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css )
 - `behaviour.policy-strict`: 19-limits: attr() of a text attribute (data-*) works (0)
 
 ## Visual set

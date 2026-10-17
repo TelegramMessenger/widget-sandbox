@@ -264,12 +264,12 @@ T.step(function () {
   T.ok('js.storage.local', '10 KB fits', (function () { try { localStorage.setItem('big', big); return localStorage.getItem('big').length === 10240; } catch (e) { return false; } })(), '');
   var quota = 'no error';
   try { localStorage.setItem('huge', new Array(20 * 1024 + 1).join('y')); } catch (e) { quota = e && e.name; }
-  T.eq('limit.storage', 'over 16 KB per message: setItem throws QuotaExceededError', quota, 'QuotaExceededError', T.sandbox ? { xfail: 'storage quota not implemented (D17)' } : { sandboxOnly: true });
-  T.ok('limit.storage', 'the refused value is not stored', localStorage.getItem('huge') === null, String((localStorage.getItem('huge') || '').length), T.sandbox ? { xfail: 'storage quota not implemented (D17)' } : { sandboxOnly: true });
+  T.eq('limit.storage', 'over 16 KB per message: setItem throws QuotaExceededError', quota, 'QuotaExceededError', S);
+  T.ok('limit.storage', 'the refused value is not stored', localStorage.getItem('huge') === null, String((localStorage.getItem('huge') || '').length), S);
   localStorage.clear();
   var sq = 'no error';
   try { sessionStorage.setItem('huge', new Array(20 * 1024 + 1).join('y')); } catch (e) { sq = e && e.name; }
-  T.eq('limit.storage', 'sessionStorage has the same 16 KB quota', sq, 'QuotaExceededError', T.sandbox ? { xfail: 'storage quota not implemented (D17)' } : { sandboxOnly: true });
+  T.eq('limit.storage', 'sessionStorage has the same 16 KB quota', sq, 'QuotaExceededError', S);
   sessionStorage.clear();
   localStorage.clear();
   sessionStorage.setItem('s', '1');

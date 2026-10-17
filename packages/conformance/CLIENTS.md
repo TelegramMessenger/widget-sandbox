@@ -178,7 +178,7 @@ The automatic set checks the framework side of the same contract. In `auto/16`, 
 - `themeParams` on a theme switch;
 - `isActive`.
 
-These checks are ⏳ until the framework's SDK milestone lands in your tag.
+They need SDK v1 in the framework (`docs/sdk-v1.md`).
 
 ## The visual set in the test channel
 
@@ -186,4 +186,4 @@ These checks are ⏳ until the framework's SDK milestone lands in your tag.
 
 ## When the framework changes
 
-The set belongs to the tag. When you update the framework, rerun: `catalogue.json` `version` is the profile version, and the manifest says what each test covers. The set expects a framework that enforces profile 1 (the validator neutralises the out features, `CSS.supports` and `@supports` answer from the profile, the renderer draws an unstyled `<button>` with the profile's UA stylesheet). Checks marked ⏳ are what the framework does not do yet, mostly SDK v1; they turn into passes when that lands in your tag, with no change on your side.
+The set belongs to the tag. When you update the framework, rerun: `catalogue.json` `version` is the profile version, and the manifest says what each test covers. The set expects a framework that enforces profile 1 (the validator neutralises the out features, `CSS.supports` and `@supports` answer from the profile, the renderer draws an unstyled `<button>` with the profile's UA stylesheet) and implements SDK v1. A check marked ⏳ is one the framework does not do yet; it turns into a pass when that lands in your tag, with no change on your side.
