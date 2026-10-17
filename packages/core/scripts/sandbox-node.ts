@@ -44,6 +44,9 @@ export interface RunResult {
   probes: string[];
   /** Tasks the CPU quota deferred (the harness drops them instead of retrying). */
   throttled: number;
+  /** The most layout queries any one task made, and their summed answer time (ms): how close a widget comes to the layout-query budget. */
+  maxTaskQueries: number;
+  maxTaskQueryMs: number;
   /** Final size of the wasm linear memory: the runtime's footprint, never above INITIAL + memoryLimitBytes. */
   wasmBytes: number;
   /** Canvas ops that arrived as word payloads (`canvasWords`). */
@@ -169,11 +172,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   // The layout-query budget of the worker and the native glue (cpu-budget.ts queryBudgetMs): the harness answers queries in-process, so the
   // time is the answer callback's, and the accounting is kept so a slow `answer` reproduces the kill.
   let taskQueryMs = 0;
+  let taskQueries = 0;
   let queryLimitHit = false;
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
   const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
   if (opts.storage !== undefined) {
     const preload = checkStorageCommit(opts.storage);
@@ -207,6 +211,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         const q0 = performance.now();
         const answer = clean ? opts.answer?.(clean) ?? defaultAnswer(clean) : { error: 'invalid query' };
         const dt = performance.now() - q0;
+        taskQueries++;
         deadline += dt; // time spent in the answer is not widget CPU time (as in the worker); the query budget below bounds it instead
         taskQueryMs += dt;
         if (taskQueryMs > queryBudgetMs(currentSliceMs)) { queryLimitHit = true; deadline = -Infinity; }
@@ -402,8 +407,11 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     currentSliceMs = d.sliceMs;
     currentKind = kind;
     taskQueryMs = 0;
+    taskQueries = 0;
     queryLimitHit = false;
     fn(); settle(); pump();
+    res.maxTaskQueries = Math.max(res.maxTaskQueries, taskQueries);
+    res.maxTaskQueryMs = Math.max(res.maxTaskQueryMs, taskQueryMs);
     budget.record(kind, performance.now() - now, performance.now()); // wall time: includes the queries, as the worker's cpuMs + taskQueryMs does
   };
 
