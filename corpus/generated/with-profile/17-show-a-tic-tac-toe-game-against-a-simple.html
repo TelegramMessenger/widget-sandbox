@@ -7,7 +7,7 @@
 <style>
   :root { color-scheme: light dark; --bg: #fff; --fg: #111827; --muted: #6b7280; --cell: #f0fdf4; --line: #bbf7d0; --hover: #dcfce7; --x: #16a34a; --o: #ea580c; --btn: #16a34a; }
   @media (prefers-color-scheme: dark) { :root { --bg: #111827; --fg: #f3f4f6; --muted: #9ca3af; --cell: #1f2937; --line: #166534; --hover: #14532d; --x: #4ade80; --o: #fb923c; --btn: #15803d; } }
-  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 14px; background: var(--bg); color: var(--fg); text-align: center; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 14px; background: var(--bg); color: var(--fg); text-align: center; }
   h2 { font-size: 17px; margin: 0 0 6px; }
   .status { font-size: 15px; color: var(--muted); margin-bottom: 12px; min-height: 22px; }
   .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-width: 290px; margin: 0 auto; }
@@ -27,7 +27,13 @@
 <div class="score" id="score">You 0 · Computer 0 · Draws 0</div>
 <script>
   var LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-  var board, over, busy = false, score = { x: 0, o: 0, d: 0 };
+  // The running score is kept in this message's localStorage (restored when the widget is re-created).
+  var store = {
+    get: function (k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
+  var board, over, busy = false, score = store.get('ttt-score') || { x: 0, o: 0, d: 0 };
+  function showScore() { document.getElementById('score').textContent = 'You ' + score.x + ' · Computer ' + score.o + ' · Draws ' + score.d; }
   var boardEl = document.getElementById('board'), status = document.getElementById('status');
   function winner(b) {
     for (var k = 0; k < LINES.length; k++) { var l = LINES[k]; if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[0]] === b[l[2]]) return { p: b[l[0]], line: l }; }
@@ -41,9 +47,9 @@
     if (w.p === 'draw') { status.textContent = "It's a draw!"; score.d++; }
     else if (w.p === 'X') { status.textContent = '🎉 You win!'; score.x++; }
     else { status.textContent = '🤖 Computer wins!'; score.o++; }
-    document.getElementById('score').textContent = 'You ' + score.x + ' · Computer ' + score.o + ' · Draws ' + score.d;
+    store.set('ttt-score', score);
+    showScore();
     render(w);
-    if (window.TelegramWidget) TelegramWidget.sendMessage('Tic-tac-toe: ' + status.textContent + ' (' + score.x + '–' + score.o + ', ' + score.d + ' draws)');
   }
   var rnd = function (n) { var a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
   function computerMove() {
@@ -70,6 +76,7 @@
   });
   function reset() { board = ['', '', '', '', '', '', '', '', '']; over = false; busy = false; status.textContent = 'Your turn — you are X'; render(); }
   document.getElementById('reset').onclick = reset;
+  showScore();
   reset();
 </script>
 </body>
