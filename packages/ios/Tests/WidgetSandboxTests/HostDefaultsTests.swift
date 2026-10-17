@@ -136,7 +136,7 @@ final class HostDefaultsTests: XCTestCase {
         let host = try! WidgetHost(html: Self.orderedWidget, options: options, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let opsSoFar = { renderer.messages.contains { $0.hasPrefix("{\"type\":\"ops\"") && $0.contains("item 2999") } }
-        host.onBridge = { method, _ in if method == "ready" { opsAtBridge = opsSoFar() } }
+        host.onAction = { action in if action == .ready { opsAtBridge = opsSoFar() } }
         host.onChange = { d in if opsAtLog == nil, d.logs.contains(where: { $0.text.contains("after ops") }) { opsAtLog = opsSoFar() } }
         pump(10) { opsAtBridge != nil && opsAtLog != nil }
         XCTAssertEqual(opsAtBridge, true, "the bridge call overtook the ops before it")

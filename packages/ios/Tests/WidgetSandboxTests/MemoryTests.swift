@@ -129,7 +129,7 @@ final class MemoryTests: XCTestCase {
             var hosts: [WidgetHost] = []
             autoreleasepool {
                 for _ in 0..<8 {
-                    let host = try! WidgetHost(html: html, theme: "light", width: 300, rendererFactory: { _, _, _ in StubRenderer() })
+                    let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, rendererFactory: { _, _, _ in StubRenderer() })
                     hosts.append(host)
                     weak var weakHost = host
                     weakHosts.append { weakHost }

@@ -33,7 +33,7 @@ struct PauseProbeView: View {
 
     @MainActor
     private func run() async {
-        guard let model = try? WidgetModel(html: Self.html, theme: "light", width: 360) else { status = "cannot create the widget"; return }
+        guard let model = try? WidgetModel(html: Self.html, theme: WidgetTheme(), width: 360) else { status = "cannot create the widget"; return }
         self.model = model
         var report = Report()
         let sleep = { (s: Double) in try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }

@@ -10,8 +10,8 @@ import Foundation
 import WidgetSandboxProtocol
 import QuartzCore
 
-/// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): privileged
-/// bridge calls need a user gesture, text values are capped at 64 KB and visible text is budgeted.
+/// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): the link calls
+/// (`SdkPolicy.privilegedMethods`) need a user gesture, text values are capped at 64 KB and visible text is budgeted.
 /// `compat`: the behaviour before that hardening, for tests and tooling.
 public enum SandboxPolicy: String {
     case compat
@@ -39,6 +39,12 @@ public struct SandboxConfig {
     /// `canvasWords`: canvas commands arrive as word payloads and are spliced back into the ops JSON.
     public var features: Set<String> = []
     public var policy: SandboxPolicy = .strict
+    /// The chat's palette (docs/sdk-v1.md §2.3), checked at boot (`SdkPolicy.checkThemeParams`); missing keys take the scheme's defaults.
+    public var themeParams: [String: String] = [:]
+    /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed (`SdkPolicy.checkLocale`).
+    public var locale = SdkPolicy.defaultLocale
+    /// The client's Web Storage preload (docs/sdk-v1.md §2.8); over the quota it is dropped whole at boot (`storage-rejected`).
+    public var storage = WidgetStorage()
 
     public init(innerWidth: Double, innerHeight: Double, devicePixelRatio: Double, theme: String) {
         self.innerWidth = innerWidth
@@ -70,7 +76,12 @@ public protocol SandboxEngineDelegate: AnyObject {
     func engineRequestsFrame(_ engine: SandboxEngine)
     func engine(_ engine: SandboxEngine, log level: String, text: String)
     func engine(_ engine: SandboxEngine, diag kind: String, detail: String)
+    /// The raw method and arguments of each bridge call that passed every check, right after `engine(_:action:)`.
     func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String)
+    /// A bridge call that passed every check (docs/sdk-v1.md §3.2): the arguments, user activation for the links, the haptic limit.
+    func engine(_ engine: SandboxEngine, action: WidgetAction)
+    /// The Web Storage areas a task changed, in full, within the quota (docs/sdk-v1.md §3.2); at least one area is set.
+    func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit)
     func engineLoaded(_ engine: SandboxEngine)
     func engine(_ engine: SandboxEngine, stats: SandboxStats)
     func engine(_ engine: SandboxEngine, died reason: String)
@@ -79,6 +90,8 @@ public protocol SandboxEngineDelegate: AnyObject {
 
 public extension SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, anim json: String) {}
+    func engine(_ engine: SandboxEngine, action: WidgetAction) {}
+    func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {}
 
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
         self.engine(engine, ops: canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
@@ -165,9 +178,13 @@ public final class SandboxEngine {
     private var activeGesture = 0
     private var consumedGesture = 0
     private var blockedBridgeReported = 0
-    /// Bridge methods a widget may call without a user gesture.
-    static let unprivilegedBridgeMethods: Set<String> = ["ready"]
+    private var rejectedBridgeReported = 0
+    private var rejectedStorageReported = 0
+    private var haptics = SdkPolicy.HapticGate()
     private static let activationPrefix = "activation:"
+    /// Two full areas of the quota at 12 JSON characters per byte (`\uXXXX` escapes plus the quotes, colon and comma of
+    /// tiny pairs): a longer commit cannot be within it (`MAX_STORAGE_COMMIT_CHARS` in worker.ts).
+    static let maxStorageCommitChars = 2 * 12 * SdkPolicy.storageQuotaBytes + 64
 
     public init(html: String, config: SandboxConfig, resources: SandboxResources = .shared) {
         self.html = html
@@ -344,6 +361,10 @@ public final class SandboxEngine {
                     "maxTimers": self.config.maxTimers, "visible": self.visible,
                     "viewport": ["innerWidth": self.config.innerWidth, "innerHeight": self.config.innerHeight, "dpr": self.config.devicePixelRatio],
                     "theme": self.config.theme,
+                    "themeParams": SdkPolicy.checkThemeParams(self.config.themeParams),
+                    "locale": SdkPolicy.checkLocale(self.config.locale) ?? SdkPolicy.defaultLocale,
+                    "profile": SdkPolicy.profileVersion,
+                    "storage": self.preload(),
                     "features": Array(self.config.features.intersection(self.runtimeFeatures)).sorted(),
                 ],
             ])
@@ -359,6 +380,18 @@ public final class SandboxEngine {
         let queued = pendingBeforeBoot
         pendingBeforeBoot.removeAll()
         for (kind, arg) in queued where !dead { dispatch(kind, arg) }
+    }
+
+    /// The client's preload, checked whole (docs/sdk-v1.md §3.1): over the quota the widget starts with empty storage.
+    private func preload() -> [String: Any] {
+        guard let checked = SdkPolicy.checkStorageCommit(["local": config.storage.local, "session": config.storage.session]) else {
+            delegate?.engine(self, diag: "storage-rejected", detail: "the preload is not { local, session } objects of strings within \(SdkPolicy.storageQuotaBytes) bytes each; the widget starts with empty storage")
+            return [:]
+        }
+        var out: [String: Any] = [:]
+        if let local = checked.local { out["local"] = local }
+        if let session = checked.session { out["session"] = session }
+        return out
     }
 
     // MARK: inputs from the host (all asynchronous)
@@ -378,8 +411,10 @@ public final class SandboxEngine {
         enqueue("viewport", Self.json(["innerWidth": innerWidth, "innerHeight": innerHeight, "dpr": dpr]))
     }
     public func resize(entriesJson: String) { enqueue("resize", entriesJson) }
-    public func theme(_ theme: String) { enqueue("theme", Self.json(theme)) }
-    public func bridgeEvent(_ event: String, dataJson: String) { enqueue("bridge", "[\(Self.json(event)),\(dataJson)]") }
+    /// The chat's theme changed: the colour scheme and the palette (checked here), in one task (docs/sdk-v1.md §3.3).
+    public func theme(_ theme: String, params: [String: String] = [:]) {
+        enqueue("theme", Self.json(["theme": theme, "themeParams": SdkPolicy.checkThemeParams(params)]))
+    }
 
     /// In-place document update (`morphUpdates`): the shim patches the live DOM to `html`, keeping node identity,
     /// and fires `widgetupdate`; scripts in `html` do not run. `completion` gets false when the shim did not apply it
@@ -555,22 +590,10 @@ public final class SandboxEngine {
             delegate?.engine(self, anim: arg)
             return .undefined
         case "bridge":
-            if let pair = Self.parse(arg) as? [Any], pair.count == 2, let method = pair[0] as? String,
-               let argsData = try? JSONSerialization.data(withJSONObject: pair[1], options: [.fragmentsAllowed]) {
-                let name = String(method.prefix(64))
-                if config.policy == .strict, !Self.unprivilegedBridgeMethods.contains(name) {
-                    guard activeGesture > consumedGesture, visible else {
-                        if blockedBridgeReported < 20 {
-                            blockedBridgeReported += 1
-                            delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler (called from the \(currentKind) task)")
-                        }
-                        return .undefined
-                    }
-                    consumedGesture = activeGesture
-                    activeGesture = 0
-                }
-                delegate?.engine(self, bridge: name, argsJson: String(decoding: argsData, as: UTF8.self))
-            }
+            bridgeCall(arg)
+            return .undefined
+        case "storage":
+            storageCommit(arg)
             return .undefined
         case "intl":
             return .string(IntlBridge.format(requestJson: arg))
@@ -588,6 +611,61 @@ public final class SandboxEngine {
         default:
             return .undefined
         }
+    }
+
+    /// docs/sdk-v1.md §3.2, in this order: the method and its arguments, user activation for the links (strict),
+    /// the haptic gate; then the action and, deprecated, the raw call to the delegate.
+    private func bridgeCall(_ arg: String) {
+        let call = Self.parse(arg) as? [Any]
+        let name = String(((call?.first).map { $0 as? String ?? "\($0)" } ?? "undefined").prefix(64))
+        guard let call, let checked = SdkPolicy.checkBridgeCall(call.first, call.count > 1 ? call[1] : nil), let action = WidgetAction(checked) else {
+            if rejectedBridgeReported < 20 {
+                rejectedBridgeReported += 1
+                delegate?.engine(self, diag: "bridge-rejected", detail: "\(name): unknown method or malformed arguments")
+            }
+            return
+        }
+        if config.policy == .strict, SdkPolicy.privilegedMethods.contains(name) {
+            guard activeGesture > consumedGesture, visible else {
+                if blockedBridgeReported < 20 {
+                    blockedBridgeReported += 1
+                    delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a tap on the visible widget and runs in that tap's handler, one call per tap (called from the \(currentKind) task)")
+                }
+                return
+            }
+            consumedGesture = activeGesture
+            activeGesture = 0
+        }
+        if case .haptic = checked {
+            switch haptics.decide(nowMs: Self.nowMs(), visible: visible) {
+            case .play:
+                break
+            case .report:
+                delegate?.engine(self, diag: "haptic-limit", detail: visible ? "haptics over 5 per burst or 10 per second are dropped" : "haptics of a hidden widget are dropped")
+                return
+            case .drop:
+                return
+            }
+        }
+        let argsJson = (try? JSONSerialization.data(withJSONObject: call[1], options: [.fragmentsAllowed])).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+        delegate?.engine(self, action: action)
+        delegate?.engine(self, bridge: name, argsJson: argsJson)
+    }
+
+    /// The areas of Web Storage a task changed, in full (`__host('storage', …)`, at most once per task, after its ops).
+    private func storageCommit(_ arg: String) {
+        let length = arg.utf16.count
+        let commit = length > Self.maxStorageCommitChars ? nil : SdkPolicy.checkStorageCommit(Self.parse(arg))
+        guard let commit, !commit.isEmpty else {
+            if rejectedStorageReported < 20 {
+                rejectedStorageReported += 1
+                let detail = length > Self.maxStorageCommitChars ? "commit of \(length) characters"
+                    : "a storage commit that is not { local?, session? } objects of strings within \(SdkPolicy.storageQuotaBytes) bytes each; the client keeps the previous content"
+                delegate?.engine(self, diag: "storage-rejected", detail: detail)
+            }
+            return
+        }
+        delegate?.engine(self, storageCommit: commit)
     }
 
     /// Blocks the engine queue until the host answers (the host must never wait for the engine).

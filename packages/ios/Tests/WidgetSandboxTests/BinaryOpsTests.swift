@@ -68,7 +68,7 @@ final class BinaryOpsTests: XCTestCase {
             options.asyncValidation = true
             options.features = features
             let renderer = RecordingRenderer()
-            let host = try WidgetHost(html: Self.widgets[0], theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+            let host = try WidgetHost(html: Self.widgets[0], theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
             defer { host.destroy() }
             let deadline = Date().addingTimeInterval(10)
             while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

@@ -14,7 +14,7 @@ final class WidgetHostTests: XCTestCase {
         document.head.appendChild(s);
         </script>
         """
-        let host = try WidgetHost(html: html, theme: "light", width: 360)
+        let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 360)
         var latest = WidgetDiagnostics()
         host.onChange = { latest = $0 }
         let window = TestWindow.makeVisible()
@@ -36,7 +36,7 @@ final class WidgetHostTests: XCTestCase {
     func testKilledWidgetKeepsLastRender() async throws {
         var options = WidgetHost.Options()
         options.cpuLimitMs = 300
-        let host = try WidgetHost(html: "<p id=\"keep\">still here</p><script>for(;;){}</script>", theme: "light", width: 360, options: options)
+        let host = try WidgetHost(html: "<p id=\"keep\">still here</p><script>for(;;){}</script>", theme: WidgetTheme(), width: 360, options: options)
         var latest = WidgetDiagnostics()
         host.onChange = { latest = $0 }
         let window = TestWindow.makeVisible()
@@ -63,7 +63,7 @@ final class WidgetHostTests: XCTestCase {
     func testRemovingTheViewFromTheWindowPausesTheWidget() async throws {
         let html = "<p id=\"s\"></p><script>var n = 0; function step() { n++; requestAnimationFrame(step); } requestAnimationFrame(step);" +
             "function show() { document.getElementById('s').textContent += document.visibilityState + ','; } document.addEventListener('visibilitychange', show); show();</script>"
-        let host = try WidgetHost(html: html, theme: "light", width: 360)
+        let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 360)
         var latest = WidgetDiagnostics()
         host.onChange = { latest = $0 }
         let window = TestWindow.makeVisible()
@@ -103,7 +103,7 @@ final class WidgetHostTests: XCTestCase {
         let window = TestWindow.makeVisible()
         let blockedKinds = ["url-blocked", "network-blocked", "navigation-blocked", "tag-dropped", "script-skipped", "css-dropped"]
         for (name, html) in cases {
-            let host = try WidgetHost(html: html, theme: "light", width: 360)
+            let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 360)
             var latest = WidgetDiagnostics()
             host.onChange = { latest = $0 }
             window.attach(host.view)

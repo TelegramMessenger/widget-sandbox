@@ -3,7 +3,7 @@ import XCTest
 
 final class HostOpsAttackTests: XCTestCase {
     func host(_ html: String, renderer: RecordingRenderer) -> WidgetHost {
-        let host = try! WidgetHost(html: html, theme: "light", width: 300, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, rendererFactory: { _, _, _ in renderer })
         let deadline = Date().addingTimeInterval(5)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))

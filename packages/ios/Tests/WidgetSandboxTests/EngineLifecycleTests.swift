@@ -31,6 +31,7 @@ final class EngineLifecycleTests: XCTestCase {
                 d.lock.lock()
                 XCTAssertNotNil(d.died, "\(kb) KB")
                 XCTAssertTrue(d.bridge.isEmpty, "\(kb) KB")
+                XCTAssertTrue(d.actions.isEmpty, "\(kb) KB")
                 XCTAssertFalse(d.logs.contains { $0.1.contains("widget ran") }, "\(kb) KB")
                 XCTAssertTrue(d.ops.isEmpty, "\(kb) KB")
                 d.lock.unlock()
@@ -67,7 +68,7 @@ final class EngineLifecycleTests: XCTestCase {
         var options = WidgetHost.Options()
         options.asyncValidation = true
         let renderer = RecordingRenderer()
-        let host = try WidgetHost(html: "<p>x</p>", theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        let host = try WidgetHost(html: "<p>x</p>", theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
         let deadline = Date().addingTimeInterval(10)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
         let fields = Dictionary(Mirror(reflecting: host).children.compactMap { child in child.label.map { ($0, child.value) } }, uniquingKeysWith: { a, _ in a })

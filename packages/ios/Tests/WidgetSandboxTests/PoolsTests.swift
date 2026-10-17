@@ -27,7 +27,7 @@ final class PoolsTests: XCTestCase {
         WidgetWarmup.prewarm(renderers: 1, engines: 1, validators: 1, width: 360, parkingView: nil)
         try await wait(10) { RendererPool.shared.count >= 1 && EnginePool.shared.count >= 1 && ValidatorPool.shared.count >= 1 }
         let recycledBefore = ValidatorPool.shared.recycled
-        let host = try WidgetHost(html: "<p id=\"p\">pooled</p><script>document.getElementById('p').textContent += ' ok';</script>", theme: "light", width: 360, options: Self.everything)
+        let host = try WidgetHost(html: "<p id=\"p\">pooled</p><script>document.getElementById('p').textContent += ' ok';</script>", theme: WidgetTheme(), width: 360, options: Self.everything)
         var latest = WidgetDiagnostics()
         host.onChange = { latest = $0 }
         window.attach(host.view)
@@ -55,8 +55,8 @@ final class PoolsTests: XCTestCase {
         options.sharedWebKit = true
         options.sharedValidatorThread = true
         options.parallelBoot = true
-        let a = try WidgetHost(html: "<p>A</p><script>document.body.setAttribute('data-w', 'a')</script>", theme: "light", width: 300, options: options)
-        let b = try WidgetHost(html: "<p>B</p><script>document.body.setAttribute('data-w', 'b')</script>", theme: "light", width: 300, options: options)
+        let a = try WidgetHost(html: "<p>A</p><script>document.body.setAttribute('data-w', 'a')</script>", theme: WidgetTheme(), width: 300, options: options)
+        let b = try WidgetHost(html: "<p>B</p><script>document.body.setAttribute('data-w', 'b')</script>", theme: WidgetTheme(), width: 300, options: options)
         var la = WidgetDiagnostics(), lb = WidgetDiagnostics()
         a.onChange = { la = $0 }
         b.onChange = { lb = $0 }
@@ -91,7 +91,7 @@ final class PoolsTests: XCTestCase {
         setTimeout(function () { d.style.height = '200px'; document.getElementById('out').textContent += ',' + d.getBoundingClientRect().height; }, 50);
         </script>
         """
-        let host = try WidgetHost(html: html, theme: "light", width: 360, options: options)
+        let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 360, options: options)
         var latest = WidgetDiagnostics()
         host.onChange = { latest = $0 }
         window.attach(host.view)

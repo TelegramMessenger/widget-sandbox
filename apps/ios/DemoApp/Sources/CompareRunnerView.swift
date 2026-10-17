@@ -89,7 +89,7 @@ struct CompareRunnerView: View {
                 let html = Corpus.html(group: group, file: file)
                 status = "sandbox: \(group)/\(file)"
                 var sandboxWall: Double?, sandboxJs = 0.0, sandboxOk = false
-                if let model = try? WidgetModel(html: html, theme: "light", width: 300, rendererFactory: DemoRenderer.factory) {
+                if let model = try? WidgetModel(html: html, theme: WidgetTheme(), width: 300, rendererFactory: DemoRenderer.factory) {
                     sandbox = model
                     let t0 = Date()
                     let deadline = t0.addingTimeInterval(10)

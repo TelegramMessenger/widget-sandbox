@@ -16,7 +16,11 @@ import AppKit
 public struct WidgetDiagnostics {
     public var logs: [(level: String, text: String)] = []
     public var diags: [String: (count: Int, details: [String])] = [:]
+    /// The raw bridge calls that passed the glue's checks (the deprecated `onBridge` view of `actions`).
     public var bridge: [(method: String, argsJson: String)] = []
+    /// What `onAction` got, the latest `maxActions`.
+    public var actions: [WidgetAction] = []
+    public static let maxActions = 200
     public var stats = SandboxStats()
     public var nodes = 0
     public var loaded = false
@@ -74,6 +78,10 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var assetResolver: WidgetAssetResolver?
         /// `.strict` unless a test or tool asks for `.compat` (SandboxPolicy).
         public var policy: SandboxPolicy = .strict
+        /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
+        public var locale = SdkPolicy.defaultLocale
+        /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`).
+        public var storage = WidgetStorage()
         public init() {}
     }
 
@@ -91,7 +99,19 @@ public final class WidgetHost: SandboxEngineDelegate {
     public var onChange: ((WidgetDiagnostics) -> Void)?
     /// Called on the host's executor with every change, before the coalesced main-thread `onChange`.
     public var onChangeOnExecutor: ((WidgetDiagnostics) -> Void)?
-    public var onBridge: ((String, String) -> Void)?
+    /// What the widget asked the client to do, checked: the URL rules, user activation for the links, the haptic rate limit (docs/sdk-v1.md §5.2, §5.3). Main thread.
+    public var onAction: ((WidgetAction) -> Void)?
+    /// The new full content of a Web Storage area, at the end of each task that changed it; `local` first (docs/sdk-v1.md §5.4). Main thread.
+    public var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?
+    /// On every primary pointerdown: which drags of this touch the widget takes (docs/sdk-v1.md §5.5). Main thread.
+    public var onGestureClaim: ((WidgetGestureClaim) -> Void)?
+    /// The raw method and arguments JSON of each call `onAction` gets.
+    @available(*, deprecated, message: "use onAction (SDK v1)")
+    public var onBridge: ((String, String) -> Void)? {
+        get { bridgeHandler }
+        set { bridgeHandler = newValue }
+    }
+    private var bridgeHandler: ((String, String) -> Void)?
     /// Non-fatal uncaught exception in widget code (also in `state.logs`).
     public var onError: ((String) -> Void)?
     /// Badge text shown by the renderer over a dead widget (user-facing, no error details).
@@ -103,7 +123,9 @@ public final class WidgetHost: SandboxEngineDelegate {
     private let renderer: Renderer
     private let options: Options
     private let config: SandboxConfig
-    private var theme: String
+    private var theme: WidgetTheme
+    /// The colour scheme as the renderer, the validator and the sandbox take it.
+    private var scheme: String { theme.colorScheme.rawValue }
     private var rendererReady = false
     private var engineStarted = false
     private let html: String
@@ -126,12 +148,13 @@ public final class WidgetHost: SandboxEngineDelegate {
     private var opsSent = 0
     public private(set) var frameCount = 0
 
-    /// `rendererFactory`: the renderer; the WebView renderer when nil.
-    public init(html: String, theme: String = "light", width: CGFloat = 400, options: Options = Options(), resources: SandboxResources = .shared, rendererFactory: RendererFactory? = nil, executor: WidgetExecutor = WidgetExecutor(), shell: WidgetShellPool.Shell? = nil) throws {
+    /// `theme`: the chat's theme for this bubble (docs/sdk-v1.md §5.1). `rendererFactory`: the renderer; the WebView renderer when nil.
+    public init(html: String, theme widgetTheme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), resources: SandboxResources = .shared, rendererFactory: RendererFactory? = nil, executor: WidgetExecutor = WidgetExecutor(), shell: WidgetShellPool.Shell? = nil) throws {
         self.executor = executor
         self.html = html
         sideChannels = options.sideChannels.map { $0() }
-        self.theme = theme
+        self.theme = widgetTheme
+        let theme = widgetTheme.colorScheme.rawValue
         self.options = options
         maxHeight = options.maximumHeight.isFinite ? max(24, options.maximumHeight) : 900
         ownerVisible = options.visible
@@ -173,6 +196,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.features = options.features
         config.visible = options.visible
         config.policy = options.policy
+        config.themeParams = widgetTheme.params
+        config.locale = options.locale
+        config.storage = options.storage
         self.config = config
         if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
             engine = pooled
@@ -214,6 +240,8 @@ public final class WidgetHost: SandboxEngineDelegate {
                 self?.pushVisibility()
             }
         }
+        // The theme variables go first, before the renderer can announce `ready` (a pooled one replays it when onMessage is set).
+        toRenderer(widgetTheme.rendererMessage)
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
         publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
@@ -229,6 +257,12 @@ public final class WidgetHost: SandboxEngineDelegate {
         let warmed = validator
         warmed.perform { warmed.warmStylesheets(Self.styleTexts(in: html)) }
         if !rendererLoaded { renderer.load() }
+    }
+
+    /// The API before SDK v1: a plain colour scheme, `"dark"` or `"light"`.
+    @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
+    public convenience init(html: String, theme: String, width: CGFloat = 400, options: Options = Options(), resources: SandboxResources = .shared, rendererFactory: RendererFactory? = nil, executor: WidgetExecutor = WidgetExecutor(), shell: WidgetShellPool.Shell? = nil) throws {
+        try self.init(html: html, theme: WidgetTheme(colorScheme: theme), width: width, options: options, resources: resources, rendererFactory: rendererFactory, executor: executor, shell: shell)
     }
 
     private func startEngine() {
@@ -261,18 +295,29 @@ public final class WidgetHost: SandboxEngineDelegate {
         executor.moveToMain(completion)
     }
 
-    public func setTheme(_ theme: String) {
+    /// The chat's theme changed (docs/sdk-v1.md §5.1): stylesheets are re-sanitized against the colour scheme
+    /// (prefers-color-scheme, color-scheme, light-dark()), the renderer gets the variables, and the widget gets
+    /// `colorScheme`, `themeParams` and `themeChanged` in one task.
+    public func setTheme(_ theme: WidgetTheme) {
         guard executor.isCurrent else {
             return executor.async { [weak self] in self?.setTheme(theme) }
         }
         guard !destroyed else { return }
         self.theme = theme
-        renderer.setTheme(theme)
+        let scheme = self.scheme
+        renderer.setTheme(scheme)
+        toRenderer(theme.rendererMessage)
         validate { [self] in
-            let ops = validator.setTheme(theme)
+            let ops = validator.setTheme(scheme)
             deliver { self.toRenderer("{\"type\":\"ops\",\"ops\":\(ops)}") }
         }
-        engine.theme(theme)
+        engine.theme(scheme, params: theme.params)
+    }
+
+    /// The API before SDK v1: a plain colour scheme, `"dark"` or `"light"`.
+    @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
+    public func setTheme(_ theme: String) {
+        setTheme(WidgetTheme(colorScheme: theme))
     }
 
     /// The last render as an image, for an owner that is about to `destroy()` a
@@ -287,10 +332,6 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         if destroyed { return completion(nil) }
         renderer.snapshot(completion: completion)
-    }
-
-    public func bridgeEvent(_ event: String, dataJson: String = "null") {
-        engine.bridgeEvent(event, dataJson: dataJson)
     }
 
     /// Sends a newer version of the widget's HTML into the running sandbox (`morphUpdates`); `completion` runs on main.
@@ -502,9 +543,26 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
     public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) {
         inOrder {
+            if self.state.bridge.count >= WidgetDiagnostics.maxActions { self.state.bridge.removeFirst(WidgetDiagnostics.maxActions / 2) }
             self.state.bridge.append((method, argsJson))
             self.changed()
-            self.onMain { self.onBridge?(method, argsJson) }
+            self.onMain { self.bridgeHandler?(method, argsJson) }
+        }
+    }
+    public func engine(_ engine: SandboxEngine, action: WidgetAction) {
+        inOrder {
+            if self.state.actions.count >= WidgetDiagnostics.maxActions { self.state.actions.removeFirst(WidgetDiagnostics.maxActions / 2) }
+            self.state.actions.append(action)
+            self.changed()
+            self.onMain { self.onAction?(action) }
+        }
+    }
+    public func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {
+        inOrder {
+            self.onMain {
+                if let local = storageCommit.local { self.onStorageCommit?(.local, local) }
+                if let session = storageCommit.session { self.onStorageCommit?(.session, session) }
+            }
         }
     }
     public func engineLoaded(_ engine: SandboxEngine) {
@@ -608,7 +666,11 @@ public final class WidgetHost: SandboxEngineDelegate {
             frameCount += 1
             engine.frame(time: (msg["time"] as? NSNumber)?.doubleValue ?? 0)
         case "media":
-            engine.theme(theme)
+            // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
+            engine.theme(scheme, params: theme.params)
+        case "gesture":
+            let claim = WidgetGestureClaim(x: Self.isTrue(msg["x"]), y: Self.isTrue(msg["y"]))
+            onMain { self.onGestureClaim?(claim) }
         case "violation":
             diag("renderer-violation", msg["detail"] as? String ?? "")
         default:
@@ -669,6 +731,12 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
 
     static func json(_ value: Any) -> String { SandboxEngine.json(value) }
+
+    /// A JSON `true` (not a number that bridges to one).
+    static func isTrue(_ value: Any?) -> Bool {
+        guard let n = value as? NSNumber else { return false }
+        return CFGetTypeID(n) == CFBooleanGetTypeID() && n.boolValue
+    }
 
     /// Pointer presses only: widgets get no keyboard (docs/decisions.md, "Profile v1"), so no key is a gesture.
     static let activationEventTypes: Set<String> = ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup"]

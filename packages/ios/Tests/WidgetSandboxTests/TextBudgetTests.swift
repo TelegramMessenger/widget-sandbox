@@ -14,7 +14,7 @@ final class TextBudgetTests: XCTestCase {
         let renderer = RecordingRenderer()
         var compat = WidgetHost.Options()
         compat.policy = .compat
-        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(1024*1024);document.getElementById('b').textContent='\\u0627'.repeat(20000);</script>", theme: "light", width: 300, options: compat, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(1024*1024);document.getElementById('b').textContent='\\u0627'.repeat(20000);</script>", theme: WidgetTheme(), width: 300, options: compat, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
@@ -28,7 +28,7 @@ final class TextBudgetTests: XCTestCase {
 
     func testTextNodesAreCappedAt64KB() {
         let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(64*1024);document.getElementById('b').textContent='b'.repeat(64*1024+1);</script>", theme: "light", width: 300, options: Self.strict, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(64*1024);document.getElementById('b').textContent='b'.repeat(64*1024+1);</script>", theme: WidgetTheme(), width: 300, options: Self.strict, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
@@ -43,7 +43,7 @@ final class TextBudgetTests: XCTestCase {
     /// 8192 complex-script units per document, through the validator bundle every native glue loads.
     func testComplexTextIsBudgetedPerDocument() {
         let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='\\u0627'.repeat(8000);document.getElementById('b').textContent='\\u0628'.repeat(500);</script>", theme: "light", width: 300, options: Self.strict, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='\\u0627'.repeat(8000);document.getElementById('b').textContent='\\u0628'.repeat(500);</script>", theme: WidgetTheme(), width: 300, options: Self.strict, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
@@ -79,7 +79,7 @@ final class TextBudgetTests: XCTestCase {
         let renderer = RecordingRenderer()
         var options = Self.strict
         if binary { options.features = ["binaryOps"] }
-        let host = try! WidgetHost(html: "<p id=p></p><script>" + js + "</script>", theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: "<p id=p></p><script>" + js + "</script>", theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {

@@ -3,7 +3,7 @@ import XCTest
 
 final class FirstContentTests: XCTestCase {
     func testSizeReportedWhileApplyingOpsCountsAsFirstContent() {
-        let host = try! WidgetHost(html: "<div style='height:120px'>Hello</div>", theme: "light", width: 300, rendererFactory: { _, _, _ in SynchronousSizeRenderer() })
+        let host = try! WidgetHost(html: "<div style='height:120px'>Hello</div>", theme: WidgetTheme(), width: 300, rendererFactory: { _, _, _ in SynchronousSizeRenderer() })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
         while host.diagnostics.firstContentMs == nil && Date() < deadline {
