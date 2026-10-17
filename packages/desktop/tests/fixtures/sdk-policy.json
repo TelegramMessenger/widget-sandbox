@@ -567,6 +567,23 @@
     {
       "input": {
         "local": {
+          "__proto__": "x",
+          "constructor": "y",
+          "toString": "z"
+        }
+      },
+      "expect": {
+        "local": {
+          "__proto__": "x",
+          "constructor": "y",
+          "toString": "z"
+        }
+      },
+      "note": "keys that name Object.prototype members are plain keys"
+    },
+    {
+      "input": {
+        "local": {
           "a": 1
         }
       },

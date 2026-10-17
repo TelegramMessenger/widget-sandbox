@@ -190,7 +190,8 @@ export function checkStorageArea(area: unknown): Record<string, string> | null {
   for (const k of Object.keys(area)) {
     const v = (area as Record<string, unknown>)[k];
     if (typeof v !== 'string') return null;
-    out[k] = v;
+    // An own property even for `__proto__` (an assignment would hit the prototype setter and lose the key).
+    Object.defineProperty(out, k, { value: v, enumerable: true, writable: true, configurable: true });
   }
   return storageBytes(out) <= STORAGE_QUOTA_BYTES ? out : null;
 }
