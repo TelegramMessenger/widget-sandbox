@@ -263,7 +263,7 @@
 <body>
 <div class="conf-stages">
   <div data-stage="ellipsis" data-covers="css.text.overflow" data-max-diff="0.5" data-colors="#36c"><div class="st-ell"><span style="color:#222">Ellipsis text here</span></div></div>
-  <div data-stage="text-shadow" data-covers="css.text.shadow" data-max-diff="0.5" data-colors="#e83 #36c"><div class="st-shadow">Sh</div></div>
+  <div data-stage="text-shadow" data-covers="css.text.shadow" data-max-diff="0.5" data-colors="#e83 #36c" data-xfail="the validator does not enforce profile 1 yet"><div class="st-shadow">Sh</div></div>
   <div data-stage="emoji" data-covers="css.text.emoji" data-max-diff="0.5"><div class="st-emoji">🎨</div></div>
   <div data-stage="decoration" data-covers="css.text.decoration" data-max-diff="0.5" data-colors="#c33 #36c"><div class="st-deco"><u style="text-decoration-color:#c33;text-decoration-thickness:2px">un</u> <s>st</s><br><span style="text-decoration:underline wavy #36c">wavy</span></div></div>
 </div>
@@ -327,7 +327,8 @@ var W = function (s) { return R(s).w; };
 T.step(function () {
   T.near('css.font.generic', 'monospace: i and M have the same advance', W('#mono-i'), W('#mono-m'), 0.5);
   T.ok('css.font.generic', 'computed font-family keeps the generic name', /monospace/.test(CS('#mono-i', 'font-family')), CS('#mono-i', 'font-family'));
-  T.near('css.font.ui-families', 'ui-monospace: i and M have the same advance', W('#uimono-i'), W('#uimono-m'), 0.5);
+  T.near('css.font.ui-families', 'ui-monospace: i and M have the same advance', W('#uimono-i'), W('#uimono-m'), 0.5, { xfail: 'the validator does not add the generic fallback yet (only WebKit resolves ui-*)' });
+  T.ok('css.font.ui-families', 'the validator adds a generic fallback (ui-monospace → …, monospace)', /,\s*monospace/.test(CS('#uimono-i', 'font-family')), CS('#uimono-i', 'font-family'), { xfail: 'the validator does not add the generic fallback yet' });
   T.ok('css.font.generic', 'serif and sans-serif are different faces', Math.abs(W('#serif') - W('#sans')) > 1, W('#serif') + ' vs ' + W('#sans'));
   T.ok('css.font.generic', 'system-ui renders', W('#sys') > 40, W('#sys') + '');
   T.ok('css.font.ui-families', 'ui-rounded with a fallback renders', W('#rounded') > 5, W('#rounded') + '');
@@ -363,7 +364,7 @@ T.step(function () {
   T.ok('css.text.white-space', 'pre-line keeps the newline, collapses the spaces', R('#preline').h >= 31 && R('#preline').h < 40, R('#preline').h + '');
   T.ok('css.text.wrap', 'overflow-wrap: anywhere breaks a long word', R('#ow').h >= 31 && R('#ow').w <= 40.5, R('#ow').w + 'x' + R('#ow').h);
   T.ok('css.text.wrap', 'word-break: break-all breaks a long word', R('#wb').h >= 31, R('#wb').h + '');
-  T.near('css.text.line-clamp', '-webkit-line-clamp: 2 shows two lines', R('#clamp').h, 32, 1);
+  T.ok('css.text.line-clamp', '-webkit-line-clamp is dropped: all lines show (profile 1: out)', R('#clamp').h > 40, 'h ' + R('#clamp').h, { xfail: 'the validator does not enforce profile 1 yet' });
   T.ok('css.text.vertical-align', 'vertical-align top and bottom', R('#va-t').y - R('#va').y < 2 && R('#va').b - R('#va-b').b < 2, (R('#va-t').y - R('#va').y) + ' / ' + (R('#va').b - R('#va-b').b));
   T.ok('css.text.list-style', 'list-style-position: inside moves the text right', R('#lsi-s').x > R('#lso-s').x + 4, R('#lsi-s').x + ' vs ' + R('#lso-s').x);
   T.eq('css.text.list-style', 'list-style-type: none', CS('#lsn li', 'list-style-type'), 'none');
@@ -378,5 +379,6 @@ T.step(function () {
 });
 T.run();
 </script>
+<template data-ref="text-shadow"><div style="position:absolute;left:10px;top:4px;font:900 36px/48px sans-serif;color:#36c">Sh</div></template>
 </body>
 </html>

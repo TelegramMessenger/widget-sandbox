@@ -265,11 +265,11 @@
   <div data-stage="transform-3d" data-covers="css.transform.3d" data-xfail="the validator does not strip 3D transforms yet"><div class="s-3d-wrap"><div class="box s-3d"></div></div></div>
   <div data-stage="blur" data-covers="css.filter.blur-brightness-drop-shadow" data-max-diff="0.1"><div class="box s-blur"></div></div>
   <div data-stage="brightness-drop-shadow" data-covers="css.filter.blur-brightness-drop-shadow"><div class="box s-bright"></div><div class="box s-ds"></div></div>
-  <div data-stage="filter-other" data-covers="css.filter.other"><div class="box s-gray"></div><div class="box s-sepia"></div><div class="box s-hue"></div><div class="box s-inv"></div></div>
+  <div data-stage="filter-other" data-covers="css.filter.other" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-gray"></div><div class="box s-sepia"></div><div class="box s-hue"></div><div class="box s-inv"></div></div>
   <div data-stage="backdrop" data-covers="css.backdrop-filter" data-max-diff="0.1"><div class="s-stripes"></div><div class="box s-glass"></div></div>
-  <div data-stage="blend" data-covers="css.blend"><div class="box s-b1"></div><div class="box s-b2"></div></div>
-  <div data-stage="clip-path" data-covers="css.clip-path"><div class="box s-clip1"></div><div class="box s-clip2"></div></div>
-  <div data-stage="mask" data-covers="css.mask"><div class="box s-mask"></div></div>
+  <div data-stage="blend" data-covers="css.blend" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-b1"></div><div class="box s-b2"></div></div>
+  <div data-stage="clip-path" data-covers="css.clip-path" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-clip1"></div><div class="box s-clip2"></div></div>
+  <div data-stage="mask" data-covers="css.mask" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-mask"></div></div>
   <div data-stage="opacity" data-covers="css.opacity"><div class="box s-op1"></div><div class="box s-op2"></div></div>
   <div data-stage="filter-url" data-covers="css.filter.url" data-xfail="the validator does not enforce the profile yet"><div class="box s-furl"></div></div>
 </div>
@@ -302,5 +302,9 @@ T.run();
 </script>
 <template data-ref="transform-3d"><div style="position:absolute;left:20px;top:10px;width:40px;height:40px;background:#e83"></div></template>
 <template data-ref="filter-url"><div style="position:absolute;left:20px;top:15px;width:40px;height:30px;background:#e83"></div></template>
+<template data-ref="filter-other"><div style="position:absolute;left:4px;top:5px;width:34px;height:24px;background:#c33"></div><div style="position:absolute;left:42px;top:5px;width:34px;height:24px;background:#36c"></div><div style="position:absolute;left:4px;top:32px;width:34px;height:24px;background:#c33"></div><div style="position:absolute;left:42px;top:32px;width:34px;height:24px;background:#36c"></div></template>
+<template data-ref="blend"><div style="position:absolute;left:10px;top:8px;width:36px;height:36px;border-radius:50%;background:#e83"></div><div style="position:absolute;left:32px;top:16px;width:36px;height:36px;border-radius:50%;background:#36c"></div></template>
+<template data-ref="clip-path"><div style="position:absolute;left:6px;top:8px;width:32px;height:44px;background:#c33"></div><div style="position:absolute;left:42px;top:8px;width:32px;height:44px;background:#36c"></div></template>
+<template data-ref="mask"><div style="position:absolute;left:10px;top:8px;width:60px;height:44px;background:#3a3"></div></template>
 </body>
 </html>

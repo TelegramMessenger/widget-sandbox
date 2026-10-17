@@ -241,11 +241,11 @@
 <body>
 <div class="conf-stages">
   <div data-stage="basic" data-covers="css.color.basic"><div class="q q1" style="background:rebeccapurple"></div><div class="q q2" style="background:#3a3"></div><div class="q q3" style="background:rgba(204,51,51,.5)"></div><div class="q q4" style="background:hsl(210 60% 50%)"></div></div>
-  <div data-stage="modern" data-covers="css.color.modern"><div class="q q1" style="background:oklch(0.62 0.19 30)"></div><div class="q q2" style="background:lab(55 -40 40)"></div><div class="q q3" style="background:hwb(220 20% 20%)"></div><div class="q q4" style="background:color(srgb 0.9 0.6 0.1)"></div></div>
-  <div data-stage="mix" data-covers="css.color.mix"><div class="q q1" style="background:color-mix(in srgb,#c33 50%,#36c)"></div><div class="q q2" style="background:color-mix(in srgb,#3a3,white 40%)"></div><div class="q q3" style="background:color-mix(in oklab,#e83,#36c)"></div><div class="q q4" style="background:color-mix(in srgb,#000 20%,transparent)"></div></div>
+  <div data-stage="modern" data-covers="css.color.modern" data-xfail="the validator does not enforce profile 1 yet"><div class="q q1" style="background:oklch(0.62 0.19 30)"></div><div class="q q2" style="background:lab(55 -40 40)"></div><div class="q q3" style="background:hwb(220 20% 20%)"></div><div class="q q4" style="background:color(srgb 0.9 0.6 0.1)"></div></div>
+  <div data-stage="mix" data-covers="css.color.mix" data-xfail="the validator does not enforce profile 1 yet"><div class="q q1" style="background:color-mix(in srgb,#c33 50%,#36c)"></div><div class="q q2" style="background:color-mix(in srgb,#3a3,white 40%)"></div><div class="q q3" style="background:color-mix(in oklab,#e83,#36c)"></div><div class="q q4" style="background:color-mix(in srgb,#000 20%,transparent)"></div></div>
   <div data-stage="light-dark" data-themes="light dark" data-covers="css.color.light-dark"><div class="s-ld"></div></div>
   <div data-stage="background" data-covers="css.background.basic"><div class="s-bg"></div></div>
-  <div data-stage="clip-text" data-covers="css.background.clip-text" data-max-diff="0.5" data-colors="#c33 #36c"><div class="s-clip">W</div></div>
+  <div data-stage="clip-text" data-covers="css.background.clip-text" data-max-diff="0.5" data-colors="#c33 #36c" data-xfail="the validator does not enforce profile 1 yet"><div class="s-clip">W</div></div>
   <div data-stage="linear" data-covers="css.gradient.linear"><div class="s-lin"></div><div class="s-rlin"></div></div>
   <div data-stage="radial" data-covers="css.gradient.radial"><div class="s-rad"></div><div class="s-rrad"></div></div>
   <div data-stage="conic" data-covers="css.gradient.conic"><div class="s-conic"></div></div>
@@ -276,7 +276,7 @@ T.step(function () {
   T.eq('css.color.basic', 'transparent', C('#c-tr'), '0,0,0,0');
   var dark = (typeof TelegramWidget !== 'undefined' ? TelegramWidget.theme : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
   T.eq('css.color.light-dark', 'light-dark() picks the chat theme', C('#c-ld'), dark ? '4,5,6,1' : '1,2,3,1');
-  T.ok('css.color.mix', 'color-mix() computes a colour', /^(100,0,100,1|color\(srgb 0\.39)/.test(C('#c-mix')), C('#c-mix'));
+  T.eq('css.color.mix', 'color-mix() is dropped: no background (profile 1: out)', C('#c-mix'), '0,0,0,0', { xfail: 'the validator does not enforce profile 1 yet' });
   T.ok('css.background.basic', 'background-image keeps the data: image', /url\(["']?data:image\/png/.test(CS('#bg', 'background-image')), CS('#bg', 'background-image').slice(0, 40));
   T.eq('css.background.basic', 'background-size', CS('#bg', 'background-size'), '10px 12px');
   T.eq('css.background.basic', 'background-position', CS('#bg', 'background-position'), '1px 2px');
@@ -287,5 +287,8 @@ T.run();
 </script>
 <template data-ref="basic"><div style="position:absolute;left:0;top:0;width:40px;height:30px;background:#663399"></div><div style="position:absolute;left:40px;top:0;width:40px;height:30px;background:#33aa33"></div><div style="position:absolute;left:0;top:30px;width:40px;height:30px;background:#e59999"></div><div style="position:absolute;left:40px;top:30px;width:40px;height:30px;background:#3380cc"></div></template>
 <template data-ref="object-fit"><div style="position:absolute;left:4px;top:10px;width:34px;height:40px;background:#eee"><div style="position:absolute;left:0;top:0;width:17px;height:40px;background:#cc3333"></div><div style="position:absolute;left:17px;top:0;width:17px;height:40px;background:#3366cc"></div></div><div style="position:absolute;left:42px;top:10px;width:34px;height:40px;background:#eee"><div style="position:absolute;left:0;top:23px;width:17px;height:17px;background:#cc3333"></div><div style="position:absolute;left:17px;top:23px;width:17px;height:17px;background:#3366cc"></div></div></template>
+<template data-ref="modern"></template>
+<template data-ref="mix"></template>
+<template data-ref="clip-text"><div style="position:absolute;left:4px;top:-8px;font:900 64px/76px sans-serif;background:linear-gradient(90deg,#c33,#36c);color:transparent">W</div></template>
 </body>
 </html>

@@ -254,7 +254,7 @@ var drag = T.wait('input.drag', 'pointerdown → pointermove (buttons=1) → poi
 var cap = T.wait('input.drag', 'setPointerCapture keeps moves coming past the element');
 var mv = T.wait('input.drag', 'movementX adds up to the distance');
 var pe = T.wait('css.pointer-events', 'a tap through a pointer-events: none overlay hits the button below');
-var touch = T.wait('input.touch-events', 'touchstart/touchend on a touch client');
+var touch = T.wait('input.touch-events', 'no touch events reach the widget on a touch client: pointer events only (profile 1: out)', { xfail: 'the renderer still forwards touch events' });
 var seen = {};
 var hov = document.getElementById('hov');
 ['pointerenter', 'pointerover', 'mouseenter'].forEach(function (t) { hov.addEventListener(t, function () { seen[t] = 1; if (seen.pointerenter && seen.pointerover && seen.mouseenter) hovEv.pass(); }); });
@@ -289,7 +289,7 @@ document.getElementById('under').addEventListener('click', function () { pe.pass
 var touches = 0;
 document.addEventListener('touchstart', function () { touches++; });
 document.getElementById('finish').addEventListener('click', function () {
-  if ((navigator.maxTouchPoints || 0) > 0) touch.result(touches > 0, touches + ' touchstart'); else touch.skip('no touch input here');
+  if ((navigator.maxTouchPoints || 0) > 0) touch.result(touches === 0, touches + ' touchstart'); else touch.skip('no touch input here');
 });
 T.run({ awaitInput: 20000 });
 </script>

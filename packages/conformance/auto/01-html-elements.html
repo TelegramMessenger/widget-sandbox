@@ -310,15 +310,15 @@ T.step(function () {
   T.ok('html.el.table', 'th is bold and centred', fw('#th') >= 600 && /center/.test(CS('#th', 'text-align')), fw('#th') + ' ' + CS('#th', 'text-align'));
 
   var rt = R('#rt'), rb = R('#ruby');
-  T.ok('html.el.ruby', 'rt is drawn above the base', rt.h > 0 && rt.b <= rb.y + rb.h / 2, 'rt ' + rt.y + '-' + rt.b + ' ruby ' + rb.y + '-' + rb.b);
-  T.ok('html.el.ruby', 'rt is smaller', px('#rt', 'font-size') < 20, CS('#rt', 'font-size'));
+  T.ok('html.el.ruby', 'ruby renders as a span: rt stays inline, not above the base (profile 1: out)', !(rt.h > 0 && rt.b <= rb.y + rb.h / 2), 'rt ' + rt.y + '-' + rt.b + ' ruby ' + rb.y + '-' + rb.b, { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.el.ruby', 'rt keeps the text size (a plain span)', px('#rt', 'font-size') === 20, CS('#rt', 'font-size'), { xfail: 'the validator does not enforce profile 1 yet' });
 
-  T.ok('html.el.legacy', 'center centres', /center/.test(CS('#center', 'text-align')), CS('#center', 'text-align'));
-  T.eq('html.el.legacy', 'font color=red', T.color('#font', 'color'), '255,0,0,1');
-  T.ok('html.el.legacy', 'big is bigger', px('#big', 'font-size') > 13, CS('#big', 'font-size'));
-  T.ok('html.el.legacy', 'tt is monospace', /monospace/.test(CS('#tt', 'font-family')), CS('#tt', 'font-family'));
-  T.ok('html.el.legacy', 'strike is struck through', /line-through/.test(deco('#strike')), deco('#strike'));
-  T.ok('html.el.legacy', 'nobr does not wrap', R('#nobr').h < 20 && R('#nobr').w > 40, R('#nobr').w + 'x' + R('#nobr').h);
+  T.ok('html.el.legacy', 'center becomes a div: no centring', !/center/.test(CS('#center', 'text-align')), CS('#center', 'text-align'), { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.el.legacy', 'font becomes a span: color=red is dropped', T.color('#font', 'color') !== '255,0,0,1', T.color('#font', 'color'), { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.el.legacy', 'big becomes a span: normal size', px('#big', 'font-size') === 13, CS('#big', 'font-size'), { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.el.legacy', 'tt becomes a span: not monospace', !/monospace/.test(CS('#tt', 'font-family')), CS('#tt', 'font-family'), { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.el.legacy', 'strike becomes a span: not struck', !/line-through/.test(deco('#strike')), deco('#strike'), { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.el.legacy', 'nobr becomes a span: the text wraps', R('#nobr').h > 20, R('#nobr').w + 'x' + R('#nobr').h, { xfail: 'the validator does not enforce profile 1 yet' });
 
   T.eq('html.el.unknown', 'an unknown element renders inline', CS('#mw', 'display'), 'inline');
   T.ok('html.el.unknown', 'it renders as an inert span: its type selector does not match', T.color('#mw', 'color') !== '200,0,0,1', T.color('#mw', 'color'), { sandboxOnly: true });
@@ -334,8 +334,8 @@ T.step(function () {
   T.ok('html.el.a-external', 'an external href never reaches the renderer (a[href^=https] does not match)', T.color('#aext', 'color') !== '1,2,3,1', T.color('#aext', 'color'), { sandboxOnly: true });
   T.ok('html.el.a-external', 'it is still drawn as a link', /underline/.test(deco('#aext')), deco('#aext'));
 
-  T.ok('html.el.progress-meter', 'progress is drawn', R('#prog').w > 20 && R('#prog').h > 4, R('#prog').w + 'x' + R('#prog').h);
-  T.ok('html.el.progress-meter', 'meter is drawn', R('#meter').w > 20 && R('#meter').h > 4, R('#meter').w + 'x' + R('#meter').h);
+  T.ok('html.el.progress-meter', 'progress is dropped (no box)', R('#prog').w === 0 && R('#prog').h === 0, R('#prog').w + 'x' + R('#prog').h, { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.el.progress-meter', 'meter is dropped (no box)', R('#meter').w === 0 && R('#meter').h === 0, R('#meter').w + 'x' + R('#meter').h, { xfail: 'the validator does not enforce profile 1 yet' });
 });
 T.run();
 </script>

@@ -1,72 +1,17 @@
 # Conformance results
 
-Generated 2026-10-16 23:48 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 9832aaf; policy strict, features webAnimations).
+Generated 2026-10-17 00:06 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
 ## Totals
 
-| Renderer | in (163) ✅ / ◐ / ❌ / ⏳ | candidate (48) ✅ / ◐ / ❌ | out (44) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
-|---|---|---|---|---|---|
-| web iframe | 133 / 5 / 0 / 15 | 45 / 2 / 0 | 17 / 26 / 1 | 105 / 105 | 0 |
-| web shadow | 132 / 5 / 1 / 15 | 44 / 2 / 1 | 18 / 26 / 0 | 105 / 105 | 0 |
-| web blitz | 86 / 26 / 23 / 14 | 18 / 8 / 21 | 14 / 13 / 4 | 23 / 23 | 0 |
-| web litehtml | 51 / 39 / 46 / 13 | 6 / 7 / 34 | 15 / 11 / 3 | 23 / 23 | 0 |
-
-## Candidates
-
-Membership decided by measurement (D3: in when every client draws it).
-
-| ID | Feature | web iframe | web shadow | web blitz | web litehtml | native chromium |
-|---|---|---|---|---|---|---|
-| `html.el.ruby` | ruby, rt, rp, bdi, bdo | ✅ | ✅ | ◐ | ❌ | ✅ |
-| `html.el.legacy` | Legacy presentational elements: center, font, big, tt, strike, nobr | ✅ | ✅ | ◐ | ◐ | ✅ |
-| `html.el.img-svg` | <img src="data:image/svg+xml"> | ✅ | ✅ | ◐ | ❌ | ✅ |
-| `html.el.progress-meter` | progress, meter (native gauges) | ✅ | ✅ | ❌ | ✅ | ✅ |
-| `html.attr.legacy-presentational` | align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap | ✅ | ✅ | ◐ | ◐ | ✅ |
-| `svg.css` | CSS on inline SVG: fill/stroke from a stylesheet rule, :hover, CSS animation of SVG properties | ✅ | ✅ | ◐ | ❌ | ✅ |
-| `svg.clip-mask` | clipPath, mask, pattern, marker | ✅ | ✅ | ❌ | ❌ | · |
-| `svg.filters` | SVG filter primitives (fe*) | ✅ | ✅ | ❌ | ❌ | · |
-| `svg.smil` | SMIL animation: animate, animateTransform, animateMotion | ✅ | ✅ | ❌ | ❌ | · |
-| `svg.image` | <image href="data:…"> inside SVG | ✅ | ✅ | ✅ | ❌ | · |
-| `css.display.grid` | CSS grid: display grid, grid-template-*, grid-area/column/row, auto-flow, place-* | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `css.display.other` | display: flow-root, contents, list-item | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `css.box.logical` | Logical properties: margin-inline, padding-block, inset-inline, inline-size, … | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `css.box.columns` | Multi-column layout (columns, column-count, column-gap) | ✅ | ✅ | ❌ | ❌ | ✅ |
-| `css.color.modern` | Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color() | ✅ | ✅ | ✅ | ❌ | · |
-| `css.color.mix` | color-mix() | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `css.background.clip-text` | background-clip: text (gradient text) | ✅ | ✅ | ❌ | ❌ | · |
-| `css.gradient.conic` | conic-gradient() | ✅ | ✅ | ❌ | ❌ | · |
-| `css.font.ui-families` | font-family: ui-sans-serif, ui-serif, ui-monospace, ui-rounded | ◐ | ◐ | ◐ | ◐ | ◐ |
-| `css.font.variant-numeric` | font-variant-numeric: tabular-nums (and font-feature-settings "tnum") | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `css.text.overflow` | text-overflow: ellipsis (single line) | ✅ | ✅ | ❌ | ❌ | · |
-| `css.text.line-clamp` | -webkit-line-clamp / line-clamp (multi-line ellipsis) | ✅ | ✅ | ❌ | ❌ | ✅ |
-| `css.text.shadow` | text-shadow | ✅ | ✅ | ❌ | ❌ | · |
-| `css.filter.other` | filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() | ✅ | ✅ | ❌ | ❌ | · |
-| `css.blend` | mix-blend-mode, isolation, background-blend-mode | ✅ | ✅ | ❌ | ❌ | · |
-| `css.clip-path` | clip-path: inset(), circle(), ellipse(), polygon() | ✅ | ✅ | ✅ | ❌ | · |
-| `css.mask` | mask / -webkit-mask with gradients or data: images | ✅ | ✅ | ✅ | ❌ | · |
-| `css.pointer-events` | pointer-events: none / auto (hit testing passes through) | ✅ | ✅ | ✅ | ◐ | ✅ |
-| `css.touch-action` | touch-action: none / pan-x / pan-y (the widget claims a swipe from the chat) | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `css.value.vh` | vh / dvh / svh / vb: height-relative units | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `sel.has` | :has() | ✅ | ✅ | ❌ | ❌ | ✅ |
-| `sel.first-letter-line` | ::first-letter, ::first-line, ::marker | ✅ | ✅ | ❌ | ❌ | ✅ |
-| `at.media.reduced-motion` | @media (prefers-reduced-motion) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `at.media.hover-pointer` | @media (hover: hover), (pointer: fine\|coarse) | ✅ | ✅ | ❌ | ◐ | ✅ |
-| `at.media.other` | @media print, resolution, other media features | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `at.container` | @container queries (container-type in the widget) | ✅ | ✅ | ◐ | ◐ | ✅ |
-| `at.layer` | @layer cascade layers | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `at.property` | @property (typed custom properties) | ✅ | ❌ | ✅ | ❌ | ✅ |
-| `at.nesting` | CSS nesting (.a { .b { } }, &) | ◐ | ◐ | ◐ | ◐ | ✅ |
-| `canvas.conic-gradient` | createConicGradient | ✅ | ✅ | ❌ | ❌ | · |
-| `canvas.pattern` | createPattern from a canvas or image | ✅ | ✅ | ❌ | ❌ | · |
-| `canvas.composite` | globalCompositeOperation (source-over, destination-out, multiply, …) | ✅ | ✅ | ❌ | ❌ | · |
-| `canvas.shadow` | shadowBlur, shadowColor, shadowOffsetX/Y | ✅ | ✅ | ❌ | ❌ | · |
-| `canvas.filter` | ctx.filter (CSS filter on canvas drawing) | ✅ | ✅ | ❌ | ❌ | · |
-| `canvas.image-data` | getImageData / putImageData / createImageData (pixel read-back) | ✅ | ✅ | ❌ | ❌ | ✅ |
-| `js.intl.format-to-parts` | Intl.NumberFormat/DateTimeFormat formatToParts | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `js.libraries` | Bundled libraries by CDN name: Chart.js 4, D3 7 (nothing is fetched) | ✅ | ✅ | ✅ | ✅ | – |
-| `input.touch-events` | touchstart / touchmove / touchend (touch clients only) | – | – | – | – | – |
+| Renderer | in (173) ✅ / ◐ / ❌ / ⏳ | out (82) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
+|---|---|---|---|---|
+| web iframe | 142 / 5 / 0 / 16 | 18 / 62 / 1 | 105 / 105 | 0 |
+| web shadow | 141 / 5 / 1 / 16 | 19 / 61 / 0 | 105 / 105 | 0 |
+| web blitz | 92 / 27 / 25 / 15 | 16 / 33 / 5 | 23 / 23 | 0 |
+| web litehtml | 53 / 40 / 52 / 14 | 18 / 25 / 4 | 23 / 23 | 0 |
 
 ## In the profile
 
@@ -96,9 +41,11 @@ Membership decided by measurement (D3: in when every client draws it).
 | `svg.structure` | ✅ | ✅ | ❌ | ❌ | ✅ |
 | `svg.text` | ✅ | ✅ | ❌ | ❌ | ✅ |
 | `svg.gradients` | ✅ | ✅ | ❌ | ❌ | · |
+| `svg.css` | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `css.display.basic` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `css.display.flex` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `css.gap.flex` | ✅ | ✅ | ✅ | ❌ | ✅ |
+| `css.display.grid` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `css.display.table` | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `css.box.size` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `css.box.spacing` | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -121,13 +68,17 @@ Membership decided by measurement (D3: in when every client draws it).
 | `css.background.basic` | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `css.gradient.linear` | ✅ | ✅ | ✅ | ✅ | · |
 | `css.gradient.radial` | ✅ | ✅ | ❌ | ✅ | · |
+| `css.gradient.conic` | ✅ | ✅ | ❌ | ❌ | · |
 | `css.font.generic` | ✅ | ✅ | ◐ | ◐ | ✅ |
+| `css.font.ui-families` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `css.font.basic` | ✅ | ✅ | ◐ | ◐ | ✅ |
+| `css.font.variant-numeric` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `css.text.align` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `css.text.decoration` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `css.text.transform` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `css.text.white-space` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `css.text.wrap` | ✅ | ✅ | ✅ | ❌ | ✅ |
+| `css.text.overflow` | ✅ | ✅ | ❌ | ❌ | · |
 | `css.text.vertical-align` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `css.text.list-style` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `css.text.rtl` | ✅ | ✅ | ✅ | ◐ | ✅ |
@@ -135,6 +86,8 @@ Membership decided by measurement (D3: in when every client draws it).
 | `css.transform.2d` | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `css.filter.blur-brightness-drop-shadow` * | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `css.backdrop-filter` * | ✅ | ✅ | ❌ | ❌ | · |
+| `css.pointer-events` | ✅ | ✅ | ✅ | ◐ | ✅ |
+| `css.touch-action` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `css.cursor` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `css.value.units` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `css.value.vw` | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -151,6 +104,7 @@ Membership decided by measurement (D3: in when every client draws it).
 | `sel.active` | ✅ | ✅ | – | – | ✅ |
 | `at.media.width` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `at.media.color-scheme` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `at.media.reduced-motion` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `at.supports` | ⏳ | ⏳ | ⏳ | ◐ | ⏳ |
 | `at.keyframes` | ✅ | ✅ | ✅ | ❌ | · |
 | `anim.transition` | ✅ | ✅ | ✅ | ❌ | ✅ |
@@ -191,6 +145,7 @@ Membership decided by measurement (D3: in when every client draws it).
 | `js.storage.local` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.storage.session` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.intl` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `js.intl.format-to-parts` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.locale` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.crypto-random` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.builtins` | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -240,36 +195,73 @@ Membership decided by measurement (D3: in when every client draws it).
 
 | ID | web iframe | web shadow | web blitz | web litehtml | native chromium |
 |---|---|---|---|---|---|
+| `html.el.ruby` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
+| `html.el.legacy` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `html.el.img-svg` | ⏳ | ⏳ | ❌ | ❌ | ⏳ |
 | `html.el.img-other-formats` | ⏳ | ⏳ | ❌ | ❌ | ⏳ |
 | `html.el.img-remote` | ✅ | ✅ | ❌ | ❌ | – |
 | `html.el.forms` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `html.el.progress-meter` | ⏳ | ⏳ | ❗ | ⏳ | ⏳ |
 | `html.el.dialog-popover` | ⏳ | ⏳ | ❗ | ⏳ | ⏳ |
 | `html.el.media` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `html.el.embedding` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `html.attr.legacy-presentational` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `html.attr.contenteditable` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `html.attr.draggable` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `html.attr.tabindex` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `svg.clip-mask` | ⏳ | ⏳ | ❗ | ⏳ | · |
+| `svg.filters` | ⏳ | ⏳ | ⏳ | ⏳ | · |
+| `svg.smil` | ⏳ | ⏳ | ❗ | ⏳ | · |
 | `svg.foreign-object` | ⏳ | ⏳ | ❗ | ⏳ | · |
+| `svg.image` | ⏳ | ⏳ | ⏳ | ❗ | · |
+| `css.display.other` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
+| `css.box.logical` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `css.box.columns` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
 | `css.position.sticky` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
 | `css.overflow.scroll` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `css.color.modern` | ⏳ | ⏳ | ⏳ | ❗ | · |
+| `css.color.mix` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
+| `css.background.clip-text` | ⏳ | ⏳ | ❗ | ❗ | · |
 | `css.url.remote` | ✅ | ✅ | ✅ | ❌ | – |
 | `css.font.named` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `css.font.face` | ✅ | ✅ | ❌ | ✅ | ✅ |
+| `css.text.line-clamp` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
+| `css.text.shadow` | ⏳ | ⏳ | ❗ | ❗ | · |
 | `css.text.writing-mode` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
 | `css.text.selection` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `css.transform.3d` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
+| `css.filter.other` | ⏳ | ⏳ | ❗ | ❗ | · |
 | `css.filter.url` | ⏳ | ⏳ | ❗ | ❗ | · |
+| `css.blend` | ⏳ | ⏳ | ❗ | ❗ | · |
+| `css.clip-path` | ⏳ | ⏳ | ⏳ | ❗ | · |
+| `css.mask` | ⏳ | ⏳ | ⏳ | ❗ | · |
+| `css.value.vh` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `css.value.env` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
+| `sel.has` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
+| `sel.first-letter-line` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
 | `sel.focus` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
 | `sel.form-state` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | `sel.host-scoped` | ❌ | ✅ | ❌ | ✅ | ❌ |
 | `sel.target` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `at.media.hover-pointer` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `at.media.other` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `at.import-namespace` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `at.container` | ⏳ | ⏳ | ✅ | ✅ | ⏳ |
+| `at.layer` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `at.property` | ⏳ | ❗ | ⏳ | ❗ | ⏳ |
 | `at.exotic` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
+| `at.nesting` | ⏳ | ⏳ | ⏳ | ✅ | ◐ |
 | `anim.magic-move` | ✅ | ✅ | ✅ | ✅ | – |
+| `canvas.conic-gradient` | ⏳ | ⏳ | ❗ | ❗ | · |
+| `canvas.pattern` | ⏳ | ⏳ | ❗ | ❗ | · |
+| `canvas.composite` | ⏳ | ⏳ | ⏳ | ⏳ | · |
+| `canvas.shadow` | ⏳ | ⏳ | ⏳ | ⏳ | · |
+| `canvas.filter` | ⏳ | ⏳ | ⏳ | ⏳ | · |
+| `canvas.image-data` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
 | `canvas.readback` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
 | `canvas.webgl` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.focus` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
+| `js.libraries` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `js.network` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.navigation` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.dialogs` | ✅ | ✅ | ✅ | ✅ | – |
@@ -278,6 +270,7 @@ Membership decided by measurement (D3: in when every client draws it).
 | `js.blob-file` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.fullscreen` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.send-message` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `input.touch-events` | – | – | – | – | – |
 | `input.dblclick` | ⏳ | ⏳ | – | – | ⏳ |
 | `input.long-press` | ⏳ | ⏳ | – | – | ⏳ |
 | `input.keyboard` | ⏳ | ⏳ | – | – | ⏳ |
@@ -289,20 +282,20 @@ Membership decided by measurement (D3: in when every client draws it).
 
 ## web iframe: in-profile failures
 
-- `anim.events`: 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName (""); 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName ("")
-- `anim.waapi`: 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5); 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5); 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5); 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5)
-- `canvas.draw-image`: 12-canvas: draw-image (diff 50.4 % of ink (max 5 %)); 12-canvas: draw-image (diff 50.4 % of ink (max 5 %)); 12-canvas: draw-image (diff 50.4 % of ink (max 5 %))
-- `js.dom.query`: 14-dom-layout-api: getElementsByClassName is live (0 → 0); 14-dom-layout-api: getElementsByClassName is live (0 → 0); 14-dom-layout-api: getElementsByClassName is live (0 → 0); 14-dom-layout-api: getElementsByClassName is live (0 → 0)
-- `js.layout.computed-style`: 14-dom-layout-api: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api: shorthand overflow (got "", want "hidden"); 14-dom-layout-api: shorthand margin (got "", want "4px 0px"); 14-dom-layout-api: shorthand white-space (got "", want "nowrap")
+- `anim.events`: 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName ("")
+- `anim.waapi`: 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5)
+- `canvas.draw-image`: 12-canvas: draw-image (diff 50.4 % of ink (max 5 %))
+- `js.dom.query`: 14-dom-layout-api: getElementsByClassName is live (0 → 0)
+- `js.layout.computed-style`: 14-dom-layout-api: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api: shorthand overflow (got "", want "hidden"); 14-dom-layout-api: shorthand margin (got "", want "4px 0px")
 
 ## web shadow: in-profile failures
 
-- `anim.events`: 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName (""); 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName ("")
-- `anim.waapi`: 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5); 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5); 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5); 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5)
-- `canvas.draw-image`: 12-canvas: draw-image (diff 50.4 % of ink (max 5 %)); 12-canvas: draw-image (diff 50.4 % of ink (max 5 %)); 12-canvas: draw-image (diff 50.4 % of ink (max 5 %))
-- `js.dom.query`: 14-dom-layout-api: getElementsByClassName is live (0 → 0); 14-dom-layout-api: getElementsByClassName is live (0 → 0); 14-dom-layout-api: getElementsByClassName is live (0 → 0); 14-dom-layout-api: getElementsByClassName is live (0 → 0)
-- `js.layout.computed-style`: 14-dom-layout-api: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api: shorthand overflow (got "", want "hidden"); 14-dom-layout-api: shorthand margin (got "", want "4px 0px"); 14-dom-layout-api: shorthand white-space (got "", want "nowrap")
-- `input.hover-events`: 17-drag-hover: pointerenter, pointerover, mouseenter reach the widget; 17-drag-hover: pointerenter, pointerover, mouseenter reach the widget; 17-drag-hover: pointerenter, pointerover, mouseenter reach the widget; 17-drag-hover: pointerenter, pointerover, mouseenter reach the widget
+- `anim.events`: 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName ("")
+- `anim.waapi`: 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5)
+- `canvas.draw-image`: 12-canvas: draw-image (diff 50.4 % of ink (max 5 %))
+- `js.dom.query`: 14-dom-layout-api: getElementsByClassName is live (0 → 0)
+- `js.layout.computed-style`: 14-dom-layout-api: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api: shorthand overflow (got "", want "hidden"); 14-dom-layout-api: shorthand margin (got "", want "4px 0px")
+- `input.hover-events`: 17-drag-hover: pointerenter, pointerover, mouseenter reach the widget
 
 ## web blitz: in-profile failures
 
@@ -319,13 +312,16 @@ Membership decided by measurement (D3: in when every client draws it).
 - `svg.structure`: 13-svg: viewBox scales content (10 user units → 20px) (0 at -8); 13-svg: structure (diff 10.9 % of ink (max 5 %))
 - `svg.text`: 13-svg: getComputedTextLength() of a text (0); 13-svg: text (diff 67.7 % of ink (max 50 %); #222 0/696px, #c33 0/235px, #36c 0/204px)
 - `svg.gradients`: 13-svg: gradients (diff 97.1 % of ink (max 5 %))
+- `svg.css`: 13-svg: css (diff 91.9 % of ink (max 5 %))
 - `css.display.table`: 03-layout: table cells side by side, the second takes the rest (0/125 125/75)
 - `css.box.outline`: 05-colour-backgrounds: outline (diff 40.4 % of ink (max 5 %))
 - `css.box.float`: 03-layout: float:left pushes inline text right (text x 0); 03-layout: float:right sits at the right edge (got 30, want 200 ±0.5)
-- `css.background.basic`: 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background (diff 78.1 % of ink (max 5 %))
+- `css.background.basic`: 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background (diff 78.1 % of ink (max 5 %))
 - `css.gradient.radial`: 05-colour-backgrounds: radial (diff 48.9 % of ink (max 5 %))
+- `css.gradient.conic`: 05-colour-backgrounds: conic (diff 72.1 % of ink (max 5 %))
 - `css.font.generic`: 06-text-fonts: monospace: i and M have the same advance (got 22, want 67.5 ±0.5); 06-text-fonts: serif and sans-serif are different faces (112.5 vs 112.5)
 - `css.font.basic`: 06-text-fonts: font-weight: 700 is wider than 400 (59 vs 59)
+- `css.text.overflow`: 06-text-fonts: ellipsis (diff 27.1 % of ink (max 50 %); #36c 0/70px)
 - `css.text.emoji`: 06-text-fonts: emoji (diff 89.6 % of ink (max 50 %))
 - `css.transform.2d`: 09-transforms-effects: translateX(30px) moves the box (got 0, want 30 ±0.5); 09-transforms-effects: rotate(90deg) swaps the bounding box (40x20); 09-transforms-effects: scale(2) with transform-origin 0 0 (110 10); 09-transforms-effects: the translate property (150,0)
 - `css.filter.blur-brightness-drop-shadow`: 09-transforms-effects: blur (diff 37.7 % of ink (max 10 %)); 09-transforms-effects: brightness-drop-shadow (diff 68.0 % of ink (max 5 %))
@@ -379,8 +375,10 @@ Membership decided by measurement (D3: in when every client draws it).
 - `svg.structure`: 13-svg: viewBox scales content (10 user units → 20px) (0 at 0); 13-svg: structure (diff 93.3 % of ink (max 5 %))
 - `svg.text`: 13-svg: getComputedTextLength() of a text (0); 13-svg: text (diff 58.6 % of ink (max 50 %); #222 394/696px, #c33 0/235px, #36c 0/204px)
 - `svg.gradients`: 13-svg: gradients (diff 97.1 % of ink (max 5 %))
+- `svg.css`: 13-svg: a stylesheet fill reaches SVG (computed fill); 13-svg: css (diff 92.9 % of ink (max 5 %))
 - `css.display.flex`: 03-layout: row places children side by side (8,48,88); 03-layout: justify-content: space-between (got 208, want 200 ±0.5); 03-layout: align-items: center (got 247.55, want 10 ±0.5); 03-layout: flex-direction: column stacks (8,280.54998779296875)
 - `css.gap.flex`: 03-layout: gap between flex items (got 48, want 50 ±0.5); 03-layout: row-gap between wrapped lines (got 365.55, want 16 ±0.5); 03-layout: flex (diff 11.8 % of ink (max 5 %))
+- `css.display.grid`: 03-layout: grid-template-columns: 50px 1fr (200 / 0 200); 03-layout: auto-placement wraps to the next row (0,20); 03-layout: repeat(4, 1fr) gives equal tracks (0/200 0/200 0/200 0/200); 03-layout: grid-column: 2 / span 2 on row 2 (0,10 w 200)
 - `css.box.size`: 03-layout: width: fit-content shrinks to the text (w 200)
 - `css.box.border`: 03-layout: border (diff 93.1 % of ink (max 5 %))
 - `css.box.aspect-ratio`: 03-layout: aspect-ratio: 2 makes a 60px wide box 30px high (got 0, want 30 ±0.5)
@@ -392,20 +390,25 @@ Membership decided by measurement (D3: in when every client draws it).
 - `css.overflow.clip`: 03-layout: overflow: hidden is computed (got "", want "hidden"); 03-layout: overflow: clip is computed (got "", want "clip")
 - `css.visibility`: 03-layout: visibility: hidden is skipped by hit testing (p); 03-layout: a hidden box keeps its size
 - `css.opacity`: 03-layout: computed opacity (got "", want "0.5"); 09-transforms-effects: opacity (diff 60.0 % of ink (max 5 %))
-- `css.color.basic`: 05-colour-backgrounds: named colour (got "0,0,0,0", want "102,51,153,1"); 05-colour-backgrounds: currentColor (got "", want "0,0,200,1"); 05-colour-backgrounds: named colour (got "0,0,0,0", want "102,51,153,1"); 05-colour-backgrounds: currentColor (got "", want "0,0,200,1")
-- `css.color.light-dark`: 05-colour-backgrounds: light-dark (diff 100.0 % of ink (max 5 %)); 05-colour-backgrounds: light-dark (diff 100.0 % of ink (max 5 %))
+- `css.color.basic`: 05-colour-backgrounds: named colour (got "0,0,0,0", want "102,51,153,1"); 05-colour-backgrounds: currentColor (got "", want "0,0,200,1"); 05-colour-backgrounds: basic (diff 25.0 % of ink (max 5 %))
+- `css.color.light-dark`: 05-colour-backgrounds: light-dark (diff 100.0 % of ink (max 5 %))
 - `css.background.basic`: 05-colour-backgrounds: background-image keeps the data: image; 05-colour-backgrounds: background-size (got "", want "10px 12px"); 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background-repeat (got "", want "no-repeat")
+- `css.gradient.conic`: 05-colour-backgrounds: conic (diff 56.5 % of ink (max 5 %))
 - `css.font.generic`: 06-text-fonts: computed font-family keeps the generic name
 - `css.font.basic`: 06-text-fonts: font-style: italic (got "", want "italic"); 06-text-fonts: font shorthand ( 15px)
+- `css.font.variant-numeric`: 06-text-fonts: tabular-nums: 1111 as wide as 0000 (got 23.82, want 32.45 ±0.5); 06-text-fonts: font-feature-settings "tnum" (got 23.82, want 32.45 ±0.5)
 - `css.text.align`: 06-text-fonts: text-align: center (got 0, want 60 ±1); 06-text-fonts: text-align: right (got 0, want 120 ±1); 06-text-fonts: text-indent (got 0, want 20 ±1)
 - `css.text.decoration`: 06-text-fonts: text-decoration: underline
 - `css.text.transform`: 06-text-fonts: letter-spacing: 5px adds 5px per letter (got 0, want 20 ±1.5); 06-text-fonts: word-spacing: 10px adds 10px per space (got 0, want 20 ±1.5)
 - `css.text.wrap`: 06-text-fonts: overflow-wrap: anywhere breaks a long word (40x16); 06-text-fonts: word-break: break-all breaks a long word (16)
+- `css.text.overflow`: 06-text-fonts: ellipsis (diff 15.1 % of ink (max 50 %); #36c 0/70px)
 - `css.text.list-style`: 06-text-fonts: list-style-position: inside moves the text right (48 vs 48); 06-text-fonts: list-style-type: none (got "", want "none")
 - `css.text.rtl`: 06-text-fonts: Hebrew in dir=rtl starts at the right edge (got 8, want 128 ±1)
 - `css.transform.2d`: 09-transforms-effects: translateX(30px) moves the box (got 0, want 30 ±0.5); 09-transforms-effects: rotate(90deg) swaps the bounding box (40x20); 09-transforms-effects: scale(2) with transform-origin 0 0 (110 10); 09-transforms-effects: the translate property (150,0)
 - `css.filter.blur-brightness-drop-shadow`: 09-transforms-effects: filter functions are kept; 09-transforms-effects: blur (diff 37.7 % of ink (max 10 %)); 09-transforms-effects: brightness-drop-shadow (diff 68.1 % of ink (max 5 %))
 - `css.backdrop-filter`: 09-transforms-effects: backdrop (diff 91.1 % of ink (max 10 %))
+- `css.pointer-events`: 09-transforms-effects: pointer-events: none lets hits through (pe-over)
+- `css.touch-action`: 09-transforms-effects: touch-action reaches the renderer (got "", want "none")
 - `css.cursor`: 09-transforms-effects: cursor reaches the renderer (got "", want "pointer")
 - `css.value.units`: 04-values-units: ch is the width of "0" (got 78.01, want 0 ±1)
 - `css.value.math`: 04-values-units: calc(50% - 10px) (got 200, want 90 ±0.5); 04-values-units: min(50px, 30%) (got 200, want 50 ±0.5); 04-values-units: max(10px, 20%) (got 200, want 40 ±0.5); 04-values-units: clamp(20px, 50%, 60px) (got 200, want 60 ±0.5)
@@ -414,7 +417,7 @@ Membership decided by measurement (D3: in when every client draws it).
 - `css.value.content`: 04-values-units: ::before content takes space (0); 04-values-units: content: attr(data-label) (0); 04-values-units: counters: counter-reset / increment / counter(); 04-values-units: quotes
 - `sel.structural`: 07-selectors: :empty (got "29,0,0,1", want "28,0,0,1")
 - `sel.before-after`: 07-selectors: ::before box takes space (got "0", want "ok"); 07-selectors: ::after computed style (got "17,17,17,1", want "51,0,0,1")
-- `at.supports`: 08-at-rules: @supports (gap) holds (got "0,0,0,1", want "23,0,0,1"); 08-at-rules: @supports (gap) holds (got "0,0,0,1", want "23,0,0,1")
+- `at.supports`: 08-at-rules: @supports (gap) holds (got "0,0,0,1", want "23,0,0,1")
 - `at.keyframes`: 10-css-animations: keyframes (diff 100.0 % of ink (max 5 %))
 - `anim.transition`: 10-css-animations: a transition with a negative delay starts part-way (got 110, want 35 ±1); 10-css-animations: transition (diff 100.0 % of ink (max 5 %))
 - `anim.keyframes`: 10-css-animations: a paused animation at -2.5s of 10s is at 25% (got "", want 10 ±0.5); 10-css-animations: keyframes (diff 100.0 % of ink (max 5 %)); 10-css-animations: alternate (diff 100.0 % of ink (max 5 %)); 10-css-animations: colour (diff 100.0 % of ink (max 5 %))

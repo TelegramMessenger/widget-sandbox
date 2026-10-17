@@ -12,8 +12,28 @@ import { CATALOGUE, CATALOGUE_VERSION, DECISIONS, type Feature } from './catalog
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 const dir = path.join(root, 'packages', 'conformance');
 
+/** packages/core/profile.json, when this branch has it, is the single source: its statuses, decisions and neutralisations win. */
+function overlayProfile(): string[] {
+  const file = path.join(root, 'packages', 'core', 'profile.json');
+  if (!fs.existsSync(file)) return [];
+  const profile = JSON.parse(fs.readFileSync(file, 'utf8')) as { profile: number; decisions: Record<string, string>; features: Feature[] };
+  const notes: string[] = [];
+  const byId = new Map(profile.features.map((f) => [f.id, f]));
+  for (const f of CATALOGUE) {
+    const p = byId.get(f.id);
+    if (!p) { notes.push(`${f.id}: not in profile.json`); continue; }
+    f.status = p.status; f.decision = p.decision;
+    if (p.neutralise) f.neutralise = p.neutralise; else delete f.neutralise;
+  }
+  for (const id of byId.keys()) if (!CATALOGUE.some((f) => f.id === id)) notes.push(`${id}: in profile.json, not in the catalogue`);
+  Object.assign(DECISIONS, profile.decisions);
+  return notes;
+}
+
 export function emitCatalogue(): void {
   fs.mkdirSync(dir, { recursive: true });
+  const profileNotes = overlayProfile();
+  if (profileNotes.length) console.log('profile.json: ' + profileNotes.join('; '));
   const ids = new Set<string>();
   for (const f of CATALOGUE) {
     if (ids.has(f.id)) throw new Error('duplicate catalogue id ' + f.id);

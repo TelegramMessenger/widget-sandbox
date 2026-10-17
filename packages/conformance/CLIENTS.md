@@ -13,7 +13,7 @@ You need three things: the framework tag, your own host and renderer, and Node �
 | `auto/*.html` | The automatic set: 21 widgets that check themselves. Required. |
 | `visual/*.html` | The visual set: 13 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
-| `catalogue.json` | The profile features with their IDs and status (in / out / candidate). `version` is the profile version. |
+| `catalogue.json` | The profile features with their IDs and status (in / out), as `packages/core/profile.json` freezes them, plus the SDK v1 limits. `version` is the profile version. |
 | `refs/` | Reference PNGs of the stages (headless Chromium, DPR 2). |
 | `run.schema.json` | The run file your runner writes. |
 | `tools/report.mjs` | Turns run files into the report. |
@@ -150,7 +150,7 @@ Verdict per catalogue ID:
 
 How to read them by status:
 - **in**: your renderer must pass these. Report ❌ and ◐ to the widget-sandbox maintainers.
-- **candidate**: the profile takes a candidate when every client passes it, so your column decides.
+- **candidate**: profile 1 has none. Candidates come back with profile 2, and the profile takes one when every client passes it.
 - **out**: ✅ means the feature is neutralised as the profile says.
 
 Send `<platform>-<renderer>.json` and `summary.md` to the widget-sandbox maintainers, or open a PR adding them to `packages/conformance/results/`.

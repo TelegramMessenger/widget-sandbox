@@ -293,7 +293,7 @@ T.step(function () {
 
   T.near('css.value.vw', '50vw is half the bubble width (innerWidth)', W('#vw'), window.innerWidth / 2, 1);
   T.near('css.value.vw', '50vw is half the root width', W('#vw'), document.documentElement.clientWidth / 2, 1);
-  T.near('css.value.vh', '10vh agrees with innerHeight', R('#vh').h, window.innerHeight / 10, 1);
+  T.near('css.value.vh', 'height: 10vh is dropped: the empty box has no height (profile 1: out)', R('#vh').h, 0, 0.5, { xfail: 'the validator does not enforce profile 1 yet' });
 
   T.near('css.value.math', 'calc(50% - 10px)', W('#calc'), 90, 0.5);
   T.near('css.value.math', 'min(50px, 30%)', W('#min'), 50, 0.5);
