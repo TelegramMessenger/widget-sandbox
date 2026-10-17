@@ -107,6 +107,7 @@ const REWRITES = PROFILE_CSS.rewrite as Record<string, Record<string, string>>;
 const FILTER_FUNCTIONS = new Set<string>(PROFILE_CSS.filterFunctions);
 const TRANSFORM_3D = new Set<string>(PROFILE_CSS.transform3d);
 const FONT_FALLBACK = PROFILE_CSS.fonts.fallback as Record<string, string>;
+const FONT_ALIASES = PROFILE_CSS.fonts.aliases as Record<string, string>;
 const PSEUDO_REWRITE = PROFILE_CSS.pseudoRewrite as Record<string, string>;
 const GLOBAL_KEYWORDS = new Set(['inherit', 'initial', 'unset', 'revert', 'revert-layer']);
 const FONT_SIZE_KEYWORDS = new Set(['xx-small', 'x-small', 'small', 'medium', 'large', 'x-large', 'xx-large', 'xxx-large', 'smaller', 'larger']);
@@ -323,9 +324,11 @@ function fontTokenKind(n: csstree.CssNode) {
 }
 
 /**
- * A font-family list reduced to the profile's generic families (D3b): named
- * families are removed, `ui-monospace` & co. get their basic generic after them
- * (only WebKit resolves them), an empty list becomes `system-ui`.
+ * A font-family list reduced to the profile's generic families (D3b): the
+ * vendor names of the system UI font (`-apple-system`, `BlinkMacSystemFont`)
+ * become `system-ui`, other named families are removed, `ui-monospace` & co.
+ * get their basic generic after them (only WebKit resolves them), an empty
+ * list becomes `system-ui`.
  */
 function genericFamilies(items: csstree.CssNode[], diag: Diag): csstree.CssNode[] {
   const groups: csstree.CssNode[][] = [[]];
@@ -339,7 +342,15 @@ function genericFamilies(items: csstree.CssNode[], diag: Diag): csstree.CssNode[
     if (g.length === 0) continue;
     if (g.some((n) => n.type === 'Function')) { kept.push(g); continue; }
     const name = g.length === 1 ? ident(g[0]) : null;
+    const alias = name && Object.prototype.hasOwnProperty.call(FONT_ALIASES, name) ? FONT_ALIASES[name] : null;
+    if (alias) {
+      diag('profile', `font-family: ${name} → ${alias}`);
+      if (!names.has(alias)) kept.push([{ type: 'Identifier', name: alias }]);
+      names.add(alias);
+      continue;
+    }
     if (name && (isGenericFont(name) || GLOBAL_KEYWORDS.has(name))) {
+      if (names.has(name)) continue;
       kept.push(g);
       names.add(name);
       continue;

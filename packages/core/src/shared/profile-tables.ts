@@ -743,6 +743,10 @@ export const PROFILE_CSS = {
    "ui-monospace": "monospace",
    "ui-rounded": "sans-serif"
   },
+  "aliases": {
+   "-apple-system": "system-ui",
+   "blinkmacsystemfont": "system-ui"
+  },
   "default": "system-ui"
  },
  "pseudoClasses": [

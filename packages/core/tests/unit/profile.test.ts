@@ -220,6 +220,14 @@ describe('widget profile: elements, attributes, events and methods in the valida
     for (const e of ['keydown', 'keyup', 'keypress', 'input', 'change', 'submit', 'focus', 'blur', 'focusin', 'dblclick', 'contextmenu', 'touchstart', 'wheel', 'scroll']) assert.ok(!EVENT_TYPES.includes(e), e);
     for (const e of ['click', 'pointerdown', 'pointermove', 'pointerenter', 'mouseenter', 'toggle', 'transitionend']) assert.ok(EVENT_TYPES.includes(e), e);
   });
+  it('font families: the system font\'s vendor names become system-ui, named families go, ui-* get their fallback', () => {
+    const font = (v: string) => sanitizeStyleProperty('font-family', v, () => {})?.value;
+    assert.equal(font('-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'), 'system-ui,sans-serif');
+    assert.equal(font('-apple-system, system-ui, sans-serif'), 'system-ui,sans-serif');
+    assert.equal(font('"Inter"'), 'system-ui');
+    assert.equal(font('ui-monospace, SFMono-Regular, Menlo'), 'ui-monospace,monospace');
+    assert.equal(sanitizeStyleProperty('font', '600 14px/1.2 -apple-system, sans-serif', () => {})?.value, '600 14px/1.2 system-ui,sans-serif');
+  });
   it('matchMedia answers false outside the profile; prefers-reduced-motion follows the client', () => {
     const v = new Validator(() => {});
     assert.equal(v.rewriteMediaQuery('(hover: hover)'), '(min-width: 99999px)');

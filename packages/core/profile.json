@@ -760,6 +760,10 @@
      "ui-monospace": "monospace",
      "ui-rounded": "sans-serif"
     },
+    "aliases": {
+     "-apple-system": "system-ui",
+     "blinkmacsystemfont": "system-ui"
+    },
     "default": "system-ui"
    },
    "pseudoClasses": [
@@ -2189,7 +2193,7 @@
    "title": "font-family naming a font (\"Helvetica\", \"Courier New\", \"Comic Sans MS\", …)",
    "status": "out",
    "decision": "D3b",
-   "neutralise": "the validator drops non-generic names from the list; an empty list falls back to the default (system-ui)",
+   "neutralise": "the validator drops non-generic names from the list; -apple-system and BlinkMacSystemFont, the vendor names of the system UI font, become system-ui; an empty list falls back to the default (system-ui)",
    "match": {
     "properties": [
      "font-family",
