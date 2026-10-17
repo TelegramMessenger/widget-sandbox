@@ -1,12 +1,13 @@
 <!--
   common profile: only what WebView, Blitz and litehtml all render (corpus/common/README.md)
   idea: three pricing tiers side by side, the middle one highlighted; monthly/yearly toggle rewrites the prices
+  (the billing period is kept in localStorage and restored on load; Upgrade opens the checkout with openLink)
 -->
 <style>
   :root { --fg: #000; --muted: #6e6e73; --card: #fff; --fill: rgba(127,127,127,0.12); --fill2: rgba(127,127,127,0.22); --border: rgba(0,0,0,0.10);
     --blue: #007aff; --green: #34c759; --red: #ff3b30; --orange: #ff9500; --purple: #af52de; --teal: #30b0c7; }
   @media (prefers-color-scheme: dark) { :root { --fg: #fff; --muted: #98989d; --card: #1c1c1e; --border: rgba(255,255,255,0.14); } }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
   .card { width: 392px; max-width: 100%; box-sizing: border-box; background-color: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
   .row { display: flex; align-items: center; } .between { justify-content: space-between; } .grow { flex-grow: 1; flex-basis: 0; }
   .muted { color: var(--muted); } .small { font-size: 12px; } .tiny { font-size: 11px; } .bold { font-weight: 700; }
@@ -42,34 +43,44 @@
       <div class="nm">Starter</div>
       <div class="pr"><span class="p" data-m="0" data-y="0">€0</span><span class="per muted"> /mo</span></div>
       <ul><li><span class="tick"></span>1 project</li><li><span class="tick"></span>Community help</li><li class="no"><span class="tick"></span>Custom domain</li><li class="no"><span class="tick"></span>Analytics</li></ul>
-      <span class="btn" role="button" data-plan="Starter">Current</span>
+      <span class="btn" role="button">Current</span>
     </div>
     <div class="tier hot">
       <div class="ribbon">Most popular</div>
       <div class="nm">Pro</div>
       <div class="pr"><span class="p" data-m="12" data-y="9.60">€12</span><span class="per muted"> /mo</span></div>
       <ul><li><span class="tick"></span>Unlimited projects</li><li><span class="tick"></span>Priority support</li><li><span class="tick"></span>Custom domain</li><li class="no"><span class="tick"></span>Analytics</li></ul>
-      <span class="btn primary" role="button" data-plan="Pro">Upgrade</span>
+      <span class="btn primary" role="button" data-plan="pro">Upgrade</span>
     </div>
     <div class="tier">
       <div class="nm">Team</div>
       <div class="pr"><span class="p" data-m="29" data-y="23.20">€29</span><span class="per muted"> /mo</span></div>
       <ul><li><span class="tick"></span>Everything in Pro</li><li><span class="tick"></span>5 seats</li><li><span class="tick"></span>SSO</li><li><span class="tick"></span>Analytics</li></ul>
-      <span class="btn" role="button" data-plan="Team">Upgrade</span>
+      <span class="btn" role="button" data-plan="team">Upgrade</span>
     </div>
   </div>
 </div>
 <script>
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
 const seg = document.getElementById('seg');
+let period = (store.get('pricing') || {}).period === 'y' ? 'y' : 'm';
+function paint() {
+  for (const c of seg.children) c.classList.toggle('on', c.dataset.period === period);
+  for (const p of document.querySelectorAll('.p')) p.textContent = '€' + (period === 'y' ? p.dataset.y : p.dataset.m);
+}
+if (period === 'y') paint();
 seg.addEventListener('click', e => {
   const s = e.target.closest('[data-period]');
   if (!s) return;
-  for (const c of seg.children) c.classList.toggle('on', c === s);
-  const y = s.dataset.period === 'y';
-  for (const p of document.querySelectorAll('.p')) p.textContent = '€' + (y ? p.dataset.y : p.dataset.m);
+  period = s.dataset.period;
+  store.set('pricing', { period });
+  paint();
 });
 document.querySelector('.tiers').addEventListener('click', e => {
   const b = e.target.closest('[data-plan]');
-  if (b && typeof TelegramWidget !== 'undefined') TelegramWidget.sendMessage('Upgrade me to ' + b.dataset.plan);
+  if (b && typeof TelegramWidget !== 'undefined') TelegramWidget.openLink('https://example.com/billing/upgrade?plan=' + b.dataset.plan + '&period=' + (period === 'y' ? 'yearly' : 'monthly'));
 });
 </script>

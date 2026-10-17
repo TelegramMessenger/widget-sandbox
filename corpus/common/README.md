@@ -34,14 +34,20 @@ by rendering every file on both; see Status):
 - `var(--…)` custom properties; the theme is `:root` variables overridden under
   `@media (prefers-color-scheme: dark)` (the validator rewrites that query for
   every renderer; `light-dark()` is unknown to litehtml)
-- `font-size/weight/family` (system sans and `ui-monospace`), `line-height`,
+- `font-size/weight/family` (`system-ui, sans-serif` and `ui-monospace, monospace`:
+  widget profile 1 keeps the generic families only), `line-height`,
   `text-align`, `text-decoration: line-through`, `text-transform: uppercase`
   (ASCII only), `white-space: nowrap`, `min-/max-width/height`, `box-sizing`,
   negative margins, `[hidden]`
 - JS: `textContent`, `classList`, `style.width/height/backgroundColor/marginLeft`,
   `innerHTML` / `insertAdjacentHTML`, `hidden`, click delegation on `data-*`
-  attributes, `setTimeout` / `setInterval` / `requestAnimationFrame`,
-  `TelegramWidget.sendMessage`
+  attributes, `setTimeout` / `setInterval` / `requestAnimationFrame`
+- SDK v1: what the user chose is local state — `localStorage` (kept by the client
+  per message, restored on load: the follow toggle, the carousel's bag, the
+  billing period, dismissed notifications and their notes, the cart's
+  quantities) — and linking out is `TelegramWidget.openLink('https://example.com/…')`
+  called in the tap's click handler. Both are guarded: reference mode has no
+  `TelegramWidget`, and storage access goes through a `try`/`catch` helper.
 
 Kept out on purpose (one side lacks it, or it is untested there):
 
@@ -85,7 +91,14 @@ CORPUS=common scripts/android-bench.sh webview 20 ; CORPUS=common scripts/androi
 like the other groups; the groups appear in the pickers and under **Run the
 common-profile corpus**.
 
-## Status (2026-10-10)
+## Status (2026-10-10; profile 1 and SDK v1 on 2026-10-17)
+
+2026-10-17: the prelude's font list is `system-ui, sans-serif` (the validator
+rewrote `-apple-system`, a `validator:profile` diagnostic in every file), and
+the actions that used to post a message on the user's behalf keep local state
+or open a link (`cards/01`, `02`, `04`, `05`, `07`, `interactive/05`; the FAQ in
+`interactive/02` says so). The Node harness is clean on all 32 again, in the
+document and the shadow scope; the suites below were not re-run for that change.
 
 32 files. Every file passes the Node harness (no errors, no validator
 diagnostics) and loads without JS errors on every renderer that exists today:
