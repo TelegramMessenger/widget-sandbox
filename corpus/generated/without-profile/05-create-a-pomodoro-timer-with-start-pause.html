@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pomodoro Timer</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #fef2f2; display: flex; flex-direction: column; align-items: center; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #fef2f2; display: flex; flex-direction: column; align-items: center; }
   .ring { position: relative; width: 220px; height: 220px; }
   svg { transform: rotate(-90deg); }
   circle { fill: none; stroke-width: 12; }
@@ -19,6 +19,7 @@
   .modes { display: flex; gap: 6px; margin-bottom: 16px; }
   .modes button { background: #fff; color: #7f1d1d; border: 1px solid #fecaca; padding: 6px 12px; font-size: 13px; }
   .modes button.active { background: #7f1d1d; color: #fff; }
+  .done { margin-top: 12px; font-size: 14px; color: #991b1b; min-height: 20px; }
 </style>
 </head>
 <body>
@@ -38,9 +39,10 @@
   <button id="start">Start</button>
   <button class="secondary" id="reset">Reset</button>
 </div>
+<div class="done" id="done"></div>
 <script>
   let total = 25 * 60, left = total, timer = null;
-  const clock = document.getElementById('clock'), fg = document.getElementById('fg'), startBtn = document.getElementById('start');
+  const clock = document.getElementById('clock'), fg = document.getElementById('fg'), startBtn = document.getElementById('start'), doneEl = document.getElementById('done');
   const C = 2 * Math.PI * 100;
   function render() {
     const m = Math.floor(left / 60), s = left % 60;
@@ -50,19 +52,21 @@
   }
   function tick() {
     if (left > 0) { left--; render(); }
-    if (left === 0) { clearInterval(timer); timer = null; startBtn.textContent = 'Start'; if (Notification && Notification.permission === 'granted') new Notification('Time is up!'); else alert('Time is up!'); }
+    // No notifications or alert() in a widget: the message is shown under the controls.
+    if (left === 0) { clearInterval(timer); timer = null; startBtn.textContent = 'Start'; doneEl.textContent = '⏰ Time is up!'; }
   }
   startBtn.onclick = () => {
+    doneEl.textContent = '';
     if (timer) { clearInterval(timer); timer = null; startBtn.textContent = 'Resume'; }
     else { timer = setInterval(tick, 1000); startBtn.textContent = 'Pause'; }
   };
-  document.getElementById('reset').onclick = () => { clearInterval(timer); timer = null; left = total; startBtn.textContent = 'Start'; render(); };
+  document.getElementById('reset').onclick = () => { clearInterval(timer); timer = null; left = total; startBtn.textContent = 'Start'; doneEl.textContent = ''; render(); };
   document.querySelectorAll('.modes button').forEach(b => b.onclick = () => {
     document.querySelectorAll('.modes button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     total = left = b.dataset.min * 60;
     document.getElementById('label').textContent = b.textContent.toUpperCase();
-    clearInterval(timer); timer = null; startBtn.textContent = 'Start'; render();
+    clearInterval(timer); timer = null; startBtn.textContent = 'Start'; doneEl.textContent = ''; render();
   });
   render();
 </script>

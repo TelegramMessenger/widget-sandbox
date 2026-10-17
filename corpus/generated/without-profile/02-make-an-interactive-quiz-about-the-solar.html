@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Solar System Quiz</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 16px; background: linear-gradient(135deg, #0f172a, #1e293b); color: #f1f5f9; min-height: 100vh; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: linear-gradient(135deg, #0f172a, #1e293b); color: #f1f5f9; }
   .quiz { max-width: 420px; margin: 0 auto; }
   h2 { font-size: 20px; margin: 0 0 4px; }
   .progress { font-size: 13px; color: #94a3b8; margin-bottom: 16px; }
@@ -14,7 +14,7 @@
   .option:hover { background: #475569; }
   .option.correct { border-color: #22c55e; background: #14532d; }
   .option.wrong { border-color: #ef4444; background: #7f1d1d; }
-  .option:disabled { cursor: default; }
+  .option[disabled] { cursor: default; }
   .next { margin-top: 8px; padding: 12px 20px; background: #3b82f6; color: #fff; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; display: none; }
   .score { text-align: center; padding: 30px 0; }
   .score .num { font-size: 56px; font-weight: 700; color: #fbbf24; }
@@ -28,6 +28,7 @@
   <div id="options"></div>
   <button class="next" id="next">Next →</button>
 </div>
+<div class="quiz score" id="result" style="display:none"></div>
 <script>
   const questions = [
     { q: 'Which planet is closest to the Sun?', a: ['Venus', 'Mercury', 'Earth', 'Mars'], c: 1 },
@@ -58,11 +59,16 @@
       oEl.appendChild(b);
     });
   }
+  const quiz = document.getElementById('quiz'), result = document.getElementById('result');
   nEl.onclick = () => {
     i++;
     if (i < questions.length) show();
     else {
-      document.getElementById('quiz').innerHTML = `<div class="score"><div>Your score</div><div class="num">${score}/${questions.length}</div><div>${score === 5 ? '🌟 Perfect!' : score >= 3 ? '👍 Nice work!' : '📚 Keep exploring!'}</div><button class="next" style="display:inline-block;margin-top:20px" onclick="location.reload()">Try again</button></div>`;
+      // A widget cannot reload itself: "Try again" restarts the quiz in place.
+      quiz.style.display = 'none';
+      result.style.display = '';
+      result.innerHTML = `<div>Your score</div><div class="num">${score}/${questions.length}</div><div>${score === 5 ? '🌟 Perfect!' : score >= 3 ? '👍 Nice work!' : '📚 Keep exploring!'}</div><button class="next" id="again" style="display:inline-block;margin-top:20px">Try again</button>`;
+      document.getElementById('again').onclick = () => { i = 0; score = 0; result.style.display = 'none'; quiz.style.display = ''; show(); };
     }
   };
   show();

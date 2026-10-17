@@ -7,7 +7,7 @@
 <style>
   :root { color-scheme: light dark; --bg: #f8fafc; --fg: #0f172a; --muted: #64748b; --card: #fff; --opt: #e2e8f0; --accent: #2563eb; }
   @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --fg: #f1f5f9; --muted: #94a3b8; --card: #1e293b; --opt: #334155; --accent: #60a5fa; } }
-  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 14px; background: var(--bg); color: var(--fg); }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 14px; background: var(--bg); color: var(--fg); }
   h2 { font-size: 18px; margin: 0 0 2px; }
   .progress { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
   .bar { height: 4px; background: var(--opt); border-radius: 2px; margin-bottom: 14px; overflow: hidden; }
@@ -19,6 +19,7 @@
   .next { margin-top: 6px; padding: 11px 18px; background: var(--accent); color: #fff; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; }
   .score { text-align: center; padding: 24px 0; }
   .score .num { font-size: 52px; font-weight: 700; color: var(--accent); }
+  .score .best { margin-top: 6px; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -38,6 +39,11 @@
     { q: 'Which planet is known as the Red Planet?', a: ['Mars', 'Venus', 'Mercury', 'Jupiter'], c: 0 },
     { q: 'How many planets are in the Solar System?', a: ['7', '8', '9', '10'], c: 1 },
   ];
+  // The best score is kept in this message's localStorage (it survives the widget being re-created).
+  var store = {
+    get: function (k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
   var i = 0, score = 0;
   var qEl = document.getElementById('question'), oEl = document.getElementById('options'), nEl = document.getElementById('next'), pEl = document.getElementById('progress');
   function show() {
@@ -70,9 +76,10 @@
     document.getElementById('fill').style.width = '100%';
     pEl.textContent = 'Done';
     qEl.textContent = '';
-    oEl.innerHTML = '<div class="score"><div>Your score</div><div class="num">' + score + '/' + questions.length + '</div><div>' + msg + '</div></div>';
+    var best = Math.max(score, store.get('quiz-best') || 0);
+    store.set('quiz-best', best);
+    oEl.innerHTML = '<div class="score"><div>Your score</div><div class="num">' + score + '/' + questions.length + '</div><div>' + msg + '</div><div class="best">Best so far: ' + best + '/' + questions.length + '</div></div>';
     nEl.textContent = 'Play again';
-    if (window.TelegramWidget) TelegramWidget.sendMessage('Solar System Quiz: ' + score + '/' + questions.length);
   };
   show();
 </script>
