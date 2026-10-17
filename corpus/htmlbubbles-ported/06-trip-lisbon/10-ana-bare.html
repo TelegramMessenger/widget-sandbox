@@ -9,7 +9,7 @@
     --fg: light-dark(#000, #fff); --muted: light-dark(#6e6e73, #98989d);
     --card: light-dark(#fff, #1c1c1e); --border: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
     --blue: #007aff; --blue-h: #0a6ee0; --green: #34c759; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.3; color: var(--fg); }
   [hidden] { display: none !important; }
   .card { background-color: var(--card); border: 1px solid var(--border); border-radius: 14px; color: var(--fg); }
   .pad { padding: 12px 14px; }
@@ -61,7 +61,7 @@
 <div class="card pad pk" id="root">
   <div class="row">
     <div class="ring">
-      <svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="25" fill="none" stroke="rgba(127,127,127,0.22)" stroke-width="7"/><circle id="arc" cx="30" cy="30" r="25" fill="none" stroke="#34c759" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 157.08" transform="rotate(-90 30 30)" hidden/></svg>
+      <svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="25" fill="none" stroke="rgba(127,127,127,0.22)" stroke-width="7"/><circle id="arc" cx="30" cy="30" r="25" fill="none" stroke="#34c759" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 157.08" transform="rotate(-90 30 30)" style="display: none"/></svg>
       <div class="pc" id="pc">0%</div></div>
     <div class="grow"><b style="font-size: 16px">🧳 Packing list</b><div class="small muted" id="sub"></div></div>
     <button class="primary" id="all">Pack everything</button><button id="reset" hidden>↺ Unpack</button>
@@ -128,7 +128,7 @@ root.addEventListener('animationend', e => {
 const C = 2 * Math.PI * 25;
 function drawRing() {
   const arc = $('arc');
-  arc.hidden = ring <= 0.001;
+  arc.style.display = ring <= 0.001 ? 'none' : ''; // SVG has no hidden attribute (dropped by the validator)
   arc.setAttribute('stroke-dasharray', `${(C * ring).toFixed(2)} ${C.toFixed(2)}`);
   arc.setAttribute('stroke', mix('#34c759', '#ffcc00', glow));
   $('pc').textContent = Math.round(ring * 100) + '%';
