@@ -13,7 +13,7 @@ You need three things: the framework tag, your own host and renderer, and Node �
 | `auto/*.html` | The automatic set: 21 widgets that check themselves. Required. |
 | `visual/*.html` | The visual set: 13 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
-| `catalogue.json` | The profile features with their IDs and status (in / out / candidate). `version` is the profile version. |
+| `catalogue.json` | The profile features with their IDs and status (in / out), as `packages/core/profile.json` freezes them, plus the SDK v1 limits. `version` is the profile version. |
 | `refs/` | Reference PNGs of the stages (headless Chromium, DPR 2). |
 | `run.schema.json` | The run file your runner writes. |
 | `tools/report.mjs` | Turns run files into the report. |
@@ -150,10 +150,35 @@ Verdict per catalogue ID:
 
 How to read them by status:
 - **in**: your renderer must pass these. Report ❌ and ◐ to the widget-sandbox maintainers.
-- **candidate**: the profile takes a candidate when every client passes it, so your column decides.
+- **candidate**: profile 1 has none. Candidates come back with profile 2, and the profile takes one when every client passes it.
 - **out**: ✅ means the feature is neutralised as the profile says.
 
 Send `<platform>-<renderer>.json` and `summary.md` to the widget-sandbox maintainers, or open a PR adding them to `packages/conformance/results/`.
+
+## The client SDK group (`visual/sdk/`)
+
+Seventeen small widgets test what **your client** implements on its side of SDK v1 (`docs/sdk-v1.md`, §5):
+- links (the confirmation with the full URL, t.me inside the client, rejected and over-long URLs, no link from a timer);
+- haptics of each kind and the rate limit;
+- storage (re-creation, app restart, deletion with the message, the 16 KB quota);
+- stopping after 2 consecutive crashes;
+- drag versus swipe-to-reply, with double tap and long press staying with the bubble;
+- the hard clip at the maximum height;
+- the theme palette with a live switch.
+
+Three of them wait for the server: storage of a forwarded copy, a bot editing the message, and the bubble size hint. They are here so you can build your side against them.
+
+Each widget is a v1 mini-widget (at most 4 KB gzipped). It carries a one-line instruction for the tester. Its expected client behaviour, contract section and reference picture are in [`visual/sdk/README.md`](visual/sdk/README.md), the post list for the test channel. Post the picture (`refs/visual/sdk/<name>.png`, plus `.dark.png` for the palette) as a separate image next to the widget.
+
+The automatic set checks the framework side of the same contract. In `auto/16`, `auto/15` and `auto/20` that covers:
+- argument checks and `TypeError`;
+- the 256-character URL limit and 16 handlers per event type;
+- the haptics bucket seen on the bridge;
+- `QuotaExceededError`;
+- `themeParams` on a theme switch;
+- `isActive`.
+
+They need SDK v1 in the framework (`docs/sdk-v1.md`).
 
 ## The visual set in the test channel
 
@@ -161,4 +186,4 @@ Send `<platform>-<renderer>.json` and `summary.md` to the widget-sandbox maintai
 
 ## When the framework changes
 
-The set belongs to the tag. When you update the framework, rerun: `catalogue.json` `version` is the profile version, and the manifest says what each test covers. Checks marked ⏳ turn into passes as the framework starts enforcing the profile (the validator dropping out-of-profile features, `CSS.supports` and `@supports` answered from the profile, `TelegramWidget.profile`), with no change on your side.
+The set belongs to the tag. When you update the framework, rerun: `catalogue.json` `version` is the profile version, and the manifest says what each test covers. The set expects a framework that enforces profile 1 (the validator neutralises the out features, `CSS.supports` and `@supports` answer from the profile, the renderer draws an unstyled `<button>` with the profile's UA stylesheet) and implements SDK v1. A check marked ⏳ is one the framework does not do yet; it turns into a pass when that lands in your tag, with no change on your side.

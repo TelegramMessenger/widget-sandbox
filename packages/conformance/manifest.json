@@ -23,14 +23,20 @@
   }
  },
  "coverage": {
-  "auto": 240,
-  "visual": 87,
-  "catalogue": 244,
+  "auto": 245,
+  "visual": 105,
+  "catalogue": 255,
   "external": {
    "limit.nodes": "corpus/attacks (pnpm test:attacks): node flood",
    "limit.cpu": "corpus/attacks and tests/lifecycle.spec.ts: CPU quota, deferral, kill",
    "limit.memory": "corpus/attacks (pnpm test:attacks): memory cap",
-   "limit.html-size": "server-side (D20): not a client check"
+   "limit.html-size": "server-side (D20): not a client check",
+   "behaviour.restart": "visual/sdk/11-crash-restart (client behaviour)",
+   "behaviour.gesture-claim": "visual/sdk/12-drag-gestures (client behaviour)",
+   "behaviour.storage-persist": "visual/sdk/07, 08, 09 (client behaviour)",
+   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour; waits for the server)",
+   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour; waits for the server)",
+   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour; waits for the server)"
   },
   "notInAuto": [],
   "outNotInAuto": []
@@ -293,58 +299,58 @@
     },
     {
      "id": "html.el.ruby",
-     "name": "rt is drawn above the base",
+     "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.ruby",
-     "name": "rt is smaller",
+     "name": "rt keeps the text size (a plain span)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
-     "name": "center centres",
+     "name": "center becomes a div: no centring",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
-     "name": "font color=red",
+     "name": "font becomes a span: color=red is dropped",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
-     "name": "big is bigger",
+     "name": "big becomes a span: normal size",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
-     "name": "tt is monospace",
+     "name": "tt becomes a span: not monospace",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
-     "name": "strike is struck through",
+     "name": "strike becomes a span: not struck",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
-     "name": "nobr does not wrap",
+     "name": "nobr becomes a span: the text wraps",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -419,21 +425,22 @@
     },
     {
      "id": "html.el.progress-meter",
-     "name": "progress is drawn",
+     "name": "progress is dropped (no box)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.progress-meter",
-     "name": "meter is drawn",
+     "name": "meter is dropped (no box)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     }
    ],
    "stages": [],
-   "bytes": 22735
+   "bytes": 22963,
+   "gzip": 7865
   },
   {
    "id": "auto/02-attributes-images",
@@ -485,23 +492,23 @@
     },
     {
      "id": "html.el.img-svg",
-     "name": "SVG image decodes (naturalWidth 10)",
+     "name": "an SVG image is refused: the 48px placeholder (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.img-other-formats",
      "name": "BMP is refused (placeholder, not the 2px image)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.img-other-formats",
      "name": "ICO is refused (placeholder, not the 2px image)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -583,30 +590,30 @@
     },
     {
      "id": "html.attr.legacy-presentational",
-     "name": "align=center centres",
+     "name": "align is dropped: no centring",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.legacy-presentational",
-     "name": "bgcolor paints the cell",
+     "name": "bgcolor is dropped",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.legacy-presentational",
-     "name": "cellpadding pads the cell",
+     "name": "cellpadding is dropped",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.legacy-presentational",
-     "name": "border=1 draws a table border",
+     "name": "border=1 is dropped",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -620,21 +627,21 @@
      "id": "html.attr.contenteditable",
      "name": "contenteditable does not reach the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.draggable",
      "name": "draggable does not reach the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.tabindex",
      "name": "tabindex does not reach the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     }
    ],
@@ -685,10 +692,11 @@
      "refs": {
       "chromium": "refs/auto/02-attributes-images/svgimg.chromium.png"
      },
-     "nativeVsTemplate": 0
+     "nativeVsTemplate": 0.9853
     }
    ],
-   "bytes": 22303
+   "bytes": 22421,
+   "gzip": 7356
   },
   {
    "id": "auto/03-layout",
@@ -864,16 +872,16 @@
     },
     {
      "id": "css.display.other",
-     "name": "display: flow-root contains its float",
+     "name": "display: flow-root is dropped: the float is not contained (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.display.other",
-     "name": "display: contents children join the flex row",
+     "name": "display: contents is dropped: the span stays one flex item",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -962,30 +970,30 @@
     },
     {
      "id": "css.box.logical",
-     "name": "margin-inline-start in LTR",
+     "name": "margin-inline-start is dropped (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.box.logical",
-     "name": "inline-size",
+     "name": "inline-size is dropped: the block keeps its full width",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.box.logical",
-     "name": "padding-block adds to the height",
+     "name": "padding-block is dropped",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.box.logical",
-     "name": "margin-inline-start in RTL is a right margin",
+     "name": "margin-inline-start is dropped in RTL too",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -1018,9 +1026,9 @@
     },
     {
      "id": "css.box.columns",
-     "name": "column-count: 2 puts the third block in column two",
+     "name": "column-count is dropped: one column (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -1062,7 +1070,7 @@
      "id": "css.position.sticky",
      "name": "sticky is neutralised to relative",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1097,7 +1105,7 @@
      "id": "css.overflow.scroll",
      "name": "overflow: auto is neutralised to hidden",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1220,7 +1228,8 @@
      }
     }
    ],
-   "bytes": 29190
+   "bytes": 29181,
+   "gzip": 8595
   },
   {
    "id": "auto/04-values-units",
@@ -1330,9 +1339,9 @@
     },
     {
      "id": "css.value.vh",
-     "name": "10vh agrees with innerHeight",
+     "name": "height: 10vh is dropped: the empty box has no height (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -1472,12 +1481,13 @@
      "id": "css.value.env",
      "name": "env() resolves to its fallback or is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     }
    ],
    "stages": [],
-   "bytes": 18006
+   "bytes": 17972,
+   "gzip": 6036
   },
   {
    "id": "auto/05-colour-backgrounds",
@@ -1559,9 +1569,9 @@
     },
     {
      "id": "css.color.mix",
-     "name": "color-mix() computes a colour",
+     "name": "color-mix() is dropped: no background (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -1643,10 +1653,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds/modern.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 1
     },
     {
      "name": "mix",
@@ -1666,10 +1677,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds/mix.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 1
     },
     {
      "name": "light-dark",
@@ -1737,7 +1749,7 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "maxDiff": 0.5,
      "colors": [
       "#c33",
@@ -1745,7 +1757,8 @@
      ],
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds/clip-text.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.5998
     },
     {
      "name": "linear",
@@ -1887,7 +1900,8 @@
      "nativeVsTemplate": 0.0143
     }
    ],
-   "bytes": 20974
+   "bytes": 21224,
+   "gzip": 6548
   },
   {
    "id": "auto/06-text-fonts",
@@ -1949,7 +1963,14 @@
      "id": "css.font.ui-families",
      "name": "ui-monospace: i and M have the same advance",
      "native": {
-      "chromium": "fail"
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "css.font.ui-families",
+     "name": "the validator adds a generic fallback (ui-monospace → …, monospace)",
+     "native": {
+      "chromium": "skip"
      }
     },
     {
@@ -1977,14 +1998,14 @@
      "id": "css.font.named",
      "name": "a named family is dropped: \"Courier New\" alone is not monospace",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.font.named",
      "name": "a named family is dropped from the list (\"Times New Roman\", sans-serif → sans-serif)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2143,9 +2164,9 @@
     },
     {
      "id": "css.text.line-clamp",
-     "name": "-webkit-line-clamp: 2 shows two lines",
+     "name": "-webkit-line-clamp is dropped: all lines show (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -2173,7 +2194,7 @@
      "id": "css.text.writing-mode",
      "name": "writing-mode is neutralised (text stays horizontal)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2215,7 +2236,7 @@
      "id": "css.text.selection",
      "name": "user-select: text cannot re-enable selection",
      "native": {
-      "chromium": "xfail"
+      "chromium": "pass"
      }
     }
    ],
@@ -2265,7 +2286,7 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "maxDiff": 0.5,
      "colors": [
       "#e83",
@@ -2273,7 +2294,8 @@
      ],
      "refs": {
       "chromium": "refs/auto/06-text-fonts/text-shadow.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.3521
     },
     {
      "name": "emoji",
@@ -2328,7 +2350,8 @@
      }
     }
    ],
-   "bytes": 24479
+   "bytes": 24655,
+   "gzip": 7744
   },
   {
    "id": "auto/07-selectors",
@@ -2532,9 +2555,9 @@
     },
     {
      "id": "sel.has",
-     "name": ":has() matches the parent of .badge only",
+     "name": ":has() never matches (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -2560,23 +2583,23 @@
     },
     {
      "id": "sel.first-letter-line",
-     "name": "::first-letter computed style",
+     "name": "::first-letter never matches",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "sel.first-letter-line",
-     "name": "::first-line computed style",
+     "name": "::first-line never matches",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "sel.first-letter-line",
-     "name": "::marker computed style",
+     "name": "::marker never matches",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -2590,7 +2613,7 @@
      "id": "sel.focus",
      "name": ":focus never matches (no keyboard focus in v1)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2616,7 +2639,8 @@
     }
    ],
    "stages": [],
-   "bytes": 19307
+   "bytes": 19344,
+   "gzip": 6314
   },
   {
    "id": "auto/08-at-rules",
@@ -2703,21 +2727,21 @@
     },
     {
      "id": "at.media.hover-pointer",
-     "name": "@media and matchMedia agree on (hover: hover)",
+     "name": "@media (hover) is dropped and matchMedia answers false (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.media.hover-pointer",
-     "name": "@media and matchMedia agree on (pointer: coarse)",
+     "name": "@media (pointer) is dropped and matchMedia answers false",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.media.other",
-     "name": "@media print never applies",
+     "name": "@media print never applies and matchMedia(print) is false",
      "native": {
       "chromium": "pass"
      }
@@ -2733,14 +2757,14 @@
      "id": "at.supports",
      "name": "@supports (3D transform) is false: 3D is out of the profile",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
      "id": "at.supports",
      "name": "@supports with and/not follows the profile",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
@@ -2759,58 +2783,58 @@
     },
     {
      "id": "at.container",
-     "name": "@container (min-width: 150px) on a 200px container",
+     "name": "@container is dropped (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.container",
-     "name": "@container (min-width: 500px) does not apply",
+     "name": "@container (min-width: 500px) does not apply either way",
      "native": {
       "chromium": "pass"
      }
     },
     {
      "id": "at.layer",
-     "name": "a later @layer wins regardless of source order",
+     "name": "@layer is dropped with its rules (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.property",
-     "name": "@property initial-value",
+     "name": "@property is dropped: var(--pp) has no initial value (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.exotic",
      "name": "@scope is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.nesting",
-     "name": "nested rule .a { .b {} }",
+     "name": "a nested rule .a { .b {} } is dropped (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.nesting",
-     "name": "nested rule with & descendant",
+     "name": "a nested & .b rule is dropped",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.nesting",
-     "name": "nested &.class",
+     "name": "a nested &.class rule is dropped",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
@@ -2822,7 +2846,8 @@
     }
    ],
    "stages": [],
-   "bytes": 17854
+   "bytes": 18166,
+   "gzip": 5991
   },
   {
    "id": "auto/09-transforms-effects",
@@ -2891,7 +2916,7 @@
      "id": "css.transform.3d",
      "name": "rotateY(60deg) is dropped: the box keeps its width",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2966,7 +2991,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not strip 3D transforms yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/transform-3d.chromium.png"
      },
@@ -3037,10 +3061,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/filter-other.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 1
     },
     {
      "name": "backdrop",
@@ -3084,10 +3109,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/blend.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.1199
     },
     {
      "name": "clip-path",
@@ -3107,10 +3133,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/clip-path.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.5154
     },
     {
      "name": "mask",
@@ -3130,10 +3157,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/mask.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.7492
     },
     {
      "name": "opacity",
@@ -3177,14 +3205,14 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce the profile yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/filter-url.chromium.png"
      },
      "nativeVsTemplate": 0.3036
     }
    ],
-   "bytes": 20444
+   "bytes": 21311,
+   "gzip": 6448
   },
   {
    "id": "auto/10-css-animations",
@@ -3439,7 +3467,8 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 18000
+   "bytes": 18000,
+   "gzip": 5778
   },
   {
    "id": "auto/11-web-animations",
@@ -3669,7 +3698,8 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 17854
+   "bytes": 17854,
+   "gzip": 5789
   },
   {
    "id": "auto/12-canvas",
@@ -3759,16 +3789,16 @@
     },
     {
      "id": "canvas.image-data",
-     "name": "getImageData reads back a pixel",
+     "name": "getImageData returns transparent pixels (profile 1: out)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "canvas.readback",
      "name": "toDataURL does not hand pixels back",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -4166,7 +4196,8 @@
      }
     }
    ],
-   "bytes": 23780
+   "bytes": 23974,
+   "gzip": 7500
   },
   {
    "id": "auto/13-svg",
@@ -4376,10 +4407,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/13-svg/clip-mask.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.5746
     },
     {
      "name": "filters",
@@ -4399,11 +4431,12 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "maxDiff": 0.1,
      "refs": {
       "chromium": "refs/auto/13-svg/filters.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.2697
     },
     {
      "name": "smil",
@@ -4427,7 +4460,7 @@
      "refs": {
       "chromium": "refs/auto/13-svg/smil.chromium.png"
      },
-     "nativeVsTemplate": 0
+     "nativeVsTemplate": 1
     },
     {
      "name": "image",
@@ -4447,10 +4480,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/auto/13-svg/image.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.9917
     },
     {
      "name": "foreign-object",
@@ -4471,14 +4505,14 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator keeps foreignObject",
      "refs": {
       "chromium": "refs/auto/13-svg/foreign-object.chromium.png"
      },
      "nativeVsTemplate": 0.641
     }
    ],
-   "bytes": 18710
+   "bytes": 19100,
+   "gzip": 6493
   },
   {
    "id": "auto/14-dom-layout-api",
@@ -4753,7 +4787,8 @@
     }
    ],
    "stages": [],
-   "bytes": 20067
+   "bytes": 20067,
+   "gzip": 6788
   },
   {
    "id": "auto/15-js-runtime",
@@ -4886,6 +4921,20 @@
     {
      "id": "limit.storage",
      "name": "over 16 KB per message: setItem throws QuotaExceededError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.storage",
+     "name": "the refused value is not stored",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.storage",
+     "name": "sessionStorage has the same 16 KB quota",
      "native": {
       "chromium": "skip"
      }
@@ -5076,7 +5125,7 @@
      "id": "js.css-supports",
      "name": "CSS.supports(\"transform\", \"rotateY(10deg)\") is false: 3D is out",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
@@ -5102,14 +5151,14 @@
     },
     {
      "id": "js.libraries",
-     "name": "Chart.js by its CDN name",
+     "name": "a Chart.js CDN script is an external script and is not run (profile 1: out)",
      "native": {
       "chromium": "skip"
      }
     },
     {
      "id": "js.libraries",
-     "name": "D3 by its CDN name",
+     "name": "a D3 CDN script is not run either",
      "native": {
       "chromium": "skip"
      }
@@ -5172,13 +5221,14 @@
     }
    ],
    "stages": [],
-   "bytes": 23613
+   "bytes": 23757,
+   "gzip": 7900
   },
   {
    "id": "auto/16-sdk-taps",
    "set": "auto",
    "file": "auto/16-sdk-taps.html",
-   "title": "TelegramWidget SDK (ready, theme, themeParams, openLink with a gesture, openTelegramLink, haptics, profile, no sendMessage); taps: click, pointer and mouse events, :active, details toggle, links; dblclick; context menu, keyboard and wheel out",
+   "title": "TelegramWidget SDK v1 (ready, colorScheme, themeParams, isActive, onEvent, openLink and openTelegramLink with their URL rules and the 256-character limit, haptics, profile, no sendMessage); taps: click, pointer and mouse events, :active, details toggle, links; double tap, context menu, keyboard and wheel stay out",
    "hint": "Tap every button from top to bottom, then double-tap “dbl”, long-press or right-click “ctx”, press a key, scroll over “wheel”, tap Finish.",
    "kind": [
     "self",
@@ -5197,8 +5247,12 @@
     "input.tap",
     "input.user-activation",
     "input.wheel-scroll",
+    "limit.haptic-rate",
+    "limit.url-length",
     "sel.active",
+    "tw.events",
     "tw.haptic",
+    "tw.is-active",
     "tw.open-link",
     "tw.open-telegram-link",
     "tw.profile",
@@ -5289,7 +5343,8 @@
      "ids": [
       "input.long-press",
       "input.keyboard",
-      "input.wheel-scroll"
+      "input.wheel-scroll",
+      "input.dblclick"
      ]
     }
    ],
@@ -5330,6 +5385,14 @@
       "method": "openLink",
       "arg": "https://example.org/conformance/prevented",
       "count": 0
+     }
+    },
+    {
+     "id": "limit.haptic-rate",
+     "name": "a burst of 20 haptics reaches the client as 5",
+     "bridge": {
+      "method": "haptic",
+      "count": 5
      }
     }
    ],
@@ -5399,30 +5462,30 @@
     },
     {
      "id": "input.dblclick",
-     "name": "dblclick arrives",
+     "name": "no dblclick reaches the widget (the double tap stays with the bubble)",
      "native": {
-      "chromium": "pass"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.long-press",
      "name": "no contextmenu event reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.keyboard",
      "name": "no keydown reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.wheel-scroll",
      "name": "no wheel event reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -5487,10 +5550,88 @@
      "native": {
       "chromium": "skip"
      }
+    },
+    {
+     "id": "tw.theme",
+     "name": "colorScheme is \"light\" or \"dark\" and equals theme",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.is-active",
+     "name": "isActive is true while the widget is on screen",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.events",
+     "name": "onEvent and offEvent exist; unknown types and non-functions are ignored",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.theme-params",
+     "name": "themeParams carries every key as #rrggbb",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink rejects non-https, user info, javascript: and t.me hosts with TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 257-character URL throws TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 256-character URL is accepted (dropped later without a press)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.open-telegram-link",
+     "name": "openTelegramLink accepts any t.me / telegram.me path",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.open-telegram-link",
+     "name": "openTelegramLink rejects other hosts and tg: with TypeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.haptic",
+     "name": "haptic methods return HapticFeedback for chaining",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.haptic",
+     "name": "an unknown style or type throws TypeError",
+     "native": {
+      "chromium": "skip"
+     }
     }
    ],
    "stages": [],
-   "bytes": 21440
+   "bytes": 24930,
+   "gzip": 8092
   },
   {
    "id": "auto/17-drag-hover",
@@ -5618,7 +5759,7 @@
     },
     {
      "id": "input.touch-events",
-     "name": "touchstart/touchend on a touch client",
+     "name": "no touch events reach the widget on a touch client: pointer events only (profile 1: out)",
      "native": {
       "chromium": "skip"
      }
@@ -5645,14 +5786,14 @@
      ],
      "reftest": true,
      "maxDiff": 0.3,
-     "xfail": "the client does not disable selection yet (D18)",
      "refs": {
       "chromium": "refs/auto/17-drag-hover/no-selection.chromium.png"
      },
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 17620
+   "bytes": 17667,
+   "gzip": 6122
   },
   {
    "id": "auto/18-out-of-profile",
@@ -5691,84 +5832,84 @@
      "id": "html.el.forms",
      "name": "input type=text is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "checkbox is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "radio is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "range is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "select is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "textarea is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "fieldset is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "sel.form-state",
      "name": ":checked does not match (the control is gone)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "showModal does not put the dialog in the top layer (:modal never matches)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "a shown dialog stays where the widget put it",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "showPopover does not open a top-layer popover",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "a popover stays inside the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -5815,7 +5956,8 @@
     }
    ],
    "stages": [],
-   "bytes": 17330
+   "bytes": 16981,
+   "gzip": 5779
   },
   {
    "id": "auto/19-limits",
@@ -5900,7 +6042,8 @@
     }
    ],
    "stages": [],
-   "bytes": 14821
+   "bytes": 14821,
+   "gzip": 5182
   },
   {
    "id": "auto/20-client-behaviour",
@@ -5915,7 +6058,10 @@
    "covers": [
     "behaviour.auto-height",
     "behaviour.offscreen-pause",
-    "behaviour.theme-switch"
+    "behaviour.theme-switch",
+    "limit.event-handlers",
+    "tw.is-active",
+    "tw.theme-params"
    ],
    "themes": [
     "light"
@@ -5929,7 +6075,9 @@
     {
      "theme": "dark",
      "ids": [
-      "behaviour.theme-switch"
+      "behaviour.theme-switch",
+      "limit.event-handlers",
+      "tw.theme-params"
      ]
     },
     {
@@ -5947,7 +6095,8 @@
     {
      "visible": false,
      "ids": [
-      "behaviour.offscreen-pause"
+      "behaviour.offscreen-pause",
+      "tw.is-active"
      ]
     },
     {
@@ -6020,10 +6169,32 @@
      "native": {
       "chromium": "skip"
      }
+    },
+    {
+     "id": "limit.event-handlers",
+     "name": "onEvent keeps the first 16 handlers per type: of 1 checker + 20 counters, 15 counters run on a theme change",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.theme-params",
+     "name": "themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "tw.is-active",
+     "name": "deactivated / activated fire and isActive follows visibility",
+     "native": {
+      "chromium": "skip"
+     }
     }
    ],
    "stages": [],
-   "bytes": 15961
+   "bytes": 17579,
+   "gzip": 6104
   },
   {
    "id": "auto/21-no-keyboard",
@@ -6101,8 +6272,7 @@
     {
      "id": "js.focus",
      "name": "focus() from the widget leaves the chat input focused",
-     "focus": "chat",
-     "xfail": "focus() still reaches the renderer"
+     "focus": "chat"
     },
     {
      "id": "input.key-gesture",
@@ -6112,8 +6282,7 @@
       "arg": "https://example.org/conformance/key",
       "count": 0
      },
-     "gesture": true,
-     "xfail": "a keydown still counts as a user gesture"
+     "gesture": true
     }
    ],
    "checks": [
@@ -6121,26 +6290,27 @@
      "id": "input.keyboard",
      "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.key-activation",
      "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "js.focus",
      "name": "focus() does not make :focus match in the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     }
    ],
    "stages": [],
-   "bytes": 15492
+   "bytes": 15310,
+   "gzip": 5372
   },
   {
    "id": "visual/01-boxes",
@@ -6247,7 +6417,8 @@
      }
     }
    ],
-   "bytes": 38664
+   "bytes": 38664,
+   "gzip": 18512
   },
   {
    "id": "visual/02-colours-gradients",
@@ -6346,10 +6517,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/02-colours-gradients/functions.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 1
     },
     {
      "name": "background",
@@ -6370,7 +6542,8 @@
      }
     }
    ],
-   "bytes": 75435
+   "bytes": 73549,
+   "gzip": 37695
   },
   {
    "id": "visual/03-text",
@@ -6463,10 +6636,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/03-text/ellipsis.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.2213
     },
     {
      "name": "scripts",
@@ -6495,13 +6669,15 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/03-text/text-shadow.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.3384
     }
    ],
-   "bytes": 90231
+   "bytes": 95605,
+   "gzip": 59661
   },
   {
    "id": "visual/04-layout",
@@ -6609,13 +6785,15 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/04-layout/float-columns.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.1241
     }
    ],
-   "bytes": 48501
+   "bytes": 48729,
+   "gzip": 23588
   },
   {
    "id": "visual/05-transforms-effects",
@@ -6708,10 +6886,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/05-transforms-effects/filters-other.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 1
     },
     {
      "name": "backdrop",
@@ -6740,13 +6919,15 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/05-transforms-effects/blend-clip-mask.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.4339
     }
    ],
-   "bytes": 45616
+   "bytes": 45452,
+   "gzip": 19102
   },
   {
    "id": "visual/06-css-animations",
@@ -6821,7 +7002,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
      },
-     "nativeVsTemplate": 0.8421
+     "nativeVsTemplate": 0.8422
     },
     {
      "name": "steps",
@@ -6874,7 +7055,8 @@
      "nativeVsTemplate": 0.9827
     }
    ],
-   "bytes": 38039
+   "bytes": 38039,
+   "gzip": 16724
   },
   {
    "id": "visual/07-web-animations",
@@ -6921,7 +7103,7 @@
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
      },
-     "nativeVsTemplate": 0
+     "nativeVsTemplate": 0.0248
     },
     {
      "name": "seek",
@@ -6975,7 +7157,8 @@
      "nativeVsTemplate": 0.0153
     }
    ],
-   "bytes": 35207
+   "bytes": 35207,
+   "gzip": 15795
   },
   {
    "id": "visual/08-canvas",
@@ -7111,7 +7294,8 @@
      }
     }
    ],
-   "bytes": 73387
+   "bytes": 70444,
+   "gzip": 38177
   },
   {
    "id": "visual/09-svg",
@@ -7219,10 +7403,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/09-svg/clip-filter.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.3952
     },
     {
      "name": "smil",
@@ -7239,10 +7424,11 @@
      "refs": {
       "chromium": "refs/visual/09-svg/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.6865
+     "nativeVsTemplate": 0.7243
     }
    ],
-   "bytes": 61088
+   "bytes": 57291,
+   "gzip": 30658
   },
   {
    "id": "visual/10-images",
@@ -7299,10 +7485,11 @@
      "themes": [
       "light"
      ],
-     "reftest": false,
+     "reftest": true,
      "refs": {
       "chromium": "refs/visual/10-images/svg-image.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.8973
     },
     {
      "name": "refused",
@@ -7338,7 +7525,8 @@
      }
     }
    ],
-   "bytes": 32891
+   "bytes": 31547,
+   "gzip": 11152
   },
   {
    "id": "visual/11-interaction",
@@ -7418,7 +7606,8 @@
     }
    ],
    "stages": [],
-   "bytes": 16152
+   "bytes": 16152,
+   "gzip": 5583
   },
   {
    "id": "visual/12-theme",
@@ -7468,7 +7657,8 @@
      }
     }
    ],
-   "bytes": 24609
+   "bytes": 24609,
+   "gzip": 11506
   },
   {
    "id": "visual/13-out-of-profile",
@@ -7573,7 +7763,656 @@
      "nativeVsTemplate": 0.4356
     }
    ],
-   "bytes": 37784
+   "bytes": 37784,
+   "gzip": 17313
+  },
+  {
+   "id": "visual/sdk/01-link-external",
+   "set": "visual",
+   "file": "visual/sdk/01-link-external.html",
+   "title": "openLink: the confirmation shows the full URL",
+   "hint": "Tap each button. Each time the client asks first and shows the whole URL (path, query; the IDN host in its xn-- form), then opens the browser.",
+   "kind": [],
+   "covers": [
+    "html.el.a-external",
+    "tw.open-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3436,
+   "gzip": 1746,
+   "group": "sdk",
+   "expect": "A native confirmation with the full URL and Open / Cancel; Open goes to the browser (or the in-app browser, as the client usually does).",
+   "contract": "docs/sdk-v1.md §2.5, §5.2",
+   "refImages": {
+    "light": "refs/visual/sdk/01-link-external.png"
+   }
+  },
+  {
+   "id": "visual/sdk/02-link-telegram",
+   "set": "visual",
+   "file": "visual/sdk/02-link-telegram.html",
+   "title": "openTelegramLink: t.me links open inside the client",
+   "hint": "Tap each button: the link opens inside Telegram (a channel, a post, a user), never in a browser.",
+   "kind": [],
+   "covers": [
+    "tw.open-telegram-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3209,
+   "gzip": 1581,
+   "group": "sdk",
+   "expect": "The client's own t.me handling, with its usual confirmations; no external browser.",
+   "contract": "docs/sdk-v1.md §2.5, §5.2",
+   "refImages": {
+    "light": "refs/visual/sdk/02-link-telegram.png"
+   }
+  },
+  {
+   "id": "visual/sdk/03-link-rejected",
+   "set": "visual",
+   "file": "visual/sdk/03-link-rejected.html",
+   "title": "Invalid links and links over 256 characters are rejected",
+   "hint": "Tap Try all: no dialog may appear for the bad links; then tap the 256-character link: that one asks.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "limit.url-length",
+    "tw.open-link",
+    "tw.open-telegram-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
+    {
+     "tap": "all",
+     "ids": [
+      "tw.open-link",
+      "tw.open-telegram-link",
+      "limit.url-length"
+     ]
+    },
+    {
+     "tap": "ok",
+     "ids": [
+      "limit.url-length"
+     ]
+    }
+   ],
+   "host": [],
+   "checks": [
+    {
+     "id": "tw.open-link",
+     "name": "openLink(http://example.org/) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(https://user:pw@example.org/) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(javascript:alert(1)) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(tg://resolve?domain=telegram) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-link",
+     "name": "openLink(https://t.me/telegram) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "tw.open-telegram-link",
+     "name": "openTelegramLink(https://example.org/) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "openLink(257 characters) throws TypeError",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "limit.url-length",
+     "name": "a 256-character URL is accepted (the client asks)",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 4110,
+   "gzip": 1897,
+   "group": "sdk",
+   "expect": "No dialog for a non-https URL, user info, javascript:, tg:, a t.me URL through openLink or a 257-character URL (the widget gets a TypeError); a dialog for the 256-character one.",
+   "contract": "docs/sdk-v1.md §2.5, §2.11",
+   "refImages": {
+    "light": "refs/visual/sdk/03-link-rejected.png"
+   }
+  },
+  {
+   "id": "visual/sdk/04-link-timer",
+   "set": "visual",
+   "file": "visual/sdk/04-link-timer.html",
+   "title": "Links need a press: a timer cannot open one, one press opens one link",
+   "hint": "Tap the first button and wait 2 s: nothing opens. Tap the second: exactly one dialog, not two.",
+   "kind": [],
+   "covers": [
+    "input.user-activation",
+    "tw.open-link"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3174,
+   "gzip": 1551,
+   "group": "sdk",
+   "expect": "No dialog from the timer (the host drops it as activation-blocked); one dialog for the two calls of one press.",
+   "contract": "docs/sdk-v1.md §2.5 (user activation)",
+   "refImages": {
+    "light": "refs/visual/sdk/04-link-timer.png"
+   }
+  },
+  {
+   "id": "visual/sdk/05-haptics",
+   "set": "visual",
+   "file": "visual/sdk/05-haptics.html",
+   "title": "Haptics: every impact style, notification type and selection",
+   "hint": "On a phone tap each button: each one is felt, and they feel different. Desktop and web: nothing happens, no error.",
+   "kind": [],
+   "covers": [
+    "tw.haptic"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3341,
+   "gzip": 1631,
+   "group": "sdk",
+   "expect": "impact light/medium/heavy/rigid/soft, notification error/success/warning, selection played with the platform's generators; nothing on desktop and web.",
+   "contract": "docs/sdk-v1.md §2.6, §5.3",
+   "refImages": {
+    "light": "refs/visual/sdk/05-haptics.png"
+   }
+  },
+  {
+   "id": "visual/sdk/06-haptics-rate",
+   "set": "visual",
+   "file": "visual/sdk/06-haptics-rate.html",
+   "title": "Haptics rate limit: a burst of 5, then 10 per second",
+   "hint": "On a phone: Burst asks for 20 at once, you feel 5. Stream asks for 100 over 2 s, you feel about 25. Hidden: tap, scroll the bubble away within a second, nothing is felt.",
+   "kind": [],
+   "covers": [
+    "limit.haptic-rate",
+    "tw.haptic"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3413,
+   "gzip": 1693,
+   "group": "sdk",
+   "expect": "A bucket of 5 refilled at 10 per second; the rest dropped silently; nothing from a hidden widget.",
+   "contract": "docs/sdk-v1.md §2.6",
+   "refImages": {
+    "light": "refs/visual/sdk/06-haptics-rate.png"
+   }
+  },
+  {
+   "id": "visual/sdk/07-storage-recreate",
+   "set": "visual",
+   "file": "visual/sdk/07-storage-recreate.html",
+   "title": "Storage survives the widget being dropped and re-created",
+   "hint": "Tap +1 three times. Scroll far up the chat until the bubble is rebuilt (Started goes up), scroll back: both counters are still 3.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-persist",
+    "js.storage.local",
+    "js.storage.session"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3300,
+   "gzip": 1579,
+   "group": "sdk",
+   "expect": "localStorage and sessionStorage come back with the re-created widget (the client passes its copy at creation).",
+   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "refImages": {
+    "light": "refs/visual/sdk/07-storage-recreate.png"
+   }
+  },
+  {
+   "id": "visual/sdk/08-storage-restart",
+   "set": "visual",
+   "file": "visual/sdk/08-storage-restart.html",
+   "title": "localStorage survives an app restart, sessionStorage does not",
+   "hint": "Tap +1 twice. Quit the app completely and open this chat again: local is still 2, session is 0.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-persist",
+    "js.storage.local",
+    "js.storage.session"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3141,
+   "gzip": 1526,
+   "group": "sdk",
+   "expect": "localStorage is on disk per (account, chat, message); sessionStorage is in memory until the app restarts.",
+   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "refImages": {
+    "light": "refs/visual/sdk/08-storage-restart.png"
+   }
+  },
+  {
+   "id": "visual/sdk/09-storage-delete",
+   "set": "visual",
+   "file": "visual/sdk/09-storage-delete.html",
+   "title": "Storage is deleted with the message",
+   "hint": "Tap Fill (about 15 KB). Delete this message: the client's widget-storage debug listing (or its storage stats) no longer has an entry for it. The same after Clear cache.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-persist"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3177,
+   "gzip": 1584,
+   "group": "sdk",
+   "expect": "Both areas are deleted with the message, with the chat or its history, with the account and on Clear cache.",
+   "contract": "docs/sdk-v1.md §2.8, §5.4",
+   "refImages": {
+    "light": "refs/visual/sdk/09-storage-delete.png"
+   }
+  },
+  {
+   "id": "visual/sdk/10-storage-quota",
+   "set": "visual",
+   "file": "visual/sdk/10-storage-quota.html",
+   "title": "QuotaExceededError at 16 KB",
+   "hint": "Tap Fill: it writes 1 KB values until the client refuses; the line must say QuotaExceededError at 16 KB, for local and for session.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "limit.storage"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
+    {
+     "tap": "f",
+     "ids": [
+      "limit.storage"
+     ]
+    }
+   ],
+   "host": [],
+   "checks": [
+    {
+     "id": "limit.storage",
+     "name": "localStorage: QuotaExceededError after 40080 bytes",
+     "native": {
+      "chromium": "fail"
+     }
+    },
+    {
+     "id": "limit.storage",
+     "name": "sessionStorage: QuotaExceededError after 40080 bytes",
+     "native": {
+      "chromium": "fail"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 3357,
+   "gzip": 1665,
+   "group": "sdk",
+   "expect": "16384 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
+   "contract": "docs/sdk-v1.md §2.8",
+   "refImages": {
+    "light": "refs/visual/sdk/10-storage-quota.png"
+   }
+  },
+  {
+   "id": "visual/sdk/11-crash-restart",
+   "set": "visual",
+   "file": "visual/sdk/11-crash-restart.html",
+   "title": "After 2 crashes in a row the widget stays stopped",
+   "hint": "Tap Crash: the frame freezes with the Widget stopped badge. Scroll away and back: it starts again (Started 2). Crash again, scroll away and back: it stays stopped with the badge.",
+   "kind": [],
+   "covers": [
+    "behaviour.restart"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3232,
+   "gzip": 1592,
+   "group": "sdk",
+   "expect": "The frozen last frame with the localised badge; one rebuild after the first crash; none after the second, until the app restarts or the message gets new HTML.",
+   "contract": "docs/sdk-v1.md §2.7, §5.7",
+   "refImages": {
+    "light": "refs/visual/sdk/11-crash-restart.png"
+   }
+  },
+  {
+   "id": "visual/sdk/12-drag-gestures",
+   "set": "visual",
+   "file": "visual/sdk/12-drag-gestures.html",
+   "title": "Drag inside the widget versus the bubble's gestures",
+   "hint": "Drag the knob left and right: no swipe-to-reply, the list does not scroll. Swipe left on the grey area: swipe-to-reply. Double tap: the reaction appears. Long press: the bubble menu. The counters stay 0.",
+   "kind": [],
+   "covers": [
+    "behaviour.gesture-claim",
+    "input.dblclick",
+    "input.drag",
+    "input.long-press"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 4276,
+   "gzip": 1966,
+   "group": "sdk",
+   "expect": "The widget claims horizontal drags of the knob (touch-action: none, preventDefault); elsewhere the chat keeps swipe-to-reply and scrolling; double tap and long press stay with the bubble and never reach the widget.",
+   "contract": "docs/sdk-v1.md §3.5, §5.5",
+   "refImages": {
+    "light": "refs/visual/sdk/12-drag-gestures.png"
+   }
+  },
+  {
+   "id": "visual/sdk/13-max-height",
+   "set": "visual",
+   "file": "visual/sdk/13-max-height.html",
+   "title": "Taller than the cap: a hard clip",
+   "hint": "The widget is 3000 px tall. The bubble shows the top up to the client's maximum height and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
+   "kind": [],
+   "covers": [
+    "behaviour.auto-height"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3067,
+   "gzip": 1559,
+   "group": "sdk",
+   "expect": "The bubble's height is the client's cap (maximumHeight / maxHeightDp; 900 px on the web); content below is clipped.",
+   "contract": "docs/sdk-v1.md §5.6",
+   "refImages": {
+    "light": "refs/visual/sdk/13-max-height.png"
+   }
+  },
+  {
+   "id": "visual/sdk/14-theme-palette",
+   "set": "visual",
+   "file": "visual/sdk/14-theme-palette.html",
+   "title": "Theme palette: themeParams and --tg-theme-* follow the chat live",
+   "hint": "Each row: the swatch from themeParams and the one from the CSS variable are the same colour and match the chat. Switch the theme or night mode: all rows change at once, the counter goes up.",
+   "kind": [],
+   "covers": [
+    "behaviour.theme-switch",
+    "tw.events",
+    "tw.theme",
+    "tw.theme-params"
+   ],
+   "themes": [
+    "light",
+    "dark"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 4135,
+   "gzip": 1912,
+   "group": "sdk",
+   "expect": "Every themeParams key as #rrggbb, the same values as --tg-theme-* on the root, updated in one task with themeChanged.",
+   "contract": "docs/sdk-v1.md §2.3, §5.1",
+   "refImages": {
+    "light": "refs/visual/sdk/14-theme-palette.png",
+    "dark": "refs/visual/sdk/14-theme-palette.dark.png"
+   }
+  },
+  {
+   "id": "visual/sdk/15-storage-forward",
+   "set": "visual",
+   "file": "visual/sdk/15-storage-forward.html",
+   "title": "A forwarded copy has its own storage",
+   "hint": "Tap +1 three times, then forward this message to another chat: the copy shows 0, the original still 3. +1 on the copy does not change the original.",
+   "kind": [],
+   "covers": [
+    "behaviour.storage-forward"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 2935,
+   "gzip": 1462,
+   "group": "sdk",
+   "expect": "Storage keyed by (account, chat, message id): the destination chat's copy starts empty.",
+   "contract": "docs/sdk-v1.md §2.8",
+   "pending": "the server: forwarding messages with a widget block",
+   "refImages": {
+    "light": "refs/visual/sdk/15-storage-forward.png"
+   }
+  },
+  {
+   "id": "visual/sdk/16-bot-edit",
+   "set": "visual",
+   "file": "visual/sdk/16-bot-edit.html",
+   "title": "A bot edit: same HTML keeps the widget, new HTML restarts it on the same storage",
+   "hint": "Tap +1 twice. Ask the bot to edit the message with the same HTML: nothing restarts (Started stays). Ask for the edit with version 2: it shows v2, Started goes up, the count is still 2.",
+   "kind": [],
+   "covers": [
+    "behaviour.message-edit"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3142,
+   "gzip": 1545,
+   "group": "sdk",
+   "expect": "An edit with the same HTML keeps the running widget; with different HTML the widget restarts on the same storage.",
+   "contract": "docs/sdk-v1.md §2.8",
+   "pending": "the server: bots editing messages with a widget block",
+   "refImages": {
+    "light": "refs/visual/sdk/16-bot-edit.png"
+   }
+  },
+  {
+   "id": "visual/sdk/17-size-hint",
+   "set": "visual",
+   "file": "visual/sdk/17-size-hint.html",
+   "title": "The bubble takes the bot's size hint before load, then the real height",
+   "hint": "The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time.",
+   "kind": [],
+   "covers": [
+    "behaviour.auto-height",
+    "behaviour.size-hint"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 2935,
+   "gzip": 1500,
+   "group": "sdk",
+   "expect": "Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
+   "contract": "docs/sdk-v1.md §5.6",
+   "pending": "the server: the width / height fields of the widget block",
+   "refImages": {
+    "light": "refs/visual/sdk/17-size-hint.png"
+   }
   }
  ]
 }

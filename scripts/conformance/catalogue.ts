@@ -150,7 +150,7 @@ c('url.remote', 'url() / image-set() with anything but a data: image or #fragmen
 // ───────────── CSS: text and fonts ─────────────
 c('font.generic', 'font-family with system generic families: system-ui, sans-serif, serif, monospace', 'in', 'D3b', 'kept', { match: { properties: ['font-family', 'font'], values: ['system-ui', 'sans-serif', 'serif', 'monospace'] } });
 c('font.ui-families', 'font-family: ui-sans-serif, ui-serif, ui-monospace, ui-rounded', 'candidate', 'proposed', 'kept', { match: { properties: ['font-family', 'font'], values: ['ui-sans-serif', 'ui-serif', 'ui-monospace', 'ui-rounded'] }, note: 'Generic per CSS Fonts 4, but only WebKit resolves them; Chromium falls back to the default face.' });
-c('font.named', 'font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …)', 'out', 'D3b', 'kept', { match: { properties: ['font-family', 'font'] }, neutralise: 'the validator drops non-generic names from the list; an empty list falls back to the default (system-ui)' });
+c('font.named', 'font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …)', 'out', 'D3b', 'kept', { match: { properties: ['font-family', 'font'] }, neutralise: 'the validator drops non-generic names from the list; -apple-system and BlinkMacSystemFont, the vendor names of the system UI font, become system-ui; an empty list falls back to the default (system-ui)' });
 c('font.face', '@font-face (web fonts)', 'out', 'D3b', 'stripped', { match: { atrules: ['font-face'] }, neutralise: 'the at-rule is dropped' });
 c('font.basic', 'font-size, font-weight (100–900, bold), font-style italic, line-height, font shorthand', 'in', 'D3a', 'kept', { match: { properties: ['font-size', 'font-weight', 'font-style', 'line-height', 'font'] } });
 c('font.variant-numeric', 'font-variant-numeric: tabular-nums (and font-feature-settings "tnum")', 'candidate', 'brief', 'kept', { match: { properties: ['font-variant-numeric', 'font-feature-settings'] } });
@@ -300,11 +300,13 @@ js('fullscreen', 'requestFullscreen', 'out', 'D12a', 'stub', { match: { apis: ['
 // ───────────── TelegramWidget SDK ─────────────
 const tw = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('sdk', 'tw.' + id, title, st, d, t, x);
 tw('ready', 'TelegramWidget.ready()', 'in', 'D8', 'kept', { match: { apis: ['TelegramWidget.ready'] } });
-tw('theme', 'TelegramWidget.theme and onTheme(cb): "light" | "dark", called on change', 'in', 'D14', 'kept', { match: { apis: ['TelegramWidget.theme', 'TelegramWidget.onTheme'] } });
-tw('theme-params', 'themeParams palette and --tg-theme-* CSS variables, theme change event', 'in', 'D14', 'missing', { match: { apis: ['TelegramWidget.themeParams'], properties: ['--tg-theme-*'] } });
-tw('open-link', 'openLink(url): https only, in the task of a real tap, confirmed by the client with the full URL', 'in', 'D8', 'kept', { match: { apis: ['TelegramWidget.openLink'] } });
-tw('open-telegram-link', 'openTelegramLink(url) for t.me links', 'in', 'D8', 'missing', { match: { apis: ['TelegramWidget.openTelegramLink'] } });
-tw('haptic', 'Haptic feedback, rate-limited', 'in', 'D8', 'missing', { match: { apis: ['TelegramWidget.HapticFeedback'] } });
+tw('theme', 'TelegramWidget.colorScheme ("light" | "dark"); theme and onTheme(cb) kept as deprecated aliases', 'in', 'SDK', 'kept', { match: { apis: ['TelegramWidget.colorScheme', 'TelegramWidget.theme', 'TelegramWidget.onTheme'] }, note: 'Today only theme / onTheme exist.' });
+tw('theme-params', 'themeParams (every Mini Apps key, #rrggbb) and the --tg-theme-* / --tg-color-scheme variables on the root, updated in one task with themeChanged', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.themeParams'], properties: ['--tg-theme-*', '--tg-color-scheme'] } });
+tw('events', 'onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.onEvent', 'TelegramWidget.offEvent'] } });
+tw('is-active', 'TelegramWidget.isActive mirrors visibility (activated / deactivated)', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.isActive'] } });
+tw('open-link', 'openLink(url): an absolute https URL of at most 256 characters, no user info, not a t.me host; one call per pointer press; the client confirms showing the full URL', 'in', 'SDK', 'kept', { match: { apis: ['TelegramWidget.openLink'] }, note: 'Invalid arguments throw TypeError (v1); today any string goes to the host.' });
+tw('open-telegram-link', 'openTelegramLink(url): any https://t.me/… (telegram.me, telegram.dog) path, at most 256 characters, opened inside the client; tg: URLs refused', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.openTelegramLink'] } });
+tw('haptic', 'HapticFeedback: impactOccurred(light|medium|heavy|rigid|soft), notificationOccurred(error|success|warning), selectionChanged(); no gesture needed, visible widgets only', 'in', 'SDK', 'missing', { match: { apis: ['TelegramWidget.HapticFeedback'] }, note: 'Desktop and web accept the calls and play nothing.' });
 tw('profile', 'TelegramWidget.profile (integer) and isProfileAtLeast(n)', 'in', 'D23', 'missing', { match: { apis: ['TelegramWidget.profile', 'TelegramWidget.isProfileAtLeast'] } });
 tw('send-message', 'TelegramWidget.sendMessage', 'out', 'D8', 'kept', { match: { apis: ['TelegramWidget.sendMessage'] }, neutralise: 'removed from the SDK' });
 
@@ -316,8 +318,8 @@ inp('mouse-compat', 'mousedown / mouseup compatibility events of a tap', 'in', '
 inp('touch-events', 'touchstart / touchmove / touchend (touch clients only)', 'candidate', 'proposed', 'kept', { match: { events: ['touchstart', 'touchmove', 'touchend', 'touchcancel'] }, note: 'Desktop clients have none; widgets should use pointer events.' });
 inp('drag', 'Drag: pointermove with buttons while pressed, setPointerCapture, movementX/Y', 'in', 'D4', 'kept', { match: { events: ['pointermove'], apis: ['setPointerCapture', 'releasePointerCapture'] }, note: 'v1 (not the PoC): drag with gesture arbitration.' });
 inp('hover-events', 'pointerover/enter/leave/out, mouseover/enter/leave (desktop pointer only)', 'in', 'D3', 'kept', { match: { events: ['pointerover', 'pointerenter', 'pointerleave', 'pointerout', 'mouseover', 'mouseenter', 'mouseleave', 'mouseout', 'mousemove'] } });
-inp('dblclick', 'dblclick', 'candidate', 'proposed', 'kept', { match: { events: ['dblclick'] }, note: 'Double tap is the bubble\'s reaction gesture (designers).' });
-inp('long-press', 'contextmenu / long press', 'out', 'proposed', 'kept', { match: { events: ['contextmenu'] }, neutralise: 'the bubble menu wins; no contextmenu event' });
+inp('dblclick', 'dblclick / double tap', 'out', 'SDK', 'kept', { match: { events: ['dblclick'] }, neutralise: 'the double tap stays with the bubble (reaction); it never reaches the widget' });
+inp('long-press', 'contextmenu / long press', 'out', 'SDK', 'kept', { match: { events: ['contextmenu'] }, neutralise: 'the long press stays with the bubble (its menu); no contextmenu event' });
 inp('keyboard', 'Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys', 'out', 'D4', 'kept', { match: { events: ['keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'focus', 'blur', 'focusin', 'focusout'] }, neutralise: 'the renderer never forwards key events; the widget never owns keyboard focus' });
 inp('key-activation', 'Enter / Space activate a focused button or link (a click from the keyboard)', 'out', 'D4', 'kept', { match: { events: ['click'] }, neutralise: 'keys do nothing in a widget: no synthetic click from Enter or Space' });
 inp('key-gesture', 'A key press counts as a user gesture for privileged bridge calls', 'out', 'D4', 'kept', { match: { apis: ['TelegramWidget.openLink'] }, neutralise: 'only taps (pointer presses) grant a gesture', note: 'Today a keydown (not Escape, not a repeat or a Command shortcut) unlocks one privileged call (protocol.md, User activation).' });
@@ -333,7 +335,10 @@ lim('nodes', 'At most 50 000 nodes', 'in', 'today', 'kept');
 lim('timers', 'At most 256 live timers (RangeError past it)', 'in', 'today', 'kept');
 lim('cpu', 'CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice', 'in', 'today', 'kept');
 lim('memory', 'QuickJS heap 64 MB', 'in', 'today', 'kept');
-lim('storage', 'localStorage 16 KB per message (QuotaExceededError)', 'in', 'D17', 'missing');
+lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'missing');
+lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'missing');
+lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'missing');
+lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)', 'in', 'SDK', 'missing');
 lim('html-size', 'HTML up to 128 KB (server-side, .tgw)', 'in', 'D20', 'host', { note: 'Checked by the server, not the client; every conformance widget stays far below it.' });
 
 // ───────────── Client behaviour ─────────────
@@ -342,7 +347,131 @@ b('theme-switch', 'Live theme switch: prefers-color-scheme, light-dark() and onT
 b('offscreen-pause', 'Off-screen: frames stop, timers at most 1 Hz, visibilitychange fires', 'in', 'today', 'host');
 b('auto-height', 'The bubble takes the widget height; above the cap it is clipped hard', 'in', 'D12a', 'host');
 b('no-selection', 'No text selection in a widget (drag over text selects nothing)', 'in', 'D18', 'missing');
+b('restart', 'After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again', 'in', 'SDK', 'host', { note: 'The frozen frame and badge are the framework\'s (today); the restart count is the client\'s.' });
+b('gesture-claim', 'Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures', 'in', 'SDK', 'host', { note: 'onGestureClaim(x, y) per primary pointerdown (v1).' });
+b('storage-persist', 'localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message', 'in', 'SDK', 'host');
+b('storage-forward', 'A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty', 'in', 'SDK', 'host', { note: 'Waits for the server: forwarding rich blocks.' });
+b('message-edit', 'A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage', 'in', 'SDK', 'host', { note: 'Waits for the server: editing rich blocks.' });
+b('size-hint', 'Before load the bubble takes the bot\'s size hint (width + height: aspect ratio; width 0 + height: that height; none: the default placeholder), then the real height under the cap', 'in', 'D12a', 'host', { note: 'Waits for the server: the size fields of the rich block.' });
 b('policy-strict', 'strict policy on every client (gesture gate, text caps, budgets)', 'in', 'D5', 'kept');
+
+// ───────────── Profile 1, frozen 2026-10-17 ─────────────
+// packages/core/profile.json (claude/profile-v1 83da388) is the single source of the
+// profile; this overlay copies its statuses, decisions and neutralisations onto the
+// catalogue so the two agree on branches that do not have the file yet.
+// emit-catalogue.ts overlays the file itself when it is present.
+const PROFILE_1: Record<string, Partial<Feature>> = {
+  "html.el.ruby": {"status": "out", "decision": "P1", "neutralise": "rendered as <span> (the annotation shows inline)"},
+  "html.el.legacy": {"status": "out", "decision": "P1", "neutralise": "<center> becomes a <div>, the others a <span>; the presentational attributes are dropped"},
+  "html.el.img-svg": {"status": "out", "decision": "P1", "neutralise": "url-policy refuses the MIME: placeholder image"},
+  "html.el.img-other-formats": {"status": "out", "decision": "P1", "neutralise": "url-policy refuses the MIME: placeholder image"},
+  "html.el.details": {"status": "in", "decision": "P1"},
+  "html.el.a-fragment": {"status": "in", "decision": "P1"},
+  "html.el.forms": {"status": "out", "decision": "D3a", "neutralise": "controls are dropped with their subtree (input, select, option, optgroup, textarea, datalist, fieldset, progress, meter); <form> becomes a <div>, <label>, <legend> and <output> a <span>"},
+  "html.el.progress-meter": {"status": "out", "decision": "P1", "neutralise": "dropped with the subtree, like the other controls"},
+  "html.el.dialog-popover": {"status": "out", "decision": "P1", "neutralise": "a dialog renders as a <div>; the popover attributes and the dialog and popover methods are dropped"},
+  "html.el.unknown": {"status": "in", "decision": "P1"},
+  "html.el.media": {"status": "out", "decision": "P1", "neutralise": "dropped with the subtree"},
+  "html.attr.legacy-presentational": {"status": "out", "decision": "P1", "neutralise": "the attributes are dropped"},
+  "html.attr.event-handlers": {"status": "in", "decision": "P1"},
+  "html.attr.contenteditable": {"status": "out", "decision": "P1", "neutralise": "drop the attribute"},
+  "svg.gradients": {"status": "in", "decision": "P1"},
+  "svg.css": {"status": "in", "decision": "P1"},
+  "svg.clip-mask": {"status": "out", "decision": "P1", "neutralise": "the elements are dropped with their subtree; clip-path, mask and marker attributes are dropped"},
+  "svg.filters": {"status": "out", "decision": "P1", "neutralise": "filter and the fe* elements are dropped with their subtree; the filter attribute is dropped"},
+  "svg.smil": {"status": "out", "decision": "P1", "neutralise": "animate, animateTransform, animateMotion and mpath are dropped"},
+  "svg.foreign-object": {"status": "out", "decision": "P1", "neutralise": "drop the subtree"},
+  "svg.image": {"status": "out", "decision": "P1", "neutralise": "dropped"},
+  "css.display.grid": {"status": "in", "decision": "P1-grid"},
+  "css.display.other": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.box.logical": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.box.columns": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.box.object-fit": {"status": "in", "decision": "P1"},
+  "css.position.fixed": {"status": "in", "decision": "P1"},
+  "css.position.sticky": {"status": "out", "decision": "P1", "neutralise": "becomes relative (no scrolling inside a widget)"},
+  "css.color.modern": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped (an earlier fallback declaration applies)"},
+  "css.color.mix": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.color.light-dark": {"status": "in", "decision": "P1"},
+  "css.background.clip-text": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.gradient.conic": {"status": "in", "decision": "P1"},
+  "css.font.ui-families": {"status": "in", "decision": "P1"},
+  "css.font.variant-numeric": {"status": "in", "decision": "P1"},
+  "css.text.overflow": {"status": "in", "decision": "P1"},
+  "css.text.line-clamp": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.text.shadow": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.text.writing-mode": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.text.selection": {"status": "out", "decision": "D18", "neutralise": "the renderer disables selection on its root and the validator drops user-select"},
+  "css.filter.other": {"status": "out", "decision": "P1", "neutralise": "the function is removed from the filter list; an empty list drops the declaration"},
+  "css.filter.url": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.blend": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.clip-path": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.mask": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.pointer-events": {"status": "in", "decision": "P1"},
+  "css.touch-action": {"status": "in", "decision": "P1"},
+  "css.value.vw": {"status": "in", "decision": "P1"},
+  "css.value.vh": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
+  "css.value.env": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped (or env() resolves to its fallback)"},
+  "sel.has": {"status": "out", "decision": "P1", "neutralise": "the selector never matches (dropped from its list)"},
+  "sel.first-letter-line": {"status": "out", "decision": "P1", "neutralise": "the selector never matches (dropped from its list)"},
+  "sel.active": {"status": "in", "decision": "P1"},
+  "sel.focus": {"status": "out", "decision": "D4", "neutralise": "the selector never matches (dropped from its list); the widget never owns keyboard focus"},
+  "sel.form-state": {"status": "out", "decision": "D3a", "neutralise": ":disabled and :enabled become [disabled] and :not([disabled]) (the <button> state); the other form states never match"},
+  "sel.host-scoped": {"status": "out", "decision": "inv6", "neutralise": "the selector never matches (dropped from its list) on every renderer"},
+  "sel.target": {"status": "out", "decision": "P1", "neutralise": "the selector never matches (dropped from its list)"},
+  "at.media.reduced-motion": {"status": "in", "decision": "P1"},
+  "at.media.hover-pointer": {"status": "out", "decision": "P1", "neutralise": "the @media rule is dropped; matchMedia answers false"},
+  "at.media.other": {"status": "out", "decision": "P1", "neutralise": "the @media rule is dropped; matchMedia answers false"},
+  "at.container": {"status": "out", "decision": "P1", "neutralise": "the at-rule is dropped; container properties are dropped"},
+  "at.layer": {"status": "out", "decision": "P1", "neutralise": "the at-rule is dropped with its rules"},
+  "at.property": {"status": "out", "decision": "P1", "neutralise": "the at-rule is dropped"},
+  "at.exotic": {"status": "out", "decision": "P1", "neutralise": "dropped like unknown at-rules"},
+  "at.nesting": {"status": "out", "decision": "P1", "neutralise": "nested rules are dropped with a css-dropped diagnostic"},
+  "canvas.conic-gradient": {"status": "out", "decision": "P1", "neutralise": "createConicGradient returns a gradient that draws nothing"},
+  "canvas.pattern": {"status": "out", "decision": "P1", "neutralise": "createPattern returns a pattern that draws nothing"},
+  "canvas.composite": {"status": "out", "decision": "P1", "neutralise": "the property is not applied (source-over)"},
+  "canvas.shadow": {"status": "out", "decision": "P1", "neutralise": "the properties are not applied"},
+  "canvas.filter": {"status": "out", "decision": "P1", "neutralise": "the property is not applied"},
+  "canvas.image-data": {"status": "out", "decision": "P1", "neutralise": "getImageData returns transparent pixels, putImageData draws nothing"},
+  "canvas.hit-test": {"status": "in", "decision": "P1"},
+  "canvas.readback": {"status": "out", "decision": "P1", "neutralise": "toBlob/captureStream are stubs; toDataURL returns an empty image (data:,)"},
+  "js.layout.rect": {"status": "in", "decision": "P1"},
+  "js.layout.box": {"status": "in", "decision": "P1"},
+  "js.layout.computed-style": {"status": "in", "decision": "P1"},
+  "js.layout.match-media": {"status": "in", "decision": "P1"},
+  "js.layout.resize-observer": {"status": "in", "decision": "P1"},
+  "js.layout.intersection-observer": {"status": "in", "decision": "P1"},
+  "js.layout.element-from-point": {"status": "in", "decision": "P1"},
+  "js.layout.measure-text": {"status": "in", "decision": "P1"},
+  "js.focus": {"status": "out", "decision": "D4", "neutralise": "focus(), blur(), select() and setSelectionRange() do nothing; no call op reaches the renderer"},
+  "js.timers": {"status": "in", "decision": "P1"},
+  "js.raf": {"status": "in", "decision": "P1"},
+  "js.microtasks": {"status": "in", "decision": "P1"},
+  "js.intl": {"status": "in", "decision": "P1"},
+  "js.intl.format-to-parts": {"status": "in", "decision": "P1"},
+  "js.locale": {"status": "in", "decision": "P1"},
+  "js.crypto-random": {"status": "in", "decision": "P1"},
+  "js.builtins": {"status": "in", "decision": "P1"},
+  "js.visibility": {"status": "in", "decision": "P1"},
+  "js.libraries": {"status": "out", "decision": "P1-libs", "neutralise": "nothing is bundled: a <script src> to a CDN is an external script like any other and is not run"},
+  "js.dialogs": {"status": "out", "decision": "P1", "neutralise": "non-blocking stubs: confirm → false, prompt → null"},
+  "js.shadow-dom": {"status": "out", "decision": "P1", "neutralise": "attachShadow throws NotSupportedError, customElements.define is a no-op"},
+  "tw.theme": {"status": "in", "decision": "D14"},
+  "tw.theme-params": {"status": "in", "decision": "D14"},
+  "tw.open-link": {"status": "in", "decision": "D8"},
+  "tw.open-telegram-link": {"status": "in", "decision": "D8"},
+  "tw.haptic": {"status": "in", "decision": "D8"},
+  "input.touch-events": {"status": "out", "decision": "D4", "neutralise": "the renderer never forwards touch events; use pointer events"},
+  "input.dblclick": {"status": "out", "decision": "D4", "neutralise": "the renderer never forwards dblclick: a double tap belongs to the bubble (the reaction)"},
+  "input.long-press": {"status": "out", "decision": "P1", "neutralise": "the renderer never forwards contextmenu and cancels the platform menu: a long press belongs to the bubble (the message menu)"},
+  "input.wheel-scroll": {"status": "out", "decision": "D3a", "neutralise": "the renderer never forwards wheel or scroll; no scrolling inside a widget"},
+  "limit.nodes": {"status": "in", "decision": "P1"},
+  "limit.timers": {"status": "in", "decision": "P1"},
+  "limit.cpu": {"status": "in", "decision": "P1"},
+  "limit.memory": {"status": "in", "decision": "P1"},
+  "limit.storage": {"status": "in", "decision": "D17"},
+  "behaviour.offscreen-pause": {"status": "in", "decision": "P1"},
+};
+for (const f of F) if (PROFILE_1[f.id]) Object.assign(f, PROFILE_1[f.id]);
 
 export const CATALOGUE: Feature[] = F;
 export const CATALOGUE_VERSION = 1;
@@ -356,12 +485,13 @@ export const DECISIONS: Record<string, string> = {
   D5: 'strict policy everywhere; webAnimations and morphUpdates from the profile',
   D6: '3D (__tw3d) cut from the release',
   D8: 'SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage',
+  SDK: 'SDK v1 (docs/sdk-v1.md), with Artem\'s answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble',
   D11: 'One widget model: classic DOM in the sandbox',
   D12a: 'Above the cap: hard clip, no fullscreen',
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',
   D17: 'State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory',
   D18: 'Text selection forbidden',
-  D20: '.tgw = gzip of HTML, 128 KB HTML limit on the server',
+  D20: 'Mini-widgets first (2026-10-17): gzipped HTML up to 4 KB inline in the message, 32 KB of HTML at most; .tgw documents deferred',
   D21: 'No accessibility in v1',
   D23: 'Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile',
   brief: 'Named as a candidate in the conformance brief (decided by measurement)',
@@ -372,4 +502,7 @@ export const DECISIONS: Record<string, string> = {
   inv6: 'Invariant 6: navigation cancelled, shadow scope',
   today: 'Current pipeline behaviour, no v1 decision recorded',
   proposed: 'Proposed by this catalogue, to be confirmed',
+  "P1": "Profile v1 freeze (2026-10-17): a candidate is in when the corpus uses it and the web renderers draw it; the rest are out until the native renderers are measured (profile 2)",
+  "P1-grid": "Grid is in on condition that the Swift renderer and TwidgetCore implement it before their releases (2026-10-17)",
+  "P1-libs": "No bundled libraries in v1 (2026-10-17)",
 };

@@ -264,7 +264,13 @@ T.step(function () {
   T.ok('js.storage.local', '10 KB fits', (function () { try { localStorage.setItem('big', big); return localStorage.getItem('big').length === 10240; } catch (e) { return false; } })(), '');
   var quota = 'no error';
   try { localStorage.setItem('huge', new Array(20 * 1024 + 1).join('y')); } catch (e) { quota = e && e.name; }
-  T.eq('limit.storage', 'over 16 KB per message: setItem throws QuotaExceededError', quota, 'QuotaExceededError', T.sandbox ? { xfail: 'storage quota not implemented (D17)' } : { sandboxOnly: true });
+  T.eq('limit.storage', 'over 16 KB per message: setItem throws QuotaExceededError', quota, 'QuotaExceededError', S);
+  T.ok('limit.storage', 'the refused value is not stored', localStorage.getItem('huge') === null, String((localStorage.getItem('huge') || '').length), S);
+  localStorage.clear();
+  var sq = 'no error';
+  try { sessionStorage.setItem('huge', new Array(20 * 1024 + 1).join('y')); } catch (e) { sq = e && e.name; }
+  T.eq('limit.storage', 'sessionStorage has the same 16 KB quota', sq, 'QuotaExceededError', S);
+  sessionStorage.clear();
   localStorage.clear();
   sessionStorage.setItem('s', '1');
   T.ok('js.storage.session', 'sessionStorage works and is separate', sessionStorage.getItem('s') === '1' && localStorage.getItem('s') === null, '');
@@ -300,13 +306,13 @@ T.step(function () {
   T.eq('js.eval', 'new Function', new Function('a', 'return a * 2')(4), 8);
   // ───── CSS.supports from the profile (D23)
   T.eq('js.css-supports', 'CSS.supports("display", "flex")', CSS.supports('display', 'flex'), true);
-  T.eq('js.css-supports', 'CSS.supports rejects an invalid value', CSS.supports('display', 'no-such-value'), false, T.sandbox ? { xfail: 'CSS.supports always returns true (D23)' } : {});
-  T.eq('js.css-supports', 'CSS.supports("transform", "rotateY(10deg)") is false: 3D is out', CSS.supports('transform', 'rotateY(10deg)'), false, { xfail: 'CSS.supports is not answered from the profile yet (D23)' });
+  T.eq('js.css-supports', 'CSS.supports rejects an invalid value', CSS.supports('display', 'no-such-value'), false);
+  T.eq('js.css-supports', 'CSS.supports("transform", "rotateY(10deg)") is false: 3D is out', CSS.supports('transform', 'rotateY(10deg)'), false, S);
   T.eq('js.css-supports', 'CSS.supports("(display: flex) and (gap: 1px)")', CSS.supports('(display: flex) and (gap: 1px)'), true);
   T.eq('js.css-supports', 'CSS.escape', CSS.escape('a b'), 'a\\ b');
   T.ok('js.visibility', 'document is visible', document.hidden === false && document.visibilityState === 'visible', document.visibilityState);
-  T.ok('js.libraries', 'Chart.js by its CDN name', typeof Chart === 'function' && /^4\./.test(Chart.version), typeof Chart === 'function' ? Chart.version : typeof Chart, S);
-  T.ok('js.libraries', 'D3 by its CDN name', typeof d3 === 'object' && /^7\./.test(d3.version), typeof d3 === 'object' ? d3.version : typeof d3, S);
+  T.ok('js.libraries', 'a Chart.js CDN script is an external script and is not run (profile 1: out)', typeof Chart === 'undefined', typeof Chart, S);
+  T.ok('js.libraries', 'a D3 CDN script is not run either', typeof d3 === 'undefined', typeof d3, S);
   // ───── out of the profile
   var net = [];
   ['XMLHttpRequest', 'WebSocket', 'EventSource', 'RTCPeerConnection', 'Worker', 'SharedWorker', 'BroadcastChannel'].forEach(function (n) {

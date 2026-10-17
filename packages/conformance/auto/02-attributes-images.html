@@ -273,9 +273,9 @@ function onImage(id, catId, name, want, opts) {
 }
 onImage('i-png', 'html.el.img', 'PNG decodes (naturalWidth 2)', function (t, n) { return t === 'load' && n === 2; });
 onImage('i-gif', 'html.el.img', 'GIF decodes (naturalWidth 1)', function (t, n) { return t === 'load' && n === 1; });
-onImage('i-svg', 'html.el.img-svg', 'SVG image decodes (naturalWidth 10)', function (t, n) { return t === 'load' && n === 10; });
-onImage('i-bmp', 'html.el.img-other-formats', 'BMP is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; }, { xfail: 'url-policy still allows image/bmp' });
-onImage('i-ico', 'html.el.img-other-formats', 'ICO is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; }, { xfail: 'url-policy still allows image/x-icon' });
+onImage('i-svg', 'html.el.img-svg', 'an SVG image is refused: the 48px placeholder (profile 1: out)', function (t, n) { return t === 'load' && n === 48; });
+onImage('i-bmp', 'html.el.img-other-formats', 'BMP is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; });
+onImage('i-ico', 'html.el.img-other-formats', 'ICO is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; });
 onImage('i-remote', 'html.el.img-remote', 'a remote image becomes the 48px placeholder', function (t, n) { return t === 'load' && n === 48; }, { sandboxOnly: true });
 
 T.step(function () {
@@ -290,20 +290,20 @@ T.step(function () {
   T.eq('html.attr.dir', 'dir=auto with Hebrew text resolves to rtl', CS('#auto', 'direction'), 'rtl');
   T.eq('html.attr.data-aria', 'data-* reaches attribute selectors', T.color('#dat', 'color'), '0,0,150,1');
   T.eq('html.attr.data-aria', 'aria-* reaches attribute selectors', T.color('#ar', 'color'), '150,0,0,1');
-  T.ok('html.attr.legacy-presentational', 'align=center centres', /center/.test(CS('#al', 'text-align')), CS('#al', 'text-align'));
-  T.eq('html.attr.legacy-presentational', 'bgcolor paints the cell', T.color('#lt-td'), '255,0,0,1');
-  T.near('html.attr.legacy-presentational', 'cellpadding pads the cell', parseFloat(CS('#lt-td', 'padding-left')), 5, 0.5);
-  T.ok('html.attr.legacy-presentational', 'border=1 draws a table border', parseFloat(CS('#lt', 'border-top-width')) >= 1, CS('#lt', 'border-top-width'));
+  T.ok('html.attr.legacy-presentational', 'align is dropped: no centring', !/center/.test(CS('#al', 'text-align')), CS('#al', 'text-align'));
+  T.ok('html.attr.legacy-presentational', 'bgcolor is dropped', T.color('#lt-td') !== '255,0,0,1', T.color('#lt-td'));
+  T.ok('html.attr.legacy-presentational', 'cellpadding is dropped', parseFloat(CS('#lt-td', 'padding-left')) !== 5, CS('#lt-td', 'padding-left'));
+  T.ok('html.attr.legacy-presentational', 'border=1 is dropped', parseFloat(CS('#lt', 'border-top-width')) === 0, CS('#lt', 'border-top-width'));
   var ih = document.getElementById('ih');
   ih.click(); ih.click();
   T.eq('html.attr.event-handlers', 'an inline onclick handler runs', ih.getAttribute('data-n'), '2');
-  T.ok('html.attr.contenteditable', 'contenteditable does not reach the renderer', T.color('#ce', 'color') !== '1,1,1,1', T.color('#ce', 'color'), { xfail: 'the validator does not enforce the profile yet' });
-  T.ok('html.attr.draggable', 'draggable does not reach the renderer', T.color('#dg', 'color') !== '2,2,2,1', T.color('#dg', 'color'), { xfail: 'the validator does not enforce the profile yet' });
-  T.ok('html.attr.tabindex', 'tabindex does not reach the renderer', T.color('#ti', 'color') !== '3,3,3,1', T.color('#ti', 'color'), { xfail: 'the validator does not enforce the profile yet' });
+  T.ok('html.attr.contenteditable', 'contenteditable does not reach the renderer', T.color('#ce', 'color') !== '1,1,1,1', T.color('#ce', 'color'));
+  T.ok('html.attr.draggable', 'draggable does not reach the renderer', T.color('#dg', 'color') !== '2,2,2,1', T.color('#dg', 'color'));
+  T.ok('html.attr.tabindex', 'tabindex does not reach the renderer', T.color('#ti', 'color') !== '3,3,3,1', T.color('#ti', 'color'));
 });
 T.run({ deadline: 4000 });
 </script>
 <template data-ref="raster"><div style="padding:4px"><div style="float:left;width:16px;height:16px;margin:2px;background:#cc3333"></div><div style="float:left;width:16px;height:16px;margin:2px;background:#3366cc"></div><div style="float:left;width:16px;height:16px;margin:2px;background:#33aa33"></div><div style="float:left;width:16px;height:16px;margin:2px;background:#ff0000"></div></div></template>
-<template data-ref="svgimg"><div style="margin:10px;width:60px;height:20px;background:#e83"></div><div style="margin:-10px 10px 0;width:60px;height:20px;background:#36c"></div></template>
+<template data-ref="svgimg"><img style="display:block;margin:10px;width:60px;height:40px" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2248%22%20height%3D%2248%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20width%3D%2248%22%20height%3D%2248%22%20fill%3D%22%238882%22%2F%3E%3Cpath%20d%3D%22M8%2036l10-12%208%209%206-7%208%2010z%22%20fill%3D%22%238886%22%2F%3E%3Ccircle%20cx%3D%2233%22%20cy%3D%2215%22%20r%3D%224%22%20fill%3D%22%238886%22%2F%3E%3C%2Fsvg%3E"></template>
 </body>
 </html>

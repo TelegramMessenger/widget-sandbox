@@ -140,6 +140,7 @@ export function summaryMarkdown(reports, manifest, catalogue) {
   const natives = ['chromium', 'webkit'].map((e) => ({ name: `native ${e}`, verdicts: nativeColumn(manifest, catalogue, e) })).filter((n) => Object.values(n.verdicts).some((v) => v !== 'untested'));
   const cols = [...reports.map((r) => ({ name: `${r.client.platform} ${r.client.renderer}`, verdicts: Object.fromEntries(Object.entries(r.features).map(([k, v]) => [k, v.verdict])) })), ...natives];
   const count = (st) => catalogue.features.filter((f) => f.status === st).length;
+  const hasCandidates = count('candidate') > 0;
   const first = reports[0]?.client ?? {};
   const md = [
     '# Conformance results',
@@ -150,16 +151,19 @@ export function summaryMarkdown(reports, manifest, catalogue) {
     '',
     '## Totals',
     '',
-    `| Renderer | in (${count('in')}) ${MARK.pass} / ${MARK.partial} / ${MARK.fail} / ${MARK.xfail} | candidate (${count('candidate')}) ${MARK.pass} / ${MARK.partial} / ${MARK.fail} | out (${count('out')}) neutralised ${MARK.pass} / not yet ${MARK.xfail} / ${MARK.fail} | auto runs loaded | errors |`,
-    '|---|---|---|---|---|---|',
+    `| Renderer | in (${count('in')}) ${MARK.pass} / ${MARK.partial} / ${MARK.fail} / ${MARK.xfail} |${hasCandidates ? ` candidate (${count('candidate')}) ${MARK.pass} / ${MARK.partial} / ${MARK.fail} |` : ''} out (${count('out')}) neutralised ${MARK.pass} / not yet ${MARK.xfail} / ${MARK.fail} | auto runs loaded | errors |`,
+    hasCandidates ? '|---|---|---|---|---|---|' : '|---|---|---|---|---|',
   ];
   for (const r of reports) {
     const s = r.summary, auto = r.tests.filter((t) => t.set === 'auto');
-    md.push(`| ${r.client.platform} ${r.client.renderer} | ${s.in.pass} / ${s.in.partial} / ${s.in.fail} / ${s.in.xfail} | ${s.candidate.pass} / ${s.candidate.partial} / ${s.candidate.fail} | ${s.out.pass} / ${s.out.xfail + s.out.partial} / ${s.out.fail} | ${auto.filter((t) => t.loaded && !t.dead).length} / ${auto.length} | ${r.tests.reduce((n, t) => n + t.errors.length + t.harnessErrors.length, 0)} |`);
+    md.push(`| ${r.client.platform} ${r.client.renderer} | ${s.in.pass} / ${s.in.partial} / ${s.in.fail} / ${s.in.xfail} |${hasCandidates ? ` ${s.candidate.pass} / ${s.candidate.partial} / ${s.candidate.fail} |` : ''} ${s.out.pass} / ${s.out.xfail + s.out.partial} / ${s.out.fail} | ${auto.filter((t) => t.loaded && !t.dead).length} / ${auto.length} | ${r.tests.reduce((n, t) => n + t.errors.length + t.harnessErrors.length, 0)} |`);
   }
-  md.push('', '## Candidates', '', 'Membership decided by measurement (D3: in when every client draws it).', '', `| ID | Feature | ${cols.map((c) => c.name).join(' | ')} |`, `|---|---|${cols.map(() => '---').join('|')}|`);
-  for (const f of catalogue.features.filter((x) => x.status === 'candidate')) md.push(`| \`${f.id}\` | ${f.title.replace(/\|/g, '\\|')} | ${cols.map((c) => MARK[c.verdicts[f.id]]).join(' | ')} |`);
   md.push('');
+  if (hasCandidates) {
+    md.push('## Candidates', '', 'Membership decided by measurement (D3: in when every client draws it).', '', `| ID | Feature | ${cols.map((c) => c.name).join(' | ')} |`, `|---|---|${cols.map(() => '---').join('|')}|`);
+    for (const f of catalogue.features.filter((x) => x.status === 'candidate')) md.push(`| \`${f.id}\` | ${f.title.replace(/\|/g, '\\|')} | ${cols.map((c) => MARK[c.verdicts[f.id]]).join(' | ')} |`);
+    md.push('');
+  }
   for (const st of ['in', 'out']) {
     md.push(`## ${st === 'in' ? 'In the profile' : 'Out of the profile (pass = neutralised)'}`, '', `| ID | ${cols.map((c) => c.name).join(' | ')} |`, `|---|${cols.map(() => '---').join('|')}|`);
     for (const f of catalogue.features.filter((x) => x.status === st)) md.push(`| \`${f.id}\`${f.conditional ? ' *' : ''} | ${cols.map((c) => MARK[c.verdicts[f.id]]).join(' | ')} |`);
@@ -173,7 +177,8 @@ export function summaryMarkdown(reports, manifest, catalogue) {
       const v = r.features[f.id];
       if (v.verdict !== 'fail' && v.verdict !== 'partial') continue;
       any = true;
-      const bad = v.evidence.filter((e) => e.status === 'fail').slice(0, 4).map((e) => `${e.test.split('/')[1]}: ${e.name}${e.detail ? ` (${String(e.detail).slice(0, 90)})` : ''}`);
+      // One line per failing check, whatever the theme and width variants.
+      const bad = [...new Set(v.evidence.filter((e) => e.status === 'fail').map((e) => `${e.test.split('/').pop()}: ${e.name}${e.detail ? ` (${String(e.detail).slice(0, 90)})` : ''}`))].slice(0, 4);
       md.push(`- \`${f.id}\`: ${bad.join('; ').replace(/\|/g, '\\|')}`);
     }
     if (!any) md.push('- none');

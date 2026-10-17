@@ -327,13 +327,14 @@ var W = function (s) { return R(s).w; };
 T.step(function () {
   T.near('css.font.generic', 'monospace: i and M have the same advance', W('#mono-i'), W('#mono-m'), 0.5);
   T.ok('css.font.generic', 'computed font-family keeps the generic name', /monospace/.test(CS('#mono-i', 'font-family')), CS('#mono-i', 'font-family'));
-  T.near('css.font.ui-families', 'ui-monospace: i and M have the same advance', W('#uimono-i'), W('#uimono-m'), 0.5);
+  T.near('css.font.ui-families', 'ui-monospace: i and M have the same advance', W('#uimono-i'), W('#uimono-m'), 0.5, { sandboxOnly: true });
+  T.ok('css.font.ui-families', 'the validator adds a generic fallback (ui-monospace → …, monospace)', /,\s*monospace/.test(CS('#uimono-i', 'font-family')), CS('#uimono-i', 'font-family'), { sandboxOnly: true });
   T.ok('css.font.generic', 'serif and sans-serif are different faces', Math.abs(W('#serif') - W('#sans')) > 1, W('#serif') + ' vs ' + W('#sans'));
   T.ok('css.font.generic', 'system-ui renders', W('#sys') > 40, W('#sys') + '');
   T.ok('css.font.ui-families', 'ui-rounded with a fallback renders', W('#rounded') > 5, W('#rounded') + '');
 
-  T.ok('css.font.named', 'a named family is dropped: "Courier New" alone is not monospace', Math.abs(W('#named-i') - W('#named-m')) > 2, W('#named-i') + ' vs ' + W('#named-m'), { xfail: 'the validator does not drop font names yet (D3b)' });
-  T.ok('css.font.named', 'a named family is dropped from the list ("Times New Roman", sans-serif → sans-serif)', !/Times/.test(CS('#named2', 'font-family')), CS('#named2', 'font-family'), { xfail: 'the validator does not drop font names yet (D3b)' });
+  T.ok('css.font.named', 'a named family is dropped: "Courier New" alone is not monospace', Math.abs(W('#named-i') - W('#named-m')) > 2, W('#named-i') + ' vs ' + W('#named-m'));
+  T.ok('css.font.named', 'a named family is dropped from the list ("Times New Roman", sans-serif → sans-serif)', !/Times/.test(CS('#named2', 'font-family')), CS('#named2', 'font-family'));
   T.near('css.font.face', '@font-face is dropped: the fallback monospace is used', W('#face-i'), W('#face-m'), 0.5);
 
   T.ok('css.font.basic', 'font-size: 20px gives a taller line', R('#fs').h >= 20, R('#fs').h + '');
@@ -363,20 +364,21 @@ T.step(function () {
   T.ok('css.text.white-space', 'pre-line keeps the newline, collapses the spaces', R('#preline').h >= 31 && R('#preline').h < 40, R('#preline').h + '');
   T.ok('css.text.wrap', 'overflow-wrap: anywhere breaks a long word', R('#ow').h >= 31 && R('#ow').w <= 40.5, R('#ow').w + 'x' + R('#ow').h);
   T.ok('css.text.wrap', 'word-break: break-all breaks a long word', R('#wb').h >= 31, R('#wb').h + '');
-  T.near('css.text.line-clamp', '-webkit-line-clamp: 2 shows two lines', R('#clamp').h, 32, 1);
+  T.ok('css.text.line-clamp', '-webkit-line-clamp is dropped: all lines show (profile 1: out)', R('#clamp').h > 40, 'h ' + R('#clamp').h);
   T.ok('css.text.vertical-align', 'vertical-align top and bottom', R('#va-t').y - R('#va').y < 2 && R('#va').b - R('#va-b').b < 2, (R('#va-t').y - R('#va').y) + ' / ' + (R('#va').b - R('#va-b').b));
   T.ok('css.text.list-style', 'list-style-position: inside moves the text right', R('#lsi-s').x > R('#lso-s').x + 4, R('#lsi-s').x + ' vs ' + R('#lso-s').x);
   T.eq('css.text.list-style', 'list-style-type: none', CS('#lsn li', 'list-style-type'), 'none');
-  T.ok('css.text.writing-mode', 'writing-mode is neutralised (text stays horizontal)', R('#wm').w > R('#wm').h, R('#wm').w + 'x' + R('#wm').h, { xfail: 'the validator does not enforce the profile yet' });
+  T.ok('css.text.writing-mode', 'writing-mode is neutralised (text stays horizontal)', R('#wm').w > R('#wm').h, R('#wm').w + 'x' + R('#wm').h);
 
   T.near('css.text.rtl', 'Hebrew in dir=rtl starts at the right edge', R('#he-s').r, R('#he').r, 1);
   T.ok('css.text.rtl', 'Arabic lam-alef is shaped (ligature narrower than its letters)', W('#ar-lig') < W('#ar-l') + W('#ar-a') - 1, W('#ar-lig') + ' vs ' + (W('#ar-l') + W('#ar-a')));
   T.ok('css.text.emoji', 'emoji glyph has an advance', W('#emoji') > 14, W('#emoji') + '');
   T.ok('css.text.emoji', 'flag sequence is one glyph', W('#flag') < W('#emoji') * 1.6, W('#flag') + ' vs ' + W('#emoji'));
   T.ok('css.text.emoji', 'ZWJ sequence is one glyph', W('#zwj') < W('#emoji') * 1.6, W('#zwj') + ' vs ' + W('#emoji'));
-  T.eq('css.text.selection', 'user-select: text cannot re-enable selection', CS('#sel', 'user-select') || CS('#sel', '-webkit-user-select'), 'none', { xfail: 'the client does not disable selection yet (D18)' });
+  T.eq('css.text.selection', 'user-select: text cannot re-enable selection', CS('#sel', 'user-select') || CS('#sel', '-webkit-user-select'), 'none');
 });
 T.run();
 </script>
+<template data-ref="text-shadow"><div style="position:absolute;left:10px;top:4px;font:900 36px/48px sans-serif;color:#36c">Sh</div></template>
 </body>
 </html>

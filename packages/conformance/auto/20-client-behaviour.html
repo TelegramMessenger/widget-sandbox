@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Conformance: client behaviour</title>
-<!-- conformance {"title": "What the client does around the widget: live theme switch, off-screen pause (no frames, timers at 1 Hz, visibilitychange), auto height with a hard clip at the cap", "hint": "Switch the chat to dark and back, scroll the bubble off screen for two seconds and back, tap Grow.", "actions": [{"theme": "dark", "ids": ["behaviour.theme-switch"]}, {"wait": 400}, {"theme": "light", "ids": ["behaviour.theme-switch"]}, {"wait": 300}, {"visible": false, "ids": ["behaviour.offscreen-pause"]}, {"wait": 2200}, {"visible": true, "ids": ["behaviour.offscreen-pause"]}, {"wait": 400}, {"tap": "grow", "ids": ["behaviour.auto-height"]}, {"wait": 600}, {"tap": "finish"}], "host": [{"id": "behaviour.auto-height", "name": "the bubble grows with the widget and is clipped at the cap (900px)", "height": {"min": 899, "max": 901}}], "themes": ["light"]} -->
+<!-- conformance {"title": "What the client does around the widget: live theme switch, off-screen pause (no frames, timers at 1 Hz, visibilitychange), auto height with a hard clip at the cap", "hint": "Switch the chat to dark and back, scroll the bubble off screen for two seconds and back, tap Grow.", "actions": [{"theme": "dark", "ids": ["behaviour.theme-switch", "limit.event-handlers", "tw.theme-params"]}, {"wait": 400}, {"theme": "light", "ids": ["behaviour.theme-switch"]}, {"wait": 300}, {"visible": false, "ids": ["behaviour.offscreen-pause", "tw.is-active"]}, {"wait": 2200}, {"visible": true, "ids": ["behaviour.offscreen-pause"]}, {"wait": 400}, {"tap": "grow", "ids": ["behaviour.auto-height"]}, {"wait": 600}, {"tap": "finish"}], "host": [{"id": "behaviour.auto-height", "name": "the bubble grows with the widget and is clipped at the cap (900px)", "height": {"min": 899, "max": 901}}], "themes": ["light"]} -->
 <!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111;background:transparent}@media (prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#conf-summary{font-weight:400;margin-left:6px}#conf-summary.good{color:#1a7f37}#conf-summary.bad{color:#c62828}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}.v-head{margin:8px 10px 2px;font-weight:600;font-size:15px}.v-hint{margin:0 10px 6px;font-size:12px}.v-row{display:flex;flex-wrap:wrap;align-items:flex-start;margin:6px 10px 10px}.v-row>[data-stage]{margin-right:8px}.v-ref{display:block;background:#fff}.v-cap{width:100%;margin-top:3px;font-size:12px}.v-tag{font-size:10px;font-weight:600;margin-right:4px;padding:0 4px;border-radius:3px;background:#8884}</style><script>var T = (function () {
   'use strict';
   var root = document.documentElement;
@@ -246,6 +246,24 @@ var toLight = T.wait('behaviour.theme-switch', 'switching back to light: all fou
 var hidden = T.wait('behaviour.offscreen-pause', 'visibilitychange: hidden, then visible again');
 var frames = T.wait('behaviour.offscreen-pause', 'no animation frames while hidden');
 var timers = T.wait('behaviour.offscreen-pause', 'timers run at most once per second while hidden');
+var SDK = TW ? {} : { sandboxOnly: true };
+var limit16 = T.wait('limit.event-handlers', 'onEvent keeps the first 16 handlers per type: of 1 checker + 20 counters, 15 counters run on a theme change', SDK);
+var paramsLive = T.wait('tw.theme-params', 'themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires', SDK);
+var activeEv = T.wait('tw.is-active', 'deactivated / activated fire and isActive follows visibility', SDK);
+var calls16 = 0, bgBefore = null, activeLog = [];
+if (TW && typeof TW.onEvent === 'function') {
+  bgBefore = TW.themeParams && TW.themeParams.bg_color;
+  // The checker goes first, so it is one of the 16 handlers kept; 15 of the 20 counters after it run.
+  TW.onEvent('themeChanged', function () {
+    var p = TW.themeParams || {};
+    var cssBg = getComputedStyle(document.documentElement).getPropertyValue('--tg-theme-bg-color').trim().toLowerCase();
+    paramsLive.result(!!p.bg_color && p.bg_color !== bgBefore && cssBg === p.bg_color, 'bg ' + bgBefore + ' → ' + p.bg_color + ', css ' + cssBg);
+    setTimeout(function () { limit16.result(calls16 === 15, calls16 + ' of 20 counters called'); }, 0);
+  });
+  for (var h = 0; h < 20; h++) TW.onEvent('themeChanged', function () { calls16++; });
+  TW.onEvent('deactivated', function () { activeLog.push('deactivated:' + TW.isActive); });
+  TW.onEvent('activated', function () { activeLog.push('activated:' + TW.isActive); activeEv.result(activeLog.join(',') === 'deactivated:false,activated:true', activeLog.join(',')); });
+}
 var ticks = 0, rafs = 0, hiddenAt = 0, hiddenTicks = 0, hiddenRafs = 0, wentHidden = false;
 setInterval(function () { ticks++; }, 50);
 (function loop() { rafs++; requestAnimationFrame(loop); })();
@@ -273,7 +291,7 @@ document.addEventListener('visibilitychange', function () {
   }
 });
 document.getElementById('grow').addEventListener('click', function () { document.getElementById('tall').style.height = '1500px'; });
-document.getElementById('finish').addEventListener('click', function () { [toDark, toLight, hidden, frames, timers].forEach(function (h) { if (!h.done) h.fail('did not happen'); }); });
+document.getElementById('finish').addEventListener('click', function () { [toDark, toLight, hidden, frames, timers, limit16, paramsLive, activeEv].forEach(function (h) { if (!h.done) h.fail('did not happen'); }); });
 T.run({ awaitInput: 20000 });
 </script>
 </body>

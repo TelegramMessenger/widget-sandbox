@@ -243,30 +243,29 @@ dialog:modal{outline:2px solid rgb(1,2,3)}
 <script>
 var R = T.rect;
 var none = function (sel) { var r = R(sel); return [r.w === 0 && r.h === 0, r.w + 'x' + r.h]; };
-var X = { xfail: 'the validator does not enforce the profile yet (forms are kept)' };
 var submitted = T.wait('html.el.forms', 'form submission never navigates (submit reaches the widget)', T.sandbox ? {} : { sandboxOnly: true });
 document.getElementById('f-form').addEventListener('submit', function (e) { e.preventDefault(); setTimeout(function () { submitted.result(!document.hidden, 'still here'); }, 50); });
 T.step(function () {
-  T.check('html.el.forms', 'input type=text is not drawn', none('#f-text'), X);
-  T.check('html.el.forms', 'checkbox is not drawn', none('#f-check'), X);
-  T.check('html.el.forms', 'radio is not drawn', none('#f-radio'), X);
-  T.check('html.el.forms', 'range is not drawn', none('#f-range'), X);
-  T.check('html.el.forms', 'select is not drawn', none('#f-select'), X);
-  T.check('html.el.forms', 'textarea is not drawn', none('#f-area'), X);
-  T.check('html.el.forms', 'fieldset is not drawn', none('#f-fs'), X);
-  T.ok('sel.form-state', ':checked does not match (the control is gone)', T.color('#f-check-next', 'color') !== '7,7,7,1', T.color('#f-check-next', 'color'), X);
+  T.check('html.el.forms', 'input type=text is not drawn', none('#f-text'));
+  T.check('html.el.forms', 'checkbox is not drawn', none('#f-check'));
+  T.check('html.el.forms', 'radio is not drawn', none('#f-radio'));
+  T.check('html.el.forms', 'range is not drawn', none('#f-range'));
+  T.check('html.el.forms', 'select is not drawn', none('#f-select'));
+  T.check('html.el.forms', 'textarea is not drawn', none('#f-area'));
+  T.check('html.el.forms', 'fieldset is not drawn', none('#f-fs'));
+  T.ok('sel.form-state', ':checked does not match (the control is gone)', T.color('#f-check-next', 'color') !== '7,7,7,1', T.color('#f-check-next', 'color'));
   if (T.sandbox) document.getElementById('f-submit').click();
   var dlg = document.getElementById('dlg');
   try { dlg.showModal(); } catch (e) {}
   var dr = R('#dlg'), host = R('#dlg-host');
-  T.ok('html.el.dialog-popover', 'showModal does not put the dialog in the top layer (:modal never matches)', T.color('#dlg', 'outline-color') !== '1,2,3,1', T.color('#dlg', 'outline-color'), { xfail: 'the validator does not enforce the profile yet' });
-  T.ok('html.el.dialog-popover', 'a shown dialog stays where the widget put it', Math.abs(dr.y - host.y) < 2 && dr.x >= 0 && dr.r <= window.innerWidth + 0.5, 'dialog at ' + Math.round(dr.x) + ',' + Math.round(dr.y) + ' (' + Math.round(dr.w) + 'x' + Math.round(dr.h) + '), its place ' + Math.round(host.x) + ',' + Math.round(host.y), { xfail: 'showModal puts the dialog in the top layer' });
+  T.ok('html.el.dialog-popover', 'showModal does not put the dialog in the top layer (:modal never matches)', T.color('#dlg', 'outline-color') !== '1,2,3,1', T.color('#dlg', 'outline-color'));
+  T.ok('html.el.dialog-popover', 'a shown dialog stays where the widget put it', Math.abs(dr.y - host.y) < 2 && dr.x >= 0 && dr.r <= window.innerWidth + 0.5, 'dialog at ' + Math.round(dr.x) + ',' + Math.round(dr.y) + ' (' + Math.round(dr.w) + 'x' + Math.round(dr.h) + '), its place ' + Math.round(host.x) + ',' + Math.round(host.y));
   try { dlg.close(); } catch (e) {}
   var pop = document.getElementById('pop');
   try { pop.showPopover(); } catch (e) {}
   var pr = R('#pop');
-  T.ok('html.el.dialog-popover', 'showPopover does not open a top-layer popover', T.color('#pop', 'outline-color') !== '4,5,6,1', T.color('#pop', 'outline-color'), { xfail: 'the validator does not enforce the profile yet' });
-  T.ok('html.el.dialog-popover', 'a popover stays inside the widget', pr.w === 0 || (pr.x >= 0 && pr.r <= window.innerWidth + 0.5 && Math.abs(pr.y - host.y) < 40), 'popover at ' + Math.round(pr.x) + ',' + Math.round(pr.y) + ' (' + Math.round(pr.w) + 'x' + Math.round(pr.h) + ')', { xfail: 'showPopover puts the element in the top layer' });
+  T.ok('html.el.dialog-popover', 'showPopover does not open a top-layer popover', T.color('#pop', 'outline-color') !== '4,5,6,1', T.color('#pop', 'outline-color'));
+  T.ok('html.el.dialog-popover', 'a popover stays inside the widget', pr.w === 0 || (pr.x >= 0 && pr.r <= window.innerWidth + 0.5 && Math.abs(pr.y - host.y) < 40), 'popover at ' + Math.round(pr.x) + ',' + Math.round(pr.y) + ' (' + Math.round(pr.w) + 'x' + Math.round(pr.h) + ')');
   try { pop.hidePopover(); } catch (e) {}
   T.check('html.el.media', 'video is dropped', none('#m-video'));
   T.check('html.el.media', 'audio is dropped', none('#m-audio'));

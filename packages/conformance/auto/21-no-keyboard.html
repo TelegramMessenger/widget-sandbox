@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Conformance: no keyboard</title>
-<!-- conformance {"title":"No keyboard (D4): key events never reach the widget, Enter/Space do not activate buttons or links, focus() does not take the focus from the chat input, a key press is not a user gesture for the bridge","hint":"Type in the chat input field: the widget must not steal the focus. Tap “button”, press Enter, Space and A; tap “link”, press Enter; tap Finish.","actions":[{"tap":"btn","ids":["input.key-activation"]},{"key":"Enter","ids":["input.keyboard","input.key-activation","input.key-gesture"]},{"key":"Space","ids":["input.keyboard","input.key-activation","input.key-gesture"]},{"key":"a","ids":["input.keyboard","input.key-gesture"]},{"tap":"lnk","ids":["input.key-activation"]},{"key":"Enter","ids":["input.keyboard","input.key-activation","input.key-gesture"]},{"tap":"finish"}],"host":[{"id":"js.focus","name":"focus() from the widget leaves the chat input focused","focus":"chat","xfail":"focus() still reaches the renderer"},{"id":"input.key-gesture","name":"a key press does not unlock openLink","bridge":{"method":"openLink","arg":"https://example.org/conformance/key","count":0},"gesture":true,"xfail":"a keydown still counts as a user gesture"}]} -->
+<!-- conformance {"title": "No keyboard (D4): key events never reach the widget, Enter/Space do not activate buttons or links, focus() does not take the focus from the chat input, a key press is not a user gesture for the bridge", "hint": "Type in the chat input field: the widget must not steal the focus. Tap “button”, press Enter, Space and A; tap “link”, press Enter; tap Finish.", "actions": [{"tap": "btn", "ids": ["input.key-activation"]}, {"key": "Enter", "ids": ["input.keyboard", "input.key-activation", "input.key-gesture"]}, {"key": "Space", "ids": ["input.keyboard", "input.key-activation", "input.key-gesture"]}, {"key": "a", "ids": ["input.keyboard", "input.key-gesture"]}, {"tap": "lnk", "ids": ["input.key-activation"]}, {"key": "Enter", "ids": ["input.keyboard", "input.key-activation", "input.key-gesture"]}, {"tap": "finish"}], "host": [{"id": "js.focus", "name": "focus() from the widget leaves the chat input focused", "focus": "chat"}, {"id": "input.key-gesture", "name": "a key press does not unlock openLink", "bridge": {"method": "openLink", "arg": "https://example.org/conformance/key", "count": 0}, "gesture": true}]} -->
 <!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111;background:transparent}@media (prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#conf-summary{font-weight:400;margin-left:6px}#conf-summary.good{color:#1a7f37}#conf-summary.bad{color:#c62828}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}.v-head{margin:8px 10px 2px;font-weight:600;font-size:15px}.v-hint{margin:0 10px 6px;font-size:12px}.v-row{display:flex;flex-wrap:wrap;align-items:flex-start;margin:6px 10px 10px}.v-row>[data-stage]{margin-right:8px}.v-ref{display:block;background:#fff}.v-cap{width:100%;margin-top:3px;font-size:12px}.v-tag{font-size:10px;font-weight:600;margin-right:4px;padding:0 4px;border-radius:3px;background:#8884}</style><script>var T = (function () {
   'use strict';
   var root = document.documentElement;
@@ -235,9 +235,8 @@ button,a{display:inline-block;min-width:80px;height:30px;margin:4px;font:14px/30
 <div id="conf-list"></div>
 <script>
 ['btn', 'lnk', 'finish'].forEach(function (n) { T.target(n, '#' + n); });
-var X = { xfail: 'key events are still delivered (D4 not enforced yet)' };
-var keyEv = T.wait('input.keyboard', 'no keydown, keyup, keypress, beforeinput or input event reaches the widget', X);
-var keyAct = T.wait('input.key-activation', 'Enter and Space add no clicks to a tapped button or link (one click each)', X);
+var keyEv = T.wait('input.keyboard', 'no keydown, keyup, keypress, beforeinput or input event reaches the widget');
+var keyAct = T.wait('input.key-activation', 'Enter and Space add no clicks to a tapped button or link (one click each)');
 var seen = { keydown: 0, keyup: 0, keypress: 0, beforeinput: 0, input: 0 };
 Object.keys(seen).forEach(function (t) { document.addEventListener(t, function () { seen[t]++; }, true); });
 // Were a key press a gesture, this privileged call would reach the host (the runner counts it).
@@ -253,7 +252,7 @@ document.getElementById('finish').addEventListener('click', function () {
 T.step(function () {
   var btn = document.getElementById('btn');
   btn.focus();
-  T.ok('js.focus', 'focus() does not make :focus match in the renderer', T.color('#btn', 'outline-color') !== '9,9,9,1', T.color('#btn', 'outline-color'), { xfail: 'focus() still reaches the shim and the renderer' });
+  T.ok('js.focus', 'focus() does not make :focus match in the renderer', T.color('#btn', 'outline-color') !== '9,9,9,1', T.color('#btn', 'outline-color'));
 });
 T.run({ awaitInput: 20000 });
 </script>

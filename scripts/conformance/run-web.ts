@@ -153,6 +153,7 @@ async function runWidget(page: Page, w: Widget, renderer: string, theme: 'light'
   const dir = path.join(OUT, renderer, w.set);
   fs.mkdirSync(dir, { recursive: true });
   const tag = `${w.stem}.${theme}.${width}`;
+  fs.mkdirSync(path.dirname(path.join(dir, tag)), { recursive: true }); // grouped widgets (visual/sdk/…)
   const stages: { name: string; crop: string }[] = [];
   /** For the console only: the run file carries the crops, report.mjs judges them. */
   const preview: string[] = [];

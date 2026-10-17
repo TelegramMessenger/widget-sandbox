@@ -9,12 +9,13 @@
     "D5": "strict policy everywhere; webAnimations and morphUpdates from the profile",
     "D6": "3D (__tw3d) cut from the release",
     "D8": "SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage",
+    "SDK": "SDK v1 (docs/sdk-v1.md), with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble",
     "D11": "One widget model: classic DOM in the sandbox",
     "D12a": "Above the cap: hard clip, no fullscreen",
     "D14": "Theme: themeParams + --tg-theme-*, theme change event",
     "D17": "State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory",
     "D18": "Text selection forbidden",
-    "D20": ".tgw = gzip of HTML, 128 KB HTML limit on the server",
+    "D20": "Mini-widgets first (2026-10-17): gzipped HTML up to 4 KB inline in the message, 32 KB of HTML at most; .tgw documents deferred",
     "D21": "No accessibility in v1",
     "D23": "Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile",
     "brief": "Named as a candidate in the conformance brief (decided by measurement)",
@@ -24,7 +25,10 @@
     "inv5": "Invariant 5: no network in QuickJS",
     "inv6": "Invariant 6: navigation cancelled, shadow scope",
     "today": "Current pipeline behaviour, no v1 decision recorded",
-    "proposed": "Proposed by this catalogue, to be confirmed"
+    "proposed": "Proposed by this catalogue, to be confirmed",
+    "P1": "Profile v1 freeze (2026-10-17): a candidate is in when the corpus uses it and the web renderers draw it; the rest are out until the native renderers are measured (profile 2)",
+    "P1-grid": "Grid is in on condition that the Swift renderer and TwidgetCore implement it before their releases (2026-10-17)",
+    "P1-libs": "No bundled libraries in v1 (2026-10-17)"
   },
   "features": [
     {
@@ -208,8 +212,8 @@
       "id": "html.el.ruby",
       "area": "html",
       "title": "ruby, rt, rp, bdi, bdo",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "tags": [
@@ -220,14 +224,15 @@
           "bdo"
         ]
       },
-      "note": "Annotation layout is rarely implemented by small engines; measure before keeping."
+      "note": "Annotation layout is rarely implemented by small engines; measure before keeping.",
+      "neutralise": "rendered as <span> (the annotation shows inline)"
     },
     {
       "id": "html.el.legacy",
       "area": "html",
       "title": "Legacy presentational elements: center, font, big, tt, strike, nobr",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "tags": [
@@ -239,7 +244,8 @@
           "nobr"
         ]
       },
-      "note": "Allowed today; a profile could drop them (render as span) to keep the table small."
+      "note": "Allowed today; a profile could drop them (render as span) to keep the table small.",
+      "neutralise": "<center> becomes a <div>, the others a <span>; the presentational attributes are dropped"
     },
     {
       "id": "html.el.img",
@@ -265,8 +271,8 @@
       "id": "html.el.img-svg",
       "area": "html",
       "title": "<img src=\"data:image/svg+xml\">",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "tags": [
@@ -276,14 +282,15 @@
           "data:image/svg+xml"
         ]
       },
-      "note": "Release plan, security stream: restrict image formats to PNG, JPEG, GIF, WebP (the decoder runs in the app process)."
+      "note": "Release plan, security stream: restrict image formats to PNG, JPEG, GIF, WebP (the decoder runs in the app process).",
+      "neutralise": "url-policy refuses the MIME: placeholder image"
     },
     {
       "id": "html.el.img-other-formats",
       "area": "html",
       "title": "<img> with data: AVIF, BMP, ICO",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "values": [
@@ -342,7 +349,7 @@
       "area": "html",
       "title": "details/summary: open state and toggle on tap",
       "status": "in",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "tags": [
@@ -360,7 +367,7 @@
       "area": "html",
       "title": "<a href=\"#id\">: no navigation, :target-free",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "tags": [
@@ -409,15 +416,15 @@
           "output"
         ]
       },
-      "neutralise": "not decided: drop the control (no box) or render it as an inert span; the tests expect \"no control is drawn\"",
+      "neutralise": "controls are dropped with their subtree (input, select, option, optgroup, textarea, datalist, fieldset, progress, meter); <form> becomes a <div>, <label>, <legend> and <output> a <span>",
       "note": "Kept and drawn natively today."
     },
     {
       "id": "html.el.progress-meter",
       "area": "html",
       "title": "progress, meter (native gauges)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "tags": [
@@ -425,14 +432,15 @@
           "meter"
         ]
       },
-      "note": "Not input, but a native control look that differs per platform."
+      "note": "Not input, but a native control look that differs per platform.",
+      "neutralise": "dropped with the subtree, like the other controls"
     },
     {
       "id": "html.el.dialog-popover",
       "area": "html",
       "title": "dialog (show/showModal), popover attribute",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "tags": [
@@ -450,7 +458,7 @@
           "togglePopover"
         ]
       },
-      "neutralise": "drop the methods and the popover attributes; a dialog renders as a block",
+      "neutralise": "a dialog renders as a <div>; the popover attributes and the dialog and popover methods are dropped",
       "note": "The top layer is the page: in the Shadow DOM renderer a modal dialog or popover is drawn over the whole chat, outside the bubble."
     },
     {
@@ -458,7 +466,7 @@
       "area": "html",
       "title": "Unknown / custom elements render as an inert <span data-tg-tag>",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "replaced",
       "match": {
         "tags": [
@@ -471,7 +479,7 @@
       "area": "html",
       "title": "audio, video, source, track",
       "status": "out",
-      "decision": "today",
+      "decision": "P1",
       "today": "stripped",
       "match": {
         "tags": [
@@ -564,8 +572,8 @@
       "id": "html.attr.legacy-presentational",
       "area": "html",
       "title": "align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "attrs": [
@@ -579,14 +587,15 @@
           "face",
           "nowrap"
         ]
-      }
+      },
+      "neutralise": "the attributes are dropped"
     },
     {
       "id": "html.attr.event-handlers",
       "area": "html",
       "title": "Inline on* handler attributes (run inside QuickJS, never reach the renderer)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "attrs": [
@@ -599,7 +608,7 @@
       "area": "html",
       "title": "contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "attrs": [
@@ -711,7 +720,7 @@
       "area": "svg",
       "title": "linearGradient, radialGradient, stop; fill=\"url(#id)\"",
       "status": "in",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "svgTags": [
@@ -725,8 +734,8 @@
       "id": "svg.css",
       "area": "svg",
       "title": "CSS on inline SVG: fill/stroke from a stylesheet rule, :hover, CSS animation of SVG properties",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -743,8 +752,8 @@
       "id": "svg.clip-mask",
       "area": "svg",
       "title": "clipPath, mask, pattern, marker",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "svgTags": [
@@ -753,14 +762,15 @@
           "pattern",
           "marker"
         ]
-      }
+      },
+      "neutralise": "the elements are dropped with their subtree; clip-path, mask and marker attributes are dropped"
     },
     {
       "id": "svg.filters",
       "area": "svg",
       "title": "SVG filter primitives (fe*)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "svgTags": [
@@ -772,14 +782,15 @@
           "feDropShadow",
           "…"
         ]
-      }
+      },
+      "neutralise": "filter and the fe* elements are dropped with their subtree; the filter attribute is dropped"
     },
     {
       "id": "svg.smil",
       "area": "svg",
       "title": "SMIL animation: animate, animateTransform, animateMotion",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "svgTags": [
@@ -789,14 +800,15 @@
           "mpath"
         ]
       },
-      "note": "Animation driven by the renderer, outside CSS animations and WAAPI."
+      "note": "Animation driven by the renderer, outside CSS animations and WAAPI.",
+      "neutralise": "animate, animateTransform, animateMotion and mpath are dropped"
     },
     {
       "id": "svg.foreign-object",
       "area": "svg",
       "title": "foreignObject (HTML inside SVG)",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "svgTags": [
@@ -809,14 +821,15 @@
       "id": "svg.image",
       "area": "svg",
       "title": "<image href=\"data:…\"> inside SVG",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "svgTags": [
           "image"
         ]
-      }
+      },
+      "neutralise": "dropped"
     },
     {
       "id": "css.display.basic",
@@ -886,8 +899,8 @@
       "id": "css.display.grid",
       "area": "css",
       "title": "CSS grid: display grid, grid-template-*, grid-area/column/row, auto-flow, place-*",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "in",
+      "decision": "P1-grid",
       "today": "kept",
       "match": {
         "properties": [
@@ -934,8 +947,8 @@
       "id": "css.display.other",
       "area": "css",
       "title": "display: flow-root, contents, list-item",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "values": [
@@ -943,7 +956,8 @@
           "contents",
           "list-item"
         ]
-      }
+      },
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.box.size",
@@ -1038,8 +1052,8 @@
       "id": "css.box.logical",
       "area": "css",
       "title": "Logical properties: margin-inline, padding-block, inset-inline, inline-size, …",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1053,7 +1067,8 @@
           "block-size"
         ]
       },
-      "note": "Used by LLM widgets (15 % of generated); missing in the litehtml prototype."
+      "note": "Used by LLM widgets (15 % of generated); missing in the litehtml prototype.",
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.box.outline",
@@ -1100,8 +1115,8 @@
       "id": "css.box.columns",
       "area": "css",
       "title": "Multi-column layout (columns, column-count, column-gap)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1110,14 +1125,15 @@
           "column-width",
           "column-rule"
         ]
-      }
+      },
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.box.object-fit",
       "area": "css",
       "title": "object-fit, object-position on <img>",
       "status": "in",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1153,7 +1169,7 @@
       "area": "css",
       "title": "position: fixed (relative to the bubble, never the chat)",
       "status": "in",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "values": [
@@ -1166,7 +1182,7 @@
       "area": "css",
       "title": "position: sticky",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "values": [
@@ -1280,8 +1296,8 @@
       "id": "css.color.modern",
       "area": "css",
       "title": "Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color()",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "functions": [
@@ -1292,28 +1308,30 @@
           "oklch",
           "color"
         ]
-      }
+      },
+      "neutralise": "the declaration is dropped (an earlier fallback declaration applies)"
     },
     {
       "id": "css.color.mix",
       "area": "css",
       "title": "color-mix()",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "functions": [
           "color-mix"
         ]
       },
-      "note": "Missing in the litehtml prototype."
+      "note": "Missing in the litehtml prototype.",
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.color.light-dark",
       "area": "css",
       "title": "light-dark() and color-scheme: light dark, resolved to the chat theme",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "resolved",
       "match": {
         "functions": [
@@ -1347,8 +1365,8 @@
       "id": "css.background.clip-text",
       "area": "css",
       "title": "background-clip: text (gradient text)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1358,7 +1376,8 @@
         "values": [
           "text"
         ]
-      }
+      },
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.gradient.linear",
@@ -1392,8 +1411,8 @@
       "id": "css.gradient.conic",
       "area": "css",
       "title": "conic-gradient()",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "functions": [
@@ -1443,8 +1462,8 @@
       "id": "css.font.ui-families",
       "area": "css",
       "title": "font-family: ui-sans-serif, ui-serif, ui-monospace, ui-rounded",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1473,7 +1492,7 @@
           "font"
         ]
       },
-      "neutralise": "the validator drops non-generic names from the list; an empty list falls back to the default (system-ui)"
+      "neutralise": "the validator drops non-generic names from the list; -apple-system and BlinkMacSystemFont, the vendor names of the system UI font, become system-ui; an empty list falls back to the default (system-ui)"
     },
     {
       "id": "css.font.face",
@@ -1510,8 +1529,8 @@
       "id": "css.font.variant-numeric",
       "area": "css",
       "title": "font-variant-numeric: tabular-nums (and font-feature-settings \"tnum\")",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1596,8 +1615,8 @@
       "id": "css.text.overflow",
       "area": "css",
       "title": "text-overflow: ellipsis (single line)",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1609,8 +1628,8 @@
       "id": "css.text.line-clamp",
       "area": "css",
       "title": "-webkit-line-clamp / line-clamp (multi-line ellipsis)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1618,21 +1637,23 @@
           "line-clamp",
           "-webkit-box-orient"
         ]
-      }
+      },
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.text.shadow",
       "area": "css",
       "title": "text-shadow",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
           "text-shadow"
         ]
       },
-      "note": "Not drawn by Blitz or the litehtml prototype (probe text-shadow)."
+      "note": "Not drawn by Blitz or the litehtml prototype (probe text-shadow).",
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.text.vertical-align",
@@ -1667,7 +1688,7 @@
       "area": "css",
       "title": "writing-mode, text-orientation (vertical text)",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1716,7 +1737,7 @@
           "::selection"
         ]
       },
-      "neutralise": "the client renders with selection disabled whatever the widget says"
+      "neutralise": "the renderer disables selection on its root and the validator drops user-select"
     },
     {
       "id": "css.transform.2d",
@@ -1802,8 +1823,8 @@
       "id": "css.filter.other",
       "area": "css",
       "title": "filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity()",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1818,14 +1839,15 @@
           "invert",
           "opacity"
         ]
-      }
+      },
+      "neutralise": "the function is removed from the filter list; an empty list drops the declaration"
     },
     {
       "id": "css.filter.url",
       "area": "css",
       "title": "filter: url(#svg-filter)",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1856,8 +1878,8 @@
       "id": "css.blend",
       "area": "css",
       "title": "mix-blend-mode, isolation, background-blend-mode",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1865,28 +1887,30 @@
           "isolation",
           "background-blend-mode"
         ]
-      }
+      },
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.clip-path",
       "area": "css",
       "title": "clip-path: inset(), circle(), ellipse(), polygon()",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
           "clip-path"
         ]
       },
-      "note": "Blitz draws it, the litehtml prototype does not."
+      "note": "Blitz draws it, the litehtml prototype does not.",
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.mask",
       "area": "css",
       "title": "mask / -webkit-mask with gradients or data: images",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1895,14 +1919,15 @@
           "-webkit-mask",
           "-webkit-mask-*"
         ]
-      }
+      },
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.pointer-events",
       "area": "css",
       "title": "pointer-events: none / auto (hit testing passes through)",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1914,8 +1939,8 @@
       "id": "css.touch-action",
       "area": "css",
       "title": "touch-action: none / pan-x / pan-y (the widget claims a swipe from the chat)",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "properties": [
@@ -1965,7 +1990,7 @@
       "area": "css",
       "title": "vw / vmin / vmax / vi: the bubble width",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "replaced",
       "match": {
         "units": [
@@ -1984,8 +2009,8 @@
       "id": "css.value.vh",
       "area": "css",
       "title": "vh / dvh / svh / vb: height-relative units",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "units": [
@@ -1996,7 +2021,8 @@
           "vb"
         ]
       },
-      "note": "The bubble height comes from the content, so vh is circular: the iframe uses its own height, the shadow renderer the container height."
+      "note": "The bubble height comes from the content, so vh is circular: the iframe uses its own height, the shadow renderer the container height.",
+      "neutralise": "the declaration is dropped"
     },
     {
       "id": "css.value.math",
@@ -2075,7 +2101,7 @@
       "area": "css",
       "title": "env() (safe-area-inset-*, …)",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "functions": [
@@ -2150,15 +2176,16 @@
       "id": "sel.has",
       "area": "selector",
       "title": ":has()",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "selectors": [
           ":has"
         ]
       },
-      "note": "Not matched by Blitz or the litehtml prototype (probe has-selector)."
+      "note": "Not matched by Blitz or the litehtml prototype (probe has-selector).",
+      "neutralise": "the selector never matches (dropped from its list)"
     },
     {
       "id": "sel.root",
@@ -2192,8 +2219,8 @@
       "id": "sel.first-letter-line",
       "area": "selector",
       "title": "::first-letter, ::first-line, ::marker",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "selectors": [
@@ -2201,7 +2228,8 @@
           "::first-line",
           "::marker"
         ]
-      }
+      },
+      "neutralise": "the selector never matches (dropped from its list)"
     },
     {
       "id": "sel.hover",
@@ -2221,7 +2249,7 @@
       "area": "selector",
       "title": ":active (pressed feedback while a tap is down)",
       "status": "in",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "selectors": [
@@ -2244,7 +2272,7 @@
           ":focus-within"
         ]
       },
-      "neutralise": "never matches (the widget never owns keyboard focus: D4)"
+      "neutralise": "the selector never matches (dropped from its list); the widget never owns keyboard focus"
     },
     {
       "id": "sel.form-state",
@@ -2264,7 +2292,7 @@
           "::placeholder"
         ]
       },
-      "neutralise": "follows the forms decision"
+      "neutralise": ":disabled and :enabled become [disabled] and :not([disabled]) (the <button> state); the other form states never match"
     },
     {
       "id": "sel.host-scoped",
@@ -2282,21 +2310,21 @@
           ":scope"
         ]
       },
-      "neutralise": "the rule is dropped (Shadow DOM scope); in a document scope they match nothing"
+      "neutralise": "the selector never matches (dropped from its list) on every renderer"
     },
     {
       "id": "sel.target",
       "area": "selector",
       "title": ":target",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "selectors": [
           ":target"
         ]
       },
-      "neutralise": "never matches (no navigation)"
+      "neutralise": "the selector never matches (dropped from its list)"
     },
     {
       "id": "at.media.width",
@@ -2339,8 +2367,8 @@
       "id": "at.media.reduced-motion",
       "area": "at-rule",
       "title": "@media (prefers-reduced-motion)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "in",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "media": [
@@ -2353,8 +2381,8 @@
       "id": "at.media.hover-pointer",
       "area": "at-rule",
       "title": "@media (hover: hover), (pointer: fine|coarse)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "media": [
@@ -2364,14 +2392,15 @@
           "any-pointer"
         ]
       },
-      "note": "Lets a widget gate :hover styles; the answer must come from the client, not the engine."
+      "note": "Lets a widget gate :hover styles; the answer must come from the client, not the engine.",
+      "neutralise": "the @media rule is dropped; matchMedia answers false"
     },
     {
       "id": "at.media.other",
       "area": "at-rule",
       "title": "@media print, resolution, other media features",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "media": [
@@ -2381,7 +2410,8 @@
           "forced-colors",
           "prefers-contrast"
         ]
-      }
+      },
+      "neutralise": "the @media rule is dropped; matchMedia answers false"
     },
     {
       "id": "at.supports",
@@ -2430,8 +2460,8 @@
       "id": "at.container",
       "area": "at-rule",
       "title": "@container queries (container-type in the widget)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "atrules": [
@@ -2442,40 +2472,43 @@
           "container-type",
           "container-name"
         ]
-      }
+      },
+      "neutralise": "the at-rule is dropped; container properties are dropped"
     },
     {
       "id": "at.layer",
       "area": "at-rule",
       "title": "@layer cascade layers",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "atrules": [
           "layer"
         ]
-      }
+      },
+      "neutralise": "the at-rule is dropped with its rules"
     },
     {
       "id": "at.property",
       "area": "at-rule",
       "title": "@property (typed custom properties)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "atrules": [
           "property"
         ]
-      }
+      },
+      "neutralise": "the at-rule is dropped"
     },
     {
       "id": "at.exotic",
       "area": "at-rule",
       "title": "@counter-style, @starting-style, @scope, @page, @font-feature-values, @font-palette-values, @position-try",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "atrules": [
@@ -2494,15 +2527,15 @@
       "id": "at.nesting",
       "area": "at-rule",
       "title": "CSS nesting (.a { .b { } }, &)",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "out",
+      "decision": "P1",
       "today": "stripped",
       "match": {
         "selectors": [
           "&"
         ]
       },
-      "neutralise": "flatten in the validator, or drop the nested rules",
+      "neutralise": "nested rules are dropped with a css-dropped diagnostic",
       "note": "Validator hole today: css-tree regenerates .a{} and loses the nested rules (probe nesting)."
     },
     {
@@ -2713,27 +2746,29 @@
       "id": "canvas.conic-gradient",
       "area": "canvas",
       "title": "createConicGradient",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "canvas": [
           "createConicGradient"
         ]
-      }
+      },
+      "neutralise": "createConicGradient returns a gradient that draws nothing"
     },
     {
       "id": "canvas.pattern",
       "area": "canvas",
       "title": "createPattern from a canvas or image",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "canvas": [
           "createPattern"
         ]
-      }
+      },
+      "neutralise": "createPattern returns a pattern that draws nothing"
     },
     {
       "id": "canvas.transform",
@@ -2803,21 +2838,22 @@
       "id": "canvas.composite",
       "area": "canvas",
       "title": "globalCompositeOperation (source-over, destination-out, multiply, …)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "canvas": [
           "globalCompositeOperation"
         ]
-      }
+      },
+      "neutralise": "the property is not applied (source-over)"
     },
     {
       "id": "canvas.shadow",
       "area": "canvas",
       "title": "shadowBlur, shadowColor, shadowOffsetX/Y",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "canvas": [
@@ -2826,20 +2862,22 @@
           "shadowOffsetX",
           "shadowOffsetY"
         ]
-      }
+      },
+      "neutralise": "the properties are not applied"
     },
     {
       "id": "canvas.filter",
       "area": "canvas",
       "title": "ctx.filter (CSS filter on canvas drawing)",
-      "status": "candidate",
-      "decision": "brief",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "canvas": [
           "filter"
         ]
-      }
+      },
+      "neutralise": "the property is not applied"
     },
     {
       "id": "canvas.path2d",
@@ -2871,8 +2909,8 @@
       "id": "canvas.image-data",
       "area": "canvas",
       "title": "getImageData / putImageData / createImageData (pixel read-back)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "canvas": [
@@ -2881,14 +2919,15 @@
           "createImageData"
         ]
       },
-      "note": "getImageData is a sync query answered by the renderer: a native renderer must rasterize to answer."
+      "note": "getImageData is a sync query answered by the renderer: a native renderer must rasterize to answer.",
+      "neutralise": "getImageData returns transparent pixels, putImageData draws nothing"
     },
     {
       "id": "canvas.hit-test",
       "area": "canvas",
       "title": "isPointInPath / isPointInStroke",
       "status": "in",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "canvas": [
@@ -2919,7 +2958,7 @@
       "area": "canvas",
       "title": "toDataURL, toBlob, captureStream",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "stub",
       "match": {
         "canvas": [
@@ -2928,7 +2967,7 @@
           "captureStream"
         ]
       },
-      "neutralise": "toBlob/captureStream are stubs; toDataURL is a renderer query today"
+      "neutralise": "toBlob/captureStream are stubs; toDataURL returns an empty image (data:,)"
     },
     {
       "id": "canvas.webgl",
@@ -3014,7 +3053,7 @@
       "area": "js",
       "title": "getBoundingClientRect, getClientRects (answered by the renderer)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3028,7 +3067,7 @@
       "area": "js",
       "title": "offsetWidth/Height/Top/Left, clientWidth/Height, scrollWidth/Height",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3044,7 +3083,7 @@
       "area": "js",
       "title": "getComputedStyle (incl. pseudo-elements and custom properties)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3057,7 +3096,7 @@
       "area": "js",
       "title": "matchMedia (prefers-color-scheme answered from the chat theme)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3070,7 +3109,7 @@
       "area": "js",
       "title": "ResizeObserver",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3083,7 +3122,7 @@
       "area": "js",
       "title": "IntersectionObserver (emulated: always visible)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "emulated",
       "match": {
         "apis": [
@@ -3096,7 +3135,7 @@
       "area": "js",
       "title": "document.elementFromPoint",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3109,7 +3148,7 @@
       "area": "js",
       "title": "Text measurement through canvas measureText (fonts of the client)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3132,7 +3171,7 @@
           "setSelectionRange"
         ]
       },
-      "neutralise": "the call op is dropped: focus stays in the chat input",
+      "neutralise": "focus(), blur(), select() and setSelectionRange() do nothing; no call op reaches the renderer",
       "note": "Today focus() reaches the renderer as a call op and moves the page focus into the bubble."
     },
     {
@@ -3140,7 +3179,7 @@
       "area": "js",
       "title": "setTimeout / setInterval / clear*, ordering, clamped delays",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "apis": [
@@ -3156,7 +3195,7 @@
       "area": "js",
       "title": "requestAnimationFrame / cancelAnimationFrame (frames from the renderer)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "apis": [
@@ -3170,7 +3209,7 @@
       "area": "js",
       "title": "Promise, async/await, queueMicrotask",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "apis": [
@@ -3211,7 +3250,7 @@
       "area": "js",
       "title": "Intl.NumberFormat, DateTimeFormat, PluralRules, RelativeTimeFormat, ListFormat, Collator (host ICU)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3228,8 +3267,8 @@
       "id": "js.intl.format-to-parts",
       "area": "js",
       "title": "Intl.NumberFormat/DateTimeFormat formatToParts",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "in",
+      "decision": "P1",
       "today": "missing",
       "match": {
         "apis": [
@@ -3243,7 +3282,7 @@
       "area": "js",
       "title": "navigator.language reflects the client locale",
       "status": "in",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "stub",
       "match": {
         "apis": [
@@ -3257,7 +3296,7 @@
       "area": "js",
       "title": "crypto.getRandomValues, crypto.randomUUID, Math.random",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3271,7 +3310,7 @@
       "area": "js",
       "title": "TextEncoder/TextDecoder, URL, URLSearchParams, structuredClone, AbortController, atob/btoa",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "apis": [
@@ -3319,7 +3358,7 @@
       "area": "js",
       "title": "document.hidden / visibilityState / visibilitychange when the bubble leaves the screen",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host",
       "match": {
         "apis": [
@@ -3335,8 +3374,8 @@
       "id": "js.libraries",
       "area": "js",
       "title": "Bundled libraries by CDN name: Chart.js 4, D3 7 (nothing is fetched)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "P1-libs",
       "today": "host",
       "match": {
         "apis": [
@@ -3344,7 +3383,8 @@
           "<script src=cdn d3>"
         ]
       },
-      "note": "The release plan asks for the v1 list."
+      "note": "The release plan asks for the v1 list.",
+      "neutralise": "nothing is bundled: a <script src> to a CDN is an external script like any other and is not run"
     },
     {
       "id": "js.network",
@@ -3391,7 +3431,7 @@
       "area": "js",
       "title": "alert, confirm, prompt, print",
       "status": "out",
-      "decision": "today",
+      "decision": "P1",
       "today": "stub",
       "match": {
         "apis": [
@@ -3426,7 +3466,7 @@
       "area": "js",
       "title": "attachShadow, customElements.define",
       "status": "out",
-      "decision": "today",
+      "decision": "P1",
       "today": "stub",
       "match": {
         "apis": [
@@ -3482,21 +3522,23 @@
     {
       "id": "tw.theme",
       "area": "sdk",
-      "title": "TelegramWidget.theme and onTheme(cb): \"light\" | \"dark\", called on change",
+      "title": "TelegramWidget.colorScheme (\"light\" | \"dark\"); theme and onTheme(cb) kept as deprecated aliases",
       "status": "in",
       "decision": "D14",
       "today": "kept",
       "match": {
         "apis": [
+          "TelegramWidget.colorScheme",
           "TelegramWidget.theme",
           "TelegramWidget.onTheme"
         ]
-      }
+      },
+      "note": "Today only theme / onTheme exist."
     },
     {
       "id": "tw.theme-params",
       "area": "sdk",
-      "title": "themeParams palette and --tg-theme-* CSS variables, theme change event",
+      "title": "themeParams (every Mini Apps key, #rrggbb) and the --tg-theme-* / --tg-color-scheme variables on the root, updated in one task with themeChanged",
       "status": "in",
       "decision": "D14",
       "today": "missing",
@@ -3505,14 +3547,42 @@
           "TelegramWidget.themeParams"
         ],
         "properties": [
-          "--tg-theme-*"
+          "--tg-theme-*",
+          "--tg-color-scheme"
+        ]
+      }
+    },
+    {
+      "id": "tw.events",
+      "area": "sdk",
+      "title": "onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type",
+      "status": "in",
+      "decision": "SDK",
+      "today": "missing",
+      "match": {
+        "apis": [
+          "TelegramWidget.onEvent",
+          "TelegramWidget.offEvent"
+        ]
+      }
+    },
+    {
+      "id": "tw.is-active",
+      "area": "sdk",
+      "title": "TelegramWidget.isActive mirrors visibility (activated / deactivated)",
+      "status": "in",
+      "decision": "SDK",
+      "today": "missing",
+      "match": {
+        "apis": [
+          "TelegramWidget.isActive"
         ]
       }
     },
     {
       "id": "tw.open-link",
       "area": "sdk",
-      "title": "openLink(url): https only, in the task of a real tap, confirmed by the client with the full URL",
+      "title": "openLink(url): an absolute https URL of at most 256 characters, no user info, not a t.me host; one call per pointer press; the client confirms showing the full URL",
       "status": "in",
       "decision": "D8",
       "today": "kept",
@@ -3520,12 +3590,13 @@
         "apis": [
           "TelegramWidget.openLink"
         ]
-      }
+      },
+      "note": "Invalid arguments throw TypeError (v1); today any string goes to the host."
     },
     {
       "id": "tw.open-telegram-link",
       "area": "sdk",
-      "title": "openTelegramLink(url) for t.me links",
+      "title": "openTelegramLink(url): any https://t.me/… (telegram.me, telegram.dog) path, at most 256 characters, opened inside the client; tg: URLs refused",
       "status": "in",
       "decision": "D8",
       "today": "missing",
@@ -3538,7 +3609,7 @@
     {
       "id": "tw.haptic",
       "area": "sdk",
-      "title": "Haptic feedback, rate-limited",
+      "title": "HapticFeedback: impactOccurred(light|medium|heavy|rigid|soft), notificationOccurred(error|success|warning), selectionChanged(); no gesture needed, visible widgets only",
       "status": "in",
       "decision": "D8",
       "today": "missing",
@@ -3546,7 +3617,8 @@
         "apis": [
           "TelegramWidget.HapticFeedback"
         ]
-      }
+      },
+      "note": "Desktop and web accept the calls and play nothing."
     },
     {
       "id": "tw.profile",
@@ -3622,8 +3694,8 @@
       "id": "input.touch-events",
       "area": "input",
       "title": "touchstart / touchmove / touchend (touch clients only)",
-      "status": "candidate",
-      "decision": "proposed",
+      "status": "out",
+      "decision": "D4",
       "today": "kept",
       "match": {
         "events": [
@@ -3633,7 +3705,8 @@
           "touchcancel"
         ]
       },
-      "note": "Desktop clients have none; widgets should use pointer events."
+      "note": "Desktop clients have none; widgets should use pointer events.",
+      "neutralise": "the renderer never forwards touch events; use pointer events"
     },
     {
       "id": "input.drag",
@@ -3677,30 +3750,30 @@
     {
       "id": "input.dblclick",
       "area": "input",
-      "title": "dblclick",
-      "status": "candidate",
-      "decision": "proposed",
+      "title": "dblclick / double tap",
+      "status": "out",
+      "decision": "D4",
       "today": "kept",
       "match": {
         "events": [
           "dblclick"
         ]
       },
-      "note": "Double tap is the bubble's reaction gesture (designers)."
+      "neutralise": "the renderer never forwards dblclick: a double tap belongs to the bubble (the reaction)"
     },
     {
       "id": "input.long-press",
       "area": "input",
       "title": "contextmenu / long press",
       "status": "out",
-      "decision": "proposed",
+      "decision": "P1",
       "today": "kept",
       "match": {
         "events": [
           "contextmenu"
         ]
       },
-      "neutralise": "the bubble menu wins; no contextmenu event"
+      "neutralise": "the renderer never forwards contextmenu and cancels the platform menu: a long press belongs to the bubble (the message menu)"
     },
     {
       "id": "input.keyboard",
@@ -3766,7 +3839,7 @@
           "scroll"
         ]
       },
-      "neutralise": "no scrolling inside a widget"
+      "neutralise": "the renderer never forwards wheel or scroll; no scrolling inside a widget"
     },
     {
       "id": "input.user-activation",
@@ -3815,7 +3888,7 @@
       "area": "limit",
       "title": "At most 50 000 nodes",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept"
     },
     {
@@ -3823,7 +3896,7 @@
       "area": "limit",
       "title": "At most 256 live timers (RangeError past it)",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept"
     },
     {
@@ -3831,7 +3904,7 @@
       "area": "limit",
       "title": "CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept"
     },
     {
@@ -3839,15 +3912,39 @@
       "area": "limit",
       "title": "QuickJS heap 64 MB",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "kept"
     },
     {
       "id": "limit.storage",
       "area": "limit",
-      "title": "localStorage 16 KB per message (QuotaExceededError)",
+      "title": "localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing",
       "status": "in",
       "decision": "D17",
+      "today": "missing"
+    },
+    {
+      "id": "limit.url-length",
+      "area": "limit",
+      "title": "openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)",
+      "status": "in",
+      "decision": "SDK",
+      "today": "missing"
+    },
+    {
+      "id": "limit.event-handlers",
+      "area": "limit",
+      "title": "At most 16 handlers per event type in onEvent (more are ignored)",
+      "status": "in",
+      "decision": "SDK",
+      "today": "missing"
+    },
+    {
+      "id": "limit.haptic-rate",
+      "area": "limit",
+      "title": "Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)",
+      "status": "in",
+      "decision": "SDK",
       "today": "missing"
     },
     {
@@ -3872,7 +3969,7 @@
       "area": "behaviour",
       "title": "Off-screen: frames stop, timers at most 1 Hz, visibilitychange fires",
       "status": "in",
-      "decision": "today",
+      "decision": "P1",
       "today": "host"
     },
     {
@@ -3890,6 +3987,59 @@
       "status": "in",
       "decision": "D18",
       "today": "missing"
+    },
+    {
+      "id": "behaviour.restart",
+      "area": "behaviour",
+      "title": "After 2 consecutive crashes the widget stays stopped on its last frame with the \"Widget stopped\" badge; before that the client rebuilds it when shown again",
+      "status": "in",
+      "decision": "SDK",
+      "today": "host",
+      "note": "The frozen frame and badge are the framework's (today); the restart count is the client's."
+    },
+    {
+      "id": "behaviour.gesture-claim",
+      "area": "behaviour",
+      "title": "Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures",
+      "status": "in",
+      "decision": "SDK",
+      "today": "host",
+      "note": "onGestureClaim(x, y) per primary pointerdown (v1)."
+    },
+    {
+      "id": "behaviour.storage-persist",
+      "area": "behaviour",
+      "title": "localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message",
+      "status": "in",
+      "decision": "SDK",
+      "today": "host"
+    },
+    {
+      "id": "behaviour.storage-forward",
+      "area": "behaviour",
+      "title": "A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty",
+      "status": "in",
+      "decision": "SDK",
+      "today": "host",
+      "note": "Waits for the server: forwarding rich blocks."
+    },
+    {
+      "id": "behaviour.message-edit",
+      "area": "behaviour",
+      "title": "A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage",
+      "status": "in",
+      "decision": "SDK",
+      "today": "host",
+      "note": "Waits for the server: editing rich blocks."
+    },
+    {
+      "id": "behaviour.size-hint",
+      "area": "behaviour",
+      "title": "Before load the bubble takes the bot's size hint (width + height: aspect ratio; width 0 + height: that height; none: the default placeholder), then the real height under the cap",
+      "status": "in",
+      "decision": "D12a",
+      "today": "host",
+      "note": "Waits for the server: the size fields of the rich block."
     },
     {
       "id": "behaviour.policy-strict",

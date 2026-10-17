@@ -276,7 +276,7 @@ T.step(function () {
   T.eq('css.color.basic', 'transparent', C('#c-tr'), '0,0,0,0');
   var dark = (typeof TelegramWidget !== 'undefined' ? TelegramWidget.theme : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
   T.eq('css.color.light-dark', 'light-dark() picks the chat theme', C('#c-ld'), dark ? '4,5,6,1' : '1,2,3,1');
-  T.ok('css.color.mix', 'color-mix() computes a colour', /^(100,0,100,1|color\(srgb 0\.39)/.test(C('#c-mix')), C('#c-mix'));
+  T.eq('css.color.mix', 'color-mix() is dropped: no background (profile 1: out)', C('#c-mix'), '0,0,0,0');
   T.ok('css.background.basic', 'background-image keeps the data: image', /url\(["']?data:image\/png/.test(CS('#bg', 'background-image')), CS('#bg', 'background-image').slice(0, 40));
   T.eq('css.background.basic', 'background-size', CS('#bg', 'background-size'), '10px 12px');
   T.eq('css.background.basic', 'background-position', CS('#bg', 'background-position'), '1px 2px');
@@ -287,5 +287,8 @@ T.run();
 </script>
 <template data-ref="basic"><div style="position:absolute;left:0;top:0;width:40px;height:30px;background:#663399"></div><div style="position:absolute;left:40px;top:0;width:40px;height:30px;background:#33aa33"></div><div style="position:absolute;left:0;top:30px;width:40px;height:30px;background:#e59999"></div><div style="position:absolute;left:40px;top:30px;width:40px;height:30px;background:#3380cc"></div></template>
 <template data-ref="object-fit"><div style="position:absolute;left:4px;top:10px;width:34px;height:40px;background:#eee"><div style="position:absolute;left:0;top:0;width:17px;height:40px;background:#cc3333"></div><div style="position:absolute;left:17px;top:0;width:17px;height:40px;background:#3366cc"></div></div><div style="position:absolute;left:42px;top:10px;width:34px;height:40px;background:#eee"><div style="position:absolute;left:0;top:23px;width:17px;height:17px;background:#cc3333"></div><div style="position:absolute;left:17px;top:23px;width:17px;height:17px;background:#3366cc"></div></div></template>
+<template data-ref="modern"></template>
+<template data-ref="mix"></template>
+<template data-ref="clip-text"><div style="position:absolute;left:4px;top:-8px;font:900 64px/76px sans-serif;background:linear-gradient(90deg,#c33,#36c);color:transparent">W</div></template>
 </body>
 </html>
