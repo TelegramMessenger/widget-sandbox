@@ -748,9 +748,32 @@ first and alone, as a library with no renderer.
   executor, thenable, async generator, disposer, iterator `return()` or
   `Error.prepareStackTrace` can observe it, and every interrupt poll raises it
   again. Before it, `for (;;) new Promise(function () { for (;;) {} })` turned
-  the CPU interrupt into a rejection and never returned to the glue
-  (`docs/quickjs-fork-review.md`, section 3). The glue needs no change: every
-  host already calls `JS_GetException` at top level. Bytecode format unchanged.
+  the CPU interrupt into a rejection and never returned to the glue (found by
+  the fork review below). The glue needs no change: every host already calls
+  `JS_GetException` at top level. Bytecode format unchanged.
+
+### The QuickJS fork review (Oct 2026)
+
+The TelegramMessenger/quickjs fork at 7d1085a is upstream quickjs-ng 9b06171
+(v0.17.0 plus 21 upstream commits) plus 22 commits of its own: allocator arenas
+and slabs, inline interpreter paths, early allocation of shapes, dtoa changes.
+All 22 were read against upstream; **the fork is accepted** and every commit
+kept. No memory-safety bug was found; three medium-risk commits (27787d3 slabs,
+e65afb8 zombie shapes, ee1ef12 inline properties) carry follow-ups rather than
+blockers. Checked: test262 at the same 40 of 82 220 failures as upstream; the
+fork's `tests.conf` and `api-test` on Release and under ASan + UBSan (Apple
+clang does not define `__SANITIZE_ADDRESS__` under `-fsanitize=address`, so the
+flag has to be passed by hand or the arenas stay on and ASan is blind inside
+small blocks); a differential dtoa run (the Grisu3 change is right, matching
+V8, 54 powers of two differ from upstream); instruction counts over the desktop
+corpora (fork −8.7 % against upstream); footprint after 30 freed runtimes
+(7.5 MB against 13.6 MB, the slabs). The one release blocker was upstream's,
+not the fork's: the CPU interrupt swallowed by Promise executors and the other
+constructs above, fixed by the patch now in fork master c24d6b0, which the
+submodule pins. Still owed: fuzzing of the allocator and interpreter commits
+(a differential fuzz against upstream over the corpora exists as a harness, not
+as CI), test262 on CI, and a second pair of eyes on the uncatchable-exception
+patch from the fork's owner.
 
 ## Bytecode precompilation of the bundles (Oct 2026)
 
@@ -924,8 +947,8 @@ only for the host generation that requested them.
 
 ## Pre-release hardening of the integration branch (Oct 2026)
 
-Release plan decisions D2, D5, D6 and D13, and the blockers of
-`docs/branches-review.md` §4 and §7, before `telegram-macos` becomes `main`.
+Release plan decisions D2, D5, D6 and D13, and the blockers found by the
+pre-release branch review (2026-10-16), before `telegram-macos` becomes `main`.
 
 ### `strict` is the default policy, parsed fail-closed
 
@@ -1012,8 +1035,8 @@ runs through the native model.
 
 ### Review follow-ups: gestures, harness clock, library patterns, `icon:`, CallSite
 
-The lower-priority findings of `docs/branches-review.md` (§3.5–3.6, §4.10–4.13),
-closed after the hardening above:
+The lower-priority findings of the pre-release branch review, closed after the
+hardening above:
 
 - **Native hosts require `trusted`** (§3.5, §4.10). Swift, Kotlin and C++ counted
   any renderer event of a gesture type, the web host only `trusted` ones. No

@@ -8,8 +8,7 @@ every host exposes and what every client implements, so that client teams can
 build their side in parallel with the PoC. Decisions behind it: release plan
 D4, D7a, D8, D9, D12, D14, D17, D18, D19, D22, D23, and the decisions of
 2026-10-17 (no keyboard, no form controls, a client-styled `<button>`,
-`docs/decisions.md`, "Profile v1"). Background: `docs/bridge-discussion.md`
-("Решено"), `docs/widget-state.md` §7.
+`docs/decisions.md`, "Profile v1").
 
 What the framework did before v1 is noted where a client may meet it
 (**before v1**: the API of the profile-0 builds).
@@ -209,7 +208,15 @@ Other form controls are outside the profile and dropped by the validator.
 - When the runtime is killed (CPU, memory, a crash), the last frame stays
   frozen with a "Widget stopped" badge.
 
-### 2.8 Storage (D17, `docs/widget-state.md` §7)
+### 2.8 Storage (D17)
+
+Why local storage, and why per message: the state belongs to the message
+(a client already keeps a record per message, the cached bubble height); the
+bot cannot hold state for the widget because v1 has no messages or callbacks
+to the bot (D8); and the server checks only the payload's size (D15), so any
+cloud synchronisation would be new server work. Local Web Storage keyed by
+the message is what fits all three; a cloud or per-bot `DeviceStorage` is
+out of v1 (§6).
 
 - `localStorage` is stored by the client for this message on this device,
   under (account, chat, message id), where the chat is the one the message is

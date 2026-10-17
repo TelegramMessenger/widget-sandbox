@@ -22,3 +22,5 @@ apps/web/bench/ops/
 # the private pre-publication history (bare mirror); never tracked, never pushed
 .archive/
 !packages/quickjs-wasm/dist/
+# Working-process documents (reviews, briefs, discussions) live outside the repository
+/notes/

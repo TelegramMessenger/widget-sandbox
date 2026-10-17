@@ -179,7 +179,7 @@ corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscript
 corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
 corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance
 corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
-corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # widget profile draft (docs/widget-profile-draft.md): 53 feature probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
+corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage that fed widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
 cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:connectedDebugAndroidTest   # needs a booted emulator (AVD twidget-35)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose
 scripts/android-bench.sh webview|blitz|litehtml|none 20 [prewarm]   # renderer start-up/memory bench in the Android demo (needs installDebug + emulator); POOLS=1 = validator pool; python3 -I scripts/android-bench-print.py --table <names>; docs/android-renderer-bench.md
@@ -242,11 +242,12 @@ with `tdesktop` and hardened before it becomes `main` (`docs/decisions.md`,
 `data-*`/`aria-*` and CSS strings, one canvas payload per reference, `anim`
 keyframe members and per-renderer animation state, 3D only in debug builds,
 `features` on Android and the web, shortest/locale-free numbers in `json.h`.
-Release plan and decisions: `docs/branches-review.md`, `docs/widget-state.md`
-(v1 storage), `docs/bridge-discussion.md` (SDK v1), `docs/server-task.md`;
-the web product renderer is the shadow DOM one (D2).
-2026-10-16: the QuickJS fork reviewed (`docs/quickjs-fork-review.md`, all 22 allocator/interpreter
-commits kept) and the submodule moved to fork master c24d6b0: an uncatchable exception (CPU interrupt,
+Decisions: `docs/decisions.md`; the SDK and storage contract `docs/sdk-v1.md`; the
+profile `docs/profile-v1.md`; the web product renderer is the shadow DOM one (D2).
+Working-process documents (reviews, briefs, discussions) stay out of the repository
+(`notes/`, gitignored).
+2026-10-16: the QuickJS fork reviewed (`docs/decisions.md`, "The QuickJS fork review"; all 22
+allocator/interpreter commits kept) and the submodule moved to fork master c24d6b0: an uncatchable exception (CPU interrupt,
 out of memory) is a runtime state, so a Promise executor, thenable, async generator or iterator
 `return()` can no longer swallow the CPU limit; `.qbc` unchanged, `packages/quickjs-wasm/dist` rebuilt.
 Same day: the conformance set moved from `corpus/conformance` to `packages/conformance` so it

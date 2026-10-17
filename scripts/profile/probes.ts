@@ -6,7 +6,7 @@
 // -DTW_BLITZ=ON -DTW_LITEHTML=ON), and through the validator alone under Node
 // to see whether the validator itself keeps the feature (what the product
 // iframe/WebView would get). Output: reports/profile/probes.json and a
-// Markdown table on stdout, pasted into docs/widget-profile-draft.md.
+// Markdown table on stdout; it fed widget profile 1 (docs/profile-v1.md).
 //
 //   corepack pnpm tsx scripts/profile/probes.ts [--only grid,flex-gap]
 

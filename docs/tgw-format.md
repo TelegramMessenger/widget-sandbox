@@ -17,10 +17,9 @@ around the HTML.
 
 How exactly the bytes sit in the message (a media type, a block of a rich
 message, something else), who may send widgets and where, what forwarding
-does, and what clients without widget support show are **under revision**
-(`docs/server-task.md` lists the open points). Nothing in the framework
-depends on these answers: a client gets bytes and two optional numbers,
-`width` and `height`, and the rest is the sandbox.
+does, and what clients without widget support show are **under revision**.
+Nothing in the framework depends on these answers: a client gets bytes and
+two optional numbers, `width` and `height`, and the rest is the sandbox.
 
 ## What a client does with it
 

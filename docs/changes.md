@@ -6,8 +6,8 @@ nothing until the host lists them; "default" items apply to every host.
 ## v0.1.0 — release notes (2026-10-17)
 
 The first tagged state of the framework: the integration branch `telegram-macos`
-with the pre-release hardening, widget profile 1 and SDK v1, verified on every platform (`docs/branches-review.md`
-§7 is the plan; the per-suite numbers are in the tag's commit history and CLAUDE.md).
+with the pre-release hardening, widget profile 1 and SDK v1, verified on every platform (the per-suite numbers are in the tag's commit history
+and CLAUDE.md).
 
 **In the tag**
 
@@ -53,9 +53,8 @@ with the pre-release hardening, widget profile 1 and SDK v1, verified on every p
   checks are one policy in four copies with a shared fixture
   (`packages/core/src/shared/sdk-policy.ts`, `tests/fixtures/sdk-policy.json`).
   The corpus widgets that called `sendMessage` keep their state in `localStorage`.
-- Docs for client teams: `docs/integration.md`, `docs/tgw-format.md`,
-  `docs/decisions.md` ("Profile v1"), `docs/profile-v1.md`, `docs/widget-state.md`,
-  `docs/bridge-discussion.md`, `docs/server-task.md`.
+- Docs for client teams: `docs/integration.md`, `docs/tgw-format.md`, `docs/sdk-v1.md`
+  (the SDK and storage contract), `docs/profile-v1.md`, `docs/decisions.md` ("Profile v1").
 
 **Not in the tag yet** (the next milestones)
 
@@ -130,7 +129,7 @@ with the pre-release hardening, widget profile 1 and SDK v1, verified on every p
   (median 6.3 KB, all under 32 KB raw), the visual set 5.4–54.6 KB gzipped (median 18 KB,
   embedded reference pictures). The test channel keeps posting them as `.tgw` files (the
   development format) under the debug flag until the tests are split into 4 KB pieces.
-- *htmlbubbles-ported*: 108 of 116 pass (2026-10-17, after the profile-1 rework); the rest
+- *htmlbubbles-ported*: 108–110 of 116 pass (2026-10-17, after the profile-1 rework); the rest
   are time-based or random drawings, the hang demo, one intentional JS error and
   `06-trip-lisbon/09-me-bare`, a tall widget whose screenshot fails now and then when the
   click pass scrolls the page (`corpus/htmlbubbles-ported/README.md`).
