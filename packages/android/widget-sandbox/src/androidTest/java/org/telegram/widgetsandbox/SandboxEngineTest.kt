@@ -58,18 +58,18 @@ class SandboxEngineTest {
         return d to engine
     }
 
-    /** The shipped .qbc blobs load against the .js next to them (a stale pair fails here, not on a phone). */
+    /** The shipped .qbc blobs load against the .js next to them (a stale pair fails here, not on a phone); a CDN script is an external script like any other (profile 1 bundles no libraries). */
     @Test
-    fun shippedBytecodeIsUsedForBundlesAndLibraries() {
+    fun shippedBytecodeIsUsedAndNoLibraryIsBundled() {
         assertNotNull("pnpm build:android ships sandbox-bundle.qbc", resources.sandboxBytecode)
         assertNotNull("pnpm build:android ships validator-bundle.qbc", resources.validatorBytecode)
         val (d, engine) = run("<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>")
         engine.thread.sync {}
         assertNull(d.died)
         assertTrue(d.diags.toString(), d.diags.any { it.first == "boot" && it.second.contains("(bytecode)") })
-        assertTrue(d.diags.toString(), d.diags.any { it.first == "library" && it.second.contains("bytecode") })
+        assertTrue(d.diags.toString(), d.diags.any { it.first == "script-skipped" && it.second.contains("chart.js") })
         assertFalse("fell back to source: ${d.diags}", d.diags.any { it.first == "bytecode" })
-        assertTrue(d.logs.toString(), d.logs.any { it.second == "function" })
+        assertTrue(d.logs.toString(), d.logs.any { it.second == "undefined" })
         val vdiags = ArrayList<Pair<String, String>>()
         TrustedValidator("light", resources) { k, v -> vdiags.add(k to v) }.use { }
         assertFalse("validator fell back to source: $vdiags", vdiags.any { it.first == "bytecode" })

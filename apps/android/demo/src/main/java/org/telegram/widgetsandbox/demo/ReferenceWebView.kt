@@ -4,8 +4,7 @@
 // its speed can be compared against what the engine does on its own. Mirrors
 // the web prototype's `?reference=1` (vite.config.ts `/reference/` route +
 // src/main.ts `updateReference`) and `ReferenceWebView.swift` in the iOS/macOS
-// demo: known CDN script URLs are rewritten to the bundled library copies, the
-// document gets a doctype, and the page is served with `connect-src 'none'`
+// demo: the document gets a doctype and is served with `connect-src 'none'`
 // from a private origin whose interceptor refuses every other URL. Lives in
 // the demo, not in widget-sandbox; the corpus browser hides it for `attacks/`.
 
@@ -58,7 +57,6 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.telegram.widgetsandbox.RendererWebView
-import org.telegram.widgetsandbox.SandboxResources
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.util.UUID
@@ -73,14 +71,9 @@ class ReferenceWebView(context: Context, html: String, theme: String) {
             "img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; " +
             "child-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'"
 
-        /** = src/host/loader.ts `rewriteForReference`: known CDN script URLs → /libs/<file>, plus a doctype. */
-        fun rewrite(html: String, resources: SandboxResources): String {
-            val out = Regex("""(<script\b[^>]*?\bsrc\s*=\s*)(["'])([^"']+)\2""", RegexOption.IGNORE_CASE).replace(html) { m ->
-                val lib = resources.library(m.groupValues[3])
-                if (lib == null) m.value else "${m.groupValues[1]}${m.groupValues[2]}/libs/${lib.file}${m.groupValues[2]}"
-            }
-            return if (Regex("""^\s*<!doctype""", RegexOption.IGNORE_CASE).containsMatchIn(out)) out else "<!DOCTYPE html>\n$out"
-        }
+        /** = the web dev server's reference mode: a doctype (no library is bundled since profile 1, so a CDN script fails here as in the sandbox). */
+        fun rewrite(html: String): String =
+            if (Regex("""^\s*<!doctype""", RegexOption.IGNORE_CASE).containsMatchIn(html)) html else "<!DOCTYPE html>\n$html"
 
         /** Reports the page's own timings, its height (like the web UI's ResizeObserver + poll) and uncaught errors. */
         const val PROBE_SCRIPT = """
@@ -114,7 +107,6 @@ class ReferenceWebView(context: Context, html: String, theme: String) {
     var onMessage: ((JSONObject) -> Unit)? = null
 
     val documentUrl: String = "https://w-${UUID.randomUUID().toString().lowercase()}$ORIGIN_SUFFIX/"
-    private val resources = SandboxResources.get(context)
     private val main = Handler(Looper.getMainLooper())
     private val html: ByteArray
     @Volatile private var destroyed = false
@@ -122,7 +114,7 @@ class ReferenceWebView(context: Context, html: String, theme: String) {
     private var started = false
 
     init {
-        var doc = rewrite(html, resources)
+        var doc = rewrite(html)
         // The probe runs before the page's own scripts: as a document-start script where
         // the WebView supports it, otherwise inlined at the top (CSP allows 'unsafe-inline' here).
         val startScript = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -196,19 +188,13 @@ class ReferenceWebView(context: Context, html: String, theme: String) {
         main.post { if (!destroyed) onMessage?.invoke(JSONObject().put("type", "error").put("message", message)) }
     }
 
-    /** Serves the rewritten document and the bundled libraries under /libs/; refuses everything else. */
+    /** Serves the rewritten document; refuses everything else. */
     private inner class Client : WebViewClient() {
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
             val url = request.url
             val headers = mapOf("Content-Security-Policy" to CSP, "Cache-Control" to "no-store", "Referrer-Policy" to "no-referrer")
-            val path = url.path ?: ""
             if (url.toString() == documentUrl && request.isForMainFrame) {
                 return WebResourceResponse("text/html", "utf-8", 200, "OK", headers, ByteArrayInputStream(html))
-            }
-            if (url.toString().startsWith(documentUrl) && path.startsWith("/libs/")) {
-                val lib = resources.libraries.firstOrNull { "/libs/${it.file}" == path }
-                val src = lib?.let { resources.librarySource(it) }
-                if (src != null) return WebResourceResponse("application/javascript", "utf-8", 200, "OK", headers, ByteArrayInputStream(src.toByteArray(Charsets.UTF_8)))
             }
             return WebResourceResponse("text/plain", "utf-8", 403, "Blocked", mapOf("Content-Length" to "0"), ByteArrayInputStream(ByteArray(0)))
         }

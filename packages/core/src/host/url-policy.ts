@@ -9,12 +9,12 @@
 // by the CSS sanitizer) and `<audio>`/`<video>` are dropped by the allowlist,
 // so no font or codec parser is ever fed widget bytes.
 
+import { PROFILE_IMAGES } from '../shared/profile-tables';
+
 export type UrlKind = 'image' | 'fragment-only';
 
-export const IMAGE_MIME = new Set([
-  'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp',
-  'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml',
-]);
+/** The profile's image types (PNG, JPEG, GIF, WebP: the decoder runs in the app process; SVG, AVIF, BMP and ICO are out). */
+export const IMAGE_MIME = new Set<string>(PROFILE_IMAGES);
 
 /** blob: URLs created by the host itself. Nothing else may use the blob: scheme. */
 export const hostBlobUrls = new Set<string>();

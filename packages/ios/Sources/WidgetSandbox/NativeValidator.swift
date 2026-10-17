@@ -15,6 +15,12 @@ struct NativeValidatorTables {
     var svg: [String: String] = [:]
     var dropped: Set<String> = []
     var attributes: Set<String> = []
+    /** SVG attributes (lowercase): their own list since profile 1. */
+    var svgAttributes: Set<String> = []
+    /** HTML elements outside the profile rendered as another element (`<form>` → `<div>`, `<ruby>` → `<span>`). */
+    var replace: [String: String] = [:]
+    /** Elements dropped for security; the other dropped ones are outside the profile (a `profile` diagnostic). */
+    var securityDropped: Set<String> = []
     var silent: Set<String> = []
     var url: Set<String> = []
     var css: Set<String> = []
@@ -70,6 +76,9 @@ struct NativeValidatorTables {
         self.svg = svg
         self.dropped = Set(dropped)
         self.attributes = Set(attributes)
+        svgAttributes = Set(strings("svgAttrs") ?? attributes)
+        replace = pairs("replace") ?? [:]
+        securityDropped = Set(strings("securityDropped") ?? dropped)
         self.silent = Set(silent)
         self.url = Set(url)
         self.css = Set(css)
@@ -479,7 +488,12 @@ final class NativeValidator {
             if outTag == nil && !tables.dropped.contains(lower) { diag("tag-dropped", "<svg:\(tag)>") }
         } else if tables.dropped.contains(lower) {
             outTag = nil
-            if lower != "script" && lower != "title" && lower != "meta" { diag("tag-dropped", "<\(lower)>") }
+            if !tables.securityDropped.contains(lower) { diag("profile", "<\(lower)> dropped") }
+            else if lower != "script" && lower != "title" && lower != "meta" { diag("tag-dropped", "<\(lower)>") }
+        } else if let replacement = tables.replace[lower] {
+            outTag = replacement
+            extra = [("data-tg-tag", lower)]
+            diag("profile", "<\(lower)> rendered as <\(replacement)>")
         } else if isStyle || tables.html.contains(lower) {
             outTag = lower
         } else {
@@ -767,7 +781,7 @@ final class NativeValidator {
         if lower.hasPrefix("data-tg-") { return [] }
         if lower.hasPrefix("data-") || lower.hasPrefix("aria-") { return [(lower, value)] }
         if tables.silent.contains(lower) { return [] }
-        if !tables.attributes.contains(lower) {
+        if !(node.svg ? tables.svgAttributes : tables.attributes).contains(lower) {
             diag("attr-dropped", "\(tag)[\(lower)]")
             return []
         }
@@ -785,6 +799,11 @@ final class NativeValidator {
             }
             if tables.css.contains(lower) {
                 guard let clean = oracle?.cssValue(value, where: "\(tag)[\(lower)]") else { return [] }
+                return [(name, clean)]
+            }
+            if lower == "font-family" {
+                // Generic families only, as in CSS (D3b).
+                guard let clean = oracle?.styleProperty("font-family", value), !clean.isEmpty else { return [] }
                 return [(name, clean)]
             }
         }
@@ -945,9 +964,6 @@ final class NativeValidator {
             }
         }
         if method == "scrollIntoView", zip(args, [3.0, 3.0, 2.0, 1.0]).contains(where: { value, limit in value != value.rounded() || value < 0 || value > limit }) {
-            return false
-        }
-        if method == "completeEditorCommand", node.tag != "textarea" || args.contains(where: { $0 != $0.rounded() || $0 < 0 || $0 > 9_007_199_254_740_991 }) || args[2] > 1 {
             return false
         }
         out.append(WidgetOp(["op": "call", "id": id, "method": method, "args": args]))

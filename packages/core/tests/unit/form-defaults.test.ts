@@ -21,8 +21,8 @@ describe('form activation defaults', () => {
     assert.deepEqual(r.probes, ['[["f","b"]]']);
   });
 
-  it('handles submit inputs and invalid button types as submit buttons', async () => {
-    for (const control of ['<input id=b type=submit>', '<button id=b type=invalid>Send</button>']) {
+  it('handles invalid button types as submit buttons', async () => {
+    for (const control of ['<button id=b type=invalid>Send</button>']) {
       assert.deepEqual((await click(`<form id=f>${control}</form>${listen}`, 'b')).probes, ['[["f","b"]]']);
     }
   });

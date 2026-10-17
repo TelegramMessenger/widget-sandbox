@@ -9,8 +9,7 @@ import { build, type BuildOptions } from 'esbuild';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Plugin } from 'vite';
-import { LIBRARIES } from './src/host/loader.ts';
-import { libraryPath, rendererBuildOptions, sandboxBuildOptions } from './scripts/sandbox-build.ts';
+import { rendererBuildOptions, sandboxBuildOptions } from './scripts/sandbox-build.ts';
 
 const pkgRoot = path.dirname(new URL(import.meta.url).pathname);
 
@@ -31,7 +30,6 @@ async function bundleIife(options: BuildOptions): Promise<string> {
   return out.outputFiles![0].text;
 }
 
-export { libraryPath };
 
 export function widgetSandbox(): Plugin {
   return {
@@ -66,13 +64,6 @@ export function widgetSandbox(): Plugin {
         // Responses ended by any middleware bypass Vite's own header injection; the page is
         // cross-origin isolated, so nested documents and subresources need these too.
         for (const [k, v] of Object.entries(ISOLATION_HEADERS)) res.setHeader(k, v);
-        if (url.startsWith('/libs/')) {
-          const lib = LIBRARIES.find((l) => '/libs/' + l.file === url);
-          if (!lib) return next();
-          res.setHeader('Content-Type', 'text/javascript');
-          res.end(fs.readFileSync(libraryPath(lib.source)));
-          return;
-        }
         next();
       });
     },

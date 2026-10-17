@@ -10,23 +10,6 @@ import { pathToFileURL } from 'node:url';
 const require = createRequire(import.meta.url);
 
 /**
- * Absolute path of a file inside one of this package's dependencies, e.g.
- * `chart.js/dist/chart.umd.min.js` (src/host/loader.ts LIBRARIES). The libraries'
- * `exports` maps do not expose their dist files, so this resolves the package
- * directory (the nearest package.json above the main entry) and joins the rest.
- */
-export function libraryPath(source: string): string {
-  const [name, ...rest] = source.startsWith('@') ? [source.split('/').slice(0, 2).join('/'), ...source.split('/').slice(2)] : [source.split('/')[0], ...source.split('/').slice(1)];
-  let dir = path.dirname(require.resolve(name));
-  while (!fs.existsSync(path.join(dir, 'package.json')) || JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name !== name) {
-    const parent = path.dirname(dir);
-    if (parent === dir) throw new Error(`package directory of ${name} not found`);
-    dir = parent;
-  }
-  return path.join(dir, ...rest);
-}
-
-/**
  * linkedom's `import 'css-select'` → our wrapper; the wrapper's own
  * `import 'css-select'` → the real package (resolved from linkedom's
  * node_modules, so no extra dependency is needed).

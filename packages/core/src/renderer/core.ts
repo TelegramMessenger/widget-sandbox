@@ -14,14 +14,15 @@
 // and invoked explicitly ("primordials"); nothing is looked up on `document` or
 // on a widget element after start-up.
 
-import type { CanvasCmd, HostToRenderer, Query, RenderOp, RendererToHost, WidgetEvent } from '../shared/protocol';
+import { EVENT_TYPES, type CanvasCmd, type HostToRenderer, type Query, type RenderOp, type RendererToHost, type WidgetEvent } from '../shared/protocol';
+import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
 
 /** Where the core renders: a whole document (iframe, native WebViews) or a shadow root inside the host page. */
 export interface RendererEnv {
   /** Element factory. */
   doc: Document;
-  /** Listener target, `elementFromPoint`, `getElementById`: the document or the shadow root. */
+  /** Listener target and `elementFromPoint`: the document or the shadow root. */
   root: Document | ShadowRoot;
   /** The widget's <html>, <head>, <body>: the document's own, or three elements the shadow renderer created. Read at `init()` (a document's body does not exist while its <head> script runs). */
   roots(): { html: HTMLElement; head: HTMLElement; body: HTMLElement };
@@ -79,18 +80,11 @@ const svgStyleOf = getter(SVGElement.prototype, 'style');
 const styleOf = (el: Element): CSSStyleDeclaration => (el instanceof SVGElement ? svgStyleOf(el) : htmlStyleOf(el));
 
 /** Defense in depth: the validator never emits these, but the renderer refuses them regardless. */
-const FORBIDDEN_TAGS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'link', 'meta', 'base', 'portal', 'noscript', 'set', 'template', 'audio', 'video', 'source', 'track']);
+const FORBIDDEN_TAGS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'link', 'meta', 'base', 'portal', 'noscript', 'set', 'template', 'audio', 'video', 'source', 'track',
+  // Outside the profile (form controls, dialogs): the validator drops or replaces them.
+  'input', 'select', 'option', 'optgroup', 'textarea', 'datalist', 'fieldset', 'progress', 'meter', 'form', 'dialog']);
 const FORBIDDEN_ATTRS = new Set(['srcdoc', 'srcset', 'action', 'formaction', 'ping', 'background', 'nonce', 'target', 'http-equiv']);
 
-const inputValue = setter(HTMLInputElement.prototype, 'value');
-const inputValueGet = getter(HTMLInputElement.prototype, 'value');
-const inputChecked = setter(HTMLInputElement.prototype, 'checked');
-const inputIndeterminate = setter(HTMLInputElement.prototype, 'indeterminate');
-const textareaValue = setter(HTMLTextAreaElement.prototype, 'value');
-const textareaValueGet = getter(HTMLTextAreaElement.prototype, 'value');
-const selectValue = setter(HTMLSelectElement.prototype, 'value');
-const selectIndex = setter(HTMLSelectElement.prototype, 'selectedIndex');
-const optionSelected = setter(HTMLOptionElement.prototype, 'selected');
 const scrollTopSet = setter(Element.prototype, 'scrollTop');
 const scrollLeftSet = setter(Element.prototype, 'scrollLeft');
 
@@ -100,16 +94,20 @@ const rectJson = (r: DOMRect, o: { x: number; y: number } | null) => {
 };
 const matrixJson = (m: DOMMatrix | null) => (m ? { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e, f: m.f } : null);
 
-const ALWAYS_FORWARD = new Set(['click', 'input', 'change', 'submit', 'reset', 'load', 'error', 'toggle']);
-const THROTTLED = new Set(['pointermove', 'mousemove', 'touchmove', 'wheel', 'scroll']);
-const ALL_EVENTS = [
-  'click', 'dblclick', 'contextmenu', 'input', 'change', 'submit', 'reset', 'keydown', 'keyup', 'keypress',
-  'pointerdown', 'pointerup', 'pointermove', 'pointerenter', 'pointerleave', 'pointerover', 'pointerout', 'pointercancel',
-  'mousedown', 'mouseup', 'mousemove', 'mouseenter', 'mouseleave', 'mouseover', 'mouseout',
-  'touchstart', 'touchmove', 'touchend', 'touchcancel',
-  'focus', 'blur', 'focusin', 'focusout', 'wheel', 'scroll', 'load', 'error', 'toggle',
-  'animationstart', 'animationend', 'animationiteration', 'transitionend',
-];
+const ALWAYS_FORWARD = new Set(['click', 'load', 'error', 'toggle']);
+const THROTTLED = new Set(['pointermove', 'mousemove']);
+/** What the widget can get: the profile's events (no keyboard, focus, dblclick, contextmenu, touch, wheel or scroll). */
+const ALL_EVENTS = [...EVENT_TYPES];
+const ENTER_LEAVE = ['pointerenter', 'pointerleave', 'mouseenter', 'mouseleave'];
+const noop = () => {};
+/**
+ * Input that belongs to the chat, never to the widget (D4, docs/profile-v1.md):
+ * keys and editing are swallowed (no Enter or Space activation), the platform's
+ * context menu is cancelled (the bubble's own menu wins), a mouse press never
+ * moves the focus into the widget nor starts a text selection, and the focus
+ * never stays in it.
+ */
+const SWALLOWED = ['keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'contextmenu', 'mousedown', 'focusin', 'submit', 'selectstart'];
 
 function decodeBase64(b64: string): Uint8ClampedArray<ArrayBuffer> {
   const bin = atob(b64);
@@ -130,7 +128,6 @@ const doc = env.doc;
 const root = env.root;
 // `DocumentOrShadowRoot` members are separate functions on each prototype: the document's copy throws "Illegal invocation" on a shadow root.
 const elementFromPoint = root instanceof Document ? uncurry(Document.prototype.elementFromPoint) : uncurry(ShadowRoot.prototype.elementFromPoint);
-const getElementById = root instanceof Document ? uncurry(Document.prototype.getElementById) : uncurry(DocumentFragment.prototype.getElementById);
 let send: Send = () => {};
 const post = (msg: RendererToHost, transfer: Transferable[] = []) => send(msg, transfer);
 const violation = (detail: string) => post({ type: 'violation', detail });
@@ -248,27 +245,6 @@ function applyOp(op: RenderOp) {
 
 function applyProp(el: Element, name: string, value: string | number | boolean) {
   switch (name) {
-    case 'value':
-      // Only assign when different: preserves caret / IME composition while the user types.
-      if (el instanceof HTMLInputElement) {
-        if (inputValueGet(el) !== value) inputValue(el, value);
-      } else if (el instanceof HTMLTextAreaElement) {
-        if (textareaValueGet(el) !== value) textareaValue(el, value);
-      } else if (el instanceof HTMLSelectElement) selectValue(el, value);
-      else if (el instanceof HTMLProgressElement || el instanceof HTMLMeterElement) setAttribute(el, 'value', String(value));
-      return;
-    case 'checked':
-      if (el instanceof HTMLInputElement) inputChecked(el, value);
-      return;
-    case 'indeterminate':
-      if (el instanceof HTMLInputElement) inputIndeterminate(el, value);
-      return;
-    case 'selectedIndex':
-      if (el instanceof HTMLSelectElement) selectIndex(el, value);
-      return;
-    case 'selected':
-      if (el instanceof HTMLOptionElement) optionSelected(el, value);
-      return;
     case 'scrollTop':
       return scrollTopSet(el, value);
     case 'scrollLeft':
@@ -276,25 +252,8 @@ function applyProp(el: Element, name: string, value: string | number | boolean) 
   }
 }
 
+/** The profile's element methods (no focus, selection, dialogs, popovers or scrollIntoView: docs/profile-v1.md). */
 const METHOD_IMPL: Record<string, (el: any, a: any[]) => void> = {
-  focus: (el) => (el instanceof SVGElement ? SVGElement.prototype.focus : HTMLElement.prototype.focus).call(el, { preventScroll: true }),
-  blur: (el) => (el instanceof SVGElement ? SVGElement.prototype.blur : HTMLElement.prototype.blur).call(el),
-  select: (el) => {
-    if (el instanceof HTMLInputElement) HTMLInputElement.prototype.select.call(el);
-    else if (el instanceof HTMLTextAreaElement) HTMLTextAreaElement.prototype.select.call(el);
-  },
-  setSelectionRange: (el, a) => {
-    try {
-      if (el instanceof HTMLInputElement) HTMLInputElement.prototype.setSelectionRange.call(el, a[0], a[1]);
-      else if (el instanceof HTMLTextAreaElement) HTMLTextAreaElement.prototype.setSelectionRange.call(el, a[0], a[1]);
-    } catch {}
-  },
-  scrollIntoView: (el, a) => Element.prototype.scrollIntoView.call(el, {
-    block: (['start', 'center', 'end', 'nearest'] as const)[a[0] ?? 0],
-    inline: (['start', 'center', 'end', 'nearest'] as const)[a[1] ?? 3],
-    behavior: (['auto', 'instant', 'smooth'] as const)[a[2] ?? 0],
-    ...{ container: ['all', 'nearest'][a[3] ?? 0] },
-  }),
   scrollTo: (el, a) => Element.prototype.scrollTo.call(el, a[0], a[1]),
   scrollBy: (el, a) => Element.prototype.scrollBy.call(el, a[0], a[1]),
   setPointerCapture: (el, a) => {
@@ -303,21 +262,6 @@ const METHOD_IMPL: Record<string, (el: any, a: any[]) => void> = {
   releasePointerCapture: (el, a) => {
     try { Element.prototype.releasePointerCapture.call(el, a[0]); } catch {}
   },
-  showModal: (el) => {
-    if (el instanceof HTMLDialogElement) try { HTMLDialogElement.prototype.showModal.call(el); } catch {}
-  },
-  show: (el) => {
-    if (el instanceof HTMLDialogElement) HTMLDialogElement.prototype.show.call(el);
-  },
-  close: (el) => {
-    if (el instanceof HTMLDialogElement) HTMLDialogElement.prototype.close.call(el);
-  },
-  reset: (el) => {
-    if (el instanceof HTMLFormElement) HTMLFormElement.prototype.reset.call(el);
-  },
-  showPopover: (el) => { try { HTMLElement.prototype.showPopover.call(el); } catch {} },
-  hidePopover: (el) => { try { HTMLElement.prototype.hidePopover.call(el); } catch {} },
-  togglePopover: (el) => { try { HTMLElement.prototype.togglePopover.call(el); } catch {} },
   observeResize: (el) => resizeObserver.observe(el),
   unobserveResize: (el) => resizeObserver.unobserve(el),
 };
@@ -563,36 +507,12 @@ function serialize(e: Event, targetId: number): WidgetEvent {
   if (e instanceof PointerEvent) {
     ev.pointerId = e.pointerId; ev.pointerType = e.pointerType; ev.isPrimary = e.isPrimary; ev.pressure = e.pressure;
   }
-  if (e instanceof WheelEvent) {
-    ev.deltaX = e.deltaX; ev.deltaY = e.deltaY; ev.deltaMode = e.deltaMode;
-  }
-  if (e instanceof KeyboardEvent) {
-    ev.key = e.key; ev.code = e.code; ev.repeat = e.repeat;
-  }
-  if (typeof TouchEvent !== 'undefined' && e instanceof TouchEvent) {
-    const touch = e.touches[0] ?? e.changedTouches[0];
-    if (touch) {
-      ev.clientX = touch.clientX; ev.clientY = touch.clientY; ev.pageX = touch.pageX; ev.pageY = touch.pageY;
-      if (o) { ev.clientX -= o.x; ev.clientY -= o.y; ev.pageX = ev.clientX; ev.pageY = ev.clientY; }
-    }
-  }
-  if (e instanceof FocusEvent && e.relatedTarget) ev.relatedId = idOf(e.relatedTarget as Node);
-  if (e instanceof InputEvent) { ev.inputType = e.inputType; ev.data = e.data; }
-  if (e instanceof SubmitEvent && e.submitter) ev.submitterId = idOf(e.submitter);
-  if (e instanceof MouseEvent || e instanceof KeyboardEvent || (typeof TouchEvent !== 'undefined' && e instanceof TouchEvent)) {
+  if (e instanceof MouseEvent) {
     const m = e as MouseEvent;
     ev.modifiers = (m.altKey ? 1 : 0) | (m.ctrlKey ? 2 : 0) | (m.metaKey ? 4 : 0) | (m.shiftKey ? 8 : 0);
   }
-  // Form control state travels with every event so the sandbox mirror stays current.
-  if (t instanceof HTMLInputElement) { ev.value = inputValueGet(t); ev.checked = getter(HTMLInputElement.prototype, 'checked')(t); }
-  else if (t instanceof HTMLTextAreaElement) ev.value = textareaValueGet(t);
-  else if (t instanceof HTMLSelectElement) {
-    ev.value = getter(HTMLSelectElement.prototype, 'value')(t);
-    ev.selectedIndex = getter(HTMLSelectElement.prototype, 'selectedIndex')(t);
-  }
   if (t instanceof HTMLImageElement && e.type === 'load') { ev.naturalWidth = t.naturalWidth; ev.naturalHeight = t.naturalHeight; }
   if (t instanceof HTMLDetailsElement && e.type === 'toggle') ev.open = t.open;
-  if (e.type === 'scroll' && t instanceof Element) { ev.scrollTop = getter(Element.prototype, 'scrollTop')(t); ev.scrollLeft = getter(Element.prototype, 'scrollLeft')(t); }
   return ev;
 }
 
@@ -607,14 +527,9 @@ function wantsGesture(el: Element | null, targetId: number): boolean {
   if (preventKeys.has(`${targetId}:pointerdown`) || preventKeys.has(`${targetId}:touchstart`)) return true;
   for (let n: Element | null = el; n && n !== HTML; n = parentNodeOf(n) as Element | null) {
     if (!(n instanceof Element)) break;
-    // Natively draggable controls: the engine moves the thumb itself, the host must not scroll instead.
-    if (n instanceof HTMLInputElement && n.type === 'range') return true;
-    const cs = getComputedStyle(n);
-    const ta = cs.touchAction;
+    const ta = getComputedStyle(n).touchAction;
     if (ta === 'none') return true;
     if (ta !== 'auto' && ta !== 'manipulation' && !/\bpan-(y|up|down)\b/.test(ta)) return true;
-    // The widget's own vertically scrollable area scrolls before the chat does.
-    if (/^(auto|scroll)$/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1) return true;
   }
   return false;
 }
@@ -625,18 +540,14 @@ function onEvent(e: Event) {
   const targetEl = target instanceof Element ? target : null;
 
   // Unconditional navigation cancelling. Nothing the validator emits can
-  // navigate, but the renderer does not rely on that.
-  if (type === 'submit') e.preventDefault();
-  if (type === 'click' && targetEl) {
-    const link = closest(targetEl, 'a, area') as Element | null;
-    if (link) {
-      e.preventDefault();
-      const href = getAttribute(link, 'href');
-      if (href && href.length > 1 && href[0] === '#') {
-        const dest = getElementById(root, href.slice(1));
-        if (dest) Element.prototype.scrollIntoView.call(dest);
-      }
-    }
+  // navigate, but the renderer does not rely on that. A `#fragment` link does
+  // not scroll either: the widget does not scroll, and on the Shadow DOM
+  // renderer the page that would scroll is the chat.
+  if (type === 'click' && targetEl && closest(targetEl, 'a, area')) e.preventDefault();
+  // A click without a pointer press (detail 0: Enter or Space on a focused button, assistive technology) is not input the widget gets.
+  if (type === 'click' && (e as MouseEvent).detail === 0 && e.isTrusted) {
+    e.preventDefault();
+    return;
   }
 
   // A frozen widget still cancels navigation (above) but forwards nothing: there is no runtime to deliver to.
@@ -644,10 +555,7 @@ function onEvent(e: Event) {
   // Only events dispatched to (or through) widget nodes are of interest.
   const targetId = target === root || target === null ? ids.get(HTML) ?? 0 : idOf(target);
   if (!targetId) return;
-  if (preventKeys.size && e.cancelable) {
-    const key = `${targetId}:${type}`;
-    if (preventKeys.has(key) || (e instanceof KeyboardEvent && preventKeys.has(`${key}:${e.key}`))) e.preventDefault();
-  }
+  if (preventKeys.size && e.cancelable && preventKeys.has(`${targetId}:${type}`)) e.preventDefault();
   if (type === 'pointerdown' && (e as PointerEvent).isPrimary) post({ type: 'gesture', wants: wantsGesture(targetEl, targetId) });
   if (!ALWAYS_FORWARD.has(type) && !interest.has(type)) return;
   // enter/leave do not bubble: with a capturing document listener they are seen once per entered element.
@@ -757,11 +665,35 @@ function freeze(reason: string, fatal: boolean) {
 let sizeObservers: ResizeObserver[] = [];
 let offViewport: (() => void) | null = null;
 
+/** Input the chat keeps (SWALLOWED): never forwarded to the widget, and without its default action inside it. */
+function swallow(e: Event) {
+  if (e.type === 'mousedown') {
+    // No focus move and no selection from a press; the press itself still reaches the widget (pointerdown, mousedown, :active).
+    if (e.cancelable) e.preventDefault();
+    return;
+  }
+  if (e.type === 'focusin') {
+    const t = e.target;
+    if (t instanceof HTMLElement || t instanceof SVGElement) (t instanceof SVGElement ? SVGElement.prototype.blur : HTMLElement.prototype.blur).call(t);
+    return;
+  }
+  // Default actions only: on the Shadow DOM renderer the chat page's own handlers (its message menu) still see the event.
+  if (e.cancelable) e.preventDefault();
+}
+
 function init(s: Send) {
   send = s;
   ({ html: HTML, head: HEAD, body: BODY } = env.roots());
+  // The renderer's own stylesheet (trusted, from the profile): the client-styled <button> and no text selection.
+  const ua = createElement(doc, 'style');
+  setTextContent(ua, PROFILE_UA_STYLESHEET);
+  insertBefore(HEAD, ua, firstChildOf(HEAD));
+  for (const type of SWALLOWED) root.addEventListener(type, swallow, { capture: true, passive: false });
   for (const type of ALL_EVENTS) root.addEventListener(type, onEvent, { capture: true, passive: false });
-  for (const type of ['auxclick', 'dragstart']) root.addEventListener(type, (e) => e.preventDefault(), true);
+  // Chromium dispatches enter/leave events only to nodes that listen for them or have an ancestor element with a
+  // capturing listener; a shadow root is no element, so without this the widget never gets pointerenter / mouseenter.
+  if (root instanceof ShadowRoot) for (const type of ENTER_LEAVE) root.host.addEventListener(type, noop, true);
+  for (const type of ['auxclick', 'dragstart', 'dblclick']) root.addEventListener(type, (e) => e.preventDefault(), true);
   sizeObservers = [new ResizeObserver(reportSize), new ResizeObserver(reportSize)];
   sizeObservers[0].observe(HTML);
   sizeObservers[1].observe(BODY);
@@ -773,6 +705,8 @@ function init(s: Send) {
 
 function destroy() {
   for (const type of ALL_EVENTS) root.removeEventListener(type, onEvent, { capture: true });
+  for (const type of SWALLOWED) root.removeEventListener(type, swallow, { capture: true });
+  if (root instanceof ShadowRoot) for (const type of ENTER_LEAVE) root.host.removeEventListener(type, noop, true);
   for (const o of sizeObservers) o.disconnect();
   sizeObservers = [];
   offViewport?.();

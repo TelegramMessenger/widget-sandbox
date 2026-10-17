@@ -370,13 +370,9 @@ export class Context2D {
     }
     return { ...m };
   }
-  getImageData(x: number, y: number, w: number, h: number) {
-    const id = ensureCreated(this.canvas);
-    flush();
-    const r = query({ q: 'imageData', id, x: Number(x), y: Number(y), w: Number(w), h: Number(h) }, false);
-    const bin = hostBinary();
-    if (!r || r.error || !bin) return new ImageData(Math.max(1, Math.abs(w) | 0), Math.max(1, Math.abs(h) | 0));
-    return new ImageData(new Uint8ClampedArray(bin), r.width, r.height);
+  /** Pixel read-back is outside the widget profile: transparent pixels. */
+  getImageData(_x: number, _y: number, w: number, h: number) {
+    return new ImageData(Math.max(1, Math.abs(w) | 0), Math.max(1, Math.abs(h) | 0));
   }
   createImageData(w: any, h?: number) { return typeof w === 'object' ? new ImageData(w.width, w.height) : new ImageData(Math.abs(w) | 0, Math.abs(h ?? 0) | 0); }
   putImageData(img: ImageData, x: number, y: number, ...rest: number[]) { this._push(['c', 'putImageData', this._enc(img), Number(x), Number(y), ...rest.map(Number)]); }
@@ -480,9 +476,8 @@ export function installCanvas(canvasProto: any) {
     toDataURL: {
       configurable: true, writable: true,
       value(this: any, type?: string, quality?: number) {
-        const id = ensureCreated(this);
-        const r = query({ q: 'canvasCall', id, method: 'toDataURL', args: [type ?? 'image/png', quality ?? 0.92] }, false);
-        return typeof r === 'string' ? r : 'data:,';
+        // Read-back is outside the widget profile: an empty image.
+        return 'data:,';
       },
     },
     toBlob: { configurable: true, writable: true, value(cb: any) { unsupported('canvas.toBlob'); if (typeof cb === 'function') cb(null); } },

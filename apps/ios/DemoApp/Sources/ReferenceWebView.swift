@@ -3,8 +3,7 @@
 // sandbox, validator or renderer protocol, so the sandboxed result and its
 // speed can be compared against what the engine does on its own. Mirrors the
 // web prototype's `?reference=1` (vite.config.ts `/reference/` route +
-// src/main.ts `updateReference`): known CDN script URLs are rewritten to the
-// bundled library copies, the document gets a doctype, and the page is served
+// src/main.ts `updateReference`): the document gets a doctype and is served
 // with `connect-src 'none'` from a private scheme that refuses every other URL.
 // Lives in the demo, not in WidgetSandbox; the corpus browser hides it for
 // `attacks/`.
@@ -96,7 +95,7 @@ final class ReferenceWebView: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         if let body = message.body as? [String: Any] { onMessage?(body) }
     }
 
-    // Only the document itself navigates; subresources (/libs/) do not pass through here.
+    // Only the document itself navigates.
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if !documentLoaded, navigationAction.targetFrame?.isMainFrame == true, navigationAction.request.url == documentURL {
             documentLoaded = true
@@ -112,16 +111,11 @@ final class ReferenceWebView: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     // Same as the web dev server's REFERENCE_CSP.
     static let csp = "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'"
 
-    /// = src/host/loader.ts `rewriteForReference`: known CDN script URLs → /libs/<file>, plus a doctype.
-    /// On iOS also a viewport meta when the file has none: without it mobile WebKit lays the
-    /// page out at 980 px and scales it down, while the sandbox renderer always declares one.
+    /// = the web dev server's reference mode: a doctype (no library is bundled since profile 1, so a CDN
+    /// script fails here as it does in the sandbox). On iOS also a viewport meta when the file has none:
+    /// without it mobile WebKit lays the page out at 980 px and scales it down, while the sandbox renderer always declares one.
     static func rewrite(_ html: String) -> String {
-        let re = try! NSRegularExpression(pattern: #"(<script\b[^>]*?\bsrc\s*=\s*)(["'])([^"']+)\2"#, options: [.caseInsensitive])
         var out = html
-        for m in re.matches(in: html, range: NSRange(html.startIndex..., in: html)).reversed() {
-            guard let urlRange = Range(m.range(at: 3), in: html), let lib = SandboxResources.shared.library(for: String(html[urlRange])) else { continue }
-            out.replaceSubrange(Range(m.range(at: 3), in: out)!, with: "/libs/\(lib.file)")
-        }
         #if os(iOS)
         if out.range(of: #"<meta\s[^>]*name\s*=\s*["']?viewport"#, options: [.regularExpression, .caseInsensitive]) == nil {
             let meta = "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
@@ -168,7 +162,7 @@ final class ReferenceWebView: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     """
 }
 
-/// Serves the rewritten document and the bundled libraries under /libs/; refuses everything else.
+/// Serves the rewritten document; refuses everything else.
 final class ReferenceSchemeHandler: NSObject, WKURLSchemeHandler {
     let documentURL: URL
     let html: String
@@ -180,8 +174,6 @@ final class ReferenceSchemeHandler: NSObject, WKURLSchemeHandler {
         let body: Data, type: String
         if url == documentURL || path == "/" || path.isEmpty {
             body = Data(html.utf8); type = "text/html; charset=utf-8"
-        } else if path.hasPrefix("/libs/"), let lib = SandboxResources.shared.libraries.first(where: { "/libs/" + $0.file == path }), let src = SandboxResources.shared.librarySource(lib) {
-            body = Data(src.utf8); type = "application/javascript; charset=utf-8"
         } else {
             return task.didFailWithError(URLError(.resourceUnavailable))
         }

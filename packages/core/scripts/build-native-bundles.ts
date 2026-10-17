@@ -1,6 +1,6 @@
 // Builds the JavaScript the native packages ship: the sandbox bundle, the
-// renderer bundle (platform transport), the validator bundle, the bundled
-// libraries, their precompiled bytecode and the shared test fixture — into
+// renderer bundle (platform transport), the validator bundle, their
+// precompiled bytecode and the shared test fixture — into
 // packages/ios, packages/android or packages/desktop. The demo apps' corpus
 // copy is a separate step (scripts/sync-demo-corpus.ts at the repo root).
 //
@@ -15,8 +15,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LIBRARIES } from '../src/host/loader.ts';
-import { libraryPath, rendererBuildOptions, sandboxBuildOptions, validatorBuildOptions } from './sandbox-build.ts';
+import { rendererBuildOptions, sandboxBuildOptions, validatorBuildOptions } from './sandbox-build.ts';
 
 /** The repo root; the native packages are siblings of this one under packages/. */
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -43,7 +42,10 @@ if (!target) {
 const outIndex = process.argv.indexOf('--out');
 const outDir = outIndex > 0 ? path.resolve(process.argv[outIndex + 1]) : undefined;
 const res = outDir ?? path.join(root, target.js);
-fs.mkdirSync(path.join(res, 'libs'), { recursive: true });
+fs.mkdirSync(res, { recursive: true });
+// No bundled libraries since profile 1 (docs/profile-v1.md, js.libraries): what an older build left goes.
+fs.rmSync(path.join(res, 'libs'), { recursive: true, force: true });
+fs.rmSync(path.join(res, 'libraries.json'), { force: true });
 
 async function emit(name: string, options: Parameters<typeof build>[0]) {
   const out = await build(options);
@@ -55,17 +57,13 @@ async function emit(name: string, options: Parameters<typeof build>[0]) {
 await emit('sandbox-bundle.js', sandboxBuildOptions(pkgRoot));
 await emit('renderer-bundle.js', rendererBuildOptions(pkgRoot, target.transport));
 await emit('validator-bundle.js', validatorBuildOptions(pkgRoot));
-for (const lib of LIBRARIES) {
-  fs.copyFileSync(libraryPath(lib.source), path.join(res, 'libs', lib.file));
-  console.log(`libs/${lib.file}`);
-}
 
 // Precompiled bytecode (.qbc next to each .js that QuickJS evaluates; the renderer bundle runs in
 // a web view and has none). The compiler is built from the vendored quickjs-ng, so the bytecode
 // always matches the engine the apps link; each blob carries the source's length and hash and is
 // refused at load time if the .js next to it changed (see qjs_shim.h).
 const qjsc = buildQjsc();
-for (const name of ['sandbox-bundle.js', 'validator-bundle.js', ...LIBRARIES.map((l) => `libs/${l.file}`)]) {
+for (const name of ['sandbox-bundle.js', 'validator-bundle.js']) {
   const out = name.replace(/\.js$/, '.qbc');
   execFileSync(qjsc, [path.join(res, name), path.join(res, out), path.basename(name)], { stdio: 'inherit' });
 }
@@ -87,9 +85,6 @@ function buildQjsc(): string {
     '-Wno-unused-parameter', ...sources, '-lm', '-o', bin], { stdio: 'inherit' });
   return bin;
 }
-// Library URL patterns, so the native loader resolves the same CDN URLs as the web host.
-fs.writeFileSync(path.join(res, 'libraries.json'), JSON.stringify(LIBRARIES.map((l) => ({ name: l.name, file: l.file, patterns: l.patterns.map((p) => p.source) })), null, 2));
-
 // Test fixtures shared with the native ports (one source of truth: packages/core/tests/fixtures).
 if (!outDir) {
   fs.mkdirSync(path.join(root, target.fixtures), { recursive: true });

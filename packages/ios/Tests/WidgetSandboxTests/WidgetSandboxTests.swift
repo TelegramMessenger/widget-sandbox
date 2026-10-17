@@ -331,8 +331,9 @@ final class BytecodeTests: XCTestCase {
         XCTAssertThrowsError(try js.evaluateBytecode(Data(), source: ""))
     }
 
-    /// The shipped blobs load against the .js next to them (a stale pair fails here, not on a device).
-    func testShippedBytecodeIsUsedForBundlesAndLibraries() throws {
+    /// The shipped blobs load against the .js next to them (a stale pair fails here, not on a device);
+    /// a CDN script is an external script like any other (profile 1 bundles no libraries).
+    func testShippedBytecodeIsUsedAndNoLibraryIsBundled() throws {
         let r = SandboxResources.shared
         XCTAssertNotNil(r.sandboxBytecode, "pnpm build:ios ships sandbox-bundle.qbc")
         XCTAssertNotNil(r.validatorBytecode, "pnpm build:ios ships validator-bundle.qbc")
@@ -346,9 +347,9 @@ final class BytecodeTests: XCTestCase {
         engine.queue.sync {}
         XCTAssertNil(d.died)
         XCTAssertTrue(d.diags.contains { $0.0 == "boot" && $0.1.contains("(bytecode)") }, "\(d.diags)")
-        XCTAssertTrue(d.diags.contains { $0.0 == "library" && $0.1.contains("bytecode") }, "\(d.diags)")
+        XCTAssertTrue(d.diags.contains { $0.0 == "script-skipped" && $0.1.contains("chart.js") }, "\(d.diags)")
         XCTAssertFalse(d.diags.contains { $0.0 == "bytecode" }, "fell back to source: \(d.diags)")
-        XCTAssertTrue(d.logs.contains { $0.1 == "function" }, "\(d.logs)")
+        XCTAssertTrue(d.logs.contains { $0.1 == "undefined" }, "\(d.logs)")
         var vdiags: [(String, String)] = []
         _ = try TrustedValidator(theme: "light") { vdiags.append(($0, $1)) }
         XCTAssertFalse(vdiags.contains { $0.0 == "bytecode" }, "validator fell back to source: \(vdiags)")

@@ -214,6 +214,10 @@
     "a"
    ],
    "attributes": [
+    "class",
+    "id",
+    "lang",
+    "role",
     "viewBox",
     "preserveAspectRatio",
     "x",
@@ -762,6 +766,7 @@
     "hover",
     "active",
     "root",
+    "lang",
     "first-child",
     "last-child",
     "only-child",
@@ -808,7 +813,8 @@
     "prefers-color-scheme",
     "prefers-reduced-motion"
    ]
-  }
+  },
+  "uaStylesheet": "@layer tw-ua{:where(button){appearance:none;-webkit-appearance:none;margin:0;border:0;border-radius:var(--tg-button-radius,8px);padding:var(--tg-button-padding,0 14px);min-height:var(--tg-button-height,34px);font:var(--tg-button-font,500 14px/1.2 system-ui,sans-serif);background:var(--tg-button-bg,var(--tg-theme-button-color,#3390ec));color:var(--tg-button-text,var(--tg-theme-button-text-color,#ffffff));cursor:pointer;-webkit-tap-highlight-color:transparent}:where(button:not([disabled])):active{opacity:var(--tg-button-pressed-opacity,.7)}:where(button[disabled]){opacity:var(--tg-button-disabled-opacity,.5);cursor:default}}*{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}"
  },
  "features": [
   {

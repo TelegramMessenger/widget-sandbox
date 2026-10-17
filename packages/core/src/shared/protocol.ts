@@ -1,6 +1,8 @@
 // Message schema shared by sandbox shim, host and renderer. See docs/protocol.md.
 // Types only (plus a few constants): no code here runs with any privilege.
 
+import { PROFILE_EVENTS } from './profile-tables';
+
 export type NodeId = number;
 /** The widget's Document node. Never rendered; parent of the <html> element. */
 export const DOCUMENT_ID = 1;
@@ -134,15 +136,8 @@ export interface WidgetEvent {
   scrollLeft?: number;
 }
 
-/** Event types the renderer may forward. Everything else is ignored. */
-export const EVENT_TYPES = [
-  'click', 'dblclick', 'contextmenu', 'input', 'change', 'submit', 'reset', 'keydown', 'keyup', 'keypress',
-  'pointerdown', 'pointerup', 'pointermove', 'pointerenter', 'pointerleave', 'pointerover', 'pointerout', 'pointercancel',
-  'mousedown', 'mouseup', 'mousemove', 'mouseenter', 'mouseleave', 'mouseover', 'mouseout',
-  'touchstart', 'touchmove', 'touchend', 'touchcancel',
-  'focus', 'blur', 'focusin', 'focusout', 'wheel', 'scroll', 'load', 'error', 'toggle',
-  'animationstart', 'animationend', 'animationiteration', 'transitionend',
-] as const;
+/** Event types the renderer delivers to the widget: the widget profile's (no keyboard, focus, dblclick, contextmenu, touch, wheel or scroll). Everything else is ignored. */
+export const EVENT_TYPES: readonly string[] = PROFILE_EVENTS;
 
 // ───────────── host ⇄ renderer envelope ─────────────
 
@@ -198,8 +193,6 @@ export interface SandboxConfig {
    * `canvasWords`: canvas commands as a word stream through `__hostCanvas`.
    */
   features?: string[];
-  /** Extra bundled libraries the host serves under /libs/<file> (loader.ts `provideLibrary`); glue only, never sent to the sandbox. */
-  libraries?: { name: string; file: string; patterns: string[] }[];
   /**
    * `strict` (default): privileged bridge calls need a user gesture, text values are capped at
    * 64 KB and visible text is budgeted. `compat`: the behaviour hosts had before that hardening,

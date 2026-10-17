@@ -196,19 +196,19 @@ final class TextBudgetTests: XCTestCase {
         let arabic = { String(repeating: "ا", count: $0) }
         let cases: [[ [String: Any] ]] = [
             [
-                ["op": "el", "id": 20, "tag": "input", "attrs": ["value": chunk + "x", "placeholder": chunk + "x"]],
+                ["op": "el", "id": 20, "tag": "button", "attrs": ["value": chunk + "x", "data-label": chunk + "x"]],
                 ["op": "attr", "id": 20, "name": "TITLE", "value": chunk + "x"],
             ],
             [
                 ["op": "text", "id": 20, "data": chunk], ["op": "text", "id": 21, "data": chunk], ["op": "text", "id": 22, "data": chunk],
-                ["op": "el", "id": 30, "tag": "textarea"], ["op": "prop", "id": 30, "name": "value", "value": chunk],
+                ["op": "el", "id": 30, "tag": "div", "attrs": ["title": chunk]],
                 ["op": "text", "id": 23, "data": "overflow"], ["op": "rm", "id": 30], ["op": "text", "id": 24, "data": chunk],
             ],
             [
                 ["op": "text", "id": 20, "data": arabic(6000)],
-                ["op": "el", "id": 21, "tag": "input", "attrs": ["placeholder": arabic(3000), "value": arabic(2000)]],
-                ["op": "prop", "id": 21, "name": "value", "value": arabic(500)],
-                ["op": "rattr", "id": 21, "name": "VALUE"], ["op": "prop", "id": 21, "name": "value", "value": arabic(501)],
+                ["op": "el", "id": 21, "tag": "button", "attrs": ["title": arabic(3000), "value": arabic(2000)]],
+                ["op": "rattr", "id": 21, "name": "VALUE"], ["op": "attr", "id": 21, "name": "value", "value": arabic(2192)],
+                ["op": "attr", "id": 21, "name": "title", "value": arabic(1)],
             ],
         ]
         for (index, ops) in cases.enumerated() {
@@ -227,26 +227,24 @@ final class TextBudgetTests: XCTestCase {
                 XCTAssertFalse(output.contains { $0["id"] as? Int == 23 })
                 XCTAssertTrue(output.contains { $0["id"] as? Int == 24 })
             } else {
-                XCTAssertFalse(output.contains { $0["op"] as? String == "prop" && $0["value"] as? String == arabic(500) })
-                XCTAssertTrue(output.contains { $0["op"] as? String == "prop" && $0["value"] as? String == arabic(501) })
+                XCTAssertFalse(output.contains { $0["op"] as? String == "attr" && $0["name"] as? String == "title" })
+                XCTAssertTrue(output.contains { $0["op"] as? String == "attr" && $0["value"] as? String == arabic(2192) })
             }
         }
     }
 
-    func testFormValueAndAttributeChurnIsLimitedOnBothPaths() throws {
+    func testAttributeChurnIsLimitedOnBothPaths() throws {
         for native in [false, true] {
-            for property in [false, true] {
-                let rig = NativeValidatorDifferentialTests.Rig(native: native, policy: .strict)
-                var ops: [[String: Any]] = [["op": "el", "id": 20, "tag": "input"]]
-                for i in 0..<10 {
-                    ops.append(["op": property ? "prop" : "attr", "id": 20, "name": property ? "value" : "placeholder", "value": String(repeating: String(UnicodeScalar(0x4e00 + i)!), count: 3000)])
-                }
-                let batch = String(decoding: try JSONSerialization.data(withJSONObject: ops), as: UTF8.self)
-                let result = rig.json(batch)
-                let output = result.0 as! [[String: Any]]
-                XCTAssertEqual(output.filter { $0["op"] as? String == (property ? "prop" : "attr") }.count, 2)
-                XCTAssertTrue(result.2.contains { $0.hasPrefix("text-churn") })
+            let rig = NativeValidatorDifferentialTests.Rig(native: native, policy: .strict)
+            var ops: [[String: Any]] = [["op": "el", "id": 20, "tag": "div"]]
+            for i in 0..<10 {
+                ops.append(["op": "attr", "id": 20, "name": "title", "value": String(repeating: String(UnicodeScalar(0x4e00 + i)!), count: 3000)])
             }
+            let batch = String(decoding: try JSONSerialization.data(withJSONObject: ops), as: UTF8.self)
+            let result = rig.json(batch)
+            let output = result.0 as! [[String: Any]]
+            XCTAssertEqual(output.filter { $0["op"] as? String == "attr" }.count, 2)
+            XCTAssertTrue(result.2.contains { $0.hasPrefix("text-churn") })
         }
     }
 
@@ -255,7 +253,7 @@ final class TextBudgetTests: XCTestCase {
         var encoder = BinaryOpsEncoder()
         let chunk = String(repeating: "x", count: 64 * 1024)
         encoder.begin(reset: true)
-        encoder.element(20, tag: "input", svg: false, attributes: [("value", chunk), ("placeholder", chunk), ("title", chunk)])
+        encoder.element(20, tag: "button", svg: false, attributes: [("value", chunk), ("data-label", chunk), ("title", chunk)])
         encoder.text(21, chunk, code: .text)
         encoder.attribute(20, "value", chunk + "x", internValue: false)
         encoder.text(22, "rejected", code: .text)

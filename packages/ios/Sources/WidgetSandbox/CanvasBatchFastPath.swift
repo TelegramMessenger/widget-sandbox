@@ -8,21 +8,22 @@ enum CanvasBatchFastPath {
     static let maxDistinctIds = 16
     static let maxBatchBytes = 4 << 20
 
+    // The profile's canvas calls and properties (`tables.canvas` in packages/core/profile.json). Anything else — and
+    // `font`, whose families the validator reduces to the generic ones — sends the batch through the JS validator,
+    // which drops what is outside the profile with a `profile` diagnostic.
     static let callMethods = WordSet("""
         save restore scale rotate translate transform setTransform resetTransform
         clearRect fillRect strokeRect beginPath closePath moveTo lineTo bezierCurveTo quadraticCurveTo arc arcTo
-        ellipse rect roundRect fill stroke clip fillText strokeText setLineDash drawImage putImageData reset
+        ellipse rect roundRect fill stroke clip fillText strokeText setLineDash drawImage reset
         """)
     static let setProperties = WordSet("""
-        fillStyle strokeStyle lineWidth lineCap lineJoin miterLimit lineDashOffset font textAlign textBaseline
-        direction globalAlpha globalCompositeOperation shadowBlur shadowColor shadowOffsetX shadowOffsetY
-        imageSmoothingEnabled imageSmoothingQuality letterSpacing wordSpacing fontKerning fontStretch
-        fontVariantCaps textRendering
+        fillStyle strokeStyle lineWidth lineCap lineJoin miterLimit lineDashOffset textAlign textBaseline
+        direction globalAlpha imageSmoothingEnabled imageSmoothingQuality
         """)
 
     private static let commandKinds = ["c", "s", "r", "g", "gs", "pn", "pc"]
     static let pathMethods = WordSet("moveTo lineTo bezierCurveTo quadraticCurveTo arc arcTo ellipse rect roundRect closePath addPath")
-    static let gradientTypes = WordSet("linear radial conic pattern")
+    static let gradientTypes = WordSet("linear radial")
 
     struct WordSet {
         private var byLength: [[[UInt8]]] = Array(repeating: [], count: 33)

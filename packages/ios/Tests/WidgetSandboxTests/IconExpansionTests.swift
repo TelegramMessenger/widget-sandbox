@@ -2,7 +2,8 @@ import XCTest
 @testable import WidgetSandbox
 
 final class IconExpansionTests: XCTestCase {
-    static let airplane = "data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20256%20256%22%3E%3Cpath%20d=%22M0%200h256v256z%22/%3E%3C/svg%3E"
+    /// A raster icon: SVG images are outside widget profile 1 (docs/profile-v1.md), so a resolver answers with PNG, JPEG, GIF or WebP.
+    static let airplane = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
     static let stubResolver: WidgetAssetResolver = { icon in
         icon.hasPrefix("icon:airplane") ? airplane : nil

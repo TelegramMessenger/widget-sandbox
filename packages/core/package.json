@@ -23,9 +23,7 @@
   },
   "dependencies": {
     "@telegram/widget-sandbox-quickjs": "workspace:*",
-    "chart.js": "^4.5.1",
     "css-tree": "^3.2.1",
-    "d3": "^7.9.0",
     "esbuild": "^0.28.2",
     "linkedom": "^0.18.13",
     "parse5": "^8.0.0",

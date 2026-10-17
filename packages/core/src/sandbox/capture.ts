@@ -17,6 +17,9 @@ import { OpWriter } from './binary-ops';
 import { boxNeutral } from './box-neutral';
 import { counters, host, hostOps, invalidateLayout, sendStagedCanvas } from './host';
 import { canonicalKey, canonicalMap, canonicalValue, forgetSentStyle, parseDeclarations, pendingStyles, setRawAttrValueSetter, styleImplOf, type Decl } from './style';
+import { PROFILE_METHODS } from '../shared/profile-tables';
+
+const RENDERER_METHODS = new Set<string>(PROFILE_METHODS);
 
 export const ID = Symbol('tw.id');
 const stringifyOps = JSON.stringify;
@@ -444,8 +447,13 @@ function walkAll(node: any) {
   for (const c of childrenOf(node)) walkAll(c);
 }
 
-/** Queue a renderer-side method call (focus, scrollIntoView, …) for an element. */
+/**
+ * Queue a renderer-side method call (scrollTo, setPointerCapture, …) for an
+ * element. Methods outside the widget profile (focus, blur, scrollIntoView,
+ * dialogs, popovers, text selection: docs/profile-v1.md) do nothing.
+ */
 export function callMethod(node: any, method: string, args: unknown[] = []) {
+  if (!RENDERER_METHODS.has(method)) return;
   dirty.add(node);
   postOps.push({ op: 'call', node, method, args });
 }

@@ -32,7 +32,10 @@ describe('url policy', () => {
     assert.equal(checkUrl('data:font/woff2;base64,AAAA', 'image'), null);
     assert.equal(checkUrl('data:video/mp4;base64,AAAA', 'image'), null);
     assert.equal(checkUrl('data:text/html,<img src=x>', 'image'), null);
-    assert.equal(checkUrl('data:image/svg+xml,<svg/>', 'image'), 'data:image/svg+xml,<svg/>');
+    // The profile's image types only: SVG, AVIF, BMP and ICO are out (the decoder runs in the app process).
+    assert.equal(checkUrl('data:image/svg+xml,<svg/>', 'image'), null);
+    assert.equal(checkUrl('data:image/avif;base64,AAAA', 'image'), null);
+    assert.equal(checkUrl('data:image/webp;base64,AAAA', 'image'), 'data:image/webp;base64,AAAA');
     assert.equal(checkUrl('#frag', 'image'), '#frag');
     assert.equal(checkUrl('#frag', 'fragment-only'), '#frag');
     assert.equal(checkUrl(CANARY, 'image'), null);
@@ -49,7 +52,7 @@ describe('url policy', () => {
 describe('css sanitizer', () => {
   it('drops url() that is not data:, keeps data: and fragments', () => {
     const d: string[] = [];
-    const css = sanitizeStylesheet(`p{background:url(${CANARY});color:red} b{background:url("data:image/png;base64,AA")} i{filter:url(#f)}`, (k, x) => d.push(k + x));
+    const css = sanitizeStylesheet(`p{background:url(${CANARY});color:red} b{background:url("data:image/png;base64,AA")} i{fill:url(#f)}`, (k, x) => d.push(k + x));
     assert.ok(!css.includes('127.0.0.1'));
     assert.ok(css.includes('color:red'));
     assert.ok(css.includes('data:image/png'));
@@ -62,8 +65,8 @@ describe('css sanitizer', () => {
     assert.ok(!css.includes('@import'));
     assert.ok(!css.includes('@font-face'), css);
     assert.ok(!css.includes('data:font'), css);
-    // font-family itself is fine: without @font-face it can only resolve to installed fonts.
-    assert.ok(css.includes('font-family:M,system-ui'));
+    // Without @font-face a family can only name an installed font, and the profile keeps the generic ones only (D3b).
+    assert.ok(css.includes('font-family:system-ui'), css);
     assert.ok(css.includes('color:blue'));
   });
   it('handles image-set, strings in url functions, var() inside url functions, escapes and nesting', () => {
@@ -173,7 +176,7 @@ describe('validator: elements and attributes', () => {
     assert.ok(!ops2.some((o) => o.op === 'el' && ['video', 'source', 'audio'].includes((o as any).tag)), json(ops2));
     assert.ok(!json(ops2).includes('poster'));
   });
-  it('SVG: href only as fragment except image/feImage data:, no URL animation, fill url() checked', () => {
+  it('SVG: href only as fragment, fill url() checked; image, feImage and SMIL are outside the profile', () => {
     const ops = run([
       { op: 'el', id: 10, tag: 'image', ns: 'svg', attrs: { href: CANARY } },
       { op: 'el', id: 11, tag: 'image', ns: 'svg', attrs: { 'xlink:href': 'data:image/png;base64,AA' } },
@@ -187,16 +190,11 @@ describe('validator: elements and attributes', () => {
       { op: 'el', id: 19, tag: 'feImage', ns: 'svg', attrs: { href: CANARY } },
     ]);
     assert.ok(!json(ops).includes('127.0.0.1'), json(ops));
-    assert.deepEqual(attrsOf(ops, 10), {});
-    assert.deepEqual(attrsOf(ops, 11), { href: 'data:image/png;base64,AA' });
+    for (const id of [10, 11, 14, 15, 16, 19]) assert.ok(!ops.some((o) => o.op === 'el' && o.id === id), `#${id} is not rendered`);
     assert.deepEqual(attrsOf(ops, 12), {});
     assert.deepEqual(attrsOf(ops, 13), { href: '#i' });
-    assert.ok(!('attributeName' in attrsOf(ops, 14)));
-    assert.ok(!('values' in attrsOf(ops, 15)));
-    assert.ok(!ops.some((o) => o.op === 'el' && o.id === 16));
     assert.deepEqual(attrsOf(ops, 17), { stroke: 'url(#g)', viewBox: '0 0 1 1' });
     assert.deepEqual(attrsOf(ops, 18), { href: '#', 'data-tg-link': '' });
-    assert.deepEqual(attrsOf(ops, 19), {});
   });
   it('style elements: text is sanitized as a stylesheet and re-emitted on change', () => {
     const ops = run([
@@ -240,13 +238,16 @@ describe('validator: protocol strictness', () => {
     assert.equal(v.validateQuery({ q: 'rect', id: 11 }), null);
     assert.equal(v.validateQuery({ q: 'rect', id: 1 }), null);
     assert.equal(v.validateQuery({ q: 'svg', id: 10, method: 'innerHTML' }), null);
-    assert.deepEqual(v.validateQuery({ q: 'canvasCall', id: 10, method: 'toDataURL', args: ['image/png'] }), { q: 'canvasCall', id: 10, method: 'toDataURL', args: ['image/png'] });
-    assert.equal(v.validateQuery({ q: 'imageData', id: 10, x: 0, y: 0, w: 1e9, h: 1e9 }), null);
+    assert.deepEqual(v.validateQuery({ q: 'canvasCall', id: 10, method: 'isPointInPath', args: [1, 2] }), { q: 'canvasCall', id: 10, method: 'isPointInPath', args: [1, 2] });
+    // Read-back is outside the profile.
+    assert.equal(v.validateQuery({ q: 'canvasCall', id: 10, method: 'toDataURL', args: ['image/png'] }), null);
+    assert.equal(v.validateQuery({ q: 'imageData', id: 10, x: 0, y: 0, w: 1, h: 1 }), null);
+    assert.deepEqual(v.validateQuery({ q: 'measureText', font: '12px Inter, monospace', text: 'x' }), { q: 'measureText', font: '12px monospace', text: 'x' });
     assert.equal(v.validateQuery({ q: 'eval', code: '1' }), null);
-    assert.deepEqual(v.validateListen(['click', 'install', 1]), ['click']);
+    assert.deepEqual(v.validateListen(['click', 'install', 1, 'keydown', 'dblclick', 'contextmenu', 'touchstart', 'wheel', 'focus']), ['click']);
     assert.deepEqual(v.validatePreventDefault(['12:click', 'x:y', '12:keydown:Enter']), ['12:click', '12:keydown:Enter']);
   });
-  it('canvas commands: allowlisted methods, props and object refs only; filter is CSS-sanitized', () => {
+  it('canvas commands: allowlisted methods, props and object refs only; filter, shadows, compositing and conic gradients are outside the profile', () => {
     const diags: string[] = [];
     const ops = run([
       { op: 'el', id: 10, tag: 'canvas' },
@@ -254,13 +255,17 @@ describe('validator: protocol strictness', () => {
         ['c', 'fillRect', 0, 0, 1, 1], ['s', 'fillStyle', 'red'], ['c', 'drawImage', { n: 10 }, 0, 0], ['c', 'drawImage', { n: 3 }, 0, 0],
         ['s', 'filter', `url(${CANARY}#f)`], ['s', 'filter', 'blur(2px)'], ['c', 'eval', '1'], ['s', 'canvas', 1], ['r', 100, 50], ['r', -1, 1e9],
         ['g', 1, 'linear', 0, 0, 1, 1], ['gs', 1, 0, 'red'], ['pn', 2, 'M0 0L1 1'], ['pc', 2, 'lineTo', 1, 2], ['pc', 2, 'eval', 1],
+        ['s', 'shadowBlur', 4], ['s', 'globalCompositeOperation', 'multiply'], ['g', 3, 'conic', 0, 0, 0], ['s', 'font', '12px "Inter", serif'],
       ] },
     ], diags);
     const cmds = (ops.find((o) => o.op === 'canvas') as any).cmds;
     assert.deepEqual(cmds, [
-      ['c', 'fillRect', 0, 0, 1, 1], ['s', 'fillStyle', 'red'], ['c', 'drawImage', { n: 10 }, 0, 0], ['s', 'filter', 'blur(2px)'], ['r', 100, 50],
+      ['c', 'fillRect', 0, 0, 1, 1], ['s', 'fillStyle', 'red'], ['c', 'drawImage', { n: 10 }, 0, 0], ['r', 100, 50],
       ['g', 1, 'linear', 0, 0, 1, 1], ['gs', 1, 0, 'red'], ['pn', 2, 'M0 0L1 1'], ['pc', 2, 'lineTo', 1, 2],
+      // A conic gradient paints nothing: a zero-length linear one.
+      ['g', 3, 'linear', 0, 0, 0, 0], ['s', 'font', '12px serif'],
     ]);
+    assert.ok(['canvas filter', 'canvas shadowBlur', 'canvas globalCompositeOperation', 'canvas conic'].every((x) => diags.includes('profile: ' + x)), diags.join('\n'));
   });
 });
 
@@ -270,28 +275,31 @@ describe('css sanitizer: shadow scope (ShadowDomRenderer prototype)', () => {
     const d: string[] = [];
     const css = sanitizeStylesheet(':host{color:red} :host(.x) p{color:red} :host-context(.dark) b{color:red} ::slotted(span){color:red} i::part(x){color:red} :scope{color:red} p, :host{color:blue} q{color:green}', (k, x) => d.push(k + ':' + x), shadow);
     assert.equal(css, 'p{color:blue}q{color:green}');
-    // Five rules lost every selector; `p, :host` kept `p` without a diagnostic.
-    assert.equal(d.filter((x) => x.includes('shadow-host')).length, 5);
+    // Outside the profile on every renderer: each dropped selector is reported, `p, :host` keeps `p`
+    // (css-tree cannot parse `::part(x)`: that rule goes as unparsable).
+    assert.equal(d.filter((x) => x.startsWith('profile:selector')).length, 6);
   });
   it(':root becomes the renderer root attribute with the same specificity; :is(:root) too', () => {
     const css = sanitizeStylesheet(':root{--a:1} :is(:root) b{color:red} :root.dark{color:red}', noDiag, shadow);
     assert.equal(css, '[data-tw-root]{--a:1}:is([data-tw-root]) b{color:red}[data-tw-root].dark{color:red}');
   });
-  it('width/height media queries become container queries on the bubble; others stay media queries', () => {
+  it('width media queries become container queries on the bubble; queries outside the profile are dropped', () => {
     const css = sanitizeStylesheet(
       '@media (max-width:480px){p{color:red}} @media screen and (min-width: 600px) and (orientation: landscape){p{color:red}} @media only screen{p{color:red}} @media (hover:hover){p{color:red}} @media print{p{color:red}} @media (width >= 400px), (max-height: 20px){p{color:red}} @media (prefers-color-scheme: dark){p{color:red}}',
       noDiag, shadow);
     assert.equal(css,
-      '@container tw (max-width:480px){p{color:red}}@container tw (min-width:600px) and (orientation:landscape){p{color:red}}@container tw (min-width: 0px){p{color:red}}@media (hover:hover){p{color:red}}@media print{p{color:red}}@container tw (width>=400px) or (max-height:20px){p{color:red}}@container tw (min-width: 99999px){p{color:red}}');
+      '@container tw (max-width:480px){p{color:red}}@container tw (min-width:600px) and (orientation:landscape){p{color:red}}@container tw (min-width: 0px){p{color:red}}@container tw (min-width: 99999px){p{color:red}}');
   });
   it('viewport units become container units (stylesheets, style attributes, properties)', () => {
-    assert.equal(sanitizeStylesheet('p{width:50vw;height:100vh;font-size:2vmin;margin:1dvh 3svw}', noDiag, shadow), 'p{width:50cqw;height:100cqh;font-size:2cqmin;margin:1cqh 3cqw}');
+    assert.equal(sanitizeStylesheet('p{width:50vw;font-size:2vmin;margin:1vi 3svw}', noDiag, shadow), 'p{width:50cqw;font-size:2cqmin;margin:1cqi 3cqw}');
     assert.equal(sanitizeStyleAttribute('width:10vw', noDiag, shadow), 'width:10cqw');
-    assert.deepEqual(sanitizeStyleProperty('height', '100vh', noDiag, shadow), { name: 'height', value: '100cqh' });
+    assert.deepEqual(sanitizeStyleProperty('max-width', '100vw', noDiag, shadow), { name: 'max-width', value: '100cqw' });
+    // Height-relative units are outside the profile (the bubble's height comes from its content).
+    assert.equal(sanitizeStylesheet('p{height:100vh;margin:1dvh}', noDiag, shadow), 'p{}');
   });
-  it('document scope (default) is untouched', () => {
+  it('document scope (default) keeps :root, media queries and viewport units', () => {
     const css = ':root{--a:1} :host{color:red} @media (max-width:480px){p{width:50vw}}';
-    assert.equal(sanitizeStylesheet(css, noDiag), ':root{--a:1}:host{color:red}@media (max-width:480px){p{width:50vw}}');
+    assert.equal(sanitizeStylesheet(css, noDiag), ':root{--a:1}@media (max-width:480px){p{width:50vw}}');
   });
 });
 
@@ -366,72 +374,67 @@ describe('validator: complex-script text budget', () => {
   });
 });
 
-describe('validator: visible attribute and form value text budgets', () => {
+describe('validator: visible attribute text budgets', () => {
   it('rejects oversized visible text attributes on creation and mutation', () => {
     const big = 'x'.repeat(64 * 1024 + 1);
     const out = run([
-      { op: 'el', id: 20, tag: 'input', attrs: { value: big, placeholder: big, title: big } },
+      { op: 'el', id: 20, tag: 'button', attrs: { value: big, title: big } },
       { op: 'el', id: 21, tag: 'img', attrs: { alt: big } },
-      { op: 'el', id: 22, tag: 'option', attrs: { label: big } },
+      { op: 'el', id: 22, tag: 'div', attrs: { 'data-label': big } },
       { op: 'attr', id: 20, name: 'VALUE', value: big },
     ], [], 'strict');
     assert.ok(!json(out).includes(big));
     assert.equal(out.filter(o => o.op === 'el').length, 3);
   });
 
-  it('shares the document budget with form properties and refunds removals', () => {
+  it('shares the document budget with visible attributes and refunds removals', () => {
     const chunk = 'a'.repeat(64 * 1024);
     const out = run([
       ...[20, 21, 22].map(id => ({ op: 'text', id, data: chunk })),
-      { op: 'el', id: 30, tag: 'textarea' },
-      { op: 'prop', id: 30, name: 'value', value: chunk },
+      { op: 'el', id: 30, tag: 'div', attrs: { title: chunk } },
       { op: 'text', id: 23, data: 'overflow' },
       { op: 'rm', id: 30 },
       { op: 'text', id: 24, data: chunk },
     ], [], 'strict');
-    assert.ok(out.some(o => o.op === 'prop' && o.id === 30));
+    assert.equal(attrsOf(out, 30).title, chunk);
     assert.ok(!out.some(o => o.op === 'text' && o.id === 23));
     assert.ok(out.some(o => o.op === 'text' && o.id === 24));
   });
 
-  it('shares complex text budgets across attributes, properties and text nodes', () => {
+  it('shares complex text budgets across attributes and text nodes', () => {
     const text = (n: number) => 'ا'.repeat(n);
     const out = run([
       { op: 'text', id: 20, data: text(6000) },
-      { op: 'el', id: 21, tag: 'input', attrs: { placeholder: text(3000), value: text(2000) } },
-      { op: 'prop', id: 21, name: 'value', value: text(500) },
+      { op: 'el', id: 21, tag: 'button', attrs: { title: text(3000), value: text(2000) } },
       { op: 'rattr', id: 21, name: 'VALUE' },
-      { op: 'prop', id: 21, name: 'value', value: text(501) },
+      { op: 'attr', id: 21, name: 'value', value: text(2192) },
+      { op: 'attr', id: 21, name: 'title', value: text(1) },
     ], [], 'strict');
-    assert.equal(attrsOf(out, 21).placeholder, undefined);
+    assert.equal(attrsOf(out, 21).title, undefined);
     assert.equal(attrsOf(out, 21).value, text(2000));
-    assert.ok(!out.some(o => o.op === 'prop' && o.value === text(500)));
-    assert.ok(out.some(o => o.op === 'prop' && o.value === text(501)));
+    assert.ok(out.some(o => o.op === 'attr' && o.name === 'value' && o.value === text(2192)));
+    assert.ok(!out.some(o => o.op === 'attr' && o.name === 'title'));
   });
 
-  it('rate limits repeated form values and attribute changes', () => {
-    for (const property of [true, false]) {
-      const diags: string[] = [];
-      const out = run([
-        { op: 'el', id: 20, tag: 'input' },
-        ...Array.from({ length: 10 }, (_, i) => property
-          ? { op: 'prop', id: 20, name: 'value', value: String.fromCharCode(0x4e00 + i).repeat(3000) }
-          : { op: 'attr', id: 20, name: 'placeholder', value: String.fromCharCode(0x4e00 + i).repeat(3000) }),
-      ], diags, 'strict');
-      assert.equal(out.filter(o => o.op === (property ? 'prop' : 'attr')).length, 2);
-      assert.ok(diags.some(d => d.startsWith('text-churn')));
-    }
+  it('rate limits repeated attribute changes', () => {
+    const diags: string[] = [];
+    const out = run([
+      { op: 'el', id: 20, tag: 'div' },
+      ...Array.from({ length: 10 }, (_, i) => ({ op: 'attr', id: 20, name: 'title', value: String.fromCharCode(0x4e00 + i).repeat(3000) })),
+    ], diags, 'strict');
+    assert.equal(out.filter(o => o.op === 'attr').length, 2);
+    assert.ok(diags.some(d => d.startsWith('text-churn')));
   });
 
-  it('preserves compatibility policy limits for visible attributes and property churn', () => {
+  it('preserves compatibility policy limits for visible attributes and their churn', () => {
     const big = 'x'.repeat(64 * 1024 + 1);
     const diags: string[] = [];
     const out = run([
-      { op: 'el', id: 20, tag: 'input', attrs: { value: big } },
-      ...Array.from({ length: 10 }, (_, i) => ({ op: 'prop', id: 20, name: 'value', value: String.fromCharCode(0x4e00 + i).repeat(3000) })),
+      { op: 'el', id: 20, tag: 'button', attrs: { value: big } },
+      ...Array.from({ length: 10 }, (_, i) => ({ op: 'attr', id: 20, name: 'title', value: String.fromCharCode(0x4e00 + i).repeat(3000) })),
     ], diags);
     assert.equal(attrsOf(out, 20).value, big);
-    assert.equal(out.filter(o => o.op === 'prop').length, 10);
+    assert.equal(out.filter(o => o.op === 'attr').length, 10);
     assert.ok(!diags.some(d => d.startsWith('text-')));
   });
 });

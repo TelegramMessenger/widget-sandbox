@@ -16,10 +16,6 @@ final class BundledBytecodeTests: XCTestCase {
         let r = SandboxResources.shared
         try assertMatches("sandbox-bundle.js", source: r.sandboxBundle, bytecode: r.sandboxBytecode)
         try assertMatches("validator-bundle.js", source: r.validatorBundle, bytecode: r.validatorBytecode)
-        XCTAssertGreaterThanOrEqual(r.libraries.count, 2)
-        for lib in r.libraries {
-            try assertMatches(lib.file, source: r.librarySource(lib), bytecode: r.libraryBytecode(lib))
-        }
     }
 
     /// The DOM wrappers read `arguments` only in strict mode (no mapped arguments object; quickjs-ng#1400).

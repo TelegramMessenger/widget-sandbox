@@ -534,16 +534,9 @@ class SandboxEngine(
             resetDeadline()
             val src = s.optString("src", "")
             if (s.has("src") && src.isNotEmpty()) {
-                val lib = resources.library(src)
-                val source = lib?.let { resources.librarySource(it) }
-                if (lib != null && source != null) {
-                    val t0 = nowNs()
-                    val how = evalBundle(source, resources.libraryBytecode(lib), lib.file)
-                    delegate?.onDiag(this, "library", "$src → bundled ${lib.name} (eval ${msSince(t0).toInt()} ms, $how)")
-                } else {
-                    ok = false
-                    delegate?.onDiag(this, "script-skipped", "external script not available: ${src.take(200)}")
-                }
+                // Nothing is fetched and nothing is bundled (profile 1: no libraries): an external script never runs.
+                ok = false
+                delegate?.onDiag(this, "script-skipped", "external script not available: ${src.take(200)}")
             } else if (s.has("code")) {
                 evalScript(s.optString("code"), "inline-script-$id.js", s.optString("type") == "module")
             }

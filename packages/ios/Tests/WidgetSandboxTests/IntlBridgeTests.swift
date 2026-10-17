@@ -70,4 +70,26 @@ final class IntlBridgeTests: XCTestCase {
             }
         }
     }
+
+    /// formatToParts is in the widget profile: the parts join to what `format` gives and name the fields.
+    func testFormatToPartsJoinsToTheFormattedString() throws {
+        func parts(_ request: [String: Any]) throws -> [(String, String)] {
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]), as: UTF8.self)
+            let list = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(IntlBridge.format(requestJson: json).utf8)) as? [[String: String]])
+            return list.map { ($0["type"] ?? "", $0["value"] ?? "") }
+        }
+        func formatted(_ request: [String: Any]) throws -> String {
+            IntlBridge.format(requestJson: String(decoding: try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]), as: UTF8.self))
+        }
+        let number: [String: Any] = ["kind": "numberParts", "locale": "en-US", "opts": [String: Any](), "value": -1234.5]
+        let n = try parts(number)
+        XCTAssertEqual(n.map(\.0), ["minusSign", "integer", "group", "integer", "decimal", "fraction"], "\(n)")
+        XCTAssertEqual(n.map(\.1).joined(), try formatted(number.merging(["kind": "number"]) { $1 }))
+        let currency: [String: Any] = ["kind": "numberParts", "locale": "en-US", "opts": ["style": "currency", "currency": "USD"], "value": 12.5]
+        XCTAssertTrue(try parts(currency).contains { $0 == ("currency", "$") })
+        let date: [String: Any] = ["kind": "dateParts", "locale": "en-US", "opts": ["timeZone": "UTC", "year": "numeric", "month": "long", "day": "numeric"], "value": 0]
+        let d = try parts(date)
+        XCTAssertTrue(d.contains { $0 == ("year", "1970") } && d.contains { $0 == ("month", "January") } && d.contains { $0 == ("day", "1") }, "\(d)")
+        XCTAssertEqual(d.map(\.1).joined(), try formatted(date.merging(["kind": "date"]) { $1 }))
+    }
 }

@@ -689,14 +689,9 @@ public final class SandboxEngine {
             var ok = true
             resetDeadline()
             if let src = s["src"] as? String {
-                if let lib = resources.library(for: src), let source = resources.librarySource(lib) {
-                    let t0 = CACurrentMediaTime()
-                    let how = evalBundle(source, bytecode: resources.libraryBytecode(lib), filename: lib.file)
-                    delegate?.engine(self, diag: "library", detail: "\(src) → bundled \(lib.name) (eval \(Int((CACurrentMediaTime() - t0) * 1000)) ms, \(how))")
-                } else {
-                    ok = false
-                    delegate?.engine(self, diag: "script-skipped", detail: "external script not available: \(src.prefix(200))")
-                }
+                // Nothing is fetched and nothing is bundled (profile 1: no libraries): an external script never runs.
+                ok = false
+                delegate?.engine(self, diag: "script-skipped", detail: "external script not available: \(src.prefix(200))")
             } else if let code = s["code"] as? String {
                 evalScript(code, filename: "inline-script-\(id).js", asModule: (s["type"] as? String) == "module")
             }
@@ -788,28 +783,6 @@ public final class SandboxEngine {
 
 // MARK: - Resources
 
-public struct BundledLibrary {
-    public let name: String
-    public let file: String
-    public let patterns: [NSRegularExpression]
-}
-
-public struct ProvidedLibrary {
-    public let name: String
-    public let file: String
-    public let patterns: [String]
-    public let source: () -> String?
-    public let bytecode: (() -> Data?)?
-
-    public init(name: String, file: String, patterns: [String], source: @escaping () -> String?, bytecode: (() -> Data?)? = nil) {
-        self.name = name
-        self.file = file
-        self.patterns = patterns
-        self.source = source
-        self.bytecode = bytecode
-    }
-}
-
 /// The JavaScript shipped with the package (built by `pnpm build:ios`). The
 /// directory is deliberately not called "Resources": codesign rejects iOS
 /// bundles with a top-level Resources/ folder ("bundle format unrecognized").
@@ -822,100 +795,6 @@ public final class SandboxResources {
     /// Precompiled bytecode of the bundles (`.qbc` next to the `.js`, built together; nil when not shipped).
     public let sandboxBytecode: Data?
     public let validatorBytecode: Data?
-    public let libraries: [BundledLibrary]
-    private var libraryCache: [String: String] = [:]
-    private var bytecodeCache: [String: Data?] = [:]
-    private let lock = NSLock()
-    private var provided: [String: ProvidedLibrary] = [:]
-    private var providedLibraries: [BundledLibrary] = []
-    private var rejectedSources: Set<String> = []
-    public var compiledLibraries: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return compiledCount
-    }
-    private var compiledCount = 0
-    public static let maxURLLength = 2048
-    public static var maxProvidedSourceBytes = 8 << 20
-    public static var maxProvidedBytecodeBytes = 32 << 20
-    private static let namePattern = try! NSRegularExpression(pattern: "\\A[a-z0-9][a-z0-9._-]{0,63}\\z")
-    private static let filePattern = try! NSRegularExpression(pattern: "\\A[A-Za-z0-9][A-Za-z0-9._-]{0,124}\\.js\\z")
-
-    private static func matches(_ regex: NSRegularExpression, _ s: String) -> Bool {
-        regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
-    }
-
-    @discardableResult
-    public func provide(_ library: ProvidedLibrary) -> Bool {
-        guard Self.matches(Self.namePattern, library.name), Self.matches(Self.filePattern, library.file), !library.file.contains(".."), !library.patterns.isEmpty,
-              !libraries.contains(where: { $0.name == library.name || $0.file == library.file }) else { return false }
-        var compiled: [NSRegularExpression] = []
-        for pattern in library.patterns {
-            // Whole-URL match: the pattern must be a regular expression on its own first, so an unbalanced `)` (say `x)|(.*`)
-            // cannot close the anchoring group and leave an alternative unanchored.
-            guard pattern.utf16.count <= 1024, (try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])) != nil,
-                  let regex = try? NSRegularExpression(pattern: "\\A(?:" + pattern + ")\\z", options: [.caseInsensitive]),
-                  !["", "https://example.invalid/x.js", "app:", "https://cdn.jsdelivr.net/npm/x.js"].contains(where: { Self.matches(regex, $0) }) else { return false }
-            compiled.append(regex)
-        }
-        lock.lock()
-        defer { lock.unlock() }
-        if provided.values.contains(where: { $0.file == library.file && $0.name != library.name }) { return false }
-        provided[library.name] = library
-        providedLibraries.removeAll { $0.name == library.name }
-        providedLibraries.append(BundledLibrary(name: library.name, file: library.file, patterns: compiled))
-        libraryCache[library.file] = nil
-        bytecodeCache[library.file] = nil
-        rejectedSources.remove(library.file)
-        return true
-    }
-
-    private let provideLock = NSRecursiveLock()
-
-    private func providedSource(_ library: ProvidedLibrary) -> String? {
-        provideLock.lock()
-        defer { provideLock.unlock() }
-        lock.lock()
-        let cached = libraryCache[library.file]
-        let rejected = rejectedSources.contains(library.file)
-        lock.unlock()
-        if let cached { return cached }
-        if rejected { return nil }
-        let source = library.source()
-        lock.lock()
-        defer { lock.unlock() }
-        guard let source, source.utf8.count <= Self.maxProvidedSourceBytes else {
-            rejectedSources.insert(library.file)
-            return nil
-        }
-        libraryCache[library.file] = source
-        return source
-    }
-
-    private func providedBytecode(_ library: ProvidedLibrary) -> Data? {
-        provideLock.lock()
-        defer { provideLock.unlock() }
-        lock.lock()
-        if let cached = bytecodeCache[library.file] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-        var data: Data?
-        if let given = library.bytecode {
-            data = given().flatMap { $0.count <= Self.maxProvidedBytecodeBytes ? $0 : nil }
-        } else if let source = providedSource(library) {
-            lock.lock()
-            compiledCount += 1
-            lock.unlock()
-            data = try? QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit).compileBytecode(source, filename: library.file)
-            if let d = data, d.count > Self.maxProvidedBytecodeBytes { data = nil }
-        }
-        lock.lock()
-        bytecodeCache[library.file] = data
-        lock.unlock()
-        return data
-    }
 
     /// `bundle` defaults to the package's resource bundle.
     public init(bundle: Bundle? = nil) {
@@ -931,60 +810,6 @@ public final class SandboxResources {
         validatorBundle = read("validator-bundle", "js", "WidgetJS")
         sandboxBytecode = bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) }
         validatorBytecode = bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) }
-        var libs: [BundledLibrary] = []
-        if let data = bundle.url(forResource: "libraries", withExtension: "json", subdirectory: "WidgetJS").flatMap({ try? Data(contentsOf: $0) }),
-           let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            for item in list {
-                guard let name = item["name"] as? String, let file = item["file"] as? String, let patterns = item["patterns"] as? [String] else { continue }
-                libs.append(BundledLibrary(name: name, file: file, patterns: patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }))
-            }
-        }
-        libraries = libs
-        self.bundle = bundle
-    }
-    private let bundle: Bundle
-
-    /// Same resolution as src/host/loader.ts: known CDN URLs → bundled copy; anything else → nil.
-    public func library(for url: String) -> BundledLibrary? {
-        guard url.utf16.count <= Self.maxURLLength else { return nil }
-        var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        if u.hasPrefix("//") { u = "https:" + u }
-        if let i = u.firstIndex(where: { $0 == "?" || $0 == "#" }) { u = String(u[..<i]) }
-        let range = NSRange(u.startIndex..., in: u)
-        if let lib = libraries.first(where: { lib in lib.patterns.contains { $0.firstMatch(in: u, range: range) != nil } }) { return lib }
-        lock.lock()
-        defer { lock.unlock() }
-        return providedLibraries.first { lib in lib.patterns.contains { $0.firstMatch(in: u, range: range) != nil } }
-    }
-
-    public func librarySource(_ lib: BundledLibrary) -> String? {
-        lock.lock()
-        if let library = provided[lib.name], library.file == lib.file {
-            lock.unlock()
-            return providedSource(library)
-        }
-        defer { lock.unlock() }
-        if let s = libraryCache[lib.file] { return s }
-        let name = (lib.file as NSString).deletingPathExtension
-        let ext = (lib.file as NSString).pathExtension
-        guard let url = bundle.url(forResource: name, withExtension: ext, subdirectory: "WidgetJS/libs"), let s = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        libraryCache[lib.file] = s
-        return s
-    }
-
-    /// Precompiled bytecode of a bundled library (`WidgetJS/libs/<file>.qbc`), cached; nil when not shipped.
-    public func libraryBytecode(_ lib: BundledLibrary) -> Data? {
-        lock.lock()
-        if let library = provided[lib.name], library.file == lib.file {
-            lock.unlock()
-            return providedBytecode(library)
-        }
-        defer { lock.unlock() }
-        if let cached = bytecodeCache[lib.file] { return cached }
-        let name = (lib.file as NSString).deletingPathExtension
-        let data = bundle.url(forResource: name, withExtension: "qbc", subdirectory: "WidgetJS/libs").flatMap { try? Data(contentsOf: $0) }
-        bytecodeCache[lib.file] = data
-        return data
     }
 }
 
@@ -998,21 +823,18 @@ enum IntlBridge {
         let value = (req["value"] as? NSNumber)?.doubleValue ?? 0
         switch kind {
         case "number":
-            let f = NumberFormatter()
-            f.locale = locale
-            switch opts["style"] as? String {
-            case "currency": f.numberStyle = .currency; if let c = opts["currency"] as? String { f.currencyCode = c }
-            case "percent": f.numberStyle = .percent
-            default: f.numberStyle = .decimal
-            }
-            if let n = (opts["minimumFractionDigits"] as? NSNumber)?.intValue { f.minimumFractionDigits = n }
-            if let n = (opts["maximumFractionDigits"] as? NSNumber)?.intValue { f.maximumFractionDigits = n }
-            if let g = opts["useGrouping"] as? Bool { f.usesGroupingSeparator = g }
+            let f = numberFormatter(locale: locale, options: opts)
             return f.string(from: NSNumber(value: value)) ?? String(value)
+        case "numberParts":
+            let f = numberFormatter(locale: locale, options: opts)
+            return json(numberParts(f.string(from: NSNumber(value: value)) ?? String(value), f))
         case "date", "dateMethod":
             let date = Date(timeIntervalSince1970: value / 1000)
             let f = dateFormatter(locale: locale, options: opts, method: req["method"] as? String)
             return f.string(from: date)
+        case "dateParts":
+            let f = dateFormatter(locale: locale, options: opts, method: req["method"] as? String)
+            return json(dateParts(Date(timeIntervalSince1970: value / 1000), f))
         case "plural":
             return value == 1 ? "one" : "other"
         case "relative":
@@ -1040,6 +862,98 @@ enum IntlBridge {
         default:
             return ""
         }
+    }
+
+    private static func numberFormatter(locale: Locale, options opts: [String: Any]) -> NumberFormatter {
+        let f = NumberFormatter()
+        f.locale = locale
+        switch opts["style"] as? String {
+        case "currency": f.numberStyle = .currency; if let c = opts["currency"] as? String { f.currencyCode = c }
+        case "percent": f.numberStyle = .percent
+        default: f.numberStyle = .decimal
+        }
+        if let n = (opts["minimumFractionDigits"] as? NSNumber)?.intValue { f.minimumFractionDigits = n }
+        if let n = (opts["maximumFractionDigits"] as? NSNumber)?.intValue { f.maximumFractionDigits = n }
+        if let g = opts["useGrouping"] as? Bool { f.usesGroupingSeparator = g }
+        return f
+    }
+
+    private static func json(_ parts: [(String, String)]) -> String {
+        let list = parts.map { ["type": $0.0, "value": $0.1] }
+        return (try? JSONSerialization.data(withJSONObject: list)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+    }
+
+    /// JS `NumberFormat.formatToParts`: the formatted string split by the formatter's own symbols.
+    static func numberParts(_ s: String, _ f: NumberFormatter) -> [(String, String)] {
+        var out: [(String, String)] = []
+        func push(_ type: String, _ text: String) {
+            if let last = out.last, last.0 == type, type == "literal" || type == "currency" { out[out.count - 1].1 += text } else { out.append((type, text)) }
+        }
+        let symbols: [(String, String)] = [(f.currencySymbol, "currency"), (f.internationalCurrencySymbol, "currency"), (f.percentSymbol, "percentSign"),
+                                           (f.minusSign, "minusSign"), (f.plusSign, "plusSign"), (f.exponentSymbol, "exponentSeparator"),
+                                           (f.notANumberSymbol, "nan"), ("∞", "infinity")].filter { !$0.0.isEmpty }.sorted { $0.0.count > $1.0.count }
+        var i = s.startIndex
+        var fraction = false
+        var digits = ""
+        func flush() { if !digits.isEmpty { push(fraction ? "fraction" : "integer", digits); digits = "" } }
+        while i < s.endIndex {
+            let rest = s[i...]
+            if s[i].isWholeNumber { digits.append(s[i]); i = s.index(after: i); continue }
+            if !fraction, !digits.isEmpty, rest.hasPrefix(f.decimalSeparator), rest.dropFirst(f.decimalSeparator.count).first?.isWholeNumber == true {
+                flush(); push("decimal", f.decimalSeparator); fraction = true; i = s.index(i, offsetBy: f.decimalSeparator.count); continue
+            }
+            if !fraction, !digits.isEmpty, !f.groupingSeparator.isEmpty, rest.hasPrefix(f.groupingSeparator), rest.dropFirst(f.groupingSeparator.count).first?.isWholeNumber == true {
+                flush(); push("group", f.groupingSeparator); i = s.index(i, offsetBy: f.groupingSeparator.count); continue
+            }
+            flush()
+            if let symbol = symbols.first(where: { rest.hasPrefix($0.0) }) {
+                push(symbol.1, symbol.0); i = s.index(i, offsetBy: symbol.0.count); continue
+            }
+            push("literal", String(s[i])); i = s.index(after: i)
+        }
+        flush()
+        return out
+    }
+
+    /// JS `DateTimeFormat.formatToParts`: the formatter's pattern split into fields, each formatted on its own.
+    static func dateParts(_ date: Date, _ f: DateFormatter) -> [(String, String)] {
+        let types: [Character: String] = ["G": "era", "y": "year", "u": "year", "Y": "year", "M": "month", "L": "month", "d": "day", "E": "weekday", "c": "weekday", "e": "weekday",
+                                          "a": "dayPeriod", "b": "dayPeriod", "B": "dayPeriod", "h": "hour", "H": "hour", "k": "hour", "K": "hour", "m": "minute", "s": "second",
+                                          "S": "fractionalSecond", "z": "timeZoneName", "Z": "timeZoneName", "v": "timeZoneName", "V": "timeZoneName", "O": "timeZoneName", "X": "timeZoneName", "x": "timeZoneName"]
+        var out: [(String, String)] = []
+        func literal(_ text: String) {
+            if text.isEmpty { return }
+            if let last = out.last, last.0 == "literal" { out[out.count - 1].1 += text } else { out.append(("literal", text)) }
+        }
+        let pattern = Array(f.dateFormat ?? "")
+        var i = 0
+        while i < pattern.count {
+            let c = pattern[i]
+            if c == "'" {
+                var j = i + 1
+                var text = ""
+                while j < pattern.count {
+                    if pattern[j] == "'" { if j + 1 < pattern.count && pattern[j + 1] == "'" { text.append("'"); j += 2; continue }; break }
+                    text.append(pattern[j]); j += 1
+                }
+                literal(i + 1 == j ? "'" : text)
+                i = j + 1
+            } else if c.isASCII && c.isLetter {
+                var j = i
+                while j < pattern.count && pattern[j] == c { j += 1 }
+                let single = DateFormatter()
+                single.locale = f.locale
+                single.timeZone = f.timeZone
+                single.calendar = f.calendar
+                single.dateFormat = String(pattern[i..<j])
+                let text = single.string(from: date)
+                if let type = types[c] { out.append((type, text)) } else { literal(text) }
+                i = j
+            } else {
+                literal(String(c)); i += 1
+            }
+        }
+        return out
     }
 
     private static func dateFormatter(locale: Locale, options: [String: Any], method: String?) -> DateFormatter {

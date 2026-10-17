@@ -13,15 +13,19 @@ enum ElementBatchFastPath {
         var ops: [WidgetOp]?
     }
 
+    /// Properties whose value the profile judges only by its functions and units (CSSValueCanon checks both), so a
+    /// canonical value is what the validator would give. `display`, `position`, `overflow`, `rotate`, `translate`,
+    /// `scale`, `filter`, `backdrop-filter` and the font properties have value rules of their own (docs/profile-v1.md)
+    /// and take the oracle.
     static let styleNames = CanvasBatchFastPath.WordSet("""
-        transform transform-origin translate rotate scale opacity visibility display z-index
+        transform transform-origin opacity visibility z-index
         left top right bottom inset width height min-width min-height max-width max-height
         margin margin-top margin-right margin-bottom margin-left padding padding-top padding-right padding-bottom padding-left
         background background-color background-position background-size color border-color border-width border-radius
-        outline-color box-shadow filter backdrop-filter font-size font-weight line-height letter-spacing text-align
+        outline-color box-shadow font-size font-weight line-height letter-spacing text-align
         transition transition-delay transition-duration transition-property transition-timing-function
         animation-delay animation-duration animation-play-state fill stroke stroke-width stroke-dashoffset stroke-dasharray
-        flex flex-basis flex-grow flex-shrink gap order justify-content align-items flex-wrap clip-path cursor pointer-events will-change
+        flex flex-basis flex-grow flex-shrink gap order justify-content align-items flex-wrap cursor pointer-events will-change
         """)
 
     static func accept(_ json: String, typed: Bool = false) -> Plan? {
@@ -104,14 +108,25 @@ enum CSSValueCanon {
     static let maxDepth = 8
     static let maxTokens = 1024
 
-    private static let functions = CanvasBatchFastPath.WordSet("""
-        translate translateX translateY translateZ translate3d scale scaleX scaleY scaleZ scale3d
-        rotate rotateX rotateY rotateZ rotate3d skew skewX skewY matrix matrix3d perspective
-        rgb rgba hsl hsla hwb lab lch oklab oklch
+    /// The profile's functions (`tables.css.functions` in packages/core/profile.json), as widgets write them; a value with
+    /// any other function (3D transforms, new colour spaces, filters beyond blur/brightness/drop-shadow) takes the oracle.
+    static let functions = CanvasBatchFastPath.WordSet("""
+        translate translateX translateY scale scaleX scaleY rotate skew skewX skewY matrix
+        rgb rgba hsl hsla
         linear-gradient radial-gradient conic-gradient repeating-linear-gradient repeating-radial-gradient repeating-conic-gradient
-        cubic-bezier steps linear blur brightness contrast drop-shadow grayscale hue-rotate invert opacity saturate sepia
-        calc min max clamp inset circle ellipse polygon minmax repeat fit-content
+        cubic-bezier steps linear blur brightness drop-shadow
+        calc min max clamp minmax repeat fit-content
         """)
+
+    /// The profile's units (`tables.css.units`), lowercase; a dimension in any other (`vh`, `cqw`, `dppx`…) takes the oracle.
+    static let units: [[UInt8]] = """
+        px em rem ch ex pt pc cm mm in q vw svw lvw dvw vi svi lvi dvi vmin svmin lvmin dvmin vmax svmax lvmax dvmax deg rad grad turn s ms fr
+        """.split(separator: " ").map { Array($0.utf8) }
+
+    @inline(__always) private static func isUnit(_ b: UnsafeBufferPointer<UInt8>, _ start: Int, _ end: Int) -> Bool {
+        let n = end - start
+        return units.contains { u in u.count == n && (0..<n).allSatisfy { b[start + $0] | 0x20 == u[$0] } }
+    }
 
     private static let safePairs: Set<Int> = {
         let table = """
@@ -227,7 +242,9 @@ enum CSSValueCanon {
             type = percentage
         } else if j < end, isLetter(b[j]) {
             if b[j] | 0x20 == 0x65, j + 1 < end, isDigit(b[j + 1]) || ((b[j + 1] == 0x2b || b[j + 1] == 0x2d) && j + 2 < end && isDigit(b[j + 2])) { return nil }
+            let unit = j
             while j < end, isLetter(b[j]) { j += 1 }
+            guard isUnit(b, unit, j) else { return nil }
             type = dimension
         } else {
             type = number

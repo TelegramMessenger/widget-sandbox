@@ -552,6 +552,17 @@ TEST(intl_fallback_formats_through_the_host) {
     CHECK_MSG(r.host.hasLog("1,234.5|one|25%"), r.logsText());
 }
 
+// formatToParts is in the widget profile: the basic provider splits what it formats.
+TEST(intl_fallback_format_to_parts) {
+    Run r("<script>var j=function(p){return p.map(function(x){return x.type+'='+x.value}).join(';')};"
+          "console.log(j(new Intl.NumberFormat('en').formatToParts(-1234.5)));"
+          "console.log(j(new Intl.DateTimeFormat('en',{timeZone:'UTC',year:'numeric',month:'long',day:'numeric'}).formatToParts(new Date(0))));</script>");
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.hasLog("minusSign=-;integer=1;group=,;integer=234;decimal=.;fraction=5"), r.logsText());
+    CHECK_MSG(r.host.hasLog("month=January;literal= ;day=1;literal=, ;year=1970"), r.logsText());
+}
+
 /// Engines created and torn down quickly, some before they finished booting.
 TEST(engine_create_and_teardown_churn) {
     for (int i = 0; i < 10; i++) {
@@ -588,20 +599,21 @@ TEST(bytecode_round_trip_and_stale_blob_refused) {
     CHECK(threw);
 }
 
-TEST(shipped_bytecode_is_used_for_bundles_and_libraries) {
+// A CDN script is an external script like any other: profile 1 bundles no libraries.
+TEST(shipped_bytecode_is_used_and_no_library_is_bundled) {
     CHECK_MSG(!RES->sandboxBytecode.empty() && !RES->validatorBytecode.empty(), "pnpm build:desktop ships .qbc next to the bundles");
     Run r("<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>");
     r.barrier();
     auto l = r.host.lock();
     CHECK(!r.host.died);
-    bool bootFromBytecode = false, libFromBytecode = false, fallback = false;
+    bool bootFromBytecode = false, skipped = false, fallback = false;
     for (auto& d : r.host.diags) {
         if (d.first == "boot" && d.second.find("(bytecode)") != std::string::npos) bootFromBytecode = true;
-        if (d.first == "library" && d.second.find("bytecode") != std::string::npos) libFromBytecode = true;
+        if (d.first == "script-skipped" && d.second.find("chart.js") != std::string::npos) skipped = true;
         if (d.first == "bytecode") fallback = true;
     }
-    CHECK_MSG(bootFromBytecode && libFromBytecode && !fallback, r.diagsText());
-    CHECK(r.host.hasLog("function"));
+    CHECK_MSG(bootFromBytecode && skipped && !fallback, r.diagsText());
+    CHECK(r.host.hasLog("undefined"));
     std::vector<std::pair<std::string, std::string>> diags;
     TrustedValidator v("light", RES, [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
     for (auto& d : diags) CHECK_MSG(d.first != "bytecode", d.second);

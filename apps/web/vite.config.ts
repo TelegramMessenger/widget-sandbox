@@ -1,12 +1,12 @@
-// The dev app: the web package's plugin (bundles, /libs/, isolation headers) plus
+// The dev app: the web package's plugin (bundles, isolation headers) plus
 // dev-only middleware — the repo corpus, reference mode (native rendering of the
 // same file, never a product path) and the Blitz / litehtml wasm prototypes.
 
 import { defineConfig } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
-import { rewriteForReference } from '@telegram/widget-sandbox/host/loader';
 import { widgetSandbox } from '@telegram/widget-sandbox/vite';
+import { PROFILE_UA_STYLESHEET } from '@telegram/widget-sandbox/shared/profile-tables';
 
 const appRoot = path.dirname(new URL(import.meta.url).pathname);
 const repoRoot = path.resolve(appRoot, '..', '..');
@@ -15,6 +15,18 @@ const corpusDir = path.join(repoRoot, 'corpus');
 const blitzDir = path.join(repoRoot, 'apps', 'renderer-blitz', 'pkg-web');
 /** The litehtml wasm renderer prototype (pnpm build:litehtml-web), served at /litehtml/ the same way. Dev tooling. */
 const litehtmlDir = path.join(repoRoot, 'apps', 'renderer-litehtml', 'pkg-web');
+
+/**
+ * Reference mode: a fragment is rendered inside our (standards-mode) document in
+ * the product; give it a doctype so the native comparison does not fall into quirks mode,
+ * and the renderer's own stylesheet (the client-styled <button>, no selection) so the
+ * comparison shows what the profile removes rather than the button style.
+ */
+const withDoctype = (html: string) => {
+  const ua = `<style data-tw-ua>${PROFILE_UA_STYLESHEET}</style>`;
+  const m = /^\s*<!doctype[^>]*>/i.exec(html);
+  return m ? m[0] + ua + html.slice(m[0].length) : '<!DOCTYPE html>\n' + ua + html;
+};
 
 /** CSP for the dev-only reference mode. Not part of the product path. */
 const REFERENCE_CSP =
@@ -94,7 +106,7 @@ export default defineConfig({
             if (!p) return next();
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
             res.setHeader('Content-Security-Policy', REFERENCE_CSP);
-            res.end(rewriteForReference(fs.readFileSync(p, 'utf8')));
+            res.end(withDoctype(fs.readFileSync(p, 'utf8')));
             return;
           }
           next();

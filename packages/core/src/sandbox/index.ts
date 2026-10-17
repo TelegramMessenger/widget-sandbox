@@ -348,16 +348,6 @@ function dispatchHostEvent(raw: any) {
   ev.dispatchEvent.call(target, e);
   finishPointerEvent(raw);
   if (raw.type === 'click') afterClick(target, e, raw.defaultActions === true);
-  if (raw.type === 'keydown' && raw.key === 'Enter' && target.localName === 'textarea' && Number.isSafeInteger(raw.editorGeneration) && Number.isSafeInteger(raw.editorCommand)) {
-    let allowDefault = !e.defaultPrevented;
-    if (allowDefault) {
-      const press = ev.eventFromHost({ ...raw, type: 'keypress' }, capture.nodeById);
-      ev.dispatchEvent.call(target, press);
-      allowDefault = !press.defaultPrevented;
-    }
-    capture.flush();
-    capture.callMethod(target, 'completeEditorCommand', [raw.editorGeneration, raw.editorCommand, allowDefault ? 1 : 0]);
-  }
   if (e.defaultPrevented) {
     const key = `${raw.targetId}:${raw.type}` + (raw.type.startsWith('key') && raw.key ? `:${raw.key}` : '');
     if (!pdKeys.has(key)) { pdKeys.add(key); pdDirty = true; }
@@ -383,8 +373,6 @@ const handlers: Record<string, (arg: string) => string | void> = {
     globals.setHidden(config.visible === false);
     globals.setTheme(config.theme, false);
     globals.setViewport(config.viewport);
-    ev.noteInterest('focus');
-    ev.noteInterest('blur');
     loadDocument(String(html));
     capture.markDirty(document);
     collectScripts(document.documentElement);

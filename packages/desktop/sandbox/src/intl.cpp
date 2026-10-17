@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <utility>
+#include <vector>
 
 namespace twidget {
 
@@ -54,10 +56,43 @@ static std::string formatNumber(double value, const Json& opts) {
 
 static std::string two(int v) { char b[8]; snprintf(b, sizeof b, "%02d", v); return b; }
 
-static std::string formatDate(double epochMs, const Json& opts, const std::string& method) {
+using Parts = std::vector<std::pair<std::string, std::string>>;
+
+static std::string joined(const Parts& parts) {
+    std::string out;
+    for (const auto& p : parts) out += p.second;
+    return out;
+}
+
+/// JS `NumberFormat.formatToParts` over this formatter's en output.
+static Parts numberParts(const std::string& s) {
+    Parts out;
+    auto push = [&](const char* type, const std::string& text) {
+        if (!out.empty() && out.back().first == type && (out.back().first == "literal" || out.back().first == "currency" || out.back().first == "integer" || out.back().first == "fraction")) out.back().second += text;
+        else out.emplace_back(type, text);
+    };
+    if (s == "NaN") return {{"nan", s}};
+    bool fraction = false;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = (unsigned char)s[i];
+        if (std::isdigit(c)) { push(fraction ? "fraction" : "integer", std::string(1, char(c))); i++; continue; }
+        if (c == ',' ) { push("group", ","); i++; continue; }
+        if (c == '.') { push("decimal", "."); fraction = true; i++; continue; }
+        if (c == '-') { push("minusSign", "-"); i++; continue; }
+        if (c == '%') { push("percentSign", "%"); i++; continue; }
+        if (c == ' ') { push("literal", " "); i++; continue; }
+        if (s.compare(i, 3, "\xE2\x88\x9E") == 0) { push("infinity", s.substr(i, 3)); i += 3; continue; }
+        size_t n = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+        push("currency", s.substr(i, n));
+        i += n;
+    }
+    return out;
+}
+
+static Parts dateParts(double epochMs, const Json& opts, const std::string& method) {
     static const char* const months[] = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
     static const char* const days[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-    if (!std::isfinite(epochMs)) return "Invalid Date";
+    if (!std::isfinite(epochMs)) return {{"literal", "Invalid Date"}};
     time_t t = time_t(std::floor(epochMs / 1000));
     struct tm tmv {};
 #ifdef _WIN32
@@ -65,40 +100,66 @@ static std::string formatDate(double epochMs, const Json& opts, const std::strin
 #else
     gmtime_r(&t, &tmv);
 #endif
+    Parts out;
+    auto field = [&](const char* type, const std::string& text) { out.emplace_back(type, text); };
+    auto lit = [&](const std::string& text) {
+        if (!out.empty() && out.back().first == "literal") out.back().second += text;
+        else out.emplace_back("literal", text);
+    };
     auto has = [&](const char* k) { return !opts[k].isNull(); };
     bool wantsDate = has("weekday") || has("year") || has("month") || has("day") || has("dateStyle");
     bool wantsTime = has("hour") || has("minute") || has("second") || has("timeStyle");
-    std::string out;
     if (wantsDate || wantsTime) {
-        if (has("weekday")) { std::string w = days[tmv.tm_wday]; out += opts["weekday"].asString() == "long" ? w : w.substr(0, 3); out += ", "; }
+        if (has("weekday")) { std::string w = days[tmv.tm_wday]; field("weekday", opts["weekday"].asString() == "long" ? w : w.substr(0, 3)); lit(", "); }
         if (has("month")) {
             std::string m = opts["month"].asString();
-            if (m == "long") out += months[tmv.tm_mon];
-            else if (m == "short") out += std::string(months[tmv.tm_mon]).substr(0, 3);
-            else out += std::to_string(tmv.tm_mon + 1);
-            out += " ";
+            if (m == "long") field("month", months[tmv.tm_mon]);
+            else if (m == "short") field("month", std::string(months[tmv.tm_mon]).substr(0, 3));
+            else field("month", std::to_string(tmv.tm_mon + 1));
+            lit(" ");
         }
-        if (has("day")) out += std::to_string(tmv.tm_mday) + (has("year") ? ", " : " ");
-        if (has("year")) out += std::to_string(tmv.tm_year + 1900) + " ";
-        if (has("dateStyle")) out += std::to_string(tmv.tm_mon + 1) + "/" + std::to_string(tmv.tm_mday) + "/" + std::to_string(tmv.tm_year + 1900) + " ";
-        if (has("hour") || has("timeStyle")) out += two(tmv.tm_hour) + ":" + two(tmv.tm_min);
-        else if (has("minute")) out += two(tmv.tm_min);
-        if (has("second") || opts["timeStyle"].asString() == "medium") out += ":" + two(tmv.tm_sec);
-        while (!out.empty() && out.back() == ' ') out.pop_back();
+        if (has("day")) { field("day", std::to_string(tmv.tm_mday)); lit(has("year") ? ", " : " "); }
+        if (has("year")) { field("year", std::to_string(tmv.tm_year + 1900)); lit(" "); }
+        if (has("dateStyle")) {
+            field("month", std::to_string(tmv.tm_mon + 1)); lit("/"); field("day", std::to_string(tmv.tm_mday)); lit("/"); field("year", std::to_string(tmv.tm_year + 1900)); lit(" ");
+        }
+        if (has("hour") || has("timeStyle")) { field("hour", two(tmv.tm_hour)); lit(":"); field("minute", two(tmv.tm_min)); }
+        else if (has("minute")) field("minute", two(tmv.tm_min));
+        if (has("second") || opts["timeStyle"].asString() == "medium") { lit(":"); field("second", two(tmv.tm_sec)); }
+        while (!out.empty() && out.back().first == "literal") {
+            std::string& v = out.back().second;
+            while (!v.empty() && v.back() == ' ') v.pop_back();
+            if (!v.empty()) break;
+            out.pop_back();
+        }
         return out;
     }
-    std::string date = std::string(months[tmv.tm_mon]).substr(0, 3) + " " + std::to_string(tmv.tm_mday) + ", " + std::to_string(tmv.tm_year + 1900);
-    std::string time = two(tmv.tm_hour) + ":" + two(tmv.tm_min) + ":" + two(tmv.tm_sec);
-    if (method == "toLocaleDateString") return date;
-    if (method == "toLocaleTimeString") return time;
-    return date + ", " + time;
+    auto date = [&]() { field("month", std::string(months[tmv.tm_mon]).substr(0, 3)); lit(" "); field("day", std::to_string(tmv.tm_mday)); lit(", "); field("year", std::to_string(tmv.tm_year + 1900)); };
+    auto time = [&]() { field("hour", two(tmv.tm_hour)); lit(":"); field("minute", two(tmv.tm_min)); lit(":"); field("second", two(tmv.tm_sec)); };
+    if (method == "toLocaleDateString") date();
+    else if (method == "toLocaleTimeString") time();
+    else { date(); lit(", "); time(); }
+    return out;
+}
+
+static std::string formatDate(double epochMs, const Json& opts, const std::string& method) { return joined(dateParts(epochMs, opts, method)); }
+
+static std::string partsJson(const Parts& parts) {
+    std::string out = "[";
+    for (const auto& p : parts) {
+        if (out.size() > 1) out += ",";
+        out += "{\"type\":" + Json(p.first).dump() + ",\"value\":" + Json(p.second).dump() + "}";
+    }
+    return out + "]";
 }
 
 std::string BasicIntl::format(const Json& req) {
     const std::string& kind = req["kind"].asString();
     const Json& opts = req["opts"];
     if (kind == "number") return formatNumber(req["value"].asNumber(), opts);
+    if (kind == "numberParts") return partsJson(numberParts(formatNumber(req["value"].asNumber(), opts)));
     if (kind == "date" || kind == "dateMethod") return formatDate(req["value"].asNumber(), opts, req["method"].asString());
+    if (kind == "dateParts") return partsJson(dateParts(req["value"].asNumber(), opts, req["method"].asString()));
     if (kind == "plural") return req["value"].asNumber() == 1 ? "one" : "other";
     if (kind == "relative") {
         double v = req["value"].asNumber();

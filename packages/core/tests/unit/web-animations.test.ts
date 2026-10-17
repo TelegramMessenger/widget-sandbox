@@ -313,7 +313,7 @@ function replayNew(stream: Stream) {
 }
 
 describe('web animations: validator differential against the app validator bundle', () => {
-  it('validateAnim gives the app validator output and diagnostics, except that array keyframe values are rejected', async () => {
+  it('validateAnim gives the app validator output and diagnostics, except that array keyframe values are rejected and the profile removes more', async () => {
     const appValidator = process.env.TW_APP_VALIDATOR_BUNDLE;
     if (appValidator) {
       const bundle = fs.readFileSync(appValidator, 'utf8');
@@ -324,7 +324,7 @@ describe('web animations: validator differential against the app validator bundl
       fs.writeFileSync(validatorFixture, JSON.stringify(out) + '\n');
     }
     const fixture = JSON.parse(fs.readFileSync(validatorFixture, 'utf8')) as Record<string, { stream: Stream | null; expected: { out: string; diags: string[] }[] }>;
-    let compared = 0, divergent = 0;
+    let compared = 0, divergent = 0, profiled = 0;
     for (const [name, entry] of Object.entries(fixture)) {
       const expected = entry.expected;
       const stream = entry.stream ?? generated[name]();
@@ -339,12 +339,24 @@ describe('web animations: validator differential against the app validator bundl
           assert.ok(g.diags.some((d) => d.startsWith('protocol-violation: rejected anim keyframes')), `${name} #${i}`);
           return;
         }
+        if (g.diags.some((d) => d.startsWith('profile: '))) {
+          // Profile 1 removes values the app's validator kept (an out-of-profile function, `filter: url()`), never one it refused.
+          profiled++;
+          const mine = JSON.parse(g.out) as any[], theirs = JSON.parse(expected[i].out) as any[];
+          assert.equal(mine.length, theirs.length, `${name} #${i}`);
+          mine.forEach((m, k) => (m.keyframes ?? []).forEach((f: any, j: number) => {
+            for (const [prop, value] of Object.entries(f.values)) assert.equal(theirs[k].keyframes[j].values[prop], value, `${name} #${i} ${prop}`);
+          }));
+          for (const d of g.diags) if (!d.startsWith('profile: ')) assert.ok(expected[i].diags.includes(d), `${name} #${i}: ${d}`);
+          return;
+        }
         compared++;
         assert.deepEqual(g, expected[i], `${name} #${i} ${inputs[i].json.slice(0, 200)}`);
       });
     }
     assert.ok(compared > 50, `compared ${compared}`);
-    console.log(`validator differential: ${compared} anim batches identical, ${divergent} array-values batches rejected`);
+    console.log(`validator differential: ${compared} anim batches identical, ${divergent} array-values batches rejected, ${profiled} reduced by the profile`);
     assert.equal(divergent, 2);
+    assert.equal(profiled, 1);
   });
 });

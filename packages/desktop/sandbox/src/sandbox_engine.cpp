@@ -496,16 +496,9 @@ void SandboxEngine::pumpScripts() {
         bool ok = true;
         resetDeadline();
         if (const Json* src = s->find("src"); src && src->isString()) {
-            const BundledLibrary* lib = resources_->library(src->asString());
-            std::optional<std::string> source = lib ? resources_->librarySource(*lib) : std::nullopt;
-            if (lib && source) {
-                double t0 = nowMs();
-                std::string how = evalBundle(*source, resources_->libraryBytecode(*lib), lib->file);
-                if (delegate_) delegate_->onDiag(*this, "library", src->asString() + " → bundled " + lib->name + " (eval " + std::to_string(int(nowMs() - t0)) + " ms, " + how + ")");
-            } else {
-                ok = false;
-                if (delegate_) delegate_->onDiag(*this, "script-skipped", "external script not available: " + truncate(src->asString(), 200));
-            }
+            // Nothing is fetched and nothing is bundled (profile 1: no libraries): an external script never runs.
+            ok = false;
+            if (delegate_) delegate_->onDiag(*this, "script-skipped", "external script not available: " + truncate(src->asString(), 200));
         } else if (const Json* code = s->find("code"); code && code->isString()) {
             evalScript(code->asString(), "inline-script-" + std::to_string(id) + ".js", (*s)["type"].asString() == "module");
         }

@@ -1,13 +1,14 @@
 // User activation (docs/decisions.md): privileged bridge calls need a real
 // pointer gesture. Playwright's clicks are trusted input (isTrusted = true);
-// key presses are trusted too but never a gesture (widgets get no keyboard),
-// and neither are scripted clicks, timers or the frame's own dispatchEvent.
+// key presses are trusted too but never reach the widget (profile 1: no
+// keyboard, no focus), and scripted clicks, timers or the frame's own
+// dispatchEvent are no gesture.
 
 import { expect, test, type Page } from '@playwright/test';
 
 test.skip(process.env.VITE_TW_POLICY === 'compat', 'the gesture gate belongs to the strict policy');
 
-const WIDGET = `<button id="b">send</button><input id="i">
+const WIDGET = `<button id="b">send</button>
 <script>
 TelegramWidget.ready();
 setTimeout(function () { TelegramWidget.sendMessage('timer'); }, 10);
@@ -16,7 +17,7 @@ document.getElementById('b').addEventListener('click', function () {
   TelegramWidget.sendMessage('second in the same gesture');
   setTimeout(function () { TelegramWidget.openLink('https://example.com/later'); }, 0);
 });
-document.getElementById('i').addEventListener('keydown', function (e) { if (e.key === 'Enter') TelegramWidget.sendMessage('enter'); });
+document.addEventListener('keydown', function () { TelegramWidget.sendMessage('key'); });
 setTimeout(function () { document.getElementById('b').click(); }, 50);
 </script>`;
 
@@ -47,17 +48,17 @@ test('one real click unlocks exactly one call, made in its own handler', async (
   await expect.poll(async () => (await calls(page)).length).toBe(3);
 });
 
-test('a real key press is not a gesture (widgets get no keyboard)', async ({ page }) => {
+test('a real key press reaches nothing: no key event, no Enter or Space click (widgets get no keyboard)', async ({ page }) => {
   const f = await load(page);
   await page.waitForTimeout(300);
-  await f.locator('#b').focus();
   const before = await blocked(page);
-  await f.locator('#i').press('Enter');
   await f.locator('#b').press('Enter');
   await f.locator('#b').press(' ');
-  await expect.poll(() => blocked(page)).toBeGreaterThan(before);
-  await page.waitForTimeout(300);
+  await f.locator('#b').press('a');
+  await page.waitForTimeout(500);
+  // Neither the keydown handler nor the button's click handler ran, so nothing was even attempted.
   expect(await calls(page)).toEqual(['ready:[]']);
+  expect(await blocked(page)).toBe(before);
 });
 
 test('a hidden widget cannot use a gesture', async ({ page }) => {

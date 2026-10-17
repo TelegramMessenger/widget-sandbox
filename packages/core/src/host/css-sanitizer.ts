@@ -15,9 +15,21 @@
 //   - image-set(), image(), src(), cross-fade(): bare strings are URLs there, so
 //     they get the same check; var()/env()/attr() inside them is rejected
 //     because the substituted value cannot be checked statically.
+//   - the widget profile (packages/core/profile.json, docs/profile-v1.md): only
+//     its properties, functions, units, pseudo-classes, at-rules and media
+//     features pass; `@supports` is decided here from the profile; nested rules
+//     are dropped; font families are reduced to the generic ones; sticky and
+//     scrolling overflow are rewritten. A removal the profile causes is reported
+//     as the `profile` diagnostic, one a security rule causes as `css-dropped`
+//     or `url-blocked`.
 
 import * as csstree from 'css-tree';
 import { checkUrl, type UrlKind } from './url-policy';
+import { PROFILE_TABLES } from '../shared/profile-tables';
+import {
+  cssFunctionInProfile, cssPropertyInProfile, cssPseudoClassInProfile, cssPseudoElementInProfile, cssUnitInProfile,
+  fontShorthandFamilyStart, isGenericFont, supportsCondition,
+} from '../shared/css-supports';
 
 export type Diag = (kind: string, detail: string) => void;
 
@@ -42,6 +54,8 @@ export interface CssEnv {
    * count (`isTextAttr`), so no other attribute can become visible text.
    */
   strict?: boolean;
+  /** The client's answer to `prefers-reduced-motion` (the OS setting); default: no preference. */
+  reducedMotion?: boolean;
 }
 export const DEFAULT_ENV: CssEnv = { colorScheme: 'light' };
 
@@ -82,10 +96,22 @@ export function cssStringText(css: string): string {
 const ALWAYS = '(min-width: 0px)';
 const NEVER = '(min-width: 99999px)';
 
-const ALLOWED_ATRULES = new Set([
-  'media', 'supports', 'keyframes', '-webkit-keyframes', 'container', 'layer', 'property',
-  'counter-style', 'starting-style', 'scope', 'page', 'font-feature-values', 'font-palette-values', 'position-try',
-]);
+const PROFILE_CSS = PROFILE_TABLES.css;
+const ALLOWED_ATRULES = new Set<string>(PROFILE_CSS.atRules);
+/** At-rules dropped for security (a URL, a font parser), whatever the profile says. */
+const SECURITY_ATRULES = new Set(['import', 'namespace', 'font-face']);
+const MEDIA_TYPES = new Set<string>(PROFILE_CSS.mediaTypes);
+const MEDIA_FEATURES = new Set<string>(PROFILE_CSS.mediaFeatures);
+const VALUE_SETS = PROFILE_CSS.values as Record<string, readonly string[]>;
+const REWRITES = PROFILE_CSS.rewrite as Record<string, Record<string, string>>;
+const FILTER_FUNCTIONS = new Set<string>(PROFILE_CSS.filterFunctions);
+const TRANSFORM_3D = new Set<string>(PROFILE_CSS.transform3d);
+const FONT_FALLBACK = PROFILE_CSS.fonts.fallback as Record<string, string>;
+const PSEUDO_REWRITE = PROFILE_CSS.pseudoRewrite as Record<string, string>;
+const GLOBAL_KEYWORDS = new Set(['inherit', 'initial', 'unset', 'revert', 'revert-layer']);
+const FONT_SIZE_KEYWORDS = new Set(['xx-small', 'x-small', 'small', 'medium', 'large', 'x-large', 'xx-large', 'xxx-large', 'smaller', 'larger']);
+const SUBSTITUTED = (n: csstree.CssNode) => n.type === 'Function' && SUBSTITUTION_NAMES.has(n.name.toLowerCase());
+const SUBSTITUTION_NAMES = new Set(['var', 'env', 'attr']);
 
 /** Functions whose string arguments are interpreted as URLs. */
 const URL_FUNCTIONS = new Set(['image-set', '-webkit-image-set', 'image', 'src', 'cross-fade', '-webkit-cross-fade']);
@@ -132,6 +158,11 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
           diag('css-dropped', `${where}: unparsable value`);
           break;
         case 'Dimension':
+          if (!cssUnitInProfile(node.unit)) {
+            ok = false;
+            diag('profile', `${where}: unit ${truncate(node.unit)}`);
+            break;
+          }
           if (env.scope === 'shadow') {
             const unit = CONTAINER_UNITS[node.unit.toLowerCase()];
             if (unit) node.unit = unit;
@@ -151,6 +182,9 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
             // css-tree yields a Function for url() with modifiers; never allow.
             ok = false;
             diag('url-blocked', `${where}: url() with modifiers`);
+          } else if (!cssFunctionInProfile(name)) {
+            ok = false;
+            diag('profile', `${where}: ${truncate(name)}()`);
           } else if (fnStack.some((f) => URL_FUNCTIONS.has(f)) && SUBSTITUTION_FUNCTIONS.has(name)) {
             ok = false;
             diag('css-dropped', `${where}: ${name}() inside a URL-taking function`);
@@ -192,12 +226,149 @@ function truncate(s: string): string {
 function declarationIsSafe(decl: csstree.Declaration, diag: Diag, env: CssEnv): boolean {
   const prop = decl.property.toLowerCase();
   if (FORBIDDEN_PROPERTIES.has(prop)) return false;
+  if (!cssPropertyInProfile(prop)) {
+    diag('profile', `property ${truncate(prop)}`);
+    return false;
+  }
   if (prop === 'color-scheme') {
     // `light dark` means "follow the preference": resolve it to the host theme.
     const t = csstree.generate(decl.value).toLowerCase();
     if (/\blight\b/.test(t) && /\bdark\b/.test(t)) decl.value = csstree.parse(env.colorScheme, { context: 'value' }) as csstree.Value;
   }
-  return valueIsSafe(decl.value, 'image', diag, prop, env);
+  // Filter lists lose their out-of-profile functions before the function check would drop the whole list.
+  if (FILTER_PROPERTIES.has(prop) && !pruneFilterList(prop, decl, diag)) return false;
+  return valueIsSafe(decl.value, 'image', diag, prop, env) && valueInProfile(prop, decl, diag);
+}
+
+const FILTER_PROPERTIES = new Set(['filter', 'backdrop-filter', '-webkit-backdrop-filter']);
+
+/** `filter: blur(2px) grayscale(1)` → `filter: blur(2px)`; false when nothing is left. */
+function pruneFilterList(prop: string, decl: csstree.Declaration, diag: Diag): boolean {
+  if (decl.value.type !== 'Value') return true;
+  const items = decl.value.children.toArray();
+  const kept = items.filter((n) => {
+    if (n.type === 'Url' || (n.type === 'Function' && !FILTER_FUNCTIONS.has(n.name.toLowerCase()) && !SUBSTITUTION_NAMES.has(n.name.toLowerCase()))) {
+      diag('profile', `${prop}: ${n.type === 'Url' ? 'url()' : (n as csstree.FunctionNode).name.toLowerCase() + '()'}`);
+      return false;
+    }
+    return true;
+  });
+  if (kept.length === 0) return false;
+  if (kept.length !== items.length) decl.value.children = listOf(kept);
+  return true;
+}
+
+const ident = (n: csstree.CssNode | undefined) => (n?.type === 'Identifier' ? n.name.toLowerCase() : null);
+const listOf = (nodes: csstree.CssNode[]) => new csstree.List<csstree.CssNode>().fromArray(nodes);
+const comma = (): csstree.CssNode => ({ type: 'Operator', value: ',' });
+
+/**
+ * The profile's rules for one declaration's value (after the security checks):
+ * false drops the declaration; rewrites happen in place. A value with var(),
+ * env() or attr() is judged only by what is visible here (the substituted text
+ * is checked where it is declared, as a custom property).
+ */
+function valueInProfile(prop: string, decl: csstree.Declaration, diag: Diag): boolean {
+  if (prop.startsWith('--') || decl.value.type !== 'Value') return true;
+  const items = decl.value.children.toArray();
+  const substituted = items.some((n) => csstree.find(n, SUBSTITUTED) !== null);
+  const only = items.length === 1 ? ident(items[0]) : null;
+  if (only && GLOBAL_KEYWORDS.has(only)) return true;
+  const drop = (why: string) => { diag('profile', `${prop}: ${truncate(why)}`); return false; };
+
+  const allowed = VALUE_SETS[prop];
+  const rewrite = REWRITES[prop === 'overflow-x' || prop === 'overflow-y' ? 'overflow' : prop];
+  if (rewrite) {
+    for (const n of items) {
+      const v = ident(n);
+      if (v && Object.prototype.hasOwnProperty.call(rewrite, v)) {
+        diag('profile', `${prop}: ${v} → ${rewrite[v]}`);
+        (n as csstree.Identifier).name = rewrite[v];
+      }
+    }
+  }
+  if (allowed && !substituted) {
+    const v = items.length === 1 ? ident(items[0]) : null;
+    if (!v || !allowed.includes(v)) return drop(csstree.generate(decl.value));
+  }
+  switch (prop) {
+    case 'background-clip':
+      if (items.some((n) => ident(n) === 'text')) return drop('text');
+      break;
+    case 'transform':
+      if (csstree.find(decl.value, (n) => n.type === 'Function' && TRANSFORM_3D.has(n.name.toLowerCase()))) return drop('3D function');
+      break;
+    case 'rotate':
+      if (items.some((n) => ['x', 'y', 'z'].includes(ident(n) ?? '')) || items.filter((n) => n.type === 'Number').length > 1) return drop('3D rotation');
+      break;
+    case 'translate': case 'scale':
+      if (items.filter((n) => n.type !== 'Operator').length > 2) return drop('3D');
+      break;
+    case 'font-family':
+      decl.value.children = listOf(genericFamilies(items, diag));
+      break;
+    case 'font': {
+      const start = fontShorthandFamilyStart(items, fontTokenKind);
+      if (start > 0 && start < items.length) decl.value.children = listOf([...items.slice(0, start), ...genericFamilies(items.slice(start), diag)]);
+      break;
+    }
+  }
+  return true;
+}
+
+function fontTokenKind(n: csstree.CssNode) {
+  const size = n.type === 'Dimension' || n.type === 'Percentage' || (n.type === 'Identifier' && FONT_SIZE_KEYWORDS.has(n.name.toLowerCase()))
+    || (n.type === 'Function' && ['calc', 'min', 'max', 'clamp'].includes(n.name.toLowerCase()));
+  return { size, slash: n.type === 'Operator' && n.value === '/' };
+}
+
+/**
+ * A font-family list reduced to the profile's generic families (D3b): named
+ * families are removed, `ui-monospace` & co. get their basic generic after them
+ * (only WebKit resolves them), an empty list becomes `system-ui`.
+ */
+function genericFamilies(items: csstree.CssNode[], diag: Diag): csstree.CssNode[] {
+  const groups: csstree.CssNode[][] = [[]];
+  for (const n of items) {
+    if (n.type === 'Operator' && n.value === ',') groups.push([]);
+    else groups[groups.length - 1].push(n);
+  }
+  const kept: csstree.CssNode[][] = [];
+  const names = new Set<string>();
+  for (const g of groups) {
+    if (g.length === 0) continue;
+    if (g.some((n) => n.type === 'Function')) { kept.push(g); continue; }
+    const name = g.length === 1 ? ident(g[0]) : null;
+    if (name && (isGenericFont(name) || GLOBAL_KEYWORDS.has(name))) {
+      kept.push(g);
+      names.add(name);
+      continue;
+    }
+    diag('profile', `font-family: ${truncate(g.map((n) => (n.type === 'String' ? JSON.stringify(n.value) : csstree.generate(n))).join(' '))}`);
+  }
+  const out: csstree.CssNode[][] = [];
+  kept.forEach((g, i) => {
+    out.push(g);
+    const name = g.length === 1 ? ident(g[0]) : null;
+    const fallback = name ? FONT_FALLBACK[name] : undefined;
+    // Its fallback goes right after it unless the list already names it later on.
+    if (fallback && !kept.slice(i + 1).some((h) => h.length === 1 && ident(h[0]) === fallback) && !out.some((h) => h.length === 1 && ident(h[0]) === fallback)) {
+      out.push([{ type: 'Identifier', name: fallback }]);
+    }
+  });
+  if (out.length === 0) out.push([{ type: 'Identifier', name: PROFILE_CSS.fonts.default }]);
+  return out.flatMap((g, i) => (i ? [comma(), ...g] : g));
+}
+
+/** A font-family list or `font` shorthand outside a stylesheet (SVG `font-family`, canvas `font`, measureText): the same reduction. */
+export function sanitizeFontValue(prop: 'font' | 'font-family', value: string, diag: Diag): string | null {
+  try {
+    const ast = parse(`${prop}:${value}`, 'declaration');
+    if (ast.type !== 'Declaration' || !declarationIsSafe(ast, diag, DEFAULT_ENV)) return null;
+    return csstree.generate(ast.value);
+  } catch {
+    return null;
+  }
 }
 
 /** Shadow scope: viewport units resolve against the bubble (`container-type: inline-size` on the host; the block axis falls back to the small viewport). */
@@ -231,17 +402,43 @@ export function mediaToContainer(text: string): string | null {
   return 'tw ' + out.join(' or ');
 }
 
-const HOST_PSEUDO_CLASSES = new Set(['host', 'host-context', 'scope']);
-const HOST_PSEUDO_ELEMENTS = new Set(['slotted', 'part']);
+/**
+ * The profile's selectors: a selector with a pseudo-class or pseudo-element
+ * outside the profile (`:focus`, `:has()`, `::marker`, `:host`, `:scope`, …) or
+ * a nesting selector never matches, so it is dropped from its list; `:disabled`
+ * and `:enabled` become `[disabled]` and `:not([disabled])` (the `<button>`
+ * state, the only form state left). Returns false when nothing is left.
+ */
+function profileSelectorList(prelude: csstree.SelectorList, diag: Diag): boolean {
+  const keep = new csstree.List<csstree.CssNode>();
+  prelude.children.forEach((sel) => {
+    let bad: string | null = null;
+    csstree.walk(sel, {
+      enter(node: csstree.CssNode, item: csstree.ListItem<csstree.CssNode>, list: csstree.List<csstree.CssNode>) {
+        if (bad) return;
+        if (node.type === 'NestingSelector') bad = '&';
+        else if (node.type === 'PseudoElementSelector' && !cssPseudoElementInProfile(node.name)) bad = '::' + node.name;
+        else if (node.type === 'PseudoClassSelector') {
+          const name = node.name.toLowerCase();
+          const replacement = Object.prototype.hasOwnProperty.call(PSEUDO_REWRITE, name) ? PSEUDO_REWRITE[name] : null;
+          if (replacement && list) {
+            const parsed = csstree.parse(replacement, { context: 'selector' }) as csstree.Selector;
+            list.replace(item, parsed.children);
+          } else if (!cssPseudoClassInProfile(name)) bad = ':' + name;
+        }
+      },
+    });
+    if (bad) diag('profile', `selector ${truncate(bad)}`);
+    else keep.appendData(sel);
+  });
+  prelude.children = keep;
+  return !keep.isEmpty;
+}
 
-/** Shadow scope: drop selectors that could match outside the widget's tree; `:root` → the renderer's `[data-tw-root]`. Returns false when nothing is left. */
+/** Shadow scope: `:root` → the renderer's `[data-tw-root]` (the host-reaching selectors are outside the profile on every renderer). */
 function scopeSelectorList(prelude: csstree.SelectorList): boolean {
   const keep = new csstree.List<csstree.CssNode>();
   prelude.children.forEach((sel) => {
-    const hostish = csstree.find(sel, (n) =>
-      (n.type === 'PseudoClassSelector' && HOST_PSEUDO_CLASSES.has(n.name.toLowerCase())) ||
-      (n.type === 'PseudoElementSelector' && HOST_PSEUDO_ELEMENTS.has(n.name.toLowerCase())));
-    if (hostish) return;
     csstree.walk(sel, {
       enter(node: csstree.CssNode, item: csstree.ListItem<csstree.CssNode>, list: csstree.List<csstree.CssNode>) {
         if (node.type === 'PseudoClassSelector' && node.name.toLowerCase() === 'root' && !node.children && list) {
@@ -256,9 +453,61 @@ function scopeSelectorList(prelude: csstree.SelectorList): boolean {
   return !keep.isEmpty;
 }
 
-/** Evaluate prefers-color-scheme in a media query list against the host theme. */
+/**
+ * Does a media query list ask only what the profile answers: the media types
+ * `all` and `screen`, the bubble's width and orientation, and the two
+ * preferences the client answers? (No height: the bubble's height comes from
+ * the content; no hover, pointer, print, resolution…)
+ */
+export function mediaInProfile(text: string): boolean {
+  let s = text.toLowerCase();
+  const features: string[] = [];
+  // Innermost parentheses first: `(hover)`, `(min-width: 1px)`, `(400px <= width < 700px)`, then `(not (…))`.
+  for (let guard = 0; /\([^()]*\)/.test(s) && guard < 64; guard++) {
+    s = s.replace(/\(([^()]*)\)/g, (_, inner: string) => {
+      const t = inner.trim();
+      if (t === '' || t === '\u0001' || /^(?:not\s+)?\u0001(?:\s+(?:and|or)\s+\u0001)*$/.test(t)) return ' \u0001 ';
+      const colon = t.indexOf(':');
+      if (colon >= 0) features.push(t.slice(0, colon).trim());
+      else if (/[<>=]/.test(t)) features.push(...(t.match(/[a-z][a-z-]*/g) ?? []));
+      else features.push(t);
+      return ' \u0001 ';
+    });
+  }
+  if (/[()]/.test(s)) return false;
+  for (const f of features) if (!MEDIA_FEATURES.has(f)) return false;
+  for (const word of s.match(/[a-z][a-z-]*/g) ?? []) if (!['and', 'or', 'not', 'only'].includes(word) && !MEDIA_TYPES.has(word)) return false;
+  return true;
+}
+
+/**
+ * Evaluate the preferences in a media query list against the client's answers
+ * (the chat theme, the OS reduced-motion setting); a query outside the profile
+ * never matches.
+ */
 export function rewriteMediaQuery(text: string, env: CssEnv): string {
-  return text.replace(/\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi, (_, v: string) => (v.toLowerCase() === env.colorScheme ? ALWAYS : NEVER));
+  if (!mediaInProfile(text)) return NEVER;
+  return text
+    .replace(/\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi, (_, v: string) => (v.toLowerCase() === env.colorScheme ? ALWAYS : NEVER))
+    .replace(/\(\s*prefers-reduced-motion\s*(?::\s*(reduce|no-preference)\s*)?\)/gi, (_, v: string | undefined) =>
+      ((v ?? 'reduce').toLowerCase() === 'reduce') === !!env.reducedMotion ? ALWAYS : NEVER);
+}
+
+/**
+ * `@supports` decided from the profile (D23): a block whose condition holds is
+ * unwrapped, the others are dropped, before anything reaches the renderer.
+ */
+function resolveSupports(list: csstree.List<csstree.CssNode>): csstree.List<csstree.CssNode> {
+  const out: csstree.CssNode[] = [];
+  list.forEach((node) => {
+    if (node.type === 'Atrule' && node.name.toLowerCase() === 'supports') {
+      if (node.block && node.prelude && supportsCondition(csstree.generate(node.prelude))) out.push(...resolveSupports(node.block.children).toArray());
+      return;
+    }
+    if ((node.type === 'Atrule' || node.type === 'Rule') && node.block) node.block.children = resolveSupports(node.block.children);
+    out.push(node);
+  });
+  return new csstree.List<csstree.CssNode>().fromArray(out);
 }
 
 function hasRaw(node: csstree.CssNode | null): boolean {
@@ -275,18 +524,31 @@ function rawIsSafe(node: csstree.CssNode): boolean {
 
 function sanitizeTree(ast: csstree.CssNode, diag: Diag, env: CssEnv): void {
   const atruleStack: string[] = [];
+  /** Rules entered (outside @keyframes): a rule or at-rule inside one is nested CSS, outside the profile. */
+  let ruleDepth = 0;
+  if (ast.type === 'StyleSheet') ast.children = resolveSupports(ast.children);
   csstree.walk(ast, {
     enter(node: csstree.CssNode, item: csstree.ListItem<csstree.CssNode>, list: csstree.List<csstree.CssNode>) {
+      if ((node.type === 'Atrule' || node.type === 'Rule') && ruleDepth > 0 && list) {
+        diag('profile', 'nested rule');
+        list.remove(item);
+        return csstree.walk.skip;
+      }
       if (node.type === 'Atrule') {
         const name = node.name.toLowerCase();
         if (!ALLOWED_ATRULES.has(name)) {
-          diag('css-dropped', `@${name}`);
+          diag(SECURITY_ATRULES.has(name) ? 'css-dropped' : 'profile', `@${name}`);
           list.remove(item);
           return csstree.walk.skip;
         }
         if (name === 'media' && node.prelude) {
           let text = csstree.generate(node.prelude);
-          if (/prefers-color-scheme/i.test(text)) {
+          if (!mediaInProfile(text)) {
+            diag('profile', `@media ${truncate(text)}`);
+            list.remove(item);
+            return csstree.walk.skip;
+          }
+          if (/prefers-(?:color-scheme|reduced-motion)/i.test(text)) {
             text = rewriteMediaQuery(text, env);
             node.prelude = { type: 'Raw', value: text } as csstree.Raw;
           }
@@ -310,22 +572,32 @@ function sanitizeTree(ast: csstree.CssNode, diag: Diag, env: CssEnv): void {
           list.remove(item);
           return csstree.walk.skip;
         }
+        const inKeyframes = /keyframes$/.test(atruleStack[atruleStack.length - 1] ?? '');
+        if (!inKeyframes && node.prelude.type === 'SelectorList' && !profileSelectorList(node.prelude, diag)) {
+          list.remove(item);
+          return csstree.walk.skip;
+        }
         if (env.scope === 'shadow' && node.prelude.type === 'SelectorList' && !scopeSelectorList(node.prelude)) {
           diag('css-dropped', 'rule: shadow-host selector');
           list.remove(item);
           return csstree.walk.skip;
         }
+        if (!inKeyframes) ruleDepth++;
+        atruleStack.push(inKeyframes ? 'keyframe' : 'rule');
       } else if (node.type === 'Declaration') {
         if (!declarationIsSafe(node, diag, env)) list.remove(item);
         return csstree.walk.skip;
       } else if (node.type === 'Raw') {
-        // Raw at block level = something that is neither a rule nor a declaration.
+        // Raw at block level = something that is neither a rule nor a declaration
+        // (css-tree leaves `.a { .b { … } }` there: nested CSS, outside the profile).
+        if (ruleDepth > 0 && node.value.includes('{')) diag('profile', 'nested rule');
         if (list) list.remove(item);
         return csstree.walk.skip;
       }
     },
     leave(node: csstree.CssNode) {
       if (node.type === 'Atrule') atruleStack.pop();
+      else if (node.type === 'Rule' && atruleStack.pop() === 'rule') ruleDepth--;
     },
   });
 }
@@ -348,7 +620,7 @@ export function clearStylesheetCache(): void {
 }
 
 export function sanitizeStylesheet(css: string, diag: Diag, env: CssEnv = DEFAULT_ENV): string {
-  const key = `${env.colorScheme}\u0001${env.scope ?? ''}\u0001${env.strict ? 1 : 0}\u0001${css}`;
+  const key = `${env.colorScheme}\u0001${env.scope ?? ''}\u0001${env.strict ? 1 : 0}${env.reducedMotion ? 1 : 0}\u0001${css}`;
   let hit = sheetCache.get(key);
   if (!hit) {
     const diags: [string, string][] = [];

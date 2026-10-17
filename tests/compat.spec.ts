@@ -1,6 +1,8 @@
 // Compat harness: every widget in corpus/compat/ is run with a scripted
 // interaction in SANDBOX mode and in REFERENCE mode (native, dev tooling), and
-// the two screenshots are diffed. Results go to docs/compat-report.md.
+// the two screenshots are diffed. Results go to docs/compat-report.md. The
+// widgets that need what profile 1 leaves out (libraries, form controls) are
+// in corpus/out-of-profile/, outside this suite.
 
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 import fs from 'node:fs';
@@ -37,27 +39,12 @@ const scenarios: Scenario[] = [
     check: async (f) => { await expect(f.locator('#panel-3')).toBeVisible(); await expect(f.locator('#acc-1')).toHaveClass(/open/); await expect(f.locator('#count')).toHaveText('2'); } },
   { file: 'fragment.html', steps: async (f) => { for (let i = 0; i < 3; i++) await f.locator('#btn').click(); }, check: async (f) => { await expect(f.locator('#n')).toHaveText('3'); await expect(f.locator('#status')).toHaveText('load fired'); } },
   { file: 'calculator.html', steps: async (f) => { await f.locator('#k7').click(); await f.locator('#kplus').click(); await f.locator('#k3').click(); await f.locator('#keq').click(); }, check: async (f) => expect(f.locator('#display')).toHaveText('10') },
-  { file: 'form-validation.html', steps: async (f) => { await f.locator('#submit').click(); await f.locator('#name').fill('Ada'); await f.locator('#email').fill('ada@example.com'); await f.locator('#age').fill('36'); await f.locator('#plan').selectOption('pro'); await f.locator('#submit').click(); },
-    check: async (f) => { await expect(f.locator('#ok')).toBeVisible(); await expect(f.locator('#ok')).toContainText('Thanks, Ada! Plan: pro'); await expect(f.locator('#e-email')).toHaveText(''); } },
-  { file: 'sortable-table.html', steps: async (f) => { await f.locator('#h-score').click(); await f.locator('#h-score').click(); await f.locator('#filter').fill('ber'); },
-    check: async (f) => { await expect(f.locator('#rows tr')).toHaveCount(2); await expect(f.locator('#rows tr').first()).toContainText('Alice'); await expect(f.locator('#count')).toHaveText('2 of 6 rows'); } },
-  { file: 'quiz.html', steps: async (f) => { await f.locator('#q1-right').check(); await f.locator('#q2-wrong').check(); await f.locator('#q3-a').check(); await f.locator('#q3-b').check(); await f.locator('#submit').click(); },
-    check: async (f) => { await expect(f.locator('#score')).toHaveText('Score: 2 / 3'); await expect(f.locator('#q2')).toHaveClass('wrong'); await expect(f.locator('#q3')).toHaveClass('correct'); } },
   { file: 'svg-chart.html', steps: async (f) => { await f.locator('#bar-3').click(); }, check: async (f) => { await expect(f.locator('#tip')).toContainText('Apr: $71k'); await expect(f.locator('#bar-3')).toHaveClass(/active/); } },
-  { file: 'd3-bar.html', steps: async (f) => { await f.locator('#bar-F').click(); }, check: async (f) => expect(f.locator('#info')).toHaveText('F = 97') },
-  { file: 'd3-line.html', steps: async (f, page) => { const b = await f.locator('#svg').boundingBox(); if (b) { await page.mouse.move(b.x + b.width * 0.5, b.y + b.height * 0.5); await page.mouse.move(b.x + b.width * 0.52, b.y + b.height * 0.5); } },
-    check: async (f) => expect(f.locator('#readout')).toContainText('°C'), hover: true },
-  { file: 'chartjs-line.html', steps: async (f, page) => { await f.locator('#add').click(); const b = await f.locator('#c').boundingBox(); if (b) { await page.mouse.move(b.x + b.width * 0.4, b.y + b.height * 0.5); await page.mouse.move(b.x + b.width * 0.42, b.y + b.height * 0.5); await page.waitForTimeout(300); } }, tolerance: 0.05, hover: true },
-  { file: 'chartjs-bar.html', steps: async (f, page) => { const b = await f.locator('#c').boundingBox(); if (b) { await page.mouse.move(b.x + b.width * 0.3, b.y + b.height * 0.6); await page.mouse.move(b.x + b.width * 0.31, b.y + b.height * 0.6); await page.waitForTimeout(300); } }, tolerance: 0.05, hover: true },
   { file: 'css-animation.html', steps: async (f) => { await f.locator('#toggle').click(); await f.locator('#toggle').click(); }, check: async (f) => expect(f.locator('#events')).toHaveText(/[1-9]\d* transitionend/), tolerance: 1, note: 'spinner frame differs by timing' },
   { file: 'clock.html', steps: async (f, page) => { await page.waitForTimeout(1100); }, check: async (f) => { await expect(f.locator('#time')).toHaveText(/\d\d:\d\d:\d\d/); await expect(f.locator('#ticks')).toHaveText(/[2-9]\d* ticks/); }, tolerance: 1, note: 'time of day differs' },
   { file: 'raf-animation.html', steps: async (f, page) => { await page.waitForTimeout(600); await f.locator('#stop').click(); }, check: async (f) => expect(f.locator('#frames')).toHaveText(/^[1-9]\d+$/), tolerance: 1, note: 'ball position depends on frame timing' },
   { file: 'drag.html', steps: async (f, page) => { const b = await f.locator('#box').boundingBox(); if (!b) return; await page.mouse.move(b.x + 30, b.y + 30); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(b.x + 30 + i * 15, b.y + 30 + i * 8); await page.mouse.up(); },
     check: async (f) => expect(f.locator('#pos')).toHaveText('x: 140, y: 84') },
-  { file: 'inputs.html', steps: async (f) => { await f.locator('#radius').fill('30'); await f.locator('#size').fill('100'); await f.locator('#border').check(); await f.locator('#color').fill('#ff0000'); },
-    check: async (f) => { await expect(f.locator('#o-radius')).toHaveText('30'); await expect(f.locator('#o-size')).toHaveText('100'); await expect(f.locator('#preview')).toHaveCSS('background-color', 'rgb(255, 0, 0)'); await expect(f.locator('#preview')).toHaveCSS('border-top-width', '3px'); } },
-  { file: 'local-storage.html', steps: async (f) => { await f.locator('#text').fill('Write tests'); await f.locator('#text').press('Enter'); await f.locator('li .del').first().click(); },
-    check: async (f) => { await expect(f.locator('#list li')).toHaveCount(2); await expect(f.locator('#list li').last()).toContainText('Write tests'); await expect(f.locator('#meta')).toContainText('2 notes'); } },
   { file: 'dark-mode.html', steps: async (f) => { await f.locator('#check').click(); }, check: async (f) => { await expect(f.locator('#mode')).toHaveText('light ☀️'); await expect(f.locator('#js')).toContainText('matches = false'); }, tolerance: 0.06, note: 'bridge line differs by design (reference has no TelegramWidget)' },
   { file: 'dark-mode.html', id: 'dark-mode.html (dark theme)', theme: 'dark', steps: async (f) => { await f.locator('#check').click(); }, check: async (f) => { await expect(f.locator('#mode')).toHaveText('dark 🌙'); await expect(f.locator('#js')).toContainText('matches = true'); await expect(f.locator('body')).toHaveCSS('background-color', 'rgb(15, 23, 42)'); }, tolerance: 0.06, note: 'host-owned colour scheme; bridge line differs by design' },
   { file: 'stepper.html', steps: async (f) => { await f.locator('#next').click(); await f.locator('#next').click(); await f.locator('#back').click(); }, check: async (f) => { await expect(f.locator('#panel h3')).toHaveText('Profile'); await expect(f.locator('#fill')).toHaveCSS('width', /px/); } },

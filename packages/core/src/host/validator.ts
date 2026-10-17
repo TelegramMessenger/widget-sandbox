@@ -9,13 +9,13 @@
 // Node and ported 1:1 to native hosts.
 
 import {
-  ALLOWED_ATTRS, ANIMATION_VALUE_ATTRS, CANVAS_METHODS, CANVAS_PATH_METHODS, CANVAS_PROPS, CANVAS_QUERY_METHODS,
-  CSS_VALUE_ATTRS, DROPPED_TAGS, HTML_TAGS, METHODS, PROPS, SILENT_DROP_ATTRS, SVG_ATTR_CASE, SVG_QUERY_METHODS,
-  SVG_TAGS, URL_ATTRS,
+  ANIMATION_VALUE_ATTRS, CANVAS_GRADIENTS, CANVAS_METHODS, CANVAS_OUT_OF_PROFILE, CANVAS_PATH_METHODS, CANVAS_PROPS, CANVAS_QUERY_METHODS,
+  CSS_VALUE_ATTRS, DROPPED_TAGS, HTML_ATTRS, HTML_TAGS, METHODS, PROPS, REPLACED_TAGS, SECURITY_DROPPED_TAGS, SILENT_DROP_ATTRS,
+  SVG_ALLOWED_ATTRS, SVG_ATTR_CASE, SVG_QUERY_METHODS, SVG_TAGS, URL_ATTRS,
 } from './allowlist';
 import {
-  DEFAULT_ENV, TEXT_ATTRS, TEXT_ATTR_PREFIXES, cssStringText, isTextAttr, rewriteMediaQuery, sanitizeCssValue, sanitizeStyleAttribute,
-  sanitizeStyleProperty, sanitizeStylesheet, type CssEnv, type Diag,
+  DEFAULT_ENV, TEXT_ATTRS, TEXT_ATTR_PREFIXES, cssStringText, isTextAttr, rewriteMediaQuery, sanitizeCssValue, sanitizeFontValue,
+  sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet, type CssEnv, type Diag,
 } from './css-sanitizer';
 import { checkUrl, IMAGE_MIME, isFragment, PLACEHOLDER_IMAGE } from './url-policy';
 import { DOCUMENT_ID, EVENT_TYPES, type AnimKeyframe, type AnimRecord, type CanvasCmd, type NodeId, type Query, type RenderOp } from '../shared/protocol';
@@ -70,6 +70,7 @@ function complexUnits(text: string): number {
   return n;
 }
 const KEYFRAME_MEMBERS = new Set(['offset', 'easing', 'composite', 'computed-offset']);
+const OUT_OF_PROFILE = Symbol('out of profile');
 const MAX_ATTR = 4 * 1024 * 1024; // data: URLs can be large
 const MAX_OPS_PER_BATCH = 200_000;
 const MAX_CANVAS_CMDS = 500_000;
@@ -120,7 +121,8 @@ export function policyLimits(policy: ValidatorPolicy) {
 export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
   const limits = policyLimits(policy);
   return {
-    html: [...HTML_TAGS], svg: [...SVG_TAGS.entries()], dropped: [...DROPPED_TAGS], attrs: [...ALLOWED_ATTRS],
+    html: [...HTML_TAGS], svg: [...SVG_TAGS.entries()], dropped: [...DROPPED_TAGS], attrs: [...HTML_ATTRS], svgAttrs: [...SVG_ALLOWED_ATTRS],
+    replace: [...REPLACED_TAGS.entries()], securityDropped: [...SECURITY_DROPPED_TAGS],
     silent: [...SILENT_DROP_ATTRS], url: [...URL_ATTRS], css: [...CSS_VALUE_ATTRS], anim: [...ANIMATION_VALUE_ATTRS],
     animTags: [...SVG_ANIMATION_TAGS], fragTags: [...SVG_HREF_FRAGMENT_TAGS], svgCase: [...SVG_ATTR_CASE.entries()],
     props: Object.entries(PROPS).map(([k, v]) => [k, v.type, v.tags ? [...v.tags] : null]), methods: Object.entries(METHODS),
@@ -265,6 +267,7 @@ export class Validator {
     const out: CanvasCmd[] = [];
     for (const cmd of cmds) {
       const clean = this.canvasCmd(cmd);
+      if (clean === OUT_OF_PROFILE) continue;
       if (clean) out.push(clean);
       else this.diag('protocol-violation', 'rejected canvas cmd ' + safeJson(cmd));
     }
@@ -352,7 +355,13 @@ export class Validator {
       if (outTag === null && !DROPPED_TAGS.has(lower)) this.diag('tag-dropped', `<svg:${tag}>`);
     } else if (DROPPED_TAGS.has(lower)) {
       outTag = null;
-      if (lower !== 'script' && lower !== 'title' && lower !== 'meta') this.diag('tag-dropped', `<${lower}>`);
+      if (!SECURITY_DROPPED_TAGS.has(lower)) this.diag('profile', `<${lower}> dropped`);
+      else if (lower !== 'script' && lower !== 'title' && lower !== 'meta') this.diag('tag-dropped', `<${lower}>`);
+    } else if (REPLACED_TAGS.has(lower)) {
+      // Outside the profile but its content stays (docs/profile-v1.md): <center>, <form>, <dialog> as a div, <ruby>, <label>… as a span.
+      outTag = REPLACED_TAGS.get(lower)!;
+      extra = [['data-tg-tag', lower]];
+      this.diag('profile', `<${lower}> rendered as <${outTag}>`);
     } else if (isStyle || HTML_TAGS.has(lower)) {
       outTag = lower;
     } else {
@@ -610,7 +619,7 @@ export class Validator {
     if (lower.startsWith('data-tg-')) return []; // reserved for the host
     if (lower.startsWith('data-') || lower.startsWith('aria-')) return [[lower, value]];
     if (SILENT_DROP_ATTRS.has(lower)) return [];
-    if (!ALLOWED_ATTRS.has(lower)) {
+    if (!(node.ns === 'svg' ? SVG_ALLOWED_ATTRS : HTML_ATTRS).has(lower)) {
       this.diag('attr-dropped', `${tag}[${lower}]`);
       return [];
     }
@@ -631,6 +640,11 @@ export class Validator {
       if (CSS_VALUE_ATTRS.has(lower)) {
         const clean = sanitizeCssValue(value, this.diag, `${tag}[${lower}]`, this.env);
         return clean === null ? [] : [[name, clean]];
+      }
+      if (lower === 'font-family') {
+        // Generic families only, as in CSS (D3b).
+        const clean = sanitizeStyleProperty('font-family', value, this.diag, this.env);
+        return clean && clean.value ? [[name, clean.value]] : [];
       }
     }
     return [[name, value]];
@@ -768,8 +782,6 @@ export class Validator {
       }
     }
     if (method === 'scrollIntoView' && out.some((value, index) => !Number.isInteger(value) || value < 0 || value > [3, 3, 2, 1][index])) return false;
-    // (generation, command, allowDefault) for a native renderer's pending textarea Enter (docs/protocol.md, "Native editor commands").
-    if (method === 'completeEditorCommand' && (node.tag !== 'textarea' || !out.every((v) => Number.isSafeInteger(v) && v >= 0) || out[2] > 1)) return false;
     this.out.push({ op: 'call', id, method, args: out });
     return true;
   }
@@ -784,6 +796,7 @@ export class Validator {
     const out: CanvasCmd[] = [];
     for (const cmd of cmds) {
       const clean = this.canvasCmd(cmd);
+      if (clean === OUT_OF_PROFILE) continue;
       if (clean) {
         if (clean[0] === 'c' && (clean[1] === 'fillText' || clean[1] === 'strokeText') && typeof clean[2] === 'string'
           && this.limits.textBudget && chargesChurn(clean[2]) && !this.takeChurn(textWork(clean[2]))) {
@@ -825,24 +838,32 @@ export class Validator {
     return out;
   }
 
-  private canvasCmd(cmd: unknown): CanvasCmd | null {
+  /** A canvas call or property outside the profile: dropped with a `profile` diagnostic (once per name and canvas op). */
+  private outOfProfile(name: string): typeof OUT_OF_PROFILE {
+    this.diag('profile', `canvas ${name}`);
+    return OUT_OF_PROFILE;
+  }
+
+  private canvasCmd(cmd: unknown): CanvasCmd | null | typeof OUT_OF_PROFILE {
     if (!Array.isArray(cmd) || cmd.length < 2 || cmd.length > 16) return null;
     const [kind, name, ...rest] = cmd;
     switch (kind) {
       case 'c': {
+        if (typeof name === 'string' && CANVAS_OUT_OF_PROFILE.has(name)) return this.outOfProfile(name);
         if (typeof name !== 'string' || !CANVAS_METHODS.has(name)) return null;
         const args = this.canvasArgs(rest);
         return args ? ['c', name, ...args] : null;
       }
       case 's': {
+        if (typeof name === 'string' && CANVAS_OUT_OF_PROFILE.has(name)) return this.outOfProfile(name);
         if (typeof name !== 'string' || !CANVAS_PROPS.has(name) || rest.length !== 1) return null;
         let v = this.canvasArg(rest[0]);
         if (v === undefined || Array.isArray(v)) return null;
-        if (name === 'filter') {
-          // The only canvas property that can reference a URL.
+        if (name === 'font') {
+          // Generic families only, as in CSS (D3b).
           if (typeof v !== 'string') return null;
-          v = sanitizeCssValue(v, this.diag, 'canvas filter', this.env);
-          if (v === null || /url/i.test(v as string)) return null;
+          v = sanitizeFontValue('font', v, this.diag);
+          if (v === null) return null;
         }
         return ['s', name, v];
       }
@@ -851,6 +872,8 @@ export class Validator {
       case 'g': {
         // ['g', gid, 'linear'|'radial'|'conic'|'pattern', ...args]
         if (!isNum(name) || typeof rest[0] !== 'string' || !['linear', 'radial', 'conic', 'pattern'].includes(rest[0])) return null;
+        // A conic gradient or a pattern (outside the profile) is a zero-length linear gradient: it paints nothing.
+        if (!CANVAS_GRADIENTS.has(rest[0])) { this.diag('profile', `canvas ${rest[0]}`); return ['g', name, 'linear', 0, 0, 0, 0]; }
         const args = this.canvasArgs(rest.slice(1));
         return args ? ['g', name, rest[0], ...args] : null;
       }
@@ -890,15 +913,15 @@ export class Validator {
         const args = Array.isArray(q.args) && q.args.length <= 4 && q.args.every(isNum) ? (q.args as number[]) : [];
         return { q: 'svg', id: q.id as NodeId, method: q.method, args };
       }
-      case 'measureText':
-        return isStr(q.font, 512) && isStr(q.text, 100_000) ? { q: 'measureText', font: q.font, text: q.text } : null;
-      case 'imageData': {
-        const n = el();
-        if (!n || n.tag !== 'canvas') return null;
-        const { x, y, w, h } = q;
-        if (![x, y, w, h].every(isNum) || (w as number) <= 0 || (h as number) <= 0 || (w as number) * (h as number) > 3_500_000) return null;
-        return { q: 'imageData', id: n.id, x: x as number, y: y as number, w: w as number, h: h as number };
+      case 'measureText': {
+        if (!isStr(q.font, 512) || !isStr(q.text, 100_000)) return null;
+        // Measured with the font the canvas draws with: generic families only.
+        const font = sanitizeFontValue('font', q.font, () => {});
+        return font === null ? null : { q: 'measureText', font, text: q.text };
       }
+      // Pixel read-back (getImageData) is outside the profile: a native renderer would have to rasterize to answer.
+      case 'imageData':
+        return null;
       case 'canvasCall': {
         const n = el();
         if (!n || n.tag !== 'canvas' || typeof q.method !== 'string' || !CANVAS_QUERY_METHODS.has(q.method)) return null;

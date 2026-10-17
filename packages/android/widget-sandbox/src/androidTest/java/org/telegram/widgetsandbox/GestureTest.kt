@@ -115,18 +115,21 @@ class GestureTest {
         }
     }
 
-    /** Native controls that drag (range sliders) and the widget's own scrollable areas keep the gesture too. */
+    /**
+     * Profile 1 has no range sliders (form controls are dropped) and no scrolling inside a widget
+     * (`overflow: auto` becomes `hidden`), so neither claims the swipe any more: the list scrolls.
+     */
     @Test
-    fun rangeSliderAndInnerScrollerKeepTheGesture() {
+    fun outOfProfileSlidersAndScrollersLeaveTheSwipeToTheList() {
         val cases = listOf(
-            "range" to "<div style='padding:40px 0'><input type=range min=0 max=100 value=50 style='width:300px'></div><script>document.querySelector('input').addEventListener('input', function(){ console.log('slid'); });</script>",
-            "scroller" to "<div style='height:200px;overflow-y:auto'><div style='height:2000px'>tall</div></div><script>document.querySelector('div').addEventListener('scroll', function(){ console.log('inner-scrolled'); });</script>",
+            "range" to "<div style='padding:40px 0'><input type=range min=0 max=100 value=50 style='width:300px'></div>",
+            "scroller" to "<div style='height:200px;overflow-y:auto'><div style='height:2000px'>tall</div></div>",
         )
         ActivityScenario.launch(TestActivity::class.java).use { scenario ->
             for ((name, html) in cases) {
                 val f = mount(scenario, html)
                 swipeUp(f, 150f, if (name == "range") 50f else 100f)
-                assertEquals("$name: list must not scroll", 0, scrollY(f))
+                assertTrue("$name: the list scrolls", scrollY(f) > 0)
                 instrumentation.runOnMainSync { f.host.destroy() }
             }
         }

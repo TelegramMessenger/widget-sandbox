@@ -4,6 +4,8 @@
 import { callMethod } from './capture';
 import { addEventListener, dispatchEvent, Event, EventTarget, removeEventListener } from './events';
 import { diag, host, invalidateLayout, query, unsupported } from './host';
+import { PROFILE_VERSION } from '../shared/profile-tables';
+import { cssSupports } from '../shared/css-supports';
 
 const G: any = globalThis;
 
@@ -338,6 +340,9 @@ export function openLink(url: unknown) {
 
 function installBridge() {
   G.TelegramWidget = {
+    /** The widget profile this client enforces (docs/profile-v1.md); a later profile only adds features. */
+    get profile() { return PROFILE_VERSION; },
+    isProfileAtLeast(n: unknown) { return typeof n === 'number' && PROFILE_VERSION >= n; },
     /** Ask the host to send `text` to the chat on the user's behalf. */
     sendMessage(text: string) { bridge('sendMessage', String(text)); },
     /** Ask the host to open a link (the user confirms in a native dialog). */
@@ -460,7 +465,7 @@ function installPolyfills() {
   };
   G.Blob = class { size = 0; type = ''; constructor(parts: any[] = [], opts: any = {}) { this.type = opts.type ?? ''; this.size = parts.reduce((n, p) => n + (p?.length ?? p?.byteLength ?? 0), 0); unsupported('Blob'); } };
   G.FileReader = class { constructor() { unsupported('FileReader'); } readAsText() {} readAsDataURL() {} readAsArrayBuffer() {} addEventListener() {} };
-  G.CSS = { supports: () => true, escape: (s: string) => String(s).replace(/[^\w-]/g, (c) => '\\' + c) };
+  G.CSS = { supports: cssSupports, escape: (s: string) => String(s).replace(/[^\w-]/g, (c) => '\\' + c) };
 }
 
 // ───────────────────────── window ─────────────────────────

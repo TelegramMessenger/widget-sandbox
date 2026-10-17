@@ -13,7 +13,6 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 import baseVariant from '@telegram/widget-sandbox-quickjs';
 import wasmUrl from '@telegram/widget-sandbox-quickjs/wasm?url';
 import { CpuBudget } from './cpu-budget';
-import { provideLibrary, resolveLibrary } from './loader';
 import { MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
 
 const post = (msg: WorkerToHost) => (self as unknown as Worker).postMessage(msg);
@@ -124,7 +123,6 @@ let lastMemCheck = 0;
 
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 let timerLimitReported = false;
-const libCache = new Map<string, string>();
 const decoder = new TextDecoder();
 
 // ───────────────────────── sync query bridge ─────────────────────────
@@ -345,21 +343,6 @@ function evalScript(code: string, filename: string, type: 'global' | 'module'): 
   return true;
 }
 
-function fetchLibrary(file: string): string | null {
-  let src = libCache.get(file);
-  if (src === undefined) {
-    // Synchronous same-origin request for a file bundled with the app (trusted
-    // code path; the URL is never derived from widget input).
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', `/libs/${file}`, false);
-    xhr.send();
-    if (xhr.status !== 200) return null;
-    src = xhr.responseText;
-    libCache.set(file, src);
-  }
-  return src;
-}
-
 /** Run scripts queued by the shim (initial inline scripts, later dynamically inserted ones). */
 function pumpScripts() {
   for (let i = 0; i < 1000 && !dead; i++) {
@@ -369,16 +352,9 @@ function pumpScripts() {
     let ok = true;
     resetDeadline();
     if (s.src !== undefined) {
-      const lib = resolveLibrary(s.src);
-      const source = lib ? fetchLibrary(lib.file) : null;
-      if (lib && source !== null) {
-        const t0 = performance.now();
-        evalScript(source, lib.file, 'global');
-        post({ type: 'diag', kind: 'library', detail: `${s.src} → bundled ${lib.name} (eval ${(performance.now() - t0).toFixed(0)} ms)` });
-      } else {
-        ok = false;
-        post({ type: 'diag', kind: 'script-skipped', detail: `external script not available: ${String(s.src).slice(0, 200)}` });
-      }
+      // Nothing is fetched and nothing is bundled (profile 1: no libraries): an external script never runs.
+      ok = false;
+      post({ type: 'diag', kind: 'script-skipped', detail: `external script not available: ${String(s.src).slice(0, 200)}` });
     } else if (s.code !== undefined) {
       evalScript(s.code, `inline-script-${s.id}.js`, s.type);
     }
@@ -551,9 +527,7 @@ async function warm(msg: Extract<HostToWorker, { type: 'warm' | 'init' }>) {
 /** Phase 2 (pool `start`, or the second half of `init`): the widget's HTML and its real config into the warmed VM. */
 function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
   if (dead) return;
-  const { libraries, ...widgetConfig } = msg.config;
-  for (const lib of libraries ?? []) if (!provideLibrary(lib)) post({ type: 'diag', kind: 'library', detail: `provided library refused: ${String(lib?.name).slice(0, 64)}` });
-  config = withWebFeatures({ ...widgetConfig, memoryLimitBytes: Math.min(msg.config.memoryLimitBytes, warmedMemoryLimitBytes) });
+  config = withWebFeatures({ ...msg.config, memoryLimitBytes: Math.min(msg.config.memoryLimitBytes, warmedMemoryLimitBytes) });
   visible = config.visible !== false;
   budget = new CpuBudget(config);
   rt.setMemoryLimit(config.memoryLimitBytes);
