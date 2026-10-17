@@ -25,15 +25,18 @@ import java.util.concurrent.atomic.AtomicReference
 class GestureTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
-    private class Fixture(val host: WidgetHost, val scroll: ScrollView, val latest: AtomicReference<WidgetDiagnostics>)
+    /** `claims`: what `onGestureClaim` got (x, y), one per primary pointerdown. */
+    private class Fixture(val host: WidgetHost, val scroll: ScrollView, val latest: AtomicReference<WidgetDiagnostics>, val claims: MutableList<Pair<Boolean, Boolean>>)
 
     private fun mount(scenario: ActivityScenario<TestActivity>, html: String): Fixture {
         lateinit var f: Fixture
         scenario.onActivity { a ->
             val d = a.resources.displayMetrics.density
-            val host = WidgetHost(a, html, "light", 360.0)
+            val host = WidgetHost(a, html, WidgetTheme(), 360.0)
             val latest = AtomicReference(WidgetDiagnostics())
+            val claims = java.util.Collections.synchronizedList(ArrayList<Pair<Boolean, Boolean>>())
             host.onChange = { latest.set(it) }
+            host.onGestureClaim = { x, y -> claims.add(x to y) }
             val column = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             column.addView(host.view, LinearLayout.LayoutParams((360 * d).toInt(), (300 * d).toInt()))
             column.addView(Space(a), LinearLayout.LayoutParams(1, (4000 * d).toInt()))
@@ -41,7 +44,7 @@ class GestureTest {
             scroll.addView(column)
             a.container.removeAllViews()
             a.container.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
-            f = Fixture(host, scroll, latest)
+            f = Fixture(host, scroll, latest, claims)
         }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
         while (System.nanoTime() < deadline && !f.latest.get().loaded) Thread.sleep(50)
@@ -89,6 +92,7 @@ class GestureTest {
             val f = mount(scenario, "<div style='height:280px;background:#eee'>plain content</div>")
             swipeUp(f, 180f, 150f)
             assertTrue("list should have scrolled, scrollY=${scrollY(f)}", scrollY(f) > 0)
+            assertEquals("the client keeps both drags", listOf(false to false), f.claims.toList())
             instrumentation.runOnMainSync { f.host.destroy() }
         }
     }
@@ -111,6 +115,7 @@ class GestureTest {
             assertEquals("list must not scroll, logs=$logs", 0, scrollY(f))
             assertTrue("widget should have seen the moves: $logs", logs.contains("moved5"))
             assertTrue("gesture must not be cancelled: $logs", !logs.contains("cancelled"))
+            assertEquals("onGestureClaim: the widget takes both drags", listOf(true to true), f.claims.toList())
             instrumentation.runOnMainSync { f.host.destroy() }
         }
     }

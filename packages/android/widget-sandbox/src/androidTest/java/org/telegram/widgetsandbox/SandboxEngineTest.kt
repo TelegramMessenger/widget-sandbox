@@ -21,6 +21,8 @@ class RecordingDelegate : SandboxEngine.Delegate {
     val diags: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())
     val queries: MutableList<String> = Collections.synchronizedList(ArrayList())
     val bridge: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())
+    val actions: MutableList<WidgetAction> = Collections.synchronizedList(ArrayList())
+    val storage: MutableList<Pair<String, Map<String, String>>> = Collections.synchronizedList(ArrayList())
     @Volatile var died: String? = null
     @Volatile var frameRequests = 0
 
@@ -37,6 +39,8 @@ class RecordingDelegate : SandboxEngine.Delegate {
     override fun onLog(engine: SandboxEngine, level: String, text: String) { logs.add(level to text) }
     override fun onDiag(engine: SandboxEngine, kind: String, detail: String) { diags.add(kind to detail) }
     override fun onBridge(engine: SandboxEngine, method: String, argsJson: String) { bridge.add(method to argsJson) }
+    override fun onAction(engine: SandboxEngine, action: WidgetAction) { actions.add(action) }
+    override fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) { storage.add(area to values) }
     override fun onLoaded(engine: SandboxEngine) { loaded.countDown() }
     override fun onStats(engine: SandboxEngine, stats: SandboxStats) {}
     override fun onDied(engine: SandboxEngine, reason: String) { died = reason; loaded.countDown() }
@@ -234,13 +238,15 @@ class SandboxEngineTest {
         assertFalse(isStrictPolicy("compat"))
     }
 
+    /** `ready` from the boot script and a link from a timer (compat: no gesture gate; strict needs a tap, SdkTest) reach onAction, and the deprecated onBridge right after. */
     @Test
     fun bridgeAndTimers() {
-        val (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>") { it.policy = "compat" }
+        val (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.openLink('https://Example.com/later'), 30);</script>") { it.policy = "compat" }
         val deadline = System.nanoTime() + 3_000_000_000L
-        while (System.nanoTime() < deadline && !d.bridge.any { it.first == "sendMessage" }) Thread.sleep(50)
-        assertTrue(d.bridge.any { it.first == "ready" })
-        assertTrue("${d.bridge}", d.bridge.any { it.first == "sendMessage" && it.second.contains("later") })
+        while (System.nanoTime() < deadline && !d.actions.any { it is WidgetAction.OpenLink }) Thread.sleep(50)
+        assertEquals(listOf(WidgetAction.Ready, WidgetAction.OpenLink("https://example.com/later")), d.actions.toList())
+        assertEquals("${d.bridge}", listOf("ready", "openLink"), d.bridge.map { it.first })
+        assertTrue("${d.bridge}", d.bridge[1].second.contains("example.com"))
         engine.terminate()
     }
 

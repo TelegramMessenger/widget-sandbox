@@ -140,6 +140,16 @@ never waits for the engine. QuickJS never runs on the main thread.
 
 Memory and CPU limits are part of the public API: `WidgetHost.Options(memoryLimitBytes, cpuLimitMs)`.
 
+SDK v1 (`docs/sdk-v1.md` §4.2): `WidgetHost(context, html, WidgetTheme(colorScheme, params,
+button), widthDp, Options(locale, storage = WidgetStorage(local, session), …))`, `setTheme(WidgetTheme)`,
+`onAction` (`WidgetAction.Ready` / `OpenLink` / `OpenTelegramLink` / `Haptic`), `onStorageCommit(area,
+values)`, `onGestureClaim(x, y)`; all callbacks on the main thread. `SandboxEngine` checks every bridge
+call with `SdkPolicy.kt` (the twin of `sdk-policy.ts`, `SdkPolicyTest` against the shared fixture):
+the call itself (`bridge-rejected`), one link per tap under `strict` (`activation-blocked`), the haptic
+limit (`haptic-limit`); storage commits and the preload against the 16 KB quota (`storage-rejected`).
+The string-theme constructor, `setTheme(String)` and `onBridge` remain as deprecated conveniences;
+`bridgeEvent` is gone.
+
 Touch gestures: a `WebView` inside a scrolling container loses the touch to
 the container as soon as the finger moves past the slop — Android cannot see
 `touch-action` inside the page, so a drag with any vertical component used

@@ -95,7 +95,7 @@ fun AttackRunnerScreen(auto: Boolean, canaryOverride: String?) {
         }
         for (file in Corpus.files(context, "attacks")) {
             status = "loading $file"
-            val model = WidgetModel(context, Corpus.html(context, "attacks", file), "light", 360.0)
+            val model = WidgetModel(context, Corpus.html(context, "attacks", file), demoTheme(false), 360.0)
             current = model
             // Wait for the widget to load (cold start can take >1 s), then give
             // its scripts and timers a second to try their tricks.
@@ -173,7 +173,7 @@ fun CorpusRunnerScreen(title: String, groups: List<String>, reportName: String, 
         for (group in groups) {
             for (file in Corpus.files(context, group)) {
                 status = "loading $group/$file"
-                val model = WidgetModel(context, Corpus.html(context, group, file), "light", 360.0)
+                val model = WidgetModel(context, Corpus.html(context, group, file), demoTheme(false), 360.0)
                 current = model
                 awaitLoaded(model, 8)
                 delay(1000)

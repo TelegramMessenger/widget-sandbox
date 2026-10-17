@@ -1,8 +1,11 @@
 // The renderer as WidgetHost sees it: a View plus the JSON message contract of
 // docs/protocol.md (host → renderer: ops / query / listen / preventDefault /
-// requestFrame / frozen; renderer → host: ready / event / gesture / result /
-// size / resize / frame / media / violation). RendererWebView is the product
-// renderer; other implementations (the Blitz prototype) plug in through
+// requestFrame / theme / frozen; renderer → host: ready / event / gesture /
+// result / size / resize / frame / media / violation). `theme` carries the
+// WidgetTheme (docs/sdk-v1.md §3.4) at load and on every change; a renderer
+// that has no use for it ignores it, as any unknown type. `gesture` is
+// `{wants, x, y}` (`wants` = `y`). RendererWebView is the product renderer;
+// other implementations (the Blitz and litehtml prototypes) plug in through
 // WidgetHost's `rendererFactory`. All members are main-thread.
 
 package org.telegram.widgetsandbox
@@ -22,12 +25,12 @@ interface Renderer {
     fun send(json: String)
     /** Trusted script evaluated in the renderer (tests / diagnostics only); renderers without script answer `null`. */
     fun evaluate(script: String, callback: ((String?) -> Unit)?)
-    /** Answer to the last primary pointerdown's `gesture` message (see RendererWebView). */
+    /** Answer to the last primary pointerdown's `gesture` message, its `wants` (= `y`, see RendererWebView); WidgetHost also reports `x`/`y` to `onGestureClaim`. */
     fun gestureDecision(wants: Boolean)
     fun destroy()
 }
 
-/** Builds a renderer for one widget: width in CSS px (= dp) and the chat theme. */
+/** Builds a renderer for one widget: width in CSS px (= dp) and the chat's colour scheme ("light" | "dark"; the palette follows as a `theme` message). */
 fun interface RendererFactory {
     fun create(context: Context, resources: SandboxResources, theme: String, widthDp: Double): Renderer
 }
