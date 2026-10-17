@@ -88,6 +88,6 @@ function buildQjsc(): string {
 // Test fixtures shared with the native ports (one source of truth: packages/core/tests/fixtures).
 if (!outDir) {
   fs.mkdirSync(path.join(root, target.fixtures), { recursive: true });
-  for (const f of ['cpu-budget.json']) fs.copyFileSync(path.join(pkgRoot, 'tests', 'fixtures', f), path.join(root, target.fixtures, f));
+  for (const f of ['cpu-budget.json', 'sdk-policy.json']) fs.copyFileSync(path.join(pkgRoot, 'tests', 'fixtures', f), path.join(root, target.fixtures, f));
   console.log(`fixtures copied to ${target.fixtures}`);
 }

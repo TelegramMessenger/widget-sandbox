@@ -15,6 +15,7 @@ import * as globals from './globals';
 import { counters, diag, host, invalidateLayout, setFlushHook, unsupported } from './host';
 import { DOMMatrix, DOMPoint, DOMRect, elementFromPoint, getComputedStyle, installLayout } from './layout';
 import { styleOf } from './style';
+import { PROFILE_VERSION } from '../shared/profile-tables';
 import { setWebAnimations, webAnimations, webAnimationsEnabled } from './waapi';
 
 const G: any = globalThis;
@@ -171,7 +172,7 @@ globals.setFrameHook((now) => {
   return run ? (callbacks) => wa.defer(() => run(callbacks)) : null;
 });
 
-/** The click flow shared by real and synthetic clicks: external links go to openLink. */
+/** The click flow shared by real and synthetic clicks: external links go to openLink / openTelegramLink. */
 function afterClick(target: any, e: ev.Event, defaultActions = false) {
   if (e.defaultPrevented) return;
   const el = target?.nodeType === 1 ? target : target?.parentNode;
@@ -180,8 +181,7 @@ function afterClick(target: any, e: ev.Event, defaultActions = false) {
   if (!a) return;
   const href = String(a.getAttribute('href') ?? '').trim();
   if (!href || href.startsWith('#')) return;
-  if (/^\s*javascript:/i.test(href)) return diag('navigation-blocked', 'javascript: link ignored');
-  globals.openLink(href);
+  globals.followLink(href);
 }
 
 define(HTMLElementProto, {
@@ -371,7 +371,10 @@ const handlers: Record<string, (arg: string) => string | void> = {
     morphEnabled = Array.isArray(config.features) && config.features.includes('morphUpdates');
     if (webAnimationsEnabled()) Object.assign(G, webAnimations().globals);
     globals.setHidden(config.visible === false);
-    globals.setTheme(config.theme, false);
+    globals.setTheme({ theme: config.theme, themeParams: config.themeParams }, false);
+    globals.setLocale(config.locale);
+    globals.preloadStorage(config.storage);
+    if (config.profile !== undefined && config.profile !== PROFILE_VERSION) diag('profile-mismatch', `the glue enforces profile ${String(config.profile).slice(0, 8)}, the sandbox bundle is profile ${PROFILE_VERSION}`);
     globals.setViewport(config.viewport);
     loadDocument(String(html));
     capture.markDirty(document);
@@ -406,7 +409,11 @@ const handlers: Record<string, (arg: string) => string | void> = {
     if (webAnimationsEnabled()) webAnimations().endTick();
     if (pdDirty) { pdDirty = false; host('pd', JSON.stringify([...pdKeys])); }
     host('stat', JSON.stringify({ cacheHits: counters.cacheHits, missed: counters.missed }));
-    return ran || capture.hasPendingRecords() ? '1' : '';
+    if (ran || capture.hasPendingRecords()) return '1';
+    // The task is over (the glue calls endTick until it returns ''): the areas it changed go to the glue after its ops.
+    const commit = globals.takeStorageCommit();
+    if (commit) host('storage', JSON.stringify(commit));
+    return '';
   },
   event(arg) { dispatchHostEvent(JSON.parse(arg)); },
   timer(arg) { globals.fireTimer(JSON.parse(arg)); },
@@ -418,7 +425,6 @@ const handlers: Record<string, (arg: string) => string | void> = {
   },
   resize(arg) { globals.fireResize(JSON.parse(arg), capture.nodeById); },
   theme(arg) { globals.setTheme(JSON.parse(arg), true); globals.mediaChanged(); },
-  bridge(arg) { const [event, data] = JSON.parse(arg); globals.fireBridge(String(event), data); },
   morph(arg) {
     if (!morphEnabled) return '';
     const { html } = JSON.parse(arg);
@@ -429,7 +435,9 @@ const handlers: Record<string, (arg: string) => string | void> = {
   visibility(arg) {
     // Same signal a background tab gets: document.hidden / visibilityState flip and `visibilitychange` fires (no pagehide/pageshow).
     const { visible } = JSON.parse(arg);
-    if (globals.setHidden(!visible)) ev.dispatchEvent.call(document, new ev.Event('visibilitychange'));
+    if (!globals.setHidden(!visible)) return;
+    ev.dispatchEvent.call(document, new ev.Event('visibilitychange'));
+    globals.fireActivation();
   },
 };
 

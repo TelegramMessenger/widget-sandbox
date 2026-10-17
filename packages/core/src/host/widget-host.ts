@@ -11,7 +11,12 @@
 import { finiteNumber, isTypedMessage } from './message-guards';
 import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
-import { GestureCounter, HostActivationGate, UNPRIVILEGED_BRIDGE_METHODS } from './user-activation';
+import { GestureCounter, HostActivationGate } from './user-activation';
+import {
+  DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, toWidgetTheme,
+  type StorageCommit, type WidgetAction, type WidgetTheme,
+} from '../shared/sdk-policy';
+import { PROFILE_VERSION } from '../shared/profile-tables';
 import type { Renderer, RendererFactory } from './renderer';
 import type { PooledWorker, WorkerPool } from './worker-pool';
 import { Validator } from './validator';
@@ -20,8 +25,15 @@ import {
   type HostToRenderer, type HostToWorker, type RendererToHost, type SandboxConfig, type SandboxPolicy, type Stats, type WorkerToHost, resolvePolicy,
 } from '../shared/protocol';
 
+export type { WidgetAction, WidgetTheme } from '../shared/sdk-policy';
+
 export interface WidgetHostOptions {
-  theme: 'light' | 'dark';
+  /** The chat's theme (docs/sdk-v1.md §2.3, §2.4); a plain colour scheme is still accepted. */
+  theme: 'light' | 'dark' | WidgetTheme;
+  /** The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when absent or malformed. */
+  locale?: string;
+  /** Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`). */
+  storage?: StorageCommit;
   memoryLimitBytes?: number;
   cpuLimitMs?: number;
   cpuQuotaMs?: number;
@@ -34,6 +46,13 @@ export interface WidgetHostOptions {
   onLog?: (level: string, text: string) => void;
   onDiag?: (kind: string, detail: string) => void;
   onStats?: (stats: Stats & { nodes: number }) => void;
+  /** What the widget asked the client to do, checked (URL rules, user activation, the haptic rate limit). */
+  onAction?: (action: WidgetAction) => void;
+  /** The new full content of a Web Storage area, at the end of each task that changed it. */
+  onStorageCommit?: (area: 'local' | 'session', values: Record<string, string>) => void;
+  /** On every primary pointerdown: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch. */
+  onGestureClaim?: (claim: { x: boolean; y: boolean }) => void;
+  /** @deprecated since v1: `onAction`. The raw method and arguments of each call `onAction` gets. */
   onBridge?: (method: string, args: unknown[]) => void;
   /** Fatal: the runtime is gone. The renderer keeps the last state (frozen); call `destroy()` to remove it. */
   onDead?: (reason: string) => void;
@@ -76,25 +95,31 @@ export class WidgetHost {
   private dead = false;
   private viewport: SandboxConfig['viewport'] | undefined;
   private theme: 'light' | 'dark';
+  private widgetTheme: ReturnType<typeof toWidgetTheme>;
   private visible: boolean;
   private policy: SandboxPolicy;
   private gestures = new GestureCounter();
   private activation = new HostActivationGate();
   private blockedBridgeReported = 0;
+  private rejectedBridgeReported = 0;
+  private rejectedStorageReported = 0;
+  private haptics = new HapticGate();
 
   constructor(container: HTMLElement, html: string, private opts: WidgetHostOptions) {
     const diag = (kind: string, detail: string) => opts.onDiag?.(kind, detail);
-    this.theme = opts.theme;
+    this.widgetTheme = toWidgetTheme(opts.theme);
+    this.theme = this.widgetTheme.colorScheme;
     this.visible = opts.visible ?? true;
     // ── renderer ──
-    this.renderer = (opts.rendererFactory ?? IframeRenderer.factory)(container, opts.theme);
+    this.renderer = (opts.rendererFactory ?? IframeRenderer.factory)(container, this.theme);
     this.element = this.renderer.element;
-    this.validator = new Validator(diag, { colorScheme: opts.theme, scope: this.renderer.cssScope ?? 'document' });
+    this.validator = new Validator(diag, { colorScheme: this.theme, scope: this.renderer.cssScope ?? 'document' });
     this.policy = resolvePolicy(opts.policy);
     this.validator.setPolicy(this.policy);
     this.renderer.onMessage = (msg) => { if (isTypedMessage(msg)) this.onRenderer(msg as RendererToHost); };
     this.renderer.onDiag = diag;
     this.renderer.load();
+    this.toRenderer({ type: 'theme', theme: this.widgetTheme });
 
     // ── sandbox ──
     // The worker boots in parallel with the renderer: a renderer that is not ready yet queues what it gets.
@@ -111,7 +136,11 @@ export class WidgetHost {
       policy: this.policy,
       features: opts.features ?? [],
       viewport: this.viewport,
-      theme: opts.theme,
+      theme: this.theme,
+      themeParams: this.widgetTheme.params,
+      locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE,
+      profile: PROFILE_VERSION,
+      storage: this.preload(opts.storage),
     };
     let pooled: PooledWorker | null = null;
     if (opts.workerPool) {
@@ -133,20 +162,25 @@ export class WidgetHost {
     else this.toWorker({ type: 'init', html, sab: this.sab, config, sandboxBundle });
   }
 
-  setTheme(theme: 'light' | 'dark') {
-    // The host owns the colour scheme: stylesheets are re-sanitized against it
+  setTheme(theme: 'light' | 'dark' | WidgetTheme) {
+    // The host owns the theme: stylesheets are re-sanitized against the scheme
     // (prefers-color-scheme, color-scheme, light-dark()), matchMedia queries
-    // are answered from it, and the sandbox gets a theme event.
-    this.theme = theme;
-    this.renderer.setTheme(theme);
-    const ops = this.validator.setTheme(theme);
+    // are answered from it, the renderer gets the variables, and the sandbox
+    // gets the scheme and the palette.
+    this.widgetTheme = toWidgetTheme(theme);
+    this.theme = this.widgetTheme.colorScheme;
+    this.renderer.setTheme(this.theme);
+    this.toRenderer({ type: 'theme', theme: this.widgetTheme });
+    const ops = this.validator.setTheme(this.theme);
     if (ops.length) this.toRenderer({ type: 'ops', ops });
-    this.toWorker({ type: 'theme', theme });
+    this.toWorker({ type: 'theme', theme: this.theme, themeParams: this.widgetTheme.params });
   }
 
-  /** Deliver a host → widget bridge event (e.g. the bot answered). */
-  bridgeEvent(event: string, data?: unknown) {
-    this.toWorker({ type: 'bridge', event, data });
+  private preload(storage: unknown): StorageCommit {
+    if (storage === undefined) return {};
+    const checked = checkStorageCommit(storage);
+    if (checked === null) this.opts.onDiag?.('storage-rejected', `the preload is not { local, session } objects of strings within 16384 bytes each; the widget starts with empty storage`);
+    return checked ?? {};
   }
 
   /**
@@ -233,15 +267,43 @@ export class WidgetHost {
         this.opts.onDiag?.(String(msg.kind), String(msg.detail));
         break;
       case 'bridge': {
-        const method = String(msg.method);
-        if (this.policy === 'strict' && !UNPRIVILEGED_BRIDGE_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
-          if (this.blockedBridgeReported < 20) {
-            this.blockedBridgeReported++;
-            this.opts.onDiag?.('activation-blocked', `${method.slice(0, 64)} ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler`);
+        // docs/sdk-v1.md §3.2: the method and its arguments, then user activation for links, then the haptic limit.
+        const method = String(msg.method).slice(0, 64);
+        const action = checkBridgeCall(method, msg.args);
+        if (!action) {
+          if (this.rejectedBridgeReported < 20) {
+            this.rejectedBridgeReported++;
+            this.opts.onDiag?.('bridge-rejected', `${method}: unknown method or malformed arguments`);
           }
           break;
         }
-        this.opts.onBridge?.(method, Array.isArray(msg.args) ? msg.args : []);
+        if (this.policy === 'strict' && PRIVILEGED_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
+          if (this.blockedBridgeReported < 20) {
+            this.blockedBridgeReported++;
+            this.opts.onDiag?.('activation-blocked', `${method} ignored: it needs a tap on the visible widget and runs in that tap's handler, one call per tap`);
+          }
+          break;
+        }
+        if (action.kind === 'haptic') {
+          const d = this.haptics.decide(performance.now(), this.visible);
+          if (d === 'report') this.opts.onDiag?.('haptic-limit', this.visible ? 'haptics over 5 per burst or 10 per second are dropped' : 'haptics of a hidden widget are dropped');
+          if (d !== 'play') break;
+        }
+        this.opts.onAction?.(action);
+        this.opts.onBridge?.(method, msg.args as unknown[]);
+        break;
+      }
+      case 'storage': {
+        const commit = checkStorageCommit(msg.commit);
+        if (!commit || (!commit.local && !commit.session)) {
+          if (this.rejectedStorageReported < 20) {
+            this.rejectedStorageReported++;
+            this.opts.onDiag?.('storage-rejected', 'a storage commit that is not { local?, session? } objects of strings within 16384 bytes each; the client keeps the previous content');
+          }
+          break;
+        }
+        if (commit.local) this.opts.onStorageCommit?.('local', commit.local);
+        if (commit.session) this.opts.onStorageCommit?.('session', commit.session);
         break;
       }
       case 'warmed':
@@ -311,10 +373,12 @@ export class WidgetHost {
         if (time !== undefined) this.toWorker({ type: 'frame', time });
         break;
       }
+      case 'gesture':
+        this.opts.onGestureClaim?.({ x: msg.x === true, y: msg.y === true });
         break;
       case 'media':
         // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
-        this.toWorker({ type: 'theme', theme: this.theme });
+        this.toWorker({ type: 'theme', theme: this.theme, themeParams: this.widgetTheme.params });
         break;
       case 'violation':
         this.opts.onDiag?.('renderer-violation', String(msg.detail).slice(0, 4000));

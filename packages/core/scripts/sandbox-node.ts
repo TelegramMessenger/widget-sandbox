@@ -14,7 +14,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CpuBudget } from '../src/host/cpu-budget.ts';
-import { UNPRIVILEGED_BRIDGE_METHODS } from '../src/host/user-activation.ts';
+import {
+  DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams,
+  type StorageCommit, type ThemeParams, type WidgetAction,
+} from '../src/shared/sdk-policy.ts';
+import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
 import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
 import { Validator } from '../src/host/validator.ts';
 import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
@@ -30,7 +34,12 @@ export interface RunResult {
   diags: { kind: string; detail: string }[];
   logs: { level: string; text: string }[];
   queries: unknown[];
+  /** Bridge calls the glue let through, raw (`[method, args]`). */
   bridge: unknown[];
+  /** What WidgetHost's `onAction` would get (docs/sdk-v1.md §4.5). */
+  actions: WidgetAction[];
+  /** Storage commits the glue accepted, in order (`onStorageCommit` gets one call per area of each). */
+  storageCommits: StorageCommit[];
   timers: number;
   probes: string[];
   /** Tasks the CPU quota deferred (the harness drops them instead of retrying). */
@@ -108,8 +117,16 @@ export interface RunOptions {
   maxTimers?: number;
   /** Initial visibility (default true): a hidden widget gets no frames and cannot use a gesture, as in the worker and the web host. */
   visible?: boolean;
-  /** Steps run after the timer rounds: visibility changes and probes, in order (probe results land in RunResult.probes before `probes`). */
-  script?: ({ visible: boolean } | { probe: string } | { morph: string })[];
+  /** Steps run after the timer rounds: visibility and theme changes and probes, in order (probe results land in RunResult.probes before `probes`). */
+  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> })[];
+  /** The colour scheme at start (default light). */
+  theme?: 'light' | 'dark';
+  /** The client's palette (checked as WidgetHost does: unknown keys and non-#rrggbb values are dropped). */
+  themeParams?: Record<string, unknown>;
+  /** The client's UI language (default en-US). */
+  locale?: string;
+  /** The client's Web Storage preload; over the quota it is dropped whole (`storage-rejected`). */
+  storage?: unknown;
   /** CPU quota per second (default: effectively unlimited, like the harness's 10 s cpuLimitMs; wasm under Node is slow). */
   cpuQuotaMs?: number;
   /** Validator CSS scope: 'shadow' for ops meant for the Shadow DOM renderer (css-sanitizer.ts). */
@@ -148,8 +165,14 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: 'light' };
+  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
+  if (opts.storage !== undefined) {
+    const preload = checkStorageCommit(opts.storage);
+    if (preload) config.storage = preload;
+    else res.diags.push({ kind: 'storage-rejected', detail: 'the preload is not { local, session } objects of strings within the quota' });
+  }
+  const haptics = new HapticGate();
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const policy = opts.policy === 'compat' ? 'compat' : 'strict';
@@ -194,18 +217,36 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'log': { const i = arg.indexOf(':'); res.logs.push({ level: arg.slice(0, i), text: arg.slice(i + 1) }); log('[' + arg.slice(0, i) + ']', arg.slice(i + 1)); return vm.undefined; }
       case 'diag': { const i = arg.indexOf(':'); res.diags.push({ kind: arg.slice(0, i), detail: arg.slice(i + 1) }); log('[diag]', arg); return vm.undefined; }
       case 'bridge': {
-        const call = JSON.parse(arg);
-        const method = String(call?.[0] ?? '');
-        if (policy === 'strict' && !UNPRIVILEGED_BRIDGE_METHODS.has(method)) {
+        // As WidgetHost (docs/sdk-v1.md §3.2): the method and its arguments, user activation for links, the haptic limit.
+        let call: unknown;
+        try { call = JSON.parse(arg); } catch {}
+        const method = Array.isArray(call) ? call[0] : undefined;
+        const action = Array.isArray(call) ? checkBridgeCall(method, call[1]) : null;
+        if (!action) { res.diags.push({ kind: 'bridge-rejected', detail: `${String(method).slice(0, 64)}: unknown method or malformed arguments` }); return vm.undefined; }
+        if (policy === 'strict' && PRIVILEGED_METHODS.has(String(method))) {
           if (!visible || !(activeGesture > consumedGesture)) {
-            res.diags.push({ kind: 'activation-blocked', detail: `${method} ignored outside a user gesture on the visible widget` });
+            res.diags.push({ kind: 'activation-blocked', detail: `${method} ignored outside a tap on the visible widget` });
             return vm.undefined;
           }
           consumedGesture = activeGesture;
           activeGesture = 0;
         }
+        if (action.kind === 'haptic') {
+          const d = haptics.decide(opts.now ? opts.now() : performance.now(), visible);
+          if (d === 'report') res.diags.push({ kind: 'haptic-limit', detail: visible ? 'over the rate limit' : 'hidden widget' });
+          if (d !== 'play') return vm.undefined;
+        }
         res.bridge.push(call);
+        res.actions.push(action);
         log('[bridge]', arg);
+        return vm.undefined;
+      }
+      case 'storage': {
+        let commit: StorageCommit | null = null;
+        try { commit = checkStorageCommit(JSON.parse(arg)); } catch {}
+        if (!commit || (!commit.local && !commit.session)) res.diags.push({ kind: 'storage-rejected', detail: arg.slice(0, 200) });
+        else res.storageCommits.push(commit);
+        log('[storage]', arg.slice(0, 2000));
         return vm.undefined;
       }
       case 'intl': return vm.newString(String(intl(JSON.parse(arg))));
@@ -379,6 +420,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       task('visibility', () => tw('visibility', JSON.stringify({ visible: step.visible })));
     }
     else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
+    else if ('theme' in step) task('theme', () => tw('theme', JSON.stringify({ theme: step.theme, themeParams: checkThemeParams(step.themeParams) })));
     else probe(step.probe);
   }
   for (const code of opts.probes ?? []) probe(code);
@@ -414,6 +456,8 @@ function intl(req: any): string {
     switch (req.kind) {
       case 'number': return new Intl.NumberFormat(req.locale, req.opts).format(Number(req.value));
       case 'numberParts': return JSON.stringify(new Intl.NumberFormat(req.locale, req.opts).formatToParts(Number(req.value)));
+      case 'numberOptions': return JSON.stringify(new Intl.NumberFormat(req.locale, req.opts).resolvedOptions());
+      case 'dateOptions': return JSON.stringify(new Intl.DateTimeFormat(req.locale, req.opts).resolvedOptions());
       case 'date': return new Intl.DateTimeFormat(req.locale, req.opts).format(d);
       case 'dateParts': return JSON.stringify(new Intl.DateTimeFormat(req.locale, req.opts).formatToParts(d));
       case 'dateMethod': return req.method === 'toLocaleDateString' ? d.toLocaleDateString(req.locale, req.opts) : req.method === 'toLocaleTimeString' ? d.toLocaleTimeString(req.locale, req.opts) : d.toLocaleString(req.locale, req.opts);
@@ -438,5 +482,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
   console.log(`\nbatches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);
   for (const l of r.logs) console.log(`[${l.level}]`, l.text);
-  for (const b of r.bridge) console.log('bridge', JSON.stringify(b));
+  for (const a of r.actions) console.log('action', JSON.stringify(a));
+  for (const c of r.storageCommits) console.log('storage', JSON.stringify(c).slice(0, 500));
 }

@@ -2,6 +2,7 @@
 // Types only (plus a few constants): no code here runs with any privilege.
 
 import { PROFILE_EVENTS } from './profile-tables';
+import type { StorageCommit, ThemeParams, WidgetTheme } from './sdk-policy';
 
 export type NodeId = number;
 /** The widget's Document node. Never rendered; parent of the <html> element. */
@@ -148,6 +149,8 @@ export type HostToRenderer =
   | { type: 'preventDefault'; keys: string[] }
   | { type: 'anim'; now: number; anims: AnimRecord[] }
   | { type: 'requestFrame' }
+  /** The chat's theme (docs/sdk-v1.md §3.4): the renderer sets the CSS variables `themeVariables` makes of it on the widget's root. */
+  | { type: 'theme'; theme: WidgetTheme }
   /** The runtime is gone (fatal) or paused: keep the last render, stop forwarding events and frames, show a badge with `reason`. */
   | { type: 'frozen'; reason: string; fatal: boolean };
 
@@ -164,10 +167,11 @@ export type RendererToHost =
    * gesture for itself (an ancestor's `touch-action` forbids vertical panning,
    * or the sandbox has prevented pointerdown/touchstart there before). Hosts
    * whose renderer sits inside a scrolling container that cannot see into the
-   * WebView (Android) use it to stop the container from intercepting; the
-   * web and iOS hosts ignore it.
+   * WebView (Android) use it to stop the container from intercepting. `x` / `y`:
+   * the widget takes horizontal / vertical drags of this touch (the host's
+   * `onGestureClaim`, docs/sdk-v1.md §5.5); `wants` is `y`.
    */
-  | { type: 'gesture'; wants: boolean }
+  | { type: 'gesture'; wants: boolean; x: boolean; y: boolean }
   | { type: 'violation'; detail: string };
 
 // ───────────── worker ⇄ host envelope ─────────────
@@ -187,6 +191,14 @@ export interface SandboxConfig {
   visible: boolean;
   viewport: { innerWidth: number; innerHeight: number; dpr: number };
   theme: 'light' | 'dark';
+  /** The chat's palette (docs/sdk-v1.md §2.3), checked by the glue (`checkThemeParams`); missing keys take the scheme's defaults. */
+  themeParams?: Partial<ThemeParams>;
+  /** The client's UI language, BCP 47 (`checkLocale`); `navigator.language` and the Intl default. */
+  locale?: string;
+  /** The widget profile the glue enforces (`PROFILE_VERSION`); the shim reports a mismatch with its own. */
+  profile?: number;
+  /** The client's preload of Web Storage (docs/sdk-v1.md §2.8), checked by the glue (`checkStorageCommit`). */
+  storage?: StorageCommit;
   /**
    * Optional wire forms this host understands, opt-in per host (docs/protocol.md,
    * "Features"). Absent or empty: plain JSON only, which every host and renderer speaks.
@@ -240,8 +252,7 @@ export type HostToWorker =
   | { type: 'frame'; time: number }
   | { type: 'viewport'; viewport: SandboxConfig['viewport'] }
   | { type: 'resize'; entries: { id: NodeId; width: number; height: number }[] }
-  | { type: 'theme'; theme: 'light' | 'dark' }
-  | { type: 'bridge'; event: string; data?: unknown }
+  | { type: 'theme'; theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> }
   | { type: 'visibility'; visible: boolean };
 
 export interface Stats {
@@ -270,6 +281,8 @@ export type WorkerToHost =
   | { type: 'log'; level: string; text: string }
   | { type: 'diag'; kind: string; detail: string }
   | { type: 'bridge'; method: string; args: unknown; gesture?: number }
+  /** The areas of Web Storage a task changed, in full (`__host('storage', …)`, docs/sdk-v1.md §3.2). */
+  | { type: 'storage'; commit: unknown }
   // Messages produced by the trusted worker glue:
   /** The sandbox bundle is evaluated; a `start` can follow at no boot cost (pool). */
   | { type: 'warmed'; bootMs: number }

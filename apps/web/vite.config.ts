@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { widgetSandbox } from '@telegram/widget-sandbox/vite';
 import { PROFILE_UA_STYLESHEET } from '@telegram/widget-sandbox/shared/profile-tables';
+import { themeVariables } from '@telegram/widget-sandbox/shared/sdk-policy';
 
 const appRoot = path.dirname(new URL(import.meta.url).pathname);
 const repoRoot = path.resolve(appRoot, '..', '..');
@@ -19,11 +20,14 @@ const litehtmlDir = path.join(repoRoot, 'apps', 'renderer-litehtml', 'pkg-web');
 /**
  * Reference mode: a fragment is rendered inside our (standards-mode) document in
  * the product; give it a doctype so the native comparison does not fall into quirks mode,
- * and the renderer's own stylesheet (the client-styled <button>, no selection) so the
- * comparison shows what the profile removes rather than the button style.
+ * and the renderer's own stylesheet (the client-styled <button>, no selection) and the
+ * host's theme variables with the framework's default palettes (docs/sdk-v1.md §2.3), so
+ * the comparison shows what the profile removes rather than the button style or the theme.
  */
+const rootVars = (scheme: 'light' | 'dark') => Object.entries(themeVariables({ colorScheme: scheme })).map(([k, v]) => `${k}:${v}`).join(';');
+const REFERENCE_THEME = `:root{${rootVars('light')}}@media (prefers-color-scheme: dark){:root{${rootVars('dark')}}}`;
 const withDoctype = (html: string) => {
-  const ua = `<style data-tw-ua>${PROFILE_UA_STYLESHEET}</style>`;
+  const ua = `<style data-tw-ua>${PROFILE_UA_STYLESHEET}${REFERENCE_THEME}</style>`;
   const m = /^\s*<!doctype[^>]*>/i.exec(html);
   return m ? m[0] + ua + html.slice(m[0].length) : '<!DOCTYPE html>\n' + ua + html;
 };

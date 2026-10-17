@@ -16,6 +16,7 @@
 
 import { EVENT_TYPES, type CanvasCmd, type HostToRenderer, type Query, type RenderOp, type RendererToHost, type WidgetEvent } from '../shared/protocol';
 import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
+import { THEME_VARIABLES, themeVariables } from '../shared/sdk-policy';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
 
 /** Where the core renders: a whole document (iframe, native WebViews) or a shadow root inside the host page. */
@@ -198,9 +199,13 @@ function applyOp(op: RenderOp) {
   if (!node) return;
   switch (op.op) {
     case 'attr':
-      return applyAttr(node as Element, op.name, op.value);
+      applyAttr(node as Element, op.name, op.value);
+      if (node === HTML && op.name.toLowerCase() === 'style') applyThemeVariables();
+      return;
     case 'rattr':
-      return removeAttribute(node as Element, op.name);
+      removeAttribute(node as Element, op.name);
+      if (node === HTML && op.name.toLowerCase() === 'style') applyThemeVariables();
+      return;
     case 'data':
       return setCharData(node, op.data);
     case 'ins': {
@@ -224,6 +229,8 @@ function applyOp(op: RenderOp) {
       return;
     }
     case 'style': {
+      // The host's theme variables on the root are not the widget's to change (it can shadow them on its own elements).
+      if (node === HTML && THEME_VARIABLES.includes(op.name)) return;
       const style = styleOf(node as Element);
       if (op.value === '') style.removeProperty(op.name);
       else style.setProperty(op.name, op.value, op.important ? 'important' : '');
@@ -517,21 +524,26 @@ function serialize(e: Event, targetId: number): WidgetEvent {
 }
 
 /**
- * Does the widget want the touch gesture that starts on `el` for itself? True
- * when an ancestor's computed `touch-action` forbids vertical panning (the
- * platform scroll gesture) or when the sandbox has learned to prevent
- * pointerdown / touchstart on this target. Hosts whose WebView lives inside
- * a scrolling container that cannot see into it (Android) act on this.
+ * Which drags of the touch that starts on `el` the widget takes for itself
+ * (docs/sdk-v1.md §5.5): `x` when an ancestor's computed `touch-action`
+ * forbids horizontal panning (the chat's swipe-to-reply), `y` when one forbids
+ * vertical panning (the list scroll); both when the sandbox has learned to
+ * prevent pointerdown / touchstart on this target. The host tells the client
+ * (`onGestureClaim`); hosts whose WebView lives inside a scrolling container
+ * that cannot see into it (Android) also act on `y` themselves.
  */
-function wantsGesture(el: Element | null, targetId: number): boolean {
-  if (preventKeys.has(`${targetId}:pointerdown`) || preventKeys.has(`${targetId}:touchstart`)) return true;
+function gestureClaim(el: Element | null, targetId: number): { x: boolean; y: boolean } {
+  if (preventKeys.has(`${targetId}:pointerdown`) || preventKeys.has(`${targetId}:touchstart`)) return { x: true, y: true };
+  let x = false, y = false;
   for (let n: Element | null = el; n && n !== HTML; n = parentNodeOf(n) as Element | null) {
     if (!(n instanceof Element)) break;
     const ta = getComputedStyle(n).touchAction;
-    if (ta === 'none') return true;
-    if (ta !== 'auto' && ta !== 'manipulation' && !/\bpan-(y|up|down)\b/.test(ta)) return true;
+    if (ta === 'auto' || ta === 'manipulation') continue;
+    if (ta === 'none') return { x: true, y: true };
+    if (!/\bpan-(x|left|right)\b/.test(ta)) x = true;
+    if (!/\bpan-(y|up|down)\b/.test(ta)) y = true;
   }
-  return false;
+  return { x, y };
 }
 
 function onEvent(e: Event) {
@@ -556,7 +568,7 @@ function onEvent(e: Event) {
   const targetId = target === root || target === null ? ids.get(HTML) ?? 0 : idOf(target);
   if (!targetId) return;
   if (preventKeys.size && e.cancelable && preventKeys.has(`${targetId}:${type}`)) e.preventDefault();
-  if (type === 'pointerdown' && (e as PointerEvent).isPrimary) post({ type: 'gesture', wants: wantsGesture(targetEl, targetId) });
+  if (type === 'pointerdown' && (e as PointerEvent).isPrimary) { const c = gestureClaim(targetEl, targetId); post({ type: 'gesture', wants: c.y, x: c.x, y: c.y }); }
   if (!ALWAYS_FORWARD.has(type) && !interest.has(type)) return;
   // enter/leave do not bubble: with a capturing document listener they are seen once per entered element.
   const ev = serialize(e, targetId);
@@ -632,6 +644,25 @@ function onMessage(msg: HostToRenderer) {
     case 'frozen':
       freeze(String(msg.reason), !!msg.fatal);
       break;
+    case 'theme':
+      themeVars = themeVariables(msg.theme);
+      applyThemeVariables();
+      break;
+  }
+}
+
+// ───────────────────────── theme variables (docs/sdk-v1.md §2.3, §2.4, §3.4) ─────────────────────────
+
+let themeVars: Record<string, string> = {};
+
+/** The host's variables, inline and important on the widget's root: no widget stylesheet or root style op overrides them. */
+function applyThemeVariables() {
+  if (!HTML) return;
+  const style = styleOf(HTML);
+  for (const name of THEME_VARIABLES) {
+    const v = themeVars[name];
+    if (v === undefined) style.removeProperty(name);
+    else style.setProperty(name, v, 'important');
   }
 }
 

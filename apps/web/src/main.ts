@@ -11,6 +11,7 @@ import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import type { FeedApi } from './feed';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
+import type { StorageCommit, WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const el = {
@@ -31,13 +32,40 @@ export interface TwState {
   diags: Record<string, { count: number; details: string[] }>;
   logs: { level: string; text: string }[];
   bridge: { method: string; args: unknown[] }[];
+  /** What the widget asked the client to do (SDK v1 `onAction`), in order. */
+  actions: WidgetAction[];
+  /** Gesture claims of the primary pointerdowns (`onGestureClaim`), in order. */
+  gestures: { x: boolean; y: boolean }[];
   stats: (Stats & { nodes: number }) | null;
   height: number;
   /** Last uncaught widget error, shown under the bubble until a later task completes without one. */
   lastError: string | null;
 }
 
-const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], stats: null, height: 0, lastError: null };
+const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], stats: null, height: 0, lastError: null };
+/** `?locale=ru`: the client's UI language passed to the widget (navigator.language, the Intl default); en-US otherwise. */
+const LOCALE = new URLSearchParams(location.search).get('locale') ?? undefined;
+
+// Web Storage as a client keeps it (docs/sdk-v1.md §5.4), per file: `local` in this page's localStorage (it survives a
+// reload, as it survives an app restart), `session` in memory. `__tw.restart()` and reopening the file get it back.
+const sessionAreas = new Map<string, Record<string, string>>();
+const storageKey = (file: string) => 'tw-widget-storage:' + file;
+function storageFor(file: string | null): StorageCommit | undefined {
+  if (!file) return undefined;
+  let local: Record<string, string> = {};
+  try { local = JSON.parse(localStorage.getItem(storageKey(file)) ?? '{}'); } catch {}
+  return { local, session: sessionAreas.get(file) ?? {} };
+}
+function commitStorage(file: string | null, area: 'local' | 'session', values: Record<string, string>) {
+  if (!file) return;
+  if (area === 'session') sessionAreas.set(file, values);
+  else try { localStorage.setItem(storageKey(file), JSON.stringify(values)); } catch {}
+}
+function clearStorage(file: string | null) {
+  if (!file) return;
+  sessionAreas.delete(file);
+  try { localStorage.removeItem(storageKey(file)); } catch {}
+}
 let tasksAtError = 0;
 /** Runtime limits overridable from the URL for the Playwright suites (?cpuQuotaMs=…&cpuKillAfterMs=…&maxTimers=…). */
 const LIMIT_PARAMS = ['cpuLimitMs', 'cpuQuotaMs', 'cpuQuotaWindowMs', 'cpuKillAfterMs', 'maxTimers'] as const;
@@ -135,7 +163,7 @@ function renderConsole() {
 function load(html: string, name: string | null) {
   host?.destroy();
   host = null;
-  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], stats: null, height: 0, lastError: null });
+  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], stats: null, height: 0, lastError: null });
   tasksAtError = 0;
   // Showcase widgets own the whole bubble (edge to edge, the bubble clips); the older corpora are cards in a padded bubble (style.css .bubble.edge).
   for (const b of document.querySelectorAll('.stage .bubble')) b.classList.toggle('edge', isEdge(name));
@@ -146,6 +174,8 @@ function load(html: string, name: string | null) {
     policy: WIDGET_POLICY,
     features: WIDGET_FEATURES,
     theme: state.theme,
+    locale: LOCALE,
+    storage: storageFor(name),
     ...limits,
     // Blitz / litehtml (dev tooling): a native renderer compiled to wasm instead of the sandboxed iframe; sandbox and validator unchanged.
     // Shadow DOM (prototype): the same renderer core on a shadow root in this page, no iframe.
@@ -165,6 +195,9 @@ function load(html: string, name: string | null) {
       coalesce(renderStats);
     },
     onBridge: (method, args) => { state.bridge.push({ method, args }); coalesce(renderBridge); },
+    onAction: (action) => { state.actions.push(action); },
+    onStorageCommit: (area, values) => commitStorage(name, area, values),
+    onGestureClaim: (claim) => { if (state.gestures.length < 1000) state.gestures.push(claim); },
     onDead: (reason) => { state.dead = reason; renderStatus(); settle(); },
     onLoaded: () => { state.loaded = true; renderStatus(); settle(); },
     onResize: (h) => { state.height = h; coalesce(renderStats); },
@@ -410,7 +443,9 @@ el.drop.addEventListener('drop', async (e) => {
   restart: () => { if (state.html) load(state.html, state.file); },
   /** Force the widget's visibility (null = back to the IntersectionObserver / page visibility). */
   setVisible: (v: boolean | null) => { forcedVisible = v; applyVisibility(); },
-  bridgeEvent: (event: string, data?: unknown) => host?.bridgeEvent(event, data),
+  /** The Web Storage the dev app keeps for a file (`local` survives a page reload), and forgetting it. */
+  storage: (file: string | null = state.file) => storageFor(file),
+  clearStorage: (file: string | null = state.file) => clearStorage(file),
   get host() { return host; },
   /** Native renderers only: a tap at CSS px inside the bubble, hit-tested by the native document (the runners cannot click into a canvas). */
   tap: (x: number, y: number) => { const r = BlitzRenderer.current ?? LitehtmlRenderer.current; if (r) { r.touch(0, x, y); r.touch(2, x, y); } },

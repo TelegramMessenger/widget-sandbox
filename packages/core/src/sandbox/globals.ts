@@ -6,6 +6,10 @@ import { addEventListener, dispatchEvent, Event, EventTarget, removeEventListene
 import { diag, host, invalidateLayout, query, unsupported } from './host';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import { cssSupports } from '../shared/css-supports';
+import {
+  DEFAULT_LOCALE, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, STORAGE_QUOTA_BYTES,
+  checkLink, checkLocale, completeThemeParams, utf8Length, type ThemeParams,
+} from '../shared/sdk-policy';
 
 const G: any = globalThis;
 
@@ -137,31 +141,103 @@ export function fireFrame() {
 let originTime = 0;
 export const timeOrigin = () => originTime;
 
-// ───────────────────────── storage ─────────────────────────
+// ───────────────────────── storage (docs/sdk-v1.md §2.8) ─────────────────────────
 
-function makeStorage(): any {
-  const data = new Map<string, string>();
+/** Minimal DOMException: `name` carries the kind (QuotaExceededError, NotAllowedError, …), `code` the legacy number. */
+const DOM_EXCEPTION_CODES: Record<string, number> = { IndexSizeError: 1, HierarchyRequestError: 3, NotFoundError: 8, NotSupportedError: 9, InvalidStateError: 11, SyntaxError: 12, SecurityError: 18, NetworkError: 19, AbortError: 20, QuotaExceededError: 22, TimeoutError: 23, DataCloneError: 25 };
+export class DOMException extends Error {
+  constructor(message = '', name = 'Error') {
+    super(String(message));
+    Object.defineProperty(this, 'name', { value: String(name), writable: true, configurable: true });
+  }
+  get code() { return DOM_EXCEPTION_CODES[this.name] ?? 0; }
+}
+
+type AreaName = 'local' | 'session';
+const storageData: Record<AreaName, Map<string, string>> = { local: new Map(), session: new Map() };
+const storageUsed: Record<AreaName, number> = { local: 0, session: 0 };
+const storageDirty = new Set<AreaName>();
+
+function areaBytes(m: Map<string, string>) {
+  let n = 0;
+  for (const [k, v] of m) n += utf8Length(k) + utf8Length(v);
+  return n;
+}
+
+/** The client's preload (already checked by the glue); called once at boot. */
+export function preloadStorage(storage: unknown) {
+  const s = (typeof storage === 'object' && storage !== null ? storage : {}) as Record<string, unknown>;
+  for (const area of ['local', 'session'] as AreaName[]) {
+    const m = storageData[area];
+    m.clear();
+    const src = s[area];
+    if (typeof src === 'object' && src !== null) for (const k of Object.keys(src)) { const v = (src as any)[k]; if (typeof v === 'string') m.set(k, v); }
+    storageUsed[area] = areaBytes(m);
+    if (storageUsed[area] > STORAGE_QUOTA_BYTES) { m.clear(); storageUsed[area] = 0; }
+  }
+  storageDirty.clear();
+}
+
+/** The areas the task changed, in full, or null; the caller sends them to the glue (`__host('storage', …)`) once per task. */
+export function takeStorageCommit(): Record<string, Record<string, string>> | null {
+  if (!storageDirty.size) return null;
+  const commit: Record<string, Record<string, string>> = {};
+  for (const area of storageDirty) commit[area] = Object.fromEntries(storageData[area]);
+  storageDirty.clear();
+  return commit;
+}
+
+function makeStorage(area: AreaName): any {
+  const data = storageData[area];
+  const setItem = (key: unknown, value: unknown) => {
+    const k = String(key), v = String(value);
+    const old = data.get(k);
+    if (old === v) return;
+    const used = storageUsed[area] - (old === undefined ? 0 : utf8Length(k) + utf8Length(old)) + utf8Length(k) + utf8Length(v);
+    if (used > STORAGE_QUOTA_BYTES) throw new DOMException(`Setting the value of '${k.slice(0, 64)}' exceeded the quota (${STORAGE_QUOTA_BYTES} bytes per area)`, 'QuotaExceededError');
+    data.set(k, v);
+    storageUsed[area] = used;
+    storageDirty.add(area);
+  };
+  const removeItem = (key: unknown) => {
+    const k = String(key);
+    const old = data.get(k);
+    if (old === undefined) return;
+    data.delete(k);
+    storageUsed[area] -= utf8Length(k) + utf8Length(old);
+    storageDirty.add(area);
+  };
   const api: any = {
-    getItem: (k: string) => (data.has(String(k)) ? data.get(String(k))! : null),
-    setItem: (k: string, v: string) => { data.set(String(k), String(v)); },
-    removeItem: (k: string) => { data.delete(String(k)); },
-    clear: () => data.clear(),
+    getItem: (k: unknown) => (data.has(String(k)) ? data.get(String(k))! : null),
+    setItem,
+    removeItem,
+    clear: () => { if (!data.size) return; data.clear(); storageUsed[area] = 0; storageDirty.add(area); },
     key: (i: number) => [...data.keys()][i] ?? null,
   };
   return new Proxy(api, {
     get: (t, p) => (p === 'length' ? data.size : typeof p === 'string' && !(p in t) ? data.get(p) : t[p as any]),
-    set: (t, p, v) => { if (typeof p === 'string') data.set(p, String(v)); return true; },
+    set: (t, p, v) => { if (typeof p === 'string') setItem(p, v); return true; },
     has: (t, p) => p in t || (typeof p === 'string' && data.has(p)),
-    deleteProperty: (t, p) => { if (typeof p === 'string') data.delete(p); return true; },
+    deleteProperty: (t, p) => { if (typeof p === 'string') removeItem(p); return true; },
     ownKeys: () => [...data.keys()],
     getOwnPropertyDescriptor: (t, p) => (typeof p === 'string' && data.has(p) ? { value: data.get(p), writable: true, enumerable: true, configurable: true } : undefined),
   });
+}
+
+// ───────────────────────── locale (docs/sdk-v1.md §2.9) ─────────────────────────
+
+let locale = DEFAULT_LOCALE;
+/** The client's UI language (checked by the glue; anything else is the default). */
+export function setLocale(l: unknown) {
+  locale = checkLocale(l) ?? DEFAULT_LOCALE;
 }
 
 // ───────────────────────── Intl (delegated to the host's ICU) ─────────────────────────
 
 const intlCache = new Map<string, string>();
 function intl(req: any): string {
+  // No locale argument means the client's language, as in a browser whose UI language it is.
+  if (req.locale === undefined || req.locale === null) req.locale = locale;
   const key = JSON.stringify(req);
   let v = intlCache.get(key);
   if (v === undefined) {
@@ -319,46 +395,114 @@ function installNetworkStubs() {
   G.Request = ctor('Request');
 }
 
-// ───────────────────────── bridge ─────────────────────────
+// ───────────────────────── bridge: TelegramWidget (docs/sdk-v1.md §2) ─────────────────────────
 
-const themeCallbacks: any[] = [];
-let theme = 'light';
-export function setTheme(t: string, notify: boolean) {
-  const changed = t !== theme;
-  theme = t;
-  if (notify && changed) for (const cb of themeCallbacks) { try { cb(theme); } catch (e) { reportError(e); } }
+let colorScheme: 'light' | 'dark' = 'light';
+let themeParams: Readonly<ThemeParams> = Object.freeze(completeThemeParams({}, 'light'));
+const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated'];
+const widgetHandlers = new Map<string, Function[]>(WIDGET_EVENTS.map((t) => [t, []]));
+const themeCallbacks: Function[] = [];
+
+function fireWidgetEvent(type: string) {
+  for (const cb of [...widgetHandlers.get(type)!]) { try { cb.call(G.TelegramWidget); } catch (e) { reportError(e); } }
 }
-const bridgeListeners = new Map<string, any[]>();
-export function fireBridge(event: string, data: unknown) {
-  for (const cb of bridgeListeners.get(event) ?? []) { try { cb(data); } catch (e) { reportError(e); } }
+
+/**
+ * The host's theme: at boot (`notify` false) and on every change. A change of the
+ * scheme or of any colour gives the widget a fresh frozen `themeParams`, then
+ * `themeChanged` and the legacy `onTheme` callbacks, in one task.
+ */
+export function setTheme(theme: unknown, notify: boolean) {
+  const t = (typeof theme === 'object' && theme !== null ? theme : { theme }) as Record<string, unknown>;
+  const scheme = t.theme === 'dark' || t.colorScheme === 'dark' ? 'dark' : 'light';
+  const params = completeThemeParams(t.themeParams ?? t.params, scheme);
+  const changed = scheme !== colorScheme || Object.keys(params).some((k) => (params as any)[k] !== (themeParams as any)[k]);
+  colorScheme = scheme;
+  if (changed) themeParams = Object.freeze(params);
+  if (!notify || !changed) return;
+  fireWidgetEvent('themeChanged');
+  for (const cb of [...themeCallbacks]) { try { cb(colorScheme); } catch (e) { reportError(e); } }
 }
+
+/** Visibility changed (the caller has flipped `document.hidden`): `activated` / `deactivated`. */
+export function fireActivation() {
+  fireWidgetEvent(hidden ? 'deactivated' : 'activated');
+}
+
 const bridge = (method: string, ...args: unknown[]) => host('bridge', JSON.stringify([method, args]));
 
-export function openLink(url: unknown) {
-  bridge('openLink', String(url));
+function link(method: 'openLink' | 'openTelegramLink', url: unknown) {
+  const checked = checkLink(method, url);
+  if (checked === null) {
+    throw new TypeError(method === 'openLink'
+      ? 'openLink: expected an absolute https: URL of at most 256 characters, without a user name, not on t.me (use openTelegramLink)'
+      : 'openTelegramLink: expected https://t.me/… (or telegram.me, telegram.dog) of at most 256 characters');
+  }
+  bridge(method, checked);
 }
 
+/**
+ * A link the widget did not open through the SDK (`<a href>`, `window.open`):
+ * Telegram hosts go to openTelegramLink, others to openLink; what neither
+ * accepts is ignored with a diagnostic, never an exception.
+ */
+export function followLink(href: unknown) {
+  const url = String(href ?? '').trim();
+  if (/^javascript:/i.test(url)) return diag('navigation-blocked', 'javascript: link ignored');
+  if (checkLink('openTelegramLink', url) !== null) return link('openTelegramLink', url);
+  if (checkLink('openLink', url) !== null) return link('openLink', url);
+  diag('navigation-blocked', `link ignored (openLink takes https: URLs of at most 256 characters): ${url.slice(0, 200)}`);
+}
+
+function haptic(kind: string, value?: unknown) {
+  if (kind === 'impact' && !HAPTIC_IMPACT_STYLES.includes(value as string)) throw new TypeError(`HapticFeedback.impactOccurred: style must be one of ${HAPTIC_IMPACT_STYLES.join(', ')}`);
+  if (kind === 'notification' && !HAPTIC_NOTIFICATION_TYPES.includes(value as string)) throw new TypeError(`HapticFeedback.notificationOccurred: type must be one of ${HAPTIC_NOTIFICATION_TYPES.join(', ')}`);
+  if (kind === 'selection') bridge('haptic', 'selection');
+  else bridge('haptic', kind, value);
+  return HapticFeedback;
+}
+const HapticFeedback = Object.freeze({
+  impactOccurred: (style: unknown) => haptic('impact', style),
+  notificationOccurred: (type: unknown) => haptic('notification', type),
+  selectionChanged: () => haptic('selection'),
+});
+
 function installBridge() {
-  G.TelegramWidget = {
+  const widget = {
     /** The widget profile this client enforces (docs/profile-v1.md); a later profile only adds features. */
     get profile() { return PROFILE_VERSION; },
     isProfileAtLeast(n: unknown) { return typeof n === 'number' && PROFILE_VERSION >= n; },
-    /** Ask the host to send `text` to the chat on the user's behalf. */
-    sendMessage(text: string) { bridge('sendMessage', String(text)); },
-    /** Ask the host to open a link (the user confirms in a native dialog). */
-    openLink(url: string) { openLink(url); },
+    get colorScheme() { return colorScheme; },
+    /** The chat's palette as `#rrggbb`, Mini Apps keys; a fresh frozen object per change. */
+    get themeParams() { return themeParams; },
+    get isActive() { return !hidden; },
+    onEvent(type: unknown, handler: unknown) {
+      const list = widgetHandlers.get(String(type));
+      if (!list || typeof handler !== 'function' || list.includes(handler) || list.length >= MAX_HANDLERS_PER_EVENT) return;
+      list.push(handler);
+    },
+    offEvent(type: unknown, handler: unknown) {
+      const list = widgetHandlers.get(String(type));
+      const i = list ? list.indexOf(handler as Function) : -1;
+      if (i >= 0) list!.splice(i, 1);
+    },
+    /** Ask the client to open an external https: page (the user confirms in a native dialog); needs a tap. */
+    openLink(url: unknown) { link('openLink', url); },
+    /** Ask the client to open a t.me link through its own handling; needs a tap. */
+    openTelegramLink(url: unknown) { link('openTelegramLink', url); },
+    HapticFeedback,
     /** Signal that the widget has rendered its initial state. */
     ready() { bridge('ready'); },
-    /** Subscribe to theme changes; called immediately with the current theme. */
-    onTheme(cb: (theme: string) => void) {
-      if (typeof cb !== 'function') return;
+    /** Deprecated alias of `colorScheme`. */
+    get theme() { return colorScheme; },
+    /** Deprecated: `onEvent('themeChanged', …)`; called at once with the colour scheme and on every change. */
+    onTheme(cb: unknown) {
+      if (typeof cb !== 'function' || themeCallbacks.length >= MAX_HANDLERS_PER_EVENT) return;
       themeCallbacks.push(cb);
-      try { cb(theme); } catch (e) { reportError(e); }
+      try { cb(colorScheme); } catch (e) { reportError(e); }
     },
-    get theme() { return theme; },
-    /** Generic host events (reserved for future bridge messages). */
-    on(event: string, cb: any) { if (typeof cb === 'function') bridgeListeners.set(event, [...(bridgeListeners.get(event) ?? []), cb]); },
   };
+  G.TelegramWidget = widget;
 }
 
 // ───────────────────────── misc polyfills ─────────────────────────
@@ -524,8 +668,9 @@ export function installWindow(deps: WindowDeps) {
   G.requestIdleCallback = (cb: any) => G.setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 10 }), 1);
   G.cancelIdleCallback = clearTimer;
 
-  G.localStorage = makeStorage();
-  G.sessionStorage = makeStorage();
+  G.localStorage = makeStorage('local');
+  G.sessionStorage = makeStorage('session');
+  G.DOMException = DOMException;
   G.matchMedia = matchMedia;
   G.ResizeObserver = ResizeObserver;
   G.IntersectionObserver = IntersectionObserver;
@@ -546,26 +691,31 @@ export function installWindow(deps: WindowDeps) {
   Object.defineProperty(deps.document, 'location', { get: () => location, set: (u) => navBlocked('document.location', u), configurable: true });
   G.history = { length: 1, state: null, pushState() {}, replaceState() {}, back() {}, forward() {}, go() {}, scrollRestoration: 'auto' };
   // window.open goes through the same user-confirmed flow as a link tap.
-  G.open = (url?: unknown) => { if (url) openLink(url); return null; };
+  G.open = (url?: unknown) => { if (url) followLink(url); return null; };
   G.close = () => {};
   G.print = () => unsupported('window.print');
   G.postMessage = () => unsupported('window.postMessage');
-  G.alert = (msg?: unknown) => { unsupported('alert/confirm/prompt (blocking dialogs)'); bridge('alert', String(msg ?? '')); };
-  G.confirm = (msg?: unknown) => { unsupported('alert/confirm/prompt (blocking dialogs)'); bridge('alert', String(msg ?? '')); return false; };
-  G.prompt = (msg?: unknown) => { unsupported('alert/confirm/prompt (blocking dialogs)'); bridge('alert', String(msg ?? '')); return null; };
+  // No dialog and nothing for the host (docs/sdk-v1.md §2.10).
+  G.alert = () => { unsupported('alert/confirm/prompt (blocking dialogs)'); };
+  G.confirm = () => { unsupported('alert/confirm/prompt (blocking dialogs)'); return false; };
+  G.prompt = () => { unsupported('alert/confirm/prompt (blocking dialogs)'); return null; };
   G.scrollTo = G.scroll = G.scrollBy = () => {};
   G.focus = G.blur = () => {};
   G.getSelection = () => ({ rangeCount: 0, isCollapsed: true, toString: () => '', removeAllRanges() {}, addRange() {}, getRangeAt: () => null, anchorNode: null, focusNode: null });
+  const notAllowed = (api: string) => { unsupported(api); return Promise.reject(new DOMException(`${api} is not available in a widget`, 'NotAllowedError')); };
   G.navigator = {
-    userAgent: 'Mozilla/5.0 TelegramWidget/1.0', language: 'en-US', languages: ['en-US', 'en'], platform: 'TelegramWidget', vendor: '',
+    userAgent: 'Mozilla/5.0 TelegramWidget/1.0', get language() { return locale; }, get languages() { return Object.freeze([locale]); }, platform: 'TelegramWidget', vendor: '',
     onLine: false, cookieEnabled: false, hardwareConcurrency: 1, maxTouchPoints: 0, deviceMemory: 1,
     sendBeacon: (url?: unknown) => { throw blocked('navigator.sendBeacon', url); },
     clipboard: {
-      writeText: (t: string) => { unsupported('navigator.clipboard'); bridge('clipboard', String(t)); return Promise.reject(new Error('NotAllowedError: clipboard is not available')); },
-      readText: () => { unsupported('navigator.clipboard'); return Promise.reject(new Error('NotAllowedError: clipboard is not available')); },
+      writeText: () => notAllowed('navigator.clipboard'),
+      readText: () => notAllowed('navigator.clipboard'),
+      write: () => notAllowed('navigator.clipboard'),
+      read: () => notAllowed('navigator.clipboard'),
     },
     vibrate: () => false,
-    share: () => { unsupported('navigator.share'); return Promise.reject(new Error('NotAllowedError')); },
+    share: () => notAllowed('navigator.share'),
+    canShare: () => false,
     mediaDevices: undefined, geolocation: undefined, serviceWorker: undefined,
   };
   G.addEventListener = addEventListener;

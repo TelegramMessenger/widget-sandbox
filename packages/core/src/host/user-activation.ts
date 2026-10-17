@@ -1,5 +1,5 @@
 // User activation for privileged bridge calls (docs/protocol.md, "User
-// activation"). Everything but `ready` needs a real user gesture: the
+// activation"). The link calls (`PRIVILEGED_METHODS` in sdk-policy.ts) need a real user gesture: the
 // main-thread host numbers gestures from trusted renderer events (the DOM
 // event's isTrusted), hands the number to the worker with the event, and
 // accepts a privileged bridge message only when it carries a gesture the host
@@ -8,7 +8,6 @@
 // GestureCounter in widget_host.h and in UserActivation.kt), which also counts
 // only events the renderer marks `trusted`.
 
-export const UNPRIVILEGED_BRIDGE_METHODS = new Set(['ready']);
 /** Pointer presses only: widgets get no keyboard (docs/decisions.md, "Profile v1"), so no key is a gesture. */
 const TYPES = new Set(['click', 'dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointerup']);
 /** A privileged call must reach the host this soon after its gesture was issued. */

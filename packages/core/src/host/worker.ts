@@ -15,10 +15,14 @@ import wasmUrl from '@telegram/widget-sandbox-quickjs/wasm?url';
 import { CpuBudget } from './cpu-budget';
 import { MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
 
+import { STORAGE_QUOTA_BYTES } from '../shared/sdk-policy';
+
 const post = (msg: WorkerToHost) => (self as unknown as Worker).postMessage(msg);
 
 const QUERY_TIMEOUT_MS = 3000;
 const MAX_LOG = 4000;
+/** Two full areas of the quota at 12 JSON characters per byte (`\uXXXX` escapes plus the quotes, colon and comma of tiny pairs): a longer commit cannot be within the quota. */
+const MAX_STORAGE_COMMIT_CHARS = 2 * 12 * STORAGE_QUOTA_BYTES + 64;
 
 let rt: QuickJSRuntime;
 let vm: QuickJSContext;
@@ -243,6 +247,11 @@ function hostCall(kind: string, arg: string): string | number | undefined {
         const [method, args] = JSON.parse(arg);
         post(activeGesture ? { type: 'bridge', method: String(method).slice(0, 64), args, gesture: activeGesture } : { type: 'bridge', method: String(method).slice(0, 64), args });
       } catch {}
+      return;
+    case 'storage':
+      // The full areas a task changed; WidgetHost checks them against the quota (sdk-policy.ts). Anything longer cannot be within it.
+      if (arg.length > MAX_STORAGE_COMMIT_CHARS) { post({ type: 'diag', kind: 'storage-rejected', detail: `commit of ${arg.length} characters` }); return; }
+      try { post({ type: 'storage', commit: JSON.parse(arg) }); } catch {}
       return;
     case 'intl':
       try { return formatIntl(JSON.parse(arg)); } catch { return ''; }
@@ -566,8 +575,7 @@ function handle(msg: HostToWorker) {
       return;
     case 'viewport': dispatch('viewport', msg.viewport); return;
     case 'resize': dispatch('resize', msg.entries); return;
-    case 'theme': dispatch('theme', msg.theme); return;
-    case 'bridge': dispatch('bridge', [msg.event, msg.data]); return;
+    case 'theme': dispatch('theme', { theme: msg.theme, themeParams: msg.themeParams }); return;
     case 'visibility': setVisible(!!msg.visible); return;
   }
 }

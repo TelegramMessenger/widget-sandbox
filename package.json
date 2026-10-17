@@ -17,6 +17,7 @@
     "test:showcase": "CORPUS_GROUP=showcase playwright test tests/generated.spec.ts",
     "test:lifecycle": "playwright test tests/lifecycle.spec.ts",
     "test:activation": "playwright test tests/activation.spec.ts",
+    "test:sdk": "playwright test tests/sdk.spec.ts",
     "test:unit": "corepack pnpm -r test:unit",
     "generate-corpus": "tsx scripts/generate-corpus.ts",
     "build:ios": "corepack pnpm -C packages/core build:native ios && corepack pnpm exec tsx scripts/sync-demo-corpus.ts ios",

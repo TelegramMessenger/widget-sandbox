@@ -50,7 +50,9 @@ test('hidden: a 1 s interval ticks at most once per second; visible: no ticks ar
 
 test('the widget sees document.hidden and visibilitychange, like a background tab', async ({ page }) => {
   await page.goto('/');
-  await page.evaluate(() => (window as any).__tw.load(`<p id="s">?</p><p id="n">0</p><script>var n = 0; function show() { document.getElementById('s').textContent = document.visibilityState + '/' + document.hidden; document.getElementById('n').textContent = ++n; } document.addEventListener('visibilitychange', show); show();</script>`, null));
+  await page.evaluate(() => (window as any).__tw.load(`<p id="s">?</p><p id="n">0</p><p id="a"></p><script>var n = 0, a = ''; function show() { document.getElementById('s').textContent = document.visibilityState + '/' + document.hidden; document.getElementById('n').textContent = ++n; } document.addEventListener('visibilitychange', show); show();
+    TelegramWidget.onEvent('activated', function () { a += '+' + TelegramWidget.isActive; document.getElementById('a').textContent = a; });
+    TelegramWidget.onEvent('deactivated', function () { a += '-' + TelegramWidget.isActive; document.getElementById('a').textContent = a; });</script>`, null));
   await page.waitForFunction(() => (window as any).__tw.state.loaded);
   const f = page.frameLocator('#sandbox-wrap iframe');
   await expect(f.locator('#s')).toHaveText('visible/false');
@@ -60,11 +62,11 @@ test('the widget sees document.hidden and visibilitychange, like a background ta
   await setVisible(page, true);
   await expect(f.locator('#s')).toHaveText('visible/false');
   await expect(f.locator('#n')).toHaveText('3');
-  // Timers set while hidden are not lost: they fire on return.
   await setVisible(page, false);
-  await page.evaluate(() => (window as any).__tw.host.bridgeEvent('poke'));
   await setVisible(page, true);
   await expect(f.locator('#n')).toHaveText('5');
+  // SDK v1: isActive and activated / deactivated mirror the same state.
+  await expect(f.locator('#a')).toHaveText('-false+true-false+true');
 });
 
 // ───────── the triggers: the dev UI's IntersectionObserver and the page's own visibility ─────────

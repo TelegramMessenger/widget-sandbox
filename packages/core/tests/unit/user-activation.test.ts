@@ -58,16 +58,16 @@ describe('user activation: policy', () => {
 describe('user activation: harness', () => {
   const widget = `<button id="b">go</button><script>
     TelegramWidget.ready();
-    setTimeout(function () { TelegramWidget.sendMessage('timer'); }, 1);
+    setTimeout(function () { TelegramWidget.openLink('https://example.com/timer'); }, 1);
     Promise.resolve().then(function () { TelegramWidget.openLink('https://example.com/boot'); });
-    document.getElementById('b').addEventListener('click', function () { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });
+    document.getElementById('b').addEventListener('click', function () { TelegramWidget.openLink('https://example.com/clicked'); TelegramWidget.openTelegramLink('https://t.me/again'); });
   </script>`;
 
   it('privileged calls outside a gesture are blocked; one trusted click unlocks one call', async () => {
     const first = await runWidget(widget, { timerRounds: 2, policy: 'strict' });
     const button = first.renderOps.find((o: any) => o.op === 'el' && o.tag === 'button') as any;
     const r = await runWidget(widget, { timerRounds: 2, policy: 'strict', events: [{ type: 'click', targetId: button.id }, { type: 'click', targetId: button.id, gesture: 1 }, { type: 'click', targetId: button.id, gesture: 1 }] });
-    assert.deepEqual(r.bridge.map((b: any) => b[0] + ':' + JSON.stringify(b[1])), ['ready:[]', 'sendMessage:["clicked"]']);
+    assert.deepEqual(r.bridge.map((b: any) => b[0] + ':' + JSON.stringify(b[1])), ['ready:[]', 'openLink:["https://example.com/clicked"]'], 'one press unlocks one call, shared by both link methods');
     assert.ok(r.diags.filter((d) => d.kind === 'activation-blocked').length >= 4);
   });
 
@@ -76,9 +76,9 @@ describe('user activation: harness', () => {
     const button = first.renderOps.find((o: any) => o.op === 'el' && o.tag === 'button') as any;
     const hidden = await runWidget(widget, { timerRounds: 2, policy: 'strict', visible: false, events: [{ type: 'click', targetId: button.id, gesture: 1 }] });
     assert.deepEqual(hidden.bridge.map((b: any) => b[0]), ['ready']);
-    assert.ok(hidden.diags.some((d) => d.kind === 'activation-blocked' && d.detail.startsWith('sendMessage')));
+    assert.ok(hidden.diags.some((d) => d.kind === 'activation-blocked' && d.detail.startsWith('openLink')));
     const shown = await runWidget(widget, { timerRounds: 2, policy: 'strict', events: [{ type: 'click', targetId: button.id, gesture: 1 }] });
-    assert.deepEqual(shown.bridge.map((b: any) => b[0]), ['ready', 'sendMessage']);
+    assert.deepEqual(shown.bridge.map((b: any) => b[0]), ['ready', 'openLink']);
   });
 
   it('strict is the default, and anything but compat is strict', async () => {
@@ -91,7 +91,7 @@ describe('user activation: harness', () => {
   it('the compat policy forwards every bridge call, as before the gate', async () => {
     const r = await runWidget(widget, { timerRounds: 2, policy: 'compat' });
     const calls = r.bridge.map((b: any) => b[0] + ':' + JSON.stringify(b[1]));
-    assert.ok(calls.includes('sendMessage:["timer"]'), JSON.stringify(calls));
+    assert.ok(calls.includes('openLink:["https://example.com/timer"]'), JSON.stringify(calls));
     assert.ok(calls.includes('openLink:["https://example.com/boot"]'), JSON.stringify(calls));
     assert.ok(!r.diags.some((d) => d.kind === 'activation-blocked'));
   });

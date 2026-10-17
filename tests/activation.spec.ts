@@ -8,16 +8,16 @@ import { expect, test, type Page } from '@playwright/test';
 
 test.skip(process.env.VITE_TW_POLICY === 'compat', 'the gesture gate belongs to the strict policy');
 
-const WIDGET = `<button id="b">send</button>
+const WIDGET = `<button id="b">open</button>
 <script>
 TelegramWidget.ready();
-setTimeout(function () { TelegramWidget.sendMessage('timer'); }, 10);
+setTimeout(function () { TelegramWidget.openLink('https://example.com/timer'); }, 10);
 document.getElementById('b').addEventListener('click', function () {
-  TelegramWidget.sendMessage('clicked');
-  TelegramWidget.sendMessage('second in the same gesture');
+  TelegramWidget.openLink('https://example.com/clicked');
+  TelegramWidget.openTelegramLink('https://t.me/second_in_the_same_gesture');
   setTimeout(function () { TelegramWidget.openLink('https://example.com/later'); }, 0);
 });
-document.addEventListener('keydown', function () { TelegramWidget.sendMessage('key'); });
+document.addEventListener('keydown', function () { TelegramWidget.openLink('https://example.com/key'); });
 setTimeout(function () { document.getElementById('b').click(); }, 50);
 </script>`;
 
@@ -41,9 +41,9 @@ test('one real click unlocks exactly one call, made in its own handler', async (
   const f = await load(page);
   await page.waitForTimeout(300);
   await f.locator('#b').click();
-  await expect.poll(() => calls(page)).toContain('sendMessage:["clicked"]');
+  await expect.poll(() => calls(page)).toContain('openLink:["https://example.com/clicked"]');
   await page.waitForTimeout(300);
-  expect(await calls(page)).toEqual(['ready:[]', 'sendMessage:["clicked"]']);
+  expect(await calls(page)).toEqual(['ready:[]', 'openLink:["https://example.com/clicked"]']);
   await f.locator('#b').click();
   await expect.poll(async () => (await calls(page)).length).toBe(3);
 });
