@@ -39,15 +39,26 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
 - No bundled libraries: Chart.js and D3, `config.libraries` and
   `SandboxResources.provide` are gone on every platform (`docs/decisions.md`).
 - `Intl.formatToParts` (numbers and dates) in every glue copy.
+- **SDK v1** (`docs/sdk-v1.md`, 2026-10-17) in the shim, all five glue copies and the
+  Node harness: `TelegramWidget.colorScheme`, `themeParams` (and the `--tg-theme-*`,
+  `--tg-color-scheme`, `--tg-button-*` variables on the renderer root), `isActive`,
+  `onEvent` / `offEvent` (`themeChanged`, `activated`, `deactivated`), `openLink` /
+  `openTelegramLink` with the URL rules and one call per tap, `HapticFeedback` with a
+  rate limit, Web Storage kept per message by the client (16 KB per area, preload at
+  start, a commit per task), `navigator.language` and the Intl default from the
+  client's locale, gesture claims per press (`x`, `y`). `sendMessage` is removed;
+  `alert`/`confirm`/`prompt`, clipboard and share no longer reach the client. The
+  checks are one policy in four copies with a shared fixture
+  (`packages/core/src/shared/sdk-policy.ts`, `tests/fixtures/sdk-policy.json`).
+  The corpus widgets that called `sendMessage` keep their state in `localStorage`.
 - Docs for client teams: `docs/integration.md`, `docs/tgw-format.md`,
   `docs/decisions.md` ("Profile v1"), `docs/profile-v1.md`, `docs/widget-state.md`,
   `docs/bridge-discussion.md`, `docs/server-task.md`.
 
 **Not in the tag yet** (the next milestones)
 
-- SDK v1 (the `TelegramWidget` API and the bridge, `docs/sdk-v1.md`) and widget
-  storage (`docs/widget-state.md`); the client's answer to `prefers-reduced-motion`
-  arrives with its config (today: no preference).
+- The client's answer to `prefers-reduced-motion` arrives with its config (today: no
+  preference); per-bot `DeviceStorage` and everything else outside SDK v1 (§6 there).
 - `VERSION.json`, CI, a reproducible build of `packages/quickjs-wasm/dist`, published
   Maven and npm artifacts.
 - Renderer and engine pools on Android and the desktop core (the validator pool is on
@@ -62,6 +73,16 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
   the web `WidgetHost` option `libraries` and `@telegram/widget-sandbox/host/loader`.
   `WidgetJS/libs/` and `libraries.json` are no longer shipped.
 - Diagnostics: a removal the profile causes is reported as `profile`; `library` is gone.
+- SDK v1, every platform: the host takes a theme (`WidgetTheme`: colour scheme, palette,
+  button tokens; the plain scheme is still accepted), a `locale` and a Web Storage
+  preload (`storage`), and reports `onAction` (ready, openLink, openTelegramLink,
+  haptic), `onStorageCommit(area, values)` and `onGestureClaim(x, y)`; `setTheme`
+  takes a `WidgetTheme`. `onBridge` is deprecated (it still gets the raw calls that
+  passed the checks). Removed: the host → widget bridge events (web
+  `WidgetHost.bridgeEvent`, the `bridge` worker message, `TelegramWidget.on`) and the
+  wire methods `sendMessage`, `alert` and `clipboard`. New diagnostics:
+  `bridge-rejected`, `haptic-limit`, `storage-rejected`, `profile-mismatch`. The
+  renderer's `gesture` message carries `x` and `y` next to `wants`.
 
 **Known issues**
 

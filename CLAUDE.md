@@ -153,6 +153,7 @@ corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "
 corepack pnpm test:unit
 corepack pnpm test:attacks            # 98 files, canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
+corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md): theme variables on the renderer root, gesture claims, storage across a restart, locale, link and haptic actions; iframe + shadow
 corepack pnpm test:compat             # → docs/compat-report.md
 corepack pnpm test:generated          # → docs/compat-report-generated.md
 corepack pnpm test:lifecycle          # off-screen pause (frames stop, timers 1 Hz, visibilitychange)
@@ -257,6 +258,11 @@ and `@supports` from one evaluator) and the renderer (no keyboard or focus, no s
 the client-styled `<button>`); no bundled libraries on any platform; `Intl.formatToParts`
 in every glue copy; the compat widgets that need libraries or form controls moved to
 `corpus/out-of-profile/`.
+2026-10-17: SDK v1 (`docs/sdk-v1.md`): `TelegramWidget` v1 in the shim, the checks in one
+policy with four copies and a fixture (`packages/core/src/shared/sdk-policy.ts`,
+`SdkPolicy.swift`, `SdkPolicy.kt`, `sdk_policy.cpp`, `packages/core/tests/fixtures/sdk-policy.json`),
+`WidgetTheme` / `onAction` / `onStorageCommit` / `onGestureClaim` on every host, Web Storage
+per message, `sendMessage` gone; the corpora reworked for profile 1 and SDK v1.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
-and tags (VERSION.json), SDK v1 and storage, the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
+and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.

@@ -223,7 +223,7 @@ export const DEFAULT_THEME_PARAMS: Record<'light' | 'dark', ThemeParams> = {
   },
   dark: {
     bg_color: '#212121', text_color: '#ffffff', hint_color: '#aaaaaa', link_color: '#8774e1',
-    button_color: '#8774e1', button_text_color: '#ffffff', secondary_bg_color: '#0f0f0f',
+    button_color: '#8774e1', button_text_color: '#ffffff', secondary_bg_color: '#181818',
     accent_text_color: '#8774e1', subtitle_text_color: '#aaaaaa', destructive_text_color: '#ff595a',
     section_bg_color: '#212121', section_header_text_color: '#8774e1', section_separator_color: '#3d3d3d',
     header_bg_color: '#212121', bottom_bar_bg_color: '#212121',

@@ -3,10 +3,10 @@
 Three trust domains exchange plain JSON messages:
 
 ```
-sandbox (QuickJS, UNTRUSTED) ──ops / queries / listen / pd / raf / log / diag / bridge──▶ host (trusted)
-sandbox ◀── events / timer & frame ticks / query results / viewport / theme / bridge ──── host
-host ──validated RenderOps / queries / listen / preventDefault / requestFrame / frozen──▶ renderer (trusted code, sandboxed iframe)
-host ◀── events / query results / size / resize / frame / media / violation ──── renderer
+sandbox (QuickJS, UNTRUSTED) ──ops / queries / listen / pd / raf / log / diag / bridge / storage──▶ host (trusted)
+sandbox ◀── events / timer & frame ticks / query results / viewport / theme / visibility ──── host
+host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / frozen──▶ renderer (trusted code, sandboxed iframe)
+host ◀── events / query results / size / resize / frame / media / gesture / violation ──── renderer
 ```
 
 Type definitions live in `packages/core/src/shared/protocol.ts`. Nothing from the sandbox is
@@ -303,25 +303,35 @@ next occurrence on ("learned preventDefault"). See `docs/decisions.md`.
 ### Touch gestures inside a scrolling host
 
 On every primary `pointerdown` the renderer also posts
-`{ type: 'gesture', wants }` — `wants` is true when an ancestor of the target
-has a computed `touch-action` that forbids vertical panning (`none`, `pan-x`,
-…), or the sandbox has learned to prevent `pointerdown` / `touchstart` on that
-target. (Range inputs and scrollable boxes, which also claimed the gesture,
-are outside profile 1.) It exists for hosts whose renderer view sits inside a scrolling
-container that cannot see into it: the Android host denies the container's
-touch interception from `ACTION_DOWN` and releases it on `wants: false` (or
-after 150 ms without an answer). The web and iOS hosts ignore the message —
-the browser and WebKit resolve `touch-action` against the scroll gesture
-themselves.
+`{ type: 'gesture', wants, x, y }` — `x` is true when an ancestor of the target
+has a computed `touch-action` that forbids horizontal panning (`none`, `pan-y`,
+`pinch-zoom`, …), `y` when one forbids vertical panning (`none`, `pan-x`, …),
+both when the sandbox has learned to prevent `pointerdown` / `touchstart` on that
+target; `wants` is `y`. (Range inputs and scrollable boxes, which also claimed the gesture,
+are outside profile 1.) Every host hands `x` and `y` to the client
+(`onGestureClaim`, docs/sdk-v1.md §5.5): the client keeps swipe-to-reply off a
+touch the widget takes horizontally and the list still on one it takes
+vertically. Hosts whose renderer view sits inside a scrolling container that
+cannot see into it also act on `wants` themselves: the Android host denies the
+container's touch interception from `ACTION_DOWN` and releases it on
+`wants: false` (or after 150 ms without an answer).
 
 ## Host ⇄ worker envelope
 
 Host → worker: `init {html, sab, config, sandboxBundle}`, `event {ev}`,
-`frame {time}`, `viewport`, `resize {entries}`, `theme`, `bridge {event, data}`,
-`visibility {visible}`.
+`frame {time}`, `viewport`, `resize {entries}`, `theme {theme, themeParams}`,
+`visibility {visible}`. (The `bridge {event, data}` message, host → widget
+events, is gone with `sendMessage`.)
 
 Host → renderer, besides ops and queries: `listen {types}`, `preventDefault
-{keys}`, `requestFrame`, `anim {now, anims}` (`webAnimations`), and `frozen {reason, fatal}` — the runtime is gone
+{keys}`, `requestFrame`, `anim {now, anims}` (`webAnimations`), `theme {theme:
+{colorScheme, params, button}}` — the renderer core builds the CSS variables of
+docs/sdk-v1.md §2.3–§2.4 from it (`themeVariables` in
+`packages/core/src/shared/sdk-policy.ts`: names from a fixed list, values
+checked against their grammar) and sets them inline and `!important` on the
+widget's root, ignoring style ops of the widget that would set those names
+there and re-applying them when the widget replaces the root's `style`
+attribute — and `frozen {reason, fatal}` — the runtime is gone
 (or paused): the renderer keeps the DOM as it is, cancels the pending frame,
 stops forwarding events, sets `data-tw-frozen="fatal"|"paused"` on `<html>`
 (`pointer-events: none`, a slight grayscale when fatal) and shows a small badge
@@ -331,14 +341,14 @@ until the owner calls `destroy()`.
 
 Worker → host (payload untrusted unless noted): `ops`, `query`, `listen
 {types}`, `pd {keys}`, `anim {anims, now}` (`now` from the glue), `raf`, `log {level, text}`, `diag {kind, detail}`,
-`bridge {method, args}`; trusted glue: `loaded`, `stats`, `dead {reason}`.
+`bridge {method, args}`, `storage {commit}`; trusted glue: `loaded`, `stats`, `dead {reason}`.
 Diagnostic kinds added by the runtime limits: `timer-limit` (shim, once),
 `timer-limit-enforced` (glue backstop — a shim bug), `cpu-throttled` (glue, at
 most once per second).
 
 Inside the worker the QuickJS context has one capability,
 `__host(kind: string, arg: string): string | number | undefined`, with kinds
-`ops query now timer clearTimer raf log diag listen pd anim bridge intl random stat`,
+`ops query now timer clearTimer raf log diag listen pd anim bridge storage intl random stat`,
 plus `__hostBinary()` to fetch the binary part of the last query answer and,
 when the host enabled them, `__hostCanvas` (`canvasWords`) and `__hostOps`
 (`binaryOps`). The bundle captures them and the glue deletes all of them from
@@ -353,8 +363,9 @@ a Metal backend past the validator. It is compiled out of release builds
 
 ### User activation for privileged bridge calls
 
-`bridge` methods other than `ready` (`openLink`, `sendMessage`, anchors the
-shim turns into `openLink`) are privileged: the glue forwards one only while
+The `bridge` methods `openLink` and `openTelegramLink` (also what the shim
+makes of `<a href>` taps and `window.open`) are privileged (`PRIVILEGED_METHODS`
+in `sdk-policy.ts`; `ready` and `haptic` are not): the glue forwards one only while
 the task of a trusted user gesture runs on a visible widget, and one gesture
 unlocks one call. A gesture is one physical pointer press (`pointerdown`,
 `mousedown`, `pointerup`, `mouseup`, `click`, `dblclick` of the same press).
@@ -375,6 +386,30 @@ for trusted gestures, the worker tags `bridge` messages made in that task with
 glue gates in the engine (`activationEvent(json, gesture)`). See decisions.md,
 "User activation".
 
+### Bridge calls and storage commits (SDK v1)
+
+`__host('bridge', JSON [method, args])`: `ready []`, `openLink [url]`,
+`openTelegramLink [url]`, `haptic ['impact', style] | ['notification', type] |
+['selection']`. Every glue checks, in order: the method and its arguments
+(`checkBridgeCall`: anything else is dropped with `bridge-rejected`, at most 20),
+user activation for the two link methods (above), the haptic gate for `haptic`
+(visible, a bucket of 5 refilled at 10 per second; `haptic-limit` at most once
+per second). What passes reaches the client as a `WidgetAction` (`onAction`)
+with the URL normalised; the deprecated `onBridge` still gets the raw method and
+arguments.
+
+`__host('storage', JSON {local?, session?})`: the full areas of Web Storage a
+task changed, sent once at the end of that task. The glue checks the commit
+whole (only those two keys, objects of strings, 16384 bytes of UTF-8 per area;
+an argument longer than 2 × 12 × 16384 + 64 characters is refused unparsed) and
+hands each area to the client (`onStorageCommit(area, values)`), or drops it with
+`storage-rejected` (at most 20).
+
+The rules live in one policy with four copies, `packages/core/src/shared/sdk-policy.ts`,
+`SdkPolicy.swift`, `SdkPolicy.kt` and `sdk_policy.cpp`, checked against one fixture,
+`packages/core/tests/fixtures/sdk-policy.json`. The widget-facing side and the
+client's duties are in docs/sdk-v1.md.
+
 ### `config` (SandboxConfig, same fields on iOS and Android)
 
 | field | default | meaning |
@@ -388,6 +423,10 @@ glue gates in the engine (`activationEvent(json, gesture)`). See decisions.md,
 | `policy` | `strict` | `strict`: privileged bridge calls need a user gesture, text values are capped at 64 KB, visible text is budgeted (text nodes, visible and `data-*` / `aria-*` attributes, strings in CSS), `attr()` reads only budgeted attributes. `compat`: the limits before that hardening, for tests and tooling. Anything but exactly `compat` is `strict` |
 | `features` | `[]` | opt-in wire forms (see "Features"); each glue drops the ones it does not implement |
 | `viewport`, `theme` | | as before |
+| `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |
+| `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
+| `profile` | 1 | the widget profile the glue enforces; the shim reports `profile-mismatch` when its bundle's differs |
+| `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (16384 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
 
 The policy that counts and decides lives in trusted glue only:
 `packages/core/src/host/cpu-budget.ts`, `ios/.../CpuBudget.swift`, `android/.../CpuBudget.kt`
@@ -440,7 +479,7 @@ bytes[16…]  json, then binary (16 MB total)
 
 ## Mapping to MCP Apps later
 
-The bridge (`TelegramWidget.*` ↔ `bridge` messages) is a thin method/args
+The bridge (`TelegramWidget.*` → `bridge` messages, docs/sdk-v1.md §3) is a thin method/args
 envelope; wrapping it as JSON-RPC 2.0 over the same channel (`ui/initialize`,
 `ui/notifications/*`, `tools/call`) is a renaming exercise — the sandbox
 already cannot reach `postMessage` directly, so the host would be the JSON-RPC

@@ -1,7 +1,8 @@
 # SDK v1: the widget contract
 
 Status: contract for the framework and the client teams, 2026-10-16; its open
-questions were decided on 2026-10-17 (§6). It fixes
+questions were decided on 2026-10-17 (§6), and the framework implements it
+(v0.1.0, 2026-10-17: the shim, all five glue copies and the Node harness, §7). It fixes
 what a widget can call, what travels between sandbox, host and renderer, what
 every host exposes and what every client implements, so that client teams can
 build their side in parallel with the PoC. Decisions behind it: release plan
@@ -10,8 +11,8 @@ D4, D7a, D8, D9, D12, D14, D17, D18, D19, D22, D23, and the decisions of
 `docs/decisions.md`, "Profile v1"). Background: `docs/bridge-discussion.md`
 ("Решено"), `docs/widget-state.md` §7.
 
-Each item is marked **today** (in the framework now) or **v1** (built in the
-framework for v0.1.0, before the release is pushed, §7).
+What the framework did before v1 is noted where a client may meet it
+(**before v1**: the API of the profile-0 builds).
 
 Related documents, not repeated here: `docs/integration.md` (embedding the
 host on each platform), `docs/tgw-format.md` (the `.tgw` file and the rich
@@ -43,22 +44,22 @@ laid over the same calls later (D19).
 
 ### 2.1 Members
 
-| member | type | status |
+| member | type | note |
 |---|---|---|
-| `profile` | `number`, read-only | v1 |
-| `isProfileAtLeast(n)` | `(n: number) => boolean` | v1 |
-| `colorScheme` | `'light' \| 'dark'`, read-only | v1 (today: `theme`) |
-| `themeParams` | `ThemeParams`, read-only, a fresh frozen object per change | v1 |
-| `isActive` | `boolean`, read-only (`!document.hidden`) | v1 |
-| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated'` | v1 (today: `on(event, cb)`, reserved) |
-| `openLink(url)` | `(url: string) => void` | today without the checks below; v1 |
-| `openTelegramLink(url)` | `(url: string) => void` | v1 |
-| `HapticFeedback.impactOccurred(style)` | `style`: `'light' \| 'medium' \| 'heavy' \| 'rigid' \| 'soft'` | v1 |
-| `HapticFeedback.notificationOccurred(type)` | `type`: `'error' \| 'success' \| 'warning'` | v1 |
-| `HapticFeedback.selectionChanged()` | `() => HapticFeedback` | v1 |
-| `ready()` | `() => void` | today |
-| `theme`, `onTheme(cb)` | kept as aliases of `colorScheme` and `onEvent('themeChanged')` (the callback gets the colour scheme) | today, deprecated in v1 |
-| `sendMessage` | removed in v1 (`typeof TelegramWidget.sendMessage === 'undefined'`) | today; removed |
+| `profile` | `number`, read-only | |
+| `isProfileAtLeast(n)` | `(n: number) => boolean` | |
+| `colorScheme` | `'light' \| 'dark'`, read-only | before v1: `theme` |
+| `themeParams` | `ThemeParams`, read-only, a fresh frozen object per change | |
+| `isActive` | `boolean`, read-only (`!document.hidden`) | |
+| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated'`; the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
+| `openLink(url)` | `(url: string) => void` | before v1 without the checks below |
+| `openTelegramLink(url)` | `(url: string) => void` | |
+| `HapticFeedback.impactOccurred(style)` | `style`: `'light' \| 'medium' \| 'heavy' \| 'rigid' \| 'soft'` | |
+| `HapticFeedback.notificationOccurred(type)` | `type`: `'error' \| 'success' \| 'warning'` | |
+| `HapticFeedback.selectionChanged()` | `() => HapticFeedback` | |
+| `ready()` | `() => void` | |
+| `theme`, `onTheme(cb)` | aliases of `colorScheme` and `onEvent('themeChanged')` (the callback gets the colour scheme, at once and on every change) | deprecated |
+| `sendMessage` | `typeof TelegramWidget.sendMessage === 'undefined'` | removed |
 
 All methods are synchronous and return `undefined`, except the three haptic
 methods, which return `TelegramWidget.HapticFeedback` for chaining, as in Mini
@@ -75,12 +76,11 @@ answer from the client: whether the user confirmed a link is not reported back.
   `false`.
 - `CSS.supports(property, value)` and `CSS.supports(conditionText)` answer from
   the profile tables compiled into the sandbox bundle: `true` only when the
-  validator would keep that declaration. Today `CSS.supports` always returns
-  `true`.
+  validator would keep that declaration (one evaluator for both,
+  `packages/core/src/shared/css-supports.ts`).
 - `@supports` rules are evaluated by the validator against the same tables:
   the block is kept or dropped before the CSS reaches the renderer, so the
-  renderer's engine never decides. Today the condition passes through and the
-  renderer engine evaluates it.
+  renderer's engine never decides.
 - A widget that checks nothing still loads; on an older client the features
   outside that client's profile are dropped by its validator (accepted product
   behaviour). Clients without widget support show the existing
@@ -109,12 +109,16 @@ widget's root element: `--tg-theme-bg-color`, `--tg-theme-text-color`, … (the
 key with `_` turned into `-`), plus `--tg-color-scheme: light | dark`. The host
 sets them in the renderer; a widget cannot overwrite the root's values, only
 shadow them on its own elements. `prefers-color-scheme` media queries and
-`color-scheme: light dark` already follow the chat's scheme (today).
+`color-scheme: light dark` follow the chat's scheme. Keys the client leaves
+out take the framework's defaults for the scheme (`DEFAULT_THEME_PARAMS` in
+`packages/core/src/shared/sdk-policy.ts`, Web K-like); clients pass every key.
 
 A theme change (the user switches theme, the chat's theme changes, night mode)
 updates `colorScheme`, `themeParams` and the variables in one task, then fires
-`themeChanged` (and the legacy `onTheme` callbacks). Today the widget gets only
-`'light' | 'dark'`.
+`themeChanged` (and the legacy `onTheme` callbacks). The renderer sets the
+variables inline and `!important` on the root, so neither a widget stylesheet
+(`:root { … !important }`, any specificity) nor a style the widget sets on its
+own root element replaces them.
 
 ### 2.4 The default `<button>`
 
@@ -122,17 +126,29 @@ A `<button>` the widget did not style is drawn in the client's own button
 style; any author CSS overrides it (`docs/decisions.md`, "Profile v1"). The
 renderer inserts a user-agent-level stylesheet built from one template in
 `packages/core`: `@layer tw-ua` declared first, `:where(button)` selectors,
-values from the variables below. The template fixes the states: base,
-`:active`, `:disabled`, `:hover` on desktop; no focus ring.
+values from the variables below (`uaStylesheet` in `packages/core/profile.json`).
+The template fixes the states: base, `:active` (not disabled), `[disabled]`; no
+hover state, no focus ring.
 
-| variable | meaning |
-|---|---|
-| `--tg-button-bg`, `--tg-button-text` | default `var(--tg-theme-button-color)`, `var(--tg-theme-button-text-color)` |
-| `--tg-button-radius` | corner radius, CSS length |
-| `--tg-button-font` | CSS `font` shorthand, a system generic family only (D3b) |
-| `--tg-button-padding` | CSS padding |
-| `--tg-button-height` | minimum height |
-| `--tg-button-pressed-opacity`, `--tg-button-disabled-opacity` | 0–1 |
+The client passes its tokens in the theme (`WidgetTheme.button`, §4); the
+renderer sets each one it gets as the variable on the root and checks its
+grammar (`themeVariables`): colours `#rrggbb`, lengths in `px`/`em`/`rem`, a
+font shorthand naming generic families only, opacities 0–1. A token the client
+does not pass keeps the template's default:
+
+| token (`button.…`) | variable | the template's default |
+|---|---|---|
+| `bg` | `--tg-button-bg` | `rgba(51,144,236,.12)`: a tint, so that a widget that sets only its own `color` or only its own `background` stays readable (`docs/decisions.md`, "Profile v1") |
+| `text` | `--tg-button-text` | `inherit` |
+| `radius` | `--tg-button-radius` | `8px` |
+| `font` | `--tg-button-font` | `500 14px/1.2 system-ui,sans-serif` (D3b) |
+| `padding` | `--tg-button-padding` | `8px 14px` |
+| `height` | `--tg-button-height` (minimum height) | `auto` |
+| `pressedOpacity`, `disabledOpacity` | `--tg-button-pressed-opacity`, `--tg-button-disabled-opacity` | `.7`, `.5` |
+
+A client whose buttons are solid (`bg` = its button colour, `text` = white)
+accepts that a widget overriding only its button's `background` keeps the
+client's text colour on it.
 
 Other form controls are outside the profile and dropped by the validator.
 
@@ -148,7 +164,7 @@ Other form controls are outside the profile and dropped by the validator.
 - An invalid argument throws `TypeError` in the widget synchronously (the shim
   checks the syntax; the glue checks it again). A valid call returns
   `undefined` and goes to the host.
-- **User activation** (today, `docs/protocol.md`, "User activation"): the glue
+- **User activation** (`docs/protocol.md`, "User activation"): the glue
   forwards a call only while the task of a real pointer press on the visible
   widget runs, and one press unlocks one call shared by both methods. A press
   is `pointerdown` … `click` from the renderer, marked `trusted` (v1 never
@@ -159,7 +175,15 @@ Other form controls are outside the profile and dropped by the validator.
   reported as the diagnostic `activation-blocked` (at most 20 per widget).
 - `<a href="https://…">` clicks and `window.open(url)` take the same path: the
   shim calls `openTelegramLink` for Telegram hosts and `openLink` otherwise
-  (v1; today everything goes to `openLink`). `javascript:` links are ignored.
+  (before v1 everything went to `openLink`); what neither accepts (`http:`,
+  `javascript:`) is ignored with the diagnostic `navigation-blocked`, never an
+  exception. `window.open` returns `null`.
+- The URL the client gets is normalised: scheme and host lowercase (A–Z only),
+  characters outside ASCII after the host percent-encoded as UTF-8. The host
+  is ASCII (an IDN in its `xn--` form); ASCII outside RFC 3986's unreserved and
+  reserved characters and `%` (space, `"<>\^\`{|}`, controls) and a `%` that does
+  not start `%XX` are a `TypeError`. The 256-character limit applies to the
+  normalised URL.
 - The widget is not told whether the user confirmed.
 
 ### 2.6 Haptics
@@ -174,17 +198,16 @@ Other form controls are outside the profile and dropped by the validator.
 
 ### 2.7 Lifecycle
 
-- `document.hidden`, `document.visibilityState` and `visibilitychange`
-  (today): a widget scrolled off screen, in a background tab or app gets
+- `document.hidden`, `document.visibilityState` and `visibilitychange`: a widget scrolled off screen, in a background tab or app gets
   `hidden`; while hidden it gets no animation frames and its timers fire at
   most once per second. `isActive` and the `activated` / `deactivated` events
-  mirror the same state (v1).
-- `ready()` tells the host the first state is drawn (today). It is optional:
+  mirror the same state (fired after `visibilitychange`).
+- `ready()` tells the host the first state is drawn. It is optional:
   the host also notices the first content on its own.
 - A widget can be destroyed and recreated at any time (scrolled far away,
   memory pressure, app restart). Only Web Storage survives (§2.8).
 - When the runtime is killed (CPU, memory, a crash), the last frame stays
-  frozen with a "Widget stopped" badge (today).
+  frozen with a "Widget stopped" badge.
 
 ### 2.8 Storage (D17, `docs/widget-state.md` §7)
 
@@ -218,16 +241,17 @@ Other form controls are outside the profile and dropped by the validator.
 
 `navigator.language` is the client's UI language as a BCP 47 tag (`ru`,
 `en-US`, `pt-BR`), `navigator.languages` is `[language]`, and the `Intl`
-default locale is the same (v1; today always `en-US`).
+default locale is the same (a locale argument the widget passes still wins). A
+missing or malformed locale is `en-US` (before v1: always `en-US`).
 
 ### 2.10 Removed and inert
 
 | API | v1 behaviour |
 |---|---|
 | `TelegramWidget.sendMessage` | removed; no message is ever sent on the user's behalf |
-| `alert`, `confirm`, `prompt` | no dialog, nothing sent to the host; `confirm` returns `false`, `prompt` `null` (today they reach the host as a bridge call `alert`, v1 stops that) |
-| `navigator.clipboard.writeText`, `readText`, `navigator.share` | reject with `NotAllowedError`, nothing sent to the host (today `writeText` reaches the host as `clipboard`, v1 stops that) |
-| `fetch`, `XMLHttpRequest`, `WebSocket`, … | throw `NetworkDisabledError` (invariant 5, today) |
+| `alert`, `confirm`, `prompt` | no dialog, nothing sent to the host; `confirm` returns `false`, `prompt` `null` (before v1 they reached the host as a bridge call `alert`) |
+| `navigator.clipboard.writeText`, `readText`, `write`, `read`, `navigator.share` | reject with a `DOMException` named `NotAllowedError`, nothing sent to the host (before v1 `writeText` reached the host as `clipboard`); `navigator.canShare()` is `false` |
+| `fetch`, `XMLHttpRequest`, `WebSocket`, … | throw `NetworkDisabledError` (invariant 5) |
 | keyboard | no key events, no keyboard focus (D4; the renderers and glue drop key events in profile v1) |
 | double tap, long press | belong to the bubble (§5.5): `dblclick` and `contextmenu` are never delivered, and a touch the client takes for either ends for the widget with `pointercancel` and no `click` |
 
@@ -251,18 +275,21 @@ What carries the API between the sandbox (QuickJS), the host glue and the
 renderer. Every message from the sandbox is untrusted and is checked in all
 five glue copies: the web worker and `WidgetHost` (TS), the Node harness,
 Swift, Kotlin, C++ (`sandbox_engine.cpp`, `widget_host.cpp`). The checks live in
-one policy per concern with a shared JSON fixture, as `cpu-budget` does today.
+one policy with a shared JSON fixture, as `cpu-budget` does:
+`packages/core/src/shared/sdk-policy.ts` and its twins `SdkPolicy.swift`,
+`SdkPolicy.kt`, `sdk_policy.cpp`, all checked against
+`packages/core/tests/fixtures/sdk-policy.json`.
 
 ### 3.1 Config (`SandboxConfig`, host → sandbox at start)
 
 | field | type | set by | status |
 |---|---|---|---|
-| `theme` | `'light' \| 'dark'` | client (`colorScheme`) | today |
-| `themeParams` | `Record<ThemeKey, '#rrggbb'>` | client | v1 |
-| `locale` | BCP 47 string, at most 35 characters | client | v1 |
-| `profile` | integer | glue (its own constant, from `VERSION.json`) | v1 |
-| `storage` | `{ local: Record<string, string>, session: Record<string, string> }` | client (the preload), glue checks the quota | v1 |
-| `policy` | `'strict'` | glue default | today |
+| `theme` | `'light' \| 'dark'` | client (`colorScheme`) | |
+| `themeParams` | `Record<ThemeKey, '#rrggbb'>` | client | |
+| `locale` | BCP 47 string, at most 35 characters | client | |
+| `profile` | integer | glue (its own constant; `VERSION.json` once it exists) | the shim reports `profile-mismatch` when it differs from the bundle's |
+| `storage` | `{ local: Record<string, string>, session: Record<string, string> }` | client (the preload), glue checks the quota | |
+| `policy` | `'strict'` | glue default | |
 
 The client's values are trusted but still checked: unknown theme keys and
 values that are not `#rrggbb` are dropped, a storage preload over the quota is
@@ -279,11 +306,15 @@ dropped whole with the diagnostic `storage-rejected` (the widget starts empty).
 | `openTelegramLink` | `[url]` | URL rules of §2.5; privileged | `openTelegramLink(url)` |
 | `haptic` | `['impact', style]`, `['notification', type]`, `['selection']` | enum values; visible; rate limit | `haptic(...)` |
 
-Any other method or a malformed call is dropped with `bridge-rejected` (at most
-20). The method names `sendMessage`, `alert` and `clipboard` disappear from the
-wire in v1.
+The glue checks in this order: the method and its arguments
+(`checkBridgeCall`; any other method or a malformed call is dropped with
+`bridge-rejected`, at most 20 reported); user activation for the two link
+methods (`activation-blocked`); for `haptic` the gate of §2.6 (`haptic-limit`).
+A call that passes goes to the client as a `WidgetAction` with the normalised
+URL (and, deprecated, to `onBridge` with the raw method and arguments). The
+method names `sendMessage`, `alert` and `clipboard` are gone from the wire.
 
-Gesture tagging (today): on native hosts the engine runs a trusted event's task
+Gesture tagging: on native hosts the engine runs a trusted event's task
 with that press's gesture number and lets the first privileged call of the task
 consume it. On the web the worker tags a `bridge` message with the gesture of
 the task (`{type:'bridge', method, args, gesture}`) and the main-thread host
@@ -292,24 +323,32 @@ accepts each issued gesture once, within 5 s.
 `__host('storage', JSON.stringify(commit))`, at most once per task, after the
 task's `ops`: `commit` is `{ local?: Record<string, string>, session?:
 Record<string, string> }`, the full content of each area that changed in the
-task. The glue checks that it is an object of strings within the quota and
-replaces its copy of that area; a commit that fails is dropped with
-`storage-rejected` and the client keeps the previous content. Commits reach the
-client in order.
+task. The shim sends it once the task is over (after the MutationObserver
+callbacks, when the glue's last `endTick` of the task returns). The glue
+refuses an argument longer than any commit within the quota can be (2 × 12 ×
+16384 + 64 characters) before parsing it, checks that the commit has only
+`local` / `session`, each an object of strings within the quota, and hands
+each area to the client (`onStorageCommit(area, values)`, `local` first); a
+commit that fails is dropped whole with `storage-rejected` (at most 20
+reported) and the client keeps the previous content. Commits reach the client
+in order.
 
 ### 3.3 Host → sandbox
 
-| message | payload | status |
-|---|---|---|
-| `theme` | `{ theme: 'light' \| 'dark', themeParams }` | today with `theme` only; v1 adds `themeParams` |
-| `visibility` | `{ visible }` | today |
-| `event` | a renderer event, with `gesture: n` for a trusted press | today |
+| message | payload |
+|---|---|
+| `theme` | `{ theme: 'light' \| 'dark', themeParams }` (before v1: the scheme only) |
+| `visibility` | `{ visible }` |
+| `event` | a renderer event, with `gesture: n` for a trusted press |
+
+The `bridge` message (host → widget events such as a bot's answer) is gone with
+`sendMessage`.
 
 ### 3.4 Host → renderer
 
-| message | payload | status |
-|---|---|---|
-| theme | colour scheme plus the variables of §2.3 and §2.4, set on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer) | today: colour scheme only; v1: the variables |
+| message | payload |
+|---|---|
+| `theme` | `{ type: 'theme', theme: { colorScheme, params, button } }`: the renderer core builds the variables of §2.3 and §2.4 (`themeVariables`) and sets them on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer); the colour scheme itself still goes to the renderer element (`color-scheme`, the WebView's appearance) as before |
 
 The renderer takes only variable names from the fixed list above and values
 that match their grammar (`#rrggbb`, CSS lengths, a font shorthand with a
@@ -317,11 +356,11 @@ generic family, numbers 0–1).
 
 ### 3.5 Renderer → host
 
-| message | payload | status |
-|---|---|---|
-| `gesture` | `{ wants: boolean, x: boolean, y: boolean }` on every primary `pointerdown`: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch, from the target's `touch-action` and the widget's `preventDefault` on `pointerdown`/`touchstart`. `wants` equals `y` (today's field) | today: `wants`; v1: `x`, `y` |
-| `size` | the content height | today |
-| `event` | `trusted: true` only for real input | today |
+| message | payload |
+|---|---|
+| `gesture` | `{ wants: boolean, x: boolean, y: boolean }` on every primary `pointerdown`: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch, from the target's `touch-action` and the widget's `preventDefault` on `pointerdown`/`touchstart`. `wants` equals `y` (the field before v1) |
+| `size` | the content height |
+| `event` | `trusted: true` only for real input |
 
 ## 4. Host interface per platform
 

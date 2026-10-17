@@ -61,13 +61,14 @@ reaches the renderer; a widget can ask which profile it runs on
   images, hit testing.
 - **Images** — only as `data:` URLs embedded in the file: PNG, JPEG, GIF, WebP.
   **Audio and video are not rendered** at all.
-- **Storage.** `localStorage` / `sessionStorage` (`docs/sdk-v1.md` §2.8 for what
-  the client keeps).
+- **Storage.** `localStorage` / `sessionStorage`, 16 KB each, kept by the client
+  for this message and there from the first line of script (`docs/sdk-v1.md` §2.8).
 - **Theme.** Follow the chat theme with `@media (prefers-color-scheme: dark)`,
   `color-scheme: light dark`, `light-dark()`, `matchMedia` and/or
-  `TelegramWidget.onTheme(cb)`. `prefers-color-scheme` reflects the **chat
-  theme** (not the OS setting) and the widget is re-styled live when the user
-  switches themes.
+  `TelegramWidget.onEvent('themeChanged', fn)`; the chat's palette is in
+  `TelegramWidget.themeParams` and the `--tg-theme-*` CSS variables.
+  `prefers-color-scheme` reflects the **chat theme** (not the OS setting) and
+  the widget is re-styled live when the user switches themes.
 
 ## Out of the profile
 
@@ -90,26 +91,38 @@ one is neutralised.
 | External `<script src>` (CDN libraries included), `<link rel=stylesheet>`, `@import`, external images, `<iframe>`, `<object>`, `<embed>` | dropped; external `<img>` shows a placeholder |
 | `<audio>`, `<video>`, `<source>`, `<track>` | dropped: no media playback |
 | WebGL / WebGPU, Web Audio, `OffscreenCanvas`, `Blob`/`File`/`URL.createObjectURL` | `getContext('webgl')` returns `null`; the rest throw or are absent |
-| `alert`, `confirm`, `prompt`, `window.print`, clipboard, fullscreen, geolocation, camera | no-ops / rejected promises |
+| `alert`, `confirm`, `prompt`, `window.print`, clipboard, `navigator.share`, fullscreen, geolocation, camera | no-ops / rejected promises (`NotAllowedError`); nothing reaches the client |
+| `TelegramWidget.sendMessage` | removed: a widget keeps its state in `localStorage` or links out |
 | Shadow DOM, custom elements | not rendered / no-op |
 | `document.cookie`, `document.write` after load, `eval` of remote code | no-ops |
 
 ## Bridge: `window.TelegramWidget`
 
 ```js
-TelegramWidget.profile;                 // 1: the widget profile this client enforces
-TelegramWidget.isProfileAtLeast(2);     // false on a profile-1 client
-TelegramWidget.ready();                 // optional: "initial render done"
-TelegramWidget.openLink(url);           // asks the host to open a link (user confirms in a native dialog)
-TelegramWidget.onTheme(cb);             // cb('light' | 'dark'), called immediately and on change
-TelegramWidget.theme;                   // current theme
+TelegramWidget.profile;                    // 1: the widget profile this client enforces
+TelegramWidget.isProfileAtLeast(2);        // false on a profile-1 client
+TelegramWidget.colorScheme;                // 'light' | 'dark': the chat's theme
+TelegramWidget.themeParams.bg_color;       // the chat's palette, '#rrggbb', Mini Apps keys
+TelegramWidget.onEvent('themeChanged', fn); // also 'activated' / 'deactivated' (on / off screen)
+TelegramWidget.isActive;                   // !document.hidden
+TelegramWidget.openLink('https://…');      // in a tap handler; the user confirms in a native dialog
+TelegramWidget.openTelegramLink('https://t.me/…');
+TelegramWidget.HapticFeedback.impactOccurred('light'); // also notificationOccurred, selectionChanged
+TelegramWidget.ready();                    // optional: "initial render done"
 ```
 
-The full SDK v1 (theme parameters, `openTelegramLink`, haptics, storage) is in
-`docs/sdk-v1.md`. Clicking an `<a href="https://…">` is equivalent to
-`openLink(href)`; links never navigate the widget, and `#fragment` links do not
-scroll. `window.open`, `location.*` writes, `form.submit()` and
-`<meta http-equiv=refresh>` are ignored (and logged).
+The full SDK v1 is in `docs/sdk-v1.md`. The palette is also on the root as CSS
+variables (`var(--tg-theme-bg-color)`, `--tg-theme-text-color`, …,
+`--tg-color-scheme`). Links must be `https:` and at most 256 characters; a bad
+URL throws `TypeError`, and one tap opens one link. `localStorage` /
+`sessionStorage` keep 16 KB each for this message (`QuotaExceededError` past
+it) and survive the widget being recreated. `navigator.language` is the
+client's language. There is no `sendMessage`: nothing is sent to the chat or
+the bot on the user's behalf. Clicking an `<a href="https://…">` is
+equivalent to `openLink(href)` (`openTelegramLink` for t.me); links never
+navigate the widget, and `#fragment` links do not scroll. `location.*`
+writes, `form.submit()` and `<meta http-equiv=refresh>` are ignored (and
+logged).
 
 ## Recommendations for authors (and for models)
 
@@ -121,7 +134,9 @@ scroll. `window.open`, `location.*` writes, `form.submit()` and
    ~500 ms per task and 64 MB of memory). Use `requestAnimationFrame` for
    animation, `setInterval` for clocks.
 4. Give interactive elements `id`s and visible state; the message may be
-   re-rendered from a static snapshot after the widget is paused.
+   re-rendered from a static snapshot after the widget is paused, and the
+   widget recreated at any time: keep what the user chose in `localStorage`
+   and restore it on load.
 5. Draw charts yourself with inline SVG or canvas: no library is available.
 6. Interaction is taps and drags on buttons and other elements: no text input.
 7. Gate anything newer on `CSS.supports(...)`, `@supports` or
@@ -136,5 +151,8 @@ scroll. `window.open`, `location.*` writes, `form.submit()` and
 > fonts, no libraries; draw charts with inline SVG or canvas. Width ≈ 400 px,
 > height auto, clipped at the cap, no inner scrolling. Input is taps and drags
 > only (no text fields, no keyboard). Generic font families only. Links open
-> via a confirmation dialog. No WebGL. Inline `<script>`, `<style>` and `data:`
+> via a confirmation dialog (`TelegramWidget.openLink`, https only, one per
+> tap); nothing can be sent to the chat. Keep state in `localStorage` (16 KB).
+> Follow the chat theme with `prefers-color-scheme` or the `--tg-theme-*`
+> variables. No WebGL. Inline `<script>`, `<style>` and `data:`
 > PNG/JPEG/GIF/WebP images only.

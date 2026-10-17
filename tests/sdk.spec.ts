@@ -68,6 +68,7 @@ for (const shadow of [false, true]) {
       <div id="panx" style="touch-action: pan-x">pan-x</div><div id="auto">auto</div>
       <div id="pd">prevented</div><script>document.getElementById('pd').addEventListener('pointerdown', function (e) { e.preventDefault(); });</script>`, { shadow });
     for (const id of ['none', 'pany', 'panx', 'auto', 'pd', 'pd']) await root.locator('#' + id).click();
+    await expect.poll(async () => (await tw(page)).gestures.length).toBe(6);
     const gestures = (await tw(page)).gestures as { x: boolean; y: boolean }[];
     // The first press on #pd teaches the renderer that the widget prevents it; the second one claims both axes.
     expect(gestures).toEqual([{ x: true, y: true }, { x: true, y: false }, { x: false, y: true }, { x: false, y: false }, { x: false, y: false }, { x: true, y: true }]);
