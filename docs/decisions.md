@@ -1097,15 +1097,20 @@ milestones; recorded here so the work in between does not drift from it.
   activation for privileged bridge calls comes from a pointer press only: no
   `keydown` counts in any host, and a `click` starts a gesture only with a
   click count (`detail` ≥ 1), so the click Enter or Space produces on a focused
-  control does not count either (done 2026-10-17, all hosts). Renderers still
-  forward key events and widgets can still take focus; both go with profile v1.
+  control does not count either (done 2026-10-17, all hosts). Since profile 1
+  the renderer forwards no key event, swallows the keys' default actions, never
+  lets the focus into the widget (a mouse press moves no focus, a `focusin` is
+  blurred) and drops a trusted click without a press (`detail` 0); `focus()`,
+  `blur()`, `select()` and `scrollIntoView()` do nothing.
 - **Form controls are outside the profile.** `input`, `textarea`, `select`,
-  `option`, `optgroup`, `datalist`, `form`, `progress` and `meter` are drawn by
-  each engine in its own way (WebKit, Chromium, litehtml, Blitz), and text
-  entry needs a keyboard. The validator drops them; corpus widgets that use
-  them (inputs in 26 files, `select` in 8, `form` in 4, `textarea` in none) are
-  retagged as degraded or rewritten. `completeEditorCommand` goes with
-  `textarea`. If controls come back, they look like the client's own UI.
+  `option`, `optgroup`, `datalist`, `fieldset`, `progress` and `meter` are drawn
+  by each engine in its own way (WebKit, Chromium, litehtml, Blitz), and text
+  entry needs a keyboard. The validator drops them with their subtree; `<form>`
+  renders as a `<div>` and `<label>`, `<legend>` and `<output>` as a `<span>`,
+  so a button inside a form stays. The compat widgets built on controls moved
+  to `corpus/out-of-profile/`; the other corpora keep theirs (they show what
+  the profile removes). `completeEditorCommand` went with `textarea`. If
+  controls come back, they look like the client's own UI.
 - **`<button>` stays** (95 corpus files; the main tap target), and a button
   the widget did not style is drawn in the client's own style. Any author CSS
   wins over it.
@@ -1117,7 +1122,9 @@ milestones; recorded here so the work in between does not drift from it.
     trusted CSS before the widget's: `@layer tw-ua` declared first and
     `:where(button)` selectors, so unlayered author rules beat it whatever
     their specificity. It fixes the structure: base look, `:active`,
-    `:disabled`, `:hover` on desktop, no focus ring.
+    `[disabled]` (`:disabled` itself is outside the profile and is rewritten to
+    it), no focus ring. It is `tables.uaStylesheet` in `profile.json`, with
+    text selection switched off in the same sheet.
   - Values are per-client tokens (background and text from `themeParams`,
     radius, font, padding, height, pressed and disabled opacity) that the host
     sets as variables on the renderer root and updates with the theme. Native
@@ -1126,3 +1133,55 @@ milestones; recorded here so the work in between does not drift from it.
   - Height and padding tokens stay within a narrow range: they move the
     bubble's height. Corpus references render with one fixed reference token
     set so renderers stay comparable; per-client tokens are checked by eye.
+
+### Frozen as widget profile 1 (2026-10-17)
+
+The candidate table went to Artem on 2026-10-17 and came back decided: grid
+in, on condition that the Swift renderer and TwidgetCore implement it before
+their releases; SVG CSS, `font-variant-numeric`, conic gradients and
+`text-overflow` in; `touch-action`, `pointer-events`, the `ui-*` families,
+`prefers-reduced-motion` and `Intl` `formatToParts` in; no bundled
+libraries; the rarely used rest out until the native renderers are measured,
+when profile 2 can add them. Freeze now, with these defaults.
+
+- **One source.** `packages/core/profile.json`: the 244 features of the
+  conformance catalogue with their status (162 in, 82 out), the decision each
+  comes from, how each out feature is neutralised, and the tables that are
+  enforced. `packages/core/scripts/profile-build.ts` generates
+  `src/shared/profile-tables.ts` and `docs/profile-v1.md` from it;
+  `tests/unit/profile.test.ts` checks both are current, that the features
+  agree with the tables, and that `CSS.supports` answers what the sanitizer
+  does. The catalogue in `packages/conformance` syncs its statuses from it.
+- **Where it is enforced.** The validator (`allowlist.ts` builds its element,
+  attribute, event, method, property and canvas lists from the tables;
+  `css-sanitizer.ts` checks properties, functions, units, pseudo-classes,
+  at-rules and media features, rewrites sticky and scrolling overflow, reduces
+  font families, drops nested rules and decides `@supports`), the Swift node
+  model (`NativeValidator` reads the same tables through `validatorTables()`,
+  now with the SVG attributes and the replaced elements apart), the shim
+  (`TelegramWidget.profile` and `isProfileAtLeast`, `CSS.supports` from the
+  same evaluator as `@supports`, out-of-profile element methods and canvas
+  read-back are local no-ops) and the renderer (no key, focus, `dblclick`,
+  context-menu, touch, wheel or scroll events; the user-agent stylesheet).
+  A removal the profile causes is the `profile` diagnostic; `css-dropped`,
+  `url-blocked` and `tag-dropped` stay the security ones.
+- **The Shadow DOM gaps resolved by the profile**: the top layer (`<dialog>`
+  is a block, popovers and `showModal` are out), `@property` and `:scope` (out
+  everywhere), and `scrollIntoView` and `#fragment` scrolling (out: on that
+  renderer they scroll the chat).
+- **No bundled libraries.** Chart.js 4 and D3 7 left the product: the CDN-name
+  loader, `config.libraries` / `SandboxResources.provide` on every platform,
+  the `WidgetJS/libs` bundles and their bytecode, and the npm dependencies. A
+  `<script src>` to a CDN is an external script like any other and never runs.
+  Kept dev-only it would still have been a code path in five glue copies and
+  an API (`provide`) clients could build on; v1 starts with mini-widgets of
+  4 KB gzip that cannot carry a library's worth of code anyway, the profile
+  cannot describe a library's own rendering, and git keeps the code for a
+  profile that wants it back. The compat widgets built on them moved to
+  `corpus/out-of-profile/`; the generated ones stay (with the profile prompt
+  they fall back to a table; without it they fail, which is what that batch
+  measures).
+- **Reference mode** (dev tooling) adds the renderer's user-agent stylesheet,
+  so a sandbox-vs-reference diff shows what the profile removes, not the
+  client's button style.
+

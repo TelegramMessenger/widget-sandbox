@@ -67,9 +67,8 @@ Like the web prototype's `?reference=1`, the corpus browser has a
 **Reference** toggle: the same file is rendered a second time natively by
 WebKit — no QuickJS, no validator, no renderer protocol — so output and speed
 can be compared against what the engine does on its own. The demo implements it
-in `ReferenceWebView.swift`, outside the `WidgetSandbox` package: known CDN
-`<script src>` URLs are rewritten to the bundled library copies, a doctype is
-added, and the page is served from a private `tgref://` scheme that refuses
+in `ReferenceWebView.swift`, outside the `WidgetSandbox` package: a doctype is
+added (no library is bundled, so a CDN script fails as in the sandbox), and the page is served from a private `tgref://` scheme that refuses
 every other URL, with the web dev server's `REFERENCE_CSP` (`connect-src
 'none'`, `script-src 'self' 'unsafe-inline' 'unsafe-eval'`), the http(s)/ws(s)
 content rule list and every navigation cancelled. The toggle is hidden for

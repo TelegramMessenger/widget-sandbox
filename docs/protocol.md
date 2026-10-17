@@ -41,8 +41,8 @@ frame, script) and *before* every sync query.
 | `ins` | `parent, id, before: id \| null` | insert `id` under `parent` before `before` (null = append) |
 | `rm` | `id` | remove node and forget its subtree |
 | `style` | `id, name, value, important?` | set one inline style property (`value: ''` removes) |
-| `prop` | `id, name, value` | set a DOM property: `value`, `checked`, `indeterminate`, `selectedIndex`, `selected`, `scrollTop`, `scrollLeft` |
-| `call` | `id, method, args?` | call a method: `focus blur select scrollIntoView scrollTo scrollBy setSelectionRange setPointerCapture releasePointerCapture showModal show close reset showPopover hidePopover togglePopover observeResize unobserveResize completeEditorCommand` (the last only for native editors, see "Native editor commands") |
+| `prop` | `id, name, value` | set a DOM property: `scrollTop`, `scrollLeft` (profile 1; the form control properties left with the controls) |
+| `call` | `id, method, args?` | call a method: `scrollTo scrollBy setPointerCapture releasePointerCapture observeResize unobserveResize` (profile 1: `focus`, `blur`, `select`, `setSelectionRange`, `scrollIntoView`, the dialog and popover methods and `completeEditorCommand` are no-ops in the shim and refused by the validator) |
 | `canvas` | `id, cmds: CanvasCmd[]` | replay 2D canvas commands on `<canvas id>` |
 
 ### Canvas commands
@@ -184,6 +184,13 @@ unaffected.
 
 ### Validation rules (summary — see `allowlist.ts`, `validator.ts`, `css-sanitizer.ts`, `url-policy.ts`)
 
+- The widget profile (`docs/profile-v1.md`, from `packages/core/profile.json`) sets
+  every list below; what it leaves out is removed with the `profile` diagnostic:
+  form controls dropped with their subtree, `<form>`/`<dialog>`/`<center>` as
+  `<div>` and `<ruby>`/`<label>`/the legacy inline elements as `<span>`
+  (`data-tg-tag` names the original), out-of-profile CSS properties, functions,
+  units, selectors, at-rules and media queries dropped, `@supports` decided,
+  nested rules dropped, font families reduced to the generic ones.
 - Tags: allowlist of HTML and SVG elements. `script iframe frame frameset
   object embed link meta base portal noscript template set applet param track
   area map math …` are dropped with their subtrees (tracked in the model so
@@ -191,16 +198,14 @@ unaffected.
   `<span data-tg-tag="…">`.
 - Media: `audio video source track` are dropped with their subtrees, even with
   `data:` sources (no codec parser ever sees widget bytes; no autoplay).
-- Attributes: every `on*` is dropped. URL-carrying attributes are allowed only
-  for `img/input[src]`, SVG
-  `image/feImage[href]` (with `data:` of an allowed image MIME) and SVG
-  `use/linearGradient/radialGradient/pattern/filter/textPath/mpath[href]`
-  (fragment only). `a[href]` keeps fragments; any other value becomes
+- Attributes: every `on*` is dropped; HTML and SVG have their own allowlists.
+  URL-carrying attributes are allowed only for `img[src]` (with `data:` of a
+  profile image type: PNG, JPEG, GIF, WebP) and SVG
+  `use/linearGradient/radialGradient[href]` (fragment only). `a[href]` keeps fragments; any other value becomes
   `href="#" data-tg-link` and the real URL stays in the sandbox (`openLink`).
   `srcset`, `ping`, `action`, `formaction`, `background`, `data`, `srcdoc`, …
   are never forwarded.
-- SVG `animate*`: `attributeName` must not name an URL attribute; `from/to/by/values`
-  are CSS-sanitized. `<set>` is dropped.
+- SVG `animate*` and `<set>` are outside the profile and dropped.
 - CSS: parsed with css-tree, re-generated from the AST; `@import`, `@namespace`,
   `@font-face` (system fonts only: `font-family` can name only installed
   fonts) and unknown at-rules dropped; `url()`, `image-set()`, `image()`,
@@ -259,40 +264,32 @@ diagnostics panel shows query count, total latency and cache hits.
 ## Events (renderer → host → sandbox)
 
 The renderer listens at document level (capture) and forwards an event only if
-the sandbox declared interest in its type (`listen`) or it is one of
-`click input change submit reset load error toggle`. Move-type events are
-throttled to animation frames.
+it is in the profile's list (`tables.events`: taps, pointer and mouse events,
+`load`, `error`, `toggle`, the animation and transition events) and the
+sandbox declared interest in its type (`listen`) or it is one of
+`click load error toggle`. Move-type events are throttled to animation frames.
+Keys, focus, input, `dblclick`, `contextmenu`, touch, wheel and scroll events
+are never forwarded (profile 1): the renderer cancels the keys' and the context
+menu's default actions, never lets the focus into the widget and drops a
+trusted `click` without a press (`detail` 0).
 
 ```ts
 interface WidgetEvent {
   type; targetId; relatedId?;
   clientX/Y, offsetX/Y, pageX/Y, movementX/Y, button, buttons, detail,
-  pointerId, pointerType, isPrimary, pressure, deltaX/Y/Mode,
-  key, code, repeat, modifiers (bit0 alt, bit1 ctrl, bit2 meta, bit3 shift),
-  value, checked, selectedIndex, inputType, data, submitterId,
-  naturalWidth/Height (img load), open (details toggle), scrollTop/Left
+  pointerId, pointerType, isPrimary, pressure,
+  modifiers (bit0 alt, bit1 ctrl, bit2 meta, bit3 shift),
+  naturalWidth/Height (img load), open (details toggle)
 }
 ```
 
-`value`/`checked`/`selectedIndex` of the target form control travel with every
-event, which is how the sandbox mirror of control state stays current.
+### `defaultActions` on a click
 
-### Native editor commands
-
-Two event fields exist for native renderers that run their own text editing
-(the twidget renderers, not the WebView or shadow-DOM renderers, which ignore
-them):
-
-- `defaultActions: true` on a `click`: the renderer did not perform the form
-  control's default action itself, so the shim does (a submit button submits
-  its form through `requestSubmit`).
-- `editorGeneration`, `editorCommand` (safe integers) on a `keydown` of Enter in
-  a `<textarea>`: the renderer holds the newline until the widget had its say.
-  The shim dispatches `keydown` and `keypress`, flushes the batch and calls
-  `completeEditorCommand(generation, command, allowDefault)` on the textarea;
-  the renderer inserts the newline only when `allowDefault` is 1. The validator
-  accepts this `call` only on a `<textarea>`, with non-negative integer
-  arguments and `allowDefault` 0 or 1.
+A native renderer that does not perform a button's default action itself sends
+`defaultActions: true` on the `click`, and the shim does it (a submit button
+submits its form through `requestSubmit`). The WebView and Shadow DOM
+renderers ignore it. (The native editor commands, `editorGeneration` /
+`editorCommand` and `completeEditorCommand`, went with `<textarea>` in profile 1.)
 
 ### preventDefault
 
@@ -308,9 +305,9 @@ next occurrence on ("learned preventDefault"). See `docs/decisions.md`.
 On every primary `pointerdown` the renderer also posts
 `{ type: 'gesture', wants }` — `wants` is true when an ancestor of the target
 has a computed `touch-action` that forbids vertical panning (`none`, `pan-x`,
-…), is a natively draggable control (`input[type=range]`), is a vertically
-scrollable box with overflowing content, or the sandbox has learned to
-prevent `pointerdown` / `touchstart` on that target. It exists for hosts whose renderer view sits inside a scrolling
+…), or the sandbox has learned to prevent `pointerdown` / `touchstart` on that
+target. (Range inputs and scrollable boxes, which also claimed the gesture,
+are outside profile 1.) It exists for hosts whose renderer view sits inside a scrolling
 container that cannot see into it: the Android host denies the container's
 touch interception from `ACTION_DOWN` and releases it on `wants: false` (or
 after 150 ms without an answer). The web and iOS hosts ignore the message —

@@ -109,7 +109,7 @@ ul.plain b { font-weight: 700; }
 <section>
   <h2>The idea in three sentences</h2>
   <ul class="plain">
-    <li><b>The widget thinks it is in a browser.</b> It has <code>document</code>, events, timers, canvas, Chart.js and D3. Nothing has to be rewritten.</li>
+    <li><b>The widget thinks it is in a browser.</b> It has <code>document</code>, events, timers and canvas. Nothing has to be rewritten.</li>
     <li><b>But its browser is not real.</b> It is a DOM inside QuickJS on a dedicated thread. It cannot draw and it cannot reach the network. All it can do is report what changed.</li>
     <li><b>A real WebView draws, but it receives validated operations, not HTML.</b> Between the sandbox and the screen stands a validator that passes only known tags, attributes and CSS properties and strips every address except embedded images.</li>
   </ul>
@@ -125,7 +125,7 @@ ul.plain b { font-weight: 700; }
       <text class="sub" x="40" y="66">quickjs-ng, 8 MB stack, 64 MB memory cap, 500 ms per call, 300 ms of CPU per second, no network objects</text>
       <rect class="hostile" x="40" y="84" width="340" height="72" rx="8" stroke-width="1"/>
       <text x="210" y="110" text-anchor="middle" font-weight="700">The widget file as sent</text>
-      <text class="sub" x="210" y="130" text-anchor="middle">script, DOM calls, Chart.js, D3, localStorage</text>
+      <text class="sub" x="210" y="130" text-anchor="middle">script, DOM calls, canvas, localStorage</text>
       <rect class="shared" x="440" y="84" width="360" height="72" rx="8" stroke-width="1"/>
       <text x="620" y="110" text-anchor="middle" font-weight="700">sandbox-bundle.js</text>
       <text class="sub" x="620" y="130" text-anchor="middle">DOM (linkedom + parse5), browser API shim, network stubs</text>
@@ -281,7 +281,7 @@ ul.plain b { font-weight: 700; }
         <li>All the markup and CSS WebKit knows: grid, flex, custom properties, <code>transition</code>, <code>@keyframes</code>, <code>@container</code>, inline SVG, forms, <code>&lt;details&gt;</code>, <code>&lt;dialog&gt;</code>.</li>
         <li>Inline scripts in document order, ES2023, Promise, timers, rAF, <code>MutationObserver</code>, <code>ResizeObserver</code>, Intl, <code>crypto.randomUUID</code>.</li>
         <li>DOM API: selectors, <code>innerHTML</code>, <code>classList</code>, <code>dataset</code>, forms with <code>value</code> and <code>checkValidity</code>, size measurements, <code>getComputedStyle</code>.</li>
-        <li>Canvas 2D, Chart.js 4 and D3 7 by their usual CDN URLs.</li>
+        <li>Canvas 2D (no bundled libraries since widget profile 1).</li>
         <li>The chat theme through <code>prefers-color-scheme</code>, <code>light-dark()</code> and <code>TelegramWidget.onTheme</code>.</li>
       </ul>
     </div>

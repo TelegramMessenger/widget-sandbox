@@ -34,7 +34,7 @@ Three layers: the server makes the widget self-contained, the client cuts the ne
 ### 3.1. Server, on send
 
 - External images, fonts and CSS are downloaded and re-uploaded to Telegram's CDN (as in Instant View).
-- Scripts from popular CDNs (Chart.js, D3, Tailwind, Mermaid) are replaced with versions built into the client. Without this most LLM widgets break.
+- Scripts from popular CDNs (Chart.js, D3, Tailwind, Mermaid) are not bundled (widget profile 1, `docs/profile-v1.md`): an external script never runs, and widgets draw charts with inline SVG or canvas. (An earlier prototype bundled Chart.js 4 and D3 7 under their CDN names; they left the product with profile 1.)
 - Everything that cannot be localised is cut out. The widget is stored as a bundle: HTML + assets.
 
 ### 3.2. Native clients

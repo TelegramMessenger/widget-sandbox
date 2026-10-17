@@ -15,7 +15,6 @@ would take the C++ core in `packages/desktop/`, see `docs/decisions.md`).
 |---|---|---|---|
 | `Worker` + `quickjs-emscripten` | QuickJS-ng (C) on a dedicated `Thread` with a large stack (not a `DispatchQueue`: pool threads hop and have 512 KB stacks — see `docs/decisions.md`) | QuickJS-ng (same vendored C sources, NDK/CMake) through a 300-line JNI layer on a `JSThread` (plain `Thread` with an 8 MB stack + `Looper`; `HandlerThread` cannot set the stack size) | QuickJS-ng on a `std::thread` |
 | `packages/core/src/sandbox/*` bundle (shim + linkedom + parse5), evaluated as source | same bundle, **precompiled to QuickJS bytecode** (`JS_WriteObject`), loaded with `JS_ReadObject` + `JS_EvalFunction` | same (source eval for now, like iOS) | same |
-| Bundled Chart.js / D3 fetched by sync XHR | bytecode blobs in the app bundle | `assets/WidgetJS/libs` | resources |
 | `__host(kind, arg)` C→JS function | `JS_NewCFunction` with the same string API | same | same |
 | `Validator` (TypeScript, no DOM dependency) | port to Swift (or compile the TS to JS and run it in a second, trusted QuickJS context) | trusted QuickJS context (`TrustedValidator.kt`, same `validator-bundle.js`) | C++ / trusted QuickJS |
 | `<iframe sandbox srcdoc>` + nonce CSP | `WKWebView` loading the renderer document from a custom `WKURLSchemeHandler`; CSP as an HTTP header; `WKContentRuleList` blocking `http(s)`/`ws(s)`; non-persistent `WKWebsiteDataStore`; `decidePolicyFor` cancels every navigation; macOS additionally empties the context menu and refuses `runOpenPanelWith` | `WebView`; `shouldInterceptRequest` serves the document on `https://w-<uuid>.tgwidget.invalid/` and answers everything else with an empty 403; CSP as header and `<meta>`; `setBlockNetworkLoads(true)`; `shouldOverrideUrlLoading` cancels; document-start hardening script; windows/dialogs/permissions/storage off | WebView2 in its own environment with `--host-resolver-rules="MAP * ~NOTFOUND"`, `--proxy-server=…dead…`, `--webrtc-ip-handling-policy=disable_non_proxied_udp`; `NavigationStarting` cancels |
@@ -133,8 +132,8 @@ implementation" section of `docs/decisions.md` and in `packages/android/README.m
 - **Three JS bundles are the product**: `sandbox-bundle.js` (shim + linkedom,
   untrusted once loaded), `validator-bundle.js` (trusted, runs in its *own*
   QuickJS runtime, one per app or per widget), `renderer-bundle.js` (trusted,
-  runs in the WebView). `packages/core/scripts/build-native-bundles.ts` emits them plus
-  `libs/` (Chart.js, D3) and `libraries.json` (CDN URL regexes). Add an output
+  runs in the WebView). `packages/core/scripts/build-native-bundles.ts` emits them
+  with their bytecode (no libraries are bundled since profile 1). Add an output
   directory parameter or an `android/` target to that script instead of a new
   one; keep `pnpm build:ios` working.
 - **Renderer transport** is a build-time define `__TW_TRANSPORT__` in

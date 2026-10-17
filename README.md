@@ -103,7 +103,7 @@ tooling, consuming the packages the way a client would. `corpus/`, `tests/`
 
 | Path | What |
 |---|---|
-| `packages/core/` | npm package `@telegram/widget-sandbox`: `src/host/` (trusted: `widget-host.ts`, `worker.ts`, `validator.ts`, `css-sanitizer.ts`, `url-policy.ts`, `allowlist.ts`, `loader.ts`), `src/renderer/` (trusted code inside the sandboxed iframe / shadow root), `src/sandbox/` (**untrusted** once loaded: the DOM shim over linkedom), `src/shared/protocol.ts`; `vite.ts` (the plugin that builds the bundles), `scripts/` (bundle build, Node harness), `tests/unit/` |
+| `packages/core/` | npm package `@telegram/widget-sandbox`: `src/host/` (trusted: `widget-host.ts`, `worker.ts`, `validator.ts`, `css-sanitizer.ts`, `url-policy.ts`, `allowlist.ts`), `src/renderer/` (trusted code inside the sandboxed iframe / shadow root), `src/sandbox/` (**untrusted** once loaded: the DOM shim over linkedom), `src/shared/protocol.ts`; `vite.ts` (the plugin that builds the bundles), `scripts/` (bundle build, Node harness), `tests/unit/` |
 | `packages/ios/` | Swift package `WidgetSandbox` (quickjs-ng + WKWebView, same JS bundles) for iOS and macOS; the manifest is the repo-root `Package.swift` — see [packages/ios/README.md](packages/ios/README.md); `pnpm build:ios` builds its bundles |
 | `packages/android/` | Gradle library `widget-sandbox` = `org.telegram.widgetsandbox:widget-sandbox` (the same quickjs-ng sources via NDK + `android.webkit.WebView`, same JS bundles) — see [packages/android/README.md](packages/android/README.md); `pnpm build:android` |
 | `packages/desktop/` | Qt-free C++ core for tdesktop-class hosts — see [packages/desktop/README.md](packages/desktop/README.md); `pnpm build:desktop` |

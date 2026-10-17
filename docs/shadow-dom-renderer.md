@@ -28,7 +28,7 @@ the decision goes by the numbers below.
 | bundle entry | `packages/core/src/renderer/renderer.ts` | only the transport (`port` / `webkit` / `android`) and `documentEnv()`; the bundles for the iframe and the native WebViews are unchanged in behaviour |
 | renderer | `packages/core/src/host/shadow-renderer.ts` | `ShadowDomRenderer` behind the same `Renderer` seam: `<div class="widget-frame widget-shadow">` with an open shadow root, inside it a base `<style>` and real `<html data-tw-root><head><body>` (UA rules and the widget's `html {}` / `body {}` match as in a document). Messages are applied synchronously; before `load()` they are queued |
 | base styles | same file, `BASE_CSS` | `:host { all: initial; display: block; contain: layout paint style; container-type: inline-size; container-name: tw }` — cuts inheritance from the chat page (the widget starts from UA defaults, as in a frame), `position: fixed`, stacking contexts and overflow stay inside the bubble; `:where(html) { display: flow-root }` so that `body` margins do not collapse outward and are included in the measured height |
-| validator | `packages/core/src/host/css-sanitizer.ts`, `CssEnv.scope: 'shadow'` | selectors able to escape the widget tree (`:host`, `:host()`, `:host-context()`, `::slotted()`, `::part()`, `:scope`) are dropped from the list; `:root` → `[data-tw-root]` (same specificity); `@media` on width/height/orientation only → `@container tw …` on the bubble (`screen and (max-width: 480px), (orientation: portrait)` → `tw (max-width: 480px) or (orientation: portrait)`), the rest (`hover`, `print`…) remain media queries against the window; `vw/vh/vmin/vmax` and `sv*/lv*/dv*` → `cq*` (`:host` — `container-type: size`: the host height is explicit, from the `size` reports of the inner `html`, so `100cqh` is the bubble height, the same fixed point as `100vh` in a frame). The default scope is `document`: the iframe and the native platforms are untouched. `Validator.setTheme` preserves the scope |
+| validator | `packages/core/src/host/css-sanitizer.ts`, `CssEnv.scope: 'shadow'` | selectors able to escape the widget tree (`:host`, `:host()`, `:host-context()`, `::slotted()`, `::part()`, `:scope`) are dropped from the list; `:root` → `[data-tw-root]` (same specificity); `@media` on width/height/orientation only → `@container tw …` on the bubble (`screen and (max-width: 480px), (orientation: portrait)` → `tw (max-width: 480px) or (orientation: portrait)`), the rest (`hover`, `print`…) are outside widget profile 1 and dropped on every renderer; `vw/vmin/vmax` and `sv*/lv*/dv*` → `cq*` (`vh` and the other height units are outside profile 1). Since profile 1 the host-reaching selectors, popovers, `showModal()` and `@property` are out on every renderer, so the Shadow DOM renderer and the iframe agree (`docs/profile-v1.md`). The default scope is `document`: the iframe and the native platforms are untouched. `Validator.setTheme` preserves the scope |
 | host | `packages/core/src/host/widget-host.ts`, `packages/core/src/host/renderer.ts` | the renderer is created before the validator and reports `cssScope`; a synchronous size report before the worker is created no longer crashes the host |
 | dev UI | the **shadow** toggle / `?shadow=1`, a column in "compare all" | |
 | runs | `TW_RENDERER=shadow pnpm test:attacks` / `test:generated` / `test:common` | in attacks the widget DOM is now in the application page itself, so "0 requests out and 0 canary hits" measure exactly what the frame used to add; in generated the clicks and the 3 % threshold apply as for the iframe (same engine), report `docs/compat-report-generated-shadow.md` |
@@ -154,3 +154,13 @@ then rewrite the invariant as "a sandboxed frame or a shadow root with a scoped
 validator; the application page's CSP must forbid `connect-src` and
 `form-action` for the widget subtree — or rather, for the whole page") or
 keep the iframe and pay for a document per bubble.
+
+## Enter and leave events (profile 1)
+
+Chromium dispatches `pointerenter`/`pointerleave`/`mouseenter`/`mouseleave` only to
+nodes that listen for them or that have an ancestor element with a capturing listener.
+The renderer listens on the shadow root, which is not an element, so the widget never
+got enter or leave events on this renderer (conformance `input.hover-events`). The core
+adds a capturing no-op listener for the four types on the shadow host
+(`src/renderer/core.ts`); the events then reach the shadow root's listener as in a frame.
+

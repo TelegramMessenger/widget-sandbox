@@ -27,40 +27,54 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
   inline in the rich-message block, at most 4 KB compressed and 32 KB uncompressed,
   server-made, no document and no download (`docs/tgw-format.md`). Big `.tgw` documents
   are deferred; `.tgw` stays as the test-channel format behind the client debug flag.
+- **Widget profile 1** (frozen 2026-10-17), enforced on every client:
+  `packages/core/profile.json` is the single source and `docs/profile-v1.md` the
+  generated contract. The validator drops form controls, named fonts and every
+  property, function, unit, selector, at-rule and media feature outside the profile,
+  rewrites sticky and scrolling overflow, drops nested rules and decides `@supports`;
+  `TelegramWidget.profile`, `isProfileAtLeast(n)` and `CSS.supports` answer from the
+  same tables; the renderer forwards no keyboard, focus, `dblclick`, context-menu,
+  touch, wheel or scroll event, keeps the focus out of the widget, disables text
+  selection and draws an unstyled `<button>` in the client's style (`--tg-button-*`).
+- No bundled libraries: Chart.js and D3, `config.libraries` and
+  `SandboxResources.provide` are gone on every platform (`docs/decisions.md`).
+- `Intl.formatToParts` (numbers and dates) in every glue copy.
 - Docs for client teams: `docs/integration.md`, `docs/tgw-format.md`,
-  `docs/decisions.md` ("Profile v1"), `docs/widget-state.md`, `docs/bridge-discussion.md`,
-  `docs/server-task.md`.
+  `docs/decisions.md` ("Profile v1"), `docs/profile-v1.md`, `docs/widget-state.md`,
+  `docs/bridge-discussion.md`, `docs/server-task.md`.
 
 **Not in the tag yet** (the next milestones)
 
-- `profile.json` and a validator that enforces the profile (drops form controls,
-  `:scope`, `@scope`, `env()`, named fonts, …); `CSS.supports` / `@supports` and
-  `TelegramWidget.profile` answered from it; the client-styled `<button>` template.
-- SDK v1 (the `TelegramWidget` API and the bridge) and widget storage (`docs/widget-state.md`);
-  the PoC scope is taps only, no bridge.
+- SDK v1 (the `TelegramWidget` API and the bridge, `docs/sdk-v1.md`) and widget
+  storage (`docs/widget-state.md`); the client's answer to `prefers-reduced-motion`
+  arrives with its config (today: no preference).
 - `VERSION.json`, CI, a reproducible build of `packages/quickjs-wasm/dist`, published
   Maven and npm artifacts.
 - Renderer and engine pools on Android and the desktop core (the validator pool is on
-  Android); `Intl.formatToParts`.
+  Android).
+
+**API changes for clients**
+
+- Removed: `SandboxResources.provide`, `ProvidedLibrary`, `BundledLibrary`,
+  `SandboxResources.libraries` / `library(for:)` / `librarySource` / `libraryBytecode` (Swift);
+  `SandboxResources.libraries` / `library()` / `librarySource()` / `libraryBytecode()` (Kotlin);
+  `SandboxResources::libraries` / `library()` / `librarySource()` / `libraryBytecode()` (C++);
+  the web `WidgetHost` option `libraries` and `@telegram/widget-sandbox/host/loader`.
+  `WidgetJS/libs/` and `libraries.json` are no longer shipped.
+- Diagnostics: a removal the profile causes is reported as `profile`; `library` is gone.
 
 **Known issues**
 
-- *Web: a widget's `focus()` still reaches the renderer* and takes the keyboard focus
-  from the chat input, on the iframe and the Shadow DOM renderer (conformance
-  `auto/21-no-keyboard`, `js.focus`, marked expected-to-fail). Key events are still
-  forwarded to the widget, though no key counts as a gesture any more. Both go with
-  profile v1; until then a web client restores the chat input's focus itself.
-- *Text selection is not disabled* by the web renderers (D18): dragging over a widget
-  selects its text. Profile v1; native containers disable it in the view.
-- *Shadow DOM renderer*: `showPopover()` puts the popover in the page's top layer
-  (drawn over the chat), `showModal()` degrades to `show()`, `pointerenter` /
-  `mouseenter` never reach the widget, `@property` is ignored (browsers ignore it in
-  shadow trees), `:scope` at the top level is dropped while the iframe matches it.
-- *Form controls* (`input`, `select`, `textarea`, …) are still accepted and drawn by each
-  engine in its own way; profile v1 drops them (`docs/decisions.md`).
+- *Resolved by profile 1* (2026-10-17): `focus()` and key events no longer reach the
+  renderer or the widget, text selection is off, form controls are dropped, and the
+  Shadow DOM renderer's gaps are out of the profile on every renderer (popovers,
+  `showModal()`, `@property`, `:scope`); CSS nesting is dropped with a diagnostic.
+- *Native renderers*: the Swift renderer and TwidgetCore apply the same validated ops
+  but must also forward no key events, disable selection and bake the `<button>`
+  template into their master CSS (`tables.uaStylesheet`); grid is in profile 1 on the
+  condition that both draw it.
 - *Shim gaps found by the conformance set*: `getComputedStyle` answers `""` for
-  shorthands (`white-space`, `overflow`, `margin`); CSS nesting `.a{.b{}}` is lost
-  (`& .b` survives); `animation*` / `transitionend` events carry no `animationName`,
+  shorthands (`white-space`, `overflow`, `margin`); `animation*` / `transitionend` events carry no `animationName`,
   `elapsedTime`, `propertyName`; `getElementsByClassName` is not live; canvas
   `drawImage(off-DOM canvas)` draws nothing.
 - *Android instrumented suite on the emulator*: `GestureTest.rangeSliderAndInnerScrollerKeepTheGesture`
@@ -111,11 +125,11 @@ Under `strict` also: complex-script text changes draw from 8192 words refilling 
 
 ## Opt-in (nothing changes until the host lists them)
 
-- `config.features`: `canvasWords`, `binaryOps` (native node model validates binary batches), `webAnimations` (Element.animate and the `anim` message). Android (`SandboxConfig.features`, `WidgetHost.Options.features`) and the web (`WidgetHostOptions.features`, plus `libraries`) take them now; every glue drops what it does not implement (see the table below).
+- `config.features`: `canvasWords`, `binaryOps` (native node model validates binary batches), `webAnimations` (Element.animate and the `anim` message). Android (`SandboxConfig.features`, `WidgetHost.Options.features`) and the web (`WidgetHostOptions.features`) take them now; every glue drops what it does not implement (see the table below).
 - `WidgetHost.Options.assetResolver` (iOS/macOS): `icon:` images expanded to `data:image/` before validation.
 - `WidgetHost.Options.sideChannels` (iOS/macOS): side channels such as `Widget3DChannel`.
 - `WidgetHost.Options` (iOS/macOS) keep their old defaults (`asyncValidation` and `sharedValidatorThread` false, the widget starts on the renderer's `ready`, `parallelBoot` only prewarms the runtime). New: `startBeforeRendererReady` runs the widget while the renderer loads. Ops, queries, bridge calls, logs and diagnostics reach the main thread in the order the widget produced them in both validation modes.
-- `SandboxResources.provide` (iOS/macOS): extra bundled libraries such as three.js.
+- ~~`SandboxResources.provide` (iOS/macOS): extra bundled libraries such as three.js.~~ Removed with profile 1 (no libraries).
 
 ## Swift-only
 
@@ -130,7 +144,6 @@ other hosts drop the feature names they do not implement.
 | `morphUpdates` (`morph {html}`) | yes | yes | no | no | no |
 | `icon:` images (`assetResolver`, `IconExpansion.swift`) | yes | no | no | no | no |
 | Side channels (`Widget3DChannel`; debug builds only) | yes | no | no | no | no |
-| Extra bundled libraries (`SandboxResources.provide`) | yes | yes | yes (`libraries`) | no | no |
 | Engine/renderer/validator pools, `WidgetFeed`, `WidgetBubble`, typed ops, WebKit view reuse | yes | — | worker pool only | validator pool only | no |
 
 ## Hardening before main (2026-10-16)

@@ -7,7 +7,8 @@ Run one file in the sandbox without a demo:
 
 | Folder | What | Used by |
 |---|---|---|
-| `compat/` | 21 hand-written widgets (calculator, tabs, Chart.js, D3, WebGL…) | `test:compat`, demos |
+| `compat/` | 12 hand-written widgets (calculator, tabs, SVG chart, drag, animations, WebGL fallback…) | `test:compat`, demos |
+| `out-of-profile/` | 9 former `compat/` widgets that need what widget profile 1 leaves out: bundled Chart.js and D3 (`chartjs-*`, `d3-*`) and form controls (`form-validation`, `inputs`, `local-storage`, `quiz`, `sortable-table`); kept to show what the profile removes (`?file=out-of-profile/<name>` in the dev app), run by no suite (`docs/profile-v1.md`) | dev app |
 | `attacks/` | 89 files that each try to reach the network or run code (`markup-*`, `css-*`, `api-*`, `nav-*`, `cpu-*`, `fallback-*`, `timer-flood`) | `test:attacks`, demos; must be 0 canary hits |
 | `generated/with-profile/`, `generated/without-profile/` | 20 LLM-generated widgets each, same prompts, with/without `docs/widget-runtime-profile.md` in context; `manifest.json` has the prompts | `test:generated`, demos |
 | `htmlbubbles-ported/` | 116 chat-demo messages (12 conversations) written as classic widgets (plain HTML+CSS+JS, no `render()`/`onAction`); conventions and status in its README | `test:htmlbubbles`, web picker, demos (`--autorun htmlbubbles`) |

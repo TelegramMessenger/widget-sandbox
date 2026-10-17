@@ -258,7 +258,7 @@ delegate. `packages/desktop/README.md` § Embedding has the threading rules
 
 ```cpp
 #include <twidget/widget_host.h>
-auto resources = twidget::SandboxResources::fromDirectory("<path to WidgetJS>");  // the three bundles + libraries.json
+auto resources = twidget::SandboxResources::fromDirectory("<path to WidgetJS>");  // the three bundles and their bytecode
 twidget::WidgetHostOptions options;            // policy "strict" by default
 options.features = {"webAnimations"};
 twidget::WidgetHost host(html, "light", 360, options, resources, myRendererFactory);

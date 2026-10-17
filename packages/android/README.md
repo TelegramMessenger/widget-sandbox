@@ -21,7 +21,7 @@ android/
       RendererWebView.kt             = srcdoc iframe: WebView + shouldInterceptRequest origin + nonce CSP + hardening
       WidgetHost.kt                  = widget-host.ts: engine ↔ validator ↔ renderer, sync queries, public limits
       IntlBridge.kt, SandboxResources.kt
-    src/main/assets/WidgetJS/        built by `pnpm build:android` (bundles, libs, libraries.json)
+    src/main/assets/WidgetJS/        built by `pnpm build:android` (the three bundles and their bytecode)
     src/androidTest/                 instrumented tests (JUnit4 on the emulator)
   demo/                              Compose demo: corpus browser (compat, attacks, generated), Dark toggle,
                                      diagnostics panel, attack runner against the canary (address editable),

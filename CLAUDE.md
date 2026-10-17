@@ -19,6 +19,10 @@ pnpm workspace). A framework change touches `packages/` only.
   (`src/{host,sandbox,renderer,shared}`), the Node harness, the unit tests;
   npm package `@telegram/widget-sandbox` (`exports`: `./host/*`, `./shared/*`,
   `./vite` = the Vite plugin that builds the bundles, `./node` = the harness).
+  `profile.json` is the widget profile (profile 1, frozen 2026-10-17): the single
+  source of what the validator, the shim and the renderer enforce;
+  `scripts/profile-build.ts` generates `src/shared/profile-tables.ts` and
+  `docs/profile-v1.md` from it (never edit those two by hand).
 - `packages/ios` — the Swift package (iOS + macOS); its manifest is the
   repo-root `Package.swift` (SwiftPM needs it there for a git dependency).
 - `packages/android` — the `widget-sandbox` Gradle library,
@@ -26,7 +30,7 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
-  framework tag: `catalogue.json` (244 profile features, in / out / candidate), `auto/`
+  framework tag: `catalogue.json` (244 profile features, statuses synced from `profile.json`), `auto/`
   (21 self-checking widgets), `visual/` (13 widgets for the test channel), `refs/`,
   `manifest.json`, `tools/report.mjs`; `CLIENTS.md` tells a client team how to run it
   on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`.
@@ -116,8 +120,11 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
   must stay green; a compat/generated regression is a shim bug until proven
   otherwise.
 - Ask before adding heavy dependencies or relaxing an invariant.
-- Bundled libraries (Chart.js, D3 in `packages/core/src/host/loader.ts`) are the only
-  external scripts; CDN URLs are names, nothing is fetched.
+- No library is bundled (profile 1): an external `<script src>`, CDN names
+  included, never runs and nothing is fetched.
+- The widget profile changes only through `packages/core/profile.json` (then
+  `profile-build.ts`, the bundles, `profile.test.ts`); a feature goes in only when
+  every client draws it, and adding one is profile 2, not an edit of profile 1.
 - The same three JS bundles ship to every native platform via
   `packages/core/scripts/build-native-bundles.ts`, with precompiled `.qbc` bytecode next to
   the two QuickJS bundles and the libraries (never commit a `.js` without
@@ -167,6 +174,7 @@ TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile 
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 38 tests with both; the same flags as --blitz
 corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscripten) → apps/renderer-litehtml/pkg-web; the dev UI's litehtml toggle / ?litehtml=1, TW_RENDERER=litehtml pnpm test:generated, apps/web/tests/unit/litehtml-wasm.test.ts
 # dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
+corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
 corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance
 corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
 corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # widget profile draft (docs/widget-profile-draft.md): 53 feature probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
@@ -242,6 +250,13 @@ out of memory) is a runtime state, so a Promise executor, thenable, async genera
 Same day: the conformance set moved from `corpus/conformance` to `packages/conformance` so it
 ships with the tag; `v0.1.0` release notes and known issues in `docs/changes.md`, the client
 integration guide `docs/integration.md`, the `.tgw` format in `docs/tgw-format.md`.
+2026-10-17: widget profile 1 frozen and enforced (`packages/core/profile.json`,
+`docs/profile-v1.md`, `docs/decisions.md` "Frozen as widget profile 1"): the validator,
+`NativeValidator`, the shim (`TelegramWidget.profile`, `isProfileAtLeast`, `CSS.supports`
+and `@supports` from one evaluator) and the renderer (no keyboard or focus, no selection,
+the client-styled `<button>`); no bundled libraries on any platform; `Intl.formatToParts`
+in every glue copy; the compat widgets that need libraries or form controls moved to
+`corpus/out-of-profile/`.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
-and tags (VERSION.json), profile v1, SDK v1 and storage, `Intl.formatToParts`, the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
+and tags (VERSION.json), SDK v1 and storage, the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
