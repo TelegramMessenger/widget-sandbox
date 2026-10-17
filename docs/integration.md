@@ -131,7 +131,7 @@ height within **[50, 600]**.
 | `width` | `height` | before the widget loads | after the first render |
 |---|---|---|---|
 | 0 | 0 | the default placeholder at the bubble's width | the content height the host reports, clamped to [50, 600], cached per message |
-| 0 | H | a bubble of height clamp(H, 50, 600) at the bubble's width | unchanged: the fixed height stays whatever the content reports |
+| 0 | H | a bubble of height clamp(H, 50, 600) at the bubble's width | unchanged: the fixed height stays; the reported content height is ignored |
 | W | 0 | a widget W px wide, W clamped to [200, the bubble's maximum width]; the default placeholder height | the content height, clamped to [50, 600], cached per message |
 | W | H | a fixed widget: width clamp(W, 200, max), height clamp(H, 50, 600) | unchanged |
 
