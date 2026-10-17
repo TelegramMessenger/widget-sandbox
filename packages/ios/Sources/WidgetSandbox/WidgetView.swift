@@ -32,9 +32,15 @@ public final class WidgetModel: ObservableObject {
     public let host: WidgetHost
 
     /// `rendererFactory`: the renderer; the WebView renderer when nil (see Renderer.swift).
-    public init(html: String, theme: String, width: CGFloat, options: WidgetHost.Options = WidgetModel.defaultOptions, rendererFactory: RendererFactory? = nil) throws {
+    public init(html: String, theme: WidgetTheme, width: CGFloat, options: WidgetHost.Options = WidgetModel.defaultOptions, rendererFactory: RendererFactory? = nil) throws {
         host = try WidgetHost(html: html, theme: theme, width: width, options: options, rendererFactory: rendererFactory)
         host.onChange = { [weak self] d in self?.diagnostics = d }
+    }
+
+    /// The API before SDK v1: a plain colour scheme, `"dark"` or `"light"`.
+    @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
+    public convenience init(html: String, theme: String, width: CGFloat, options: WidgetHost.Options = WidgetModel.defaultOptions, rendererFactory: RendererFactory? = nil) throws {
+        try self.init(html: html, theme: WidgetTheme(colorScheme: theme), width: width, options: options, rendererFactory: rendererFactory)
     }
 
     /// A debug build of quickjs-ng is several times slower than release, so the
@@ -47,6 +53,8 @@ public final class WidgetModel: ObservableObject {
         return o
     }
 
-    public func setTheme(_ theme: String) { host.setTheme(theme) }
+    public func setTheme(_ theme: WidgetTheme) { host.setTheme(theme) }
+    @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
+    public func setTheme(_ theme: String) { setTheme(WidgetTheme(colorScheme: theme)) }
     deinit { host.destroy() }
 }

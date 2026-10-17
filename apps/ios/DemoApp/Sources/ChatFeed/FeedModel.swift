@@ -178,7 +178,7 @@ final class FeedModel {
         let html = Corpus.html(group: g, file: f)
         let t0 = CACurrentMediaTime()
         let factory = DemoRenderer.factory(for: renderer)
-        guard let host = MainWork.shared.measure("host-create", { try? WidgetHost(html: html, theme: theme, width: widgetWidth, options: hostOptions, rendererFactory: factory) }) else { return e }
+        guard let host = MainWork.shared.measure("host-create", { try? WidgetHost(html: html, theme: WidgetTheme(colorScheme: theme), width: widgetWidth, options: hostOptions, rendererFactory: factory) }) else { return e }
         hostsCreated += 1
         if e.createdAt == 0 { e.createdAt = t0 } else { e.recreated += 1 }
         let firstHost = e.recreated == 0

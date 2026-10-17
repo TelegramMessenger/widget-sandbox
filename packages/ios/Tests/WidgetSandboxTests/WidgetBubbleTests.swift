@@ -15,7 +15,7 @@ final class WidgetBubbleTests: XCTestCase {
         feed.schedule = { queued.append($0) }
         feed.delay = { _, block in queued.append(block) }
         var generation = 0
-        let bubble = WidgetBubble(html: "<div style='height:120px'>Hello</div>", theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in
+        let bubble = WidgetBubble(html: "<div style='height:120px'>Hello</div>", theme: WidgetTheme(), width: 300, feed: feed, rendererFactory: { _, _, _ in
             generation += 1
             return ScriptedSizeRenderer(early: generation == 1 ? 120 : 30, settled: 120)
         })
@@ -49,7 +49,7 @@ final class WidgetBubbleTests: XCTestCase {
         let feed = WidgetFeed()
         feed.schedule = { _ in }
         feed.delay = { _, _ in }
-        let bubble = WidgetBubble(html: "<div>Hi</div>", theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in ScriptedSizeRenderer(early: 40, settled: 40) })
+        let bubble = WidgetBubble(html: "<div>Hi</div>", theme: WidgetTheme(), width: 300, feed: feed, rendererFactory: { _, _, _ in ScriptedSizeRenderer(early: 40, settled: 40) })
         typealias Capture = ((snapshot: AnyObject, bytes: Int)?) -> Void
         var captures: [Capture] = []
         bubble.captureSnapshotAsync = { captures.append($0) }
@@ -81,7 +81,7 @@ final class WidgetBubbleTests: XCTestCase {
         feed.schedule = { queued.append($0) }
         feed.delay = { _, block in queued.append(block) }
         var generation = 0
-        let bubble = WidgetBubble(html: "<div>Rows</div>", theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in
+        let bubble = WidgetBubble(html: "<div>Rows</div>", theme: WidgetTheme(), width: 300, feed: feed, rendererFactory: { _, _, _ in
             generation += 1
             return generation == 1 ? ScriptedSizeRenderer(early: 120, settled: 120) : ScriptedSizeRenderer(early: 30, settled: 60)
         })
@@ -117,7 +117,7 @@ final class WidgetBubbleTests: XCTestCase {
     func testVisibilityFollowsTheFeedAndReachesTheHost() {
         let feed = WidgetFeed()
         feed.schedule = { _ in }
-        let bubble = WidgetBubble(html: "<div>Hi</div>", theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in ScriptedSizeRenderer(early: 40, settled: 40) })
+        let bubble = WidgetBubble(html: "<div>Hi</div>", theme: WidgetTheme(), width: 300, feed: feed, rendererFactory: { _, _, _ in ScriptedSizeRenderer(early: 40, settled: 40) })
         var changes: [Bool] = []
         bubble.onVisibilityChange = { changes.append($0) }
         let space = OneSlotSpace(bubble.slot, rect: CGRect(x: 0, y: 0, width: 300, height: 40))
@@ -149,9 +149,9 @@ final class WidgetBubbleTests: XCTestCase {
         let queue = WidgetExecutor.makeQueue("WidgetBubbleTests.prepared")
         var prepared: WidgetHost?
         try queue.sync {
-            prepared = try WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in FrameRenderer() }, executor: WidgetExecutor(queue: queue))
+            prepared = try WidgetHost(html: html, theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in FrameRenderer() }, executor: WidgetExecutor(queue: queue))
         }
-        let bubble = WidgetBubble(html: html, theme: "light", width: 300, feed: feed, rendererFactory: { _, _, _ in FrameRenderer() })
+        let bubble = WidgetBubble(html: html, theme: WidgetTheme(), width: 300, feed: feed, rendererFactory: { _, _, _ in FrameRenderer() })
         bubble.preparedHost = {
             defer { prepared = nil }
             return prepared
@@ -183,7 +183,7 @@ final class WidgetBubbleTests: XCTestCase {
         let html = "<div id='bar' style='width:30%'>a</div><script>var bar = document.getElementById('bar'); document.addEventListener('widgetupdate', function () { console.log('update same=' + (bar === document.getElementById('bar')) + ' ' + bar.getAttribute('style')); });</script>"
         var options = WidgetHost.Options()
         options.features = features
-        let bubble = WidgetBubble(html: html, theme: "light", width: 300, options: options, feed: WidgetFeed(), rendererFactory: { _, _, _ in FrameRenderer() })
+        let bubble = WidgetBubble(html: html, theme: WidgetTheme(), width: 300, options: options, feed: WidgetFeed(), rendererFactory: { _, _, _ in FrameRenderer() })
         XCTAssertNotNil(bubble.ensureHost())
         wait { bubble.host?.diagnostics.loaded == true }
         var applied: Bool?

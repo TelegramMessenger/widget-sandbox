@@ -42,7 +42,7 @@ struct AttackRunnerView: View {
         _ = try? await URLSession.shared.data(from: canary.appendingPathComponent("__reset"))
         for file in Corpus.files(in: "attacks") {
             status = "loading \(file)"
-            guard let model = try? WidgetModel(html: Corpus.html(group: "attacks", file: file), theme: "light", width: 360, options: DemoAutorun.hostOptions, rendererFactory: DemoRenderer.factory) else { continue }
+            guard let model = try? WidgetModel(html: Corpus.html(group: "attacks", file: file), theme: WidgetTheme(), width: 360, options: DemoAutorun.hostOptions, rendererFactory: DemoRenderer.factory) else { continue }
             current = model
             // Wait for the widget to load (cold start can take >1 s), then give
             // its scripts and timers a second to try their tricks.

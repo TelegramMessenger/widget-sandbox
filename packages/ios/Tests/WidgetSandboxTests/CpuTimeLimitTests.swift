@@ -23,7 +23,7 @@ final class CpuTimeLimitTests: XCTestCase {
             }
         }
         let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(timeout)
         while !(host.diagnostics.loaded || host.diagnostics.dead != nil) && Date() < deadline {

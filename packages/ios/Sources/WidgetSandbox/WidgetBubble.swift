@@ -6,7 +6,7 @@ public final class WidgetBubble {
     public private(set) var html: String
     public let options: WidgetHost.Options
     public private(set) var width: CGFloat
-    public private(set) var theme: String
+    public private(set) var theme: WidgetTheme
     public private(set) var host: WidgetHost?
     public private(set) var height: CGFloat = 0
     public private(set) var hasContent = false
@@ -38,7 +38,13 @@ public final class WidgetBubble {
     private let rendererFactory: RendererFactory?
     private weak var feed: WidgetFeed?
 
-    public init(html: String, theme: String, width: CGFloat, options: WidgetHost.Options = WidgetHost.Options(), feed: WidgetFeed? = .shared, rendererFactory: RendererFactory? = nil) {
+    /// The API before SDK v1: a plain colour scheme, `"dark"` or `"light"`.
+    @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
+    public convenience init(html: String, theme: String, width: CGFloat, options: WidgetHost.Options = WidgetHost.Options(), feed: WidgetFeed? = .shared, rendererFactory: RendererFactory? = nil) {
+        self.init(html: html, theme: WidgetTheme(colorScheme: theme), width: width, options: options, feed: feed, rendererFactory: rendererFactory)
+    }
+
+    public init(html: String, theme: WidgetTheme, width: CGFloat, options: WidgetHost.Options = WidgetHost.Options(), feed: WidgetFeed? = .shared, rendererFactory: RendererFactory? = nil) {
         self.html = html
         self.theme = theme
         self.width = width
@@ -132,12 +138,17 @@ public final class WidgetBubble {
         return height
     }
 
-    public func setTheme(_ theme: String) {
+    public func setTheme(_ theme: WidgetTheme) {
         guard theme != self.theme else {
             return
         }
         self.theme = theme
         host?.setTheme(theme)
+    }
+
+    @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
+    public func setTheme(_ theme: String) {
+        setTheme(WidgetTheme(colorScheme: theme))
     }
 
     /// Moves the bubble to a newer version of its HTML. A live host is morphed in place (`morphUpdates`); with no
@@ -201,7 +212,7 @@ public final class WidgetBubble {
         var rendererFactory = self.rendererFactory
         var executor = WidgetExecutor()
         var shell: WidgetShellPool.Shell?
-        if WidgetExecutor.stayOffMain, let made = rendererFactory?(.shared, theme, width) {
+        if WidgetExecutor.stayOffMain, let made = rendererFactory?(.shared, theme.colorScheme.rawValue, width) {
             rendererFactory = { _, _, _ in made }
             if made is ScheduledRenderer {
                 shell = WidgetShellPool.Shell(container: WidgetShellPool.makeContainer(made, width: width), renderer: made)

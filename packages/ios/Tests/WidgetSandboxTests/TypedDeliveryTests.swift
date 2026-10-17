@@ -59,7 +59,7 @@ final class TypedDeliveryTests: XCTestCase {
         options.features = ["canvasWords"]
         let typedRenderer = TypedRenderer()
         let jsonRenderer = RecordingRenderer()
-        let host = try! WidgetHost(html: Self.widget, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in typed ? typedRenderer as Renderer : jsonRenderer as Renderer })
+        let host = try! WidgetHost(html: Self.widget, theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in typed ? typedRenderer as Renderer : jsonRenderer as Renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(10)
         while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

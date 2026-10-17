@@ -152,7 +152,7 @@ final class IconExpansionTests: XCTestCase {
 
     private func render(_ html: String, options: WidgetHost.Options) -> (RecordingRenderer, WidgetHost) {
         let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
         let deadline = Date().addingTimeInterval(10)
         while !(renderer.messages.joined().contains("\"img\"") || host.diagnostics.dead != nil) && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))

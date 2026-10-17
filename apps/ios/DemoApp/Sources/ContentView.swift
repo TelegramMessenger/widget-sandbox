@@ -144,7 +144,7 @@ struct WidgetScreen: View {
         }
         .onChange(of: showReference) { _ in loadReference() }
         .onChange(of: rendererRaw) { _ in load() }
-        .onChange(of: dark) { model?.setTheme($0 ? "dark" : "light"); reference?.setTheme($0 ? "dark" : "light") }
+        .onChange(of: dark) { model?.setTheme(DemoTheme.make(dark: $0)); reference?.setTheme($0 ? "dark" : "light") }
         .onAppear { load() }
         .onDisappear { model = nil; reference = nil }
         // Off-screen pause: the bubble scrolled out of the screen or the app in the background counts as hidden
@@ -175,7 +175,12 @@ struct WidgetScreen: View {
         // Restart = a new WidgetHost from the same HTML (the previous one is destroyed by WidgetModel.deinit).
         model = nil
         do {
-            model = try WidgetModel(html: sourceHtml, theme: dark ? "dark" : "light", width: 360, rendererFactory: DemoRenderer.factory)
+            let storageKey = group + "/" + file
+            var options = WidgetModel.defaultOptions
+            options.storage = DemoStorage.preload(storageKey)
+            let made = try WidgetModel(html: sourceHtml, theme: DemoTheme.make(dark: dark), width: 360, options: options, rendererFactory: DemoRenderer.factory)
+            made.host.onStorageCommit = DemoStorage.commit(storageKey)
+            model = made
         } catch {
             self.error = "\(error)"
         }
@@ -291,7 +296,7 @@ struct DiagnosticsPanel: View {
                 Text("\(k) ×\(e.count): \(e.details.suffix(2).joined(separator: " · "))").font(.caption2).lineLimit(2)
                     .foregroundStyle(["url-blocked", "network-blocked", "navigation-blocked", "protocol-violation", "renderer-violation"].contains(k) ? .red : .orange)
             }
-            ForEach(Array(d.bridge.suffix(10).enumerated()), id: \.offset) { _, b in Text("bridge: \(b.method)(\(b.argsJson))").font(.caption2) }
+            ForEach(Array(d.actions.suffix(10).enumerated()), id: \.offset) { _, a in Text("action: \(Self.describe(a))").font(.caption2).lineLimit(2) }
             ForEach(Array(d.logs.suffix(30).enumerated()), id: \.offset) { _, l in
                 Text("[\(l.level)] \(l.text)").font(.system(size: 10, design: .monospaced)).foregroundStyle(l.level == "error" ? .red : .primary).lineLimit(4)
             }
@@ -300,6 +305,18 @@ struct DiagnosticsPanel: View {
         .padding(8)
         .background(DemoColor.panel)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// What `onAction` got (SDK v1): the demo only lists it; a client confirms links and plays haptics (docs/sdk-v1.md §5.2, §5.3).
+    private static func describe(_ action: WidgetAction) -> String {
+        switch action {
+        case .ready: return "ready"
+        case .openLink(let url): return "openLink \(url.absoluteString)"
+        case .openTelegramLink(let url): return "openTelegramLink \(url.absoluteString)"
+        case .haptic(.impact(let style)): return "haptic impact \(style)"
+        case .haptic(.notification(let type)): return "haptic notification \(type)"
+        case .haptic(.selection): return "haptic selection"
+        }
     }
 
     /// Wall clock from WidgetHost creation, measured by the host itself (the compare runner's definition):

@@ -5,7 +5,7 @@ import QuartzCore
 public final class WidgetPrepared {
     public let host: WidgetHost
     public let width: CGFloat
-    public let theme: String
+    public let theme: WidgetTheme
     public let startedAt: CFTimeInterval
     private let lock = NSLock()
     private let done = DispatchSemaphore(value: 0)
@@ -15,7 +15,7 @@ public final class WidgetPrepared {
     private var _readyAt: CFTimeInterval?
     private var _adopted = false
 
-    init(host: WidgetHost, width: CGFloat, theme: String) {
+    init(host: WidgetHost, width: CGFloat, theme: WidgetTheme) {
         self.host = host
         self.width = width
         self.theme = theme
@@ -157,7 +157,7 @@ public enum WidgetPreparer {
 
     public static var shellWait: TimeInterval = 0.01
 
-    public static func prepare(html: String, theme: String, width: CGFloat, options: WidgetHost.Options, tracked: Bool = true) -> WidgetPrepared? {
+    public static func prepare(html: String, theme: WidgetTheme, width: CGFloat, options: WidgetHost.Options, tracked: Bool = true) -> WidgetPrepared? {
         guard let shell = WidgetShellPool.shared.take(width: width, wait: shellWait) else {
             return nil
         }

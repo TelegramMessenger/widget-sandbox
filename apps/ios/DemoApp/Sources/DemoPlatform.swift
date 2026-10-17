@@ -1,6 +1,28 @@
 import SwiftUI
 import WidgetSandbox
 
+/// The chat's theme as the demo passes it (SDK v1 `WidgetTheme`): the colour scheme of the Dark switch;
+/// the palette and the button tokens take the framework's defaults (a client maps its own chat theme, docs/sdk-v1.md §5.1).
+enum DemoTheme {
+    static func make(dark: Bool) -> WidgetTheme { WidgetTheme(colorScheme: dark ? .dark : .light) }
+}
+
+/// Web Storage per corpus file for the demo's lifetime, so a Restart keeps it (a client keys it by message, docs/sdk-v1.md §5.4).
+enum DemoStorage {
+    private static var byFile: [String: WidgetStorage] = [:]
+
+    static func preload(_ key: String) -> WidgetStorage { byFile[key] ?? WidgetStorage() }
+
+    /// `onStorageCommit` for the widget of `key` (main thread).
+    static func commit(_ key: String) -> (WidgetStorageArea, [String: String]) -> Void {
+        { area, values in
+            var stored = byFile[key] ?? WidgetStorage()
+            if area == .local { stored.local = values } else { stored.session = values }
+            byFile[key] = stored
+        }
+    }
+}
+
 /// The demo sources are shared by the iOS and the macOS app (macos/DemoApp
 /// references this directory); the few platform differences live here.
 enum DemoColor {

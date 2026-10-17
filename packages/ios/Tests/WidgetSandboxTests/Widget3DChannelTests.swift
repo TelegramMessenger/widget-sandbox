@@ -98,7 +98,7 @@ final class Widget3DChannelTests: XCTestCase {
         var options = WidgetHost.Options()
         options.sideChannels = [{ channel }]
         options.pools = pools
-        let host = try! WidgetHost(html: html, theme: "light", width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+        let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
         return (host, renderer, channel)
     }
 

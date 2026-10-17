@@ -9,6 +9,8 @@ final class RecordingDelegate: SandboxEngineDelegate {
     var diags: [(String, String)] = []
     var queries: [String] = []
     var bridge: [(String, String)] = []
+    var actions: [WidgetAction] = []
+    var storageCommits: [SdkPolicy.StorageCommit] = []
     var died: String?
     var frameRequests = 0
     let lock = NSLock()
@@ -26,6 +28,8 @@ final class RecordingDelegate: SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, log level: String, text: String) { lock.lock(); logs.append((level, text)); lock.unlock() }
     func engine(_ engine: SandboxEngine, diag kind: String, detail: String) { lock.lock(); diags.append((kind, detail)); lock.unlock() }
     func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) { lock.lock(); bridge.append((method, argsJson)); lock.unlock() }
+    func engine(_ engine: SandboxEngine, action: WidgetAction) { lock.lock(); actions.append(action); lock.unlock() }
+    func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) { lock.lock(); storageCommits.append(storageCommit); lock.unlock() }
     func engineLoaded(_ engine: SandboxEngine) { loaded.fulfill() }
     func engine(_ engine: SandboxEngine, stats: SandboxStats) {}
     func engine(_ engine: SandboxEngine, died reason: String) { lock.lock(); died = reason; lock.unlock(); loaded.fulfill() }
@@ -170,11 +174,12 @@ final class SandboxEngineTests: XCTestCase {
     }
 
     func testCompatPolicyForwardsEveryBridgeCall() {
-        let (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30); Promise.resolve().then(() => TelegramWidget.openLink('https://example.com/boot'));</script>", configure: { $0.policy = .compat })
+        let (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.openTelegramLink('https://t.me/later'), 30); Promise.resolve().then(() => TelegramWidget.openLink('https://example.com/boot'));</script>", configure: { $0.policy = .compat })
         let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline, !(engine.queue.sync { d.bridge.contains { $0.0 == "sendMessage" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        while Date() < deadline, !(engine.queue.sync { d.bridge.contains { $0.0 == "openTelegramLink" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         engine.queue.sync {}
-        XCTAssertEqual(engine.queue.sync { d.bridge.map { $0.0 } }.sorted(), ["openLink", "ready", "sendMessage"])
+        XCTAssertEqual(engine.queue.sync { d.bridge.map { $0.0 } }.sorted(), ["openLink", "openTelegramLink", "ready"])
+        XCTAssertEqual(engine.queue.sync { d.actions }, [.ready, .openLink(URL(string: "https://example.com/boot")!), .openTelegramLink(URL(string: "https://t.me/later")!)])
         XCTAssertFalse(engine.queue.sync { d.diags.contains { $0.0 == "activation-blocked" } })
     }
 
@@ -186,17 +191,18 @@ final class SandboxEngineTests: XCTestCase {
     /// `ready` needs no gesture; a privileged call from a timer is refused and reported,
     /// the same call from the handler of a trusted click goes through once (the default policy).
     func testBridgeAndTimers() {
-        let (d, engine) = run("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30); document.getElementById('b').addEventListener('click', () => { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });</script>")
+        let (d, engine) = run("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.openLink('https://example.com/later'), 30); document.getElementById('b').addEventListener('click', () => { TelegramWidget.openLink('https://example.com/clicked'); TelegramWidget.openTelegramLink('https://t.me/again'); });</script>")
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline, !(engine.queue.sync { d.diags.contains { $0.0 == "activation-blocked" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
-        XCTAssertTrue(d.bridge.contains { $0.0 == "ready" })
-        XCTAssertFalse(d.bridge.contains { $0.0 == "sendMessage" })
+        XCTAssertTrue(engine.queue.sync { d.bridge.contains { $0.0 == "ready" } })
+        XCTAssertFalse(engine.queue.sync { d.bridge.contains { $0.0 == "openLink" } })
         XCTAssertTrue(engine.queue.sync { d.diags.contains { $0.0 == "activation-blocked" && $0.1.contains("timer") } })
         engine.activationEvent(json: "{\"type\":\"click\",\"targetId\":5}", gesture: 1)
         let clicked = Date().addingTimeInterval(3)
-        while Date() < clicked, !(engine.queue.sync { d.bridge.contains { $0.0 == "sendMessage" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        while Date() < clicked, !(engine.queue.sync { d.bridge.contains { $0.0 == "openLink" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         engine.queue.sync {}
-        XCTAssertEqual(engine.queue.sync { d.bridge.filter { $0.0 == "sendMessage" }.map { $0.1 } }, ["[\"clicked\"]"])
+        XCTAssertEqual(engine.queue.sync { d.bridge.filter { $0.0 != "ready" }.map { $0.1 } }, ["[\"https:\\/\\/example.com\\/clicked\"]"], "one press unlocks one call, shared by both link methods")
+        XCTAssertEqual(engine.queue.sync { d.actions }, [.ready, .openLink(URL(string: "https://example.com/clicked")!)])
     }
 }
 
