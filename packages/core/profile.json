@@ -4476,7 +4476,7 @@
    "title": "HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)",
    "status": "in",
    "decision": "D20",
-   "note": "Checked by the server, not the client; no conformance widget fits the gzip limit yet, the test channel posts them as .tgw files under the client debug flag."
+   "note": "Checked by the server, not the client; the automatic and visual/01-13 widgets exceed the gzip limit and reach a client only through its development path (.tgw or local HTML under the debug flag); visual/sdk fits and goes through a test bot."
   },
   {
    "id": "limit.url-length",

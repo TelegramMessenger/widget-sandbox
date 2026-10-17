@@ -24,11 +24,14 @@ and CLAUDE.md).
 - The widget profile conformance set, `packages/conformance` (`CLIENTS.md`), and the
   corpora: 98 attacks, compat, generated, common, showcase, 116 ported HTML bubbles.
 - What a widget is (decided 2026-10-17): **mini-HTML**, one HTML document of at most 4 KB
-  after gzip and 32 KB uncompressed, delivered right in the message; the server gzips the
-  bot's HTML and enforces both limits, clients keep no limits (`docs/tgw-format.md`). How
-  the bytes sit in the message, who may send widgets and where, forwarding and what older
-  clients show are under revision. `.tgw` (gzip of the HTML as a file) is the test-channel
-  and development format behind the client debug flag, not a product format.
+  after gzip and 32 KB uncompressed, delivered right in the message as its own media.
+  **The server API ships with this release: layer 233**, `inputMediaWidget width height html`
+  / `messageMediaWidget width height payload` (`docs/tgw-format.md`): the server checks UTF-8,
+  no NUL, 32 KB, gzips, checks 4 KB, puts the bytes in the message; bots only, private chats
+  only, forwarding allowed anywhere; the caption is the preview text; clients below layer 233
+  get `messageMediaUnsupported`; no server flag, clients enable rendering themselves. `.tgw`
+  (gzip of the HTML as a file) is only an optional development format behind a client's
+  debug flag.
 - **Widget profile 1** (frozen 2026-10-17), enforced on every client:
   `packages/core/profile.json` is the single source and `docs/profile-v1.md` the
   generated contract. The validator drops form controls, named fonts and every
@@ -53,8 +56,9 @@ and CLAUDE.md).
   checks are one policy in four copies with a shared fixture
   (`packages/core/src/shared/sdk-policy.ts`, `tests/fixtures/sdk-policy.json`).
   The corpus widgets that called `sendMessage` keep their state in `localStorage`.
-- Docs for client teams: `docs/integration.md`, `docs/tgw-format.md`, `docs/sdk-v1.md`
-  (the SDK and storage contract), `docs/profile-v1.md`, `docs/decisions.md` ("Profile v1").
+- Docs for client teams: `docs/client-checklist.md` (start here), `docs/integration.md`,
+  `docs/tgw-format.md`, `docs/sdk-v1.md` (the SDK and storage contract), `docs/profile-v1.md`,
+  `docs/decisions.md` ("Profile v1").
 
 **Not in the tag yet** (the next milestones)
 

@@ -352,7 +352,7 @@ lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (163
 lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'kept');
 lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'kept');
 lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)', 'in', 'SDK', 'kept');
-lim('html-size', 'HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)', 'in', 'D20', 'host', { note: 'Checked by the server, not the client; no conformance widget fits the gzip limit yet, the test channel posts them as .tgw files under the client debug flag.' });
+lim('html-size', 'HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)', 'in', 'D20', 'host', { note: 'Checked by the server, not the client; the automatic and visual/01-13 widgets exceed the gzip limit and reach a client only through its development path (.tgw or local HTML under the debug flag); visual/sdk fits and goes through a test bot.' });
 
 // ───────────── Client behaviour ─────────────
 const b = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('behaviour', 'behaviour.' + id, title, st, d, t, x);

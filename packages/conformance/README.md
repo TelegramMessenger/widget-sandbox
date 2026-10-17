@@ -100,7 +100,7 @@ The client SDK group's pictures come from the same build. `scripts/conformance/s
 
 ## Known limits
 
-- The visual set (`visual/01…13`) does not fit a mini-widget: 5–55 KB gzipped, with embedded pictures. The test channel posts it as `.tgw` files (the development format) behind the debug flag until it is split.
+- The visual set (`visual/01…13`) does not fit a mini-widget: 5–55 KB gzipped, with embedded pictures. A bot cannot send it (`inputMediaWidget` refuses anything over 4 KB gzipped), so it reaches the test channel through a client's development path (`.tgw` files or local HTML behind the debug flag) until it is split; `visual/sdk` fits and goes through a test bot.
 - References come from headless Chromium on macOS. WebKit references appear once Playwright's WebKit is installed, and the rule then takes the better of the two.
 - Text stages depend on platform fonts. They allow 50 % of the ink but check the feature's colours.
 - The web runner gives the canvas renderers (Blitz and litehtml wasm prototypes, which are not product renderers) only synthetic taps. Drags, hover, keys and wheel are skipped there, and so are gesture-gated host checks.

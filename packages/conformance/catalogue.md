@@ -317,7 +317,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | kept |  | auto/16-sdk-taps, visual/sdk/03-link-rejected |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in | SDK | kept |  | auto/20-client-behaviour |
 | `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit) | in | SDK | kept |  | auto/16-sdk-taps, visual/sdk/06-haptics-rate |
-| `limit.html-size` | HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)<br><sub>Checked by the server, not the client; no conformance widget fits the gzip limit yet, the test channel posts them as .tgw files under the client debug flag.</sub> | in | D20 | host |  |  |
+| `limit.html-size` | HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)<br><sub>Checked by the server, not the client; the automatic and visual/01-13 widgets exceed the gzip limit and reach a client only through its development path (.tgw or local HTML under the debug flag); visual/sdk fits and goes through a test bot.</sub> | in | D20 | host |  |  |
 
 ## behaviour
 

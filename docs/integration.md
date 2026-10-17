@@ -76,29 +76,39 @@ iOS/macOS and only after measuring. A feature the renderer behind your
 ## The widget payload
 
 A **widget is mini-HTML**: one self-contained HTML document of at most 4 KB
-after gzip and 32 KB uncompressed, delivered right in the message
-(`docs/tgw-format.md`). The server gzips the bot's plain HTML and enforces
-both limits. The client takes the bytes from the message, `gunzip`s them and
-passes the text to `WidgetHost`. Do not add size checks of your own: the
-limits live in the server's config and may move without a client update; the
-sandbox is the security boundary.
+after gzip and 32 KB uncompressed. Since API layer 233 it is message media of
+its own: `messageMediaWidget width:int height:int payload:bytes`
+(`docs/tgw-format.md` has the TL, the server's checks and the errors). The
+server gzips the bot's plain HTML and enforces both limits. The client takes
+`payload`, `gunzip`s it and passes the text to `WidgetHost`. Do not add size
+checks of your own: the server enforces them and they can move without a
+client update; the sandbox is the security boundary.
 
 There is **no file download and no loading state for a file**: the bytes are
 already in the message. The only thing to show before the first frame is the
 bubble at the size the bot asked for (below) while the sandbox boots, which
 takes tens of milliseconds warm and a few hundred cold. An edited message
-carries new bytes: destroy the host and create a new one.
+carries a new payload: destroy the host and create a new one. A forwarded
+message carries a copy of the bytes.
 
-How the bytes sit in the message, who may send widgets and where, what
-forwarding does and what clients without widget support show are under
-revision; none of it changes the host API.
+**Enabling.** The server has no flag for widgets. Each client turns rendering
+on with its own platform/version flag (a debug or rollout flag, not app
+config); with it off, and on clients below layer 233 which receive
+`messageMediaUnsupported`, the message shows as unsupported media with its
+caption. Keep that fallback.
 
-For the PoC, before the server side exists, each client keeps a **debug
-flag** that renders `.tgw` documents (gzip of a widget's HTML) posted to the
-shared test channel as widgets, off in release builds: gunzip the document and
-hand the HTML to `WidgetHost` the same way, with no size limit, because the
-conformance set posted there is larger than a mini-widget. `.tgw` is the
-test-channel and development format only.
+**Caption and preview.** The media caption is the preview text for the chat
+list, notifications and search; without one show the localized "Widget" stub,
+as for other media without a caption.
+
+**Testing with a test bot.** Bots may send widgets only into their private chat
+with a user, so a test bot sends to a tester's chat; the shared test channel is
+filled by forwarding those messages (forwarding is allowed anywhere, and the
+copy works like the original). For widgets a bot cannot send, above all the
+conformance set, whose widgets are larger than 4 KB, a client may keep a
+development path behind its debug flag: `.tgw` files (gzip of the HTML) or
+HTML files from disk, loaded into `WidgetHost` the same way, with no size
+limit. It is not a product format.
 
 ## Bubble sizing
 
@@ -153,10 +163,9 @@ controls; the width is always the bubble's.
 
 ## Forwarding and state
 
-Whether and where a widget message can be forwarded is under revision. Where
-a copy exists it works exactly like the original (isolated, no network, no
-messages to the bot) and it is a different message, so **each copy has its own
-storage**: keep Web Storage per (account, chat, message id), pass it as the
+A widget message may be forwarded to any chat, groups and channels included.
+The copy works exactly like the original (isolated, no network, no messages to
+the bot) and it is a different message, so **each copy has its own storage**: keep Web Storage per (account, chat, message id), pass it as the
 host's `storage` at creation and keep what `onStorageCommit(area, values)`
 hands you — `local` on disk (with a short delay, and at once when the widget
 is hidden or destroyed and when the app goes to the background), `session` in

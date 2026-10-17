@@ -182,7 +182,7 @@ They need SDK v1 in the framework (`docs/sdk-v1.md`).
 
 ## The visual set in the test channel
 
-`visual/01…13` are numbered in reading order. They are posted as `.tgw` files (gzip of the HTML, the test-channel format your client renders under its debug flag): they are larger than a mini-widget. Each row shows the widget drawn live by your client next to the reference picture, with one line saying what to compare. Interactive rows say what to tap or drag. Testers scroll through on a phone and report a row that does not match, with a screenshot. Fonts differ between platforms by design: compare the structure, not the letter shapes.
+`visual/01…13` are numbered in reading order. They are larger than a mini-widget, so a bot cannot send them (`inputMediaWidget` refuses more than 4 KB gzipped); they reach the channel through a client's development path, `.tgw` files (gzip of the HTML) or local HTML rendered under the debug flag. The `visual/sdk` widgets fit the limit: a test bot sends them to a tester's private chat and the messages are forwarded into the channel. Each row shows the widget drawn live by your client next to the reference picture, with one line saying what to compare. Interactive rows say what to tap or drag. Testers scroll through on a phone and report a row that does not match, with a screenshot. Fonts differ between platforms by design: compare the structure, not the letter shapes.
 
 ## When the framework changes
 

@@ -1,0 +1,66 @@
+# Client checklist for widgets v0.1.0
+
+One page for a client team. Each box links to where the detail is:
+`docs/integration.md` (the host), `docs/sdk-v1.md` §4–5 (the SDK and what the
+client implements), `packages/conformance/CLIENTS.md` (the conformance set),
+`docs/tgw-format.md` (the message media).
+
+## a. Adopt the framework
+
+- [ ] Pin the tag `v0.1.0`, never a branch ([integration.md, "Pinning a release"](integration.md#pinning-a-release)).
+- [ ] Create one `WidgetHost` per widget on your platform; policy `strict`
+      (the default), `features` as the profile sets them, today `["webAnimations"]`
+      ([integration.md, "Policy and features"](integration.md#policy-and-features); the per-platform
+      API in [sdk-v1.md §4](sdk-v1.md#4-host-interface-per-platform)).
+- [ ] `setVisible(false)` off screen, `setTheme` on theme change, `destroy()` on
+      recycle ([integration.md](integration.md)).
+
+## b. PoC on real messages (layer 233) from a test bot
+
+- [ ] Render `messageMediaWidget`: gunzip `payload`, no size limit of your own
+      ([tgw-format.md](tgw-format.md), [integration.md, "The widget payload"](integration.md#the-widget-payload)).
+- [ ] Enable rendering with your own platform/version flag; without it, and on
+      old layers, the message shows as unsupported media with its caption.
+- [ ] Bubble sizing from `width` / `height` before the widget loads; the host's
+      height afterwards, cached per message; hard clip at the cap, no fullscreen
+      ([integration.md, "Bubble sizing"](integration.md#bubble-sizing), [sdk-v1.md §5.6](sdk-v1.md#56-bubble-size)).
+- [ ] Taps only reach the widget; no text selection, no keyboard input, no focus
+      ([integration.md, "Input"](integration.md#input)).
+- [ ] Off-screen pause: frames stop, timers at 1 Hz when the bubble leaves the screen.
+- [ ] A killed widget keeps its last frame with the "Widget stopped" badge; the
+      bubble does not collapse ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
+- [ ] Caption as the preview text; the localized "Widget" stub without one.
+- [ ] A test bot sends widgets to a tester's private chat; forward them into the
+      shared test channel (bots cannot post widgets to channels).
+
+## c. SDK v1
+
+- [ ] Theme: the chat palette and the button tokens into `WidgetTheme`, updated on
+      theme change ([sdk-v1.md §5.1](sdk-v1.md#51-theme)).
+- [ ] Links: `openLink` / `openTelegramLink` only from a real tap; confirmation
+      showing the full URL; then open ([sdk-v1.md §5.2](sdk-v1.md#52-links)).
+- [ ] Haptics with the rate limit ([sdk-v1.md §5.3](sdk-v1.md#53-haptics)).
+- [ ] Storage per (account, chat, message id) on disk, preloaded at creation,
+      committed from `onStorageCommit`, deleted with the message, the chat, the
+      account and on "Clear cache" ([sdk-v1.md §5.4](sdk-v1.md#54-storage)).
+- [ ] Drag arbitration against swipe-to-reply and the list scroll; double tap and
+      long press stay with the bubble ([sdk-v1.md §5.5](sdk-v1.md#55-gestures-and-drag-d4)).
+- [ ] A widget stays stopped after 2 crashes in a row ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
+- [ ] A forwarded copy works like the original with its own, empty storage; a bot
+      edit replaces the payload and restarts the widget on the same storage.
+
+## d. Test
+
+- [ ] The conformance automatic set on your renderer, with the report
+      ([CLIENTS.md](../packages/conformance/CLIENTS.md)).
+- [ ] The attack corpus (`corpus/attacks`): 0 leaks, 0 outside requests.
+- [ ] The visual set, `visual/01…13` and `visual/sdk`, in the test channel with the
+      manual checklist: light and dark themes, rotation, system font size, RTL
+      locale, reduce motion, bubble re-creation on scroll, forward, edit.
+- [ ] A feed bench on a low-end device: many widgets in a list, scroll, memory.
+
+## e. Send back
+
+- [ ] The conformance report (`<platform>-<renderer>.json` and `summary.md`) and
+      every discrepancy you found, to the widget-sandbox maintainers or as a PR
+      into `packages/conformance/results/`.

@@ -82,8 +82,9 @@ answer from the client: whether the user confirmed a link is not reported back.
   renderer's engine never decides.
 - A widget that checks nothing still loads; on an older client the features
   outside that client's profile are dropped by its validator (accepted product
-  behaviour). What clients without widget support show is
-  under revision (a placeholder of some form).
+  behaviour). Clients below API layer 233 receive `messageMediaUnsupported`
+  with the caption and show their usual placeholder; a client with widget
+  rendering off does the same (`docs/tgw-format.md`).
 
 ### 2.3 Theme (D14)
 
@@ -220,10 +221,10 @@ out of v1 (§6).
 
 - `localStorage` is stored by the client for this message on this device,
   under (account, chat, message id), where the chat is the one the message is
-  in; a copy of the message in another chat is another key and starts empty.
-  (D17 says (account, bot, `message_id`); message ids are unique only within a
-  chat, so the chat is the exact key. Who may send widgets and where, and what
-  forwarding does, are under revision; the key does not depend on the answer.) It
+  in: the bot's private chat for the message it sent; a forwarded copy (allowed
+  into any chat) is another message in another chat, another key, and starts
+  empty. (D17 says (account, bot, `message_id`); message ids are unique only
+  within a chat, so the chat is the exact key.) It
   survives the widget's
   destruction and app restarts, and is deleted with the message, the chat
   (or its history), the account and on "Clear cache". It is never sent to the
@@ -546,8 +547,8 @@ ignore them.
   bubble with that aspect ratio at the bubble's width; with `width = 0` and
   `height = H`, at height `H`; with neither, the default placeholder (height
   from the designers) (D12b; the two optional numbers travel with
-  the widget bytes, `docs/tgw-format.md`). The hint is tested end to end only once the server
-  sends it; the test channel has no debug convention for it.
+  the widget bytes, `docs/tgw-format.md`). Test it with a test bot sending
+  `inputMediaWidget` with the anchors set.
 - After the first render, use the height the host reports (`onChange` →
   `height`, web `onResize`), capped at the client's maximum (`maximumHeight`,
   `maxHeightDp`, the web host's 900 px today), and cache it per message for the
@@ -569,6 +570,19 @@ ignore them.
 
 Call `setVisible(false)` when the bubble leaves the screen and when the app
 goes to the background, `setVisible(true)` when it is back.
+
+### 5.9 The message: media, caption, flag
+
+- The widget is `messageMediaWidget` (layer 233): gunzip `payload`, no size
+  limit of your own, hand the HTML to the host (`docs/tgw-format.md`,
+  `docs/integration.md`). An edit replaces the payload: new host, same storage.
+- Rendering is enabled by the client's own platform/version flag; off, or
+  below layer 233 (`messageMediaUnsupported`), the message shows as
+  unsupported media with its caption. Keep that fallback.
+- The media caption is the preview and search text; without one, the localized
+  "Widget" stub.
+- Test with a test bot in a tester's private chat and forward into the shared
+  test channel; bots cannot post widgets to channels.
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 
@@ -592,8 +606,8 @@ The questions this contract left open, as decided on 2026-10-17:
    message menu): the widget gets single taps and, in v1, drags (§5.5).
 6. No `linkOpened` event in v1: the widget is not told whether the user opened
    the link.
-7. The bubble size from the bot's `width` and `height` is tested once the server
-   exists; there is no debug convention for the test channel.
+7. The bubble size from the bot's `width` and `height` is tested end to end
+   with a test bot (layer 233 ships with v0.1.0).
 
 ## 7. The framework milestone
 

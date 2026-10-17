@@ -50,8 +50,9 @@ QuickJS submodule change together. Then read, in this order:
 
 | | |
 |---|---|
+| [`docs/client-checklist.md`](docs/client-checklist.md) | one page of checkboxes: adopt, PoC on layer-233 messages, SDK v1, test, send back |
 | [`docs/integration.md`](docs/integration.md) | how to pin the tag per package manager, create a `WidgetHost`, pass the policy and features, handle the widget payload, size the bubble, what input a widget gets, the per-platform API |
-| [`docs/tgw-format.md`](docs/tgw-format.md) | the widget payload (mini-HTML) and the `.tgw` test-channel format |
+| [`docs/tgw-format.md`](docs/tgw-format.md) | the widget payload: `messageMediaWidget` (layer 233), the server's checks and errors, caption, old clients |
 | [`docs/profile-v1.md`](docs/profile-v1.md), [`packages/core/profile.json`](packages/core/profile.json) | widget profile 1: what a widget may use and what the validator does with the rest |
 | [`docs/sdk-v1.md`](docs/sdk-v1.md) | the `TelegramWidget` API, the protocol, the host interface on each platform and what the client implements |
 | [`packages/conformance/CLIENTS.md`](packages/conformance/CLIENTS.md) | the conformance set: run it on your renderer and compare with the other clients |

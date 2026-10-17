@@ -1,36 +1,69 @@
-# The widget payload: mini-HTML
+# The widget payload: `messageMediaWidget` (layer 233)
 
 A **widget is mini-HTML**: one self-contained HTML document, inline CSS and
 JS, `data:` images only, no external resources, of at most **4 KB after gzip**
-and **32 KB uncompressed**, delivered right in the message (decided
-2026-10-17). The bot sends plain HTML; the server gzips it and enforces both
-limits. That is the whole format: there is no container, header or manifest
-around the HTML.
+and **32 KB uncompressed**. It travels as message media of its own, inline in
+the message, since API layer 233 (shipped together with widget-sandbox
+v0.1.0). The server never runs, parses or renders the HTML: it checks the
+bytes and packs them.
 
-| | |
+```tl
+inputMediaWidget   width:int height:int html:string    = InputMedia;
+messageMediaWidget width:int height:int payload:bytes  = MessageMedia;
+```
+
+## Sending and delivery
+
+- A bot sends `messages.sendMedia` / `messages.uploadMedia` with
+  `inputMediaWidget`: `html` is the UTF-8 source of the widget (required);
+  `width` and `height` are the optional size anchors in CSS px, `0` meaning
+  "auto". Bots never send gzip.
+- The server checks the source (valid UTF-8, no NUL bytes, at most 32 KB),
+  gzips it itself, checks the **packed** payload (at most 4 KB) and puts the
+  bytes into the message. No document, no file id, no reuse by id.
+- The client receives `messageMediaWidget`: `payload` is the raw gzip bytes;
+  the client `gunzip`s them and hands the HTML to `WidgetHost`
+  (`docs/integration.md`). The client keeps **no size limits of its own**:
+  the server enforces both, so a payload the server produced always decodes
+  to HTML within them, and the sandbox, the validator and the runtime limits
+  are the security boundary, not the size.
+- An edit by the bot replaces the payload as a whole, with the same checks.
+  The widget's state lives only in the message's storage on the device and
+  is deleted with the message (`docs/sdk-v1.md` §2.8).
+
+| Error | Cause |
 |---|---|
-| Content | gzip of one UTF-8 HTML document |
-| Size | at most 4 KB compressed and 32 KB uncompressed, both checked by the server |
-| Delivery | in the message itself: no document, no download, no file id. An edit brings new bytes with the edited message |
-| Producer | the Telegram server only; bots never send gzip |
-| Limits on the client | none. The limits live in the server's config and may move without a client update; the sandbox, the validator and the runtime limits are the security boundary, not the size |
+| `INPUT_MEDIA_WIDGET_TOO_LARGE` | HTML over 32 KB, or the gzip payload over 4 KB |
+| `INPUT_MEDIA_WIDGET_HTML_INVALID` | not text HTML: broken UTF-8, binary data, gzip sent by the bot |
+| `INPUT_MEDIA_WIDGET_NOT_ALLOWED` | the sender is not a bot, the chat is not the bot's private chat with the user, or an inline, draft or ephemeral message |
 
-How exactly the bytes sit in the message (a media type, a block of a rich
-message, something else), who may send widgets and where, what forwarding
-does, and what clients without widget support show are **under revision**.
-Nothing in the framework depends on these answers: a client gets bytes and
-two optional numbers, `width` and `height`, and the rest is the sandbox.
+## Who may send, and where it may go
 
-## What a client does with it
+Only bots, only into their private chat with the user: groups, channels,
+inline mode, drafts and ephemeral messages are refused. **Forwarding is
+allowed to any chat**, groups and channels included, and the forwarded copy
+works exactly like the original (isolated, no network, no messages to the
+bot); it is a different message, so it has its own storage, which starts
+empty.
 
-1. Take the bytes from the message and `gunzip` them. The result is the UTF-8
-   HTML text.
-2. Hand the HTML to `WidgetHost` as the widget (`docs/integration.md`). There
-   is no download and no loading state for a file; the only thing to show
-   before the first frame is the bubble at the size the bot asked for
-   (`docs/integration.md`, "Bubble sizing").
-3. On an edit, the message carries new bytes: destroy the old host and create
-   a new one with the new HTML, as for any new widget.
+## Caption, preview, old clients
+
+The message's ordinary media caption is the text for the preview, the chat
+list and search; without a caption the client shows the localized "Widget"
+stub, as for other media. Clients below layer 233 receive
+`messageMediaUnsupported` with the caption text and show their usual
+placeholder; a new client keeps that fallback for messages it decides not to
+render.
+
+The server has no flag for widgets: each client enables rendering itself, by
+platform and version (a debug or rollout flag on the client side).
+
+## Size anchors
+
+`width` and `height` are always present in the media; `0` means auto, and
+each axis is independent. The server passes them through unchanged; the client
+keeps them within sensible bounds. How the client turns them into the bubble
+before the widget has loaded is in `docs/integration.md` ("Bubble sizing").
 
 ## Writing a mini-widget
 
@@ -44,21 +77,18 @@ and there are no bundled libraries.
 
 Widget authors see one number, the uncompressed limit; the compressed one is
 the server's to check, because the author cannot know how the server's gzip
-compresses.
+compresses. A bot that gets `INPUT_MEDIA_WIDGET_TOO_LARGE` for HTML under
+32 KB has hit the gzip limit.
 
-## `.tgw`: the test-channel format
+## `.tgw`: an optional development format
 
 A `.tgw` file is gzip of a widget's HTML (MIME type `application/x-tgwidget`)
-posted as a document. It is the **test-channel and development format**: a
-debug flag in each client renders `.tgw` documents posted to the shared test
-channel as widgets (off in release builds), so the clients can be developed
-and compared before the server side exists. The conformance set
-(`packages/conformance`) is posted there the same way; none of its widgets
-fits the mini-widget limits yet (`docs/changes.md`, v0.1.0 known issues), and
-the debug path applies no size limit. Whether `.tgw` ever becomes a product
-format for larger widgets is not decided; nothing should be built on that
-assumption. A `.tgw` or `.html` a user uploads as a document is a file, not a
-widget.
+as a document. It is **not a product format**: a client may support it behind
+its debug flag for local tests without a bot, for example to load the
+conformance set (`packages/conformance`), whose automatic and visual widgets
+are larger than a mini-widget and cannot be sent through `inputMediaWidget`,
+or any HTML file from disk. Product widgets come only as `messageMediaWidget`;
+a `.tgw` or `.html` a user uploads as a document is a file, not a widget.
 
 ## Profile and versions
 
@@ -66,4 +96,5 @@ The HTML is written against widget profile 1 (`docs/profile-v1.md`;
 `packages/core/profile.json` is the source). A widget learns the client's
 profile at runtime through `TelegramWidget.profile`, `isProfileAtLeast(n)`,
 `CSS.supports` and `@supports`, all answered from the same tables. The payload
-itself has no version field.
+itself has no version field: the profile is the framework build's, the media
+layout is the layer's.
