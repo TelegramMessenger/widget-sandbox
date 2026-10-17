@@ -364,111 +364,101 @@ generic family, numbers 0–1).
 
 ## 4. Host interface per platform
 
-The shapes the client wires up. Existing members are listed as they are;
-**v1** members are the contract the framework milestone implements. Callbacks
-run on the main thread (Swift, Kotlin), on the host thread (C++) or on the
-page's event loop (web).
+The shapes the client wires up, as implemented (v0.1.0). Callbacks run on the
+main thread (Swift, Kotlin), on the host thread (C++) or on the page's event
+loop (web). On every platform the string-theme constructor, `setTheme(String)`
+and `onBridge` are kept as deprecated forwards (no behaviour of their own;
+`onBridge` gets the raw method and arguments of each call `onAction` got, right
+after it); the host → widget bridge events (`bridgeEvent`) are removed.
 
 ### 4.1 Swift (iOS, macOS): `WidgetHost`
 
 ```swift
-// today
-init(html: String, theme: String, width: CGFloat, options: Options, …) throws
-var onChange: ((WidgetDiagnostics) -> Void)?      // height, loaded, rendered, dead, diags
-var onError: ((String) -> Void)?
-var onBridge: ((String, String) -> Void)?         // raw method + args JSON; deprecated in v1
-func setVisible(_ visible: Bool)
-func snapshot(completion: @escaping (PlatformImage?) -> Void)
-func destroy()
-// Options: maximumHeight (900), policy (.strict), features, pools, …
-
-// v1
-public struct WidgetTheme {
-    public var colorScheme: ColorScheme                // .light / .dark
-    public var params: [String: String]                // themeParams keys → "#rrggbb"
-    public var button: WidgetButtonTokens               // §2.4
-}
-public struct WidgetStorage { public var local: [String: String]; public var session: [String: String] }
+public struct WidgetTheme { var colorScheme: ColorScheme /* .light / .dark */; var params: [String: String]; var button: WidgetButtonTokens }
+public struct WidgetButtonTokens { var bg, text, radius, font, padding, height: String?; var pressedOpacity, disabledOpacity: Double? }
+public struct WidgetStorage { var local: [String: String]; var session: [String: String] }
+public enum WidgetStorageArea: String { case local, session }
 public enum WidgetHaptic { case impact(String), notification(String), selection }
 public enum WidgetAction { case ready, openLink(URL), openTelegramLink(URL), haptic(WidgetHaptic) }
-public enum WidgetStorageArea { case local, session }
-public struct WidgetGestureClaim { public var x: Bool; public var y: Bool }
+public struct WidgetGestureClaim { var x: Bool; var y: Bool }
 
-init(html: String, theme: WidgetTheme, width: CGFloat, options: Options, …) throws
-// Options: + locale: String, + storage: WidgetStorage (the preload)
+init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
+// Options: maximumHeight (900), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
+var onChange: ((WidgetDiagnostics) -> Void)?           // height, loaded, rendered, dead, diags, actions
+var onError: ((String) -> Void)?
 var onAction: ((WidgetAction) -> Void)?
-var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?
+var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?   // local before session
 var onGestureClaim: ((WidgetGestureClaim) -> Void)?
-func setTheme(_ theme: WidgetTheme)                    // replaces setTheme(String)
+func setTheme(_ theme: WidgetTheme)
+func setVisible(_ visible: Bool); func snapshot(completion:); func destroy()
 ```
+
+`WidgetBubble`, `WidgetModel` (`WidgetView`) and `WidgetPreparer` take a
+`WidgetTheme` the same way. `URL(string:)` may escape a few characters the
+check keeps (`[`, `]`, a second `#`); the checked string is
+`SdkPolicy.checkLink`'s.
 
 ### 4.2 Kotlin (Android): `WidgetHost`
 
 ```kotlin
-// today
-WidgetHost(context, html, theme = "light", widthDp, options, resources, rendererFactory)
-var onChange: ((WidgetDiagnostics) -> Unit)?
-var onError: ((String) -> Unit)?
-var onBridge: ((String, String) -> Unit)?        // deprecated in v1
-fun setVisible(visible: Boolean); fun destroy()
-// Options: minHeightDp (24), maxHeightDp (900), policy ("strict"), features, pools, …
-// The WebView renderer already applies the gesture decision to its parent
-// (requestDisallowInterceptTouchEvent).
-
-// v1
-data class WidgetTheme(val colorScheme: String, val params: Map<String, String>, val button: WidgetButtonTokens)
+data class WidgetTheme(val colorScheme: String = "light", val params: Map<String, String> = emptyMap(), val button: WidgetButtonTokens = WidgetButtonTokens())
+data class WidgetButtonTokens(val bg: String? = null, val text: String? = null, val radius: String? = null, val font: String? = null,
+                              val padding: String? = null, val height: String? = null, val pressedOpacity: Double? = null, val disabledOpacity: Double? = null)
 data class WidgetStorage(val local: Map<String, String> = emptyMap(), val session: Map<String, String> = emptyMap())
-sealed class WidgetAction {
-    object Ready : WidgetAction()
-    data class OpenLink(val url: String) : WidgetAction()
-    data class OpenTelegramLink(val url: String) : WidgetAction()
-    data class Haptic(val kind: String, val value: String?) : WidgetAction()   // impact|notification|selection
-}
-// constructor takes theme: WidgetTheme; Options: + locale: String, + storage: WidgetStorage
+sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(kind, value?) }   // kind: impact | notification | selection
+
+WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
+// Options: minHeightDp (24), maxHeightDp (900), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload)
+var onChange: ((WidgetDiagnostics) -> Unit)?               // … and actions
+var onError: ((String) -> Unit)?
 var onAction: ((WidgetAction) -> Unit)?
 var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   // "local" | "session"
 var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)?
-fun setTheme(theme: WidgetTheme)
+fun setTheme(theme: WidgetTheme); fun setVisible(visible: Boolean); fun destroy()
 ```
+
+The WebView renderer still applies `y` to its parent itself
+(`requestDisallowInterceptTouchEvent`). The Blitz and litehtml prototypes send
+only `wants`: the host reports it as `y`, with `x` false.
 
 ### 4.3 C++ (desktop core): `twidget::WidgetHost`
 
 ```cpp
-// today
-WidgetHost(std::string html, std::string theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
-std::function<void(const WidgetDiagnostics&)> onChange;
-std::function<void(const std::string& method, const std::string& argsJson)> onBridgeCall;   // deprecated in v1
-std::function<void(const std::string&)> onError;
-void start(); void setVisible(bool); void destroy();
-
-// v1
+struct WidgetButtonTokens { std::string bg, text, radius, font, padding, height; std::optional<double> pressedOpacity, disabledOpacity; };
 struct WidgetTheme { std::string colorScheme; std::map<std::string, std::string> params; WidgetButtonTokens button; };
 struct WidgetStorage { std::map<std::string, std::string> local, session; };
 struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } kind; std::string url, hapticKind, hapticValue; };
-// WidgetHostOptions: + std::string locale, + WidgetStorage storage; the constructor takes WidgetTheme
+
+WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
+// WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload)
+std::function<void(const WidgetDiagnostics&)> onChange;           // … actions, storageCommits (first 1000)
+std::function<void(const std::string&)> onError;
 std::function<void(const WidgetAction&)> onAction;
 std::function<void(const std::string& area, const std::map<std::string, std::string>&)> onStorageCommit;
 std::function<void(bool x, bool y)> onGestureClaim;
-void setTheme(const WidgetTheme&);
+void start(); void setTheme(const WidgetTheme&); void setVisible(bool); void destroy();
 ```
+
+Storage strings keep a lone surrogate as WTF-8 (what QuickJS hands over), so
+a value round-trips exactly; it is not strict UTF-8 in that case. Commits
+already on their way reach `onStorageCommit` before `destroy()` returns.
 
 ### 4.4 Web: `WidgetHost` (`@telegram/widget-sandbox/host/widget-host`)
 
 ```ts
-// today
-new WidgetHost(container, html, { theme, policy, visible, onBridge, onDead, onError, onLoaded, onResize, onDiag, rendererFactory, workerPool, features, … })
-host.setTheme(theme); host.setVisible(visible); host.destroy();
-
-// v1
-interface WidgetTheme { colorScheme: 'light' | 'dark'; params: ThemeParams; button: ButtonTokens }
+interface WidgetTheme { colorScheme: 'light' | 'dark'; params?: Partial<ThemeParams>; button?: ButtonTokens }
 type WidgetAction =
   | { kind: 'ready' }
   | { kind: 'openLink'; url: string }
   | { kind: 'openTelegramLink'; url: string }
   | { kind: 'haptic'; haptic: 'impact' | 'notification' | 'selection'; value?: string };
-// options: theme: WidgetTheme (a plain 'light' | 'dark' still accepted), locale, storage: { local, session },
-//          onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y })
-host.setTheme(theme: WidgetTheme)
+new WidgetHost(container, html, {
+  theme,                                   // WidgetTheme, or a plain 'light' | 'dark'
+  locale, storage: { local, session },     // the client's language and Web Storage preload
+  onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y }),
+  policy, visible, onDead, onError, onLoaded, onResize, onDiag, rendererFactory, workerPool, features, …
+})
+host.setTheme(theme); host.setVisible(visible); host.destroy();
 ```
 
 The web client's page must also carry the CSP of invariant 6 (`connect-src`
@@ -477,10 +467,10 @@ only Telegram's endpoints, `form-action 'none'`, no third-party
 
 ### 4.5 Node harness (`packages/core/scripts/sandbox-node.ts`)
 
-For tests and tooling, not for clients. `RunOptions` gains `locale`,
-`themeParams`, `storage`; `RunResult` gains `actions` (what `onAction` would get)
-and `storageCommits`. Gestures are injected per event (`gesture: n`), as
-today.
+For tests and tooling, not for clients. `RunOptions` takes `theme`, `locale`,
+`themeParams`, `storage` and `script` steps `{ theme, themeParams }`;
+`RunResult` has `actions` (what `onAction` would get) and `storageCommits`.
+Gestures are injected per event (`gesture: n`).
 
 ## 5. What the client implements
 
@@ -600,8 +590,11 @@ The questions this contract left open, as decided on 2026-10-17:
 
 ## 7. The framework milestone
 
-SDK v1 is implemented in the framework as part of v0.1.0, before the release
-is pushed: the shim, all five glue copies and the Node harness, with tests.
-The corpus widgets that call `sendMessage` are reworked at the same time (their
-state kept in `localStorage`, or `openLink` instead) and the corpus READMEs
-updated; the attack files keep calling it to check that it is gone.
+SDK v1 is implemented in the framework as part of v0.1.0 (2026-10-17): the
+shim, all five glue copies and the Node harness, with tests on every platform
+(the policy fixture `packages/core/tests/fixtures/sdk-policy.json` in each
+suite; `packages/core/tests/unit/sdk.test.ts`, `tests/sdk.spec.ts` —
+`pnpm test:sdk` — and the platform suites through the real engine). The corpus
+widgets that called `sendMessage` keep their state in `localStorage` or link
+out with `openLink`, and the corpus READMEs say so; the attack files keep
+calling it to check that it is gone.

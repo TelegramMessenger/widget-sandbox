@@ -134,9 +134,13 @@ The ports were adapted to profile 1 (frozen 2026-10-17) and SDK v1:
 The Node harness prints no `validator:` diagnostic for any of the 116 files,
 in document and in shadow scope, and no `[error]` except the intentional one.
 `corepack pnpm test:htmlbubbles` (sandbox vs the reference rendering after up
-to 4 clicks, report in `docs/compat-report-htmlbubbles-ported.md`) is expected
-at **107/116** (not re-run yet after these changes). The 9 known failures are
-limits of the screenshot method, not of the sandbox:
+to 4 clicks, report in `docs/compat-report-htmlbubbles-ported.md`) gave
+**108/116** on 2026-10-17 after these changes (iframe renderer, the SDK v1 build).
+The known failures are limits of the screenshot method, not of the sandbox; in
+that run `18-pixel-bare`, `05-mo-bare` and `11-tom-bare` passed, and the
+failures were `17-pixel-bare`, `15-pixel-bare`, `03-mo-bare`, `08-mo`,
+`10-mo-bare`, `13-mo-bare`, `06-trip-lisbon/09-me-bare` and `12-ana` (the last two
+pass alone: tall widgets whose click pass scrolls the page):
 
 - `11-live-scripts/17-pixel-bare.html` throws an uncaught `ReferenceError` on
   purpose (the "Buggy button" demo); the test counts any JS error as a failure.

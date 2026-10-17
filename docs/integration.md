@@ -131,28 +131,40 @@ controls; the width is always the bubble's.
   keeps the focus while a widget is on screen; a widget's `focus()` must not
   move it (one of the known issues of v0.1.0 on the web, see below) and the
   conformance set checks `chatFocused` for exactly this.
-- **User activation is a pointer press only.** A privileged bridge call
-  (`openLink`, `sendMessage`, …) goes through only from the handler of a real
+- **User activation is a pointer press only.** A link call (`openLink`,
+  `openTelegramLink`, a tapped `<a href>`) goes through only from the handler of a real
   tap or click the renderer saw (`trusted`), one call per press; no key press
   counts. A renderer behind your own `Renderer` implementation must mark its
   real input `trusted: true` or the widget never gets a gesture.
-- **Scrolling.** A vertical swipe that starts on a plain widget scrolls the
-  chat; one that starts on an element with `touch-action: none`, a range
-  slider or the widget's own scroll area stays with the widget. The renderer
-  decides and tells the host (`gesture` message); on Android `RendererWebView`
-  already acts on it.
-- **PoC scope: taps only, no bridge.** For the first client builds, widgets
-  react to taps (and drags inside themselves) and have no bridge: ignore
-  `onBridge` or answer every call with a refusal. The bridge and the SDK are
-  the SDK v1 milestone (`docs/bridge-discussion.md`).
+- **Drags.** On every primary pointer press the host reports `onGestureClaim(x, y)`:
+  whether the widget takes horizontal (`x`) and vertical (`y`) drags of this
+  touch, from `touch-action` and the widget's `preventDefault`. Keep
+  swipe-to-reply off a touch with `x`, the list still on one with `y`; with
+  neither the touch is the chat's. Double tap and long press stay with the
+  bubble (`docs/sdk-v1.md` §5.5). On Android `RendererWebView` already applies
+  `y` to its parent.
+- **What the widget asks for** arrives as `onAction`, checked: `openLink(url)`
+  (show a confirmation with the full URL, then the browser),
+  `openTelegramLink(url)` (your own t.me handling), `haptic(…)` (play it or
+  ignore it on desktop and web), `ready`. `docs/sdk-v1.md` §5 is the client's
+  side of each.
 
 ## Forwarding and state
 
 A widget message may be forwarded anywhere, groups and channels included;
 the copy works exactly like the original (isolated, no network, no messages
 to the bot). Each copy is a different message, so **each copy has its own
-storage** when widget state ships (`docs/widget-state.md`, v1 design); nothing
-is shared between copies or between widgets, and v0.1.0 persists nothing.
+storage**: keep Web Storage per (account, chat, message id), pass it as the
+host's `storage` at creation and keep what `onStorageCommit(area, values)`
+hands you — `local` on disk (with a short delay, and at once when the widget
+is hidden or destroyed and when the app goes to the background), `session` in
+memory — and delete both with the message, the chat, the account and on "Clear
+cache" (`docs/sdk-v1.md` §5.4). The framework enforces the 16 KB quota.
+
+**Theme and language.** Pass the chat's theme as a `WidgetTheme` (colour
+scheme, the Mini Apps palette keys as `#rrggbb`, your button's tokens) and call
+`setTheme` on every change; pass the UI language as `locale`
+(`docs/sdk-v1.md` §2.3, §2.4, §2.9).
 
 ## iOS and macOS (Swift package)
 
@@ -165,13 +177,19 @@ import WidgetSandbox
 
 var options = WidgetHost.Options()                  // policy .strict, features [] by default
 options.features = ["webAnimations"]
-let host = try WidgetHost(html: html, theme: "light", width: 360, options: options)
+options.locale = "ru"
+options.storage = WidgetStorage(local: savedLocal, session: savedSession)   // this message's Web Storage
+let theme = WidgetTheme(colorScheme: .light, params: ["bg_color": "#ffffff", "text_color": "#000000" /* … every key */],
+                        button: WidgetButtonTokens(radius: "10px", font: "500 15px system-ui"))
+let host = try WidgetHost(html: html, theme: theme, width: 360, options: options)
 host.onChange = { d in /* d.height, d.loaded, d.dead, d.lastError, d.stats */ }
-host.onBridge = { method, argsJson in /* widget → app calls; PoC: ignore */ }
+host.onAction = { action in /* .openLink(url): confirm, open; .openTelegramLink; .haptic; .ready */ }
+host.onStorageCommit = { area, values in /* keep values as the new content of that area */ }
+host.onGestureClaim = { claim in /* claim.x: no swipe-to-reply for this touch; claim.y: hold the list */ }
 bubble.addSubview(host.view)          // UIView on iOS, NSView on macOS; its height follows the widget
 // later:
 host.setVisible(false)                // off screen
-host.setTheme("dark")
+host.setTheme(darkTheme)
 host.destroy()
 ```
 
@@ -195,12 +213,16 @@ arm64-v8a and x86_64 and the JS bundles as assets.
 ```kotlin
 import org.telegram.widgetsandbox.WidgetHost
 
-val options = WidgetHost.Options(features = setOf("webAnimations"))   // policy "strict" by default
-val host = WidgetHost(context, html, theme = "light", widthDp = 360.0, options = options)
+val options = WidgetHost.Options(features = setOf("webAnimations"),   // policy "strict" by default
+    locale = "ru", storage = WidgetStorage(local = savedLocal, session = savedSession))
+val theme = WidgetTheme("light", params = mapOf("bg_color" to "#ffffff" /* … every key */), button = WidgetButtonTokens(radius = "10px"))
+val host = WidgetHost(context, html, theme, widthDp = 360.0, options = options)
 host.onChange = { d -> /* d.height, d.loaded, d.dead, d.lastError */ }
-host.onBridge = { method, argsJson -> }
+host.onAction = { action -> /* WidgetAction.OpenLink(url): confirm, open; OpenTelegramLink; Haptic; Ready */ }
+host.onStorageCommit = { area, values -> /* "local" | "session": keep values */ }
+host.onGestureClaim = { x, y -> }
 bubble.addView(host.view)             // a View whose height follows the widget (minHeightDp / maxHeightDp in Options)
-host.setVisible(false); host.setTheme("dark"); host.destroy()
+host.setVisible(false); host.setTheme(darkTheme); host.destroy()
 ```
 
 `SandboxResources.get(context)` loads the bundles from the library's assets
@@ -234,14 +256,18 @@ export default { plugins: [widgetSandbox()] };
 import { WidgetHost } from '@telegram/widget-sandbox/host/widget-host';
 import { ShadowDomRenderer } from '@telegram/widget-sandbox/host/shadow-renderer';
 const host = new WidgetHost(bubbleElement, html, {
-  theme: 'light',
+  theme: { colorScheme: 'light', params: { bg_color: '#ffffff' /* … every key */ }, button: { radius: '10px' } },
+  locale: 'ru',
+  storage: { local: savedLocal, session: savedSession },   // this message's Web Storage
   features: ['webAnimations'],     // policy 'strict' by default
   rendererFactory: ShadowDomRenderer.factory,
   onResize: (h) => {},            // CSS px
-  onBridge: (method, args) => {},
+  onAction: (action) => {},       // { kind: 'openLink', url } | 'openTelegramLink' | 'haptic' | 'ready'
+  onStorageCommit: (area, values) => {},
+  onGestureClaim: ({ x, y }) => {},
   onDead: (reason) => {},
 });
-host.setVisible(false); host.setTheme('dark'); host.destroy();
+host.setVisible(false); host.setTheme(darkTheme); host.destroy();
 ```
 
 `workerPool` (a `WorkerPool` of warmed workers) is the option for a feed of
@@ -261,9 +287,15 @@ delegate. `packages/desktop/README.md` § Embedding has the threading rules
 auto resources = twidget::SandboxResources::fromDirectory("<path to WidgetJS>");  // the three bundles and their bytecode
 twidget::WidgetHostOptions options;            // policy "strict" by default
 options.features = {"webAnimations"};
-twidget::WidgetHost host(html, "light", 360, options, resources, myRendererFactory);
+options.locale = "ru";
+options.storage = {savedLocal, savedSession};  // this message's Web Storage
+twidget::WidgetTheme theme{"light", {{"bg_color", "#ffffff"} /* … every key */}, {}};
+twidget::WidgetHost host(html, theme, 360, options, resources, myRendererFactory);
+host.onAction = [](const twidget::WidgetAction& a) { /* OpenLink: confirm, open; OpenTelegramLink; Haptic; Ready */ };
+host.onStorageCommit = [](const std::string& area, const std::map<std::string, std::string>& values) {};
+host.onGestureClaim = [](bool x, bool y) {};
 host.start();
-// host.setVisible(false); host.setTheme("dark"); host.destroy();
+// host.setVisible(false); host.setTheme(darkTheme); host.destroy();
 ```
 
 ## The conformance set
@@ -279,10 +311,12 @@ every framework update; `catalogue.json` `version` is the profile version.
 
 ## What the host does not do
 
-- Decide what a bridge call means: `onBridge(method, args)` is the widget
-  asking the app for something; the app validates and answers (or ignores).
-- Persist anything, or share anything between widgets: each one is a fresh
-  runtime with its own limits.
+- Open a link, play a haptic or show a dialog: `onAction` is the widget
+  asking, already checked; the app confirms and does it (or ignores it). The
+  widget is never told the outcome.
+- Persist anything, or share anything between widgets: the framework hands
+  you each storage commit, the app stores it; each widget is a fresh runtime
+  with its own limits.
 - Load fonts, media or remote images: `data:` images only (`docs/decisions.md`).
 - Check the payload's size or origin: the server gzips it and enforces the
   limits, the client trusts it and sandboxes the content.

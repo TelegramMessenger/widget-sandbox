@@ -83,6 +83,18 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
   wire methods `sendMessage`, `alert` and `clipboard`. New diagnostics:
   `bridge-rejected`, `haptic-limit`, `storage-rejected`, `profile-mismatch`. The
   renderer's `gesture` message carries `x` and `y` next to `wants`.
+  Per platform: Swift `WidgetTheme`, `WidgetButtonTokens`, `WidgetStorage`,
+  `WidgetStorageArea`, `WidgetHaptic`, `WidgetAction`, `WidgetGestureClaim`, `SdkPolicy`;
+  source-breaking: `WidgetBubble.theme`, `WidgetPrepared.theme` and
+  `WidgetPreparer.prepare(theme:)` are `WidgetTheme`; removed
+  `SandboxEngine.unprivilegedBridgeMethods`. Kotlin `WidgetTheme`, `WidgetButtonTokens`,
+  `WidgetStorage`, `WidgetAction`, `SdkPolicy`, `SandboxEngine.Delegate.onAction` /
+  `onStorageCommit` (default bodies); removed `UserActivation.UNPRIVILEGED_BRIDGE_METHODS`.
+  C++ `twidget::sdk` (`sdk_policy.h`), `WidgetTheme`, `WidgetButtonTokens`, `WidgetStorage`,
+  `WidgetAction`; `SandboxEngineDelegate::onBridgeAction` / `onStorage` (empty defaults;
+  `onBridge` is no longer pure); `Json::parse(text, Json::Surrogates::Keep)`; new members
+  change the layout of `SandboxEngine` and `WidgetHost` (recompile). TS: the web host's
+  `UNPRIVILEGED_BRIDGE_METHODS` export is gone (`PRIVILEGED_METHODS` in `sdk-policy.ts`).
 
 **Known issues**
 
@@ -113,8 +125,14 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
   (median 6.3 KB, all under 32 KB raw), the visual set 5.4–54.6 KB gzipped (median 18 KB,
   embedded reference pictures). The test channel keeps posting them as `.tgw` documents under
   the debug flag until the tests are split into 4 KB pieces.
-- *htmlbubbles-ported*: 108–110 of 116 pass; the rest are time-based or random
-  drawings and one intentional JS error (`corpus/htmlbubbles-ported/README.md`).
+- *htmlbubbles-ported*: 108 of 116 pass (2026-10-17, after the profile-1 rework); the rest
+  are time-based or random drawings, the hang demo, one intentional JS error and
+  `06-trip-lisbon/09-me-bare`, a tall widget whose screenshot fails now and then when the
+  click pass scrolls the page (`corpus/htmlbubbles-ported/README.md`).
+- *Locale in the Intl fallbacks*: the Kotlin `IntlBridge` has no `numberOptions` /
+  `dateOptions`, so `resolvedOptions().locale` does not show the client locale on Android
+  (formatting and `navigator.language` do follow it); the C++ `BasicIntl` ignores the locale
+  (a product host plugs in ICU or QLocale).
 - *3D channel* (`__tw3d`): debug builds only.
 
 ## Policy: `strict` (default) and `compat`
