@@ -158,8 +158,10 @@ pass alone: tall widgets whose click pass scrolls the page):
   load) and `13-mo-bare.html` (just over the 3 % tolerance) are time-based,
   and the reference screenshot is taken ~800 ms later than the sandbox one.
   Two runs never match pixel for pixel, and a loaded machine (`cpu-throttled`
-  in the diagnostics column) adds a few more such rows, e.g.
-  `06-trip-lisbon/09-me-bare.html`, `12-ana.html`.
+  in the diagnostics column) adds a few more such rows, e.g. `12-ana.html`.
+- `06-trip-lisbon/09-me-bare.html` is 690 px tall: since the 600 px bubble cap of
+  v0.1.0 it fails steadily (16.8 % diff, alone too), because the click pass scrolls
+  the clipped document; before the cap it failed only now and then.
 
 ## Status (2026-10-09)
 
