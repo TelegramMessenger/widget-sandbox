@@ -1,13 +1,13 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: splitting a restaurant bill — tap a dish, then the friends who shared it; per-person totals tween, the tip is a range slider, "Request" sends the amounts to the chat
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: splitting a restaurant bill — tap a dish, then the friends who shared it; per-person totals tween, the tip is a segmented control, "Request" shares the amounts through Telegram's share sheet and the split is kept locally
 -->
 <style>
   :root { color-scheme: light dark;
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff; --green: #34c759;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; padding: 16px 18px; }
   h3 { margin: 0; font-size: 18px; } .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
   .people { display: flex; gap: 10px; margin: 14px 0 6px; }
@@ -24,8 +24,9 @@
   @keyframes in { from { transform: scale(0); } }
   .dish .who i.none { background: var(--border); color: var(--muted); margin-left: 0; }
   .tip { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; }
-  .tip b { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
-  input[type=range] { flex: 1; accent-color: var(--blue); }
+  .tips { flex: 1; display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--card2); }
+  .tips button { flex: 1; padding: 5px 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .2s, color .2s; }
+  .tips button.on { background: var(--blue); color: #fff; }
   .tot { display: flex; justify-content: space-between; font-weight: 800; font-size: 16px; margin-top: 6px; } .tot span:last-child { font-variant-numeric: tabular-nums; }
   .req { margin-top: 12px; width: 100%; padding: 13px; border: 0; border-radius: 12px; background: var(--blue); color: #fff; font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; transition: transform .15s, background .3s; }
   .req:active { transform: scale(.98); } .req.sent { background: var(--green); }
@@ -35,18 +36,26 @@
   <div class="people" id="people"></div>
   <div class="hint" id="hint">Everything is split evenly to start with</div>
   <div id="dishes"></div>
-  <div class="tip"><span>Tip</span><input type="range" id="tip" min="0" max="25" step="5" value="10"><b id="tipV">10%</b></div>
+  <div class="tip"><span>Tip</span><div class="tips" id="tips"></div></div>
   <div class="tot"><span>Total with tip</span><span>₾<span id="total">0</span></span></div>
   <button class="req" id="req">Request from everyone</button>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. The split (who shared what, the tip, whether it was requested) is local state in
+  // localStorage, kept by the client per message; "Request" opens Telegram's share sheet with the amounts.
+  // window.TelegramWidget is absent when the dev app renders the file natively (reference mode).
+  const tw = window.TelegramWidget, KEY = 'bill-barbarestan';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   const PEOPLE = [{ n: 'You', c: '#007aff' }, { n: 'Nino', c: '#af52de' }, { n: 'Dato', c: '#ff9500' }, { n: 'Mira', c: '#34c759' }];
   const DISHES = [{ n: 'Chakapuli (lamb)', p: 38 }, { n: 'Pkhali platter', p: 22 }, { n: 'Khinkali ×10', p: 28 }, { n: 'Saperavi, bottle', p: 46 }, { n: 'Churchkhela dessert', p: 14 }];
-  let share = DISHES.map(() => new Set([0, 1, 2, 3])), sel = -1, tip = 10, paid = new Set();
+  const TIPS = [0, 5, 10, 15, 20, 25], saved = store.get(KEY, {});
+  let share = DISHES.map((_, i) => new Set(Array.isArray(saved.share?.[i]) && saved.share[i].length ? saved.share[i] : [0, 1, 2, 3])), sel = -1, tip = TIPS.includes(saved.tip) ? saved.tip : 10;
+  const save = extra => store.set(KEY, { share: share.map(x => [...x]), tip, requested: !!saved.requested, ...extra });
   const people = document.getElementById('people'), dishes = document.getElementById('dishes'), hint = document.getElementById('hint');
   people.innerHTML = PEOPLE.map((p, i) => '<div class="pp" data-i="' + i + '" role="button"><div class="av" style="background:' + p.c + '">' + p.n[0] + '</div><div class="n">' + p.n + '</div><div class="amt">₾<span>0</span></div><span class="paid">✓</span></div>').join('');
   dishes.innerHTML = DISHES.map((d, i) => '<div class="dish" data-i="' + i + '" role="button"><span class="nm">' + d.n + '</span><span class="who"></span><span class="pr">₾' + d.p + '</span></div>').join('');
+  const tips = document.getElementById('tips');
+  tips.innerHTML = TIPS.map(t => '<button data-t="' + t + '">' + t + '%</button>').join('');
   const amts = [...people.querySelectorAll('.amt span')], tweens = new Map();
   function tween(el, to) {
     const from = Number(el.textContent) || 0; tweens.set(el, to); const t0 = performance.now();
@@ -63,6 +72,7 @@
       el.querySelector('.who').innerHTML = share[i].size ? [...share[i]].sort().map(p => '<i style="background:' + PEOPLE[p].c + '">' + PEOPLE[p].n[0] + '</i>').join('') : '<i class="none">?</i>';
     });
     people.querySelectorAll('.pp').forEach((el, i) => el.classList.toggle('sel', sel >= 0 && share[sel].has(i)));
+    [...tips.children].forEach(b => b.classList.toggle('on', Number(b.dataset.t) === tip));
   }
   dishes.addEventListener('click', e => {
     const d = e.target.closest('.dish'); if (!d) return; const i = Number(d.dataset.i);
@@ -75,15 +85,22 @@
     const p = e.target.closest('.pp'); if (!p) return; const i = Number(p.dataset.i);
     if (sel < 0) { hint.textContent = 'Pick a dish first, then the people who shared it'; return; }
     const s = share[sel]; if (s.has(i)) { if (s.size > 1) s.delete(i); } else s.add(i);
-    calc();
+    calc(); save();
   });
-  document.getElementById('tip').addEventListener('input', e => { tip = Number(e.target.value); document.getElementById('tipV').textContent = tip + '%'; calc(); });
-  document.getElementById('req').addEventListener('click', e => {
-    const b = e.currentTarget; if (b.classList.contains('sent')) return;
-    b.classList.add('sent'); b.textContent = 'Requests sent';
-    const msg = PEOPLE.slice(1).map((p, i) => p.n + ' ₾' + amts[i + 1].textContent).join(', ');
-    bot.sendMessage('Bill split (tip ' + tip + '%): ' + msg);
-    PEOPLE.slice(1).forEach((p, i) => setTimeout(() => people.children[i + 1].classList.add('paid'), 1500 + i * 1200));
+  tips.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; tip = Number(b.dataset.t); calc(); save(); });
+  const req = document.getElementById('req');
+  function requested(paidNow) {
+    req.classList.add('sent'); req.textContent = 'Requested from everyone';
+    PEOPLE.slice(1).forEach((p, i) => paidNow ? people.children[i + 1].classList.add('paid') : setTimeout(() => people.children[i + 1].classList.add('paid'), 1500 + i * 1200));
+  }
+  req.addEventListener('click', () => {
+    if (req.classList.contains('sent')) return;
+    // The amounts as they will be once the tweens land, not as they are drawn this frame.
+    const per = [0, 0, 0, 0]; DISHES.forEach((d, i) => { for (const p of share[i]) per[p] += d.p / share[i].size; });
+    const text = 'Barbarestan, tip ' + tip + '%: ' + PEOPLE.slice(1).map((p, i) => p.n + ' ' + (per[i + 1] * (1 + tip / 100)).toFixed(2)).join(', ') + ' GEL';
+    tw?.openTelegramLink?.('https://t.me/share/url?url=' + encodeURIComponent('https://pay.example.com/split/b7q2') + '&text=' + encodeURIComponent(text));
+    saved.requested = true; save(); requested(false);
   });
   calc();
+  if (saved.requested) requested(true);
 </script>

@@ -1,13 +1,13 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: a day's itinerary — a vertical timeline whose progress line fills to "now", cards expand on tap with a height transition, a running "now" marker, Navigate / Reschedule actions
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: a day's itinerary — a vertical timeline whose progress line fills to "now", cards expand on tap with a height transition, a running "now" marker, Navigate (a maps link) / Push 30 min (kept locally)
 -->
 <style>
   :root { color-scheme: light dark;
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff; --green: #34c759; --orange: #ff9500; --purple: #af52de; --teal: #30b0c7;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; padding: 16px 16px 14px; }
   .hd { display: flex; align-items: flex-start; justify-content: space-between; } .hd h3 { margin: 0; font-size: 18px; } .hd .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
   .prog { text-align: right; font-size: 12px; color: var(--muted); } .prog b { display: block; font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; }
@@ -42,14 +42,20 @@
   <div class="ff" id="ff">Demo clock runs at 60× · <span id="ffb" role="button">pause</span></div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. Navigate opens a maps link (one per tap, confirmed by the client); pushed stops are local
+  // state in localStorage, kept by the client per message. window.TelegramWidget is absent in reference mode.
+  const tw = window.TelegramWidget, KEY = 'tbilisi-saturday';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   const STOPS = [
-    { t: 9 * 60 + 30, ttl: 'Breakfast at Stamba', meta: 'Kostava 14 · booked, table 6', ic: '☕', c: '#ff9500', more: 'Khachapuri and the good filter coffee. Ask for the courtyard.' },
-    { t: 11 * 60, ttl: 'Dry Bridge market', meta: 'Flea market · 20 min walk', ic: '🛍', c: '#af52de', more: 'Soviet cameras, enamel pins, old maps. Cash only — there is an ATM at the bridge.' },
-    { t: 13 * 60 + 30, ttl: 'Lunch at Shavi Lomi', meta: 'Zurab Kvlividze 23 · no booking', ic: '🍽', c: '#34c759', more: 'Their pkhali platter and the lobio. Vegetarian-friendly, moderate wait.' },
-    { t: 16 * 60, ttl: 'Narikala by cable car', meta: 'From Rike park · ₾2.5 each way', ic: '🚡', c: '#30b0c7', more: 'Golden hour at 18:40 — stay for it. The walk down through the botanical garden is 35 min.' },
-    { t: 19 * 60 + 30, ttl: 'Dinner at Barbarestan', meta: 'Aghmashenebeli 132 · booked 19:30', ic: '🍷', c: '#ff2d55', more: 'Recipes from a 19th-century cookbook. Dress a notch up.' },
+    { t: 9 * 60 + 30, ttl: 'Breakfast at Stamba', q: 'Stamba, Kostava 14', meta: 'Kostava 14 · booked, table 6', ic: '☕', c: '#ff9500', more: 'Khachapuri and the good filter coffee. Ask for the courtyard.' },
+    { t: 11 * 60, ttl: 'Dry Bridge market', q: 'Dry Bridge', meta: 'Flea market · 20 min walk', ic: '🛍', c: '#af52de', more: 'Soviet cameras, enamel pins, old maps. Cash only — there is an ATM at the bridge.' },
+    { t: 13 * 60 + 30, ttl: 'Lunch at Shavi Lomi', q: 'Shavi Lomi, Zurab Kvlividze 23', meta: 'Zurab Kvlividze 23 · no booking', ic: '🍽', c: '#34c759', more: 'Their pkhali platter and the lobio. Vegetarian-friendly, moderate wait.' },
+    { t: 16 * 60, ttl: 'Narikala by cable car', q: 'Rike park cable car', meta: 'From Rike park · ₾2.5 each way', ic: '🚡', c: '#30b0c7', more: 'Golden hour at 18:40 — stay for it. The walk down through the botanical garden is 35 min.' },
+    { t: 19 * 60 + 30, ttl: 'Dinner at Barbarestan', q: 'Barbarestan, Aghmashenebeli 132', meta: 'Aghmashenebeli 132 · booked 19:30', ic: '🍷', c: '#ff2d55', more: 'Recipes from a 19th-century cookbook. Dress a notch up.' },
   ];
+  const pushed = store.get(KEY, {}).pushed;
+  if (Array.isArray(pushed)) STOPS.forEach((s, i) => { s.t += Math.max(0, Math.min(240, Number(pushed[i]) || 0)); });
+  const shifts = STOPS.map((s, i) => (Array.isArray(pushed) ? Math.max(0, Math.min(240, Number(pushed[i]) || 0)) : 0));
   const tl = document.getElementById('tl');
   const fmt = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   tl.insertAdjacentHTML('beforeend', STOPS.map((s, i) => '<div class="item" data-i="' + i + '" role="button"><span class="dot"></span><div class="main"><div class="ic" style="background:' + s.c + '">' + s.ic + '</div><div><div class="ttl">' + s.ttl + '</div><div class="meta">' + s.meta + '</div></div><span class="time">' + fmt(s.t) + '</span><svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div><div class="more"><div class="in">' + s.more + '<div class="acts"><button class="btn p" data-act="nav">Navigate</button><button class="btn" data-act="move">Push 30 min</button></div></div></div></div>').join(''));
@@ -59,8 +65,8 @@
     const it = e.target.closest('.item'); if (!it) return;
     if (b) {
       const s = STOPS[Number(it.dataset.i)];
-      if (b.dataset.act === 'nav') { b.textContent = 'Opening maps…'; bot.sendMessage('/navigate ' + s.ttl); }
-      else { s.t += 30; it.querySelector('.time').textContent = fmt(s.t); b.textContent = 'Pushed'; layout(); }
+      if (b.dataset.act === 'nav') tw?.openLink('https://maps.example.com/dir/?mode=walking&destination=' + encodeURIComponent(s.q + ', Tbilisi'));
+      else { s.t += 30; shifts[Number(it.dataset.i)] += 30; store.set(KEY, { pushed: shifts }); it.querySelector('.time').textContent = fmt(s.t); b.textContent = 'Pushed'; layout(); }
       return;
     }
     const open = it.classList.contains('open');

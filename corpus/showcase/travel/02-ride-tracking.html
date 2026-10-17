@@ -1,6 +1,6 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: a ride on its way — a stylised map with the car moving along the route (getPointAtLength), the ETA counting down, status steps lighting up, Call / Message reach the bot
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: a ride on its way — a stylised map (streets are one SVG path, no pattern) with the car moving along the route (a JS polyline, no layout query), the ETA counting down, status steps lighting up, Call / Message open the ride's page
 -->
 <style>
   :root { color-scheme: light dark;
@@ -8,7 +8,7 @@
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff; --green: #34c759; --orange: #ff9500;
     --map: light-dark(#eef2ea, #1a2420); --road: light-dark(#fff, #2b3a33); --block: light-dark(#dfe6d8, #223029); --water: light-dark(#cfe3f7, #15283a);
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; }
   .map { position: relative; height: 200px; background: var(--map); }
   .map svg { width: 100%; height: 100%; display: block; }
@@ -42,10 +42,9 @@
   <div class="map">
     <svg viewBox="0 0 392 200" id="map">
       <defs>
-        <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0v28" fill="none" stroke="var(--road)" stroke-width="5"/></pattern>
         <linearGradient id="carG" x1="0" x2="1"><stop offset="0" stop-color="#1c1c1e"/><stop offset="1" stop-color="#3a3a3c"/></linearGradient>
       </defs>
-      <rect width="392" height="200" fill="url(#grid)"/>
+      <path id="streets" fill="none" stroke="var(--road)" stroke-width="2.5"/>
       <path d="M0 182 C 70 170, 130 196, 210 184 S 330 158, 392 170 V200 H0z" fill="var(--water)"/>
       <rect x="40" y="30" width="60" height="40" rx="4" fill="var(--block)"/><rect x="130" y="20" width="50" height="60" rx="4" fill="var(--block)"/>
       <rect x="210" y="40" width="80" height="30" rx="4" fill="var(--block)"/><rect x="320" y="20" width="50" height="60" rx="4" fill="var(--block)"/>
@@ -79,7 +78,12 @@
   </div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. Call and Message open the ride's page (a link per tap, confirmed by the client).
+  // window.TelegramWidget is absent when the dev app renders the file natively (reference mode).
+  const tw = window.TelegramWidget, RIDE = 'https://ride.example.com/trips/R-5521';
+  // Streets: a 28 px grid of lines, drawn once.
+  let streets = ''; for (let y = 1.25; y < 200; y += 28) streets += 'M0 ' + y + 'H392'; for (let x = 1.25; x < 392; x += 28) streets += 'M' + x + ' 0V200';
+  document.getElementById('streets').setAttribute('d', streets);
   // The route is a polyline in JS too, so the car's position is pure arithmetic: no layout query per frame.
   const PTS = [[30,172],[30,84],[34,80],[112,80],[118,86],[118,110],[124,116],[197,116],[203,110],[203,86],[209,80],[302,80],[310,88],[310,128]];
   const segs = []; let len = 0;
@@ -115,7 +119,7 @@
   frame();
   const toast = document.getElementById('toast');
   const say = s => { toast.textContent = s; toast.style.opacity = '1'; setTimeout(() => (toast.style.opacity = '0'), 2200); };
-  document.getElementById('call').addEventListener('click', () => { say('Calling Giorgi through the app…'); bot.sendMessage('/call driver'); });
-  document.getElementById('msg').addEventListener('click', () => { say('Message sent: "I am at the main entrance"'); bot.sendMessage('I am at the main entrance'); });
+  document.getElementById('call').addEventListener('click', () => { say('Calling Giorgi through the ride page…'); tw?.openLink(RIDE + '/call'); });
+  document.getElementById('msg').addEventListener('click', () => { say('Opening the chat with Giorgi…'); tw?.openLink(RIDE + '/chat'); });
   document.getElementById('cancel').addEventListener('click', e => { e.currentTarget.textContent = 'Sure?'; say('Cancellation fee ₾3 applies after 2 min — tap again to confirm'); });
 </script>
