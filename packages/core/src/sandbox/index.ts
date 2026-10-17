@@ -31,6 +31,13 @@ function define(proto: any, props: Record<string, PropertyDescriptor | Function>
   }
 }
 
+// An SVG element's tagName and nodeName keep the case of its qualified name in an HTML
+// document ('g', 'linearGradient'); linkedom uppercases them as for HTML elements.
+define(SVGElementProto, {
+  tagName: { get(this: any) { return this.localName; } },
+  nodeName: { get(this: any) { return this.localName; } },
+});
+
 const reportError = (e: unknown) => globals.reportError(e);
 ev.setErrorReporter(reportError);
 

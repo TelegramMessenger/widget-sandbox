@@ -279,3 +279,12 @@ describe('harness: clocks', () => {
     assert.deepEqual(r.probes, ['0', 'true']);
   });
 });
+
+describe('shim: SVG names', () => {
+  it('tagName and nodeName of SVG elements keep their case, as in a browser; HTML stays uppercase', async () => {
+    const r = await runWidget('<svg><defs><linearGradient id="g"></linearGradient></defs><rect/></svg>', {
+      probes: ['document.querySelector("linearGradient").tagName', 'document.querySelector("rect").nodeName', 'document.createElementNS("http://www.w3.org/2000/svg", "g").tagName', 'document.body.tagName'],
+    });
+    assert.deepEqual(r.probes, ['linearGradient', 'rect', 'g', 'BODY']);
+  });
+});
