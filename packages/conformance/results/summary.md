@@ -1,6 +1,6 @@
 # Conformance results
 
-Generated 2026-10-17 00:06 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 2d987b7; policy strict, features webAnimations).
+Generated 2026-10-17 02:29 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 8552baa; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
@@ -8,10 +8,10 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 | Renderer | in (173) ✅ / ◐ / ❌ / ⏳ | out (82) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|
-| web iframe | 142 / 5 / 0 / 16 | 18 / 62 / 1 | 105 / 105 | 0 |
-| web shadow | 141 / 5 / 1 / 16 | 19 / 61 / 0 | 105 / 105 | 0 |
-| web blitz | 92 / 27 / 25 / 15 | 16 / 33 / 5 | 23 / 23 | 0 |
-| web litehtml | 53 / 40 / 52 / 14 | 18 / 25 / 4 | 23 / 23 | 0 |
+| web iframe | 147 / 5 / 0 / 11 | 80 / 1 / 0 | 105 / 105 | 0 |
+| web shadow | 147 / 5 / 0 / 11 | 80 / 1 / 0 | 105 / 105 | 0 |
+| web blitz | 95 / 28 / 25 / 11 | 65 / 3 / 7 | 23 / 23 | 0 |
+| web litehtml | 56 / 40 / 52 / 11 | 59 / 4 / 12 | 23 / 23 | 0 |
 
 ## In the profile
 
@@ -70,7 +70,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `css.gradient.radial` | ✅ | ✅ | ❌ | ✅ | · |
 | `css.gradient.conic` | ✅ | ✅ | ❌ | ❌ | · |
 | `css.font.generic` | ✅ | ✅ | ◐ | ◐ | ✅ |
-| `css.font.ui-families` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `css.font.ui-families` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `css.font.basic` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `css.font.variant-numeric` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `css.text.align` | ✅ | ✅ | ✅ | ◐ | ✅ |
@@ -105,7 +105,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `at.media.width` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `at.media.color-scheme` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `at.media.reduced-motion` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `at.supports` | ⏳ | ⏳ | ⏳ | ◐ | ⏳ |
+| `at.supports` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `at.keyframes` | ✅ | ✅ | ✅ | ❌ | · |
 | `anim.transition` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `anim.keyframes` | ✅ | ✅ | ◐ | ❌ | ✅ |
@@ -150,7 +150,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `js.crypto-random` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.builtins` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.eval` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `js.css-supports` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `js.css-supports` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.visibility` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tw.ready` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.theme` | ⏳ | ⏳ | ⏳ | ⏳ | – |
@@ -160,12 +160,12 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `tw.open-link` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `tw.open-telegram-link` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `tw.haptic` | ⏳ | ⏳ | ⏳ | ⏳ | – |
-| `tw.profile` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `tw.profile` | ✅ | ✅ | ✅ | ✅ | – |
 | `input.tap` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `input.pointer` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `input.mouse-compat` | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `input.drag` | ✅ | ✅ | – | – | ✅ |
-| `input.hover-events` | ✅ | ❌ | – | – | ✅ |
+| `input.hover-events` | ✅ | ✅ | – | – | ✅ |
 | `input.user-activation` | ✅ | ✅ | ✅ | ✅ | · |
 | `input.prevent-default` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `limit.text-node` | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -182,7 +182,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `behaviour.theme-switch` | ✅ | ✅ | ✅ | ✅ | – |
 | `behaviour.offscreen-pause` | ✅ | ✅ | ✅ | ✅ | – |
 | `behaviour.auto-height` | ✅ | ✅ | ✅ | ✅ | · |
-| `behaviour.no-selection` | ⏳ | ⏳ | – | – | · |
+| `behaviour.no-selection` | ✅ | ✅ | – | – | · |
 | `behaviour.restart` | · | · | · | · | · |
 | `behaviour.gesture-claim` | · | · | · | · | · |
 | `behaviour.storage-persist` | · | · | · | · | · |
@@ -195,73 +195,73 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 | ID | web iframe | web shadow | web blitz | web litehtml | native chromium |
 |---|---|---|---|---|---|
-| `html.el.ruby` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
-| `html.el.legacy` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `html.el.img-svg` | ⏳ | ⏳ | ❌ | ❌ | ⏳ |
-| `html.el.img-other-formats` | ⏳ | ⏳ | ❌ | ❌ | ⏳ |
+| `html.el.ruby` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `html.el.legacy` | ✅ | ✅ | ✅ | ◐ | ❌ |
+| `html.el.img-svg` | ✅ | ✅ | ◐ | ❌ | ❌ |
+| `html.el.img-other-formats` | ✅ | ✅ | ❌ | ❌ | ❌ |
 | `html.el.img-remote` | ✅ | ✅ | ❌ | ❌ | – |
-| `html.el.forms` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `html.el.progress-meter` | ⏳ | ⏳ | ❗ | ⏳ | ⏳ |
-| `html.el.dialog-popover` | ⏳ | ⏳ | ❗ | ⏳ | ⏳ |
+| `html.el.forms` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `html.el.progress-meter` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `html.el.dialog-popover` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `html.el.media` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `html.el.embedding` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| `html.attr.legacy-presentational` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `html.attr.contenteditable` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `html.attr.draggable` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `html.attr.tabindex` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `svg.clip-mask` | ⏳ | ⏳ | ❗ | ⏳ | · |
-| `svg.filters` | ⏳ | ⏳ | ⏳ | ⏳ | · |
-| `svg.smil` | ⏳ | ⏳ | ❗ | ⏳ | · |
-| `svg.foreign-object` | ⏳ | ⏳ | ❗ | ⏳ | · |
-| `svg.image` | ⏳ | ⏳ | ⏳ | ❗ | · |
-| `css.display.other` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
-| `css.box.logical` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `css.box.columns` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `css.position.sticky` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
-| `css.overflow.scroll` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `css.color.modern` | ⏳ | ⏳ | ⏳ | ❗ | · |
-| `css.color.mix` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
-| `css.background.clip-text` | ⏳ | ⏳ | ❗ | ❗ | · |
+| `html.attr.legacy-presentational` | ✅ | ✅ | ✅ | ◐ | ❌ |
+| `html.attr.contenteditable` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `html.attr.draggable` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `html.attr.tabindex` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `svg.clip-mask` | ✅ | ✅ | ✅ | ❌ | · |
+| `svg.filters` | ✅ | ✅ | ✅ | ❌ | · |
+| `svg.smil` | ✅ | ✅ | ✅ | ❌ | · |
+| `svg.foreign-object` | ✅ | ✅ | ✅ | ✅ | · |
+| `svg.image` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.display.other` | ✅ | ✅ | ◐ | ✅ | ❌ |
+| `css.box.logical` | ✅ | ✅ | ✅ | ◐ | ❌ |
+| `css.box.columns` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `css.position.sticky` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `css.overflow.scroll` | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `css.color.modern` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.color.mix` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `css.background.clip-text` | ✅ | ✅ | ✅ | ✅ | · |
 | `css.url.remote` | ✅ | ✅ | ✅ | ❌ | – |
-| `css.font.named` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `css.font.named` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `css.font.face` | ✅ | ✅ | ❌ | ✅ | ✅ |
-| `css.text.line-clamp` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `css.text.shadow` | ⏳ | ⏳ | ❗ | ❗ | · |
-| `css.text.writing-mode` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `css.text.selection` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `css.transform.3d` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `css.filter.other` | ⏳ | ⏳ | ❗ | ❗ | · |
-| `css.filter.url` | ⏳ | ⏳ | ❗ | ❗ | · |
-| `css.blend` | ⏳ | ⏳ | ❗ | ❗ | · |
-| `css.clip-path` | ⏳ | ⏳ | ⏳ | ❗ | · |
-| `css.mask` | ⏳ | ⏳ | ⏳ | ❗ | · |
-| `css.value.vh` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `css.value.env` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
-| `sel.has` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `sel.first-letter-line` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `sel.focus` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
-| `sel.form-state` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `sel.host-scoped` | ❌ | ✅ | ❌ | ✅ | ❌ |
+| `css.text.line-clamp` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `css.text.shadow` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.text.writing-mode` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `css.text.selection` | ✅ | ✅ | ❌ | ❌ | ✅ |
+| `css.transform.3d` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `css.filter.other` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.filter.url` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.blend` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.clip-path` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.mask` | ✅ | ✅ | ✅ | ✅ | · |
+| `css.value.vh` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `css.value.env` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `sel.has` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `sel.first-letter-line` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `sel.focus` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `sel.form-state` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `sel.host-scoped` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `sel.target` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `at.media.hover-pointer` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| `at.media.hover-pointer` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `at.media.other` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `at.import-namespace` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| `at.container` | ⏳ | ⏳ | ✅ | ✅ | ⏳ |
-| `at.layer` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| `at.property` | ⏳ | ❗ | ⏳ | ❗ | ⏳ |
-| `at.exotic` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `at.nesting` | ⏳ | ⏳ | ⏳ | ✅ | ◐ |
+| `at.container` | ✅ | ✅ | ✅ | ✅ | ◐ |
+| `at.layer` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `at.property` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `at.exotic` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `at.nesting` | ✅ | ✅ | ✅ | ✅ | ◐ |
 | `anim.magic-move` | ✅ | ✅ | ✅ | ✅ | – |
-| `canvas.conic-gradient` | ⏳ | ⏳ | ❗ | ❗ | · |
-| `canvas.pattern` | ⏳ | ⏳ | ❗ | ❗ | · |
-| `canvas.composite` | ⏳ | ⏳ | ⏳ | ⏳ | · |
-| `canvas.shadow` | ⏳ | ⏳ | ⏳ | ⏳ | · |
-| `canvas.filter` | ⏳ | ⏳ | ⏳ | ⏳ | · |
-| `canvas.image-data` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
-| `canvas.readback` | ⏳ | ⏳ | ❗ | ❗ | ⏳ |
+| `canvas.conic-gradient` | ✅ | ✅ | ✅ | ✅ | · |
+| `canvas.pattern` | ✅ | ✅ | ✅ | ✅ | · |
+| `canvas.composite` | ✅ | ✅ | ❌ | ❌ | · |
+| `canvas.shadow` | ✅ | ✅ | ❌ | ❌ | · |
+| `canvas.filter` | ✅ | ✅ | ❌ | ❌ | · |
+| `canvas.image-data` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `canvas.readback` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `canvas.webgl` | ✅ | ✅ | ✅ | ✅ | – |
-| `js.focus` | ⏳ | ⏳ | ⏳ | ❗ | ⏳ |
-| `js.libraries` | ⏳ | ⏳ | ⏳ | ⏳ | – |
+| `js.focus` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `js.libraries` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.network` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.navigation` | ✅ | ✅ | ✅ | ✅ | – |
 | `js.dialogs` | ✅ | ✅ | ✅ | ✅ | – |
@@ -271,12 +271,12 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `js.fullscreen` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.send-message` | ⏳ | ⏳ | ⏳ | ⏳ | – |
 | `input.touch-events` | – | – | – | – | – |
-| `input.dblclick` | ⏳ | ⏳ | – | – | ⏳ |
-| `input.long-press` | ⏳ | ⏳ | – | – | ⏳ |
-| `input.keyboard` | ⏳ | ⏳ | – | – | ⏳ |
-| `input.key-activation` | ⏳ | ⏳ | – | – | ⏳ |
+| `input.dblclick` | ✅ | ✅ | – | – | ❌ |
+| `input.long-press` | ✅ | ✅ | – | – | ❌ |
+| `input.keyboard` | ✅ | ✅ | – | – | ❌ |
+| `input.key-activation` | ✅ | ✅ | – | – | ❌ |
 | `input.key-gesture` | ✅ | ✅ | – | – | · |
-| `input.wheel-scroll` | ⏳ | ⏳ | – | – | ⏳ |
+| `input.wheel-scroll` | ✅ | ✅ | – | – | ❌ |
 
 `*` in the profile if every client draws it (D3a).
 
@@ -295,7 +295,6 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `canvas.draw-image`: 12-canvas: draw-image (diff 50.4 % of ink (max 5 %))
 - `js.dom.query`: 14-dom-layout-api: getElementsByClassName is live (0 → 0)
 - `js.layout.computed-style`: 14-dom-layout-api: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api: shorthand overflow (got "", want "hidden"); 14-dom-layout-api: shorthand margin (got "", want "4px 0px")
-- `input.hover-events`: 17-drag-hover: pointerenter, pointerover, mouseenter reach the widget
 
 ## web blitz: in-profile failures
 
@@ -320,6 +319,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `css.gradient.radial`: 05-colour-backgrounds: radial (diff 48.9 % of ink (max 5 %))
 - `css.gradient.conic`: 05-colour-backgrounds: conic (diff 72.1 % of ink (max 5 %))
 - `css.font.generic`: 06-text-fonts: monospace: i and M have the same advance (got 22, want 67.5 ±0.5); 06-text-fonts: serif and sans-serif are different faces (112.5 vs 112.5)
+- `css.font.ui-families`: 06-text-fonts: ui-monospace: i and M have the same advance (got 22, want 67.5 ±0.5)
 - `css.font.basic`: 06-text-fonts: font-weight: 700 is wider than 400 (59 vs 59)
 - `css.text.overflow`: 06-text-fonts: ellipsis (diff 27.1 % of ink (max 50 %); #36c 0/70px)
 - `css.text.emoji`: 06-text-fonts: emoji (diff 89.6 % of ink (max 50 %))
@@ -395,6 +395,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `css.background.basic`: 05-colour-backgrounds: background-image keeps the data: image; 05-colour-backgrounds: background-size (got "", want "10px 12px"); 05-colour-backgrounds: background-position (got "", want "1px 2px"); 05-colour-backgrounds: background-repeat (got "", want "no-repeat")
 - `css.gradient.conic`: 05-colour-backgrounds: conic (diff 56.5 % of ink (max 5 %))
 - `css.font.generic`: 06-text-fonts: computed font-family keeps the generic name
+- `css.font.ui-families`: 06-text-fonts: the validator adds a generic fallback (ui-monospace → …, monospace)
 - `css.font.basic`: 06-text-fonts: font-style: italic (got "", want "italic"); 06-text-fonts: font shorthand ( 15px)
 - `css.font.variant-numeric`: 06-text-fonts: tabular-nums: 1111 as wide as 0000 (got 23.82, want 32.45 ±0.5); 06-text-fonts: font-feature-settings "tnum" (got 23.82, want 32.45 ±0.5)
 - `css.text.align`: 06-text-fonts: text-align: center (got 0, want 60 ±1); 06-text-fonts: text-align: right (got 0, want 120 ±1); 06-text-fonts: text-indent (got 0, want 20 ±1)
@@ -417,7 +418,6 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `css.value.content`: 04-values-units: ::before content takes space (0); 04-values-units: content: attr(data-label) (0); 04-values-units: counters: counter-reset / increment / counter(); 04-values-units: quotes
 - `sel.structural`: 07-selectors: :empty (got "29,0,0,1", want "28,0,0,1")
 - `sel.before-after`: 07-selectors: ::before box takes space (got "0", want "ok"); 07-selectors: ::after computed style (got "17,17,17,1", want "51,0,0,1")
-- `at.supports`: 08-at-rules: @supports (gap) holds (got "0,0,0,1", want "23,0,0,1")
 - `at.keyframes`: 10-css-animations: keyframes (diff 100.0 % of ink (max 5 %))
 - `anim.transition`: 10-css-animations: a transition with a negative delay starts part-way (got 110, want 35 ±1); 10-css-animations: transition (diff 100.0 % of ink (max 5 %))
 - `anim.keyframes`: 10-css-animations: a paused animation at -2.5s of 10s is at 25% (got "", want 10 ±0.5); 10-css-animations: keyframes (diff 100.0 % of ink (max 5 %)); 10-css-animations: alternate (diff 100.0 % of ink (max 5 %)); 10-css-animations: colour (diff 100.0 % of ink (max 5 %))

@@ -236,7 +236,7 @@
 <body>
 <div class="conf-stages">
   <div data-stage="raster" data-covers="html.el.img"><div class="st-img"><img class="tile" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR4AWM8Y2z8nwEImBigAAAh4QI1lhEEowAAAABJRU5ErkJggg=="><img class="tile" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAACAAIDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAJ/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AB54B3v/Z"><img class="tile" src="data:image/webp;base64,UklGRgACAABXRUJQVlA4WAoAAAAgAAAAAQAAAQAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDhMEQAAAC8BQAAAB1DVznSm/4GI6H8AAA=="><img class="tile" src="data:image/gif;base64,R0lGODlhAQABAPAAAP8AAAAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw=="></div></div>
-  <div data-stage="svgimg" data-covers="html.el.img-svg" data-xfail="the validator does not enforce profile 1 yet"><img style="display:block;margin:10px;width:60px;height:40px" src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2230%22%20height%3D%2220%22%3E%3Crect%20width%3D%2230%22%20height%3D%2210%22%20fill%3D%22%23e83%22%2F%3E%3Crect%20y%3D%2210%22%20width%3D%2230%22%20height%3D%2210%22%20fill%3D%22%2336c%22%2F%3E%3C%2Fsvg%3E"></div>
+  <div data-stage="svgimg" data-covers="html.el.img-svg"><img style="display:block;margin:10px;width:60px;height:40px" src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2230%22%20height%3D%2220%22%3E%3Crect%20width%3D%2230%22%20height%3D%2210%22%20fill%3D%22%23e83%22%2F%3E%3Crect%20y%3D%2210%22%20width%3D%2230%22%20height%3D%2210%22%20fill%3D%22%2336c%22%2F%3E%3C%2Fsvg%3E"></div>
 </div>
 <div class="conf-head">02 · Attributes and images <span id="conf-summary"></span></div>
 <div class="conf-probes">
@@ -273,9 +273,9 @@ function onImage(id, catId, name, want, opts) {
 }
 onImage('i-png', 'html.el.img', 'PNG decodes (naturalWidth 2)', function (t, n) { return t === 'load' && n === 2; });
 onImage('i-gif', 'html.el.img', 'GIF decodes (naturalWidth 1)', function (t, n) { return t === 'load' && n === 1; });
-onImage('i-svg', 'html.el.img-svg', 'an SVG image is refused: the 48px placeholder (profile 1: out)', function (t, n) { return t === 'load' && n === 48; }, { xfail: 'the validator does not enforce profile 1 yet' });
-onImage('i-bmp', 'html.el.img-other-formats', 'BMP is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; }, { xfail: 'url-policy still allows image/bmp' });
-onImage('i-ico', 'html.el.img-other-formats', 'ICO is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; }, { xfail: 'url-policy still allows image/x-icon' });
+onImage('i-svg', 'html.el.img-svg', 'an SVG image is refused: the 48px placeholder (profile 1: out)', function (t, n) { return t === 'load' && n === 48; });
+onImage('i-bmp', 'html.el.img-other-formats', 'BMP is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; });
+onImage('i-ico', 'html.el.img-other-formats', 'ICO is refused (placeholder, not the 2px image)', function (t, n) { return n !== 2; });
 onImage('i-remote', 'html.el.img-remote', 'a remote image becomes the 48px placeholder', function (t, n) { return t === 'load' && n === 48; }, { sandboxOnly: true });
 
 T.step(function () {
@@ -290,16 +290,16 @@ T.step(function () {
   T.eq('html.attr.dir', 'dir=auto with Hebrew text resolves to rtl', CS('#auto', 'direction'), 'rtl');
   T.eq('html.attr.data-aria', 'data-* reaches attribute selectors', T.color('#dat', 'color'), '0,0,150,1');
   T.eq('html.attr.data-aria', 'aria-* reaches attribute selectors', T.color('#ar', 'color'), '150,0,0,1');
-  T.ok('html.attr.legacy-presentational', 'align is dropped: no centring', !/center/.test(CS('#al', 'text-align')), CS('#al', 'text-align'), { xfail: 'the validator does not enforce profile 1 yet' });
-  T.ok('html.attr.legacy-presentational', 'bgcolor is dropped', T.color('#lt-td') !== '255,0,0,1', T.color('#lt-td'), { xfail: 'the validator does not enforce profile 1 yet' });
-  T.ok('html.attr.legacy-presentational', 'cellpadding is dropped', parseFloat(CS('#lt-td', 'padding-left')) !== 5, CS('#lt-td', 'padding-left'), { xfail: 'the validator does not enforce profile 1 yet' });
-  T.ok('html.attr.legacy-presentational', 'border=1 is dropped', parseFloat(CS('#lt', 'border-top-width')) === 0, CS('#lt', 'border-top-width'), { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('html.attr.legacy-presentational', 'align is dropped: no centring', !/center/.test(CS('#al', 'text-align')), CS('#al', 'text-align'));
+  T.ok('html.attr.legacy-presentational', 'bgcolor is dropped', T.color('#lt-td') !== '255,0,0,1', T.color('#lt-td'));
+  T.ok('html.attr.legacy-presentational', 'cellpadding is dropped', parseFloat(CS('#lt-td', 'padding-left')) !== 5, CS('#lt-td', 'padding-left'));
+  T.ok('html.attr.legacy-presentational', 'border=1 is dropped', parseFloat(CS('#lt', 'border-top-width')) === 0, CS('#lt', 'border-top-width'));
   var ih = document.getElementById('ih');
   ih.click(); ih.click();
   T.eq('html.attr.event-handlers', 'an inline onclick handler runs', ih.getAttribute('data-n'), '2');
-  T.ok('html.attr.contenteditable', 'contenteditable does not reach the renderer', T.color('#ce', 'color') !== '1,1,1,1', T.color('#ce', 'color'), { xfail: 'the validator does not enforce the profile yet' });
-  T.ok('html.attr.draggable', 'draggable does not reach the renderer', T.color('#dg', 'color') !== '2,2,2,1', T.color('#dg', 'color'), { xfail: 'the validator does not enforce the profile yet' });
-  T.ok('html.attr.tabindex', 'tabindex does not reach the renderer', T.color('#ti', 'color') !== '3,3,3,1', T.color('#ti', 'color'), { xfail: 'the validator does not enforce the profile yet' });
+  T.ok('html.attr.contenteditable', 'contenteditable does not reach the renderer', T.color('#ce', 'color') !== '1,1,1,1', T.color('#ce', 'color'));
+  T.ok('html.attr.draggable', 'draggable does not reach the renderer', T.color('#dg', 'color') !== '2,2,2,1', T.color('#dg', 'color'));
+  T.ok('html.attr.tabindex', 'tabindex does not reach the renderer', T.color('#ti', 'color') !== '3,3,3,1', T.color('#ti', 'color'));
 });
 T.run({ deadline: 4000 });
 </script>

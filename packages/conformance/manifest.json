@@ -301,56 +301,56 @@
      "id": "html.el.ruby",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.ruby",
      "name": "rt keeps the text size (a plain span)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
      "name": "center becomes a div: no centring",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
      "name": "font becomes a span: color=red is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
      "name": "big becomes a span: normal size",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
      "name": "tt becomes a span: not monospace",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
      "name": "strike becomes a span: not struck",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.legacy",
      "name": "nobr becomes a span: the text wraps",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -427,20 +427,20 @@
      "id": "html.el.progress-meter",
      "name": "progress is dropped (no box)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.progress-meter",
      "name": "meter is dropped (no box)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     }
    ],
    "stages": [],
-   "bytes": 23553,
-   "gzip": 7907
+   "bytes": 22963,
+   "gzip": 7865
   },
   {
    "id": "auto/02-attributes-images",
@@ -494,21 +494,21 @@
      "id": "html.el.img-svg",
      "name": "an SVG image is refused: the 48px placeholder (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.img-other-formats",
      "name": "BMP is refused (placeholder, not the 2px image)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.img-other-formats",
      "name": "ICO is refused (placeholder, not the 2px image)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -592,28 +592,28 @@
      "id": "html.attr.legacy-presentational",
      "name": "align is dropped: no centring",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.legacy-presentational",
      "name": "bgcolor is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.legacy-presentational",
      "name": "cellpadding is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.legacy-presentational",
      "name": "border=1 is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -627,21 +627,21 @@
      "id": "html.attr.contenteditable",
      "name": "contenteditable does not reach the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.draggable",
      "name": "draggable does not reach the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.attr.tabindex",
      "name": "tabindex does not reach the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     }
    ],
@@ -689,15 +689,14 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/02-attributes-images/svgimg.chromium.png"
      },
      "nativeVsTemplate": 0.9853
     }
    ],
-   "bytes": 23056,
-   "gzip": 7431
+   "bytes": 22421,
+   "gzip": 7356
   },
   {
    "id": "auto/03-layout",
@@ -875,14 +874,14 @@
      "id": "css.display.other",
      "name": "display: flow-root is dropped: the float is not contained (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.display.other",
      "name": "display: contents is dropped: the span stays one flex item",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -973,28 +972,28 @@
      "id": "css.box.logical",
      "name": "margin-inline-start is dropped (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.box.logical",
      "name": "inline-size is dropped: the block keeps its full width",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.box.logical",
      "name": "padding-block is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.box.logical",
      "name": "margin-inline-start is dropped in RTL too",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1029,7 +1028,7 @@
      "id": "css.box.columns",
      "name": "column-count is dropped: one column (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1071,7 +1070,7 @@
      "id": "css.position.sticky",
      "name": "sticky is neutralised to relative",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1106,7 +1105,7 @@
      "id": "css.overflow.scroll",
      "name": "overflow: auto is neutralised to hidden",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1229,8 +1228,8 @@
      }
     }
    ],
-   "bytes": 29716,
-   "gzip": 8645
+   "bytes": 29181,
+   "gzip": 8595
   },
   {
    "id": "auto/04-values-units",
@@ -1342,7 +1341,7 @@
      "id": "css.value.vh",
      "name": "height: 10vh is dropped: the empty box has no height (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1482,13 +1481,13 @@
      "id": "css.value.env",
      "name": "env() resolves to its fallback or is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     }
    ],
    "stages": [],
-   "bytes": 18086,
-   "gzip": 6076
+   "bytes": 17972,
+   "gzip": 6036
   },
   {
    "id": "auto/05-colour-backgrounds",
@@ -1572,7 +1571,7 @@
      "id": "css.color.mix",
      "name": "color-mix() is dropped: no background (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -1655,7 +1654,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds/modern.chromium.png"
      },
@@ -1680,7 +1678,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds/mix.chromium.png"
      },
@@ -1758,7 +1755,6 @@
       "#c33",
       "#36c"
      ],
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds/clip-text.chromium.png"
      },
@@ -1904,8 +1900,8 @@
      "nativeVsTemplate": 0.0143
     }
    ],
-   "bytes": 21457,
-   "gzip": 6593
+   "bytes": 21224,
+   "gzip": 6548
   },
   {
    "id": "auto/06-text-fonts",
@@ -1967,14 +1963,14 @@
      "id": "css.font.ui-families",
      "name": "ui-monospace: i and M have the same advance",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
      "id": "css.font.ui-families",
      "name": "the validator adds a generic fallback (ui-monospace → …, monospace)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
@@ -2002,14 +1998,14 @@
      "id": "css.font.named",
      "name": "a named family is dropped: \"Courier New\" alone is not monospace",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "css.font.named",
      "name": "a named family is dropped from the list (\"Times New Roman\", sans-serif → sans-serif)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2170,7 +2166,7 @@
      "id": "css.text.line-clamp",
      "name": "-webkit-line-clamp is dropped: all lines show (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2198,7 +2194,7 @@
      "id": "css.text.writing-mode",
      "name": "writing-mode is neutralised (text stays horizontal)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2240,7 +2236,7 @@
      "id": "css.text.selection",
      "name": "user-select: text cannot re-enable selection",
      "native": {
-      "chromium": "xfail"
+      "chromium": "pass"
      }
     }
    ],
@@ -2296,7 +2292,6 @@
       "#e83",
       "#36c"
      ],
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/06-text-fonts/text-shadow.chromium.png"
      },
@@ -2355,8 +2350,8 @@
      }
     }
    ],
-   "bytes": 25135,
-   "gzip": 7857
+   "bytes": 24655,
+   "gzip": 7744
   },
   {
    "id": "auto/07-selectors",
@@ -2562,7 +2557,7 @@
      "id": "sel.has",
      "name": ":has() never matches (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2590,21 +2585,21 @@
      "id": "sel.first-letter-line",
      "name": "::first-letter never matches",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "sel.first-letter-line",
      "name": "::first-line never matches",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "sel.first-letter-line",
      "name": "::marker never matches",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2618,7 +2613,7 @@
      "id": "sel.focus",
      "name": ":focus never matches (no keyboard focus in v1)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2644,8 +2639,8 @@
     }
    ],
    "stages": [],
-   "bytes": 19641,
-   "gzip": 6358
+   "bytes": 19344,
+   "gzip": 6314
   },
   {
    "id": "auto/08-at-rules",
@@ -2734,14 +2729,14 @@
      "id": "at.media.hover-pointer",
      "name": "@media (hover) is dropped and matchMedia answers false (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.media.hover-pointer",
      "name": "@media (pointer) is dropped and matchMedia answers false",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2762,14 +2757,14 @@
      "id": "at.supports",
      "name": "@supports (3D transform) is false: 3D is out of the profile",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
      "id": "at.supports",
      "name": "@supports with and/not follows the profile",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
@@ -2790,7 +2785,7 @@
      "id": "at.container",
      "name": "@container is dropped (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2804,21 +2799,21 @@
      "id": "at.layer",
      "name": "@layer is dropped with its rules (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.property",
      "name": "@property is dropped: var(--pp) has no initial value (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.exotic",
      "name": "@scope is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2832,14 +2827,14 @@
      "id": "at.nesting",
      "name": "a nested & .b rule is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "at.nesting",
      "name": "a nested &.class rule is dropped",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2851,8 +2846,8 @@
     }
    ],
    "stages": [],
-   "bytes": 18760,
-   "gzip": 6072
+   "bytes": 18166,
+   "gzip": 5991
   },
   {
    "id": "auto/09-transforms-effects",
@@ -2921,7 +2916,7 @@
      "id": "css.transform.3d",
      "name": "rotateY(60deg) is dropped: the box keeps its width",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -2996,7 +2991,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not strip 3D transforms yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/transform-3d.chromium.png"
      },
@@ -3068,7 +3062,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/filter-other.chromium.png"
      },
@@ -3117,7 +3110,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/blend.chromium.png"
      },
@@ -3142,7 +3134,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/clip-path.chromium.png"
      },
@@ -3167,7 +3158,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/mask.chromium.png"
      },
@@ -3215,15 +3205,14 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce the profile yet",
      "refs": {
       "chromium": "refs/auto/09-transforms-effects/filter-url.chromium.png"
      },
      "nativeVsTemplate": 0.3036
     }
    ],
-   "bytes": 21724,
-   "gzip": 6520
+   "bytes": 21311,
+   "gzip": 6448
   },
   {
    "id": "auto/10-css-animations",
@@ -3802,14 +3791,14 @@
      "id": "canvas.image-data",
      "name": "getImageData returns transparent pixels (profile 1: out)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "canvas.readback",
      "name": "toDataURL does not hand pixels back",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -3942,7 +3931,6 @@
       "light"
      ],
      "reftest": false,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/12-canvas/conic.chromium.png"
      }
@@ -3966,7 +3954,6 @@
       "light"
      ],
      "reftest": false,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/12-canvas/pattern.chromium.png"
      }
@@ -4087,7 +4074,6 @@
       "light"
      ],
      "reftest": false,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/12-canvas/composite.chromium.png"
      }
@@ -4112,7 +4098,6 @@
      ],
      "reftest": false,
      "maxDiff": 0.1,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/12-canvas/shadow.chromium.png"
      }
@@ -4137,7 +4122,6 @@
      ],
      "reftest": false,
      "maxDiff": 0.1,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/12-canvas/filter.chromium.png"
      }
@@ -4207,14 +4191,13 @@
       "light"
      ],
      "reftest": false,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/12-canvas/image-data.chromium.png"
      }
     }
    ],
-   "bytes": 24439,
-   "gzip": 7563
+   "bytes": 23974,
+   "gzip": 7500
   },
   {
    "id": "auto/13-svg",
@@ -4425,7 +4408,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/13-svg/clip-mask.chromium.png"
      },
@@ -4451,7 +4433,6 @@
      ],
      "reftest": true,
      "maxDiff": 0.1,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/13-svg/filters.chromium.png"
      },
@@ -4476,7 +4457,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/13-svg/smil.chromium.png"
      },
@@ -4501,7 +4481,6 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator does not enforce profile 1 yet",
      "refs": {
       "chromium": "refs/auto/13-svg/image.chromium.png"
      },
@@ -4526,15 +4505,14 @@
       "light"
      ],
      "reftest": true,
-     "xfail": "the validator keeps foreignObject",
      "refs": {
       "chromium": "refs/auto/13-svg/foreign-object.chromium.png"
      },
      "nativeVsTemplate": 0.641
     }
    ],
-   "bytes": 19379,
-   "gzip": 6546
+   "bytes": 19100,
+   "gzip": 6493
   },
   {
    "id": "auto/14-dom-layout-api",
@@ -5147,7 +5125,7 @@
      "id": "js.css-supports",
      "name": "CSS.supports(\"transform\", \"rotateY(10deg)\") is false: 3D is out",
      "native": {
-      "chromium": "xfail"
+      "chromium": "skip"
      }
     },
     {
@@ -5243,8 +5221,8 @@
     }
    ],
    "stages": [],
-   "bytes": 24293,
-   "gzip": 7992
+   "bytes": 24006,
+   "gzip": 7932
   },
   {
    "id": "auto/16-sdk-taps",
@@ -5487,28 +5465,28 @@
      "id": "input.dblclick",
      "name": "no dblclick reaches the widget (the double tap stays with the bubble)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.long-press",
      "name": "no contextmenu event reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.keyboard",
      "name": "no keydown reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.wheel-scroll",
      "name": "no wheel event reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -5653,8 +5631,8 @@
     }
    ],
    "stages": [],
-   "bytes": 25613,
-   "gzip": 8239
+   "bytes": 25331,
+   "gzip": 8196
   },
   {
    "id": "auto/17-drag-hover",
@@ -5809,15 +5787,14 @@
      ],
      "reftest": true,
      "maxDiff": 0.3,
-     "xfail": "the client does not disable selection yet (D18)",
      "refs": {
       "chromium": "refs/auto/17-drag-hover/no-selection.chromium.png"
      },
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 17728,
-   "gzip": 6155
+   "bytes": 17667,
+   "gzip": 6122
   },
   {
    "id": "auto/18-out-of-profile",
@@ -5856,84 +5833,84 @@
      "id": "html.el.forms",
      "name": "input type=text is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "checkbox is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "radio is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "range is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "select is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "textarea is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.forms",
      "name": "fieldset is not drawn",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "sel.form-state",
      "name": ":checked does not match (the control is gone)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "showModal does not put the dialog in the top layer (:modal never matches)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "a shown dialog stays where the widget put it",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "showPopover does not open a top-layer popover",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "html.el.dialog-popover",
      "name": "a popover stays inside the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
@@ -5980,8 +5957,8 @@
     }
    ],
    "stages": [],
-   "bytes": 17330,
-   "gzip": 5860
+   "bytes": 16981,
+   "gzip": 5779
   },
   {
    "id": "auto/19-limits",
@@ -6315,27 +6292,27 @@
      "id": "input.keyboard",
      "name": "no keydown, keyup, keypress, beforeinput or input event reaches the widget",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "input.key-activation",
      "name": "Enter and Space add no clicks to a tapped button or link (one click each)",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     },
     {
      "id": "js.focus",
      "name": "focus() does not make :focus match in the renderer",
      "native": {
-      "chromium": "xfail"
+      "chromium": "fail"
      }
     }
    ],
    "stages": [],
-   "bytes": 15500,
-   "gzip": 5448
+   "bytes": 15357,
+   "gzip": 5386
   },
   {
    "id": "visual/01-boxes",
@@ -6568,7 +6545,7 @@
     }
    ],
    "bytes": 73549,
-   "gzip": 38779
+   "gzip": 37695
   },
   {
    "id": "visual/03-text",
@@ -6702,7 +6679,7 @@
     }
    ],
    "bytes": 95605,
-   "gzip": 55975
+   "gzip": 59661
   },
   {
    "id": "visual/04-layout",
@@ -6818,7 +6795,7 @@
     }
    ],
    "bytes": 48729,
-   "gzip": 23698
+   "gzip": 23588
   },
   {
    "id": "visual/05-transforms-effects",
@@ -6952,7 +6929,7 @@
     }
    ],
    "bytes": 45452,
-   "gzip": 20930
+   "gzip": 19102
   },
   {
    "id": "visual/06-css-animations",
@@ -7320,7 +7297,7 @@
     }
    ],
    "bytes": 70444,
-   "gzip": 40516
+   "gzip": 38177
   },
   {
    "id": "visual/09-svg",
@@ -7449,11 +7426,11 @@
      "refs": {
       "chromium": "refs/visual/09-svg/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7212
+     "nativeVsTemplate": 0.7243
     }
    ],
    "bytes": 57291,
-   "gzip": 33568
+   "gzip": 30658
   },
   {
    "id": "visual/10-images",
@@ -7551,7 +7528,7 @@
     }
    ],
    "bytes": 31547,
-   "gzip": 12679
+   "gzip": 11152
   },
   {
    "id": "visual/11-interaction",

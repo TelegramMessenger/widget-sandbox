@@ -387,9 +387,9 @@ T.step(function () {
 
   var tb = inside('#tbl');
   T.ok('css.display.table', 'table cells side by side, the second takes the rest', Math.abs(tb[0].w - 50) < 1 && Math.abs(tb[1].x - tb[0].r) < 1 && Math.abs(tb[1].r - 200) < 1, tb.map(function (k) { return k.x + '/' + k.w; }).join(' '));
-  T.ok('css.display.other', 'display: flow-root is dropped: the float is not contained (profile 1: out)', R('#flowroot').h < 1, 'h ' + R('#flowroot').h, { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('css.display.other', 'display: flow-root is dropped: the float is not contained (profile 1: out)', R('#flowroot').h < 1, 'h ' + R('#flowroot').h);
   var ct = inside('#contents');
-  T.ok('css.display.other', 'display: contents is dropped: the span stays one flex item', (function () { var k = document.querySelector('#contents span').children; return Math.abs(R(k[1]).x - R(k[0]).x) < 0.5; })(), '', { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('css.display.other', 'display: contents is dropped: the span stays one flex item', (function () { var k = document.querySelector('#contents span').children; return Math.abs(R(k[1]).x - R(k[0]).x) < 0.5; })(), '');
 
   var sz = document.querySelectorAll('#sizes > *');
   T.near('css.box.size', 'width: 50%', R(sz[0]).w, 100, 0.5);
@@ -411,11 +411,11 @@ T.step(function () {
   T.near('css.box.aspect-ratio', 'aspect-ratio: 2 makes a 60px wide box 30px high', ar.h, 30, 0.5);
 
   var lg = inside('#logi');
-  T.near('css.box.logical', 'margin-inline-start is dropped (profile 1: out)', lg[0].x, 0, 0.5, { xfail: 'the validator does not enforce profile 1 yet' });
-  T.near('css.box.logical', 'inline-size is dropped: the block keeps its full width', lg[1].w, 200, 0.5, { xfail: 'the validator does not enforce profile 1 yet' });
-  T.near('css.box.logical', 'padding-block is dropped', lg[2].h, 10, 0.5, { xfail: 'the validator does not enforce profile 1 yet' });
+  T.near('css.box.logical', 'margin-inline-start is dropped (profile 1: out)', lg[0].x, 0, 0.5);
+  T.near('css.box.logical', 'inline-size is dropped: the block keeps its full width', lg[1].w, 200, 0.5);
+  T.near('css.box.logical', 'padding-block is dropped', lg[2].h, 10, 0.5);
   var rt = inside('#logi-rtl');
-  T.near('css.box.logical', 'margin-inline-start is dropped in RTL too', rt[0].r, 200, 0.5, { xfail: 'the validator does not enforce profile 1 yet' });
+  T.near('css.box.logical', 'margin-inline-start is dropped in RTL too', rt[0].r, 200, 0.5);
 
   var ol = R('#ol');
   T.ok('css.box.outline', 'outline does not change the box', Math.abs(ol.w - 30) < 0.5 && Math.abs(ol.h - 10) < 0.5, ol.w + 'x' + ol.h);
@@ -427,7 +427,7 @@ T.step(function () {
   T.near('css.box.float', 'float:right sits at the right edge', fr[1].r, 200, 0.5);
 
   var cl = inside('#cols');
-  T.ok('css.box.columns', 'column-count is dropped: one column (profile 1: out)', Math.abs(cl[2].x) < 0.5 && Math.abs(cl[2].y - 20) < 0.5, cl[2].x + ',' + cl[2].y, { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('css.box.columns', 'column-count is dropped: one column (profile 1: out)', Math.abs(cl[2].x) < 0.5 && Math.abs(cl[2].y - 20) < 0.5, cl[2].x + ',' + cl[2].y);
 
   var ps = inside('#pos');
   T.ok('css.position.relative-absolute', 'absolute: left/top inside a relative parent', Math.abs(ps[0].x - 7) < 0.5 && Math.abs(ps[0].y - 5) < 0.5, ps[0].x + ',' + ps[0].y);
@@ -437,7 +437,7 @@ T.step(function () {
   T.ok('css.position.relative-absolute', 'relative: left/top shift the box', Math.abs(rl.x - rp.x - 12) < 0.5 && Math.abs(rl.y - rp.y - 3) < 0.5, (rl.x - rp.x) + ',' + (rl.y - rp.y));
   var fx = R('#fixed');
   T.ok('css.position.fixed', 'fixed is placed against the bubble', Math.abs(fx.x - 3) < 0.5 && Math.abs(fx.y - 4) < 0.5, fx.x + ',' + fx.y);
-  T.ok('css.position.sticky', 'sticky is neutralised to relative', T.cs('#sticky', 'position') !== 'sticky', T.cs('#sticky', 'position'), { xfail: 'the validator does not enforce the profile yet' });
+  T.ok('css.position.sticky', 'sticky is neutralised to relative', T.cs('#sticky', 'position') !== 'sticky', T.cs('#sticky', 'position'));
 
   var z = R('#z');
   var top = document.elementFromPoint(z.x + 10, z.y + 10);
@@ -448,7 +448,7 @@ T.step(function () {
   T.ok('css.overflow.clip', 'overflow: hidden clips hit testing', !hit || hit.parentNode !== document.getElementById('ov'), hit ? hit.id || hit.className || hit.tagName : 'null');
   T.eq('css.overflow.clip', 'overflow: hidden is computed', T.cs('#ov', 'overflow-y'), 'hidden');
   T.eq('css.overflow.clip', 'overflow: clip is computed', T.cs('#ovc', 'overflow-y'), 'clip');
-  T.ok('css.overflow.scroll', 'overflow: auto is neutralised to hidden', T.cs('#ovs', 'overflow-y') === 'hidden', T.cs('#ovs', 'overflow-y'), { xfail: 'the validator does not enforce the profile yet' });
+  T.ok('css.overflow.scroll', 'overflow: auto is neutralised to hidden', T.cs('#ovs', 'overflow-y') === 'hidden', T.cs('#ovs', 'overflow-y'));
 
   var vh = R('#vis');
   var under = document.elementFromPoint(vh.x + 10, vh.y + 10);

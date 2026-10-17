@@ -3,7 +3,8 @@
 //   2. the harness region of every widget (harness CSS + JS, stage geometry);
 //   3. reference images: every stage rendered natively by headless Chromium
 //      (and WebKit when Playwright has it installed) at DPR 2, in reference mode
-//      (a stage with <template data-ref> gets the template's markup) →
+//      (a stage with <template data-ref> gets the template's markup), with the
+//      renderer's UA stylesheet from profile.json (the unstyled <button>) →
 //      packages/conformance/refs/<set>/<widget>/<stage>.<engine>[.dark].png;
 //   4. the visual set's embedded reference images (<img data-ref-img>);
 //   5. the native run of every widget (no template swap): what a plain
@@ -21,7 +22,7 @@ import { chromium, webkit, type Browser, type BrowserContext, type Page } from '
 import { PNG } from 'pngjs';
 import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
-import { AUTO_GRID, CONF, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
+import { AUTO_GRID, CONF, ROOT, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 
 const args = process.argv.slice(2);
@@ -46,6 +47,10 @@ const SDK_MOCK = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url)
 /** v1 mini-widgets (docs/tgw-format.md): at most 4 KB gzipped and 32 KB of HTML. */
 const MINI_LIMIT = { gzip: 4096, raw: 32768 };
 const isSdk = (w: Widget) => w.id.startsWith('visual/sdk/');
+/** The renderer's UA stylesheet (profile.json tables.uaStylesheet): every renderer draws an unstyled <button> with it, so the native runs do too. */
+const PROFILE_FILE = path.join(ROOT, 'packages', 'core', 'profile.json');
+const UA_CSS = readJson<{ tables?: { uaStylesheet?: string } }>(PROFILE_FILE, {}).tables?.uaStylesheet ?? '';
+if (!UA_CSS) console.log('no profile.json uaStylesheet: native runs use the engine\'s own <button>');
 
 // ───────────── 2. harness region ─────────────
 
@@ -103,7 +108,7 @@ async function waitStatus(page: Page, want: string[], timeout: number): Promise<
 async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdkMock = false): Promise<Page> {
   const page = await ctx.newPage();
   // The mode goes into the HTML, before the harness. Links never navigate in a native reference run.
-  const boot = `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true)</script>` + (sdkMock ? `<script>${SDK_MOCK}</script>` : '');
+  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true)</script>` + (sdkMock ? `<script>${SDK_MOCK}</script>` : '');
   // Served from a real (fake) origin, not about:blank, so storage works as in a WebView.
   const url = 'https://conformance.test/widget.html';
   await page.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html.replace(/<head>/i, '<head>' + boot) }));
@@ -271,7 +276,9 @@ async function main() {
       if (!isSdk(w) && f?.status === 'in' && c.native.chromium === 'fail') problems.push(`${w.id}: in-profile check fails in native Chromium: ${c.id} — ${c.name}`);
     }
     // Visual-set templates are illustrations (end states, motion diagrams), not reftests: only the auto set is checked.
-    if (w.set === 'auto') for (const [s, d] of Object.entries(sanity)) if (d > 0.02 && !w.stages.find((x) => x.name === s)?.xfail) problems.push(`${w.id}: stage ${s} drawn natively differs from its template by ${(d * 100).toFixed(1)} %`);
+    // The template of an out feature's stage draws it neutralised, so a native engine differs from it by design.
+    const outOnly = (st?: { covers: string[] }) => !!st?.covers.length && st.covers.every((id) => CATALOGUE.find((x) => x.id === id)?.status === 'out');
+    if (w.set === 'auto') for (const [s, d] of Object.entries(sanity)) { const st = w.stages.find((x) => x.name === s); if (d > 0.02 && !st?.xfail && !outOnly(st)) problems.push(`${w.id}: stage ${s} drawn natively differs from its template by ${(d * 100).toFixed(1)} %`); }
     const stagePos = (i: number) => (w.set === 'auto' ? [...autoStagePos(i), w.stages[i].w, w.stages[i].h] : null);
     entries.set(w.id, {
       id: w.id,

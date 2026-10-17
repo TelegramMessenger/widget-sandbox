@@ -236,7 +236,7 @@ html{font-size:16px}
 #cm{width:2.54cm}
 #mm{width:25.4mm}
 #vw{width:50vw}
-#vh{height:10vh;width:4px}
+#vh{height:10vh;width:4px;background:#46c}
 #calc{width:calc(50% - 10px)}
 #min{width:min(50px,30%)}
 #max{width:max(10px,20%)}
@@ -268,7 +268,7 @@ html{font-size:16px}
 <div class="conf-head">04 · Values and units <span id="conf-summary"></span></div>
 <div class="conf-probes">
   <div class="p"><div class="b" id="em"></div><div class="b" id="rem"></div><div class="b" id="pct"></div><div class="b" id="ch"></div><span id="ch-ref">0000000000</span><div class="b" id="ex"></div><div class="b" id="pt"></div><div class="b" id="in"></div><div class="b" id="cm"></div><div class="b" id="mm"></div></div>
-  <div class="p" style="width:auto"><div class="b" id="vw"></div><div class="b" id="vh"></div></div>
+  <div class="p" style="width:auto"><div class="b" id="vw"></div><div id="vh"></div></div>
   <div class="p"><div class="b" id="calc"></div><div class="b" id="min"></div><div class="b" id="max"></div><div class="b" id="clamp"></div><div class="b" id="calcvar"></div></div>
   <div class="p"><div class="b" id="var"></div><div class="b" id="fallback"></div><div id="inh-parent"><span id="inh-child">c</span></div><div class="b" id="js-var"></div></div>
   <div class="p"><div id="inherit-parent"><div class="b"></div></div><div id="initial">i</div><div id="unset-parent"><span id="unset">u</span></div><div id="revert">r</div><div class="b imp" id="imp" style="width:10px"></div></div>
@@ -293,7 +293,7 @@ T.step(function () {
 
   T.near('css.value.vw', '50vw is half the bubble width (innerWidth)', W('#vw'), window.innerWidth / 2, 1);
   T.near('css.value.vw', '50vw is half the root width', W('#vw'), document.documentElement.clientWidth / 2, 1);
-  T.near('css.value.vh', 'height: 10vh is dropped: the empty box has no height (profile 1: out)', R('#vh').h, 0, 0.5, { xfail: 'the validator does not enforce profile 1 yet' });
+  T.near('css.value.vh', 'height: 10vh is dropped: the empty box has no height (profile 1: out)', R('#vh').h, 0, 0.5);
 
   T.near('css.value.math', 'calc(50% - 10px)', W('#calc'), 90, 0.5);
   T.near('css.value.math', 'min(50px, 30%)', W('#min'), 50, 0.5);
@@ -320,7 +320,7 @@ T.step(function () {
   T.ok('css.value.content', 'quotes', /«/.test(CS('#quotes', 'quotes')), CS('#quotes', 'quotes'));
 
   var env = W('#env');
-  T.ok('css.value.env', 'env() resolves to its fallback or is dropped', Math.abs(env - 31) < 0.5 || Math.abs(env - 200) < 0.5, 'w ' + env, { xfail: 'the validator does not enforce the profile yet' });
+  T.ok('css.value.env', 'env() resolves to its fallback or is dropped', Math.abs(env - 31) < 0.5 || Math.abs(env - 200) < 0.5, 'w ' + env);
 });
 T.run();
 </script>

@@ -262,16 +262,16 @@
 <svg width="0" height="0" style="position:absolute"><filter id="conf-blur"><feGaussianBlur stdDeviation="3"/></filter></svg>
 <div class="conf-stages">
   <div data-stage="transform-2d" data-covers="css.transform.2d"><div class="box s-2d1"></div><div class="box s-2d2"></div><div class="box s-2d3"></div></div>
-  <div data-stage="transform-3d" data-covers="css.transform.3d" data-xfail="the validator does not strip 3D transforms yet"><div class="s-3d-wrap"><div class="box s-3d"></div></div></div>
+  <div data-stage="transform-3d" data-covers="css.transform.3d"><div class="s-3d-wrap"><div class="box s-3d"></div></div></div>
   <div data-stage="blur" data-covers="css.filter.blur-brightness-drop-shadow" data-max-diff="0.1"><div class="box s-blur"></div></div>
   <div data-stage="brightness-drop-shadow" data-covers="css.filter.blur-brightness-drop-shadow"><div class="box s-bright"></div><div class="box s-ds"></div></div>
-  <div data-stage="filter-other" data-covers="css.filter.other" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-gray"></div><div class="box s-sepia"></div><div class="box s-hue"></div><div class="box s-inv"></div></div>
+  <div data-stage="filter-other" data-covers="css.filter.other"><div class="box s-gray"></div><div class="box s-sepia"></div><div class="box s-hue"></div><div class="box s-inv"></div></div>
   <div data-stage="backdrop" data-covers="css.backdrop-filter" data-max-diff="0.1"><div class="s-stripes"></div><div class="box s-glass"></div></div>
-  <div data-stage="blend" data-covers="css.blend" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-b1"></div><div class="box s-b2"></div></div>
-  <div data-stage="clip-path" data-covers="css.clip-path" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-clip1"></div><div class="box s-clip2"></div></div>
-  <div data-stage="mask" data-covers="css.mask" data-xfail="the validator does not enforce profile 1 yet"><div class="box s-mask"></div></div>
+  <div data-stage="blend" data-covers="css.blend"><div class="box s-b1"></div><div class="box s-b2"></div></div>
+  <div data-stage="clip-path" data-covers="css.clip-path"><div class="box s-clip1"></div><div class="box s-clip2"></div></div>
+  <div data-stage="mask" data-covers="css.mask"><div class="box s-mask"></div></div>
   <div data-stage="opacity" data-covers="css.opacity"><div class="box s-op1"></div><div class="box s-op2"></div></div>
-  <div data-stage="filter-url" data-covers="css.filter.url" data-xfail="the validator does not enforce the profile yet"><div class="box s-furl"></div></div>
+  <div data-stage="filter-url" data-covers="css.filter.url"><div class="box s-furl"></div></div>
 </div>
 <div class="conf-head">09 · Transforms and effects <span id="conf-summary"></span></div>
 <div class="conf-probes">
@@ -290,7 +290,7 @@ T.step(function () {
   T.ok('css.transform.2d', 'scale(2) with transform-origin 0 0', Math.abs(sc.w - 20) < 0.5 && Math.abs(sc.x - 110) < 0.5, sc.x + ' ' + sc.w);
   var tr = rel('#t-tr');
   T.ok('css.transform.2d', 'the translate property', Math.abs(tr.x - 160) < 0.5 && Math.abs(tr.y - 5) < 0.5, tr.x + ',' + tr.y);
-  T.near('css.transform.3d', 'rotateY(60deg) is dropped: the box keeps its width', rel('#t-3d').w, 40, 0.5, { xfail: 'the validator does not strip 3D transforms yet' });
+  T.near('css.transform.3d', 'rotateY(60deg) is dropped: the box keeps its width', rel('#t-3d').w, 40, 0.5);
   var pe = R('#pe-under');
   var hit = document.elementFromPoint(pe.x + 10, pe.y + 10);
   T.ok('css.pointer-events', 'pointer-events: none lets hits through', !!hit && hit.id === 'pe-under', hit ? hit.id : 'null');

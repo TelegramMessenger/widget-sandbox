@@ -254,11 +254,11 @@ var prevented = T.wait('input.prevent-default', 'preventDefault on a link click 
 var toggle = T.wait('html.el.details', 'tapping summary opens details (toggle event)');
 var frag = T.wait('html.el.a-fragment', 'tapping a #fragment link does not leave the widget');
 var active = T.wait('sel.active', ':active applies while pressed', { hint: 'press and hold “active”' });
-var dbl = T.wait('input.dblclick', 'no dblclick reaches the widget (the double tap stays with the bubble)', { xfail: 'dblclick is still delivered' });
+var dbl = T.wait('input.dblclick', 'no dblclick reaches the widget (the double tap stays with the bubble)');
 var dblSeen = 0;
-var noCtx = T.wait('input.long-press', 'no contextmenu event reaches the widget', { xfail: 'contextmenu is still delivered' });
-var noKey = T.wait('input.keyboard', 'no keydown reaches the widget', { xfail: 'keyboard events are still delivered' });
-var noWheel = T.wait('input.wheel-scroll', 'no wheel event reaches the widget', { xfail: 'wheel events are still delivered' });
+var noCtx = T.wait('input.long-press', 'no contextmenu event reaches the widget');
+var noKey = T.wait('input.keyboard', 'no keydown reaches the widget');
+var noWheel = T.wait('input.wheel-scroll', 'no wheel event reaches the widget');
 var seen = { contextmenu: 0, keydown: 0, wheel: 0 };
 var seq = [];
 
@@ -300,8 +300,8 @@ T.step(function () {
   T.ok('tw.theme-params', '--tg-theme-bg-color is defined for CSS', T.color('#tp') !== '1,2,3,1', T.color('#tp'), T.sandbox ? { xfail: '--tg-theme-* not implemented (D14)' } : S);
   T.ok('tw.open-telegram-link', 'openTelegramLink exists', !!TW && typeof TW.openTelegramLink === 'function', '', T.sandbox ? { xfail: 'not implemented (D8)' } : S);
   T.ok('tw.haptic', 'haptic feedback exists', !!TW && (typeof TW.HapticFeedback === 'object' || typeof TW.haptic === 'function'), '', T.sandbox ? { xfail: 'not implemented (D8)' } : S);
-  T.ok('tw.profile', 'TelegramWidget.profile is a positive integer', !!TW && Number.isInteger(TW.profile) && TW.profile >= 1, TW ? String(TW.profile) : '', T.sandbox ? { xfail: 'not implemented (D23)' } : S);
-  T.ok('tw.profile', 'isProfileAtLeast(1) is true, isProfileAtLeast(999) false', !!TW && typeof TW.isProfileAtLeast === 'function' && TW.isProfileAtLeast(1) === true && TW.isProfileAtLeast(999) === false, '', T.sandbox ? { xfail: 'not implemented (D23)' } : S);
+  T.ok('tw.profile', 'TelegramWidget.profile is a positive integer', !!TW && Number.isInteger(TW.profile) && TW.profile >= 1, TW ? String(TW.profile) : '', S);
+  T.ok('tw.profile', 'isProfileAtLeast(1) is true, isProfileAtLeast(999) false', !!TW && typeof TW.isProfileAtLeast === 'function' && TW.isProfileAtLeast(1) === true && TW.isProfileAtLeast(999) === false, '', S);
   T.ok('tw.send-message', 'sendMessage is not in the SDK', !!TW && typeof TW.sendMessage === 'undefined', '', T.sandbox ? { xfail: 'still present (D8 removes it)' } : S);
   // SDK v1 contract (docs/sdk-v1.md): argument checks throw TypeError synchronously; valid calls outside a press are dropped by the host.
   var V1 = T.sandbox ? { xfail: 'SDK v1 not implemented yet' } : S;

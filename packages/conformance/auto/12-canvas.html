@@ -231,18 +231,18 @@
   <div data-stage="path" data-covers="canvas.path"><canvas width="160" height="120"></canvas></div>
   <div data-stage="line-style" data-covers="canvas.line-style"><canvas width="160" height="120"></canvas></div>
   <div data-stage="gradients" data-covers="canvas.gradients"><canvas width="160" height="120"></canvas></div>
-  <div data-stage="conic" data-xfail="the validator does not enforce profile 1 yet" data-covers="canvas.conic-gradient"><canvas width="160" height="120"></canvas></div>
-  <div data-stage="pattern" data-xfail="the validator does not enforce profile 1 yet" data-covers="canvas.pattern"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="conic" data-covers="canvas.conic-gradient"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="pattern" data-covers="canvas.pattern"><canvas width="160" height="120"></canvas></div>
   <div data-stage="transform" data-covers="canvas.transform"><canvas width="160" height="120"></canvas></div>
   <div data-stage="clip" data-covers="canvas.clip"><canvas width="160" height="120"></canvas></div>
   <div data-stage="text" data-covers="canvas.text" data-max-diff="0.5" data-colors="#222 #36c"><canvas width="160" height="120"></canvas></div>
   <div data-stage="alpha" data-covers="canvas.alpha"><canvas width="160" height="120"></canvas></div>
-  <div data-stage="composite" data-xfail="the validator does not enforce profile 1 yet" data-covers="canvas.composite"><canvas width="160" height="120"></canvas></div>
-  <div data-stage="shadow" data-xfail="the validator does not enforce profile 1 yet" data-covers="canvas.shadow" data-max-diff="0.1"><canvas width="160" height="120"></canvas></div>
-  <div data-stage="filter" data-xfail="the validator does not enforce profile 1 yet" data-covers="canvas.filter" data-max-diff="0.1"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="composite" data-covers="canvas.composite"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="shadow" data-covers="canvas.shadow" data-max-diff="0.1"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="filter" data-covers="canvas.filter" data-max-diff="0.1"><canvas width="160" height="120"></canvas></div>
   <div data-stage="path2d" data-covers="canvas.path2d"><canvas width="160" height="120"></canvas></div>
   <div data-stage="draw-image" data-covers="canvas.draw-image"><canvas width="160" height="120"></canvas></div>
-  <div data-stage="image-data" data-xfail="the validator does not enforce profile 1 yet" data-covers="canvas.image-data"><canvas width="160" height="120"></canvas></div>
+  <div data-stage="image-data" data-covers="canvas.image-data"><canvas width="160" height="120"></canvas></div>
 </div>
 <div class="conf-head">12 · Canvas 2D <span id="conf-summary"></span></div>
 <div class="conf-probes">
@@ -295,12 +295,12 @@ T.step(function () {
   T.ok('canvas.hit-test', 'isPointInStroke', pc.isPointInStroke(5, 10) === true, String(pc.isPointInStroke(5, 10)));
   pc.fillStyle = 'rgb(200,10,20)'; pc.fillRect(0, 0, 4, 4);
   var px = pc.getImageData(1, 1, 1, 1).data;
-  T.ok('canvas.image-data', 'getImageData returns transparent pixels (profile 1: out)', px[3] === 0, Array.prototype.slice.call(px).join(','), { xfail: 'the validator does not enforce profile 1 yet' });
+  T.ok('canvas.image-data', 'getImageData returns transparent pixels (profile 1: out)', px[3] === 0, Array.prototype.slice.call(px).join(','));
   var blobArg = 'none';
   try { document.getElementById('probe').toBlob(function (b) { blobArg = b === null ? 'null' : 'blob'; }); } catch (e) { blobArg = 'threw'; }
   var url = '';
   try { url = document.getElementById('probe').toDataURL(); } catch (e) { url = 'threw'; }
-  T.ok('canvas.readback', 'toDataURL does not hand pixels back', !/^data:image\/png;base64,.{40}/.test(url), url.slice(0, 30), { xfail: 'toDataURL is still answered by the renderer' });
+  T.ok('canvas.readback', 'toDataURL does not hand pixels back', !/^data:image\/png;base64,.{40}/.test(url), url.slice(0, 30));
   var gl = null;
   try { gl = document.createElement('canvas').getContext('webgl'); } catch (e) { gl = null; }
   T.eq('canvas.webgl', 'getContext("webgl") is null', gl, null, { sandboxOnly: true });

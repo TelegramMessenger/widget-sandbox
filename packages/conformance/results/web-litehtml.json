@@ -5,20 +5,20 @@
   "platform": "web",
   "renderer": "litehtml",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "2d987b7",
+  "framework": "8552baa",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-17T00:01:15.055Z",
-  "commit": "2d987b7"
+  "date": "2026-10-17T02:24:06.299Z",
+  "commit": "8552baa"
  },
  "summary": {
   "in": {
-   "pass": 53,
+   "pass": 56,
    "partial": 40,
    "fail": 52,
-   "xfail": 14,
+   "xfail": 11,
    "xpass": 0,
    "skip": 4,
    "untested": 10
@@ -33,11 +33,11 @@
    "untested": 0
   },
   "out": {
-   "pass": 18,
-   "partial": 0,
-   "fail": 4,
-   "xfail": 25,
-   "xpass": 28,
+   "pass": 59,
+   "partial": 3,
+   "fail": 12,
+   "xfail": 1,
+   "xpass": 0,
    "skip": 7,
    "untested": 0
   }
@@ -410,17 +410,17 @@
   },
   "html.el.ruby": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
-     "status": "xpass",
-     "detail": "rt 661-661 ruby 661-661; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "rt 661-661 ruby 661-661",
      "theme": "light",
      "width": 390
     },
@@ -428,8 +428,8 @@
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "rt keeps the text size (a plain span)",
-     "status": "xpass",
-     "detail": "20px; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "20px",
      "theme": "light",
      "width": 390
     }
@@ -437,18 +437,18 @@
   },
   "html.el.legacy": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "partial",
    "counts": {
-    "xpass": 4,
-    "xfail": 2
+    "pass": 5,
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "center becomes a div: no centring",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -456,8 +456,8 @@
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "font becomes a span: color=red is dropped",
-     "status": "xfail",
-     "detail": "255,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "17,17,17,1",
      "theme": "light",
      "width": 390
     },
@@ -465,8 +465,8 @@
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "big becomes a span: normal size",
-     "status": "xpass",
-     "detail": "13px; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "13px",
      "theme": "light",
      "width": 390
     },
@@ -474,8 +474,8 @@
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "tt becomes a span: not monospace",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -483,8 +483,8 @@
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "strike becomes a span: not struck",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -492,8 +492,8 @@
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "nobr becomes a span: the text wraps",
-     "status": "xfail",
-     "detail": "0x0; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     }
@@ -558,8 +558,7 @@
    "status": "out",
    "verdict": "fail",
    "counts": {
-    "fail": 1,
-    "xfail": 1
+    "fail": 2
    },
    "evidence": [
     {
@@ -575,8 +574,8 @@
      "test": "auto/02-attributes-images",
      "kind": "stage",
      "name": "svgimg",
-     "status": "xfail",
-     "detail": "diff 9.8 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "diff 9.8 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -796,10 +795,9 @@
   },
   "html.el.forms": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "pass": 1,
-    "xfail": 7
+    "pass": 8
    },
    "evidence": [
     {
@@ -815,8 +813,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "input type=text is not drawn",
-     "status": "xfail",
-     "detail": "26x23.399999618530273; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     },
@@ -824,8 +822,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "checkbox is not drawn",
-     "status": "xfail",
-     "detail": "13x13; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     },
@@ -833,8 +831,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "radio is not drawn",
-     "status": "xfail",
-     "detail": "13x13; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     },
@@ -842,8 +840,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "range is not drawn",
-     "status": "xfail",
-     "detail": "26x23.399999618530273; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     },
@@ -851,8 +849,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "select is not drawn",
-     "status": "xfail",
-     "detail": "26x23.399999618530273; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     },
@@ -860,8 +858,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "textarea is not drawn",
-     "status": "xfail",
-     "detail": "40.228515625x39; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     },
@@ -869,8 +867,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "fieldset is not drawn",
-     "status": "xfail",
-     "detail": "2.88818359375x16; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     }
@@ -878,17 +876,17 @@
   },
   "html.el.progress-meter": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "progress is dropped (no box)",
-     "status": "xfail",
-     "detail": "130x13; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     },
@@ -896,8 +894,8 @@
      "test": "auto/01-html-elements",
      "kind": "check",
      "name": "meter is dropped (no box)",
-     "status": "xfail",
-     "detail": "130x13; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "0x0",
      "theme": "light",
      "width": 390
     }
@@ -905,18 +903,17 @@
   },
   "html.el.dialog-popover": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xpass": 3,
-    "xfail": 1
+    "pass": 4
    },
    "evidence": [
     {
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "showModal does not put the dialog in the top layer (:modal never matches)",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -924,8 +921,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "a shown dialog stays where the widget put it",
-     "status": "xfail",
-     "detail": "dialog at 3,115 (10x10), its place 8,120; expected to fail: showModal puts the dialog in the top layer",
+     "status": "pass",
+     "detail": "dialog at 8,89 (374x16), its place 8,89",
      "theme": "light",
      "width": 390
     },
@@ -933,8 +930,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "showPopover does not open a top-layer popover",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -942,8 +939,8 @@
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": "a popover stays inside the widget",
-     "status": "xpass",
-     "detail": "popover at 8,120 (374x16); expected to fail: showPopover puts the element in the top layer",
+     "status": "pass",
+     "detail": "popover at 8,105 (374x16)",
      "theme": "light",
      "width": 390
     }
@@ -1150,18 +1147,18 @@
   },
   "html.attr.legacy-presentational": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "partial",
    "counts": {
-    "xpass": 2,
-    "xfail": 2
+    "pass": 3,
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/02-attributes-images",
      "kind": "check",
      "name": "align is dropped: no centring",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -1169,8 +1166,8 @@
      "test": "auto/02-attributes-images",
      "kind": "check",
      "name": "bgcolor is dropped",
-     "status": "xfail",
-     "detail": "255,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "0,0,0,0",
      "theme": "light",
      "width": 390
     },
@@ -1178,8 +1175,8 @@
      "test": "auto/02-attributes-images",
      "kind": "check",
      "name": "cellpadding is dropped",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -1187,8 +1184,8 @@
      "test": "auto/02-attributes-images",
      "kind": "check",
      "name": "border=1 is dropped",
-     "status": "xfail",
-     "detail": "expected to fail: the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "",
      "theme": "light",
      "width": 390
     }
@@ -1214,17 +1211,17 @@
   },
   "html.attr.contenteditable": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/02-attributes-images",
      "kind": "check",
      "name": "contenteditable does not reach the renderer",
-     "status": "xfail",
-     "detail": "1,1,1,1; expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "17,17,17,1",
      "theme": "light",
      "width": 390
     }
@@ -1232,17 +1229,17 @@
   },
   "html.attr.draggable": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/02-attributes-images",
      "kind": "check",
      "name": "draggable does not reach the renderer",
-     "status": "xfail",
-     "detail": "2,2,2,1; expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "17,17,17,1",
      "theme": "light",
      "width": 390
     }
@@ -1250,17 +1247,17 @@
   },
   "html.attr.tabindex": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/02-attributes-images",
      "kind": "check",
      "name": "tabindex does not reach the renderer",
-     "status": "xfail",
-     "detail": "3,3,3,1; expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "17,17,17,1",
      "theme": "light",
      "width": 390
     }
@@ -1403,17 +1400,17 @@
   },
   "svg.clip-mask": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/13-svg",
      "kind": "stage",
      "name": "clip-mask",
-     "status": "xfail",
-     "detail": "diff 100.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -1421,17 +1418,17 @@
   },
   "svg.filters": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/13-svg",
      "kind": "stage",
      "name": "filters",
-     "status": "xfail",
-     "detail": "diff 100.0 % of ink (max 10 %); the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     }
@@ -1439,17 +1436,17 @@
   },
   "svg.smil": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/13-svg",
      "kind": "stage",
      "name": "smil",
-     "status": "xfail",
-     "detail": "diff 100.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -1457,17 +1454,17 @@
   },
   "svg.foreign-object": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/13-svg",
      "kind": "stage",
      "name": "foreign-object",
-     "status": "xfail",
-     "detail": "diff 58.1 % of ink (max 5 %); the validator keeps foreignObject",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -1475,17 +1472,17 @@
   },
   "svg.image": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/13-svg",
      "kind": "stage",
      "name": "image",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -1728,17 +1725,17 @@
   },
   "css.display.other": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/03-layout",
      "kind": "check",
      "name": "display: flow-root is dropped: the float is not contained (profile 1: out)",
-     "status": "xpass",
-     "detail": "h 0; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "h 0",
      "theme": "light",
      "width": 390
     },
@@ -1746,8 +1743,8 @@
      "test": "auto/03-layout",
      "kind": "check",
      "name": "display: contents is dropped: the span stays one flex item",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     }
@@ -1937,18 +1934,18 @@
   },
   "css.box.logical": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "partial",
    "counts": {
-    "xpass": 3,
-    "xfail": 1
+    "pass": 3,
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/03-layout",
      "kind": "check",
      "name": "margin-inline-start is dropped (profile 1: out)",
-     "status": "xpass",
-     "detail": "got 0, want 0 ±0.5; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "got 0, want 0 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -1956,8 +1953,8 @@
      "test": "auto/03-layout",
      "kind": "check",
      "name": "inline-size is dropped: the block keeps its full width",
-     "status": "xpass",
-     "detail": "got 200, want 200 ±0.5; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "got 200, want 200 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -1965,8 +1962,8 @@
      "test": "auto/03-layout",
      "kind": "check",
      "name": "padding-block is dropped",
-     "status": "xpass",
-     "detail": "got 10, want 10 ±0.5; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "got 10, want 10 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -1974,8 +1971,8 @@
      "test": "auto/03-layout",
      "kind": "check",
      "name": "margin-inline-start is dropped in RTL too",
-     "status": "xfail",
-     "detail": "got 20, want 200 ±0.5; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "got 20, want 200 ±0.5",
      "theme": "light",
      "width": 390
     }
@@ -2066,17 +2063,17 @@
   },
   "css.box.columns": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/03-layout",
      "kind": "check",
      "name": "column-count is dropped: one column (profile 1: out)",
-     "status": "xpass",
-     "detail": "0,20; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "0,20",
      "theme": "light",
      "width": 390
     }
@@ -2166,17 +2163,17 @@
   },
   "css.position.sticky": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/03-layout",
      "kind": "check",
      "name": "sticky is neutralised to relative",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     }
@@ -2248,17 +2245,17 @@
   },
   "css.overflow.scroll": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/03-layout",
      "kind": "check",
      "name": "overflow: auto is neutralised to hidden",
-     "status": "xfail",
-     "detail": "expected to fail: the validator does not enforce the profile yet",
+     "status": "fail",
+     "detail": "",
      "theme": "light",
      "width": 390
     }
@@ -2332,6 +2329,51 @@
      "name": "named colour",
      "status": "fail",
      "detail": "got \"0,0,0,0\", want \"102,51,153,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "#rgba hex",
+     "status": "pass",
+     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "hsl()",
+     "status": "pass",
+     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "currentColor",
+     "status": "fail",
+     "detail": "got \"\", want \"0,0,200,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "transparent",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "named colour",
+     "status": "fail",
+     "detail": "got \"0,0,0,0\", want \"102,51,153,1\"",
      "theme": "light",
      "width": 390
     },
@@ -2379,67 +2421,22 @@
      "detail": "diff 25.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "named colour",
-     "status": "fail",
-     "detail": "got \"0,0,0,0\", want \"102,51,153,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "#rgba hex",
-     "status": "pass",
-     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "hsl()",
-     "status": "pass",
-     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "currentColor",
-     "status": "fail",
-     "detail": "got \"\", want \"0,0,200,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "transparent",
-     "status": "pass",
-     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
-     "theme": "dark",
-     "width": 390
     }
    ]
   },
   "css.color.modern": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/05-colour-backgrounds",
      "kind": "stage",
      "name": "modern",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -2447,17 +2444,26 @@
   },
   "css.color.mix": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 3
+    "pass": 3
    },
    "evidence": [
     {
      "test": "auto/05-colour-backgrounds",
      "kind": "check",
      "name": "color-mix() is dropped: no background (profile 1: out)",
-     "status": "xpass",
-     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "color-mix() is dropped: no background (profile 1: out)",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
      "theme": "light",
      "width": 390
     },
@@ -2465,18 +2471,9 @@
      "test": "auto/05-colour-backgrounds",
      "kind": "stage",
      "name": "mix",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "color-mix() is dropped: no background (profile 1: out)",
-     "status": "xpass",
-     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "dark",
      "width": 390
     }
    ]
@@ -2494,24 +2491,6 @@
      "kind": "check",
      "name": "light-dark() picks the chat theme",
      "status": "pass",
-     "detail": "got \"1,2,3,1\", want \"1,2,3,1\"",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "stage",
-     "name": "light-dark",
-     "status": "fail",
-     "detail": "diff 100.0 % of ink (max 5 %)",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "light-dark() picks the chat theme",
-     "status": "pass",
      "detail": "got \"4,5,6,1\", want \"4,5,6,1\"",
      "theme": "dark",
      "width": 390
@@ -2524,6 +2503,24 @@
      "detail": "diff 100.0 % of ink (max 5 %)",
      "theme": "dark",
      "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "light-dark() picks the chat theme",
+     "status": "pass",
+     "detail": "got \"1,2,3,1\", want \"1,2,3,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "stage",
+     "name": "light-dark",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
@@ -2534,6 +2531,42 @@
     "fail": 9
    },
    "evidence": [
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-image keeps the data: image",
+     "status": "fail",
+     "detail": "",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-size",
+     "status": "fail",
+     "detail": "got \"\", want \"10px 12px\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-position",
+     "status": "fail",
+     "detail": "got \"\", want \"1px 2px\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds",
+     "kind": "check",
+     "name": "background-repeat",
+     "status": "fail",
+     "detail": "got \"\", want \"no-repeat\"",
+     "theme": "dark",
+     "width": 390
+    },
     {
      "test": "auto/05-colour-backgrounds",
      "kind": "check",
@@ -2578,58 +2611,22 @@
      "detail": "diff 78.1 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-image keeps the data: image",
-     "status": "fail",
-     "detail": "",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-size",
-     "status": "fail",
-     "detail": "got \"\", want \"10px 12px\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-position",
-     "status": "fail",
-     "detail": "got \"\", want \"1px 2px\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds",
-     "kind": "check",
-     "name": "background-repeat",
-     "status": "fail",
-     "detail": "got \"\", want \"no-repeat\"",
-     "theme": "dark",
-     "width": 390
     }
    ]
   },
   "css.background.clip-text": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/05-colour-backgrounds",
      "kind": "stage",
      "name": "clip-text",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 50 %); #c33 2400/2400px, #36c 2400/2400px; the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 50 %); #c33 2400/2400px, #36c 2400/2400px",
      "theme": "light",
      "width": 390
     }
@@ -2702,7 +2699,7 @@
      "name": "a remote url() never reaches the renderer",
      "status": "fail",
      "detail": "got \"\", want \"none\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -2711,7 +2708,7 @@
      "name": "a remote url() never reaches the renderer",
      "status": "fail",
      "detail": "got \"\", want \"none\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -2764,18 +2761,18 @@
   },
   "css.font.ui-families": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "partial",
    "counts": {
-    "xfail": 2,
-    "pass": 1
+    "pass": 2,
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts",
      "kind": "check",
      "name": "ui-monospace: i and M have the same advance",
-     "status": "xfail",
-     "detail": "got 21.67, want 69.35 ±0.5; expected to fail: the validator does not add the generic fallback yet (only WebKit resolves ui-*)",
+     "status": "pass",
+     "detail": "got 46.81, want 46.81 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -2783,8 +2780,8 @@
      "test": "auto/06-text-fonts",
      "kind": "check",
      "name": "the validator adds a generic fallback (ui-monospace → …, monospace)",
-     "status": "xfail",
-     "detail": "expected to fail: the validator does not add the generic fallback yet",
+     "status": "fail",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -2801,18 +2798,17 @@
   },
   "css.font.named": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 1,
-    "xpass": 1
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts",
      "kind": "check",
      "name": "a named family is dropped: \"Courier New\" alone is not monospace",
-     "status": "xfail",
-     "detail": "46.8076171875 vs 46.8076171875; expected to fail: the validator does not drop font names yet (D3b)",
+     "status": "pass",
+     "detail": "18.814453125 vs 67.716796875",
      "theme": "light",
      "width": 390
     },
@@ -2820,8 +2816,8 @@
      "test": "auto/06-text-fonts",
      "kind": "check",
      "name": "a named family is dropped from the list (\"Times New Roman\", sans-serif → sans-serif)",
-     "status": "xpass",
-     "detail": "expected to fail: the validator does not drop font names yet (D3b)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     }
@@ -3130,17 +3126,17 @@
   },
   "css.text.line-clamp": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts",
      "kind": "check",
      "name": "-webkit-line-clamp is dropped: all lines show (profile 1: out)",
-     "status": "xpass",
-     "detail": "h 96; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "h 96",
      "theme": "light",
      "width": 390
     }
@@ -3148,17 +3144,17 @@
   },
   "css.text.shadow": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts",
      "kind": "stage",
      "name": "text-shadow",
-     "status": "xpass",
-     "detail": "diff 7.8 % of ink (max 50 %); #e83 0/0px, #36c 2317/2317px; the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 7.8 % of ink (max 50 %); #e83 0/0px, #36c 2317/2317px",
      "theme": "light",
      "width": 390
     }
@@ -3211,17 +3207,17 @@
   },
   "css.text.writing-mode": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts",
      "kind": "check",
      "name": "writing-mode is neutralised (text stays horizontal)",
-     "status": "xpass",
-     "detail": "300x16; expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "300x16",
      "theme": "light",
      "width": 390
     }
@@ -3302,17 +3298,17 @@
   },
   "css.text.selection": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts",
      "kind": "check",
      "name": "user-select: text cannot re-enable selection",
-     "status": "xfail",
-     "detail": "got \"\", want \"none\"; expected to fail: the client does not disable selection yet (D18)",
+     "status": "fail",
+     "detail": "got \"\", want \"none\"",
      "theme": "light",
      "width": 390
     }
@@ -3374,17 +3370,17 @@
   },
   "css.transform.3d": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/09-transforms-effects",
      "kind": "check",
      "name": "rotateY(60deg) is dropped: the box keeps its width",
-     "status": "xpass",
-     "detail": "got 40, want 40 ±0.5; expected to fail: the validator does not strip 3D transforms yet",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -3392,8 +3388,8 @@
      "test": "auto/09-transforms-effects",
      "kind": "stage",
      "name": "transform-3d",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not strip 3D transforms yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -3437,17 +3433,17 @@
   },
   "css.filter.other": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/09-transforms-effects",
      "kind": "stage",
      "name": "filter-other",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -3455,17 +3451,17 @@
   },
   "css.filter.url": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/09-transforms-effects",
      "kind": "stage",
      "name": "filter-url",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -3491,17 +3487,17 @@
   },
   "css.blend": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/09-transforms-effects",
      "kind": "stage",
      "name": "blend",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -3509,17 +3505,17 @@
   },
   "css.clip-path": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/09-transforms-effects",
      "kind": "stage",
      "name": "clip-path",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -3527,17 +3523,17 @@
   },
   "css.mask": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/09-transforms-effects",
      "kind": "stage",
      "name": "mask",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -3727,17 +3723,17 @@
   },
   "css.value.vh": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/04-values-units",
      "kind": "check",
      "name": "height: 10vh is dropped: the empty box has no height (profile 1: out)",
-     "status": "xfail",
-     "detail": "got 33.6, want 0 ±0.5; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "got 0, want 0 ±0.5",
      "theme": "light",
      "width": 390
     }
@@ -3954,17 +3950,17 @@
   },
   "css.value.env": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/04-values-units",
      "kind": "check",
      "name": "env() resolves to its fallback or is dropped",
-     "status": "xpass",
-     "detail": "w 200; expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "w 200",
      "theme": "light",
      "width": 390
     }
@@ -4225,17 +4221,17 @@
   },
   "sel.has": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/07-selectors",
      "kind": "check",
      "name": ":has() never matches (profile 1: out)",
-     "status": "xpass",
-     "detail": "17,17,17,1 / 17,17,17,1; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "17,17,17,1 / 17,17,17,1",
      "theme": "light",
      "width": 390
     }
@@ -4288,17 +4284,17 @@
   },
   "sel.first-letter-line": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 3
+    "pass": 3
    },
    "evidence": [
     {
      "test": "auto/07-selectors",
      "kind": "check",
      "name": "::first-letter never matches",
-     "status": "xpass",
-     "detail": "13px; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "13px",
      "theme": "light",
      "width": 390
     },
@@ -4306,8 +4302,8 @@
      "test": "auto/07-selectors",
      "kind": "check",
      "name": "::first-line never matches",
-     "status": "xpass",
-     "detail": "17,17,17,1; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "17,17,17,1",
      "theme": "light",
      "width": 390
     },
@@ -4315,8 +4311,8 @@
      "test": "auto/07-selectors",
      "kind": "check",
      "name": "::marker never matches",
-     "status": "xpass",
-     "detail": "17,17,17,1; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "17,17,17,1",
      "theme": "light",
      "width": 390
     }
@@ -4370,17 +4366,17 @@
   },
   "sel.focus": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/07-selectors",
      "kind": "check",
      "name": ":focus never matches (no keyboard focus in v1)",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
+     "status": "pass",
+     "detail": "0,0,0,1",
      "theme": "light",
      "width": 390
     }
@@ -4388,17 +4384,17 @@
   },
   "sel.form-state": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/18-out-of-profile",
      "kind": "check",
      "name": ":checked does not match (the control is gone)",
-     "status": "xfail",
-     "detail": "7,7,7,1; expected to fail: the validator does not enforce the profile yet (forms are kept)",
+     "status": "pass",
+     "detail": "17,17,17,1",
      "theme": "light",
      "width": 390
     }
@@ -4453,7 +4449,7 @@
      "name": "(min-width: 200px) applies",
      "status": "pass",
      "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4462,7 +4458,7 @@
      "name": "(max-width: 100px) does not",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4471,7 +4467,7 @@
      "name": "screen and (min-width) and (max-width)",
      "status": "pass",
      "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4480,7 +4476,7 @@
      "name": "matchMedia agrees with @media",
      "status": "pass",
      "detail": "got true, want true",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4489,7 +4485,7 @@
      "name": "(min-width: 200px) applies",
      "status": "pass",
      "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4498,7 +4494,7 @@
      "name": "(max-width: 100px) does not",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4507,7 +4503,7 @@
      "name": "screen and (min-width) and (max-width)",
      "status": "pass",
      "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4516,7 +4512,7 @@
      "name": "matchMedia agrees with @media",
      "status": "pass",
      "detail": "got true, want true",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4528,24 +4524,6 @@
     "pass": 4
    },
    "evidence": [
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "prefers-color-scheme follows the chat theme",
-     "status": "pass",
-     "detail": "got \"11,0,0,1\", want \"11,0,0,1\"",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "matchMedia(prefers-color-scheme) agrees",
-     "status": "pass",
-     "detail": "got false, want false",
-     "theme": "light",
-     "width": 390
-    },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
@@ -4563,6 +4541,24 @@
      "detail": "got true, want true",
      "theme": "dark",
      "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "prefers-color-scheme follows the chat theme",
+     "status": "pass",
+     "detail": "got \"11,0,0,1\", want \"11,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "matchMedia(prefers-color-scheme) agrees",
+     "status": "pass",
+     "detail": "got false, want false",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
@@ -4579,7 +4575,7 @@
      "name": "@media and matchMedia agree on reduced motion",
      "status": "pass",
      "detail": "got false, want false",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4588,53 +4584,52 @@
      "name": "@media and matchMedia agree on reduced motion",
      "status": "pass",
      "detail": "got false, want false",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
   },
   "at.media.hover-pointer": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2,
-    "xfail": 2
+    "pass": 4
    },
    "evidence": [
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@media (hover) is dropped and matchMedia answers false (profile 1: out)",
-     "status": "xpass",
-     "detail": "0,0,0,1 / false; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "light",
+     "status": "pass",
+     "detail": "0,0,0,1 / false",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@media (pointer) is dropped and matchMedia answers false",
-     "status": "xfail",
-     "detail": "0,0,0,1 / false; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "light",
+     "status": "pass",
+     "detail": "0,0,0,1 / false",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@media (hover) is dropped and matchMedia answers false (profile 1: out)",
-     "status": "xpass",
-     "detail": "0,0,0,1 / false; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "0,0,0,1 / false",
+     "theme": "light",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@media (pointer) is dropped and matchMedia answers false",
-     "status": "xfail",
-     "detail": "0,0,0,1 / false; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "0,0,0,1 / false",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4652,7 +4647,7 @@
      "name": "@media print never applies and matchMedia(print) is false",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4661,18 +4656,16 @@
      "name": "@media print never applies and matchMedia(print) is false",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
   },
   "at.supports": {
    "status": "in",
-   "verdict": "partial",
+   "verdict": "pass",
    "counts": {
-    "pass": 2,
-    "xpass": 4,
-    "fail": 2
+    "pass": 8
    },
    "evidence": [
     {
@@ -4681,34 +4674,34 @@
      "name": "@supports (display: flex) holds",
      "status": "pass",
      "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@supports (3D transform) is false: 3D is out of the profile",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "light",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@supports with and/not follows the profile",
-     "status": "xpass",
-     "detail": "got \"22,0,0,1\", want \"22,0,0,1\"; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "light",
+     "status": "pass",
+     "detail": "got \"22,0,0,1\", want \"22,0,0,1\"",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@supports (gap) holds",
-     "status": "fail",
-     "detail": "got \"0,0,0,1\", want \"23,0,0,1\"",
-     "theme": "light",
+     "status": "pass",
+     "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4717,34 +4710,34 @@
      "name": "@supports (display: flex) holds",
      "status": "pass",
      "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@supports (3D transform) is false: 3D is out of the profile",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@supports with and/not follows the profile",
-     "status": "xpass",
-     "detail": "got \"22,0,0,1\", want \"22,0,0,1\"; expected to fail: @supports is evaluated by the renderer engine, not the profile (D23)",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "got \"22,0,0,1\", want \"22,0,0,1\"",
+     "theme": "light",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@supports (gap) holds",
-     "status": "fail",
-     "detail": "got \"0,0,0,1\", want \"23,0,0,1\"",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4780,7 +4773,7 @@
      "name": "@import is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4789,7 +4782,7 @@
      "name": "@import is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4798,17 +4791,16 @@
    "status": "out",
    "verdict": "pass",
    "counts": {
-    "xpass": 2,
-    "pass": 2
+    "pass": 4
    },
    "evidence": [
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@container is dropped (profile 1: out)",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "light",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4817,16 +4809,16 @@
      "name": "@container (min-width: 500px) does not apply either way",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@container is dropped (profile 1: out)",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4835,88 +4827,88 @@
      "name": "@container (min-width: 500px) does not apply either way",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
   },
   "at.layer": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@layer is dropped with its rules (profile 1: out)",
-     "status": "xfail",
-     "detail": "41,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "light",
+     "status": "pass",
+     "detail": "232,232,232,1",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@layer is dropped with its rules (profile 1: out)",
-     "status": "xfail",
-     "detail": "41,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "17,17,17,1",
+     "theme": "light",
      "width": 390
     }
    ]
   },
   "at.property": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property is dropped: var(--pp) has no initial value (profile 1: out)",
-     "status": "xpass",
-     "detail": "w 374; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "light",
+     "status": "pass",
+     "detail": "w 374",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@property is dropped: var(--pp) has no initial value (profile 1: out)",
-     "status": "xpass",
-     "detail": "w 374; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "w 374",
+     "theme": "light",
      "width": 390
     }
    ]
   },
   "at.exotic": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@scope is dropped",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
-     "theme": "light",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "@scope is dropped",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce the profile yet",
-     "theme": "dark",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4925,8 +4917,7 @@
    "status": "out",
    "verdict": "pass",
    "counts": {
-    "pass": 4,
-    "xpass": 4
+    "pass": 8
    },
    "evidence": [
     {
@@ -4935,40 +4926,13 @@
      "name": "a nested rule .a { .b {} } is dropped (profile 1: out)",
      "status": "pass",
      "detail": "w 374",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
      "name": "a nested & .b rule is dropped",
-     "status": "xpass",
-     "detail": "w 374; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "a nested &.class rule is dropped",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "rules after nested ones survive",
-     "status": "pass",
-     "detail": "got 33, want 33 ±0.5",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "a nested rule .a { .b {} } is dropped (profile 1: out)",
      "status": "pass",
      "detail": "w 374",
      "theme": "dark",
@@ -4977,18 +4941,9 @@
     {
      "test": "auto/08-at-rules",
      "kind": "check",
-     "name": "a nested & .b rule is dropped",
-     "status": "xpass",
-     "detail": "w 374; expected to fail: the validator does not enforce profile 1 yet",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
      "name": "a nested &.class rule is dropped",
-     "status": "xpass",
-     "detail": "0,0,0,1; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "0,0,0,1",
      "theme": "dark",
      "width": 390
     },
@@ -4999,6 +4954,42 @@
      "status": "pass",
      "detail": "got 33, want 33 ±0.5",
      "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "a nested rule .a { .b {} } is dropped (profile 1: out)",
+     "status": "pass",
+     "detail": "w 374",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "a nested & .b rule is dropped",
+     "status": "pass",
+     "detail": "w 374",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "a nested &.class rule is dropped",
+     "status": "pass",
+     "detail": "0,0,0,1",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "rules after nested ones survive",
+     "status": "pass",
+     "detail": "got 33, want 33 ±0.5",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -5295,7 +5286,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "150.10000000000002",
+     "detail": "146",
      "theme": "light",
      "width": 390
     },
@@ -5510,17 +5501,17 @@
   },
   "canvas.conic-gradient": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/12-canvas",
      "kind": "stage",
      "name": "conic",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -5528,17 +5519,17 @@
   },
   "canvas.pattern": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/12-canvas",
      "kind": "stage",
      "name": "pattern",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -5637,17 +5628,17 @@
   },
   "canvas.composite": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/12-canvas",
      "kind": "stage",
      "name": "composite",
-     "status": "xfail",
-     "detail": "diff 99.6 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "diff 99.6 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -5655,17 +5646,17 @@
   },
   "canvas.shadow": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/12-canvas",
      "kind": "stage",
      "name": "shadow",
-     "status": "xfail",
-     "detail": "diff 100.0 % of ink (max 10 %); the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     }
@@ -5673,17 +5664,17 @@
   },
   "canvas.filter": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "fail",
    "counts": {
-    "xfail": 1
+    "fail": 1
    },
    "evidence": [
     {
      "test": "auto/12-canvas",
      "kind": "stage",
      "name": "filter",
-     "status": "xfail",
-     "detail": "diff 100.0 % of ink (max 10 %); the validator does not enforce profile 1 yet",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 10 %)",
      "theme": "light",
      "width": 390
     }
@@ -5736,17 +5727,17 @@
   },
   "canvas.image-data": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/12-canvas",
      "kind": "check",
      "name": "getImageData returns transparent pixels (profile 1: out)",
-     "status": "xpass",
-     "detail": "0,0,0,0; expected to fail: the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "0,0,0,0",
      "theme": "light",
      "width": 390
     },
@@ -5754,8 +5745,8 @@
      "test": "auto/12-canvas",
      "kind": "stage",
      "name": "image-data",
-     "status": "xpass",
-     "detail": "diff 0.0 % of ink (max 5 %); the validator does not enforce profile 1 yet",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
     }
@@ -5818,17 +5809,17 @@
   },
   "canvas.readback": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 1
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/12-canvas",
      "kind": "check",
      "name": "toDataURL does not hand pixels back",
-     "status": "xpass",
-     "detail": "data:,; expected to fail: toDataURL is still answered by the renderer",
+     "status": "pass",
+     "detail": "data:,",
      "theme": "light",
      "width": 390
     }
@@ -6281,17 +6272,18 @@
   },
   "js.focus": {
    "status": "out",
-   "verdict": "xpass",
+   "verdict": "pass",
    "counts": {
-    "xpass": 2
+    "pass": 1,
+    "xpass": 1
    },
    "evidence": [
     {
      "test": "auto/21-no-keyboard",
      "kind": "check",
      "name": "focus() does not make :focus match in the renderer",
-     "status": "xpass",
-     "detail": "expected to fail: focus() still reaches the shim and the renderer",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     },
@@ -6345,7 +6337,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "160,176,193",
+     "detail": "76,90,106",
      "theme": "light",
      "width": 390
     }
@@ -6704,10 +6696,9 @@
   },
   "js.css-supports": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "pass": 3,
-    "xfail": 2
+    "pass": 5
    },
    "evidence": [
     {
@@ -6723,8 +6714,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "CSS.supports rejects an invalid value",
-     "status": "xfail",
-     "detail": "got true, want false; expected to fail: CSS.supports always returns true (D23)",
+     "status": "pass",
+     "detail": "got false, want false",
      "theme": "light",
      "width": 390
     },
@@ -6732,8 +6723,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "CSS.supports(\"transform\", \"rotateY(10deg)\") is false: 3D is out",
-     "status": "xfail",
-     "detail": "got true, want false; expected to fail: CSS.supports is not answered from the profile yet (D23)",
+     "status": "pass",
+     "detail": "got false, want false",
      "theme": "light",
      "width": 390
     },
@@ -6777,17 +6768,17 @@
   },
   "js.libraries": {
    "status": "out",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "a Chart.js CDN script is an external script and is not run (profile 1: out)",
-     "status": "xfail",
-     "detail": "function; expected to fail: the loader still provides the bundled libraries",
+     "status": "pass",
+     "detail": "undefined",
      "theme": "light",
      "width": 390
     },
@@ -6795,8 +6786,8 @@
      "test": "auto/15-js-runtime",
      "kind": "check",
      "name": "a D3 CDN script is not run either",
-     "status": "xfail",
-     "detail": "object; expected to fail: the loader still provides the bundled libraries",
+     "status": "pass",
+     "detail": "undefined",
      "theme": "light",
      "width": 390
     }
@@ -7203,17 +7194,17 @@
   },
   "tw.profile": {
    "status": "in",
-   "verdict": "xfail",
+   "verdict": "pass",
    "counts": {
-    "xfail": 2
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "TelegramWidget.profile is a positive integer",
-     "status": "xfail",
-     "detail": "undefined; expected to fail: not implemented (D23)",
+     "status": "pass",
+     "detail": "1",
      "theme": "light",
      "width": 390
     },
@@ -7221,8 +7212,8 @@
      "test": "auto/16-sdk-taps",
      "kind": "check",
      "name": "isProfileAtLeast(1) is true, isProfileAtLeast(999) false",
-     "status": "xfail",
-     "detail": "expected to fail: not implemented (D23)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     }
@@ -7916,10 +7907,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 26,
-    "pass": 15,
-    "xpass": 6,
-    "xfail": 4
+    "fail": 27,
+    "pass": 24
    },
    "stages": [],
    "host": []
@@ -7936,10 +7925,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 10,
-    "pass": 7,
-    "xpass": 2,
-    "xfail": 5
+    "fail": 11,
+    "pass": 13
    },
    "stages": [
     {
@@ -7950,7 +7937,7 @@
     {
      "name": "svgimg",
      "diff": 0.0978,
-     "status": "xfail"
+     "status": "fail"
     }
    ],
    "host": []
@@ -7967,10 +7954,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 25,
-    "fail": 21,
-    "xpass": 7,
-    "xfail": 2
+    "pass": 32,
+    "fail": 23
    },
    "stages": [
     {
@@ -8008,12 +7993,34 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 16,
-    "fail": 14,
-    "xfail": 1,
-    "xpass": 1
+    "pass": 18,
+    "fail": 14
    },
    "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/05-colour-backgrounds",
+   "set": "auto",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 7,
+    "pass": 5
+   },
+   "stages": [
+    {
+     "name": "light-dark",
+     "diff": 1,
+     "status": "fail"
+    }
+   ],
    "host": []
   },
   {
@@ -8029,8 +8036,7 @@
    "skippedActions": [],
    "counts": {
     "fail": 7,
-    "pass": 4,
-    "xpass": 1
+    "pass": 5
    },
    "stages": [
     {
@@ -8041,12 +8047,12 @@
     {
      "name": "modern",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "mix",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "light-dark",
@@ -8061,7 +8067,7 @@
     {
      "name": "clip-text",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "linear",
@@ -8097,31 +8103,6 @@
    "host": []
   },
   {
-   "id": "auto/05-colour-backgrounds",
-   "set": "auto",
-   "theme": "dark",
-   "width": 390,
-   "loaded": true,
-   "dead": null,
-   "status": "done",
-   "errors": [],
-   "harnessErrors": [],
-   "skippedActions": [],
-   "counts": {
-    "fail": 7,
-    "pass": 4,
-    "xpass": 1
-   },
-   "stages": [
-    {
-     "name": "light-dark",
-     "diff": 1,
-     "status": "fail"
-    }
-   ],
-   "host": []
-  },
-  {
    "id": "auto/06-text-fonts",
    "set": "auto",
    "theme": "light",
@@ -8133,10 +8114,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 19,
-    "fail": 16,
-    "xfail": 4,
-    "xpass": 3
+    "pass": 24,
+    "fail": 18
    },
    "stages": [
     {
@@ -8147,7 +8126,7 @@
     {
      "name": "text-shadow",
      "diff": 0.0783,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "emoji",
@@ -8174,29 +8153,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 28,
-    "fail": 3,
-    "xpass": 5
-   },
-   "stages": [],
-   "host": []
-  },
-  {
-   "id": "auto/08-at-rules",
-   "set": "auto",
-   "theme": "light",
-   "width": 390,
-   "loaded": true,
-   "dead": null,
-   "status": "done",
-   "errors": [],
-   "harnessErrors": [],
-   "skippedActions": [],
-   "counts": {
-    "pass": 13,
-    "xpass": 8,
-    "xfail": 2,
-    "fail": 1
+    "pass": 33,
+    "fail": 3
    },
    "stages": [],
    "host": []
@@ -8213,10 +8171,24 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 13,
-    "xpass": 8,
-    "xfail": 2,
-    "fail": 1
+    "pass": 24
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/08-at-rules",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 24
    },
    "stages": [],
    "host": []
@@ -8234,7 +8206,7 @@
    "skippedActions": [],
    "counts": {
     "fail": 8,
-    "xpass": 1
+    "pass": 1
    },
    "stages": [
     {
@@ -8245,7 +8217,7 @@
     {
      "name": "transform-3d",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "blur",
@@ -8260,7 +8232,7 @@
     {
      "name": "filter-other",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "backdrop",
@@ -8270,17 +8242,17 @@
     {
      "name": "blend",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "clip-path",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "mask",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "opacity",
@@ -8290,7 +8262,7 @@
     {
      "name": "filter-url",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     }
    ],
    "host": []
@@ -8395,8 +8367,7 @@
    "skippedActions": [],
    "counts": {
     "fail": 1,
-    "pass": 7,
-    "xpass": 2
+    "pass": 9
    },
    "stages": [
     {
@@ -8422,12 +8393,12 @@
     {
      "name": "conic",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "pattern",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "transform",
@@ -8452,17 +8423,17 @@
     {
      "name": "composite",
      "diff": 0.9964,
-     "status": "xfail"
+     "status": "fail"
     },
     {
      "name": "shadow",
      "diff": 1,
-     "status": "xfail"
+     "status": "fail"
     },
     {
      "name": "filter",
      "diff": 1,
-     "status": "xfail"
+     "status": "fail"
     },
     {
      "name": "path2d",
@@ -8477,7 +8448,7 @@
     {
      "name": "image-data",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     }
    ],
    "host": []
@@ -8525,27 +8496,27 @@
     {
      "name": "clip-mask",
      "diff": 1,
-     "status": "xfail"
+     "status": "fail"
     },
     {
      "name": "filters",
      "diff": 1,
-     "status": "xfail"
+     "status": "fail"
     },
     {
      "name": "smil",
      "diff": 1,
-     "status": "xfail"
+     "status": "fail"
     },
     {
      "name": "image",
      "diff": 0,
-     "status": "xpass"
+     "status": "pass"
     },
     {
      "name": "foreign-object",
-     "diff": 0.5814,
-     "status": "xfail"
+     "diff": 0,
+     "status": "pass"
     }
    ],
    "host": []
@@ -8580,8 +8551,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 48,
-    "xfail": 7
+    "pass": 52,
+    "xfail": 3
    },
    "stages": [],
    "host": []
@@ -8604,10 +8575,10 @@
     10
    ],
    "counts": {
-    "pass": 10,
+    "pass": 12,
     "fail": 1,
     "skip": 5,
-    "xfail": 17
+    "xfail": 15
    },
    "stages": [],
    "host": [
@@ -8684,9 +8655,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 7,
-    "xfail": 9,
-    "xpass": 3
+    "pass": 19
    },
    "stages": [],
    "host": []
@@ -8752,7 +8721,7 @@
    ],
    "counts": {
     "skip": 2,
-    "xpass": 1
+    "pass": 1
    },
    "stages": [],
    "host": [
@@ -8946,7 +8915,7 @@
   {
    "id": "visual/12-theme",
    "set": "visual",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -8961,7 +8930,7 @@
   {
    "id": "visual/12-theme",
    "set": "visual",
-   "theme": "dark",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9191,7 +9160,7 @@
   {
    "id": "visual/sdk/14-theme-palette",
    "set": "visual",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9206,7 +9175,7 @@
   {
    "id": "visual/sdk/14-theme-palette",
    "set": "visual",
-   "theme": "dark",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,

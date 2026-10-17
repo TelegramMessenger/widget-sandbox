@@ -150,7 +150,7 @@ c('url.remote', 'url() / image-set() with anything but a data: image or #fragmen
 // ───────────── CSS: text and fonts ─────────────
 c('font.generic', 'font-family with system generic families: system-ui, sans-serif, serif, monospace', 'in', 'D3b', 'kept', { match: { properties: ['font-family', 'font'], values: ['system-ui', 'sans-serif', 'serif', 'monospace'] } });
 c('font.ui-families', 'font-family: ui-sans-serif, ui-serif, ui-monospace, ui-rounded', 'candidate', 'proposed', 'kept', { match: { properties: ['font-family', 'font'], values: ['ui-sans-serif', 'ui-serif', 'ui-monospace', 'ui-rounded'] }, note: 'Generic per CSS Fonts 4, but only WebKit resolves them; Chromium falls back to the default face.' });
-c('font.named', 'font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …)', 'out', 'D3b', 'kept', { match: { properties: ['font-family', 'font'] }, neutralise: 'the validator drops non-generic names from the list; an empty list falls back to the default (system-ui)' });
+c('font.named', 'font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …)', 'out', 'D3b', 'kept', { match: { properties: ['font-family', 'font'] }, neutralise: 'the validator drops non-generic names from the list; -apple-system and BlinkMacSystemFont, the vendor names of the system UI font, become system-ui; an empty list falls back to the default (system-ui)' });
 c('font.face', '@font-face (web fonts)', 'out', 'D3b', 'stripped', { match: { atrules: ['font-face'] }, neutralise: 'the at-rule is dropped' });
 c('font.basic', 'font-size, font-weight (100–900, bold), font-style italic, line-height, font shorthand', 'in', 'D3a', 'kept', { match: { properties: ['font-size', 'font-weight', 'font-style', 'line-height', 'font'] } });
 c('font.variant-numeric', 'font-variant-numeric: tabular-nums (and font-feature-settings "tnum")', 'candidate', 'brief', 'kept', { match: { properties: ['font-variant-numeric', 'font-feature-settings'] } });
@@ -485,13 +485,13 @@ export const DECISIONS: Record<string, string> = {
   D5: 'strict policy everywhere; webAnimations and morphUpdates from the profile',
   D6: '3D (__tw3d) cut from the release',
   D8: 'SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage',
-  SDK: 'docs/sdk-v1.md, the SDK v1 contract with Artem\'s answers of 2026-10-17: haptics without a gesture (bucket 5, 10/s), any t.me path, URL ≤ 256, 16 handlers per event type, stop after 2 consecutive crashes, double tap and long press stay with the bubble',
+  SDK: 'SDK v1 (docs/sdk-v1.md), with Artem\'s answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble',
   D11: 'One widget model: classic DOM in the sandbox',
   D12a: 'Above the cap: hard clip, no fullscreen',
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',
   D17: 'State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory',
   D18: 'Text selection forbidden',
-  D20: '.tgw = gzip of HTML, 128 KB HTML limit on the server',
+  D20: 'Mini-widgets first (2026-10-17): gzipped HTML up to 4 KB inline in the message, 32 KB of HTML at most; .tgw documents deferred',
   D21: 'No accessibility in v1',
   D23: 'Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile',
   brief: 'Named as a candidate in the conformance brief (decided by measurement)',
