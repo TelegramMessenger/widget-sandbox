@@ -13,7 +13,7 @@ You need three things: the framework tag, your own host and renderer, and Node â
 | `auto/*.html` | The automatic set: 21 widgets that check themselves. Required. |
 | `visual/*.html` | The visual set: 13 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
-| `catalogue.json` | The profile features with their IDs and status (in / out), as `packages/core/profile.json` freezes them, plus the SDK v1 limits. `version` is the profile version. |
+| `catalogue.json` | The profile features with their IDs and status (in / out), as `packages/core/profile.json` freezes them, plus the SDK v1 limits, and what the framework does with each (`today`; legend in `catalogue.md`). `version` is the profile version. |
 | `refs/` | Reference PNGs of the stages (headless Chromium, DPR 2). |
 | `run.schema.json` | The run file your runner writes. |
 | `tools/report.mjs` | Turns run files into the report. |
