@@ -36,7 +36,7 @@ class WidgetHostTest {
             lateinit var host: WidgetHost
             val latestRef = java.util.concurrent.atomic.AtomicReference(WidgetDiagnostics())
             scenario.onActivity { activity ->
-                host = WidgetHost(activity, html, "light", 360.0)
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0)
                 host.onChange = { latestRef.set(it) }
                 activity.show(host.view)
             }
@@ -62,7 +62,7 @@ class WidgetHostTest {
                 lateinit var host: WidgetHost
                 val latestRef = java.util.concurrent.atomic.AtomicReference(WidgetDiagnostics())
                 scenario.onActivity { activity ->
-                    host = WidgetHost(activity, html, "light", 360.0)
+                    host = WidgetHost(activity, html, WidgetTheme(), 360.0)
                     host.onChange = { latestRef.set(it) }
                     activity.show(host.view)
                 }
@@ -86,7 +86,7 @@ class WidgetHostTest {
             lateinit var host: WidgetHost
             val latestRef = java.util.concurrent.atomic.AtomicReference(WidgetDiagnostics())
             scenario.onActivity { activity ->
-                host = WidgetHost(activity, html, "light", 360.0)
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0)
                 host.onChange = { latestRef.set(it) }
                 activity.show(host.view)
             }
@@ -121,7 +121,7 @@ class WidgetHostTest {
             lateinit var host: WidgetHost
             val latestRef = java.util.concurrent.atomic.AtomicReference(WidgetDiagnostics())
             scenario.onActivity { activity ->
-                host = WidgetHost(activity, "<p id=\"keep\">still here</p><script>for(;;){}</script>", "light", 360.0, WidgetHost.Options(cpuLimitMs = 300.0))
+                host = WidgetHost(activity, "<p id=\"keep\">still here</p><script>for(;;){}</script>", WidgetTheme(), 360.0, WidgetHost.Options(cpuLimitMs = 300.0))
                 host.onChange = { latestRef.set(it) }
                 activity.show(host.view)
             }
@@ -148,7 +148,7 @@ class WidgetHostTest {
             lateinit var host: WidgetHost
             val latestRef = java.util.concurrent.atomic.AtomicReference(WidgetDiagnostics())
             scenario.onActivity { activity ->
-                host = WidgetHost(activity, "<p>cpu</p><script>for(;;){}</script>", "light", 360.0, WidgetHost.Options(cpuLimitMs = 150.0))
+                host = WidgetHost(activity, "<p>cpu</p><script>for(;;){}</script>", WidgetTheme(), 360.0, WidgetHost.Options(cpuLimitMs = 150.0))
                 host.onChange = { latestRef.set(it) }
                 activity.show(host.view)
             }
@@ -159,7 +159,7 @@ class WidgetHostTest {
             latestRef.set(WidgetDiagnostics())
 
             scenario.onActivity { activity ->
-                host = WidgetHost(activity, "<p>mem</p><script>var a=[]; for(;;) a.push(new Array(100000).fill(1));</script>", "light", 360.0, WidgetHost.Options(memoryLimitBytes = 24L shl 20, cpuLimitMs = 10_000.0))
+                host = WidgetHost(activity, "<p>mem</p><script>var a=[]; for(;;) a.push(new Array(100000).fill(1));</script>", WidgetTheme(), 360.0, WidgetHost.Options(memoryLimitBytes = 24L shl 20, cpuLimitMs = 10_000.0))
                 host.onChange = { latestRef.set(it) }
                 activity.show(host.view)
             }
@@ -178,7 +178,7 @@ class WidgetHostTest {
                 lateinit var host: WidgetHost
                 val latestRef = java.util.concurrent.atomic.AtomicReference(WidgetDiagnostics())
                 scenario.onActivity { activity ->
-                    host = WidgetHost(activity, "<p id=\"p\">w$i</p><script>document.getElementById('p').textContent += ' ' + document.getElementById('p').getBoundingClientRect().width;</script>", if (i % 2 == 0) "light" else "dark", 360.0)
+                    host = WidgetHost(activity, "<p id=\"p\">w$i</p><script>document.getElementById('p').textContent += ' ' + document.getElementById('p').getBoundingClientRect().width;</script>", WidgetTheme(if (i % 2 == 0) "light" else "dark"), 360.0)
                     host.onChange = { latestRef.set(it) }
                     activity.show(host.view)
                 }
@@ -215,7 +215,7 @@ class WidgetHostTest {
             lateinit var host: WidgetHost
             val latestRef = AtomicReference(WidgetDiagnostics())
             scenario.onActivity { activity ->
-                host = WidgetHost(activity, html, "light", 360.0)
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0)
                 host.onChange = { latestRef.set(it) }
                 activity.show(host.view)
             }
@@ -223,9 +223,11 @@ class WidgetHostTest {
             while (System.nanoTime() < deadline && !latestRef.get().loaded) Thread.sleep(50)
             Thread.sleep(300)
             assertEquals("light|rgb(255, 255, 255)|rgb(0, 0, 0)", eval(host))
-            instrumentation.runOnMainSync { host.setTheme("dark") }
+            instrumentation.runOnMainSync { host.setTheme(WidgetTheme("dark")) }
             Thread.sleep(500)
             assertEquals("dark|rgb(0, 0, 0)|rgb(171, 205, 239)", eval(host))
+            // The pre-v1 string form still compiles and forwards to setTheme(WidgetTheme).
+            @Suppress("DEPRECATION")
             instrumentation.runOnMainSync { host.setTheme("light") }
             Thread.sleep(500)
             assertEquals("light|rgb(255, 255, 255)|rgb(0, 0, 0)", eval(host))

@@ -132,7 +132,7 @@ fun WidgetScreen(group: String, file: String) {
     // Restart = a new WidgetHost from the same HTML; the previous one is destroyed by the DisposableEffect.
     var generation by remember { mutableStateOf(0) }
     val html = remember(group, file) { Corpus.html(context, group, file) }
-    val model = remember(generation, renderer) { WidgetModel(context, html, if (dark) "dark" else "light", 360.0, renderer = renderer) }
+    val model = remember(generation, renderer) { WidgetModel(context, html, demoTheme(dark), 360.0, renderer = renderer) }
     DisposableEffect(model) { onDispose { model.destroy() } }
     // The reference page follows `prefers-color-scheme` of its WebView context, so a theme change reloads it.
     val reference = remember(generation, dark, showReference && referenceAllowed) {
@@ -150,7 +150,7 @@ fun WidgetScreen(group: String, file: String) {
                             Switch(checked = showReference, onCheckedChange = { showReference = it; prefs.edit().putBoolean("reference", it).apply() }, modifier = Modifier.padding(horizontal = 6.dp))
                         }
                         Text("Dark", fontSize = 13.sp)
-                        Switch(checked = dark, onCheckedChange = { dark = it; prefs.edit().putBoolean("dark", it).apply(); model.setTheme(if (it) "dark" else "light") }, modifier = Modifier.padding(start = 6.dp, end = 8.dp))
+                        Switch(checked = dark, onCheckedChange = { dark = it; prefs.edit().putBoolean("dark", it).apply(); model.setTheme(demoTheme(it)) }, modifier = Modifier.padding(start = 6.dp, end = 8.dp))
                     }
                 })
             },

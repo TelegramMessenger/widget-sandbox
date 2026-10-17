@@ -206,7 +206,7 @@ fun BenchScreen(renderer: String, count: Int, prewarm: Boolean, holdSeconds: Int
             val worstBefore = frames.worstNs
             frames.worstNs = 0
             val t0 = System.nanoTime()
-            val model = WidgetModel(context, Corpus.html(context, group, file), "light", 360.0, options, renderer = DemoRenderer.of(renderer) ?: DemoRenderer.WEBVIEW, rendererFactory = if (renderer == "none") NullRenderer.factory else null)
+            val model = WidgetModel(context, Corpus.html(context, group, file), demoTheme(false), 360.0, options, renderer = DemoRenderer.of(renderer) ?: DemoRenderer.WEBVIEW, rendererFactory = if (renderer == "none") NullRenderer.factory else null)
             val createMs = (System.nanoTime() - t0) / 1e6
             models.add(model)
             // Let the new bubble be composed and attached before waiting on it, then keep the list at the newest message.

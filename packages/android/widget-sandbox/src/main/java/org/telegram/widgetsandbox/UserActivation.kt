@@ -1,14 +1,13 @@
 package org.telegram.widgetsandbox
 
 /**
- * Privileged bridge calls (everything but `ready`) need a real user gesture:
- * the host numbers gestures from renderer events, the engine lets one call
- * through per gesture, made in that gesture's own event task on a visible
- * widget. Pure policy, shared by WidgetHost and SandboxEngine (the Swift and
- * C++ copies: WidgetHost.gesture(for:) / SandboxEngine.activationEvent).
+ * Privileged bridge calls (the link calls, [SdkPolicy.PRIVILEGED_METHODS]) need
+ * a real user gesture: the host numbers gestures from renderer events, the
+ * engine lets one call through per gesture, made in that gesture's own event
+ * task on a visible widget. Pure policy, shared by WidgetHost and SandboxEngine
+ * (the Swift and C++ copies: WidgetHost.gesture(for:) / SandboxEngine.activationEvent).
  */
 object UserActivation {
-    val UNPRIVILEGED_BRIDGE_METHODS = setOf("ready")
     /** Pointer presses only: widgets get no keyboard (docs/decisions.md, "Profile v1"), so no key is a gesture. */
     private val TYPES = setOf("click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup")
 

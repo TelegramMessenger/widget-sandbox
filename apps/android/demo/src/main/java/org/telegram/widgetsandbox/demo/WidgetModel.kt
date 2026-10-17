@@ -1,6 +1,8 @@
 package org.telegram.widgetsandbox.demo
 
 import android.content.Context
+import android.view.HapticFeedbackConstants
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,8 +32,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import org.telegram.widgetsandbox.WidgetAction
 import org.telegram.widgetsandbox.WidgetDiagnostics
 import org.telegram.widgetsandbox.WidgetHost
+import org.telegram.widgetsandbox.WidgetTheme
 import org.telegram.widgetsandbox.blitz.BlitzRenderer
 import org.telegram.widgetsandbox.litehtml.LitehtmlRenderer
 import org.telegram.widgetsandbox.RendererFactory
@@ -56,8 +60,14 @@ enum class DemoRenderer(val title: String, val factory: RendererFactory?) {
     }
 }
 
+/**
+ * The demo's chat theme: the colour scheme only, so the renderer fills the palette from the
+ * Telegram defaults. A client passes the bubble's own colours and button (docs/sdk-v1.md §5.1).
+ */
+fun demoTheme(dark: Boolean) = WidgetTheme(if (dark) "dark" else "light")
+
 /** Observable façade over WidgetHost for Compose screens (= WidgetModel.swift). */
-class WidgetModel(context: Context, html: String, theme: String, widthDp: Double, options: WidgetHost.Options = WidgetHost.Options(), val renderer: DemoRenderer = DemoRenderer.WEBVIEW, rendererFactory: RendererFactory? = null) {
+class WidgetModel(context: Context, html: String, theme: WidgetTheme, widthDp: Double, options: WidgetHost.Options = WidgetHost.Options(), val renderer: DemoRenderer = DemoRenderer.WEBVIEW, rendererFactory: RendererFactory? = null) {
     /** `rendererFactory` overrides the picker's renderer (the bench's `none` renderer, Bench.kt). */
     val host = WidgetHost(context, html, theme, widthDp, options, rendererFactory = rendererFactory ?: renderer.factory)
     var diagnostics by mutableStateOf(WidgetDiagnostics())
@@ -65,9 +75,25 @@ class WidgetModel(context: Context, html: String, theme: String, widthDp: Double
 
     init {
         host.onChange = { diagnostics = it }
+        // What a client does with the actions (docs/sdk-v1.md §5.2, §5.3), reduced to dev tooling:
+        // haptics play, links are shown and not opened (the panel lists every action).
+        host.onAction = { action ->
+            when (action) {
+                is WidgetAction.Haptic -> host.view.performHapticFeedback(
+                    when (action.kind) {
+                        "impact" -> HapticFeedbackConstants.VIRTUAL_KEY
+                        "notification" -> HapticFeedbackConstants.LONG_PRESS
+                        else -> HapticFeedbackConstants.CLOCK_TICK
+                    },
+                )
+                is WidgetAction.OpenLink -> Toast.makeText(context, "openLink: ${action.url}", Toast.LENGTH_SHORT).show()
+                is WidgetAction.OpenTelegramLink -> Toast.makeText(context, "openTelegramLink: ${action.url}", Toast.LENGTH_SHORT).show()
+                WidgetAction.Ready -> {}
+            }
+        }
     }
 
-    fun setTheme(theme: String) = host.setTheme(theme)
+    fun setTheme(theme: WidgetTheme) = host.setTheme(theme)
     fun destroy() = host.destroy()
 
     // The owner's side of the off-screen pause: the bubble scrolled out of the window, or the
@@ -159,7 +185,7 @@ fun DiagnosticsPanel(model: WidgetModel) {
             val e = d.diags[k]!!
             Text("$k ×${e.count}: ${e.details.takeLast(2).joinToString(" · ")}", fontSize = 10.sp, maxLines = 2, color = if (k in redKinds) Color.Red else Color(0xFFEF6C00))
         }
-        for (b in d.bridge.takeLast(10)) Text("bridge: ${b.first}(${b.second})", fontSize = 10.sp)
+        for (a in d.actions.takeLast(10)) Text("action: $a", fontSize = 10.sp)
         for (l in d.logs.takeLast(30)) {
             Text("[${l.first}] ${l.second}", fontSize = 10.sp, fontFamily = FontFamily.Monospace, maxLines = 4, color = if (l.first == "error") Color.Red else MaterialTheme.colorScheme.onSurface)
         }

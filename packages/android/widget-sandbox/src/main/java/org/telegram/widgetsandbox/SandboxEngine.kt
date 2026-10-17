@@ -11,6 +11,7 @@ package org.telegram.widgetsandbox
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.security.SecureRandom
 
 /** Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts. */
@@ -43,6 +44,12 @@ data class SandboxConfig(
      * [RUNTIME_FEATURES]; the rest (canvasWords, binaryOps, morphUpdates: Swift only) is dropped.
      */
     var features: Set<String> = emptySet(),
+    /** The chat's palette (docs/sdk-v1.md §2.3): themeParams keys → `#rrggbb`; the engine drops the rest (SdkPolicy.checkThemeParams), the shim fills missing keys from the scheme's defaults. */
+    var themeParams: Map<String, String> = emptyMap(),
+    /** The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed (SdkPolicy.checkLocale). */
+    var locale: String = SdkPolicy.DEFAULT_LOCALE,
+    /** The client's Web Storage preload (docs/sdk-v1.md §2.8); over the quota it is dropped whole with `storage-rejected` and the widget starts empty. */
+    var storage: WidgetStorage? = null,
 )
 
 /** The features the Kotlin glue implements; the twin of Swift `runtimeFeatures` and `WEB_FEATURES` in worker.ts. */
@@ -67,6 +74,10 @@ data class SandboxStats(
 )
 
 private const val ACTIVATION_PREFIX = "activation:"
+/** Two full areas of the quota at 12 JSON characters per byte (`\uXXXX` escapes plus the quotes, colon and comma of tiny pairs): a longer commit cannot be within it (worker.ts). */
+private const val MAX_STORAGE_COMMIT_CHARS = 2 * 12 * SdkPolicy.STORAGE_QUOTA_BYTES + 64
+/** `bridge-rejected`, `activation-blocked` and `storage-rejected` are each reported at most this often per widget. */
+private const val MAX_REJECTED_REPORTS = 20
 
 /** Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets. */
 internal fun coarseNowMs(ms: Double): Double = kotlin.math.floor(ms / 0.1) * 0.1
@@ -90,7 +101,12 @@ class SandboxEngine(
         fun onRequestFrame(engine: SandboxEngine)
         fun onLog(engine: SandboxEngine, level: String, text: String)
         fun onDiag(engine: SandboxEngine, kind: String, detail: String)
-        fun onBridge(engine: SandboxEngine, method: String, argsJson: String)
+        /** A bridge call that passed every check (docs/sdk-v1.md §3.2): the method and its arguments, user activation for links, the haptic limit. */
+        fun onAction(engine: SandboxEngine, action: WidgetAction) {}
+        /** Deprecated since v1 (`onAction`): the raw method and arguments of each call `onAction` got, right after it. */
+        fun onBridge(engine: SandboxEngine, method: String, argsJson: String) {}
+        /** The new full content of a Web Storage area ("local" | "session"), within the quota, at the end of each task that changed it. */
+        fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) {}
         fun onLoaded(engine: SandboxEngine)
         fun onStats(engine: SandboxEngine, stats: SandboxStats)
         fun onDied(engine: SandboxEngine, reason: String)
@@ -212,6 +228,10 @@ class SandboxEngine(
                         .put("visible", visible)
                         .put("viewport", JSONObject().put("innerWidth", config.innerWidth).put("innerHeight", config.innerHeight).put("dpr", config.devicePixelRatio))
                         .put("theme", config.theme)
+                        .put("themeParams", JSONObject(SdkPolicy.checkThemeParams(config.themeParams)))
+                        .put("locale", SdkPolicy.checkLocale(config.locale) ?: SdkPolicy.DEFAULT_LOCALE)
+                        .put("profile", SdkPolicy.PROFILE_VERSION)
+                        .put("storage", preload())
                         .put("features", JSONArray(config.features.intersect(RUNTIME_FEATURES).sorted())),
                 ).toString()
             callTw("boot", bootArg)
@@ -232,13 +252,17 @@ class SandboxEngine(
     fun activationEvent(json: String, gesture: Int) = enqueue(ACTIVATION_PREFIX + gesture, json)
 
     private val activation = ActivationGate()
+    private val haptics = HapticGate()
     private var blockedBridgeReported = 0
+    private var rejectedBridgeReported = 0
+    private var rejectedStorageReported = 0
     fun frame(time: Double) = enqueue("frame", coarseNowMs(time).toString())
     fun viewport(innerWidth: Double, innerHeight: Double, dpr: Double) =
         enqueue("viewport", JSONObject().put("innerWidth", innerWidth).put("innerHeight", innerHeight).put("dpr", dpr).toString())
     fun resize(entriesJson: String) = enqueue("resize", entriesJson)
-    fun theme(theme: String) = enqueue("theme", JSONObject.quote(theme))
-    fun bridgeEvent(event: String, dataJson: String) = enqueue("bridge", "[${JSONObject.quote(event)},$dataJson]")
+    /** The colour scheme and the palette (checked here). The shim fills keys that are missing from the scheme's defaults, so pass the full palette at every change. */
+    fun theme(theme: String, themeParams: Map<String, String> = emptyMap()) =
+        enqueue("theme", JSONObject().put("theme", theme).put("themeParams", JSONObject(SdkPolicy.checkThemeParams(themeParams))).toString())
 
     /** The host knows whether the widget is on screen; the sandbox does not. */
     fun setVisible(v: Boolean) {
@@ -392,22 +416,8 @@ class SandboxEngine(
             "listen" -> delegate?.onListen(this, arg)
             "pd" -> delegate?.onPreventDefault(this, arg)
             "anim" -> delegate?.onAnim(this, arg)
-            "bridge" -> {
-                val pair = try { JSONArray(arg) } catch (e: Exception) { null }
-                if (pair != null && pair.length() == 2 && pair.opt(0) is String) {
-                    val args = pair.opt(1)
-                    val argsJson = if (args == null || args == JSONObject.NULL) "null" else JSONObject.wrap(args)?.toString() ?: "null"
-                    val name = pair.getString(0).take(64)
-                    if (isStrictPolicy(config.policy) && name !in UserActivation.UNPRIVILEGED_BRIDGE_METHODS && !activation.consume(visible)) {
-                        if (blockedBridgeReported < 20) {
-                            blockedBridgeReported += 1
-                            delegate?.onDiag(this, "activation-blocked", "$name ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler (called from the $currentKind task)")
-                        }
-                        return HostReturn.Undefined
-                    }
-                    delegate?.onBridge(this, name, argsJson)
-                }
-            }
+            "bridge" -> bridgeCall(arg)
+            "storage" -> storageCommit(arg)
             "intl" -> return HostReturn.Str(IntlBridge.format(arg))
             "random" -> {
                 val n = (arg.toIntOrNull() ?: 0).coerceIn(0, 65536)
@@ -425,6 +435,70 @@ class SandboxEngine(
             }
         }
         return HostReturn.Undefined
+    }
+
+    /**
+     * `__host('bridge', JSON [method, args])` (docs/sdk-v1.md §3.2), checked in this order:
+     * the method and its arguments (`bridge-rejected`), user activation for the link calls
+     * under the strict policy (`activation-blocked`), the haptic limit (`haptic-limit`).
+     */
+    private fun bridgeCall(arg: String) {
+        val call = (try { JSONTokener(arg).nextValue() } catch (e: Exception) { null }) as? JSONArray
+        val method = call?.opt(0)
+        val args = call?.opt(1)
+        val name = (method?.toString() ?: "undefined").take(64)
+        val action = if (call == null) null else SdkPolicy.checkBridgeCall(method, args)
+        if (action == null) {
+            if (rejectedBridgeReported < MAX_REJECTED_REPORTS) {
+                rejectedBridgeReported += 1
+                delegate?.onDiag(this, "bridge-rejected", "$name: unknown method or malformed arguments")
+            }
+            return
+        }
+        if (isStrictPolicy(config.policy) && name in SdkPolicy.PRIVILEGED_METHODS && !activation.consume(visible)) {
+            if (blockedBridgeReported < MAX_REJECTED_REPORTS) {
+                blockedBridgeReported += 1
+                delegate?.onDiag(this, "activation-blocked", "$name ignored: it needs a tap on the visible widget and runs in that tap's handler, one call per tap (called from the $currentKind task)")
+            }
+            return
+        }
+        if (action is WidgetAction.Haptic) {
+            val d = haptics.decide(nowMs(), visible)
+            if (d == HapticDecision.REPORT) delegate?.onDiag(this, "haptic-limit", if (visible) "haptics over 5 per burst or 10 per second are dropped" else "haptics of a hidden widget are dropped")
+            if (d != HapticDecision.PLAY) return
+        }
+        delegate?.onAction(this, action)
+        delegate?.onBridge(this, name, JSONObject.wrap(args)?.toString() ?: "null")
+    }
+
+    /** `__host('storage', JSON commit)`: the full areas a task changed, at most once per task, after its ops (docs/sdk-v1.md §3.2). */
+    private fun storageCommit(arg: String) {
+        val tooLong = arg.length > MAX_STORAGE_COMMIT_CHARS
+        val commit = if (tooLong) null else try { SdkPolicy.checkStorageCommit(JSONTokener(arg).nextValue()) } catch (e: Exception) { null }
+        if (commit == null || (commit.local == null && commit.session == null)) {
+            if (rejectedStorageReported < MAX_REJECTED_REPORTS) {
+                rejectedStorageReported += 1
+                val what = if (tooLong) "a storage commit of ${arg.length} characters" else "a storage commit that is not { local?, session? } objects of strings within ${SdkPolicy.STORAGE_QUOTA_BYTES} bytes each"
+                delegate?.onDiag(this, "storage-rejected", "$what; the client keeps the previous content")
+            }
+            return
+        }
+        commit.local?.let { delegate?.onStorageCommit(this, "local", it) }
+        commit.session?.let { delegate?.onStorageCommit(this, "session", it) }
+    }
+
+    /** The client's preload as the boot config carries it; over the quota: `storage-rejected` and empty storage. */
+    private fun preload(): JSONObject {
+        val s = config.storage ?: return JSONObject()
+        val checked = SdkPolicy.checkStorageCommit(mapOf("local" to s.local, "session" to s.session))
+        if (checked == null) {
+            delegate?.onDiag(this, "storage-rejected", "the preload is not { local, session } objects of strings within ${SdkPolicy.STORAGE_QUOTA_BYTES} bytes each; the widget starts with empty storage")
+            return JSONObject()
+        }
+        val out = JSONObject()
+        checked.local?.let { out.put("local", JSONObject(it)) }
+        checked.session?.let { out.put("session", JSONObject(it)) }
+        return out
     }
 
     /** Blocks the engine thread until the host answers (the host must never wait for the engine). */
