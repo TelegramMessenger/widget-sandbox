@@ -1,6 +1,6 @@
 # Widget runtime profile
 
-*What an HTML widget in a Telegram rich message can rely on. Written for widget
+*What an HTML widget in a Telegram message can rely on. Written for widget
 authors and for the tool description a bot gives to its model. The exact
 contract, feature by feature and table by table, is **widget profile 1**:
 `docs/profile-v1.md`, generated from `packages/core/profile.json`. The

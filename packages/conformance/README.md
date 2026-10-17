@@ -25,7 +25,7 @@ Coverage: the automatic set covers 245 of the 255 catalogue IDs. The other ten a
 
 ## How a widget reports
 
-Every widget is one self-contained HTML file: no external resources, `data:` images only, under 128 KB. A bot can send it as a message as is.
+Every widget is one self-contained HTML file: no external resources, `data:` images only. A product widget is mini-HTML (at most 4 KB after gzip and 32 KB uncompressed, `docs/tgw-format.md`); the conformance widgets are larger and travel as `.tgw` files in the test channel.
 
 The harness writes the result as JSON into the `data-conformance` attribute of `<html>`. Any host reads it from its own validated ops: it is the `attr` op on the element that the `el` op adopted as `html`.
 
@@ -100,7 +100,7 @@ The client SDK group's pictures come from the same build. `scripts/conformance/s
 
 ## Known limits
 
-- The visual set (`visual/01…13`) does not fit a mini-widget: 5–55 KB gzipped, with embedded pictures. The test channel posts it as `.tgw` documents behind the debug flag until it is split.
+- The visual set (`visual/01…13`) does not fit a mini-widget: 5–55 KB gzipped, with embedded pictures. The test channel posts it as `.tgw` files (the development format) behind the debug flag until it is split.
 - References come from headless Chromium on macOS. WebKit references appear once Playwright's WebKit is installed, and the rule then takes the better of the two.
 - Text stages depend on platform fonts. They allow 50 % of the ink but check the feature's colours.
 - The web runner gives the canvas renderers (Blitz and litehtml wasm prototypes, which are not product renderers) only synthetic taps. Drags, hover, keys and wheel are skipped there, and so are gesture-gated host checks.

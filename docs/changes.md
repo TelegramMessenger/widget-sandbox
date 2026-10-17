@@ -3,10 +3,10 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## v0.1.0 — release notes (2026-10-16)
+## v0.1.0 — release notes (2026-10-17)
 
 The first tagged state of the framework: the integration branch `telegram-macos`
-with the pre-release hardening, verified on every platform (`docs/branches-review.md`
+with the pre-release hardening, widget profile 1 and SDK v1, verified on every platform (`docs/branches-review.md`
 §7 is the plan; the per-suite numbers are in the tag's commit history and CLAUDE.md).
 
 **In the tag**
@@ -23,10 +23,12 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
   prototypes behind the same seam.
 - The widget profile conformance set, `packages/conformance` (`CLIENTS.md`), and the
   corpora: 98 attacks, compat, generated, common, showcase, 116 ported HTML bubbles.
-- The delivery model for v1 (decided 2026-10-17): **mini-widgets**, gzip of the HTML carried
-  inline in the rich-message block, at most 4 KB compressed and 32 KB uncompressed,
-  server-made, no document and no download (`docs/tgw-format.md`). Big `.tgw` documents
-  are deferred; `.tgw` stays as the test-channel format behind the client debug flag.
+- What a widget is (decided 2026-10-17): **mini-HTML**, one HTML document of at most 4 KB
+  after gzip and 32 KB uncompressed, delivered right in the message; the server gzips the
+  bot's HTML and enforces both limits, clients keep no limits (`docs/tgw-format.md`). How
+  the bytes sit in the message, who may send widgets and where, forwarding and what older
+  clients show are under revision. `.tgw` (gzip of the HTML as a file) is the test-channel
+  and development format behind the client debug flag, not a product format.
 - **Widget profile 1** (frozen 2026-10-17), enforced on every client:
   `packages/core/profile.json` is the single source and `docs/profile-v1.md` the
   generated contract. The validator drops form controls, named fonts and every
@@ -119,12 +121,15 @@ with the pre-release hardening, verified on every platform (`docs/branches-revie
 - *Timing-sensitive tests*: `binary-ops.test.ts` "same render ops as JSON: clock.html"
   (the widget prints `new Date()`), `shim.test.ts` "defers timers once the widget has
   burnt its quota", Swift `CanvasWordsTests.testWordPayloadsSpliceToTheSameJSONAsTheJSONPath`
-  (a 1 ms timer races the hand-driven frames), desktop `cpu_quota_throttles_greedy_timer`:
-  each fails now and then under load and passes alone.
+  (a 1 ms timer races the hand-driven frames), Swift `CpuTimeLimitTests.testBusyMachineDoesNotKillAWidgetWithinItsCPUBudget`
+  (`loaded` and the engine stats reach the diagnostics on two async paths, so the
+  "alone" run can read `jsMs` 0.0 and set the contention run's limit to the 100 ms
+  floor), desktop `cpu_quota_throttles_greedy_timer`: each fails now and then under
+  load and passes alone.
 - *No conformance widget fits a mini-widget yet*: the automatic set is 5.1–8.4 KB gzipped
   (median 6.3 KB, all under 32 KB raw), the visual set 5.4–54.6 KB gzipped (median 18 KB,
-  embedded reference pictures). The test channel keeps posting them as `.tgw` documents under
-  the debug flag until the tests are split into 4 KB pieces.
+  embedded reference pictures). The test channel keeps posting them as `.tgw` files (the
+  development format) under the debug flag until the tests are split into 4 KB pieces.
 - *htmlbubbles-ported*: 108 of 116 pass (2026-10-17, after the profile-1 rework); the rest
   are time-based or random drawings, the hang demo, one intentional JS error and
   `06-trip-lisbon/09-me-bare`, a tall widget whose screenshot fails now and then when the

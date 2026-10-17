@@ -15,8 +15,8 @@ What the framework did before v1 is noted where a client may meet it
 (**before v1**: the API of the profile-0 builds).
 
 Related documents, not repeated here: `docs/integration.md` (embedding the
-host on each platform), `docs/tgw-format.md` (the `.tgw` file and the rich
-block), `docs/protocol.md` (the full wire protocol), `docs/changes.md`
+host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML, and the
+`.tgw` test-channel format), `docs/protocol.md` (the full wire protocol), `docs/changes.md`
 (per-release notes).
 
 ## 1. Who does what
@@ -83,8 +83,8 @@ answer from the client: whether the user confirmed a link is not reported back.
   renderer's engine never decides.
 - A widget that checks nothing still loads; on an older client the features
   outside that client's profile are dropped by its validator (accepted product
-  behaviour). Clients without widget support show the existing
-  unsupported-rich-block stub.
+  behaviour). What clients without widget support show is
+  under revision (a placeholder of some form).
 
 ### 2.3 Theme (D14)
 
@@ -213,10 +213,10 @@ Other form controls are outside the profile and dropped by the validator.
 
 - `localStorage` is stored by the client for this message on this device,
   under (account, chat, message id), where the chat is the one the message is
-  in: the bot's private chat for the message it sent, the destination chat for
-  a forwarded copy, which therefore starts empty. (D17 says (account, bot,
-  `message_id`); message ids are unique only within a chat, so the chat is the
-  exact key, and for the bot's own message it is the bot's private chat.) It
+  in; a copy of the message in another chat is another key and starts empty.
+  (D17 says (account, bot, `message_id`); message ids are unique only within a
+  chat, so the chat is the exact key. Who may send widgets and where, and what
+  forwarding does, are under revision; the key does not depend on the answer.) It
   survives the widget's
   destruction and app restarts, and is deleted with the message, the chat
   (or its history), the account and on "Clear cache". It is never sent to the
@@ -538,8 +538,8 @@ ignore them.
 - Before the widget loads: if the bot gave `width` and `height`, draw the
   bubble with that aspect ratio at the bubble's width; with `width = 0` and
   `height = H`, at height `H`; with neither, the default placeholder (height
-  from the designers) (D12b; the rich block's fields are in
-  `docs/tgw-format.md`). The hint is tested end to end only once the server
+  from the designers) (D12b; the two optional numbers travel with
+  the widget bytes, `docs/tgw-format.md`). The hint is tested end to end only once the server
   sends it; the test channel has no debug convention for it.
 - After the first render, use the height the host reports (`onChange` →
   `height`, web `onResize`), capped at the client's maximum (`maximumHeight`,

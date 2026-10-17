@@ -1,4 +1,4 @@
-# HTML widgets in Telegram rich messages without leaking the IP
+# HTML widgets in Telegram messages without leaking the IP
 
 Overview of the discussion: requirements, architecture options, widget formats in the ecosystem, the "bot + Claude API" scenario and the risks.
 

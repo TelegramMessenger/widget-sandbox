@@ -30,7 +30,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | D14 | Theme: themeParams + --tg-theme-*, theme change event |
 | D17 | State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory |
 | D18 | Text selection forbidden |
-| D20 | Mini-widgets first (2026-10-17): gzipped HTML up to 4 KB inline in the message, 32 KB of HTML at most; .tgw documents deferred |
+| D20 | Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB after gzip and 32 KB uncompressed, delivered in the message; the server gzips the HTML from the bot and enforces both limits |
 | D21 | No accessibility in v1 |
 | D23 | Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile |
 | inv1 | Invariant 1: widget JS only in QuickJS |
@@ -337,7 +337,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice | in |  | P1 |
 | `limit.memory` | QuickJS heap 64 MB | in |  | P1 |
 | `limit.storage` | localStorage 16 KB per message (QuotaExceededError) | in |  | D17 |
-| `limit.html-size` | HTML up to 128 KB (server-side, .tgw) | in |  | D20 |
+| `limit.html-size` | HTML up to 32 KB uncompressed and 4 KB after gzip (server-side) | in |  | D20 |
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in |  | SDK |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in |  | SDK |
 | `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit) | in |  | SDK |

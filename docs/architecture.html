@@ -95,7 +95,7 @@ ul.plain b { font-weight: 700; }
 <div class="wrap">
 
 <header>
-  <div class="eyebrow">Telegram rich messages · a sandbox for HTML widgets · how it works</div>
+  <div class="eyebrow">Telegram messages · a sandbox for HTML widgets · how it works</div>
   <h1>widget-sandbox architecture</h1>
   <p class="lede">A bot sends an ordinary HTML file with a script into the chat. widget-sandbox runs it whole, but in a cage: the script executes in the small QuickJS engine against its own copy of the DOM, with no screen and no network. Everything the script changes in that copy becomes a list of operations, the list is checked against allowlists, and only then does trusted code apply it to the real page in the system WebView. Three zones, one trust boundary, the same three JS files on five platforms.</p>
   <div class="meta">

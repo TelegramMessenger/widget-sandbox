@@ -317,7 +317,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | missing |  | auto/16-sdk-taps, visual/sdk/03-link-rejected |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in | SDK | missing |  | auto/20-client-behaviour |
 | `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit) | in | SDK | missing |  | auto/16-sdk-taps, visual/sdk/06-haptics-rate |
-| `limit.html-size` | HTML up to 128 KB (server-side, .tgw)<br><sub>Checked by the server, not the client; every conformance widget stays far below it.</sub> | in | D20 | host |  |  |
+| `limit.html-size` | HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)<br><sub>Checked by the server, not the client; no conformance widget fits the gzip limit yet, the test channel posts them as .tgw files under the client debug flag.</sub> | in | D20 | host |  |  |
 
 ## behaviour
 
@@ -350,7 +350,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D14**: Theme: themeParams + --tg-theme-*, theme change event
 - **D17**: State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory
 - **D18**: Text selection forbidden
-- **D20**: Mini-widgets first (2026-10-17): gzipped HTML up to 4 KB inline in the message, 32 KB of HTML at most; .tgw documents deferred
+- **D20**: Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB after gzip and 32 KB uncompressed, delivered in the message; the server gzips the HTML from the bot and enforces both limits
 - **D21**: No accessibility in v1
 - **D23**: Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile
 - **brief**: Named as a candidate in the conformance brief (decided by measurement)

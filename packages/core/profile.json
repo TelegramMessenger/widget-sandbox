@@ -15,7 +15,7 @@
   "D14": "Theme: themeParams + --tg-theme-*, theme change event",
   "D17": "State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory",
   "D18": "Text selection forbidden",
-  "D20": "Mini-widgets first (2026-10-17): gzipped HTML up to 4 KB inline in the message, 32 KB of HTML at most; .tgw documents deferred",
+  "D20": "Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB after gzip and 32 KB uncompressed, delivered in the message; the server gzips the HTML from the bot and enforces both limits",
   "D21": "No accessibility in v1",
   "D23": "Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile",
   "inv1": "Invariant 1: widget JS only in QuickJS",
@@ -4473,10 +4473,10 @@
   {
    "id": "limit.html-size",
    "area": "limit",
-   "title": "HTML up to 128 KB (server-side, .tgw)",
+   "title": "HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)",
    "status": "in",
    "decision": "D20",
-   "note": "Checked by the server, not the client; every conformance widget stays far below it."
+   "note": "Checked by the server, not the client; no conformance widget fits the gzip limit yet, the test channel posts them as .tgw files under the client debug flag."
   },
   {
    "id": "limit.url-length",
