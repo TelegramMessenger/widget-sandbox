@@ -18,6 +18,8 @@ packages/desktop/
     widget_host.h            WidgetHost: engine + validator + Renderer, one widget (= WidgetHost.swift / .kt)
     renderer.h               Renderer seam + RendererFactory (= Renderer.swift / .kt)
     cpu_budget.h             CpuBudget (fixture: packages/core/tests/fixtures/cpu-budget.json)
+    sdk_policy.h             SDK v1 checks: links, haptics + HapticGate, theme params, locale, storage, bridge calls
+                             (= SdkPolicy.swift / .kt; fixture: packages/core/tests/fixtures/sdk-policy.json)
     js_thread.h              one dedicated thread per runtime, 8 MB stack, timers
     quickjs_context.h        thin wrapper over quickjs-ng via packages/ios/Sources/CQuickJS/shim
     resources.h              WidgetJS/ loader + CDN URL → bundled library
@@ -39,15 +41,18 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 23 tests (engine, limits, validator, JSThread, CpuBudget fixture, JSON)
+./build/twidget-tests                             # 45 tests (engine, limits, validator, JSThread, CpuBudget and SDK fixtures, SDK v1, JSON)
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
+./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
+    --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …` and `storage …`; "gesture" makes a trusted press
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
-./build/twidget-run --attacks                     # 89 files: nothing but data:/#fragment may reach the validated ops
+./build/twidget-run --attacks                     # 98 files: nothing but data:/#fragment may reach the validated ops
 ```
 
-Status (Oct 2026, macOS arm64): tests 23/23; compat 21/21 and generated 40/40
-load without errors; attacks 89 with 0 URLs leaking into validated ops and the
-one expected kill (`fallback-at-boot.html`). Boot of the sandbox bundle takes
+Status (2026-10-17, macOS arm64): tests 45/45; compat 12/12 and
+generated/with-profile 20/20 load without errors; attacks 98 with 0 URLs
+leaking into validated ops and the four expected kills (`fallback-at-boot.html`,
+three `mem-*`). Boot of the sandbox bundle takes
 ~20 ms in a release quickjs-ng from the precompiled `.qbc` (38–74 ms from
 source; the diag says which one was used).
 
@@ -82,7 +87,7 @@ and `data:` images.
 
 ```bash
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build   # first cargo build: 1–2 min, ≈ 39 MB static library
-./build/twidget-tests                                                            # 26 tests: + layout answers from the document, hit-tested clicks, frozen fallback
+./build/twidget-tests                                                            # 48 tests: + layout answers from the document, hit-tested clicks, frozen fallback
 ./build/twidget-run ../corpus/compat/tabs.html --blitz --dpr 2 --png /tmp/tabs.png [--click X,Y]...
 ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + height / paint / loaded columns, one PNG per widget
 ./build/twidget-run --attacks --blitz                                            # a fetch attempt from the Rust document counts as a leak too
@@ -98,10 +103,10 @@ is `blitz_renderer.h` with `twl_*` for `twb_*`. `docs/litehtml-renderer.md`.
 
 ```bash
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build
-./build/twidget-tests                                                           # 29 tests: + 3 litehtml twins of the Blitz ones
+./build/twidget-tests                                                           # 51 tests: + 3 litehtml twins of the Blitz ones
 ./build/twidget-run ../corpus/compat/tabs.html --litehtml --dpr 2 --png /tmp/tabs.png [--click X,Y]...
-./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # 21/21, paint 0.3–6 ms at 800 px
-./build/twidget-run --attacks --litehtml                                         # 89 attacks, 0 leaks, 0 fetch attempts
+./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # 12/12, paint 0.3–6 ms at 800 px
+./build/twidget-run --attacks --litehtml                                         # 98 attacks, 0 leaks, 0 fetch attempts
 ```
 
 What it is on this platform:
@@ -142,3 +147,15 @@ What it is on this platform:
 - Limits live in `SandboxConfig` / `WidgetHostOptions` (same fields and
   defaults as `protocol.ts`). `setVisible(false)` when the bubble leaves the
   screen.
+- SDK v1 (`docs/sdk-v1.md` §4.3, §5): build the host with a `WidgetTheme`
+  (scheme, the 15 `themeParams` colours, `WidgetButtonTokens`) and call
+  `setTheme(WidgetTheme)` on every chat theme change; pass `locale` and the
+  stored `storage` (`WidgetStorage { local, session }`) in `WidgetHostOptions`.
+  `onAction` gets checked actions only (`OpenLink` / `OpenTelegramLink` with
+  the normalised URL, at most one per pointer press; `Haptic`, rate-limited;
+  `Ready`); `onStorageCommit(area, values)` the full new content of an area at
+  the end of each task that changed it, within the 16 KB quota (persist
+  `local`, keep `session` in memory); `onGestureClaim(x, y)` on every primary
+  press. Strings are UTF-8; a widget's lone surrogate arrives in its 3-byte
+  WTF-8 form. The string-theme constructor, `setTheme(std::string)` and
+  `onBridgeCall` are deprecated forwards; the host → widget `bridgeEvent` is gone.

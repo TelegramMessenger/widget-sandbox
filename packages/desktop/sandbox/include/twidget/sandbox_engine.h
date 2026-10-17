@@ -5,7 +5,9 @@
 // memory limits, and drives timers / frames / scripts.
 //
 // Everything that comes out of the context is UNTRUSTED: the delegate must
-// pass it through TrustedValidator before it reaches any renderer.
+// pass it through TrustedValidator before it reaches any renderer. SDK v1
+// calls (docs/sdk-v1.md §3.2) are checked here with sdk_policy.h before the
+// delegate sees them: `onBridgeAction` and `onStorage` get only what passed.
 #pragma once
 
 #include "twidget/cpu_budget.h"
@@ -13,6 +15,7 @@
 #include "twidget/js_thread.h"
 #include "twidget/quickjs_context.h"
 #include "twidget/resources.h"
+#include "twidget/sdk_policy.h"
 
 #include <cstdint>
 #include <map>
@@ -42,6 +45,14 @@ struct SandboxConfig {
     double innerHeight = 300;
     double devicePixelRatio = 1;
     std::string theme = "light";
+    /// The chat's palette (docs/sdk-v1.md §2.3); the engine passes only the 15 theme keys with `#rrggbb`
+    /// values (sdk::checkThemeParams), the shim fills the rest from the scheme's defaults.
+    std::map<std::string, std::string> themeParams;
+    /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
+    std::string locale = std::string(sdk::DEFAULT_LOCALE);
+    /// Web Storage of this message as the client keeps it; an area over the quota drops the whole
+    /// preload (diagnostic `storage-rejected`, the widget starts empty).
+    WidgetStorage storage;
     /// "strict" (default): privileged bridge calls need a user gesture, text values are capped at
     /// 64 KB and visible text is budgeted. "compat": the behaviour before that hardening, for tests
     /// and tooling. Anything but exactly "compat" is strict (isStrictPolicy).
@@ -87,7 +98,13 @@ public:
     virtual void onRequestFrame(SandboxEngine& engine) = 0;
     virtual void onLog(SandboxEngine& engine, const std::string& level, const std::string& text) = 0;
     virtual void onDiag(SandboxEngine& engine, const std::string& kind, const std::string& detail) = 0;
-    virtual void onBridge(SandboxEngine& engine, const std::string& method, const std::string& argsJson) = 0;
+    /// A bridge call that passed every check (docs/sdk-v1.md §3.2: arguments, user activation, the haptic limit).
+    virtual void onBridgeAction(SandboxEngine&, const WidgetAction&) {}
+    /// The new full content of a Web Storage area ("local" or "session") at the end of a task that changed it;
+    /// once per area of a commit, local first. Checked against the quota; strings as in sdk_policy.h.
+    virtual void onStorage(SandboxEngine&, const std::string& /*area*/, const StorageArea& /*values*/) {}
+    /// Deprecated since SDK v1 (`onBridgeAction`): the raw method and arguments JSON of each call `onBridgeAction` gets, right after it.
+    virtual void onBridge(SandboxEngine&, const std::string& /*method*/, const std::string& /*argsJson*/) {}
     virtual void onLoaded(SandboxEngine& engine) = 0;
     virtual void onStats(SandboxEngine& engine, const SandboxStats& stats) = 0;
     virtual void onDied(SandboxEngine& engine, const std::string& reason) = 0;
@@ -117,8 +134,9 @@ public:
     void frame(double time);
     void viewport(double innerWidth, double innerHeight, double dpr);
     void resize(const std::string& entriesJson);
-    void theme(const std::string& theme);
-    void bridgeEvent(const std::string& event, const std::string& dataJson);
+    /// The chat's theme changed: the colour scheme and the palette (checked here, as at boot) in one task;
+    /// the shim updates `colorScheme` and `themeParams`, then fires `themeChanged`.
+    void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams = {});
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);
 
@@ -192,6 +210,11 @@ private:
     int activeGesture_ = 0;
     int consumedGesture_ = 0;
     int blockedBridgeReported_ = 0;
+    // SDK v1 (docs/sdk-v1.md §3.2): malformed calls and commits are reported at most 20 times each; haptics are rate-limited.
+    int rejectedBridgeReported_ = 0;
+    int rejectedStorageReported_ = 0;
+    sdk::HapticGate haptics_;
+    void rejectStorage(const std::string& detail);
 };
 
 } // namespace twidget

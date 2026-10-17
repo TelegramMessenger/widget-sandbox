@@ -2,12 +2,14 @@
 // ported one for one (engine boot, network stubs, CPU / memory kills, layout
 // query round trip, pre-boot buffering, timer cap, CPU quota, off-screen pause,
 // bridge, pinned-thread recursion, validator diagnostics and sanitising,
-// create/teardown churn) plus the shared CpuBudget fixture and the JSON helper.
+// create/teardown churn) plus the shared CpuBudget and SDK v1 policy fixtures,
+// SDK v1 through the real engine and WidgetHost, and the JSON helper.
 // No test framework dependency: `twidget-tests [filter]`, exit code = failures.
 
 #include "../harness/recording_host.h"
 #include "twidget/cpu_budget.h"
 #include "twidget/json.h"
+#include "twidget/sdk_policy.h"
 #ifdef TW_HAVE_BLITZ
 #include "twidget/blitz_renderer.h"
 #endif
@@ -195,7 +197,138 @@ TEST(cpu_budget_shared_fixture) {
     }
 }
 
-static const char* kDepthProbe = "(function(){ var n = 0; function r(){ n++; r(); } try { r(); } catch (e) { if (!(e instanceof RangeError)) throw e; } return n; })()";
+/// Deep equality of JSON values, object members in any order (what node:assert's deepEqual compares).
+static bool jsonEqual(const Json& a, const Json& b) {
+    if (a.type() != b.type()) return false;
+    switch (a.type()) {
+    case Json::Type::Null: return true;
+    case Json::Type::Bool: return a.asBool() == b.asBool();
+    case Json::Type::Number: return a.asNumber() == b.asNumber();
+    case Json::Type::String: return a.asString() == b.asString();
+    case Json::Type::Array:
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); i++) if (!jsonEqual(a[i], b[i])) return false;
+        return true;
+    case Json::Type::Object:
+        if (a.size() != b.size()) return false;
+        for (const auto& [k, v] : a.obj()) { const Json* w = b.find(k); if (!w || !jsonEqual(v, *w)) return false; }
+        return true;
+    }
+    return false;
+}
+
+/// `{ "repeat": [s, n] }` in the fixture stands for s repeated n times.
+static Json expandRepeat(const Json& v) {
+    if (v.isArray()) {
+        Json out = Json::array();
+        for (const auto& x : v.arr()) out.push(expandRepeat(x));
+        return out;
+    }
+    if (v.isObject()) {
+        if (v.size() == 1 && v["repeat"].isArray()) {
+            std::string s;
+            for (int i = 0; i < v["repeat"][1].asInt(); i++) s += v["repeat"][0].asString();
+            return Json(s);
+        }
+        Json out = Json::object();
+        for (const auto& [k, x] : v.obj()) out.set(k, expandRepeat(x));
+        return out;
+    }
+    return v;
+}
+
+static Json orNull(const std::optional<std::string>& s) { return s ? Json(*s) : Json(); }
+
+/// sdk_policy against the fixture shared with sdk-policy.ts, SdkPolicy.swift and SdkPolicy.kt: every section.
+TEST(sdk_policy_shared_fixture) {
+    auto root = Json::parse(readFile(std::string(TW_FIXTURES) + "/sdk-policy.json"));
+    CHECK_MSG(root.has_value(), "fixture missing — run pnpm build:desktop");
+    if (!root) return;
+    int cases = 0;
+    for (const auto& c : (*root)["links"].arr()) {
+        cases++;
+        Json got = orNull(sdk::checkLinkValue(c["method"].asString(), c["url"]));
+        CHECK_MSG(jsonEqual(got, c["expect"]), c["method"].asString() + " " + c["url"].dump().substr(0, 100) + " → " + got.dump().substr(0, 100));
+    }
+    for (const auto& c : (*root)["haptics"].arr()) {
+        cases++;
+        auto h = sdk::checkHaptic(c["args"]);
+        Json got;
+        if (h) { got = Json::object(); got.set("haptic", h->haptic); if (h->value) got.set("value", *h->value); }
+        CHECK_MSG(jsonEqual(got, c["expect"]), c["args"].dump() + " → " + got.dump());
+    }
+    for (const auto& c : (*root)["bridge"].arr()) {
+        cases++;
+        auto a = sdk::checkBridgeCall(c["method"], c["args"]);
+        Json got = a ? a->toJson() : Json();
+        CHECK_MSG(jsonEqual(got, c["expect"]), c["method"].dump() + " " + c["args"].dump() + " → " + got.dump());
+    }
+    for (const auto& c : (*root)["hapticGate"].arr()) {
+        cases++;
+        sdk::HapticGate gate;
+        int i = 0;
+        for (const auto& s : c["steps"].arr()) {
+            std::string got(sdk::HapticGate::name(gate.decide(s["at"].asNumber(), s["visible"].asBool())));
+            CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            i++;
+        }
+    }
+    for (const auto& c : (*root)["themeParams"].arr()) {
+        cases++;
+        Json got = sdk::themeParamsJson(sdk::checkThemeParams(c["input"]));
+        CHECK_MSG(jsonEqual(got, c["expect"]), c["input"].dump() + " → " + got.dump());
+    }
+    for (const auto& c : (*root)["locales"].arr()) {
+        cases++;
+        Json got = orNull(sdk::checkLocaleValue(c["input"]));
+        CHECK_MSG(jsonEqual(got, c["expect"]), c["input"].dump() + " → " + got.dump());
+    }
+    for (const auto& c : (*root)["storage"].arr()) {
+        cases++;
+        auto commit = sdk::checkStorageCommit(expandRepeat(c["input"]));
+        Json got = commit ? commit->toJson() : Json();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), c["note"].isString() ? c["note"].asString() : c["input"].dump());
+    }
+    for (const auto& c : (*root)["utf8"].arr()) {
+        cases++;
+        CHECK_MSG(sdk::utf8Length(c["s"].asString()) == size_t(c["bytes"].asInt()), c["s"].asString());
+    }
+    printf("    %d fixture cases\n", cases);
+    CHECK(cases > 150);
+    for (const char* section : {"links", "haptics", "bridge", "hapticGate", "themeParams", "locales", "storage", "utf8"})
+        CHECK_MSG((*root)[section].size() > 0, section);
+}
+
+/// What the fixture cannot carry (no lone surrogates cross every platform's string type): the C++ strings
+/// are UTF-8, with a lone surrogate as WTF-8, and checkLink refuses both that and invalid UTF-8.
+TEST(sdk_link_refuses_surrogates_and_invalid_utf8) {
+    auto link = [](const std::string& url) { return sdk::checkLink("openLink", url).value_or("null"); };
+    CHECK(link("https://example.com/\xC3\xA9") == "https://example.com/%C3%A9");
+    CHECK(link("https://example.com/\xF0\x9F\x98\x80") == "https://example.com/%F0%9F%98%80");
+    CHECK(link("https://example.com/\xED\x9F\xBF") == "https://example.com/%ED%9F%BF"); // U+D7FF, the last before the surrogates
+    CHECK(link("https://example.com/\xEE\x80\x80") == "https://example.com/%EE%80%80"); // U+E000, the first after
+    for (const char* bad : {"https://example.com/\xED\xA0\x80", "https://example.com/\xED\xBF\xBF", "https://example.com/\xED\xA0\xBD\xED\xB8\x80", // lone / CESU-8 pair
+                            "https://example.com/\xC3", "https://example.com/\xC3x", "https://example.com/\x80", "https://example.com/\xFF",
+                            "https://example.com/\xC0\xAF", "https://example.com/\xE0\x80\xAF", "https://example.com/\xF0\x80\x80\xAF", // overlong
+                            "https://example.com/\xF4\x90\x80\x80", "https://example.com/\xF8\x88\x80\x80\x80"})                       // above U+10FFFF
+        CHECK_MSG(link(bad) == "null", bad);
+    CHECK(link(std::string("https://example.com/a\0b", 23)) == "null");
+    // The JSON route: a `\ud800` escape stays a surrogate when asked to, so the bridge check refuses it.
+    CHECK(Json::parse("\"\\ud800\"", Json::Surrogates::Keep)->asString() == "\xED\xA0\x80");
+    CHECK(Json::parse("\"\\udc00x\"", Json::Surrogates::Keep)->asString() == "\xED\xB0\x80x");
+    CHECK(Json::parse("\"\\ud83d\\ude00\"", Json::Surrogates::Keep)->asString() == "\xF0\x9F\x98\x80");
+    CHECK(Json::parse("\"\\ud800\"")->asString() == "\xEF\xBF\xBD");
+    // A lone high surrogate does not swallow the escape after it.
+    CHECK(Json::parse("\"\\ud800\\u0041\"")->asString() == "\xEF\xBF\xBD" "A");
+    CHECK(Json::parse("\"\\ud800\\u0041\"", Json::Surrogates::Keep)->asString() == "\xED\xA0\x80" "A");
+    auto call = Json::parse("[\"openLink\",[\"https://example.com/\\ud800\"]]", Json::Surrogates::Keep);
+    CHECK(call && !sdk::checkBridgeCall((*call)[0], (*call)[1]));
+    CHECK(sdk::utf8Length(Json::parse("\"\\udc00\"", Json::Surrogates::Keep)->asString()) == 3);
+    // Lowercasing is A–Z only: U+212A KELVIN SIGN stays non-ASCII and fails the host check.
+    CHECK(link("https://\xE2\x84\xAA" "elvin.com/") == "null");
+}
+
+static const char* kDepthProbe ="(function(){ var n = 0; function r(){ n++; r(); } try { r(); } catch (e) { if (!(e instanceof RangeError)) throw e; } return n; })()";
 
 /// Product contexts live on a JSThread (8 MB stack, 6 MB QuickJS limit): a release
 /// quickjs-ng needs a few hundred bytes per JS call, so this must comfortably exceed
@@ -389,17 +522,29 @@ TEST(hidden_timers_are_coalesced_to_one_hertz) {
     CHECK(!r.host.died);
 }
 
+static int countActions(const std::vector<WidgetAction>& actions, WidgetAction::Kind kind) {
+    int n = 0;
+    for (auto& a : actions) if (a.kind == kind) n++;
+    return n;
+}
+
+static std::string actionsText(const std::vector<WidgetAction>& actions) {
+    std::string s;
+    for (auto& a : actions) s += a.toJson().dump() + " ";
+    return s;
+}
+
 TEST(compat_policy_forwards_every_bridge_call) {
     SandboxConfig compat = testConfig();
     compat.policy = "compat";
-    Run r("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>", compat);
-    r.host.waitUntil([&] { for (auto& b : r.host.bridge) if (b.first == "sendMessage") return true; return false; }, 3);
+    Run r("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.openLink('https://example.com/later'), 30);</script>", compat);
+    r.host.waitUntil([&] { return countActions(r.host.actions, WidgetAction::OpenLink) > 0; }, 3);
     auto l = r.host.lock();
-    bool sent = false, blocked = false;
-    for (auto& b : r.host.bridge) if (b.first == "sendMessage") sent = true;
-    for (auto& d : r.host.diags) if (d.first == "activation-blocked") blocked = true;
-    CHECK(sent);
-    CHECK(!blocked);
+    CHECK_MSG(countActions(r.host.actions, WidgetAction::OpenLink) == 1, actionsText(r.host.actions));
+    CHECK(countActions(r.host.actions, WidgetAction::Ready) == 1);
+    CHECK(!r.host.hasDiag("activation-blocked"));
+    // The deprecated raw call still follows each action.
+    CHECK(r.host.bridge.size() == 2 && r.host.bridge[1].first == "openLink" && r.host.bridge[1].second == "[\"https://example.com/later\"]");
 }
 
 /// The default policy is strict, and so is any value but exactly "compat".
@@ -413,37 +558,40 @@ TEST(policy_is_strict_by_default_and_fails_closed) {
     CHECK(!isStrictPolicy("compat"));
     SandboxConfig typo = testConfig();
     typo.policy = "compat ";
-    Run r("<script>setTimeout(() => TelegramWidget.sendMessage('later'), 30);</script>", typo);
-    r.host.waitUntil([&] { for (auto& d : r.host.diags) if (d.first == "activation-blocked") return true; return false; }, 3);
+    Run r("<script>setTimeout(() => TelegramWidget.openLink('https://example.com/later'), 30);</script>", typo);
+    r.host.waitUntil([&] { return r.host.hasDiag("activation-blocked"); }, 3);
     auto l = r.host.lock();
-    for (auto& b : r.host.bridge) CHECK(b.first != "sendMessage");
+    CHECK(r.host.hasDiag("activation-blocked"));
+    CHECK_MSG(r.host.actions.empty(), actionsText(r.host.actions));
+    CHECK(r.host.bridge.empty());
 }
 
-/// `ready` needs no gesture; a privileged call from a timer is refused and reported,
-/// the same call from the handler of a trusted click goes through once.
+/// `ready` needs no gesture; a link call from a timer is refused and reported, the same call from the
+/// handler of a trusted click goes through once (normalised), the second call of that tap is refused.
 TEST(bridge_and_timers) {
     SandboxConfig strict = testConfig();
-    Run r("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.sendMessage('later'), 30);"
-          "document.getElementById('b').addEventListener('click', () => { TelegramWidget.sendMessage('clicked'); TelegramWidget.sendMessage('again'); });</script>", strict);
-    r.host.waitUntil([&] { for (auto& d : r.host.diags) if (d.first == "activation-blocked") return true; return false; }, 3);
+    Run r("<button id='b'>go</button><script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.openLink('https://example.com/later'), 30);"
+          "document.getElementById('b').addEventListener('click', () => { TelegramWidget.openLink('HTTPS://Example.COM/clicked'); TelegramWidget.openTelegramLink('https://t.me/again'); });</script>", strict);
+    r.host.waitUntil([&] { return r.host.hasDiag("activation-blocked"); }, 3);
     {
         auto l = r.host.lock();
-        bool ready = false, sent = false;
-        for (auto& b : r.host.bridge) { if (b.first == "ready") ready = true; if (b.first == "sendMessage") sent = true; }
-        CHECK(ready);
-        CHECK(!sent);
+        CHECK(countActions(r.host.actions, WidgetAction::Ready) == 1);
+        CHECK(countActions(r.host.actions, WidgetAction::OpenLink) == 0);
+        CHECK(r.host.countDiag("activation-blocked") == 1);
     }
     r.engine.event("{\"type\":\"click\",\"targetId\":5}");
     r.barrier();
     r.engine.activationEvent("{\"type\":\"click\",\"targetId\":5}", 1);
-    r.host.waitUntil([&] { for (auto& b : r.host.bridge) if (b.first == "sendMessage") return true; return false; }, 3);
+    r.host.waitUntil([&] { return countActions(r.host.actions, WidgetAction::OpenLink) > 0; }, 3);
     r.barrier();
     r.engine.activationEvent("{\"type\":\"click\",\"targetId\":5}", 1);
     r.barrier();
     auto l = r.host.lock();
-    std::vector<std::string> sent;
-    for (auto& b : r.host.bridge) if (b.first == "sendMessage") sent.push_back(b.second);
-    CHECK_MSG(sent.size() == 1 && sent[0].find("clicked") != std::string::npos, std::to_string(sent.size()) + " sendMessage calls");
+    std::vector<std::string> opened;
+    for (auto& a : r.host.actions) if (a.kind == WidgetAction::OpenLink || a.kind == WidgetAction::OpenTelegramLink) opened.push_back(a.url);
+    CHECK_MSG(opened == std::vector<std::string>({"https://example.com/clicked"}), actionsText(r.host.actions));
+    // The timer, the untrusted click (×2 calls), the second call of the tap, the replayed gesture (×2 calls).
+    CHECK_MSG(r.host.countDiag("activation-blocked") == 6, r.diagsText());
 }
 
 TEST(user_gestures_are_numbered_per_physical_press) {
@@ -472,33 +620,51 @@ TEST(user_gestures_are_numbered_per_physical_press) {
     CHECK(c.gestureFor(ev("{\"type\":\"mousemove\"}")) == 0);
 }
 
-/// A renderer without a document: announces itself, answers every query with null; tests inject its events.
+/// A renderer without a document: announces itself, answers every query with null, keeps what it was sent; tests inject its events.
 struct ScriptedRenderer final : Renderer {
     void load() override { onMessage("{\"type\":\"ready\"}"); }
     void send(const std::string& json) override {
+        {
+            std::lock_guard<std::mutex> l(mutex);
+            messages.push_back(json);
+        }
         auto m = Json::parse(json);
         if (m && (*m)["type"].asString() == "query") onMessage("{\"type\":\"result\",\"qid\":" + std::to_string((*m)["qid"].asInt()) + ",\"result\":null}");
     }
-    void setTheme(const std::string&) override {}
+    void setTheme(const std::string& t) override { std::lock_guard<std::mutex> l(mutex); themes.push_back(t); }
     void setWidth(double) override {}
     void destroy() override {}
+    /// The messages of one type, in order.
+    std::vector<Json> sent(const std::string& type) {
+        std::lock_guard<std::mutex> l(mutex);
+        std::vector<Json> out;
+        for (auto& m : messages) if (auto j = Json::parse(m); j && (*j)["type"].asString() == type) out.push_back(*j);
+        return out;
+    }
+    std::mutex mutex;
+    std::vector<std::string> messages;
+    std::vector<std::string> themes;
 };
+
+static RendererFactory scripted(ScriptedRenderer*& out) {
+    return [&out](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> {
+        auto r = std::make_unique<ScriptedRenderer>();
+        out = r.get();
+        return r;
+    };
+}
 
 /// Only renderer events marked `trusted` (the DOM event's isTrusted; every input event of a native renderer) are gestures,
 /// and only pointer ones: keys and the click Enter activates unlock nothing.
 TEST(gestures_need_the_renderers_trusted_flag) {
     ScriptedRenderer* renderer = nullptr;
     WidgetHost host("<button id='b'>go</button><script>TelegramWidget.ready(); var b = document.getElementById('b');"
-                    "b.addEventListener('keydown', function (e) { TelegramWidget.sendMessage('key ' + e.key); });"
-                    "b.addEventListener('click', function (e) { TelegramWidget.sendMessage('click ' + e.detail); });</script>",
-                    "light", 300, WidgetHostOptions(), RES, [&](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> {
-                        auto r = std::make_unique<ScriptedRenderer>();
-                        renderer = r.get();
-                        return r;
-                    });
+                    "b.addEventListener('keydown', function (e) { TelegramWidget.openLink('https://example.com/key-' + e.key); });"
+                    "b.addEventListener('click', function (e) { TelegramWidget.openLink('https://example.com/click-' + e.detail); });</script>",
+                    WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
     std::mutex m;
     std::vector<std::string> sent;
-    host.onBridgeCall = [&](const std::string& method, const std::string& args) { std::lock_guard<std::mutex> l(m); if (method != "ready") sent.push_back(args); };
+    host.onAction = [&](const WidgetAction& a) { std::lock_guard<std::mutex> l(m); if (a.kind != WidgetAction::Ready) sent.push_back(a.url); };
     host.start();
     CHECK(host.waitLoaded(20));
     auto event = [&](const std::string& ev, const std::string& trusted) { renderer->onMessage("{\"type\":\"event\",\"ev\":" + ev + trusted + "}"); };
@@ -521,8 +687,270 @@ TEST(gestures_need_the_renderers_trusted_flag) {
     CHECK(host.waitUntil([&](const WidgetDiagnostics& d) { std::lock_guard<std::mutex> l(m); return sent.size() >= 1 && d.countDiag("activation-blocked") >= 8; }, 5));
     sleepMs(100);
     std::lock_guard<std::mutex> l(m);
-    CHECK_MSG(sent == std::vector<std::string>({"[\"click 1\"]"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
+    CHECK_MSG(sent == std::vector<std::string>({"https://example.com/click-1"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
     CHECK(host.diagnostics().countDiag("activation-blocked") == 8);
+}
+
+// ───────────── SDK v1 through the real engine (docs/sdk-v1.md §2–§4) ─────────────
+
+TEST(sdk_members_and_removed_apis) {
+    Run r("<button>c</button><script>var out = [alert('a'), confirm('c'), prompt('p')];"
+          "document.querySelector('button').onclick = function () {"
+          "  navigator.clipboard.writeText('x').catch(function (e) { out.push(e.name); });"
+          "  navigator.share({ text: 'x' }).catch(function (e) { out.push(e.name); }); };</script>");
+    r.engine.activationEvent("{\"type\":\"click\",\"targetId\":5,\"detail\":1}", 1);
+    r.barrier();
+    CHECK_MSG(r.engine.probe("JSON.stringify(out)") == "[null,false,null,\"NotAllowedError\",\"NotAllowedError\"]", r.engine.probe("JSON.stringify(out)"));
+    std::string members = r.engine.probe("[TelegramWidget.profile, TelegramWidget.isProfileAtLeast(1), TelegramWidget.isProfileAtLeast(2), TelegramWidget.colorScheme,"
+                                         " TelegramWidget.isActive, typeof TelegramWidget.sendMessage, typeof TelegramWidget.on, Object.keys(TelegramWidget.themeParams).length].join()");
+    CHECK_MSG(members == "1,true,false,light,true,undefined,undefined,15", members);
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.bridge.empty() && r.host.actions.empty(), actionsText(r.host.actions));
+    CHECK(!r.host.hasDiag("profile-mismatch"));
+}
+
+/// A tap on a button that calls openLink reaches onAction normalised; the second call in the same tap is
+/// `activation-blocked`; invalid URLs throw TypeError in the widget and never reach the host.
+TEST(sdk_link_tap_reaches_on_action) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<button>go</button><script>var errors = [];"
+                    "function tryOpen(m, u) { try { TelegramWidget[m](u); } catch (e) { errors.push(m + ':' + e.name); } }"
+                    "tryOpen('openLink', 'http://example.com/'); tryOpen('openLink', 'https://t.me/x'); tryOpen('openTelegramLink', 'tg://resolve?domain=x'); tryOpen('openLink', 42);"
+                    "document.querySelector('button').addEventListener('click', function () { TelegramWidget.openLink('HTTPS://Example.com/\xD0\xBF\xD0\xBE\xD0\xB8\xD1\x81\xD0\xBA');"
+                    " TelegramWidget.openLink('https://example.com/second'); });</script>",
+                    WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+    std::mutex m;
+    std::vector<WidgetAction> actions;
+    host.onAction = [&](const WidgetAction& a) { std::lock_guard<std::mutex> l(m); actions.push_back(a); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK(host.probe("errors.join()") == "openLink:TypeError,openLink:TypeError,openTelegramLink:TypeError,openLink:TypeError");
+    renderer->onMessage("{\"type\":\"event\",\"ev\":{\"type\":\"click\",\"targetId\":5,\"detail\":1},\"trusted\":true}");
+    CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("activation-blocked") >= 1; }, 5));
+    host.probe("0");            // the click task has run
+    host.onHostThread([] {});   // and its actions reached the host thread
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG(actions.size() == 1 && actions[0].kind == WidgetAction::OpenLink && actions[0].url == "https://example.com/%D0%BF%D0%BE%D0%B8%D1%81%D0%BA", actionsText(actions));
+    CHECK(host.diagnostics().countDiag("activation-blocked") == 1);
+    CHECK(host.diagnostics().countDiag("bridge-rejected") == 0);
+}
+
+/// `<a href>` taps and window.open go to openLink or openTelegramLink by host; http: and javascript: are ignored.
+TEST(sdk_anchor_and_window_open_route_by_host) {
+    Run r("<a href='https://example.com/a'>a</a><a href='https://t.me/durov'>t</a><a href='http://example.com/'>h</a><a href='javascript:void 0'>j</a>"
+          "<button>o</button><script>var w = 1; document.querySelector('button').onclick = function () { w = window.open('https://telegram.me/x'); };</script>");
+    r.barrier();
+    std::vector<int> targets;
+    {
+        auto l = r.host.lock();
+        for (const std::string tag : {"a", "button"})
+            for (auto& batch : r.host.renderOps)
+                if (auto ops = Json::parse(batch))
+                    for (auto& op : ops->arr()) if (op["op"].asString() == "el" && op["tag"].asString() == tag) targets.push_back(op["id"].asInt());
+    }
+    CHECK(targets.size() == 5);
+    int gesture = 0;
+    for (int id : targets) r.engine.activationEvent("{\"type\":\"click\",\"targetId\":" + std::to_string(id) + ",\"detail\":1}", ++gesture);
+    r.barrier();
+    CHECK(r.engine.probe("w") == "null");
+    auto l = r.host.lock();
+    std::string got = actionsText(r.host.actions);
+    CHECK_MSG(got == "{\"kind\":\"openLink\",\"url\":\"https://example.com/a\"} {\"kind\":\"openTelegramLink\",\"url\":\"https://t.me/durov\"} "
+                     "{\"kind\":\"openTelegramLink\",\"url\":\"https://telegram.me/x\"} ", got);
+    CHECK_MSG(r.host.countDiag("navigation-blocked") == 2, r.diagsText());
+}
+
+/// Haptics need no tap: seven impactOccurred in one task give 5 actions and one `haptic-limit`; a hidden widget plays nothing.
+TEST(sdk_haptics_burst_and_limit) {
+    Run r("<script>for (var i = 0; i < 7; i++) TelegramWidget.HapticFeedback.impactOccurred('medium');"
+          "TelegramWidget.HapticFeedback.notificationOccurred('success').selectionChanged();</script>");
+    r.barrier();
+    {
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.actions.size() == 5, actionsText(r.host.actions));
+        if (!r.host.actions.empty()) CHECK(r.host.actions[0] == (WidgetAction{WidgetAction::Haptic, "", "impact", "medium"}));
+        CHECK_MSG(r.host.countDiag("haptic-limit") == 1, r.diagsText());
+    }
+    sleepMs(250); // 2.5 tokens back
+    CHECK(r.engine.probe("TelegramWidget.HapticFeedback.selectionChanged() === TelegramWidget.HapticFeedback") == "true");
+    {
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.actions.size() == 6 && r.host.actions[5] == (WidgetAction{WidgetAction::Haptic, "", "selection", ""}), actionsText(r.host.actions));
+    }
+    SandboxConfig hidden = testConfig();
+    hidden.visible = false;
+    Run h("<script>TelegramWidget.HapticFeedback.selectionChanged(); TelegramWidget.HapticFeedback.selectionChanged();</script>", hidden);
+    h.barrier();
+    auto l = h.host.lock();
+    CHECK_MSG(h.host.actions.empty(), actionsText(h.host.actions));
+    CHECK_MSG(h.host.countDiag("haptic-limit") == 1, h.diagsText());
+}
+
+/// The preload is readable from the first script line; each task commits the areas it changed, in full;
+/// a commit near the quota passes the glue; lone surrogates round-trip as WTF-8.
+TEST(sdk_storage_preload_and_commits) {
+    SandboxConfig cfg = testConfig();
+    cfg.storage.local = {{"count", "41"}};
+    cfg.storage.session = {{"s", "kept"}};
+    Run r("<button>b</button><script>"
+          "var seen = localStorage.getItem('count') + '/' + sessionStorage.getItem('s') + '/' + localStorage.length;"
+          "localStorage.setItem('count', String(Number(localStorage.getItem('count')) + 1)); localStorage.extra = 7;"
+          "document.querySelector('button').onclick = function () { sessionStorage.setItem('s', 'tapped'); localStorage.setItem('count', localStorage.count); };</script>", cfg);
+    CHECK(r.engine.probe("seen") == "41/kept/1");
+    r.engine.event("{\"type\":\"click\",\"targetId\":5}");
+    r.barrier();
+    {
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.storageCommits.size() == 2, std::to_string(r.host.storageCommits.size()) + " commits");
+        if (r.host.storageCommits.size() == 2) {
+            CHECK(r.host.storageCommits[0].first == "local" && r.host.storageCommits[0].second == StorageArea({{"count", "42"}, {"extra", "7"}}));
+            CHECK(r.host.storageCommits[1].first == "session" && r.host.storageCommits[1].second == StorageArea({{"s", "tapped"}}));
+        }
+        CHECK(!r.host.hasDiag("storage-rejected"));
+    }
+    // 16 KB of UTF-8 per area: the shim throws past it, what it commits is within the glue's quota.
+    Run q("<script>var out = []; localStorage.setItem('k', 'x'.repeat(16383));"
+          "try { localStorage.setItem('k2', 'y'); } catch (e) { out.push(e.name, e.code, e instanceof DOMException); }"
+          "sessionStorage.setItem('w', '\xD0\xB6'.repeat(8000)); sessionStorage.setItem('\\ud800', 'x\\udc00');</script>");
+    CHECK(q.engine.probe("out.join()") == "QuotaExceededError,22,true");
+    q.barrier();
+    StorageArea session;
+    {
+        auto l = q.host.lock();
+        CHECK_MSG(q.host.storageCommits.size() == 2 && !q.host.hasDiag("storage-rejected"), q.diagsText());
+        if (q.host.storageCommits.size() == 2) {
+            CHECK(sdk::storageBytes(q.host.storageCommits[0].second) == 16384);
+            session = q.host.storageCommits[1].second;
+            CHECK(session.count("\xED\xA0\x80") && session["\xED\xA0\x80"] == "x\xED\xB0\x80");
+            CHECK(sdk::storageBytes(session) == 1 + 2 * 8000 + 3 + 4);
+        }
+    }
+    SandboxConfig again = testConfig();
+    again.storage.session = session;
+    Run back("<p>x</p>", again);
+    CHECK_MSG(back.engine.probe("sessionStorage.getItem('\\ud800') === 'x\\udc00' && sessionStorage.getItem('w').length") == "8000", back.diagsText());
+}
+
+TEST(sdk_storage_preload_over_quota_is_rejected) {
+    SandboxConfig cfg = testConfig();
+    cfg.storage.local = {{"a", std::string(20000, 'x')}};
+    cfg.storage.session = {{"b", "1"}};
+    Run r("<p>x</p>", cfg);
+    CHECK(r.engine.probe("localStorage.length + sessionStorage.length") == "0");
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.countDiag("storage-rejected") == 1, r.diagsText());
+    CHECK(r.host.storageCommits.empty());
+}
+
+/// themeParams from the host reach the widget checked (the rest from the scheme's defaults); a theme
+/// change updates colorScheme and themeParams and fires themeChanged and the legacy onTheme once.
+TEST(sdk_theme_params_reach_the_widget) {
+    SandboxConfig cfg = testConfig();
+    cfg.themeParams = {{"bg_color", "#ABCDEF"}, {"text_color", "red"}, {"made_up", "#123456"}};
+    Run r("<script>var log = [], first = TelegramWidget.themeParams;"
+          "TelegramWidget.onEvent('themeChanged', function () { log.push('changed:' + TelegramWidget.colorScheme + ':' + TelegramWidget.themeParams.bg_color + ':' + (this === TelegramWidget)); });"
+          "TelegramWidget.onTheme(function (t) { log.push('onTheme:' + t); });</script>", cfg);
+    CHECK(r.engine.probe("TelegramWidget.themeParams.bg_color + ',' + TelegramWidget.themeParams.text_color + ',' + ('made_up' in TelegramWidget.themeParams)") == "#abcdef,#000000,false");
+    r.engine.theme("light", {{"bg_color", "#abcdef"}});
+    r.engine.theme("dark", {{"bg_color", "#101010"}});
+    r.barrier();
+    CHECK_MSG(r.engine.probe("log.join('|')") == "onTheme:light|changed:dark:#101010:true|onTheme:dark", r.engine.probe("log.join('|')"));
+    CHECK(r.engine.probe("first === TelegramWidget.themeParams") == "false");
+    CHECK(r.engine.probe("TelegramWidget.themeParams.text_color") == "#ffffff");
+}
+
+TEST(sdk_locale_reaches_the_widget) {
+    SandboxConfig cfg = testConfig();
+    cfg.locale = "pt-BR";
+    Run r("<p>x</p>", cfg);
+    CHECK(r.engine.probe("navigator.language + ',' + navigator.languages.join()") == "pt-BR,pt-BR");
+    SandboxConfig bad = testConfig();
+    bad.locale = "ru_RU";
+    Run b("<p>x</p>", bad);
+    CHECK(b.engine.probe("navigator.language") == "en-US");
+}
+
+/// WidgetHost: the renderer's first message is the theme (scheme, checked params, button tokens as given),
+/// and every setTheme sends another; the widget gets the scheme, the palette and the locale; the renderer's
+/// gesture report becomes onGestureClaim.
+TEST(sdk_widget_host_theme_locale_and_gestures) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetTheme theme;
+    theme.colorScheme = "dark";
+    theme.params = {{"bg_color", "#ABCDEF"}, {"link_color", "blue"}};
+    theme.button.radius = "10px";
+    theme.button.pressedOpacity = 0.7;
+    WidgetHostOptions options;
+    options.locale = "ru";
+    options.storage.local = {{"k", "v"}};
+    WidgetHost host("<button>b</button><script>document.querySelector('button').onclick = function () { localStorage.k = 'w'; };</script>", theme, 300, options, RES, scripted(renderer));
+    std::mutex m;
+    std::vector<std::pair<bool, bool>> claims;
+    std::vector<std::pair<std::string, StorageArea>> commits;
+    host.onGestureClaim = [&](bool x, bool y) { std::lock_guard<std::mutex> l(m); claims.emplace_back(x, y); };
+    host.onStorageCommit = [&](const std::string& area, const StorageArea& values) { std::lock_guard<std::mutex> l(m); commits.emplace_back(area, values); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    {
+        std::lock_guard<std::mutex> l(renderer->mutex);
+        CHECK_MSG(!renderer->messages.empty() && renderer->messages[0] == "{\"type\":\"theme\",\"theme\":{\"colorScheme\":\"dark\",\"params\":{\"bg_color\":\"#abcdef\"},\"button\":{\"radius\":\"10px\",\"pressedOpacity\":0.7}}}",
+                  renderer->messages.empty() ? "nothing sent" : renderer->messages[0]);
+    }
+    CHECK(host.probe("TelegramWidget.colorScheme + ',' + TelegramWidget.themeParams.bg_color + ',' + TelegramWidget.themeParams.link_color + ',' + navigator.language + ',' + localStorage.k") ==
+          "dark,#abcdef,#8774e1,ru,v");
+    WidgetTheme light;
+    light.colorScheme = "Dark"; // anything but exactly "dark" is light
+    light.params = {{"bg_color", "#FFFFFF"}};
+    host.setTheme(light);
+    host.onHostThread([] {});
+    CHECK(host.probe("TelegramWidget.colorScheme + ',' + TelegramWidget.themeParams.bg_color") == "light,#ffffff");
+    auto themes = renderer->sent("theme");
+    CHECK_MSG(themes.size() == 2 && themes[1].dump() == "{\"type\":\"theme\",\"theme\":{\"colorScheme\":\"light\",\"params\":{\"bg_color\":\"#ffffff\"},\"button\":{}}}",
+              themes.empty() ? "none" : themes.back().dump());
+    {
+        std::lock_guard<std::mutex> l(renderer->mutex);
+        CHECK(renderer->themes == std::vector<std::string>({"light"}));
+    }
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":true,\"x\":false,\"y\":true}");
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":true,\"y\":false}");
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":true}"); // a renderer that only knows `wants` (the native prototypes)
+    renderer->onMessage("{\"type\":\"event\",\"ev\":{\"type\":\"click\",\"targetId\":5,\"detail\":1},\"trusted\":true}");
+    CHECK(host.waitUntil([&](const WidgetDiagnostics& d) { return d.storageCommits > 0; }, 5));
+    host.destroy();
+    std::lock_guard<std::mutex> l(m);
+    CHECK((claims == std::vector<std::pair<bool, bool>>{{false, true}, {true, false}, {false, true}}));
+    CHECK(commits.size() == 1 && commits[0].first == "local" && commits[0].second == StorageArea({{"k", "w"}}));
+}
+
+/// The API before SDK v1 still compiles and forwards: a string theme, setTheme(string), the raw onBridgeCall.
+TEST(sdk_deprecated_host_api_forwards) {
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<script>TelegramWidget.ready(); TelegramWidget.HapticFeedback.impactOccurred('soft');</script>", "dark", 300, WidgetHostOptions(), RES, scripted(renderer));
+    std::mutex m;
+    std::vector<std::pair<std::string, std::string>> raw;
+    host.onBridgeCall = [&](const std::string& method, const std::string& args) { std::lock_guard<std::mutex> l(m); raw.emplace_back(method, args); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK(host.probe("TelegramWidget.theme + ',' + TelegramWidget.themeParams.bg_color") == "dark,#212121");
+    host.setTheme("light");
+    host.onHostThread([] {});
+    CHECK(host.probe("TelegramWidget.colorScheme") == "light");
+    host.onHostThread([] {});
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG((raw == std::vector<std::pair<std::string, std::string>>{{"ready", "[]"}, {"haptic", "[\"impact\",\"soft\"]"}}), std::to_string(raw.size()));
+    CHECK(host.diagnostics().actions.size() == 2);
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#else
+#pragma GCC diagnostic pop
+#endif
 }
 
 TEST(widget_code_cannot_reach_host_globals) {
@@ -715,7 +1143,7 @@ struct BlitzRun {
     BlitzRenderer* blitz = nullptr;
     WidgetHost host;
     explicit BlitzRun(const std::string& html, double dpr = 2)
-        : host(html, "light", 400, [] { WidgetHostOptions o; o.devicePixelRatio = 2; return o; }(), RES,
+        : host(html, WidgetTheme{}, 400, [] { WidgetHostOptions o; o.devicePixelRatio = 2; return o; }(), RES,
                [this, dpr](std::shared_ptr<SandboxResources>, const std::string& theme, double width) -> std::unique_ptr<Renderer> {
                    auto r = std::make_unique<BlitzRenderer>(theme, width, dpr);
                    blitz = r.get();
@@ -751,7 +1179,7 @@ TEST(blitz_lays_out_answers_queries_and_paints) {
 /// marked trusted, so it is a user gesture for a privileged bridge call.
 TEST(blitz_click_reaches_the_widget) {
     BlitzRun r("<button id=\"b\" style=\"display:block;width:200px;height:60px;margin:0\">go</button>"
-               "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); TelegramWidget.sendMessage('clicked'); });</script>");
+               "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); TelegramWidget.openLink('https://example.com/clicked'); });</script>");
     r.blitz->click(20, 20);
     CHECK_MSG(r.host.waitUntil([](const WidgetDiagnostics& d) { return d.hasLog("clicked b"); }, 3), "click reached the widget");
     r.blitz->click(300, 200);
@@ -761,7 +1189,7 @@ TEST(blitz_click_reaches_the_widget) {
     for (auto& l : d.logs) if (l.second == "clicked b") clicks++;
     CHECK_MSG(clicks == 1, "a click outside the button must not fire it: " + std::to_string(clicks));
     int sent = 0;
-    for (auto& b : d.bridge) if (b.first == "sendMessage") sent++;
+    for (auto& a : d.actions) if (a.kind == WidgetAction::OpenLink && a.url == "https://example.com/clicked") sent++;
     CHECK_MSG(sent == 1, "the renderer marks its input trusted, so the click is a gesture: " + std::to_string(sent));
 }
 
@@ -787,7 +1215,7 @@ struct LitehtmlRun {
     LitehtmlRenderer* lite = nullptr;
     WidgetHost host;
     explicit LitehtmlRun(const std::string& html, double dpr = 2)
-        : host(html, "light", 400, [] { WidgetHostOptions o; o.devicePixelRatio = 2; return o; }(), RES,
+        : host(html, WidgetTheme{}, 400, [] { WidgetHostOptions o; o.devicePixelRatio = 2; return o; }(), RES,
                [this, dpr](std::shared_ptr<SandboxResources>, const std::string& theme, double width) -> std::unique_ptr<Renderer> {
                    auto r = std::make_unique<LitehtmlRenderer>(theme, width, dpr);
                    lite = r.get();
@@ -822,7 +1250,7 @@ TEST(litehtml_lays_out_answers_queries_and_paints) {
 /// marked trusted, so it is a user gesture for a privileged bridge call.
 TEST(litehtml_click_reaches_the_widget) {
     LitehtmlRun r("<button id=\"b\" style=\"display:block;width:200px;height:60px;margin:0\">go</button>"
-                  "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); TelegramWidget.sendMessage('clicked'); });</script>");
+                  "<script>document.getElementById('b').addEventListener('click', function (e) { console.log('clicked ' + e.target.id); TelegramWidget.openLink('https://example.com/clicked'); });</script>");
     r.lite->click(20, 20);
     CHECK_MSG(r.host.waitUntil([](const WidgetDiagnostics& d) { return d.hasLog("clicked b"); }, 3), "click reached the widget");
     r.lite->click(300, 200);
@@ -832,7 +1260,7 @@ TEST(litehtml_click_reaches_the_widget) {
     for (auto& l : d.logs) if (l.second == "clicked b") clicks++;
     CHECK_MSG(clicks == 1, "a click outside the button must not fire it: " + std::to_string(clicks));
     int sent = 0;
-    for (auto& b : d.bridge) if (b.first == "sendMessage") sent++;
+    for (auto& a : d.actions) if (a.kind == WidgetAction::OpenLink && a.url == "https://example.com/clicked") sent++;
     CHECK_MSG(sent == 1, "the renderer marks its input trusted, so the click is a gesture: " + std::to_string(sent));
 }
 

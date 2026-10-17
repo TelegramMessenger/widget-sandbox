@@ -7,7 +7,8 @@
 //
 // Threading. A Qt-free library has no main thread, so the host owns a "host
 // thread" that stands in for it: every renderer call, every diagnostics update
-// and `onChange` / `onRenderOps` / `onBridgeCall` run there, in order. Engine
+// and `onChange` / `onRenderOps` / `onAction` / `onStorageCommit` /
+// `onGestureClaim` (and the deprecated `onBridgeCall`) run there, in order. Engine
 // callbacks hop from the engine thread; a layout query blocks the engine
 // thread (≤ 3 s) until the renderer answers on the host thread. A Qt host
 // would replace the thread with the UI thread (`crl::on_main`) one for one.
@@ -32,6 +33,24 @@
 
 namespace twidget {
 
+/// The client's own `<button>` (docs/sdk-v1.md §2.4); every field optional, the template's defaults stand
+/// for the rest. Passed to the renderer as given: the renderer core keeps only values that match their
+/// grammar (`#rrggbb`, CSS lengths, a font shorthand with generic families only, opacities 0–1).
+struct WidgetButtonTokens {
+    std::optional<std::string> bg, text, radius, font, padding, height;
+    std::optional<double> pressedOpacity, disabledOpacity;
+};
+
+/// The chat's theme (docs/sdk-v1.md §2.3, §2.4, §4.3): the colour scheme ("light" | "dark"; anything but
+/// "dark" is light), the palette under the 15 Mini Apps keys as `#rrggbb` (others are dropped), the button tokens.
+struct WidgetTheme {
+    std::string colorScheme = "light";
+    std::map<std::string, std::string> params;
+    WidgetButtonTokens button;
+};
+
+// WidgetStorage, WidgetAction and StorageArea are in twidget/sdk_policy.h (the engine checks with them).
+
 /// Limits for the widget's QuickJS runtime (see SandboxConfig); mirrors WidgetHost.Options on iOS/Android.
 struct WidgetHostOptions {
     size_t memoryLimitBytes = size_t(64) << 20;
@@ -48,12 +67,22 @@ struct WidgetHostOptions {
     std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
     std::vector<std::string> features;
+    /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
+    std::string locale = std::string(sdk::DEFAULT_LOCALE);
+    /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); an area over the
+    /// 16 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
+    WidgetStorage storage;
 };
 
 struct WidgetDiagnostics {
     std::vector<std::pair<std::string, std::string>> logs;
     /// kind → (count, first details)
     std::map<std::string, std::pair<int, std::vector<std::string>>> diags;
+    /// The first 1000 actions `onAction` got.
+    std::vector<WidgetAction> actions;
+    /// Storage commits `onStorageCommit` got (one per area).
+    int storageCommits = 0;
+    /// The first 1000 raw bridge calls (method, args JSON), as the deprecated `onBridgeCall` gets them.
     std::vector<std::pair<std::string, std::string>> bridge;
     SandboxStats stats;
     int nodes = 0;
@@ -96,23 +125,32 @@ private:
 class WidgetHost final : public SandboxEngineDelegate {
 public:
     /// Throws JSError if the validator bundle fails to load. Nothing runs until `start()`.
-    WidgetHost(std::string html, std::string theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
+    WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
                RendererFactory rendererFactory, std::shared_ptr<IntlProvider> intl = nullptr);
+    /// The API before SDK v1: a colour scheme only (the scheme's default palette, no button tokens).
+    [[deprecated("pass a WidgetTheme (SDK v1)")]]
+    WidgetHost(std::string html, std::string theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
+               RendererFactory rendererFactory, std::shared_ptr<IntlProvider> intl = nullptr)
+        : WidgetHost(std::move(html), WidgetTheme{std::move(theme), {}, {}}, width, std::move(options), std::move(resources), std::move(rendererFactory), std::move(intl)) {}
     ~WidgetHost();
     WidgetHost(const WidgetHost&) = delete;
     WidgetHost& operator=(const WidgetHost&) = delete;
 
     /// Loads the renderer; the engine boots once the renderer announced itself (`ready`).
     void start();
-    void setTheme(const std::string& theme);
+    /// The chat's theme changed: stylesheets are re-sanitised against the scheme, the renderer gets the
+    /// scheme and the variables, the widget gets `colorScheme`, `themeParams` and `themeChanged` in one task.
+    void setTheme(const WidgetTheme& theme);
+    [[deprecated("pass a WidgetTheme (SDK v1)")]]
+    void setTheme(const std::string& theme) { setTheme(WidgetTheme{theme, {}, {}}); }
     /// Off-screen pause: no animation frames, timers at 1 Hz, `document.hidden` inside the widget.
     void setVisible(bool visible);
-    void bridgeEvent(const std::string& event, const std::string& dataJson = "null");
     /// A DOM event for the widget that did not come from the renderer (the harness's `--events`).
     void event(const std::string& json);
     /// Trusted diagnostic code evaluated in the widget context (tests / harness only).
     std::string probe(const std::string& code);
-    /// Stops the engine and the renderer. Idempotent; not from the host thread.
+    /// Stops the engine and the renderer. Idempotent; not from the host thread. Storage commits already on
+    /// their way reach `onStorageCommit` before it returns; no action and no storage commit comes after it.
     void destroy();
 
     /// The renderer the factory built; its own API (touches, paints) is the owner's business.
@@ -132,6 +170,16 @@ public:
     std::function<void(const WidgetDiagnostics&)> onChange;
     /// Every validated batch on its way to the renderer (what the harness scans for leaks).
     std::function<void(const std::string& renderOpsJson)> onRenderOps;
+    /// What the widget asked the client to do, checked (URL rules, user activation, the haptic rate limit;
+    /// docs/sdk-v1.md §3.2, §5.2, §5.3). At most one link action per pointer press.
+    std::function<void(const WidgetAction& action)> onAction;
+    /// The new full content of a Web Storage area, "local" or "session", at the end of each task that changed it
+    /// (docs/sdk-v1.md §5.4). Within the quota; a lone surrogate of the widget's string arrives in its WTF-8 form.
+    std::function<void(const std::string& area, const std::map<std::string, std::string>& values)> onStorageCommit;
+    /// On every primary pointerdown: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch (§5.5).
+    std::function<void(bool x, bool y)> onGestureClaim;
+    /// Deprecated since SDK v1 (`onAction`): the raw method and arguments JSON of each call `onAction` gets, right after it.
+    [[deprecated("use onAction (SDK v1)")]]
     std::function<void(const std::string& method, const std::string& argsJson)> onBridgeCall;
     /// Non-fatal uncaught exception in widget code (also in `diagnostics().logs`).
     std::function<void(const std::string& text)> onError;
@@ -147,6 +195,8 @@ public:
     void onRequestFrame(SandboxEngine&) override;
     void onLog(SandboxEngine&, const std::string& level, const std::string& text) override;
     void onDiag(SandboxEngine&, const std::string& kind, const std::string& detail) override;
+    void onBridgeAction(SandboxEngine&, const WidgetAction& action) override;
+    void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override;
     void onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) override;
     void onLoaded(SandboxEngine&) override;
     void onStats(SandboxEngine&, const SandboxStats& stats) override;
@@ -168,6 +218,8 @@ private:
     void onRenderer(const std::string& json);
     void handleRendererMessage(const Json& msg);
     void toRenderer(const std::string& json);
+    /// `{"type":"theme","theme":{"colorScheme","params","button"}}` of the current theme (docs/sdk-v1.md §3.4).
+    std::string themeMessage() const;
     void resolveQuery(const std::string& json, std::optional<std::vector<uint8_t>> binary);
     void diag(const std::string& kind, const std::string& detail);
     void changed();
@@ -180,7 +232,9 @@ private:
 
     JSThread hostThread_;
     std::string html_;
+    /// The colour scheme ("light" | "dark") and the whole theme with its palette checked (host thread after start).
     std::string theme_;
+    WidgetTheme widgetTheme_;
     WidgetHostOptions options_;
     SandboxConfig config_;
     std::shared_ptr<SandboxResources> resources_;
@@ -196,6 +250,9 @@ private:
     bool rendererReady_ = false;
     bool engineStarted_ = false;
     bool started_ = false;
+    /// Set at the end of destroy(): storage commits queued before it still reach `onStorageCommit` (the
+    /// widget's last state is worth keeping); none reaches the owner once destroy() has returned.
+    bool callbacksClosed_ = false;
     std::vector<std::string> pendingToRenderer_;
     double viewportW_, viewportH_, viewportDpr_;
     int qid_ = 0;

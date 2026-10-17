@@ -31,7 +31,11 @@ public:
     std::vector<std::pair<std::string, std::string>> logs;
     std::vector<std::pair<std::string, std::string>> diags;
     std::vector<std::string> queries;
+    /// Raw bridge calls the glue let through (the deprecated onBridge), and the checked actions (onBridgeAction).
     std::vector<std::pair<std::string, std::string>> bridge;
+    std::vector<WidgetAction> actions;
+    /// Storage commits the glue accepted, one entry per area, in order.
+    std::vector<std::pair<std::string, StorageArea>> storageCommits;
     std::optional<std::string> died;
     int frameRequests = 0;
     bool loaded = false;
@@ -98,6 +102,16 @@ public:
         std::lock_guard<std::mutex> l(mutex_);
         bridge.emplace_back(method, argsJson);
         if (verbose_) fprintf(stderr, "[bridge] %s %s\n", method.c_str(), argsJson.c_str());
+    }
+    void onBridgeAction(SandboxEngine&, const WidgetAction& action) override {
+        std::lock_guard<std::mutex> l(mutex_);
+        actions.push_back(action);
+        if (verbose_) fprintf(stderr, "[action] %s\n", action.toJson().dump().c_str());
+    }
+    void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override {
+        std::lock_guard<std::mutex> l(mutex_);
+        storageCommits.emplace_back(area, values);
+        if (verbose_) fprintf(stderr, "[storage] %s, %zu keys, %zu bytes\n", area.c_str(), values.size(), sdk::storageBytes(values));
     }
     void onLoaded(SandboxEngine&) override { { std::lock_guard<std::mutex> l(mutex_); loaded = true; } cv_.notify_all(); }
     void onStats(SandboxEngine&, const SandboxStats& s) override { std::lock_guard<std::mutex> l(mutex_); stats = s; }
