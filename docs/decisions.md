@@ -1130,6 +1130,16 @@ milestones; recorded here so the work in between does not drift from it.
     sets as variables on the renderer root and updates with the theme. Native
     renderers bake the same template into their master CSS with the values
     filled in.
+  - The defaults (before the SDK delivers tokens) survive partial overrides,
+    which widgets write against browsers: a translucent accent tint as the
+    background and the inherited text colour, no minimum height. A first
+    version painted white text on the accent colour and set a 34 px minimum
+    height; a widget that styled only the background got white on white (9
+    buttons in 6 corpus widgets), and one that set a small height got a taller
+    button. With the tint and inherited text, 1 corpus button in the light
+    theme stays under 2:1 contrast (the author's own colours) of 318. A client
+    whose tokens set a light text colour on a solid background brings the
+    first problem back; `docs/sdk-v1.md` says so next to the tokens.
   - Height and padding tokens stay within a narrow range: they move the
     bubble's height. Corpus references render with one fixed reference token
     set so renderers stay comparable; per-client tokens are checked by eye.
