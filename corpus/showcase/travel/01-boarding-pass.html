@@ -1,18 +1,21 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: an airline boarding pass — gate closes in a live countdown, the pass flips over to its QR code on a tap, "Add to Wallet" settles into a done state
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: an airline boarding pass — gate closes in a live countdown, the pass flips over to its QR code on a tap (a 2D flip: one face folds to a line, the other unfolds), "Add to Wallet" opens the pass file and settles into a done state kept locally, Share opens Telegram's share sheet
 -->
 <style>
   :root { color-scheme: light dark;
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff; --green: #34c759; --orange: #ff9500; --red: #ff3b30;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
-  .wrap { width: 100%; perspective: 1200px; }
-  .pass { position: relative; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.4,.2,.2,1); cursor: pointer; }
-  .pass.flipped { transform: rotateY(180deg); }
-  .face { box-sizing: border-box; width: 100%; background: var(--card); overflow: hidden; backface-visibility: hidden; }
-  .face.back { position: absolute; inset: 0; transform: rotateY(180deg); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  .wrap { width: 100%; background: var(--card); overflow: hidden; }
+  /* Both faces share one grid cell (the pass is as tall as the taller one). The flip is 2D: the face on show folds
+     to a vertical line, then the other unfolds from it. */
+  .pass { display: grid; cursor: pointer; }
+  .face { grid-area: 1 / 1; box-sizing: border-box; width: 100%; background: var(--card); overflow: hidden; }
+  .pass .back, .pass.flipped .front { transform: scaleX(0); visibility: hidden; transition: transform .25s cubic-bezier(.4,0,1,1), visibility 0s .25s; }
+  .pass .front, .pass.flipped .back { transform: none; visibility: visible; transition: transform .25s .25s cubic-bezier(0,0,.6,1), visibility 0s .25s; }
+  .face.back { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 18px; }
   .head { padding: 16px 18px 12px; background: linear-gradient(135deg, #0b3d91, #1e6fe0 60%, #52a8ff); color: #fff; position: relative; overflow: hidden; }
   .head::after { content: ''; position: absolute; width: 260px; height: 260px; right: -90px; top: -150px; border-radius: 50%; background: rgba(255,255,255,.12); }
   .airline { display: flex; align-items: center; justify-content: space-between; font-weight: 700; letter-spacing: .04em; font-size: 12px; opacity: .9; }
@@ -43,7 +46,7 @@
   .btn.primary { background: #0a0a0a; color: #fff; } .btn.primary.done { background: var(--green); }
   @media (prefers-color-scheme: dark) { .btn.primary { background: #fff; color: #000; } .btn.primary.done { background: var(--green); color: #fff; } }
   .hint { font-size: 11px; color: var(--muted); text-align: center; padding-bottom: 12px; }
-  .qr { width: 220px; height: 220px; border-radius: 12px; background: #fff; padding: 12px; box-sizing: border-box; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
+  .qr { width: 196px; height: 196px; border-radius: 12px; background: #fff; padding: 12px; box-sizing: border-box; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
   .qr svg { width: 100%; height: 100%; display: block; shape-rendering: crispEdges; }
   .back .name { margin-top: 16px; font-weight: 700; font-size: 16px; } .back .seq { color: var(--muted); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 </style>
@@ -69,12 +72,6 @@
         </div>
         <div class="gate" id="gate"><span style="display:flex;align-items:center"><span class="dot"></span><span id="gateText">Gate closes in</span></span><span class="t" id="count">--:--</span></div>
       </div>
-      <div class="tear"></div>
-      <div class="foot">
-        <button class="btn primary" id="wallet">Add to Wallet</button>
-        <button class="btn" id="share">Share</button>
-      </div>
-      <div class="hint">Tap the pass to show the QR code</div>
     </div>
     <div class="face back">
       <div class="qr"><svg viewBox="0 0 29 29" id="qr"></svg></div>
@@ -82,9 +79,19 @@
       <div class="seq">SEQ 042 · ETKT 724 2403 981 227</div>
     </div>
   </div>
+  <div class="tear"></div>
+  <div class="foot">
+    <button class="btn primary" id="wallet">Add to Wallet</button>
+    <button class="btn" id="share">Share</button>
+  </div>
+  <div class="hint">Tap the pass to show the QR code</div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. "In Wallet" is local state in localStorage (kept by the client per message, restored on
+  // load); the wallet file and the share sheet are links, opened from the tap's own handler. window.TelegramWidget is
+  // absent when the dev app renders the file natively (reference mode).
+  const tw = window.TelegramWidget, KEY = 'pass-nw1472';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   // A deterministic QR-looking pattern (finder squares + LCG modules); not a real QR, no scanner needed for a demo.
   (function () {
     const n = 29, cells = [];
@@ -103,7 +110,7 @@
   })();
 
   const pass = document.getElementById('pass');
-  pass.addEventListener('click', e => { if (e.target.closest('.btn')) return; pass.classList.toggle('flipped'); });
+  pass.addEventListener('click', () => pass.classList.toggle('flipped'));
 
   // Gate countdown: 12:34 left at load, ticking every second.
   let left = 12 * 60 + 34;
@@ -120,13 +127,15 @@
   setInterval(tick, 1000);
 
   const wallet = document.getElementById('wallet');
+  const inWallet = () => { wallet.classList.add('done'); wallet.textContent = '✓ In Wallet'; };
+  if (store.get(KEY, {}).wallet) inWallet();
   wallet.addEventListener('click', () => {
     if (wallet.classList.contains('done')) return;
-    wallet.textContent = 'Adding…';
-    setTimeout(() => { wallet.classList.add('done'); wallet.textContent = '✓ In Wallet'; }, 700);
+    tw?.openLink('https://nordwind.example.com/passes/NW1472-14A.pkpass');
+    wallet.textContent = 'Adding…'; store.set(KEY, { wallet: true });
+    setTimeout(inWallet, 300);
   });
-  document.getElementById('share').addEventListener('click', e => {
-    e.currentTarget.textContent = 'Sent';
-    bot.sendMessage('Boarding pass NW 1472 · LIS → TBS · seat 14A');
+  document.getElementById('share').addEventListener('click', () => {
+    tw?.openTelegramLink?.('https://t.me/share/url?url=' + encodeURIComponent('https://nordwind.example.com/trips/NW1472') + '&text=' + encodeURIComponent('My flight NW 1472 · LIS → TBS · 24 May, boarding 18:05'));
   });
 </script>

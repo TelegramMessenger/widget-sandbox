@@ -1,5 +1,5 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
   idea: a product configurator — the headphones (inline SVG) recolour with a transition as swatches are tapped, a material and a size, the price updates, "Add to cart" bounces and the cart badge counts
 -->
 <style>
@@ -7,7 +7,7 @@
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff; --green: #34c759;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; }
   .stage { position: relative; height: 230px; background: radial-gradient(ellipse at 50% 100%, var(--glow, #c7d7ff) 0%, var(--card2) 70%); transition: --glow .6s; overflow: hidden; }
   .stage svg { position: absolute; left: 50%; top: 50%; width: 220px; height: 220px; transform: translate(-50%, -50%); filter: drop-shadow(0 18px 20px rgba(0,0,0,.25)); animation: float 5s ease-in-out infinite; }
@@ -57,12 +57,16 @@
   </div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. The cart is local state in localStorage (kept by the client per message, it survives the
+  // widget being re-created): the badge and the last configuration come back on load.
+  const KEY = 'aura-pro-cart';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+  const saved = store.get(KEY, { items: [] });
   const COLORS = [
     { n: 'Midnight', c: '#1d1f2b', c2: '#3a3d52', glow: '#9aa5d6' }, { n: 'Fog', c: '#d8d9de', c2: '#a9abb5', glow: '#e4e5ea' },
     { n: 'Sage', c: '#8fae8b', c2: '#5f7d5c', glow: '#c9dcc6' }, { n: 'Terracotta', c: '#c9643f', c2: '#8a3f23', glow: '#f0c0ad' }, { n: 'Cobalt', c: '#2851c7', c2: '#162d75', glow: '#a9bdf5' },
   ];
-  let col = 0, mat = 0, matP = 0, fit = 'M', inCart = 0;
+  let col = 0, mat = 0, matP = 0, fit = 'M', items = Array.isArray(saved.items) ? saved.items : [];
   const sw = document.getElementById('sw'), stage = document.getElementById('stage');
   sw.innerHTML = COLORS.map((c, i) => '<button style="background:' + c.c + '" data-i="' + i + '" class="' + (i === 0 ? 'on' : '') + '" aria-label="' + c.n + '"></button>').join('');
   function paint() {
@@ -83,10 +87,18 @@
   const add = document.getElementById('add'), addT = document.getElementById('addT'), cart = document.getElementById('cart'), badge = document.getElementById('badge');
   add.addEventListener('click', () => {
     if (add.classList.contains('ok')) return;
-    inCart++; add.classList.add('ok'); addT.textContent = '✓ Added · ' + COLORS[col].n + ', ' + fit;
-    cart.classList.remove('bump'); void cart.offsetWidth; cart.classList.add('bump'); badge.textContent = inCart; badge.classList.add('on');
-    bot.sendMessage('/cart add aura-pro colour=' + COLORS[col].n.toLowerCase() + ' cushions=' + mat + ' fit=' + fit);
+    items.push({ col, mat, fit }); store.set(KEY, { items });
+    add.classList.add('ok'); addT.textContent = '✓ Added · ' + COLORS[col].n + ', ' + fit;
+    cart.classList.remove('bump'); void cart.offsetWidth; cart.classList.add('bump'); badge.textContent = items.length; badge.classList.add('on');
     setTimeout(() => { add.classList.remove('ok'); addT.textContent = 'Add another'; }, 1600);
   });
+  // Restore: the last configuration added, the badge with the cart's size.
+  const last = items[items.length - 1];
+  if (last && COLORS[last.col]) {
+    col = last.col; fit = last.fit;
+    [...document.getElementById('mat').children].forEach(x => { const on = Number(x.dataset.v) === last.mat; x.classList.toggle('on', on); if (on) { mat = last.mat; matP = Number(x.dataset.p); } });
+    [...document.getElementById('fit').children].forEach(x => x.classList.toggle('on', x.dataset.v === fit));
+    badge.textContent = items.length; badge.classList.add('on'); addT.textContent = 'Add another';
+  }
   paint();
 </script>

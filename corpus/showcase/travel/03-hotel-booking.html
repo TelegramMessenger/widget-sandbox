@@ -1,15 +1,15 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: a hotel card — swipeable photo carousel (pointer events, snap), a two-tap date range on a mini calendar, guests stepper, the price breakdown re-animates, Book → an animated confirmation
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: a hotel card — swipeable photo carousel (pointer events, snap), a two-tap date range on a mini calendar, guests stepper, the price breakdown re-animates, Book → an animated confirmation; the booking and the saved heart are kept locally
 -->
 <style>
   :root { color-scheme: light dark;
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff; --green: #34c759; --accent: #e8552e;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; position: relative; }
-  .gallery { position: relative; height: 190px; overflow: hidden; touch-action: pan-y; user-select: none; cursor: grab; }
+  .gallery { position: relative; height: 190px; overflow: hidden; touch-action: pan-y; cursor: grab; }
   .track { display: flex; height: 100%; transition: transform .45s cubic-bezier(.22,1,.36,1); will-change: transform; }
   .track.drag { transition: none; }
   .ph { flex: 0 0 100%; height: 100%; position: relative; }
@@ -87,7 +87,12 @@
   </div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. The reservation and the saved heart are local state in localStorage (kept by the client per
+  // message): a re-created widget opens on its confirmation.
+  const KEY = 'casa-azulejo';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+  const saved = store.get(KEY, {});
+  const keep = patch => store.set(KEY, Object.assign(saved, patch));
   // ── carousel ──
   const gal = document.getElementById('gal'), track = document.getElementById('track'), dots = [...document.querySelectorAll('#dots i')];
   const N = 4; let idx = 0, startX = 0, dx = 0, dragging = false;
@@ -98,7 +103,9 @@
   const end = () => { if (!dragging) return; dragging = false; track.classList.remove('drag'); go(idx + (dx < -W() / 5 ? 1 : dx > W() / 5 ? -1 : 0)); };
   gal.addEventListener('pointerup', end); gal.addEventListener('pointercancel', end);
   gal.addEventListener('click', e => { if (dragging || Math.abs(dx) > 5 || e.target.closest('.fav')) return; go(idx + (e.offsetX > W() / 2 ? 1 : -1)); });
-  document.getElementById('fav').addEventListener('click', e => e.currentTarget.classList.toggle('on'));
+  const fav = document.getElementById('fav');
+  fav.classList.toggle('on', saved.fav === true);
+  fav.addEventListener('click', () => keep({ fav: fav.classList.toggle('on') }));
 
   // ── calendar: May 2026 starts on a Friday ──
   const days = document.getElementById('days'), hint = document.getElementById('calHint');
@@ -139,8 +146,12 @@
   $('minus').addEventListener('click', () => { guests = Math.max(1, guests - 1); price(); });
   $('plus').addEventListener('click', () => { guests = Math.min(6, guests + 1); price(); });
   paint(); price();
+  const booked = r => { $('okText').textContent = 'Casa Azulejo · ' + r.a + ' – ' + r.b + ' May · ' + r.guests + ' guest' + (r.guests > 1 ? 's' : ''); $('ok').classList.add('show'); };
   $('book').addEventListener('click', e => {
     e.currentTarget.disabled = true; e.currentTarget.textContent = 'Reserving…';
-    setTimeout(() => { $('okText').textContent = 'Casa Azulejo · ' + a + ' – ' + (b ?? a + 1) + ' May · ' + guests + ' guest' + (guests > 1 ? 's' : ''); $('ok').classList.add('show'); bot.sendMessage('Booked Casa Azulejo, ' + a + '–' + (b ?? a + 1) + ' May, ' + guests + ' guests'); }, 900);
+    const r = { a, b: b ?? a + 1, guests }; keep({ booking: r });
+    setTimeout(() => booked(r), 900);
   });
+  const r0 = saved.booking;
+  if (r0 && Number.isInteger(r0.a) && Number.isInteger(r0.b) && Number.isInteger(r0.guests)) { a = r0.a; b = r0.b; guests = r0.guests; paint(); price(); $('book').disabled = true; booked(r0); }
 </script>

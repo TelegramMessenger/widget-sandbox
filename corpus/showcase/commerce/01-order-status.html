@@ -1,5 +1,5 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
   idea: an order on its way — the status steps complete one after another (check marks drawn with stroke-dashoffset), the courier's "stops away" count ticks down, items collapse, then a star rating appears
 -->
 <style>
@@ -7,7 +7,7 @@
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --green: #34c759; --orange: #ff9500; --blue: #007aff; --yellow: #ffcc00;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; }
   .top { padding: 16px 18px 14px; display: flex; align-items: center; gap: 12px; }
   .logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #ff6b6b, #ffa94d); display: grid; place-items: center; font-size: 22px; flex-shrink: 0; }
@@ -60,35 +60,48 @@
   <div class="foot"><button class="btn" id="help">Help with order</button><button class="btn" id="again">Order again</button></div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. The rating is local state (localStorage: the client keeps it per message, so it is
+  // still there when the widget is re-created); help and reorder are links. window.TelegramWidget is absent when
+  // the dev app renders the file natively (reference mode).
+  const tw = window.TelegramWidget, KEY = 'order-4821';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+  const saved = store.get(KEY, {});
   const steps = [...document.querySelectorAll('.step')], eta = document.getElementById('eta'), etaSub = document.getElementById('etaSub'), courier = document.getElementById('courier');
   const whens = steps.map(s => s.querySelector('.when'));
   // Demo timeline (real seconds): prepared → picked up at 4 s, "stops away" counts down, delivered at 26 s.
-  let minutes = 18, stops = 4, delivered = false;
+  let minutes = 18, stops = 4, delivered = false, t = 0;
   const clock = m => '12:' + String(43 + m).padStart(2, '0');
   function advance(n, when) { steps.forEach((s, i) => { s.classList.toggle('done', i < n); s.classList.toggle('cur', i === n); }); if (when) whens[n - 1].textContent = when; }
-  setTimeout(() => { advance(2, clock(2)); courier.textContent = 'Nino is on a bike · ' + stops + ' stops away'; }, 4000);
-  const t = setInterval(() => {
-    if (delivered) return;
-    minutes = Math.max(1, minutes - 1);
-    eta.textContent = minutes + ' min';
-    if (steps[2].classList.contains('cur') && minutes % 3 === 0 && stops > 0) { stops--; courier.textContent = stops ? 'Nino is on a bike · ' + stops + ' stop' + (stops > 1 ? 's' : '') + ' away' : 'Nino is at your door'; }
-    if (minutes <= 2) eta.style.color = 'var(--green)';
-  }, 1200);
-  setTimeout(() => {
-    delivered = true; clearInterval(t); advance(4, clock(17)); steps[3].classList.add('done'); steps[3].classList.remove('cur');
+  function deliver() {
+    delivered = true; clearInterval(t); whens[1].textContent = clock(2); advance(4, clock(16)); steps[3].classList.add('done'); steps[3].classList.remove('cur');
     eta.textContent = 'Delivered'; eta.style.color = 'var(--green)'; etaSub.textContent = '12:59 · 17 min';
     document.getElementById('rate').classList.add('show');
-  }, 26000);
+  }
   document.getElementById('items').addEventListener('click', e => { if (e.target.closest('.hd')) e.currentTarget.classList.toggle('open'); });
   const stars = document.getElementById('stars'), thanks = document.getElementById('thanks');
   stars.innerHTML = Array.from({ length: 5 }, (_, i) => '<svg viewBox="0 0 24 24" data-i="' + (i + 1) + '" role="button"><path d="M12 2.5l2.9 6.2 6.7.8-5 4.6 1.4 6.7L12 17.4l-6 3.4 1.4-6.7-5-4.6 6.7-.8z"/></svg>').join('');
   const WORDS = ['', 'Oh no. Sorry about that.', 'Could be better — noted.', 'Fair enough.', 'Great, thanks!', 'Perfect — the kitchen will love this.'];
+  function rate(n, bump) {
+    [...stars.children].forEach((x, i) => { x.classList.toggle('on', i < n); x.classList.remove('bump'); if (bump && i < n) { void x.offsetWidth; x.style.animationDelay = (i * 50) + 'ms'; x.classList.add('bump'); } });
+    thanks.textContent = WORDS[n] + ' · your rating is saved';
+  }
   stars.addEventListener('click', e => {
     const s = e.target.closest('svg'); if (!s) return; const n = Number(s.dataset.i);
-    [...stars.children].forEach((x, i) => { x.classList.toggle('on', i < n); x.classList.remove('bump'); if (i < n) { void x.offsetWidth; x.style.animationDelay = (i * 50) + 'ms'; x.classList.add('bump'); } });
-    thanks.textContent = WORDS[n]; bot.sendMessage('/rate 4821 ' + n);
+    rate(n, true); store.set(KEY, { rating: n });
   });
-  document.getElementById('help').addEventListener('click', e => { e.currentTarget.textContent = 'Support is typing…'; bot.sendMessage('/help 4821'); });
-  document.getElementById('again').addEventListener('click', e => { e.currentTarget.textContent = 'Added to cart'; bot.sendMessage('/reorder 4821'); });
+  if (saved.rating) { deliver(); rate(saved.rating, false); } // rated before: the order is long delivered
+  else {
+    setTimeout(() => { advance(2, clock(2)); courier.textContent = 'Nino is on a bike · ' + stops + ' stops away'; }, 4000);
+    t = setInterval(() => {
+      if (delivered) return;
+      minutes = Math.max(1, minutes - 1);
+      eta.textContent = minutes + ' min';
+      if (steps[2].classList.contains('cur') && minutes % 3 === 0 && stops > 0) { stops--; courier.textContent = stops ? 'Nino is on a bike · ' + stops + ' stop' + (stops > 1 ? 's' : '') + ' away' : 'Nino is at your door'; }
+      if (minutes <= 2) eta.style.color = 'var(--green)';
+    }, 1200);
+    setTimeout(deliver, 26000);
+  }
+  // Links open in the client after the user confirms (one per tap, from the tap's own handler).
+  document.getElementById('help').addEventListener('click', () => tw?.openLink('https://noodlehouse.example.com/orders/4821/help'));
+  document.getElementById('again').addEventListener('click', () => tw?.openLink('https://noodlehouse.example.com/orders/4821/reorder'));
 </script>

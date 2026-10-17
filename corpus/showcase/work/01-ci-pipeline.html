@@ -1,5 +1,5 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
   idea: a CI run in progress — stages spin, pass and (one) fail in sequence, log lines stream in under the running stage, durations tick, "Re-run failed" starts it again
 -->
 <style>
@@ -7,7 +7,7 @@
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --green: #34c759; --red: #ff3b30; --blue: #007aff; --orange: #ff9500; --term: light-dark(#0f1419, #0a0c10);
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; }
   .hd { padding: 14px 16px 12px; display: flex; align-items: center; gap: 12px; }
   .st { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; transition: background .4s; background: var(--blue); color: #fff; }
@@ -28,7 +28,7 @@
   .job .ic svg { width: 10px; height: 10px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; display: none; } .job.ok .ic .ck, .job.fail .ic .x { display: block; }
   .job .nm { flex: 1; font-weight: 600; } .job.wait .nm { color: var(--muted); font-weight: 400; } .job .t { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; min-width: 38px; text-align: right; }
   .job.fail .nm { color: var(--red); }
-  .term { background: var(--term); color: #c9d1d9; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.55; padding: 10px 14px; height: 118px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+  .term { background: var(--term); color: #c9d1d9; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.55; padding: 10px 14px; height: 118px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
   .term div { white-space: pre; overflow: hidden; text-overflow: ellipsis; animation: in .2s; } @keyframes in { from { opacity: 0; transform: translateY(4px); } }
   .term .g { color: #7ee787; } .term .r { color: #ff7b72; } .term .y { color: #e3b341; } .term .d { color: #6e7681; }
   .cur::after { content: '▍'; animation: blink 1s steps(2) infinite; color: #58a6ff; } @keyframes blink { to { opacity: 0; } }
@@ -45,7 +45,9 @@
   <div class="foot"><button class="btn p" id="rerun" disabled>Re-run failed</button><button class="btn" id="open">Open</button><span class="who"><span class="av"></span>pushed by mira · 2 min ago</span></div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage (a failure is the bot's to report, not the widget's); Open is a link, opened from the tap's
+  // own handler. window.TelegramWidget is absent when the dev app renders the file natively (reference mode).
+  const tw = window.TelegramWidget;
   const JOBS = [
     { s: 'Build', n: 'Install & typecheck', d: 3.2, log: ['$ corepack pnpm install --frozen-lockfile', '<span class="d">Lockfile is up to date, resolution step is skipped</span>', 'Progress: resolved 412, reused 412, downloaded 0', '$ tsc --noEmit', '<span class="g">✓</span> 0 errors'] },
     { s: 'Test', n: 'Unit tests', d: 2.6, log: ['$ tsx --test tests/unit/*.test.ts', '<span class="g">✓</span> validator (48 ms)', '<span class="g">✓</span> css-sanitizer (131 ms)', '<span class="g">✓</span> cpu-budget (12 ms)', '<span class="g">✓</span> 61 passed'] },
@@ -80,7 +82,7 @@
         if (j.s === 'Deploy' && failed) return;
         rows[i].className = 'job ' + (willFail ? 'fail' : 'ok'); rows[i].querySelector('.t').textContent = j.d.toFixed(1) + 's';
         const sameStage = JOBS.filter(x => x.s === j.s), lastOfStage = sameStage[sameStage.length - 1] === j;
-        if (willFail) { failed = true; setStage(j.s, 'fail'); st.className = 'st fail'; title.textContent = 'Failed'; clearInterval(dt); rows[4].className = 'job wait'; rows[4].querySelector('.t').textContent = 'skipped'; document.getElementById('rerun').disabled = false; term.querySelector('.cur')?.remove(); bot.sendMessage('CI failed on main: compat generated corpus (1 of 40)'); }
+        if (willFail) { failed = true; setStage(j.s, 'fail'); st.className = 'st fail'; title.textContent = 'Failed'; clearInterval(dt); rows[4].className = 'job wait'; rows[4].querySelector('.t').textContent = 'skipped'; document.getElementById('rerun').disabled = false; term.querySelector('.cur')?.remove(); }
         else if (lastOfStage) setStage(j.s, 'ok');
         if (i === JOBS.length - 1 && !failed) { st.className = 'st ok'; title.textContent = 'Passed'; clearInterval(dt); term.querySelector('.cur')?.remove(); term.insertAdjacentHTML('beforeend', '<div class="g">✓ preview deployed → twidget-a3f9c21.preview</div>'); }
       });
@@ -88,6 +90,6 @@
     });
   }
   document.getElementById('rerun').addEventListener('click', () => run(true));
-  document.getElementById('open').addEventListener('click', () => bot.openLink('https://ci.example.com/twidget/runs/8841'));
+  document.getElementById('open').addEventListener('click', () => tw?.openLink('https://ci.example.com/twidget/runs/8841'));
   run(false);
 </script>

@@ -1,13 +1,13 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: a weekly habit grid — tapping a cell pops a check mark in, the streak flame and the completion ring update, a finished day celebrates with a confetti burst on a canvas
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: a weekly habit grid — tapping a cell pops a check mark in, the streak flame and the completion ring update, a finished day celebrates with a confetti burst on a canvas; the ticks are kept locally
 -->
 <style>
   :root { color-scheme: light dark;
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --green: #34c759; --orange: #ff9500; --blue: #007aff; --purple: #af52de; --pink: #ff2d55; --teal: #30b0c7;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; padding: 16px 16px 14px; position: relative; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .hd { display: flex; align-items: center; gap: 12px; } h3 { margin: 0; font-size: 18px; } .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
@@ -36,12 +36,17 @@
   <div class="foot"><span class="streak" id="streak"><i>🔥</i><span id="streakN">0</span> day streak</span><span class="msg" id="msg">Tap today's cells as you go</span></div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. The week's ticks are local state in localStorage (kept by the client per message, they
+  // survive the widget being re-created).
+  const KEY = 'habits-week-20';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   const TODAY = 4;
   const HABITS = [
     { n: 'Morning run', s: '5 km', ic: '🏃', c: '#ff2d55', d: [1, 1, 0, 1, 0, 0, 0] }, { n: 'Read 20 pages', s: 'before bed', ic: '📖', c: '#007aff', d: [1, 1, 1, 1, 0, 0, 0] },
     { n: 'No sugar', s: 'all day', ic: '🍬', c: '#af52de', d: [1, 0, 1, 1, 1, 0, 0] }, { n: 'Meditate', s: '10 min', ic: '🧘', c: '#30b0c7', d: [1, 1, 1, 0, 0, 0, 0] }, { n: 'Water 2 L', s: 'tracked', ic: '💧', c: '#34c759', d: [1, 1, 1, 1, 0, 0, 0] },
   ];
+  const saved = store.get(KEY, null);
+  if (Array.isArray(saved)) HABITS.forEach((h, i) => { if (Array.isArray(saved[i]) && saved[i].length === 7) h.d = saved[i].map(v => (v ? 1 : 0)); });
   const rows = document.getElementById('rows');
   rows.innerHTML = HABITS.map((h, i) => '<tr><td><div class="hab"><i style="background:' + h.c + '22;color:' + h.c + '">' + h.ic + '</i><span>' + h.n + '<small>' + h.s + '</small></span></div></td>' + h.d.map((v, j) => '<td' + (j === TODAY ? ' class="today"' : '') + '><button class="cell' + (v ? ' on' : '') + (j > TODAY ? ' future' : '') + '" data-h="' + i + '" data-d="' + j + '" style="--c:' + h.c + '"' + (j === TODAY ? ' role="button"' : '') + '><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></td>').join('') + '</tr>').join('');
   const C = 2 * Math.PI * 22, rp = document.getElementById('rp'); rp.style.strokeDasharray = C + ' ' + C;
@@ -59,7 +64,7 @@
     const h = HABITS[Number(b.dataset.h)], j = Number(b.dataset.d);
     h.d[j] = h.d[j] ? 0 : 1; b.classList.toggle('on', !!h.d[j]); b.classList.remove('pop'); if (h.d[j]) b.classList.add('pop');
     stats(true);
-    bot.sendMessage('/habit ' + (h.d[j] ? 'done' : 'undo') + ' "' + h.n + '"');
+    store.set(KEY, HABITS.map(x => x.d));
   });
   // Confetti on a canvas over the card
   const cv = document.getElementById('fx'), ctx = cv.getContext('2d');

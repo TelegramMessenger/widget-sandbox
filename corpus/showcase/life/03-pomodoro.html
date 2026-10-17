@@ -1,17 +1,18 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: a focus timer — an SVG progress ring drains while the session runs, Start morphs into Pause, session dots fill, a break turns the card calm with a breathing animation
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: a focus timer — an SVG progress ring drains while the session runs, Start morphs into Pause, session dots fill, a break turns the card calm with a breathing animation; the task is picked from presets with a tap (no text input), the day's progress is kept locally
 -->
 <style>
   :root { color-scheme: light dark;
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --acc: #ff3b30; --calm: #30b0c7;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; padding: 18px; text-align: center; transition: background .8s; position: relative; }
   .card.break { background: light-dark(#e6f7fa, #0f2a30); }
   .hd { display: flex; justify-content: space-between; align-items: center; } .hd b { font-size: 15px; } .hd span { font-size: 12px; color: var(--muted); }
-  .task { margin-top: 4px; font-size: 13px; color: var(--muted); } .task input { border: 0; background: transparent; color: var(--fg); font: inherit; font-weight: 600; text-align: center; width: 100%; outline: 0; padding: 2px; border-radius: 6px; } .task input:focus { background: var(--card2); }
+  .task { margin-top: 4px; font-size: 13px; color: var(--muted); } .task button { border: 0; background: transparent; color: var(--fg); font: inherit; font-weight: 600; padding: 2px 8px; border-radius: 6px; cursor: pointer; transition: background .2s; } .task button:active { background: var(--card2); }
+  .task button::after { content: '▾'; margin-left: 5px; color: var(--muted); font-size: 10px; }
   .ring { position: relative; width: 210px; height: 210px; margin: 10px auto 6px; }
   .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); } .ring circle { fill: none; stroke-width: 9; stroke-linecap: round; }
   .ring .tr { stroke: var(--card2); } .ring .pr { stroke: var(--acc); transition: stroke-dashoffset 1s linear, stroke .8s; } .break .ring .pr { stroke: var(--calm); }
@@ -29,7 +30,7 @@
 </style>
 <div class="card" id="card">
   <div class="hd"><b id="mode">Focus</b><span id="sess">Session 3 of 4</span></div>
-  <div class="task"><input id="task" value="Write the launch post" aria-label="task"></div>
+  <div class="task"><button id="task" aria-label="next task">Write the launch post</button></div>
   <div class="ring"><svg viewBox="0 0 210 210"><circle class="tr" cx="105" cy="105" r="96"/><circle class="pr" id="pr" cx="105" cy="105" r="96"/></svg><div class="in"><div><b id="time">25:00</b><span id="lbl">ready</span></div></div></div>
   <div class="dots" id="dots"><i class="done"></i><i class="done"></i><i class="cur"></i><i></i></div>
   <div class="ctl"><button class="sm" id="reset" aria-label="reset">↺</button><button class="main" id="main">Start</button><button class="sm" id="skip" aria-label="skip">⏭</button></div>
@@ -37,10 +38,17 @@
   <span class="ff" id="ff">demo speed ×20</span>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. The task, the finished sessions and today's focus time are local state in localStorage,
+  // kept by the client per message: they are back when the widget is re-created (a running timer starts paused).
+  const KEY = 'focus-timer';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+  const TASKS = ['Write the launch post', 'Review the release PRs', 'Inbox zero', 'Plan the next sprint'];
   const FOCUS = 25 * 60, BREAK = 5 * 60, C = 2 * Math.PI * 96;
   const pr = document.getElementById('pr'); pr.style.strokeDasharray = C + ' ' + C;
-  let mode = 'focus', total = FOCUS, left = FOCUS, running = false, session = 2, speed = 1, timer = null, focusedToday = 70 * 60;
+  const saved = store.get(KEY, {});
+  let mode = 'focus', total = FOCUS, left = FOCUS, running = false, session = Number.isInteger(saved.session) ? Math.max(0, Math.min(4, saved.session)) : 2, speed = 1, timer = null, focusedToday = Number(saved.focused) || 70 * 60;
+  let task = TASKS.includes(saved.task) ? TASKS.indexOf(saved.task) : 0;
+  const save = () => store.set(KEY, { task: TASKS[task], session, focused: Math.round(focusedToday) });
   const $ = id => document.getElementById(id);
   function paint() {
     const m = Math.floor(left / 60), s = Math.floor(left % 60);
@@ -53,6 +61,7 @@
     $('card').classList.toggle('break', mode === 'break');
     [...$('dots').children].forEach((d, i) => { d.classList.toggle('done', i < session); d.classList.toggle('cur', i === session && mode === 'focus'); });
     $('today').textContent = Math.floor(focusedToday / 3600) + ' h ' + String(Math.floor(focusedToday % 3600 / 60)).padStart(2, '0') + ' m';
+    $('task').textContent = TASKS[task];
   }
   function tick() {
     left = Math.max(0, left - speed); if (mode === 'focus') focusedToday += speed;
@@ -63,13 +72,14 @@
   function pause() { running = false; clearInterval(timer); paint(); }
   function finish() {
     pause();
-    if (mode === 'focus') { session++; mode = 'break'; total = left = BREAK; bot.sendMessage('Focus session done: ' + $('task').value); if (session < 4) start(); }
+    if (mode === 'focus') { session = Math.min(4, session + 1); mode = 'break'; total = left = BREAK; save(); if (session < 4) start(); }
     else { mode = 'focus'; total = left = FOCUS; }
     paint();
   }
   $('main').addEventListener('click', () => running ? pause() : start());
   $('reset').addEventListener('click', () => { pause(); left = total; paint(); });
   $('skip').addEventListener('click', () => { left = 0; finish(); });
+  $('task').addEventListener('click', () => { task = (task + 1) % TASKS.length; paint(); save(); });
   $('ff').addEventListener('click', e => { speed = speed === 1 ? 20 : 1; e.currentTarget.textContent = speed === 1 ? 'demo speed ×20' : 'real time'; });
   paint();
 </script>

@@ -1,13 +1,13 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
-  idea: a live poll — other voters trickle in while you watch, the options re-sort with a FLIP animation (transform from the old position), bars and percentages tween, your vote is highlighted and can be changed
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
+  idea: a live poll — other voters trickle in while you watch, the options re-sort with a FLIP animation (transform from the old position), bars and percentages tween, your vote is highlighted, can be changed and is kept locally
 -->
 <style>
   :root { color-scheme: light dark;
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff; --green: #34c759; --red: #ff3b30;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; background: var(--card); overflow: hidden; padding: 16px 18px; }
   .hd { display: flex; justify-content: space-between; align-items: flex-start; } h3 { margin: 0; font-size: 17px; line-height: 1.3; } .live { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 800; color: var(--red); letter-spacing: .08em; white-space: nowrap; margin-left: 10px; margin-top: 3px; }
   .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: blink 1.2s ease-in-out infinite; } @keyframes blink { 50% { opacity: .3; } }
@@ -35,12 +35,17 @@
   <div class="ticker" id="ticker"></div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
+  // SDK v1: no sendMessage. Your vote is local state in localStorage (kept by the client per message): it is back,
+  // highlighted and counted, when the widget is re-created. The other voters are a seeded demo sequence.
+  const KEY = 'poll-web-renderer';
+  const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   const OPTS = [
     { id: 'shadow', em: '🌑', l: 'Shadow DOM, no iframe', s: 'renderer core on a shadow root', v: 9 }, { id: 'iframe', em: '🧱', l: 'Sandboxed iframe per bubble', s: 'opaque origin, per-widget CSP', v: 12 },
     { id: 'litehtml', em: '🧩', l: 'litehtml on a canvas', s: 'wasm, common profile only', v: 4 }, { id: 'blitz', em: '⚡', l: 'Blitz on a canvas', s: 'wasm, Rust, 3 ms a document', v: 6 },
   ];
   let mine = null;
+  const savedVote = store.get(KEY, {}).vote, savedOpt = OPTS.find(o => o.id === savedVote);
+  if (savedOpt) { mine = savedOpt.id; savedOpt.v++; }
   const opts = document.getElementById('opts');
   opts.innerHTML = OPTS.map(o => '<div class="opt" data-id="' + o.id + '" role="button"><div class="fill"></div><div class="row"><span class="em">' + o.em + '</span><span class="lbl">' + o.l + '<small>' + o.s + '</small></span><span class="pct">0%</span><span class="ck"></span></div></div>').join('');
   const els = Object.fromEntries([...opts.children].map(el => [el.dataset.id, el]));
@@ -69,9 +74,9 @@
     const el = e.target.closest('.opt'); if (!el) return; const id = el.dataset.id;
     if (mine === id) return;
     if (mine) OPTS.find(o => o.id === mine).v--;
-    mine = id; OPTS.find(o => o.id === id).v++; render(); bot.sendMessage('/vote renderer ' + id);
+    mine = id; OPTS.find(o => o.id === id).v++; render(); store.set(KEY, { vote: mine });
   });
-  document.getElementById('retract').addEventListener('click', () => { if (!mine) return; OPTS.find(o => o.id === mine).v--; mine = null; render(); });
+  document.getElementById('retract').addEventListener('click', () => { if (!mine) return; OPTS.find(o => o.id === mine).v--; mine = null; render(); store.set(KEY, { vote: null }); });
   // Other voters trickle in: a seeded sequence, every 1.5–4 s, for ~2 minutes
   const NAMES = ['Nino', 'Dato', 'Mira', 'Levan', 'Sasha', 'Tamar', 'Ilya', 'Keti', 'Oleg', 'Ana'];
   let s = 42; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;

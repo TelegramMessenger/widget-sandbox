@@ -1,5 +1,5 @@
 <!--
-  showcase: full web profile (corpus/showcase/README.md)
+  showcase: widget profile 1, SDK v1 (corpus/showcase/README.md)
   idea: a weather card — an animated SVG sky (sun rays, drifting clouds, rain), an hourly temperature curve that morphs when a day is tapped, a 5-day strip
 -->
 <style>
@@ -7,7 +7,7 @@
     --fg: light-dark(#0a0a0a, #f5f5f7); --muted: light-dark(#6e6e73, #98989d); --card: light-dark(#fff, #1c1c1e); --card2: light-dark(#f2f2f7, #2c2c2e);
     --border: light-dark(rgba(0,0,0,.08), rgba(255,255,255,.12)); --blue: #007aff;
     --shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 30px rgba(0,0,0,.10); }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.35; color: var(--fg); -webkit-font-smoothing: antialiased; }
   .card { width: 100%; box-sizing: border-box; overflow: hidden; background: var(--card); }
   .sky { position: relative; height: 170px; color: #fff; transition: background 1s; background: linear-gradient(180deg, #2a7de1, #7fc1ff); overflow: hidden; }
   .sky.rain { background: linear-gradient(180deg, #4b5c75, #8d9cb3); } .sky.cloud { background: linear-gradient(180deg, #5c8fd6, #a9c8ee); } .sky.night { background: linear-gradient(180deg, #0b1a3a, #2b3f72); }
@@ -49,7 +49,6 @@
   <div class="week" id="week"></div>
 </div>
 <script>
-  const bot = window.TelegramWidget || { sendMessage() {}, openLink() {}, ready() {} }; // reference mode has no host bridge
   const DAYS = [
     { n: 'Today', i: '⛅', k: 'sun', hi: 24, lo: 14, desc: 'Sunny intervals', hours: [15, 14, 16, 19, 22, 24, 23, 19] },
     { n: 'Fri', i: '☀️', k: 'sun', hi: 27, lo: 15, desc: 'Clear and warm', hours: [16, 15, 18, 22, 25, 27, 26, 21] },
