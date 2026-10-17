@@ -25,7 +25,8 @@
   "inv6": "Invariant 6: navigation cancelled, shadow scope",
   "P1": "Profile v1 freeze (2026-10-17): a candidate is in when the corpus uses it and the web renderers draw it; the rest are out until the native renderers are measured (profile 2)",
   "P1-grid": "Grid is in on condition that the Swift renderer and TwidgetCore implement it before their releases (2026-10-17)",
-  "P1-libs": "No bundled libraries in v1 (2026-10-17)"
+  "P1-libs": "No bundled libraries in v1 (2026-10-17)",
+  "SDK": "SDK v1 (docs/sdk-v1.md), with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble"
  },
  "tables": {
   "html": {
@@ -4190,6 +4191,31 @@
    }
   },
   {
+   "id": "tw.events",
+   "area": "sdk",
+   "title": "onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type",
+   "status": "in",
+   "decision": "SDK",
+   "match": {
+    "apis": [
+     "TelegramWidget.onEvent",
+     "TelegramWidget.offEvent"
+    ]
+   }
+  },
+  {
+   "id": "tw.is-active",
+   "area": "sdk",
+   "title": "TelegramWidget.isActive mirrors visibility (activated / deactivated)",
+   "status": "in",
+   "decision": "SDK",
+   "match": {
+    "apis": [
+     "TelegramWidget.isActive"
+    ]
+   }
+  },
+  {
    "id": "input.tap",
    "area": "input",
    "title": "Tap: click on the element under the finger, with clientX/Y and target",
@@ -4453,6 +4479,27 @@
    "note": "Checked by the server, not the client; every conformance widget stays far below it."
   },
   {
+   "id": "limit.url-length",
+   "area": "limit",
+   "title": "openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)",
+   "status": "in",
+   "decision": "SDK"
+  },
+  {
+   "id": "limit.event-handlers",
+   "area": "limit",
+   "title": "At most 16 handlers per event type in onEvent (more are ignored)",
+   "status": "in",
+   "decision": "SDK"
+  },
+  {
+   "id": "limit.haptic-rate",
+   "area": "limit",
+   "title": "Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)",
+   "status": "in",
+   "decision": "SDK"
+  },
+  {
    "id": "behaviour.theme-switch",
    "area": "behaviour",
    "title": "Live theme switch: prefers-color-scheme, light-dark() and onTheme follow the chat theme without a reload",
@@ -4486,6 +4533,53 @@
    "title": "strict policy on every client (gesture gate, text caps, budgets)",
    "status": "in",
    "decision": "D5"
+  },
+  {
+   "id": "behaviour.restart",
+   "area": "behaviour",
+   "title": "After 2 consecutive crashes the widget stays stopped on its last frame with the \"Widget stopped\" badge; before that the client rebuilds it when shown again",
+   "status": "in",
+   "decision": "SDK",
+   "note": "The frozen frame and badge are the framework's (today); the restart count is the client's."
+  },
+  {
+   "id": "behaviour.gesture-claim",
+   "area": "behaviour",
+   "title": "Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures",
+   "status": "in",
+   "decision": "SDK",
+   "note": "onGestureClaim(x, y) per primary pointerdown (v1)."
+  },
+  {
+   "id": "behaviour.storage-persist",
+   "area": "behaviour",
+   "title": "localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message",
+   "status": "in",
+   "decision": "SDK"
+  },
+  {
+   "id": "behaviour.storage-forward",
+   "area": "behaviour",
+   "title": "A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty",
+   "status": "in",
+   "decision": "SDK",
+   "note": "Waits for the server: forwarding rich blocks."
+  },
+  {
+   "id": "behaviour.message-edit",
+   "area": "behaviour",
+   "title": "A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage",
+   "status": "in",
+   "decision": "SDK",
+   "note": "Waits for the server: editing rich blocks."
+  },
+  {
+   "id": "behaviour.size-hint",
+   "area": "behaviour",
+   "title": "Before load the bubble takes the bot's size hint (width + height: aspect ratio; width 0 + height: that height; none: the default placeholder), then the real height under the cap",
+   "status": "in",
+   "decision": "D12a",
+   "note": "Waits for the server: the size fields of the rich block."
   }
  ]
 }

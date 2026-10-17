@@ -50,8 +50,8 @@ export const PROFILE_TABLES = { ${Object.keys(p.tables as object).map((k) => `${
 const constName = (k: string) => k.replace(/[A-Z]/g, (c) => '_' + c).toUpperCase();
 
 const AREAS: [string, string][] = [
-  ['html', 'HTML elements and attributes'], ['svg', 'Inline SVG'], ['css', 'CSS'], ['sel', 'Selectors'], ['at', 'At-rules'],
-  ['anim', 'Animation'], ['canvas', 'Canvas 2D'], ['js', 'JavaScript runtime'], ['tw', 'TelegramWidget'], ['input', 'Input'],
+  ['html', 'HTML elements and attributes'], ['svg', 'Inline SVG'], ['css', 'CSS'], ['selector', 'Selectors'], ['at-rule', 'At-rules'],
+  ['animation', 'Animation'], ['canvas', 'Canvas 2D'], ['js', 'JavaScript runtime'], ['sdk', 'TelegramWidget (SDK v1)'], ['input', 'Input'],
   ['limit', 'Limits'], ['behaviour', 'Client behaviour'],
 ];
 
@@ -82,7 +82,9 @@ export function docSource(p: ProfileFile): string {
   out.push('## Decisions', '', '| key | decision |', '|---|---|');
   for (const [k, v] of Object.entries(p.decisions)) out.push(`| ${k} | ${cell(v)} |`);
   out.push('');
-  for (const [area, title] of AREAS) {
+  // Every area gets a section: one without a title here is listed under its own name, never left out.
+  const areas = [...AREAS, ...[...new Set(p.features.map((f) => f.area))].filter((a) => !AREAS.some(([k]) => k === a)).map((a) => [a, a] as [string, string])];
+  for (const [area, title] of areas) {
     const list = p.features.filter((f) => f.area === area);
     if (!list.length) continue;
     out.push(`## ${title}`, '', '| id | feature | status | when out | decision |', '|---|---|---|---|---|');

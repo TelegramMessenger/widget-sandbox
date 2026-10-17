@@ -31,6 +31,10 @@ describe('widget profile: the generated files', () => {
   it('profile-tables.ts and docs/profile-v1.md are what profile-build.ts makes from profile.json', () => {
     execFileSync(process.execPath, ['--import', 'tsx', path.join(pkgRoot, 'scripts', 'profile-build.ts'), '--check'], { cwd: pkgRoot, stdio: 'pipe' });
   });
+  it('docs/profile-v1.md lists every feature', () => {
+    const doc = fs.readFileSync(path.join(pkgRoot, '..', '..', 'docs', 'profile-v1.md'), 'utf8');
+    for (const f of profile.features) assert.ok(doc.includes('| `' + f.id + '` |'), f.id);
+  });
   it('every feature has a known decision, and every out feature says how it is neutralised', () => {
     for (const f of profile.features) {
       assert.ok(profile.decisions[f.decision], `${f.id}: decision ${f.decision}`);
@@ -38,7 +42,9 @@ describe('widget profile: the generated files', () => {
       if (f.status === 'out') assert.ok(f.neutralise, `${f.id}: neutralise`);
     }
   });
-  it('covers the conformance catalogue: the same ids, the same status where the catalogue has decided', () => {
+  // The catalogue syncs its statuses from profile.json, so every catalogue id is here with the same status (a newer
+  // profile.json may run ahead of a catalogue that has not synced yet).
+  it('covers the conformance catalogue: every id, the same status where the catalogue has decided', () => {
     const cat = JSON.parse(fs.readFileSync(path.join(pkgRoot, '..', 'conformance', 'catalogue.json'), 'utf8'));
     const byId = new Map(profile.features.map((f) => [f.id, f]));
     for (const c of cat.features as { id: string; status: string }[]) {
@@ -46,7 +52,6 @@ describe('widget profile: the generated files', () => {
       assert.ok(f, `catalogue id ${c.id} is not in profile.json`);
       if (c.status !== 'candidate') assert.equal(f.status, c.status, c.id);
     }
-    assert.equal(byId.size, cat.features.length);
   });
 });
 
