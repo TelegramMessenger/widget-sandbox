@@ -31,10 +31,12 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
-  framework tag: `catalogue.json` (244 profile features, statuses synced from `profile.json`), `auto/`
-  (21 self-checking widgets), `visual/` (13 widgets for the test channel), `refs/`,
-  `manifest.json`, `tools/report.mjs`; `CLIENTS.md` tells a client team how to run it
-  on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`.
+  framework tag: `catalogue.json` (255 profile features, statuses synced from `profile.json`), `auto/`
+  (38 self-checking widgets), `visual/` (13 widgets for people + `visual/sdk`, 17 client-SDK cases),
+  `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
+  (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
+  gates 3800 B of gzip). `CLIENTS.md` tells a client team how to run it on its renderer. Built
+  and run by `scripts/conformance/{build,run-web}.ts`.
 - `apps/web` — the dev app, chat feed demo, bench pages and the Playwright
   harness page (`src/main.ts` exposes `window.__tw`); `apps/ios/DemoApp`,
   `apps/macos/DemoApp`, `apps/android` (demo + the renderer modules, a second
@@ -252,8 +254,8 @@ out of memory) is a runtime state, so a Promise executor, thenable, async genera
 `return()` can no longer swallow the CPU limit; `.qbc` unchanged, `packages/quickjs-wasm/dist` rebuilt.
 Same day: the conformance set moved from `corpus/conformance` to `packages/conformance` so it
 ships with the tag; `v0.1.0` release notes and known issues in `docs/changes.md`, the client
-integration guide `docs/integration.md`, the widget payload (mini-HTML; `.tgw` only as the
-test-channel format) in `docs/tgw-format.md`.
+integration guide `docs/integration.md`, the widget payload (mini-HTML as `messageMediaWidget`,
+layer 233; `.tgw` only as the development format) in `docs/tgw-format.md`.
 2026-10-17: widget profile 1 frozen and enforced (`packages/core/profile.json`,
 `docs/profile-v1.md`, `docs/decisions.md` "Frozen as widget profile 1"): the validator,
 `NativeValidator`, the shim (`TelegramWidget.profile`, `isProfileAtLeast`, `CSS.supports`

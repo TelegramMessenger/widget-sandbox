@@ -34,9 +34,9 @@
    "behaviour.restart": "visual/sdk/11-crash-restart (client behaviour)",
    "behaviour.gesture-claim": "visual/sdk/12-drag-gestures (client behaviour)",
    "behaviour.storage-persist": "visual/sdk/07, 08, 09 (client behaviour)",
-   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour; waits for the server)",
-   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour; waits for the server)",
-   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour; waits for the server)"
+   "behaviour.storage-forward": "visual/sdk/15-storage-forward (client behaviour)",
+   "behaviour.message-edit": "visual/sdk/16-bot-edit (client behaviour)",
+   "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour)"
   },
   "notInAuto": [],
   "outNotInAuto": []
@@ -750,8 +750,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/02-attributes-images-b/raster.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "svgimg",
@@ -774,8 +773,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/02-attributes-images-b/svgimg.chromium.png"
-     },
-     "nativeVsTemplate": 0.9853
+     }
     }
    ],
    "bytes": 9004,
@@ -951,8 +949,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/03-layout-a/flex.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "grid",
@@ -975,8 +972,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/03-layout-a/grid.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     }
    ],
    "bytes": 10062,
@@ -1732,8 +1728,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds-a/basic.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "modern",
@@ -1756,8 +1751,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds-a/modern.chromium.png"
-     },
-     "nativeVsTemplate": 1
+     }
     },
     {
      "name": "mix",
@@ -1780,8 +1774,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds-a/mix.chromium.png"
-     },
-     "nativeVsTemplate": 1
+     }
     },
     {
      "name": "light-dark",
@@ -1930,8 +1923,7 @@
      ],
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds-b/clip-text.chromium.png"
-     },
-     "nativeVsTemplate": 0.5998
+     }
     },
     {
      "name": "linear",
@@ -2069,8 +2061,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds-b/object-fit.chromium.png"
-     },
-     "nativeVsTemplate": 0.0143
+     }
     }
    ],
    "bytes": 8311,
@@ -2523,8 +2514,7 @@
      ],
      "refs": {
       "chromium": "refs/auto/06-text-fonts-c/text-shadow.chromium.png"
-     },
-     "nativeVsTemplate": 0.3521
+     }
     },
     {
      "name": "emoji",
@@ -3224,8 +3214,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects-a/transform-3d.chromium.png"
-     },
-     "nativeVsTemplate": 0.411
+     }
     },
     {
      "name": "blur",
@@ -3295,8 +3284,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects-a/filter-other.chromium.png"
-     },
-     "nativeVsTemplate": 1
+     }
     },
     {
      "name": "filter-url",
@@ -3319,8 +3307,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects-a/filter-url.chromium.png"
-     },
-     "nativeVsTemplate": 0.3036
+     }
     }
    ],
    "bytes": 8717,
@@ -3425,8 +3412,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects-b/blend.chromium.png"
-     },
-     "nativeVsTemplate": 0.1199
+     }
     },
     {
      "name": "clip-path",
@@ -3449,8 +3435,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects-b/clip-path.chromium.png"
-     },
-     "nativeVsTemplate": 0.5156
+     }
     },
     {
      "name": "mask",
@@ -3473,8 +3458,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/09-transforms-effects-b/mask.chromium.png"
-     },
-     "nativeVsTemplate": 0.7492
+     }
     },
     {
      "name": "opacity",
@@ -3634,8 +3618,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/10-css-animations/keyframes.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "alternate",
@@ -3658,8 +3641,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/10-css-animations/alternate.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "steps",
@@ -3682,8 +3664,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/10-css-animations/steps.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "colour",
@@ -3729,8 +3710,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/10-css-animations/fill-forwards.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "transition",
@@ -3753,8 +3733,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/10-css-animations/transition.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     }
    ],
    "bytes": 9195,
@@ -3913,8 +3892,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/11-web-animations/animate.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "css-control",
@@ -3937,8 +3915,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/11-web-animations/css-control.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "offsets",
@@ -3961,8 +3938,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/11-web-animations/offsets.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "easing",
@@ -3985,8 +3961,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/11-web-animations/easing.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     }
    ],
    "bytes": 9362,
@@ -4761,8 +4736,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/13-svg-b/clip-mask.chromium.png"
-     },
-     "nativeVsTemplate": 0.5746
+     }
     },
     {
      "name": "filters",
@@ -4786,8 +4760,7 @@
      "maxDiff": 0.1,
      "refs": {
       "chromium": "refs/auto/13-svg-b/filters.chromium.png"
-     },
-     "nativeVsTemplate": 0.2697
+     }
     },
     {
      "name": "smil",
@@ -4810,8 +4783,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/13-svg-b/smil.chromium.png"
-     },
-     "nativeVsTemplate": 1
+     }
     },
     {
      "name": "image",
@@ -4834,8 +4806,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/13-svg-b/image.chromium.png"
-     },
-     "nativeVsTemplate": 0.9915
+     }
     },
     {
      "name": "foreign-object",
@@ -4858,8 +4829,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/auto/13-svg-b/foreign-object.chromium.png"
-     },
-     "nativeVsTemplate": 0.641
+     }
     }
    ],
    "bytes": 5521,
@@ -6282,8 +6252,7 @@
      "maxDiff": 0.3,
      "refs": {
       "chromium": "refs/auto/17-drag-hover/no-selection.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     }
    ],
    "bytes": 8820,
@@ -6624,10 +6593,10 @@
    "host": [
     {
      "id": "behaviour.auto-height",
-     "name": "the bubble grows with the widget and is clipped at the cap (900px)",
+     "name": "the bubble grows with the widget and is clipped at the cap (600px)",
      "height": {
-      "min": 899,
-      "max": 901
+      "min": 599,
+      "max": 601
      }
     }
    ],
@@ -6691,8 +6660,8 @@
    ],
    "stages": [],
    "bytes": 8674,
-   "gzip": 3769,
-   "gzip6": 3769
+   "gzip": 3768,
+   "gzip6": 3768
   },
   {
    "id": "auto/21-no-keyboard",
@@ -7023,8 +6992,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/02-colours-gradients/functions.chromium.png"
-     },
-     "nativeVsTemplate": 1
+     }
     },
     {
      "name": "background",
@@ -7146,8 +7114,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/03-text/ellipsis.chromium.png"
-     },
-     "nativeVsTemplate": 0.2213
+     }
     },
     {
      "name": "scripts",
@@ -7179,8 +7146,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/03-text/text-shadow.chromium.png"
-     },
-     "nativeVsTemplate": 0.3384
+     }
     }
    ],
    "bytes": 7290,
@@ -7299,8 +7265,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/04-layout/float-columns.chromium.png"
-     },
-     "nativeVsTemplate": 0.1241
+     }
     }
    ],
    "bytes": 6336,
@@ -7371,8 +7336,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/05-transforms-effects/transform-3d.chromium.png"
-     },
-     "nativeVsTemplate": 0.4329
+     }
     },
     {
      "name": "filters",
@@ -7404,8 +7368,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/05-transforms-effects/filters-other.chromium.png"
-     },
-     "nativeVsTemplate": 1
+     }
     },
     {
      "name": "backdrop",
@@ -7437,8 +7400,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/05-transforms-effects/blend-clip-mask.chromium.png"
-     },
-     "nativeVsTemplate": 0.4332
+     }
     }
    ],
    "bytes": 7445,
@@ -7503,8 +7465,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/slide.chromium.png"
-     },
-     "nativeVsTemplate": 0.6305
+     }
     },
     {
      "name": "spin-pulse",
@@ -7520,8 +7481,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
-     },
-     "nativeVsTemplate": 0.8422
+     }
     },
     {
      "name": "steps",
@@ -7537,8 +7497,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/steps.chromium.png"
-     },
-     "nativeVsTemplate": 0.5037
+     }
     },
     {
      "name": "frozen",
@@ -7570,8 +7529,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/transition.chromium.png"
-     },
-     "nativeVsTemplate": 0.9827
+     }
     }
    ],
    "bytes": 8059,
@@ -7625,8 +7583,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
-     },
-     "nativeVsTemplate": 0.0248
+     }
     },
     {
      "name": "seek",
@@ -7642,8 +7599,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/seek.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "offsets",
@@ -7659,8 +7615,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/offsets.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "css-control",
@@ -7676,8 +7631,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/css-control.chromium.png"
-     },
-     "nativeVsTemplate": 0.0153
+     }
     }
    ],
    "bytes": 7443,
@@ -7937,8 +7891,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/09-svg/clip-filter.chromium.png"
-     },
-     "nativeVsTemplate": 0.3953
+     }
     },
     {
      "name": "smil",
@@ -7954,8 +7907,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/09-svg/smil.chromium.png"
-     },
-     "nativeVsTemplate": 0.7244
+     }
     }
    ],
    "bytes": 7256,
@@ -8023,8 +7975,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/10-images/svg-image.chromium.png"
-     },
-     "nativeVsTemplate": 0.8973
+     }
     },
     {
      "name": "refused",
@@ -8040,8 +7991,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/10-images/refused.chromium.png"
-     },
-     "nativeVsTemplate": 0.7602
+     }
     },
     {
      "name": "object-fit",
@@ -8256,8 +8206,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/forms.chromium.png"
-     },
-     "nativeVsTemplate": 0.6195
+     }
     },
     {
      "name": "scroll-sticky",
@@ -8273,8 +8222,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/scroll-sticky.chromium.png"
-     },
-     "nativeVsTemplate": 0
+     }
     },
     {
      "name": "fonts",
@@ -8290,8 +8238,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/fonts.chromium.png"
-     },
-     "nativeVsTemplate": 0.3812
+     }
     },
     {
      "name": "three-d",
@@ -8307,8 +8254,7 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/three-d.chromium.png"
-     },
-     "nativeVsTemplate": 0.436
+     }
     }
    ],
    "bytes": 6373,
@@ -8819,7 +8765,7 @@
    "set": "visual",
    "file": "visual/sdk/13-max-height.html",
    "title": "Taller than the cap: a hard clip",
-   "hint": "The widget is 3000 px tall. The bubble shows the top up to the client's maximum height and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
+   "hint": "The widget is 3000 px tall. The bubble shows the top 600 px and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap.",
    "kind": [],
    "covers": [
     "behaviour.auto-height"
@@ -8836,14 +8782,14 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 3067,
-   "gzip": 1559,
-   "gzip6": 1559,
+   "bytes": 3082,
+   "gzip": 1583,
+   "gzip6": 1583,
    "refImages": {
     "light": "refs/visual/sdk/13-max-height.png"
    },
    "group": "sdk",
-   "expect": "The bubble's height is the client's cap (maximumHeight / maxHeightDp; 900 px on the web); content below is clipped.",
+   "expect": "The bubble's height is the cap, 600 px on every client (the shared v0.1.0 value; maximumHeight / maxHeightDp / the web MAX_HEIGHT); content below is clipped.",
    "contract": "docs/sdk-v1.md §5.6"
   },
   {
@@ -8905,16 +8851,15 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 2935,
-   "gzip": 1462,
-   "gzip6": 1462,
+   "bytes": 2871,
+   "gzip": 1428,
+   "gzip6": 1428,
    "refImages": {
     "light": "refs/visual/sdk/15-storage-forward.png"
    },
    "group": "sdk",
    "expect": "Storage keyed by (account, chat, message id): the destination chat's copy starts empty.",
-   "contract": "docs/sdk-v1.md §2.8",
-   "pending": "the server: forwarding messages with a widget block"
+   "contract": "docs/sdk-v1.md §2.8"
   },
   {
    "id": "visual/sdk/16-bot-edit",
@@ -8938,23 +8883,22 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 3142,
-   "gzip": 1545,
-   "gzip6": 1545,
+   "bytes": 3076,
+   "gzip": 1514,
+   "gzip6": 1514,
    "refImages": {
     "light": "refs/visual/sdk/16-bot-edit.png"
    },
    "group": "sdk",
    "expect": "An edit with the same HTML keeps the running widget; with different HTML the widget restarts on the same storage.",
-   "contract": "docs/sdk-v1.md §2.8",
-   "pending": "the server: bots editing messages with a widget block"
+   "contract": "docs/sdk-v1.md §2.8"
   },
   {
    "id": "visual/sdk/17-size-hint",
    "set": "visual",
    "file": "visual/sdk/17-size-hint.html",
-   "title": "The bubble takes the bot's size hint before load, then the real height",
-   "hint": "The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time.",
+   "title": "The bubble takes the bot's size anchors before load, then the content height",
+   "hint": "The bot sends this widget four times: width 0 + height 0 (the default placeholder, then the content height, 240 px), width 0 + height 300 (a fixed 300 px bubble that stays 300 after load), width 300 + height 0 (a 300 px wide widget, then its content height), and width 300 + height 300 (fixed both). The cached height is used next time the auto bubbles scroll in.",
    "kind": [],
    "covers": [
     "behaviour.auto-height",
@@ -8972,16 +8916,15 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 2935,
-   "gzip": 1500,
-   "gzip6": 1500,
+   "bytes": 3002,
+   "gzip": 1514,
+   "gzip6": 1514,
    "refImages": {
     "light": "refs/visual/sdk/17-size-hint.png"
    },
    "group": "sdk",
-   "expect": "Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
-   "contract": "docs/sdk-v1.md §5.6",
-   "pending": "the server: the width / height fields of the widget block"
+   "expect": "Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
+   "contract": "docs/sdk-v1.md §5.6"
   }
  ]
 }

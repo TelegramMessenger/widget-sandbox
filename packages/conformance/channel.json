@@ -257,11 +257,11 @@
    "widget": "visual/sdk/13-max-height.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/sdk/13-max-height · Taller than the cap: a hard clip. The widget is 3000 px tall. The bubble shows the top up to the client's maximum height and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap. The client must: The bubble's height is the client's cap (maximumHeight / maxHeightDp; 900 px on the web); content below is clipped.",
+   "caption": "visual/sdk/13-max-height · Taller than the cap: a hard clip. The widget is 3000 px tall. The bubble shows the top 600 px and cuts it: no scrolling inside, no expand or fullscreen button. The last mark you see is the cap. The client must: The bubble's height is the cap, 600 px on every client (the shared v0.1.0 value; maximumHeight / maxHeightDp / the web MAX_HEIGHT); content below is clipped.",
    "photos": [
     "refs/visual/sdk/13-max-height.png"
    ],
-   "gzip": 1559
+   "gzip": 1583
   },
   {
    "widget": "visual/sdk/14-theme-palette.html",
@@ -282,8 +282,7 @@
    "photos": [
     "refs/visual/sdk/15-storage-forward.png"
    ],
-   "gzip": 1462,
-   "pending": "the server: forwarding messages with a widget block"
+   "gzip": 1428
   },
   {
    "widget": "visual/sdk/16-bot-edit.html",
@@ -293,41 +292,47 @@
    "photos": [
     "refs/visual/sdk/16-bot-edit.png"
    ],
-   "gzip": 1545,
-   "pending": "the server: bots editing messages with a widget block"
-  },
-  {
-   "widget": "visual/sdk/17-size-hint.html",
-   "width": 360,
-   "height": 180,
-   "caption": "visual/sdk/17-size-hint · The bubble takes the bot's size hint before load, then the real height. The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time. The client must: Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
-   "photos": [
-    "refs/visual/sdk/17-size-hint.png"
-   ],
-   "gzip": 1500,
-   "pending": "the server: the width / height fields of the widget block"
-  },
-  {
-   "widget": "visual/sdk/17-size-hint.html",
-   "width": 0,
-   "height": 300,
-   "caption": "visual/sdk/17-size-hint · The bubble takes the bot's size hint before load, then the real height. The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time. The client must: Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
-   "photos": [
-    "refs/visual/sdk/17-size-hint.png"
-   ],
-   "gzip": 1500,
-   "pending": "the server: the width / height fields of the widget block"
+   "gzip": 1514
   },
   {
    "widget": "visual/sdk/17-size-hint.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/sdk/17-size-hint · The bubble takes the bot's size hint before load, then the real height. The bot sends this widget three times: width 360 + height 180 (a 2:1 placeholder before it loads), width 0 + height 300 (a 300 px placeholder), and no size (the default placeholder). After load every bubble is exactly 240 px tall, and the cached height is used next time. The client must: Aspect ratio from width + height, a fixed height from width 0 + height, the default placeholder otherwise; after the first render the reported height (240) under the cap, cached per message.",
+   "caption": "visual/sdk/17-size-hint · The bubble takes the bot's size anchors before load, then the content height. The bot sends this widget four times: width 0 + height 0 (the default placeholder, then the content height, 240 px), width 0 + height 300 (a fixed 300 px bubble that stays 300 after load), width 300 + height 0 (a 300 px wide widget, then its content height), and width 300 + height 300 (fixed both). The cached height is used next time the auto bubbles scroll in. The client must: Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
    "photos": [
     "refs/visual/sdk/17-size-hint.png"
    ],
-   "gzip": 1500,
-   "pending": "the server: the width / height fields of the widget block"
+   "gzip": 1514
+  },
+  {
+   "widget": "visual/sdk/17-size-hint.html",
+   "width": 0,
+   "height": 300,
+   "caption": "visual/sdk/17-size-hint · The bubble takes the bot's size anchors before load, then the content height. The bot sends this widget four times: width 0 + height 0 (the default placeholder, then the content height, 240 px), width 0 + height 300 (a fixed 300 px bubble that stays 300 after load), width 300 + height 0 (a 300 px wide widget, then its content height), and width 300 + height 300 (fixed both). The cached height is used next time the auto bubbles scroll in. The client must: Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
+   "photos": [
+    "refs/visual/sdk/17-size-hint.png"
+   ],
+   "gzip": 1514
+  },
+  {
+   "widget": "visual/sdk/17-size-hint.html",
+   "width": 300,
+   "height": 0,
+   "caption": "visual/sdk/17-size-hint · The bubble takes the bot's size anchors before load, then the content height. The bot sends this widget four times: width 0 + height 0 (the default placeholder, then the content height, 240 px), width 0 + height 300 (a fixed 300 px bubble that stays 300 after load), width 300 + height 0 (a 300 px wide widget, then its content height), and width 300 + height 300 (fixed both). The cached height is used next time the auto bubbles scroll in. The client must: Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
+   "photos": [
+    "refs/visual/sdk/17-size-hint.png"
+   ],
+   "gzip": 1514
+  },
+  {
+   "widget": "visual/sdk/17-size-hint.html",
+   "width": 300,
+   "height": 300,
+   "caption": "visual/sdk/17-size-hint · The bubble takes the bot's size anchors before load, then the content height. The bot sends this widget four times: width 0 + height 0 (the default placeholder, then the content height, 240 px), width 0 + height 300 (a fixed 300 px bubble that stays 300 after load), width 300 + height 0 (a 300 px wide widget, then its content height), and width 300 + height 300 (fixed both). The cached height is used next time the auto bubbles scroll in. The client must: Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
+   "photos": [
+    "refs/visual/sdk/17-size-hint.png"
+   ],
+   "gzip": 1514
   },
   {
    "widget": "auto/01-html-elements-a.html",
@@ -623,7 +628,7 @@
    "height": 0,
    "caption": "auto/20-client-behaviour · What the client does around the widget: live theme switch, off-screen pause (no frames, timers at 1 Hz, visibilitychange), auto height with a hard clip at the cap. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "gzip": 3769
+   "gzip": 3768
   },
   {
    "widget": "auto/21-no-keyboard.html",

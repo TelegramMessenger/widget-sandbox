@@ -411,9 +411,9 @@ async function main() {
 
 /**
  * Size anchors (inputMediaWidget width / height, CSS px, 0 = auto) for widgets the test bot sends more than
- * once or with a size: a header's "anchors" ([[width, height], …]) wins. 17-size-hint is sent three times (its hint).
+ * once or with a size: a header's "anchors" ([[width, height], …]) wins. 17-size-hint is sent four times, one per anchor case of its hint (0×0, 0×300, 300×0, 300×300).
  */
-const ANCHORS: Record<string, [number, number][]> = { 'visual/sdk/17-size-hint': [[360, 180], [0, 300], [0, 0]] };
+const ANCHORS: Record<string, [number, number][]> = { 'visual/sdk/17-size-hint': [[0, 0], [0, 300], [300, 0], [300, 300]] };
 
 /** channel.json: the test channel's posting order (the visual set, the client-SDK group, then the automatic set), one entry per message. */
 function writeChannel(tests: any[]) {

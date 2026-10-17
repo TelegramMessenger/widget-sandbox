@@ -1177,8 +1177,8 @@ their releases; SVG CSS, `font-variant-numeric`, conic gradients and
 libraries; the rarely used rest out until the native renderers are measured,
 when profile 2 can add them. Freeze now, with these defaults.
 
-- **One source.** `packages/core/profile.json`: the 244 features of the
-  conformance catalogue with their status (162 in, 82 out), the decision each
+- **One source.** `packages/core/profile.json`: the 255 features of the
+  conformance catalogue with their status (173 in, 82 out), the decision each
   comes from, how each out feature is neutralised, and the tables that are
   enforced. `packages/core/scripts/profile-build.ts` generates
   `src/shared/profile-tables.ts` and `docs/profile-v1.md` from it;
