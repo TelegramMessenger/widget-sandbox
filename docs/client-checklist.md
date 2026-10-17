@@ -31,8 +31,9 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 - [ ] A killed widget keeps its last frame with the "Widget stopped" badge; the
       bubble does not collapse ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
 - [ ] Caption as the preview text; the localized "Widget" stub without one.
-- [ ] A test bot sends widgets (≤ 4 KB gzip) to a tester's private chat; forward them
-      into the shared test channel (bots may send widgets only to private chats).
+- [ ] A test bot sends widgets (≤ 4 KB gzip, every conformance widget included) to a
+      tester's private chat; forward them into the shared test channel (bots may send
+      widgets only to private chats).
 
 ## c. SDK v1
 
@@ -55,11 +56,12 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 - [ ] The conformance automatic set on your renderer, with the report
       ([CLIENTS.md](../packages/conformance/CLIENTS.md)).
 - [ ] The attack corpus (`corpus/attacks`): 0 leaks, 0 outside requests.
-- [ ] The visual set in the test channel with the manual checklist: `visual/01…13` as
-      `.tgw` files under the debug flag (over 4 KB gzipped, the server rejects them),
-      `visual/sdk` as real layer-233 messages from the test bot. Check light and dark
-      themes, rotation, system font size, an RTL locale, reduce motion, bubble
-      re-creation on scroll, forward, edit.
+- [ ] The whole conformance set in the test channel as real layer-233 messages from
+      the test bot, in the order of `packages/conformance/channel.json`, each widget
+      with its reference picture posted next to it (`visual/` and `visual/sdk/`;
+      the automatic widgets report their own checks). Go through the visual ones with
+      the manual checklist: light and dark themes, rotation, system font size, an RTL
+      locale, reduce motion, bubble re-creation on scroll, forward, edit.
 - [ ] A feed bench on a low-end device: many widgets in a list, scroll, memory.
 
 ## e. Send back

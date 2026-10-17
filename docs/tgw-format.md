@@ -86,22 +86,16 @@ A `.tgw` file is gzip of a widget's HTML (MIME type `application/x-tgwidget`)
 as a document. It is **never product delivery**: product widgets come only as
 `messageMediaWidget`, and a `.tgw` or `.html` a user uploads as a document is
 a file, not a widget. A client supports `.tgw` behind its debug flag, through
-the same path as `messageMediaWidget` but from the gunzipped file, for two
-uses:
+the same path as `messageMediaWidget` but from the gunzipped file, for local
+tests without a bot: any widget HTML from disk.
 
-1. **Local tests without a bot**: any widget HTML from disk.
-2. **The oversized conformance tests in the shared test channel.** The
-   conformance widgets do not fit 4 KB of gzip (the automatic set is
-   5.1–8.4 KB, the visual set 5.4–54.6 KB), so the server rejects them with
-   `INPUT_MEDIA_WIDGET_TOO_LARGE` and no bot can send them; they stay in the
-   channel as `.tgw` files until they are split into pieces of at most 4 KB
-   (`docs/changes.md`, known issues).
-
-Everything that fits 4 KB of gzip goes through real layer-233 messages: a test
-bot sends it to a tester's private chat and the messages are forwarded into
-the channel. That covers the corpus widgets that fit, the client-SDK visual
-cases (`packages/conformance/visual/sdk`), forward-copy storage, bot edits and
-the size anchors.
+Everything else goes through real layer-233 messages, the conformance set
+included. Every conformance widget fits a mini-widget (`packages/conformance`
+builds each one under 3800 bytes of gzip at levels 6 and 9). A test bot sends
+it to a tester's private chat with its reference picture as a photo next to
+it, in the order of `packages/conformance/channel.json`, and the messages are
+forwarded into the shared test channel. That also covers the corpus widgets
+that fit, forward-copy storage, bot edits and the size anchors.
 
 ## Profile and versions
 

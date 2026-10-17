@@ -101,24 +101,17 @@ caption. Keep that fallback.
 list, notifications and search; without one show the localized "Widget" stub,
 as for other media without a caption.
 
-**Testing.** Two kinds of content reach the shared test channel:
-
-1. Widgets up to 4 KB of gzip travel as real layer-233 messages: a test bot
-   sends them to a tester's private chat (bots may send widgets only there)
-   and the messages are forwarded into the channel; the copy works like the
-   original. This covers the corpus widgets that fit, the client-SDK cases
-   (`packages/conformance/visual/sdk`), forward-copy storage, bot edits and
-   the size anchors from the bot.
-2. The conformance tests over 4 KB (the automatic set 5.1–8.4 KB, the visual
-   set 5.4–54.6 KB gzipped) cannot be sent by a bot: the server rejects them
-   with `INPUT_MEDIA_WIDGET_TOO_LARGE`. They stay in the channel as `.tgw`
-   files (gzip of the HTML), which a client renders under its debug flag
-   through the same path as `messageMediaWidget`, from the gunzipped file,
-   with no size limit. This lasts until the tests are split into pieces of at
-   most 4 KB (`docs/changes.md`, known issues).
-
-`.tgw` is the development format, for these files and for local HTML from
-disk; it is never product delivery (`docs/tgw-format.md`).
+**Testing.** Everything in the shared test channel is a real layer-233
+message: a test bot sends each widget to a tester's private chat (bots may
+send widgets only there) and the messages are forwarded into the channel; the
+copy works like the original. That includes every conformance widget
+(`packages/conformance`: each one fits a mini-widget), with its reference
+picture posted as a photo next to it in the order of
+`packages/conformance/channel.json`, the corpus widgets that fit, forward-copy
+storage, bot edits and the size anchors from the bot. `.tgw` (gzip of the
+HTML, rendered under the client's debug flag) is only the local development
+format, for HTML from disk; it is never product delivery
+(`docs/tgw-format.md`).
 
 ## Bubble sizing
 
@@ -332,9 +325,10 @@ host.start();
 
 ## The conformance set
 
-`packages/conformance` ships with the tag: 21 self-checking widgets
-(`auto/`), 13 visual widgets for the test channel (`visual/`), the feature
-catalogue, reference images and the report tool. **`packages/conformance/CLIENTS.md`**
+`packages/conformance` ships with the tag: 38 self-checking widgets
+(`auto/`), 13 visual widgets and 17 client-SDK widgets for the test channel
+(`visual/`), all of them mini-widgets, the feature catalogue, reference images,
+the posting order (`channel.json`) and the report tool. **`packages/conformance/CLIENTS.md`**
 is the step-by-step guide for a client team: configure the host as in
 production, load each widget, read its result from the validated ops, perform
 the scripted taps, crop the stages, and run `node packages/conformance/tools/report.mjs`

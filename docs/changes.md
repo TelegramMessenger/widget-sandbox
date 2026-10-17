@@ -21,7 +21,9 @@ and CLAUDE.md).
   Swift `NativeValidator`, `morphUpdates` Swift-only.
 - Renderers: WKWebView / WebView / Shadow DOM as products; Blitz and litehtml as
   prototypes behind the same seam.
-- The widget profile conformance set, `packages/conformance` (`CLIENTS.md`), and the
+- The widget profile conformance set, `packages/conformance` (`CLIENTS.md`): every widget
+  fits a mini-widget (under 3800 bytes of gzip), so the test bot sends the whole set as
+  layer-233 messages, each with its reference picture next to it (`channel.json`). And the
   corpora: 98 attacks, compat, generated, common, showcase, 116 ported HTML bubbles.
 - What a widget is (decided 2026-10-17): **mini-HTML**, one HTML document of at most 4 KB
   after gzip and 32 KB uncompressed, delivered right in the message as its own media.
@@ -136,12 +138,6 @@ and CLAUDE.md).
   "alone" run can read `jsMs` 0.0 and set the contention run's limit to the 100 ms
   floor), desktop `cpu_quota_throttles_greedy_timer`: each fails now and then under
   load and passes alone.
-- *No conformance widget fits a mini-widget yet*: the automatic set is 5.1–8.4 KB gzipped
-  (median 6.3 KB, all under 32 KB raw), the visual set 5.4–54.6 KB gzipped (median 18 KB,
-  embedded reference pictures). The server rejects them with `INPUT_MEDIA_WIDGET_TOO_LARGE`,
-  so no bot can send them: the test channel keeps them as `.tgw` files (the development
-  format) under the client debug flag until the tests are split into 4 KB pieces; everything
-  that fits goes through real layer-233 messages from a test bot.
 - *htmlbubbles-ported*: 107–110 of 116 pass (2026-10-17, after the profile-1 rework); the rest
   are time-based or random drawings, the hang demo, one intentional JS error and
   `06-trip-lisbon/09-me-bare`, a 690 px widget that fails steadily since the 600 px bubble

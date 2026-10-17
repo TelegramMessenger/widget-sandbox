@@ -15,7 +15,7 @@ What the framework did before v1 is noted where a client may meet it
 
 Related documents, not repeated here: `docs/integration.md` (embedding the
 host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML, and the
-`.tgw` test-channel format), `docs/protocol.md` (the full wire protocol), `docs/changes.md`
+`.tgw` development format), `docs/protocol.md` (the full wire protocol), `docs/changes.md`
 (per-release notes).
 
 ## 1. Who does what
@@ -585,9 +585,11 @@ goes to the background, `setVisible(true)` when it is back.
 - The media caption is the preview and search text; without one, the localized
   "Widget" stub.
 - Test with a test bot in a tester's private chat and forward into the shared
-  test channel (bots may send widgets only to private chats); the conformance
-  tests over 4 KB stay in the channel as `.tgw` files under the debug flag
-  (`docs/integration.md`, "Testing").
+  test channel (bots may send widgets only to private chats). Every
+  conformance widget is sent that way as a layer-233 message, with its
+  reference picture posted next to it (`packages/conformance/channel.json`,
+  `docs/integration.md`, "Testing"); `.tgw` is only the local development
+  format.
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 
