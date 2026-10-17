@@ -136,6 +136,15 @@ void SandboxEngine::boot() {
         viewport.set("dpr", config_.devicePixelRatio);
         config.set("viewport", viewport);
         config.set("theme", config_.theme);
+        // SDK v1 (docs/sdk-v1.md §3.1): the client's values are trusted but still checked.
+        config.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(config_.themeParams)));
+        config.set("locale", sdk::checkLocale(config_.locale).value_or(std::string(sdk::DEFAULT_LOCALE)));
+        config.set("profile", sdk::PROFILE_VERSION);
+        bool preloadAccepted = true;
+        config.set("storage", sdk::storagePreloadJson(config_.storage, &preloadAccepted));
+        if (!preloadAccepted && delegate_)
+            delegate_->onDiag(*this, "storage-rejected", "the preload is not { local, session } objects of strings within " + std::to_string(sdk::STORAGE_QUOTA_BYTES) +
+                                                             " bytes each; the widget starts with empty storage");
         Json features = Json::array();
         // Only what this runtime implements (Swift runtimeFeatures, WEB_FEATURES in worker.ts):
         // canvasWords, binaryOps and morphUpdates need host functions the C++ glue does not have.
@@ -171,9 +180,11 @@ void SandboxEngine::viewport(double innerWidth, double innerHeight, double dpr) 
     enqueue("viewport", v.dump());
 }
 void SandboxEngine::resize(const std::string& entriesJson) { enqueue("resize", entriesJson); }
-void SandboxEngine::theme(const std::string& theme) { enqueue("theme", Json::quote(theme)); }
-void SandboxEngine::bridgeEvent(const std::string& event, const std::string& dataJson) {
-    enqueue("bridge", "[" + Json::quote(event) + "," + (dataJson.empty() ? "null" : dataJson) + "]");
+void SandboxEngine::theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) {
+    Json t = Json::object();
+    t.set("theme", colorScheme);
+    t.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(themeParams)));
+    enqueue("theme", t.dump());
 }
 
 void SandboxEngine::setVisible(bool v) {
@@ -355,21 +366,59 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
     if (kind == "pd") { if (delegate_) delegate_->onPreventDefault(*this, arg); return HostReturn::undefined(); }
     if (kind == "anim") { if (delegate_) delegate_->onAnim(*this, arg); return HostReturn::undefined(); }
     if (kind == "bridge") {
-        auto pair = Json::parse(arg);
-        if (!pair || !pair->isArray() || pair->size() != 2 || !pair->arr()[0].isString()) return HostReturn::undefined();
-        std::string name = truncate(pair->arr()[0].asString(), 64);
-        if (isStrictPolicy(config_.policy) && name != "ready") {
+        // docs/sdk-v1.md §3.2, in this order: the method and its arguments, user activation for the
+        // links, the haptic limit; then the action. Lone surrogates stay WTF-8 so checkLink refuses them.
+        auto call = Json::parse(arg, Json::Surrogates::Keep);
+        const Json* method = call && call->isArray() && call->size() > 0 ? &call->arr()[0] : nullptr;
+        std::optional<WidgetAction> action = call && call->isArray() ? sdk::checkBridgeCall((*call)[0], (*call)[1]) : std::nullopt;
+        std::string name = !method ? "undefined" : method->isString() ? truncate(method->asString(), 64) : truncate(method->dump(), 64);
+        if (!action) {
+            if (rejectedBridgeReported_ < sdk::MAX_REJECTION_REPORTS && delegate_) {
+                rejectedBridgeReported_++;
+                delegate_->onDiag(*this, "bridge-rejected", name + ": unknown method or malformed arguments");
+            }
+            return HostReturn::undefined();
+        }
+        if (isStrictPolicy(config_.policy) && sdk::isPrivilegedMethod(name)) {
             if (!(activeGesture_ > consumedGesture_ && visible_)) {
-                if (blockedBridgeReported_ < 20 && delegate_) {
+                if (blockedBridgeReported_ < sdk::MAX_REJECTION_REPORTS && delegate_) {
                     blockedBridgeReported_++;
-                    delegate_->onDiag(*this, "activation-blocked", name + " ignored: it needs a user click or Enter/Space press on the visible widget and runs in that event's handler (called from the " + currentKind_ + " task)");
+                    delegate_->onDiag(*this, "activation-blocked", name + " ignored: it needs a tap on the visible widget and runs in that tap's handler, one call per tap (called from the " + currentKind_ + " task)");
                 }
                 return HostReturn::undefined();
             }
             consumedGesture_ = activeGesture_;
             activeGesture_ = 0;
         }
-        if (delegate_) delegate_->onBridge(*this, name, pair->arr()[1].dump());
+        if (action->kind == WidgetAction::Haptic) {
+            sdk::HapticGate::Decision d = haptics_.decide(nowMs(), visible_);
+            if (d == sdk::HapticGate::Decision::Report && delegate_)
+                delegate_->onDiag(*this, "haptic-limit", visible_ ? "haptics over 5 per burst or 10 per second are dropped" : "haptics of a hidden widget are dropped");
+            if (d != sdk::HapticGate::Decision::Play) return HostReturn::undefined();
+        }
+        if (delegate_) {
+            delegate_->onBridgeAction(*this, *action);
+            delegate_->onBridge(*this, name, (*call)[1].dump());
+        }
+        return HostReturn::undefined();
+    }
+    if (kind == "storage") {
+        // The full areas a task changed, at most once per task after its ops (docs/sdk-v1.md §3.2).
+        if (arg.size() > sdk::MAX_STORAGE_COMMIT_BYTES) {
+            rejectStorage("a commit of " + std::to_string(arg.size()) + " bytes cannot be within the quota");
+            return HostReturn::undefined();
+        }
+        auto parsed = Json::parse(arg, Json::Surrogates::Keep);
+        std::optional<sdk::StorageCommit> commit = parsed ? sdk::checkStorageCommit(*parsed) : std::nullopt;
+        if (!commit || (!commit->local && !commit->session)) {
+            rejectStorage("a storage commit that is not { local?, session? } objects of strings within " + std::to_string(sdk::STORAGE_QUOTA_BYTES) +
+                          " bytes each; the client keeps the previous content");
+            return HostReturn::undefined();
+        }
+        if (delegate_) {
+            if (commit->local) delegate_->onStorage(*this, "local", *commit->local);
+            if (commit->session) delegate_->onStorage(*this, "session", *commit->session);
+        }
         return HostReturn::undefined();
     }
     if (kind == "intl") {
@@ -395,6 +444,12 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         return HostReturn::undefined();
     }
     return HostReturn::undefined();
+}
+
+void SandboxEngine::rejectStorage(const std::string& detail) {
+    if (rejectedStorageReported_ >= sdk::MAX_REJECTION_REPORTS || !delegate_) return;
+    rejectedStorageReported_++;
+    delegate_->onDiag(*this, "storage-rejected", detail);
 }
 
 /// Blocks the engine thread until the host answers (the host must never wait for the engine).

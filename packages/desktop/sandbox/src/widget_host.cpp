@@ -40,7 +40,14 @@ std::optional<std::vector<uint8_t>> base64Decode(const std::string& text) {
     return out;
 }
 
-SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const std::string& theme) {
+/// The theme as the host keeps it: "light" unless exactly "dark" (toWidgetTheme in sdk-policy.ts), the palette checked.
+WidgetTheme normalized(WidgetTheme t) {
+    t.colorScheme = t.colorScheme == "dark" ? "dark" : "light";
+    t.params = sdk::checkThemeParams(t.params);
+    return t;
+}
+
+SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetTheme& theme) {
     SandboxConfig c;
     c.memoryLimitBytes = o.memoryLimitBytes;
     c.cpuLimitMs = o.cpuLimitMs;
@@ -52,7 +59,10 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const std::st
     c.innerWidth = width;
     c.innerHeight = 300;
     c.devicePixelRatio = o.devicePixelRatio;
-    c.theme = theme;
+    c.theme = theme.colorScheme;
+    c.themeParams = theme.params;
+    c.locale = o.locale;
+    c.storage = o.storage;
     c.policy = o.policy;
     c.features = o.features;
     return c;
@@ -62,13 +72,14 @@ constexpr double kMinHeight = 24, kMaxHeight = 900;
 
 } // namespace
 
-WidgetHost::WidgetHost(std::string html, std::string theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
+WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
                        RendererFactory rendererFactory, std::shared_ptr<IntlProvider> intl)
     : hostThread_("twidget-host"),
       html_(std::move(html)),
-      theme_(std::move(theme)),
+      theme_(theme.colorScheme == "dark" ? "dark" : "light"),
+      widgetTheme_(normalized(std::move(theme))),
       options_(options),
-      config_(makeConfig(options, width, theme_)),
+      config_(makeConfig(options, width, widgetTheme_)),
       resources_(std::move(resources)),
       validator_(theme_, resources_, [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); }),
       renderer_(rendererFactory(resources_, theme_, width)),
@@ -94,8 +105,33 @@ void WidgetHost::start() {
     host([this] {
         if (started_ || destroyed_) return;
         started_ = true;
+        // Queued until the renderer is ready, so the variables are its first message, before any ops.
+        toRenderer(themeMessage());
         renderer_->load();
     });
+}
+
+std::string WidgetHost::themeMessage() const {
+    const WidgetButtonTokens& b = widgetTheme_.button;
+    Json button = Json::object();
+    auto text = [&](const char* name, const std::optional<std::string>& v) { if (v) button.set(name, *v); };
+    auto number = [&](const char* name, const std::optional<double>& v) { if (v) button.set(name, *v); };
+    text("bg", b.bg);
+    text("text", b.text);
+    text("radius", b.radius);
+    text("font", b.font);
+    text("padding", b.padding);
+    text("height", b.height);
+    number("pressedOpacity", b.pressedOpacity);
+    number("disabledOpacity", b.disabledOpacity);
+    Json theme = Json::object();
+    theme.set("colorScheme", widgetTheme_.colorScheme);
+    theme.set("params", sdk::themeParamsJson(widgetTheme_.params));
+    theme.set("button", std::move(button));
+    Json msg = Json::object();
+    msg.set("type", "theme");
+    msg.set("theme", std::move(theme));
+    return msg.dump();
 }
 
 void WidgetHost::host(std::function<void()> fn) {
@@ -107,18 +143,21 @@ double WidgetHost::elapsedMs() const {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - createdAt_).count();
 }
 
-void WidgetHost::setTheme(const std::string& theme) {
-    host([this, theme] {
+void WidgetHost::setTheme(const WidgetTheme& theme) {
+    // The host owns the theme: stylesheets are re-sanitised against the scheme (prefers-color-scheme,
+    // color-scheme, light-dark()), the renderer gets the variables, the sandbox the scheme and the palette.
+    host([this, theme = normalized(theme)] {
         if (destroyed_) return;
-        theme_ = theme;
-        renderer_->setTheme(theme);
-        toRenderer("{\"type\":\"ops\",\"ops\":" + validator_.setTheme(theme) + "}");
-        engine_.theme(theme);
+        theme_ = theme.colorScheme;
+        widgetTheme_ = theme;
+        renderer_->setTheme(theme_);
+        toRenderer(themeMessage());
+        toRenderer("{\"type\":\"ops\",\"ops\":" + validator_.setTheme(theme_) + "}");
+        engine_.theme(theme_, widgetTheme_.params);
     });
 }
 
 void WidgetHost::setVisible(bool visible) { engine_.setVisible(visible); }
-void WidgetHost::bridgeEvent(const std::string& event, const std::string& dataJson) { engine_.bridgeEvent(event, dataJson); }
 void WidgetHost::event(const std::string& json) { engine_.event(json); }
 std::string WidgetHost::probe(const std::string& code) { return engine_.probe(code); }
 
@@ -127,7 +166,10 @@ void WidgetHost::destroy() {
     // Unblock an engine thread waiting for a renderer answer before the engine is stopped.
     resolveQuery("{\"error\":\"dead\"}", std::nullopt);
     engine_.terminate();
-    hostThread_.sync([this] { renderer_->destroy(); });
+    hostThread_.sync([this] {
+        renderer_->destroy();
+        callbacksClosed_ = true;
+    });
 }
 
 WidgetDiagnostics WidgetHost::diagnostics() const {
@@ -255,13 +297,53 @@ void WidgetHost::onDiag(SandboxEngine&, const std::string& kind, const std::stri
     host([this, kind, detail] { diag(kind, detail); });
 }
 
-void WidgetHost::onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) {
-    host([this, method, argsJson] {
+/// Kept in the diagnostics; a widget can call ready() or play haptics for as long as it lives.
+static constexpr size_t kMaxRecordedCalls = 1000;
+
+void WidgetHost::onBridgeAction(SandboxEngine&, const WidgetAction& action) {
+    host([this, action] {
+        if (destroyed_) return; // no link dialog for a widget that is going away
         {
             std::lock_guard<std::mutex> l(mutex_);
-            diagnostics_.bridge.emplace_back(method, argsJson);
+            if (diagnostics_.actions.size() < kMaxRecordedCalls) diagnostics_.actions.push_back(action);
         }
+        if (onAction) onAction(action);
+        changed();
+    });
+}
+
+void WidgetHost::onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) {
+    host([this, area, values] {
+        if (callbacksClosed_) return;
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            diagnostics_.storageCommits++;
+        }
+        if (onStorageCommit) onStorageCommit(area, values);
+        changed();
+    });
+}
+
+void WidgetHost::onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) {
+    host([this, method, argsJson] {
+        if (destroyed_) return;
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            if (diagnostics_.bridge.size() < kMaxRecordedCalls) diagnostics_.bridge.emplace_back(method, argsJson);
+        }
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
         if (onBridgeCall) onBridgeCall(method, argsJson);
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#else
+#pragma GCC diagnostic pop
+#endif
         changed();
     });
 }
@@ -394,11 +476,17 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
     } else if (type == "frame") {
         engine_.frame(msg["time"].asNumber(0));
     } else if (type == "media") {
-        engine_.theme(theme_);
+        // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
+        engine_.theme(theme_, widgetTheme_.params);
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
+    } else if (type == "gesture") {
+        // docs/sdk-v1.md §5.5. The renderer core sends x and y (`wants` is y); a renderer that sends only
+        // `wants` (the Blitz and litehtml prototypes) claims vertical drags with it.
+        bool x = msg["x"].asBool();
+        bool y = msg["y"].isBool() ? msg["y"].asBool() : msg["wants"].asBool();
+        if (onGestureClaim) onGestureClaim(x, y);
     }
-    // "gesture": the scroll-vs-widget decision of a list; no list here.
 }
 
 void WidgetHost::toRenderer(const std::string& json) {

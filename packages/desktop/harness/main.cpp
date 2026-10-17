@@ -1,6 +1,9 @@
 // Console harness for the desktop core (the C++ twin of scripts/sandbox-node.ts).
 //
 //   twidget-run <widget.html> [--verbose] [--ops] [--events '<json>']... [--wait-ms N] [--probe EXPR]... [--theme dark]
+//               [--theme-params '{"bg_color":"#212121",…}'] [--locale ru] [--storage '{"local":{…},"session":{…}}']
+//                                 SDK v1 (docs/sdk-v1.md §3.1): the client's palette, UI language and Web Storage
+//                                 preload; the run prints the actions (`onAction`) and the storage commits
 //   twidget-run --attacks [DIR]   every attack file: nothing but data:/#fragment URLs may reach the validated ops
 //   twidget-run --corpus DIR      smoke run of a corpus directory: loaded, alive, no uncaught errors
 //   … --blitz [--png out.png | --png-dir DIR] [--click X,Y]... [--dpr N]
@@ -51,6 +54,9 @@ static std::string readFile(const fs::path& p) {
 struct Options {
     std::string jsDir = TW_WIDGET_JS;
     std::string theme = "light";
+    std::map<std::string, std::string> themeParams;
+    std::string locale = std::string(sdk::DEFAULT_LOCALE);
+    WidgetStorage storage;
     double width = 400;
     int waitMs = 1500;
     bool verbose = false;
@@ -73,7 +79,8 @@ struct RunOutcome {
     std::vector<std::string> leaks;
     std::vector<std::string> notes;
     std::vector<std::pair<std::string, std::string>> logs;
-    std::vector<std::pair<std::string, std::string>> bridge;
+    std::vector<WidgetAction> actions;
+    std::vector<std::pair<std::string, StorageArea>> storageCommits;
     std::vector<std::string> probeResults;
     std::string renderOpsJson;
     SandboxStats stats;
@@ -150,9 +157,12 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
     std::vector<std::string> renderOps;
     WidgetHostOptions ho;
     ho.devicePixelRatio = opts.dpr;
+    ho.locale = opts.locale;
+    ho.storage = opts.storage;
     NativeRenderer* blitz = nullptr;
-    WidgetHost host(html, opts.theme, opts.width, ho, res, [&](std::shared_ptr<SandboxResources>, const std::string& theme, double width) -> std::unique_ptr<Renderer> {
-        auto r = std::make_unique<NativeRenderer>(theme, width, opts.dpr);
+    WidgetTheme theme{opts.theme, opts.themeParams, {}};
+    WidgetHost host(html, theme, opts.width, ho, res, [&](std::shared_ptr<SandboxResources>, const std::string& scheme, double width) -> std::unique_ptr<Renderer> {
+        auto r = std::make_unique<NativeRenderer>(scheme, width, opts.dpr);
         blitz = r.get();
         return r;
     });
@@ -160,6 +170,8 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
         renderOps.push_back(clean);
         if (opts.verbose) fprintf(stderr, "ops → %s\n", clean.size() > 2000 ? (clean.substr(0, 2000) + "…").c_str() : clean.c_str());
     };
+    // On the host thread; read after destroy(), when the host thread has drained.
+    host.onStorageCommit = [&](const std::string& area, const StorageArea& values) { out.storageCommits.emplace_back(area, values); };
     host.start();
     host.waitLoaded(30);
     host.waitRendered(5);
@@ -195,7 +207,7 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
     }
     for (const auto& lg : d.logs) if (lg.first == "error") out.errors++;
     out.logs = d.logs;
-    out.bridge = d.bridge;
+    out.actions = d.actions;
     out.stats = d.stats;
     out.height = d.height;
     out.loadedMs = d.loadedMs.value_or(0);
@@ -222,7 +234,12 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
         engine.setDelegate(&host);
         engine.start();
         host.waitLoaded(30);
-        for (const auto& ev : opts.events) engine.event(ev);
+        // An event with a numeric `gesture` is a trusted press (as the Node harness's `gesture: n`); the rest are untrusted.
+        for (const auto& ev : opts.events) {
+            auto parsed = Json::parse(ev);
+            if (parsed && (*parsed)["gesture"].isNumber() && (*parsed)["gesture"].asInt() > 0) engine.activationEvent(ev, (*parsed)["gesture"].asInt());
+            else engine.event(ev);
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(opts.waitMs));
         for (const auto& p : opts.probes) out.probeResults.push_back(engine.probe(p));
         engine.terminate();
@@ -246,9 +263,20 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     for (const auto& d : host.diags) out.diagCounts[d.first]++;
     for (const auto& lg : host.logs) if (lg.first == "error") out.errors++;
     out.logs = host.logs;
-    out.bridge = host.bridge;
+    out.actions = host.actions;
+    out.storageCommits = host.storageCommits;
     out.stats = host.stats;
     return out;
+}
+
+/// `--theme-params` / `--storage`: a JSON object of strings (the engine checks keys, colours and the quota).
+static bool stringMap(const Json& v, std::map<std::string, std::string>& out) {
+    if (!v.isObject()) return false;
+    for (const auto& [k, x] : v.obj()) {
+        if (!x.isString()) return false;
+        out[k] = x.asString();
+    }
+    return true;
 }
 
 static std::string diagSummary(const std::map<std::string, int>& counts) {
@@ -288,6 +316,18 @@ int main(int argc, char** argv) {
         else if (a == "--probe" || a == "--eval") opts.probes.push_back(next());
         else if (a == "--wait-ms") opts.waitMs = std::atoi(next().c_str());
         else if (a == "--theme") opts.theme = next();
+        else if (a == "--theme-params") {
+            auto v = Json::parse(next());
+            if (!v || !stringMap(*v, opts.themeParams)) { fprintf(stderr, "--theme-params wants a JSON object of strings\n"); return 2; }
+        }
+        else if (a == "--locale") opts.locale = next();
+        else if (a == "--storage") {
+            auto v = Json::parse(next());
+            bool ok = v && v->isObject();
+            for (const auto& [area, values] : ok ? v->obj() : Json::Object{})
+                ok = ok && (area == "local" || area == "session") && stringMap(values, area == "local" ? opts.storage.local : opts.storage.session);
+            if (!ok) { fprintf(stderr, "--storage wants {\"local\": {…}, \"session\": {…}} with string values\n"); return 2; }
+        }
         else if (a == "--width") opts.width = std::atof(next().c_str());
         else if (a == "--js-dir") opts.jsDir = next();
         else if (a == "--blitz") opts.blitz = true;
@@ -303,6 +343,7 @@ int main(int argc, char** argv) {
     }
     if (file.empty() && !attacks && corpusDir.empty()) {
         fprintf(stderr, "usage: twidget-run <widget.html> [--verbose] [--ops] [--events JSON] [--wait-ms N] [--probe EXPR]\n"
+                        "                   [--theme dark] [--theme-params JSON] [--locale TAG] [--storage JSON]   (an event with \"gesture\": n is a trusted press)\n"
                         "       twidget-run --attacks [DIR] | --corpus DIR\n"
                         "       … --blitz | --litehtml [--png FILE | --png-dir DIR] [--click X,Y] [--dpr N]   (built with -DTW_BLITZ=ON / -DTW_LITEHTML=ON)\n");
         return 2;
@@ -319,6 +360,9 @@ int main(int argc, char** argv) {
     SandboxConfig config;
     config.innerWidth = opts.width;
     config.theme = opts.theme;
+    config.themeParams = opts.themeParams;
+    config.locale = opts.locale;
+    config.storage = opts.storage;
 
     if (attacks) {
         fs::path dir = attacksDir.empty() ? fs::path(TW_CORPUS) / "attacks" : fs::path(attacksDir);
@@ -382,7 +426,13 @@ int main(int argc, char** argv) {
     }
     for (const auto& [k, n] : r.diagCounts) printf("diag  %s ×%d\n", k.c_str(), n);
     for (const auto& lg : r.logs) printf("[%s] %s\n", lg.first.c_str(), lg.second.c_str());
-    for (const auto& b : r.bridge) printf("bridge %s %s\n", b.first.c_str(), b.second.c_str());
+    for (const auto& a : r.actions) printf("action %s\n", a.toJson().dump().c_str());
+    for (const auto& [area, values] : r.storageCommits) {
+        Json v = Json::object();
+        for (const auto& [k, x] : values) v.set(k, x);
+        std::string text = v.dump();
+        printf("storage %s %s\n", area.c_str(), text.size() > 500 ? (text.substr(0, 500) + "…").c_str() : text.c_str());
+    }
     for (const auto& leak : r.leaks) printf("LEAK %s\n", leak.c_str());
     return r.leaks.empty() ? 0 : 1;
 }

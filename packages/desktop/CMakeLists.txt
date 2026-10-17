@@ -46,6 +46,7 @@ add_library(twidget-sandbox STATIC
     sandbox/src/js_thread.cpp
     sandbox/src/quickjs_context.cpp
     sandbox/src/cpu_budget.cpp
+    sandbox/src/sdk_policy.cpp
     sandbox/src/resources.cpp
     sandbox/src/intl.cpp
     sandbox/src/trusted_validator.cpp

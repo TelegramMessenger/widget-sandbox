@@ -171,9 +171,16 @@ public:
 #endif
     }
 
+    /// What a `\uD800`-style escape of a lone surrogate becomes: U+FFFD (the default), or the
+    /// surrogate's own 3-byte WTF-8 form (ED A0..BF xx), which is how QuickJS hands a JS string with
+    /// a lone surrogate to C++ outside JSON. `Keep` is for the SDK checks (sdk_policy.h): a URL with a
+    /// lone surrogate must stay refusable, and Web Storage values must round-trip unchanged.
+    enum class Surrogates { Replace, Keep };
+
     /// Strict parse; nullopt on any error. `maxDepth` bounds nesting (hostile input).
-    static std::optional<Json> parse(std::string_view text, int maxDepth = 128) {
-        Parser p{text, 0, maxDepth};
+    static std::optional<Json> parse(std::string_view text, int maxDepth = 128) { return parse(text, Surrogates::Replace, maxDepth); }
+    static std::optional<Json> parse(std::string_view text, Surrogates surrogates, int maxDepth = 128) {
+        Parser p{text, 0, maxDepth, surrogates == Surrogates::Keep};
         p.ws();
         Json v;
         if (!p.value(v, 0)) return std::nullopt;
@@ -211,6 +218,7 @@ private:
         std::string_view s;
         size_t pos;
         int maxDepth;
+        bool keepSurrogates;
 
         void ws() { while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\n' || s[pos] == '\r')) pos++; }
         bool lit(std::string_view word) {
@@ -260,12 +268,18 @@ private:
                     uint32_t cp;
                     if (!hex4(cp)) return false;
                     if (cp >= 0xD800 && cp <= 0xDBFF) {
+                        // A pair only with a low surrogate right after; any other escape after it is read on its own.
                         uint32_t lo = 0;
-                        if (s.substr(pos, 2) == "\\u") { pos += 2; if (!hex4(lo)) return false; }
+                        if (s.substr(pos, 2) == "\\u") {
+                            size_t at = pos;
+                            pos += 2;
+                            if (!hex4(lo)) return false;
+                            if (lo < 0xDC00 || lo > 0xDFFF) pos = at;
+                        }
                         if (lo >= 0xDC00 && lo <= 0xDFFF) cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-                        else cp = 0xFFFD;
+                        else if (!keepSurrogates) cp = 0xFFFD;
                     } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
-                        cp = 0xFFFD;
+                        if (!keepSurrogates) cp = 0xFFFD;
                     }
                     utf8(out, cp);
                     break;
