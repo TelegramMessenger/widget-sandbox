@@ -519,8 +519,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let clean = validator.validateAnim(json)
             guard clean != "[]" else { return }
-            let send = { self.toRenderer("{\"type\":\"anim\",\"now\":\(CACurrentMediaTime() * 1000),\"anims\":\(clean)}") }
-            executor.async(send)
+            deliver { self.toRenderer("{\"type\":\"anim\",\"now\":\(CACurrentMediaTime() * 1000),\"anims\":\(clean)}") }
         }
     }
     public func engineRequestsFrame(_ engine: SandboxEngine) {
