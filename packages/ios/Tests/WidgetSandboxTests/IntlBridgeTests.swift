@@ -92,4 +92,74 @@ final class IntlBridgeTests: XCTestCase {
         XCTAssertTrue(d.contains { $0 == ("year", "1970") } && d.contains { $0 == ("month", "January") } && d.contains { $0 == ("day", "1") }, "\(d)")
         XCTAssertEqual(d.map(\.1).joined(), try formatted(date.merging(["kind": "date"]) { $1 }))
     }
+
+    private func format(_ request: [String: Any]) throws -> String {
+        IntlBridge.format(requestJson: String(decoding: try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]), as: UTF8.self))
+    }
+
+    /// ECMA-402 ToDateTimeOptions: no field and no style is numeric year/month/day (or the time, or both).
+    func testDefaultsWithoutFieldsAreNumeric() throws {
+        for locale in ["en-US", "en-GB", "de-DE", "ru-RU"] {
+            for timestamp in [0.0, 1736942400000.0] {
+                try check(["timeZone": "UTC"], timestamp: timestamp, locale: locale)
+                for method in ["toLocaleString", "toLocaleDateString", "toLocaleTimeString"] {
+                    try check(["timeZone": "UTC"], timestamp: timestamp, locale: locale, method: method)
+                }
+                try check(["timeZone": "UTC", "hour": "numeric"], timestamp: timestamp, locale: locale, method: "toLocaleDateString")
+                try check(["timeZone": "UTC", "weekday": "long"], timestamp: timestamp, locale: locale)
+            }
+        }
+        XCTAssertEqual(try format(["kind": "date", "locale": "en-US", "opts": ["timeZone": "UTC"], "value": 0]), "1/1/1970")
+        let parts = try format(["kind": "dateParts", "locale": "en-US", "opts": ["timeZone": "UTC"], "value": 0])
+        XCTAssertTrue(parts.contains("{\"type\":\"year\",\"value\":\"1970\"}") || parts.contains("\"value\":\"1970\""), parts)
+    }
+
+    /// The CLDR rules match the system ICU (JavaScriptCore's Intl.PluralRules) for every language they list.
+    func testPluralRulesMatchICU() throws {
+        let context = try XCTUnwrap(JSContext())
+        let locales = ["en", "de", "nl", "sv", "fi", "it", "ca", "es", "fr", "pt-BR", "pt-PT", "ru", "uk", "be", "pl", "cs", "sk", "hr", "sr", "bs", "ro", "lt", "lv",
+                       "ar", "he", "sl", "tr", "az", "kk", "uz", "hu", "el", "bg", "ka", "hy", "fa", "hi", "bn", "da", "is", "mk", "si", "fil", "id", "ja", "ko", "zh",
+                       "ms", "th", "vi", "nb", "et", "sq", "ta", "te", "mr", "ne", "gu", "ky", "mn", "tk", "am", "pa"]
+        var numbers: [Double] = Array(0...30).map(Double.init) + [100, 101, 102, 103, 104, 105, 111, 112, 114, 121, 1000, 1001, 1_000_000, 2_000_000, 1e20]
+        numbers += [0.1, 0.5, 1.5, 2.1, 2.5, 3.2, 5.5, 11.1, 21.3, 0.01, 1.25, 1.0005]
+        var mismatches: [String] = []
+        for locale in locales {
+            for type in ["cardinal", "ordinal"] {
+                for options in [["type": type], ["type": type, "minimumFractionDigits": 1]] as [[String: Any]] {
+                    let optionsJson = String(decoding: try JSONSerialization.data(withJSONObject: options, options: [.sortedKeys]), as: UTF8.self)
+                    for n in numbers {
+                        let expected = context.evaluateScript("new Intl.PluralRules(\"\(locale)\", \(optionsJson)).select(\(n))")?.toString() ?? ""
+                        let got = try format(["kind": "plural", "locale": locale, "opts": options, "value": n])
+                        if got != expected { mismatches.append("\(locale) \(optionsJson) \(n): \(got) != \(expected)") }
+                    }
+                }
+            }
+        }
+        XCTAssertNil(context.exception)
+        XCTAssertEqual(mismatches, [], mismatches.prefix(40).joined(separator: "\n"))
+        XCTAssertEqual(try format(["kind": "plural", "locale": "en-US", "value": 1]) + "," + format(["kind": "plural", "locale": "ru-RU", "value": 3]), "one,few")
+    }
+
+    func testRelativeTimeAndListFollowOptionsAndLocale() throws {
+        let context = try XCTUnwrap(JSContext())
+        for locale in ["en", "de", "ru"] {
+            for options in [[:], ["numeric": "auto"], ["numeric": "always"], ["style": "short"]] as [[String: Any]] {
+                let optionsJson = String(decoding: try JSONSerialization.data(withJSONObject: options, options: [.sortedKeys]), as: UTF8.self)
+                for (value, unit) in [(-1.0, "day"), (1.0, "day"), (0.0, "day"), (-7.0, "day"), (3.0, "hours"), (-2.0, "week"), (1.0, "month"), (-1.0, "year"), (0.0, "second"), (45.0, "minute")] {
+                    let expected = context.evaluateScript("new Intl.RelativeTimeFormat(\"\(locale)\", \(optionsJson)).format(\(value), \"\(unit)\")")?.toString()
+                    let got = try format(["kind": "relative", "locale": locale, "opts": options, "value": value, "unit": unit])
+                    XCTAssertEqual(got.replacingOccurrences(of: "\u{a0}", with: " "), expected?.replacingOccurrences(of: "\u{a0}", with: " "), "\(locale) \(optionsJson) \(value) \(unit)")
+                }
+            }
+        }
+        XCTAssertEqual(try format(["kind": "relative", "locale": "en", "opts": ["numeric": "auto"], "value": -1, "unit": "day"]), "yesterday")
+        XCTAssertEqual(try format(["kind": "list", "locale": "de", "opts": ["type": "conjunction"], "value": ["a", "b", "c"]]), "a, b und c")
+        XCTAssertEqual(try format(["kind": "list", "locale": "en", "opts": ["type": "conjunction"], "value": ["a", "b", "c"]]), "a, b, and c")
+        XCTAssertLessThan(Int(try format(["kind": "compare", "locale": "en", "a": "a", "b": "B"])) ?? 0, 0)
+        XCTAssertEqual(try format(["kind": "compare", "locale": "en", "opts": ["sensitivity": "base"], "a": "a", "b": "\u{e1}"]), "0")
+        XCTAssertEqual(try format(["kind": "compare", "locale": "en", "opts": ["numeric": true], "a": "2", "b": "10"]), "-1")
+        let resolved = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try format(["kind": "dateOptions", "locale": "en-US", "opts": ["timeZone": "Asia/Tokyo"]]).utf8)) as? [String: Any])
+        XCTAssertEqual(resolved["timeZone"] as? String, "Asia/Tokyo")
+        XCTAssertEqual(resolved["year"] as? String, "numeric")
+    }
 }

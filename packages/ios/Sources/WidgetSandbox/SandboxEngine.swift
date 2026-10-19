@@ -924,31 +924,51 @@ enum IntlBridge {
             return json(numberParts(f.string(from: NSNumber(value: value)) ?? String(value), f))
         case "date", "dateMethod":
             let date = Date(timeIntervalSince1970: value / 1000)
-            let f = dateFormatter(locale: locale, options: opts, method: req["method"] as? String)
+            let method = req["method"] as? String
+            let f = dateFormatter(locale: locale, options: dateTimeDefaults(opts, method: method), method: method)
             return f.string(from: date)
         case "dateParts":
-            let f = dateFormatter(locale: locale, options: opts, method: req["method"] as? String)
+            let method = req["method"] as? String
+            let f = dateFormatter(locale: locale, options: dateTimeDefaults(opts, method: method), method: method)
             return json(dateParts(Date(timeIntervalSince1970: value / 1000), f))
+        case "numberOptions":
+            let f = numberFormatter(locale: locale, options: opts)
+            var out: [String: Any] = ["locale": languageTag(locale), "numberingSystem": "latn", "style": opts["style"] as? String ?? "decimal",
+                                      "minimumIntegerDigits": f.minimumIntegerDigits, "minimumFractionDigits": f.minimumFractionDigits,
+                                      "maximumFractionDigits": f.maximumFractionDigits, "useGrouping": f.usesGroupingSeparator ? "auto" : false]
+            if let currency = opts["currency"] as? String { out["currency"] = currency.uppercased() }
+            return jsonObject(out)
+        case "dateOptions":
+            let zone = (opts["timeZone"] as? String).flatMap(TimeZone.init(identifier:)) ?? .current
+            var out = dateTimeDefaults(opts, method: nil).filter { $0.value is String || $0.value is NSNumber }
+            out.merge(["locale": languageTag(locale), "calendar": "gregory", "numberingSystem": "latn", "timeZone": zone.identifier]) { $1 }
+            return jsonObject(out)
         case "plural":
-            return value == 1 ? "one" : "other"
+            return CLDRPluralRules.select(value, locale: locale, options: opts)
         case "relative":
             guard #available(macOS 10.15, iOS 13.0, *) else {
                 return ""
             }
-            let f = RelativeDateTimeFormatter()
-            f.locale = locale
-            let unit = req["unit"] as? String ?? "second"
-            let seconds: Double = ["second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800, "month": 2_592_000, "year": 31_536_000][unit.hasSuffix("s") ? String(unit.dropLast()) : unit] ?? 1
-            return f.localizedString(fromTimeInterval: value * seconds)
+            return relative(value, unit: req["unit"] as? String ?? "second", locale: locale, options: opts)
         case "list":
             let items = (req["value"] as? [Any])?.map { "\($0)" } ?? []
             guard #available(macOS 10.15, iOS 13.0, *) else {
                 return items.joined(separator: ", ")
             }
-            return ListFormatter.localizedString(byJoining: items)
+            let f = ListFormatter()
+            f.locale = locale
+            return f.string(from: items) ?? items.joined(separator: ", ")
         case "compare":
             let a = req["a"] as? String ?? "", b = req["b"] as? String ?? ""
-            return String(a.compare(b, options: [], range: nil, locale: locale).rawValue)
+            var options: String.CompareOptions = []
+            switch opts["sensitivity"] as? String {
+            case "base": options.formUnion([.caseInsensitive, .diacriticInsensitive])
+            case "accent": options.insert(.caseInsensitive)
+            case "case": options.insert(.diacriticInsensitive)
+            default: break
+            }
+            if opts["numeric"] as? Bool == true { options.insert(.numeric) }
+            return String(a.compare(b, options: options, range: nil, locale: locale).rawValue)
         case "upper":
             return (req["value"] as? String ?? "").uppercased(with: locale)
         case "lower":
@@ -956,6 +976,53 @@ enum IntlBridge {
         default:
             return ""
         }
+    }
+
+    /// ECMA-402 ToDateTimeOptions: no date or time field and no style means numeric year, month and day
+    /// (DateTimeFormat, toLocaleDateString), hour, minute and second (toLocaleTimeString), or both (toLocaleString).
+    static func dateTimeDefaults(_ options: [String: Any], method: String?) -> [String: Any] {
+        let required = method == "toLocaleDateString" ? "date" : method == "toLocaleTimeString" ? "time" : "any"
+        let defaults = method == "toLocaleTimeString" ? "time" : method == "toLocaleString" ? "all" : "date"
+        if options["dateStyle"] != nil || options["timeStyle"] != nil { return options }
+        if required != "time", ["weekday", "year", "month", "day"].contains(where: { options[$0] != nil }) { return options }
+        if required != "date", ["dayPeriod", "hour", "minute", "second", "fractionalSecondDigits"].contains(where: { options[$0] != nil }) { return options }
+        var out = options
+        if defaults != "time" { for key in ["year", "month", "day"] { out[key] = "numeric" } }
+        if defaults != "date" { for key in ["hour", "minute", "second"] { out[key] = "numeric" } }
+        return out
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    private static func relative(_ value: Double, unit rawUnit: String, locale: Locale, options: [String: Any]) -> String {
+        let f = RelativeDateTimeFormatter()
+        f.locale = locale
+        f.dateTimeStyle = options["numeric"] as? String == "auto" ? .named : .numeric
+        switch options["style"] as? String {
+        case "short": f.unitsStyle = .short
+        case "narrow": f.unitsStyle = .abbreviated
+        default: f.unitsStyle = .full
+        }
+        let unit = rawUnit.hasSuffix("s") ? String(rawUnit.dropLast()) : rawUnit
+        if value == value.rounded(), abs(value) < 1e9 {
+            let n = Int(value)
+            var c = DateComponents()
+            switch unit {
+            case "second": c.second = n
+            case "minute": c.minute = n
+            case "hour": c.hour = n
+            case "day": c.day = n
+            case "week": c.weekOfMonth = n
+            case "month": c.month = n
+            case "year": c.year = n
+            default: c.second = nil
+            }
+            if c != DateComponents() {
+                let s = f.localizedString(from: c)
+                if !s.isEmpty { return s }
+            }
+        }
+        let seconds: Double = ["second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800, "month": 2_592_000, "quarter": 7_776_000, "year": 31_536_000][unit] ?? 1
+        return f.localizedString(fromTimeInterval: value * seconds)
     }
 
     private static func numberFormatter(locale: Locale, options opts: [String: Any]) -> NumberFormatter {
@@ -969,7 +1036,29 @@ enum IntlBridge {
         if let n = (opts["minimumFractionDigits"] as? NSNumber)?.intValue { f.minimumFractionDigits = n }
         if let n = (opts["maximumFractionDigits"] as? NSNumber)?.intValue { f.maximumFractionDigits = n }
         if let g = opts["useGrouping"] as? Bool { f.usesGroupingSeparator = g }
+        if let n = (opts["minimumIntegerDigits"] as? NSNumber)?.intValue { f.minimumIntegerDigits = n }
+        if opts["minimumSignificantDigits"] != nil || opts["maximumSignificantDigits"] != nil {
+            f.usesSignificantDigits = true
+            if let n = (opts["minimumSignificantDigits"] as? NSNumber)?.intValue { f.minimumSignificantDigits = n }
+            f.maximumSignificantDigits = (opts["maximumSignificantDigits"] as? NSNumber)?.intValue ?? 21
+        }
+        if f.numberStyle == .currency {
+            switch opts["currencyDisplay"] as? String {
+            case "code": f.numberStyle = .currencyISOCode
+            case "name": f.numberStyle = .currencyPlural
+            default: break
+            }
+        }
+        if opts["signDisplay"] as? String == "always" { f.positivePrefix = f.plusSign + f.positivePrefix }
         return f
+    }
+
+    private static func languageTag(_ locale: Locale) -> String {
+        locale.identifier.replacingOccurrences(of: "_", with: "-")
+    }
+
+    private static func jsonObject(_ object: [String: Any]) -> String {
+        (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
     }
 
     private static func json(_ parts: [(String, String)]) -> String {
@@ -1066,8 +1155,8 @@ enum IntlBridge {
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = zone
-        let wantsDate = ["weekday", "year", "month", "day", "dateStyle"].contains { options[$0] != nil }
-        let wantsTime = ["hour", "minute", "second", "timeStyle"].contains { options[$0] != nil }
+        let wantsDate = ["era", "weekday", "year", "month", "day", "dateStyle"].contains { options[$0] != nil }
+        let wantsTime = ["hour", "minute", "second", "fractionalSecondDigits", "timeZoneName", "timeStyle"].contains { options[$0] != nil }
         var hourSymbol = "j"
         if let hour12 = options["hour12"] as? Bool {
             hourSymbol = hour12 ? "h" : "H"
@@ -1088,15 +1177,17 @@ enum IntlBridge {
             if let hour = options["hour"] as? String { template += hour == "2-digit" ? hourSymbol + hourSymbol : hourSymbol }
             if options["minute"] != nil { template += "mm" }
             if options["second"] != nil { template += "ss" }
+            if let digits = (options["fractionalSecondDigits"] as? NSNumber)?.intValue, (1...3).contains(digits) { template += String(repeating: "S", count: digits) }
+            if let era = options["era"] as? String { template += era == "long" ? "GGGG" : era == "narrow" ? "GGGGG" : "G" }
+            if let zone = options["timeZoneName"] as? String {
+                template += ["long": "zzzz", "shortOffset": "O", "longOffset": "OOOO", "shortGeneric": "v", "longGeneric": "vvvv"][zone] ?? "z"
+            }
             if template.isEmpty {
                 formatter.dateStyle = Self.style(options["dateStyle"] as? String)
                 formatter.timeStyle = Self.style(options["timeStyle"] as? String)
             } else {
                 formatter.setLocalizedDateFormatFromTemplate(template)
             }
-        } else {
-            formatter.dateStyle = method == "toLocaleTimeString" ? .none : .medium
-            formatter.timeStyle = method == "toLocaleDateString" ? .none : .medium
         }
         if hourSymbol != "j" || options["hour"] as? String == "2-digit" {
             let defaultTimePattern = DateFormatter.dateFormat(fromTemplate: "jmm", options: 0, locale: locale) ?? ""
