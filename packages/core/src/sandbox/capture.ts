@@ -34,7 +34,16 @@ interface Mirror {
 let nextId = DOCUMENT_ID + 1;
 const byId = new Map<number, any>();
 const mirror = new Map<number, Mirror>();
-const dirty = new Set<any>();
+let generation = 0;
+/** Bumped on every dirty mark and flush: anything derived from the tree (live collections) is stale when it changed. */
+export const domGeneration = (): number => generation;
+class DirtySet extends Set<any> {
+  add(node: any): this {
+    generation++;
+    return super.add(node);
+  }
+}
+const dirty = new DirtySet();
 let ops: any[] | OpWriter = [];
 
 /** Switch the op stream to binary records (`binaryOps` feature); a no-op unless the glue installed `__hostOps`. */
@@ -466,6 +475,7 @@ export function flush(full = false): void {
 }
 
 function flushNow(full: boolean): void {
+  generation++;
   if (!dirty.size && !postOps.length && !full && !pendingStyles.size) {
     hooks.flushExtra((o) => ops.push(o));
     if (ops.length) send();

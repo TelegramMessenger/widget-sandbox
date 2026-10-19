@@ -1,10 +1,10 @@
 import { mirroredId, nodeById } from './capture';
 import { Event, EventTarget } from './events';
 import { clearHostTimer, hostTimer, reportError, timeOrigin } from './globals';
-import { diag, host, query, unsupported } from './host';
+import { diag, host, invalidateLayout, query, unsupported } from './host';
 
 export function createWebAnimations(api: any): any {
-  const { host, diag, unsupported, reportError, Event, EventTarget, nodeId, nodeById, setTimer, clearTimer, timeOrigin, query } = api;
+  const { host, diag, unsupported, reportError, Event, EventTarget, nodeId, nodeById, setTimer, clearTimer, timeOrigin, query, invalidateLayout } = api;
   const NativePromise = Promise;
   const resolved = NativePromise.resolve();
   const then = NativePromise.prototype.then;
@@ -23,6 +23,8 @@ export function createWebAnimations(api: any): any {
   let finishTimer = 0;
   let finishAt = Infinity;
   let limitReported = false;
+  /** The renderer's CSS animation list does not depend on script animations: that query leaves the batch for the end of the task. */
+  let listingCss = false;
   const all = new Set<any>();
   const pendingSet = new Set<any>();
   const dirty = new Set<any>();
@@ -1111,10 +1113,13 @@ export function createWebAnimations(api: any): any {
     const id = element ? nodeId(element) : 0;
     if (!id) return [];
     let result;
+    listingCss = true;
     try {
       result = query({ q: 'anims', id, subtree }, false);
     } catch {
       return [];
+    } finally {
+      listingCss = false;
     }
     const list = result && Array.isArray(result.list) ? result.list : [];
     const out: any[] = [];
@@ -1577,7 +1582,14 @@ export function createWebAnimations(api: any): any {
     }
     dirty.clear();
     for (const a of keep) dirty.add(a);
-    if (out.length) host('anim', JSON.stringify(out));
+    if (!out.length) return;
+    host('anim', JSON.stringify(out));
+    invalidateLayout?.();
+  }
+
+  /** A synchronous layout query in the middle of a task: the renderer must see the animation state the script just set. */
+  function flushPending() {
+    if (dirty.size && !listingCss) flush();
   }
 
   function endTick() {
@@ -1599,6 +1611,7 @@ export function createWebAnimations(api: any): any {
     timeline: documentTimeline,
     frame,
     endTick,
+    flushPending,
     defer: microtask,
     globals,
   };
@@ -1618,6 +1631,11 @@ export function webAnimationsEnabled(): boolean {
 export function webAnimations(): any {
   return instance ??= createWebAnimations({
     host, diag, unsupported, reportError: (e: unknown) => reportError(e), Event, EventTarget, nodeId: mirroredId, nodeById,
-    setTimer: hostTimer, clearTimer: clearHostTimer, timeOrigin, query,
+    setTimer: hostTimer, clearTimer: clearHostTimer, timeOrigin, query, invalidateLayout,
   });
+}
+
+/** Sends script animation state changed in this task; a no-op until a widget animates. */
+export function flushPendingAnimations(): void {
+  if (enabled && instance) instance.flushPending();
 }

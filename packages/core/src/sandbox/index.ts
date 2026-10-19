@@ -16,7 +16,7 @@ import { counters, diag, host, invalidateLayout, setFlushHook, unsupported } fro
 import { DOMMatrix, DOMPoint, DOMRect, elementFromPoint, getComputedStyle, installLayout } from './layout';
 import { styleOf } from './style';
 import { PROFILE_VERSION } from '../shared/profile-tables';
-import { setWebAnimations, webAnimations, webAnimationsEnabled } from './waapi';
+import { flushPendingAnimations, setWebAnimations, webAnimations, webAnimationsEnabled } from './waapi';
 
 const G: any = globalThis;
 const LD: any = linkedom;
@@ -92,7 +92,10 @@ ev.installEventTarget(LD.EventTarget.prototype);
 ev.setEventRoots(G, document);
 globals.installWindow({ document, getComputedStyle, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 } });
 ev.installEventTarget(G);
-setFlushHook(() => capture.flush());
+setFlushHook(() => {
+  capture.flush();
+  flushPendingAnimations();
+});
 
 // ───────────────────────── element.style / innerHTML ─────────────────────────
 
@@ -147,6 +150,80 @@ if (!('toggleAttribute' in ElementProto)) {
       if (want && !has) this.setAttribute(name, '');
       else if (!want && has) this.removeAttribute(name);
       return want;
+    },
+  });
+}
+
+// ───────────────────────── live HTMLCollections ─────────────────────────
+
+// getElementsByClassName / getElementsByTagName answer live collections, as in browsers
+// (linkedom returns a snapshot). The matches are re-read only when the tree changed since
+// the last access (capture.domGeneration), so an indexed loop over one stays linear.
+{
+  const NodeListCtor: any = document.createElement('div').childNodes.constructor;
+  class HTMLCollection extends NodeListCtor {
+    namedItem(name: any) {
+      const key = String(name);
+      for (let i = 0; i < (this as any).length; i++) {
+        const el = (this as any)[i];
+        if (key && (el.id === key || el.getAttribute('name') === key)) return el;
+      }
+      return null;
+    }
+  }
+  Object.defineProperty(HTMLCollection, 'name', { value: 'HTMLCollection' });
+  G.HTMLCollection = HTMLCollection;
+  const ASCII_WS = /[\t\n\f\r ]+/;
+  const descendants = (root: any, match: (el: any) => boolean, out: any) => {
+    const stack: any[] = [];
+    for (let el = root.firstElementChild; el || stack.length; ) {
+      if (!el) { el = stack.pop().nextElementSibling; continue; }
+      if (match(el)) out.push(el);
+      const first = el.localName === 'template' ? null : el.firstElementChild;
+      if (first) { stack.push(el); el = first; } else el = el.nextElementSibling;
+    }
+  };
+  const live = (root: any, match: (el: any) => boolean) => {
+    const items: any = new HTMLCollection();
+    let seen = -1;
+    const sync = () => {
+      const now = capture.domGeneration();
+      if (now === seen) return;
+      seen = now;
+      items.length = 0;
+      descendants(root, match, items);
+    };
+    return new Proxy(items, {
+      get(t, p) { sync(); return Reflect.get(t, p, t); },
+      has(t, p) { sync(); return Reflect.has(t, p); },
+      ownKeys(t) { sync(); return Reflect.ownKeys(t); },
+      getOwnPropertyDescriptor(t, p) { sync(); return Reflect.getOwnPropertyDescriptor(t, p); },
+      set() { return true; },
+      deleteProperty() { return true; },
+    });
+  };
+  const owner = (name: string) => {
+    for (let p = ElementProto; p; p = Object.getPrototypeOf(p)) if (Object.prototype.hasOwnProperty.call(p, name)) return p;
+    return ElementProto;
+  };
+  define(owner('getElementsByClassName'), {
+    getElementsByClassName(this: any, names: any) {
+      const wanted = String(names).split(ASCII_WS).filter(Boolean);
+      return live(this, (el) => {
+        if (!wanted.length) return false;
+        const a = el.getAttributeNode('class');
+        if (!a) return false;
+        const own = String(a.value).split(ASCII_WS);
+        for (const w of wanted) if (!own.includes(w)) return false;
+        return true;
+      });
+    },
+  });
+  define(owner('getElementsByTagName'), {
+    getElementsByTagName(this: any, name: any) {
+      const exact = String(name);
+      const lower = exact.toLowerCase();
+      return live(this, exact === '*' ? () => true : (el) => el.localName === (el.namespaceURI === SVG_NS ? exact : lower));
     },
   });
 }
