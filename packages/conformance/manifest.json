@@ -24,7 +24,7 @@
  },
  "coverage": {
   "auto": 245,
-  "visual": 112,
+  "visual": 114,
   "catalogue": 255,
   "external": {
    "limit.nodes": "corpus/attacks (pnpm test:attacks): node flood",
@@ -2402,7 +2402,7 @@
    "id": "auto/06-text-fonts-c",
    "set": "auto",
    "file": "auto/06-text-fonts-c.html",
-   "title": "Ellipsis, text-shadow, emoji and decoration (pixels), RTL and shaping, emoji, selection",
+   "title": "Ellipsis, text-shadow, emoji and decoration (pixels), RTL and shaping, emoji, opt-in selection",
    "kind": [
     "self",
     "pixel"
@@ -2463,9 +2463,23 @@
     },
     {
      "id": "css.text.selection",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
      "native": {
       "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.text.selection",
+     "name": "a child of user-select: text is selectable too (auto or text)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.text.selection",
+     "name": "user-select: all is outside the profile (dropped)",
+     "native": {
+      "chromium": "skip"
      }
     }
    ],
@@ -2579,9 +2593,9 @@
      }
     }
    ],
-   "bytes": 6729,
-   "gzip": 2981,
-   "gzip6": 2983
+   "bytes": 7215,
+   "gzip": 3171,
+   "gzip6": 3173
   },
   {
    "id": "auto/07-selectors-a",
@@ -6815,7 +6829,7 @@
    "id": "auto/22-ua-defaults",
    "set": "auto",
    "file": "auto/22-ua-defaults.html",
-   "title": "The UA layer: the root on the bubble's colours and the text tokens, text defaults, author CSS wins",
+   "title": "The UA layer: the root on the text tokens over the bubble, text defaults, author CSS wins",
    "kind": [
     "self"
    ],
@@ -6843,7 +6857,7 @@
    "checks": [
     {
      "id": "tw.theme-params",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "native": {
       "chromium": "pass"
      }
@@ -6871,7 +6885,7 @@
     },
     {
      "id": "html.el.structure",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "native": {
       "chromium": "pass"
      }
@@ -6962,9 +6976,9 @@
     }
    ],
    "stages": [],
-   "bytes": 8601,
-   "gzip": 3761,
-   "gzip6": 3763
+   "bytes": 8611,
+   "gzip": 3766,
+   "gzip6": 3768
   },
   {
    "id": "visual/01-boxes",
@@ -7728,7 +7742,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/slide.chromium.png"
      },
-     "nativeVsTemplate": 0.6588
+     "nativeVsTemplate": 0.6305
     },
     {
      "name": "spin-pulse",
@@ -7745,7 +7759,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
      },
-     "nativeVsTemplate": 0.8217
+     "nativeVsTemplate": 0.8422
     },
     {
      "name": "steps",
@@ -7762,7 +7776,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/steps.chromium.png"
      },
-     "nativeVsTemplate": 0.2556
+     "nativeVsTemplate": 0.5037
     },
     {
      "name": "frozen",
@@ -7851,7 +7865,7 @@
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
      },
-     "nativeVsTemplate": 0.1671
+     "nativeVsTemplate": 0
     },
     {
      "name": "seek",
@@ -8250,7 +8264,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7414
+     "nativeVsTemplate": 0.7266
     }
    ],
    "bytes": 5218,
@@ -8657,7 +8671,71 @@
     "light": "refs/visual/14-unstyled-document.png",
     "dark": "refs/visual/14-unstyled-document.dark.png"
    },
-   "height": 503
+   "height": 495
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "file": "visual/15-body-background.html",
+   "title": "A body background without a margin reset fills the whole bubble (root background propagation)",
+   "hint": "The whole bubble is dark blue, edge to edge: no strip of the bubble's own colour around the text, in either theme.",
+   "kind": [],
+   "covers": [
+    "css.background.basic",
+    "html.el.structure"
+   ],
+   "themes": [
+    "light",
+    "dark"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 2391,
+   "gzip": 1360,
+   "gzip6": 1360,
+   "refImages": {
+    "light": "refs/visual/15-body-background.png",
+    "dark": "refs/visual/15-body-background.dark.png"
+   },
+   "height": 150
+  },
+  {
+   "id": "visual/16-selection",
+   "set": "visual",
+   "file": "visual/16-selection.html",
+   "title": "Text selection: nothing is selectable by default; user-select: text makes a paragraph selectable, its children included",
+   "hint": "Select text the way your client selects message text (on a phone through the bubble's menu, with a mouse by dragging): only the blue-bordered paragraph can be selected, the bold word in it too, and copying gives its text.",
+   "kind": [],
+   "covers": [
+    "behaviour.no-selection",
+    "css.text.selection"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [],
+   "bytes": 3317,
+   "gzip": 1762,
+   "gzip6": 1762,
+   "refImages": {
+    "light": "refs/visual/16-selection.png"
+   },
+   "height": 190
   },
   {
    "id": "visual/sdk/01-link-external",

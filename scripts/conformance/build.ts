@@ -35,6 +35,7 @@ import { emitCatalogue } from './emit-catalogue';
 import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 import { REFERENCE_STYLESHEET } from '../../packages/core/src/shared/reference.ts';
+import { DEFAULT_THEME_PARAMS } from '../../packages/core/src/shared/sdk-policy.ts';
 
 const args = process.argv.slice(2);
 const opt = (name: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : undefined);
@@ -143,14 +144,30 @@ async function waitStatus(page: Page, want: string[], timeout: number): Promise<
   return last;
 }
 
+/**
+ * Reference pictures: a page whose root says `color-scheme: dark` gets Chromium's own dark canvas, not the default background
+ * set through CDP, where a client shows its bubble through the transparent renderer. When neither the root nor the body paints
+ * a background (so nothing propagates), the root takes the bubble's colour.
+ */
+const BUBBLE = `addEventListener('load',function(){var d=document.documentElement,b=document.body,t=function(e){var s=getComputedStyle(e);return s.backgroundImage==='none'&&/^(transparent|rgba\\(0, 0, 0, 0\\))$/.test(s.backgroundColor)};if(b&&t(d)&&t(b))d.style.backgroundColor=matchMedia('(prefers-color-scheme: dark)').matches?${JSON.stringify(DEFAULT_THEME_PARAMS.dark.bg_color)}:${JSON.stringify(DEFAULT_THEME_PARAMS.light.bg_color)}});`;
+
 /** In reference mode every stage with a <template data-ref="name"> gets the template's markup (after the widget's own scripts ran). */
 const SWAP = "document.addEventListener('DOMContentLoaded',function(){[].forEach.call(document.querySelectorAll('template[data-ref]'),function(t){var s=document.querySelector('[data-stage=\"'+t.getAttribute('data-ref')+'\"]');if(s)s.innerHTML=t.innerHTML})})";
 
-/** sdk: 'mock' = the SDK stand-in (client-SDK group pictures); 'palette' = only the reference palette and background (visual set pictures). */
-async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdk: 'mock' | 'palette' | false = false): Promise<Page> {
+/**
+ * sdk: 'mock' = the SDK stand-in (client-SDK group pictures); 'palette' = only the reference palette (visual set pictures).
+ * The page's canvas is the reference palette's bubble colour, set outside the document (Chromium), as the client's bubble is
+ * behind a transparent renderer: a widget's root background or body background still paints over it (propagation).
+ */
+async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdk: 'mock' | 'palette' | false = false, theme: 'light' | 'dark' = 'light'): Promise<Page> {
   const page = await ctx.newPage();
+  if (ctx.browser()?.browserType().name() === 'chromium') {
+    const hex = DEFAULT_THEME_PARAMS[theme].bg_color;
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    await (await ctx.newCDPSession(page)).send('Emulation.setDefaultBackgroundColorOverride', { color: { r, g, b, a: 1 } });
+  }
   // The mode goes into the HTML, before the harness. Links never navigate in a native reference run.
-  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true);${mode === 'ref' ? SWAP : ''}</script>` + (sdk ? `<script>${sdk === 'palette' ? 'window.__conformanceNoSdk=1;' : ''}${SDK_MOCK}</script>` : '');
+  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true);${mode === 'ref' ? SWAP + ';' + BUBBLE : ''}</script>` + (sdk ? `<script>${sdk === 'palette' ? 'window.__conformanceNoSdk=1;' : ''}${SDK_MOCK}</script>` : '');
   // Served from a real (fake) origin, not about:blank, so storage works as in a WebView.
   const url = 'https://conformance.test/widget.html';
   await page.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html.replace(/<head>/i, '<head>' + boot) }));
@@ -187,7 +204,7 @@ async function renderRefs(browsers: Record<string, Browser>, w: Widget, html: st
       const stages = w.stages.filter((s) => s.themes.includes(theme));
       if (!stages.length) continue;
       const ctx = await newContext(browser, theme);
-      const page = await openNative(ctx, html, 'ref');
+      const page = await openNative(ctx, html, 'ref', false, theme);
       await waitStatus(page, ['done', 'awaiting'], 15_000);
       await page.waitForTimeout(150);
       for (const s of stages) {
@@ -216,7 +233,7 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
   const out: Record<string, string> = {};
   for (const theme of pictureThemes(w)) {
     const ctx = await newContext(browser, theme);
-    const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette');
+    const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', theme);
     await waitStatus(page, ['done', 'awaiting'], 15_000);
     await page.waitForTimeout(300);
     const h = Math.min(isSdk(w) ? 1200 : 2000, await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height)));

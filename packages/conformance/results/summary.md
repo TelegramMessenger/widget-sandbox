@@ -1,17 +1,17 @@
 # Conformance results
 
-Generated 2026-10-20 14:46 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; policy strict, features webAnimations).
+Generated 2026-10-20 16:26 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
 ## Totals
 
-| Renderer | in (173) ✅ / ◐ / ❌ / ⏳ | out (82) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
+| Renderer | in (174) ✅ / ◐ / ❌ / ⏳ | out (81) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|
-| web iframe | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 231 / 231 | 0 |
-| web shadow | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 231 / 231 | 0 |
-| web blitz | 99 / 34 / 26 / 0 | 66 / 2 / 7 | 41 / 41 | 0 |
-| web litehtml | 68 / 39 / 52 / 0 | 60 / 3 / 12 | 41 / 41 | 0 |
+| web iframe | 159 / 5 / 0 / 0 | 80 / 0 / 0 | 231 / 231 | 0 |
+| web shadow | 159 / 5 / 0 / 0 | 80 / 0 / 0 | 231 / 231 | 0 |
+| web blitz | 99 / 35 / 26 / 0 | 66 / 2 / 6 | 41 / 41 | 0 |
+| web litehtml | 68 / 40 / 52 / 0 | 60 / 3 / 11 | 41 / 41 | 0 |
 
 ## In the profile
 
@@ -83,6 +83,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `css.text.list-style` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `css.text.rtl` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `css.text.emoji` | ✅ | ✅ | ◐ | ✅ | ✅ |
+| `css.text.selection` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `css.transform.2d` | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `css.filter.blur-brightness-drop-shadow` * | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `css.backdrop-filter` * | ✅ | ✅ | ❌ | ❌ | · |
@@ -228,7 +229,6 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `css.text.line-clamp` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `css.text.shadow` | ✅ | ✅ | ✅ | ✅ | · |
 | `css.text.writing-mode` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| `css.text.selection` | ✅ | ✅ | ❌ | ❌ | ✅ |
 | `css.transform.3d` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `css.filter.other` | ✅ | ✅ | ✅ | ✅ | · |
 | `css.filter.url` | ✅ | ✅ | ✅ | ✅ | · |
@@ -298,7 +298,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 ## web blitz: in-profile failures
 
-- `html.el.structure`: 01-html-elements-a: wbr is a break opportunity (h 16); 22-ua-defaults: root: the text tokens, system-ui (got "16,NaN,false", want "NaN,NaN,true"); 22-ua-defaults: body: no margin, the token as padding (got "8,8,0,0,0,0", want "0,0,NaN,NaN,NaN,NaN"); 22-ua-defaults: p: 0.6em margins; hr: one 1px line, no height (got "1,1,1,0", want "0.6,1,0,0")
+- `html.el.structure`: 01-html-elements-a: wbr is a break opportunity (h 16); 22-ua-defaults: root: the text tokens, system-ui (got "16,NaN,false", want "NaN,NaN,true"); 22-ua-defaults: body: the padding token as margin, no padding (got "0,0,8,8,8,8", want "0,0,NaN,NaN,NaN,NaN"); 22-ua-defaults: p: 0.6em margins; hr: one 1px line, no height (got "1,1,1,0", want "0.6,1,0,0")
 - `html.el.headings`: 22-ua-defaults: h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em (got "2,1.5,1.17,1,0.83,0.67", want "1.6,1.35,1.2,1.07,1,0.87"); 22-ua-defaults: headings: 600, line height 1.25; h2 0.75em above, 0.35em below (got "700,NaN,0.83,0.83", want "600,1.25,0.75,0.35")
 - `html.el.inline-text`: 01-html-elements-a: q adds quotation marks (16.5 vs 16.5); 22-ua-defaults: small 0.85em; b 600; code monospace 0.9em (got "0.83,700,true,0.81", want "0.85,600,true,0.9")
 - `html.el.sub-sup`: 01-html-elements-c: sub sits lower, sup higher (base 26-49 sub 49 sup 26); 22-ua-defaults: sup: 0.75em on the baseline, raised by position (got "0.83,,static", want "0.75,baseline,relative")
@@ -329,6 +329,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `css.font.basic`: 06-text-fonts-a: font-weight: 700 is wider than 400 (59 vs 59)
 - `css.text.overflow`: 06-text-fonts-c: ellipsis (diff 27.1 % of ink (max 50 %); #36c 0/70px)
 - `css.text.emoji`: 06-text-fonts-c: emoji (diff 89.6 % of ink (max 50 %))
+- `css.text.selection`: 06-text-fonts-c: not selectable by default (none on the root); user-select: text enables it (got "auto text", want "none text")
 - `css.transform.2d`: 09-transforms-effects-a: translateX(30px) moves the box (got 0, want 30 ±0.5); 09-transforms-effects-a: rotate(90deg) swaps the bounding box (40x20); 09-transforms-effects-a: scale(2) with transform-origin 0 0 (110 10); 09-transforms-effects-a: the translate property (150,0)
 - `css.filter.blur-brightness-drop-shadow`: 09-transforms-effects-a: blur (diff 37.7 % of ink (max 10 %)); 09-transforms-effects-a: brightness-drop-shadow (diff 68.0 % of ink (max 5 %))
 - `css.backdrop-filter`: 09-transforms-effects-b: backdrop (diff 43.1 % of ink (max 10 %))
@@ -356,12 +357,12 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `js.layout.box`: 14-dom-layout-api-b: scrollHeight of overflowing content (got 136, want 70); 14-dom-layout-api-b: offsetParent (got false, want true)
 - `js.layout.computed-style`: 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
 - `js.layout.resize-observer`: 14-dom-layout-api-b: ResizeObserver reports the new width ( (timed out))
-- `tw.theme-params`: 16-sdk-taps-c: --tg-theme-bg-color is defined for CSS (1,2,3,1); 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css ); 22-ua-defaults: root: bg and text colours (got "0,0,0,0 0,0,0,1", want " "); 22-ua-defaults: a[href]: link colour, no underline; <a> without href: text colour (got "0,0,238,1 underline 0,0,0,1", want " none 0,0,0,1")
+- `tw.theme-params`: 16-sdk-taps-c: --tg-theme-bg-color is defined for CSS (1,2,3,1); 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css ); 22-ua-defaults: root: no background (the bubble is the canvas), the text colour (got "0,0,0,0 0,0,0,1", want "0,0,0,0 "); 22-ua-defaults: a[href]: link colour, no underline; <a> without href: text colour (got "0,0,238,1 underline 0,0,0,1", want " none 0,0,0,1")
 - `input.mouse-compat`: 16-sdk-taps-a: mousedown → mouseup on a tap (pointerdown,pointerup,click)
 
 ## web litehtml: in-profile failures
 
-- `html.el.structure`: 01-html-elements-a: p has 1em block margins (got null, want 13 ±0.5); 22-ua-defaults: root: the text tokens, system-ui (got "15,NaN,false", want "NaN,NaN,true"); 22-ua-defaults: body: no margin, the token as padding (got "NaN,NaN,NaN,NaN,NaN,NaN", want "0,0,NaN,NaN,NaN,NaN"); 22-ua-defaults: p: 0.6em margins; hr: one 1px line, no height (got "NaN,NaN,NaN,1", want "0.6,1,0,0")
+- `html.el.structure`: 01-html-elements-a: p has 1em block margins (got null, want 13 ±0.5); 22-ua-defaults: root: the text tokens, system-ui (got "15,NaN,false", want "NaN,NaN,true"); 22-ua-defaults: body: the padding token as margin, no padding (got "NaN,NaN,NaN,NaN,NaN,NaN", want "0,0,NaN,NaN,NaN,NaN"); 22-ua-defaults: p: 0.6em margins; hr: one 1px line, no height (got "NaN,NaN,NaN,1", want "0.6,1,0,0")
 - `html.el.headings`: 01-html-elements-a: h1 > h2 > … > h6 font sizes (20,17,15,13,13,11); 01-html-elements-a: headings are bold (NaN,NaN); 22-ua-defaults: h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em (got "1.6,1.33,1.2,1.07,1,0.87", want "1.6,1.35,1.2,1.07,1,0.87"); 22-ua-defaults: headings: 600, line height 1.25; h2 0.75em above, 0.35em below (got ",NaN,NaN,NaN", want "600,1.25,0.75,0.35")
 - `html.el.sections`: 01-html-elements-a: sectioning elements are blocks (block,block,inline,block,block,block,block,block,inline,inline); 01-html-elements-a: address is italic (got "", want "italic")
 - `html.el.inline-text`: 01-html-elements-a: b, strong are bold (NaN,NaN); 01-html-elements-a: i, em, cite, dfn, var are italic; 01-html-elements-a: u, ins underline; s, del strike ( / ); 01-html-elements-a: code, kbd, samp are monospace
@@ -410,6 +411,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `css.text.overflow`: 06-text-fonts-c: ellipsis (diff 15.1 % of ink (max 50 %); #36c 0/70px)
 - `css.text.list-style`: 06-text-fonts-b: list-style-position: inside moves the text right (27.5 vs 27.5); 06-text-fonts-b: list-style-type: none (got "", want "none")
 - `css.text.rtl`: 06-text-fonts-c: Hebrew in dir=rtl starts at the right edge (got 8, want 128 ±1)
+- `css.text.selection`: 06-text-fonts-c: not selectable by default (none on the root); user-select: text enables it (got " ", want "none text"); 06-text-fonts-c: a child of user-select: text is selectable too (auto or text)
 - `css.transform.2d`: 09-transforms-effects-a: translateX(30px) moves the box (got 0, want 30 ±0.5); 09-transforms-effects-a: rotate(90deg) swaps the bounding box (40x20); 09-transforms-effects-a: scale(2) with transform-origin 0 0 (110 10); 09-transforms-effects-a: the translate property (150,0)
 - `css.filter.blur-brightness-drop-shadow`: 09-transforms-effects-a: filter functions are kept; 09-transforms-effects-a: blur (diff 37.7 % of ink (max 10 %)); 09-transforms-effects-a: brightness-drop-shadow (diff 68.1 % of ink (max 5 %))
 - `css.backdrop-filter`: 09-transforms-effects-b: backdrop (diff 91.1 % of ink (max 10 %))
@@ -450,7 +452,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `js.layout.computed-style`: 14-dom-layout-api-b: longhand (width) (got "116.000000px", want "100px"); 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
 - `js.layout.resize-observer`: 14-dom-layout-api-b: ResizeObserver reports the new width ( (timed out))
 - `js.layout.measure-text`: 14-dom-layout-api-b: measureText agrees with DOM text width (got 88.92, want 0 ±1.5)
-- `tw.theme-params`: 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css ); 22-ua-defaults: root: bg and text colours (got "255,255,255,1 0,0,0,1", want " "); 22-ua-defaults: a[href]: link colour, no underline; <a> without href: text colour (got "51,144,236,1  0,0,0,1", want " none 0,0,0,1"); 22-ua-defaults: figcaption is --tg-theme-hint-color (got "112,117,121,1", want "")
+- `tw.theme-params`: 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css ); 22-ua-defaults: root: no background (the bubble is the canvas), the text colour (got "0,0,0,0 0,0,0,1", want "0,0,0,0 "); 22-ua-defaults: a[href]: link colour, no underline; <a> without href: text colour (got "51,144,236,1  0,0,0,1", want " none 0,0,0,1"); 22-ua-defaults: figcaption is --tg-theme-hint-color (got "112,117,121,1", want "")
 - `behaviour.policy-strict`: 19-limits: attr() of a text attribute (data-*) works (0)
 
 ## Visual set
@@ -477,6 +479,8 @@ For people (the test channel): judged by eye. Runners only check that each widge
 | visual/12-theme | ✅ | ✅ | ✅ | ✅ |
 | visual/13-out-of-profile | ✅ | ✅ | ✅ | ✅ |
 | visual/14-unstyled-document | ✅ | ✅ | ✅ | ✅ |
+| visual/15-body-background | ✅ | ✅ | ✅ | ✅ |
+| visual/16-selection | ✅ | ✅ | ✅ | ✅ |
 | visual/sdk/01-link-external | ✅ | ✅ | ✅ | ✅ |
 | visual/sdk/02-link-telegram | ✅ | ✅ | ✅ | ✅ |
 | visual/sdk/03-link-rejected | ✅ | ✅ | ✅ | ✅ |

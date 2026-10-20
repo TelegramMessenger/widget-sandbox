@@ -5,18 +5,18 @@
   "platform": "web",
   "renderer": "litehtml",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "078ddd9",
+  "framework": "4e85ffb",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-20T14:27:35.058Z",
-  "commit": "078ddd9"
+  "date": "2026-10-20T16:26:23.769Z",
+  "commit": "4e85ffb"
  },
  "summary": {
   "in": {
    "pass": 68,
-   "partial": 39,
+   "partial": 40,
    "fail": 52,
    "xfail": 0,
    "xpass": 0,
@@ -35,7 +35,7 @@
   "out": {
    "pass": 60,
    "partial": 3,
-   "fail": 12,
+   "fail": 11,
    "xfail": 0,
    "xpass": 0,
    "skip": 7,
@@ -99,7 +99,7 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "status": "fail",
      "detail": "got \"NaN,NaN,NaN,NaN,NaN,NaN\", want \"0,0,NaN,NaN,NaN,NaN\"",
      "theme": "light",
@@ -2453,6 +2453,51 @@
      "name": "named colour",
      "status": "fail",
      "detail": "got \"0,0,0,0\", want \"102,51,153,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "check",
+     "name": "#rgba hex",
+     "status": "pass",
+     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "check",
+     "name": "hsl()",
+     "status": "pass",
+     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "check",
+     "name": "currentColor",
+     "status": "fail",
+     "detail": "got \"\", want \"0,0,200,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "check",
+     "name": "transparent",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "check",
+     "name": "named colour",
+     "status": "fail",
+     "detail": "got \"0,0,0,0\", want \"102,51,153,1\"",
      "theme": "light",
      "width": 390
     },
@@ -2500,51 +2545,6 @@
      "detail": "diff 25.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "check",
-     "name": "named colour",
-     "status": "fail",
-     "detail": "got \"0,0,0,0\", want \"102,51,153,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "check",
-     "name": "#rgba hex",
-     "status": "pass",
-     "detail": "got \"255,0,0,0.53\", want \"255,0,0,0.53\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "check",
-     "name": "hsl()",
-     "status": "pass",
-     "detail": "got \"0,128,0,1\", want \"0,128,0,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "check",
-     "name": "currentColor",
-     "status": "fail",
-     "detail": "got \"\", want \"0,0,200,1\"",
-     "theme": "dark",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "check",
-     "name": "transparent",
-     "status": "pass",
-     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
-     "theme": "dark",
-     "width": 390
     }
    ]
   },
@@ -2579,6 +2579,15 @@
      "name": "color-mix() is dropped: no background (profile 1: out)",
      "status": "pass",
      "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "check",
+     "name": "color-mix() is dropped: no background (profile 1: out)",
+     "status": "pass",
+     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
      "theme": "light",
      "width": 390
     },
@@ -2589,15 +2598,6 @@
      "status": "pass",
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "check",
-     "name": "color-mix() is dropped: no background (profile 1: out)",
-     "status": "pass",
-     "detail": "got \"0,0,0,0\", want \"0,0,0,0\"",
-     "theme": "dark",
      "width": 390
     }
    ]
@@ -2615,24 +2615,6 @@
      "kind": "check",
      "name": "light-dark() picks the chat theme",
      "status": "pass",
-     "detail": "got \"1,2,3,1\", want \"1,2,3,1\"",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "stage",
-     "name": "light-dark",
-     "status": "fail",
-     "detail": "diff 100.0 % of ink (max 5 %)",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/05-colour-backgrounds-a",
-     "kind": "check",
-     "name": "light-dark() picks the chat theme",
-     "status": "pass",
      "detail": "got \"4,5,6,1\", want \"4,5,6,1\"",
      "theme": "dark",
      "width": 390
@@ -2644,6 +2626,24 @@
      "status": "fail",
      "detail": "diff 100.0 % of ink (max 5 %)",
      "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "check",
+     "name": "light-dark() picks the chat theme",
+     "status": "pass",
+     "detail": "got \"1,2,3,1\", want \"1,2,3,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/05-colour-backgrounds-a",
+     "kind": "stage",
+     "name": "light-dark",
+     "status": "fail",
+     "detail": "diff 100.0 % of ink (max 5 %)",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -3376,18 +3376,37 @@
    ]
   },
   "css.text.selection": {
-   "status": "out",
-   "verdict": "fail",
+   "status": "in",
+   "verdict": "partial",
    "counts": {
-    "fail": 1
+    "fail": 2,
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts-c",
      "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
      "status": "fail",
-     "detail": "got \"\", want \"none\"",
+     "detail": "got \" \", want \"none text\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "a child of user-select: text is selectable too (auto or text)",
+     "status": "fail",
+     "detail": "",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: all is outside the profile (dropped)",
+     "status": "pass",
+     "detail": "",
      "theme": "light",
      "width": 390
     }
@@ -4528,7 +4547,7 @@
      "name": "(min-width: 200px) applies",
      "status": "pass",
      "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4537,7 +4556,7 @@
      "name": "(max-width: 100px) does not",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4546,7 +4565,7 @@
      "name": "screen and (min-width) and (max-width)",
      "status": "pass",
      "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4555,7 +4574,7 @@
      "name": "matchMedia agrees with @media",
      "status": "pass",
      "detail": "got true, want true",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4564,7 +4583,7 @@
      "name": "(min-width: 200px) applies",
      "status": "pass",
      "detail": "got \"1,0,0,1\", want \"1,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4573,7 +4592,7 @@
      "name": "(max-width: 100px) does not",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4582,7 +4601,7 @@
      "name": "screen and (min-width) and (max-width)",
      "status": "pass",
      "detail": "got \"3,0,0,1\", want \"3,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4591,7 +4610,7 @@
      "name": "matchMedia agrees with @media",
      "status": "pass",
      "detail": "got true, want true",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4603,24 +4622,6 @@
     "pass": 4
    },
    "evidence": [
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "prefers-color-scheme follows the chat theme",
-     "status": "pass",
-     "detail": "got \"11,0,0,1\", want \"11,0,0,1\"",
-     "theme": "light",
-     "width": 390
-    },
-    {
-     "test": "auto/08-at-rules",
-     "kind": "check",
-     "name": "matchMedia(prefers-color-scheme) agrees",
-     "status": "pass",
-     "detail": "got false, want false",
-     "theme": "light",
-     "width": 390
-    },
     {
      "test": "auto/08-at-rules",
      "kind": "check",
@@ -4638,6 +4639,24 @@
      "detail": "got true, want true",
      "theme": "dark",
      "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "prefers-color-scheme follows the chat theme",
+     "status": "pass",
+     "detail": "got \"11,0,0,1\", want \"11,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/08-at-rules",
+     "kind": "check",
+     "name": "matchMedia(prefers-color-scheme) agrees",
+     "status": "pass",
+     "detail": "got false, want false",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
@@ -4654,7 +4673,7 @@
      "name": "@media and matchMedia agree on reduced motion",
      "status": "pass",
      "detail": "got false, want false",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4663,7 +4682,7 @@
      "name": "@media and matchMedia agree on reduced motion",
      "status": "pass",
      "detail": "got false, want false",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4681,7 +4700,7 @@
      "name": "@media (hover) is dropped and matchMedia answers false (profile 1: out)",
      "status": "pass",
      "detail": "0,0,0,1 / false",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4690,7 +4709,7 @@
      "name": "@media (pointer) is dropped and matchMedia answers false",
      "status": "pass",
      "detail": "0,0,0,1 / false",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4699,7 +4718,7 @@
      "name": "@media (hover) is dropped and matchMedia answers false (profile 1: out)",
      "status": "pass",
      "detail": "0,0,0,1 / false",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4708,7 +4727,7 @@
      "name": "@media (pointer) is dropped and matchMedia answers false",
      "status": "pass",
      "detail": "0,0,0,1 / false",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4726,7 +4745,7 @@
      "name": "@media print never applies and matchMedia(print) is false",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4735,7 +4754,7 @@
      "name": "@media print never applies and matchMedia(print) is false",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4753,7 +4772,7 @@
      "name": "@supports (display: flex) holds",
      "status": "pass",
      "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4762,7 +4781,7 @@
      "name": "@supports (3D transform) is false: 3D is out of the profile",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4771,7 +4790,7 @@
      "name": "@supports with and/not follows the profile",
      "status": "pass",
      "detail": "got \"22,0,0,1\", want \"22,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4780,7 +4799,7 @@
      "name": "@supports (gap) holds",
      "status": "pass",
      "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4789,7 +4808,7 @@
      "name": "@supports (display: flex) holds",
      "status": "pass",
      "detail": "got \"20,0,0,1\", want \"20,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4798,7 +4817,7 @@
      "name": "@supports (3D transform) is false: 3D is out of the profile",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4807,7 +4826,7 @@
      "name": "@supports with and/not follows the profile",
      "status": "pass",
      "detail": "got \"22,0,0,1\", want \"22,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4816,7 +4835,7 @@
      "name": "@supports (gap) holds",
      "status": "pass",
      "detail": "got \"23,0,0,1\", want \"23,0,0,1\"",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4852,7 +4871,7 @@
      "name": "@import is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4861,7 +4880,7 @@
      "name": "@import is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4879,7 +4898,7 @@
      "name": "@container is dropped (profile 1: out)",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4888,7 +4907,7 @@
      "name": "@container (min-width: 500px) does not apply either way",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4897,7 +4916,7 @@
      "name": "@container is dropped (profile 1: out)",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -4906,7 +4925,7 @@
      "name": "@container (min-width: 500px) does not apply either way",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4923,8 +4942,8 @@
      "kind": "check",
      "name": "@layer is dropped with its rules (profile 1: out)",
      "status": "pass",
-     "detail": "17,17,17,1",
-     "theme": "light",
+     "detail": "232,232,232,1",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4932,8 +4951,8 @@
      "kind": "check",
      "name": "@layer is dropped with its rules (profile 1: out)",
      "status": "pass",
-     "detail": "232,232,232,1",
-     "theme": "dark",
+     "detail": "17,17,17,1",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4951,7 +4970,7 @@
      "name": "@property is dropped: var(--pp) has no initial value (profile 1: out)",
      "status": "pass",
      "detail": "w 374",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4960,7 +4979,7 @@
      "name": "@property is dropped: var(--pp) has no initial value (profile 1: out)",
      "status": "pass",
      "detail": "w 374",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -4978,7 +4997,7 @@
      "name": "@scope is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -4987,7 +5006,7 @@
      "name": "@scope is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -5005,7 +5024,7 @@
      "name": "a nested rule .a { .b {} } is dropped (profile 1: out)",
      "status": "pass",
      "detail": "w 374",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -5014,7 +5033,7 @@
      "name": "a nested & .b rule is dropped",
      "status": "pass",
      "detail": "w 374",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -5023,7 +5042,7 @@
      "name": "a nested &.class rule is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -5032,7 +5051,7 @@
      "name": "rules after nested ones survive",
      "status": "pass",
      "detail": "got 33, want 33 ±0.5",
-     "theme": "light",
+     "theme": "dark",
      "width": 390
     },
     {
@@ -5041,7 +5060,7 @@
      "name": "a nested rule .a { .b {} } is dropped (profile 1: out)",
      "status": "pass",
      "detail": "w 374",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -5050,7 +5069,7 @@
      "name": "a nested & .b rule is dropped",
      "status": "pass",
      "detail": "w 374",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -5059,7 +5078,7 @@
      "name": "a nested &.class rule is dropped",
      "status": "pass",
      "detail": "0,0,0,1",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     },
     {
@@ -5068,7 +5087,7 @@
      "name": "rules after nested ones survive",
      "status": "pass",
      "detail": "got 33, want 33 ±0.5",
-     "theme": "dark",
+     "theme": "light",
      "width": 390
     }
    ]
@@ -5365,7 +5384,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "157.7",
+     "detail": "127.20000000000002",
      "theme": "light",
      "width": 390
     },
@@ -6415,7 +6434,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "58,71,87",
+     "detail": "36,48,65",
      "theme": "light",
      "width": 390
     }
@@ -7116,9 +7135,9 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "status": "fail",
-     "detail": "got \"255,255,255,1 0,0,0,1\", want \" \"",
+     "detail": "got \"0,0,0,0 0,0,0,1\", want \"0,0,0,0 \"",
      "theme": "light",
      "width": 390
     },
@@ -8196,6 +8215,30 @@
   {
    "id": "auto/05-colour-backgrounds-a",
    "set": "auto",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 2,
+    "pass": 5
+   },
+   "stages": [
+    {
+     "name": "light-dark",
+     "diff": 1,
+     "status": "fail"
+    }
+   ],
+   "host": []
+  },
+  {
+   "id": "auto/05-colour-backgrounds-a",
+   "set": "auto",
    "theme": "light",
    "width": 390,
    "loaded": true,
@@ -8224,30 +8267,6 @@
      "diff": 0,
      "status": "pass"
     },
-    {
-     "name": "light-dark",
-     "diff": 1,
-     "status": "fail"
-    }
-   ],
-   "host": []
-  },
-  {
-   "id": "auto/05-colour-backgrounds-a",
-   "set": "auto",
-   "theme": "dark",
-   "width": 390,
-   "loaded": true,
-   "dead": null,
-   "status": "done",
-   "errors": [],
-   "harnessErrors": [],
-   "skippedActions": [],
-   "counts": {
-    "fail": 2,
-    "pass": 5
-   },
-   "stages": [
     {
      "name": "light-dark",
      "diff": 1,
@@ -8362,8 +8381,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 2,
-    "pass": 4
+    "fail": 3,
+    "pass": 5
    },
    "stages": [
     {
@@ -8427,7 +8446,7 @@
   {
    "id": "auto/08-at-rules",
    "set": "auto",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -8444,7 +8463,7 @@
   {
    "id": "auto/08-at-rules",
    "set": "auto",
-   "theme": "dark",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9393,7 +9412,7 @@
   {
    "id": "visual/12-theme",
    "set": "visual",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9408,7 +9427,7 @@
   {
    "id": "visual/12-theme",
    "set": "visual",
-   "theme": "dark",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9438,7 +9457,7 @@
   {
    "id": "visual/14-unstyled-document",
    "set": "visual",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9453,7 +9472,52 @@
   {
    "id": "visual/14-unstyled-document",
    "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
    "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/16-selection",
+   "set": "visual",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9667,7 +9731,7 @@
   {
    "id": "visual/sdk/14-theme-palette",
    "set": "visual",
-   "theme": "light",
+   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -9682,7 +9746,7 @@
   {
    "id": "visual/sdk/14-theme-palette",
    "set": "visual",
-   "theme": "dark",
+   "theme": "light",
    "width": 390,
    "loaded": true,
    "dead": null,

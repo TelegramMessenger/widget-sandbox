@@ -5,17 +5,17 @@
   "platform": "web",
   "renderer": "shadow",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "078ddd9",
+  "framework": "4e85ffb",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-20T14:46:27.744Z",
-  "commit": "078ddd9"
+  "date": "2026-10-20T16:23:17.790Z",
+  "commit": "4e85ffb"
  },
  "summary": {
   "in": {
-   "pass": 158,
+   "pass": 159,
    "partial": 5,
    "fail": 0,
    "xfail": 0,
@@ -33,7 +33,7 @@
    "untested": 0
   },
   "out": {
-   "pass": 81,
+   "pass": 80,
    "partial": 0,
    "fail": 0,
    "xfail": 0,
@@ -278,7 +278,7 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "status": "pass",
      "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
      "theme": "dark",
@@ -314,7 +314,7 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "status": "pass",
      "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
      "theme": "dark",
@@ -350,7 +350,7 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "status": "pass",
      "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
      "theme": "dark",
@@ -386,7 +386,7 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "status": "pass",
      "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
      "theme": "light",
@@ -422,7 +422,7 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "status": "pass",
      "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
      "theme": "light",
@@ -458,7 +458,7 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "body: no margin, the token as padding",
+     "name": "body: the padding token as margin, no padding",
      "status": "pass",
      "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
      "theme": "light",
@@ -14030,63 +14030,171 @@
    ]
   },
   "css.text.selection": {
-   "status": "out",
+   "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 6
+    "pass": 18
    },
    "evidence": [
     {
      "test": "auto/06-text-fonts-c",
      "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
      "status": "pass",
-     "detail": "got \"none\", want \"none\"",
+     "detail": "got \"none text\", want \"none text\"",
      "theme": "dark",
      "width": 360
     },
     {
      "test": "auto/06-text-fonts-c",
      "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "a child of user-select: text is selectable too (auto or text)",
      "status": "pass",
-     "detail": "got \"none\", want \"none\"",
+     "detail": "text",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: all is outside the profile (dropped)",
+     "status": "pass",
+     "detail": "none",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
+     "status": "pass",
+     "detail": "got \"none text\", want \"none text\"",
      "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/06-text-fonts-c",
      "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "a child of user-select: text is selectable too (auto or text)",
      "status": "pass",
-     "detail": "got \"none\", want \"none\"",
+     "detail": "text",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: all is outside the profile (dropped)",
+     "status": "pass",
+     "detail": "none",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
+     "status": "pass",
+     "detail": "got \"none text\", want \"none text\"",
      "theme": "dark",
      "width": 430
     },
     {
      "test": "auto/06-text-fonts-c",
      "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "a child of user-select: text is selectable too (auto or text)",
      "status": "pass",
-     "detail": "got \"none\", want \"none\"",
+     "detail": "text",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: all is outside the profile (dropped)",
+     "status": "pass",
+     "detail": "none",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
+     "status": "pass",
+     "detail": "got \"none text\", want \"none text\"",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/06-text-fonts-c",
      "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "a child of user-select: text is selectable too (auto or text)",
      "status": "pass",
-     "detail": "got \"none\", want \"none\"",
+     "detail": "text",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: all is outside the profile (dropped)",
+     "status": "pass",
+     "detail": "none",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
+     "status": "pass",
+     "detail": "got \"none text\", want \"none text\"",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/06-text-fonts-c",
      "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
+     "name": "a child of user-select: text is selectable too (auto or text)",
      "status": "pass",
-     "detail": "got \"none\", want \"none\"",
+     "detail": "text",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: all is outside the profile (dropped)",
+     "status": "pass",
+     "detail": "none",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "not selectable by default (none on the root); user-select: text enables it",
+     "status": "pass",
+     "detail": "got \"none text\", want \"none text\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "a child of user-select: text is selectable too (auto or text)",
+     "status": "pass",
+     "detail": "text",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: all is outside the profile (dropped)",
+     "status": "pass",
+     "detail": "none",
      "theme": "light",
      "width": 430
     }
@@ -21388,7 +21496,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "130.4",
+     "detail": "135.8",
      "theme": "dark",
      "width": 360
     },
@@ -21496,7 +21604,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "134.7",
+     "detail": "132",
      "theme": "dark",
      "width": 390
     },
@@ -21604,7 +21712,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "124.50000000000001",
+     "detail": "127.1",
      "theme": "dark",
      "width": 430
     },
@@ -21712,7 +21820,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "129.6",
+     "detail": "131.4",
      "theme": "light",
      "width": 360
     },
@@ -21847,7 +21955,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "126.89999999999999",
+     "detail": "132",
      "theme": "light",
      "width": 390
     },
@@ -21982,7 +22090,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "124.80000000000001",
+     "detail": "125.8",
      "theme": "light",
      "width": 430
     },
@@ -25711,7 +25819,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "41,59,75",
+     "detail": "39,55,72",
      "theme": "dark",
      "width": 360
     },
@@ -25720,7 +25828,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "34,51,68",
+     "detail": "34,51,67",
      "theme": "dark",
      "width": 390
     },
@@ -25738,7 +25846,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "36,53,69",
+     "detail": "41,58,75",
      "theme": "light",
      "width": 360
     },
@@ -25747,7 +25855,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "40,56,73",
+     "detail": "45,61,78",
      "theme": "light",
      "width": 390
     },
@@ -25756,7 +25864,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "33,49,66",
+     "detail": "36,52,69",
      "theme": "light",
      "width": 430
     }
@@ -28904,9 +29012,9 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "status": "pass",
-     "detail": "got \"33,33,33,1 255,255,255,1\", want \"33,33,33,1 255,255,255,1\"",
+     "detail": "got \"0,0,0,0 255,255,255,1\", want \"0,0,0,0 255,255,255,1\"",
      "theme": "dark",
      "width": 360
     },
@@ -28931,9 +29039,9 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "status": "pass",
-     "detail": "got \"33,33,33,1 255,255,255,1\", want \"33,33,33,1 255,255,255,1\"",
+     "detail": "got \"0,0,0,0 255,255,255,1\", want \"0,0,0,0 255,255,255,1\"",
      "theme": "dark",
      "width": 390
     },
@@ -28958,9 +29066,9 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "status": "pass",
-     "detail": "got \"33,33,33,1 255,255,255,1\", want \"33,33,33,1 255,255,255,1\"",
+     "detail": "got \"0,0,0,0 255,255,255,1\", want \"0,0,0,0 255,255,255,1\"",
      "theme": "dark",
      "width": 430
     },
@@ -28985,9 +29093,9 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "status": "pass",
-     "detail": "got \"255,255,255,1 0,0,0,1\", want \"255,255,255,1 0,0,0,1\"",
+     "detail": "got \"0,0,0,0 0,0,0,1\", want \"0,0,0,0 0,0,0,1\"",
      "theme": "light",
      "width": 360
     },
@@ -29012,9 +29120,9 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "status": "pass",
-     "detail": "got \"255,255,255,1 0,0,0,1\", want \"255,255,255,1 0,0,0,1\"",
+     "detail": "got \"0,0,0,0 0,0,0,1\", want \"0,0,0,0 0,0,0,1\"",
      "theme": "light",
      "width": 390
     },
@@ -29039,9 +29147,9 @@
     {
      "test": "auto/22-ua-defaults",
      "kind": "check",
-     "name": "root: bg and text colours",
+     "name": "root: no background (the bubble is the canvas), the text colour",
      "status": "pass",
-     "detail": "got \"255,255,255,1 0,0,0,1\", want \"255,255,255,1 0,0,0,1\"",
+     "detail": "got \"0,0,0,0 0,0,0,1\", want \"0,0,0,0 0,0,0,1\"",
      "theme": "light",
      "width": 430
     },
@@ -33795,7 +33903,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6
+    "pass": 8
    },
    "stages": [],
    "host": []
@@ -33812,7 +33920,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6
+    "pass": 8
    },
    "stages": [],
    "host": []
@@ -33829,7 +33937,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6
+    "pass": 8
    },
    "stages": [],
    "host": []
@@ -33846,7 +33954,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6
+    "pass": 8
    },
    "stages": [
     {
@@ -33884,7 +33992,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6
+    "pass": 8
    },
    "stages": [
     {
@@ -33922,7 +34030,7 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 6
+    "pass": 8
    },
    "stages": [
     {
@@ -39128,6 +39236,186 @@
   },
   {
    "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "light",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "theme": "dark",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "theme": "dark",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "theme": "light",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/15-body-background",
+   "set": "visual",
+   "theme": "light",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/16-selection",
+   "set": "visual",
+   "theme": "dark",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/16-selection",
+   "set": "visual",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/16-selection",
+   "set": "visual",
+   "theme": "dark",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/16-selection",
+   "set": "visual",
+   "theme": "light",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/16-selection",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/16-selection",
    "set": "visual",
    "theme": "light",
    "width": 430,

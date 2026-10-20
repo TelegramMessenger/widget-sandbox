@@ -185,6 +185,27 @@
    "gzip": 1670
   },
   {
+   "widget": "visual/15-body-background.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/15-body-background · A body background without a margin reset fills the whole bubble (root background propagation). The whole bubble is dark blue, edge to edge: no strip of the bubble's own colour around the text, in either theme.",
+   "photos": [
+    "refs/visual/15-body-background.png",
+    "refs/visual/15-body-background.dark.png"
+   ],
+   "gzip": 1360
+  },
+  {
+   "widget": "visual/16-selection.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/16-selection · Text selection: nothing is selectable by default; user-select: text makes a paragraph selectable, its children included. Select text the way your client selects message text (on a phone through the bubble's menu, with a mouse by dragging): only the blue-bordered paragraph can be selected, the bold word in it too, and copying gives its text.",
+   "photos": [
+    "refs/visual/16-selection.png"
+   ],
+   "gzip": 1762
+  },
+  {
    "widget": "visual/sdk/01-link-external.html",
    "width": 0,
    "height": 0,
@@ -493,9 +514,9 @@
    "widget": "auto/06-text-fonts-c.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/06-text-fonts-c · Ellipsis, text-shadow, emoji and decoration (pixels), RTL and shaping, emoji, selection. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/06-text-fonts-c · Ellipsis, text-shadow, emoji and decoration (pixels), RTL and shaping, emoji, opt-in selection. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "gzip": 2983
+   "gzip": 3173
   },
   {
    "widget": "auto/07-selectors-a.html",
@@ -693,9 +714,9 @@
    "widget": "auto/22-ua-defaults.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/22-ua-defaults · The UA layer: the root on the bubble's colours and the text tokens, text defaults, author CSS wins. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/22-ua-defaults · The UA layer: the root on the text tokens over the bubble, text defaults, author CSS wins. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "gzip": 3763
+   "gzip": 3768
   }
  ]
 }
