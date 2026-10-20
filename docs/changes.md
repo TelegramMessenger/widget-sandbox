@@ -5,20 +5,26 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## v0.1.1 — release notes (2026-10-20)
 
-A clarification of widget profile 1 and the tooling around the test group; profile,
-SDK and protocol versions stay 1, and every widget valid under v0.1.0 stays valid.
+A clarification of widget profile 1, opt-in text selection, and the tooling around the
+test group; profile, SDK and protocol versions stay 1, and every widget valid under v0.1.0
+stays valid.
 
 **Default widget styles** (`docs/sdk-v1.md` §2.4, `docs/decisions.md`, "The renderer's
 defaults"): a widget without CSS now looks native on every client.
 
 - The renderer's user-agent layer (`tables.uaStylesheet` in `packages/core/profile.json`,
-  `@layer tw-ua`, every selector in `:where()`, so any author rule wins) covers the root
-  and the text elements, not only `<button>`: `html` is painted in `--tg-theme-bg-color`
-  with `--tg-theme-text-color` and the client's text font; `body` has no margin and the
-  client's padding (inside the reported height); headings, paragraphs, lists, `dl`,
-  tables, `hr`, `pre`/`code`, quotes, figures, images and inline elements get explicit
-  sizes and margins in `em`, the same in WebKit, Chromium and litehtml. Before, each
-  engine's own stylesheet showed (Times 16 px and an 8 px margin in a WebView).
+  `@layer tw-ua`, every selector in `:where()`, nothing `!important`, so any author rule
+  wins) covers the root and the text elements, not only `<button>`: `html` in
+  `--tg-theme-text-color` and the client's text font; `body` with the client's padding token
+  as its margin (inside the reported height), so `body { margin: 0 }` still goes edge to
+  edge; headings, paragraphs, lists, `dl`, tables, `hr`, `pre`/`code`, quotes, figures,
+  images and inline elements get explicit sizes and margins in `em`, the same in WebKit,
+  Chromium and litehtml. Before, each engine's own stylesheet showed (Times 16 px and an
+  8 px margin in a WebView).
+- The renderer paints no background: the client's bubble under the transparent renderer,
+  drawn in `bg_color`, is the canvas, and a root or body background a widget sets covers the
+  whole bubble as in a browser. The shadow-DOM renderer, which has no canvas, paints that
+  background on its host element.
 - **Text tokens** next to the button tokens, on every host: `WidgetTheme.text` with
   `fontSize` (the chat's text-size setting, 8–64 CSS px), `lineHeight` (1–3) and
   `padding` (one to four lengths) → `--tg-text-font-size`, `--tg-text-line-height`,
@@ -28,26 +34,37 @@ defaults"): a widget without CSS now looks native on every client.
   takes `text` / `button` and writes the `theme` message into `--ops-file`.
 - **`bg_color` is this bubble's colour**: a widget the user sent or forwarded sits in an
   outgoing bubble and gets that bubble's palette (`docs/sdk-v1.md` §2.3, §5.1).
-- Visible changes for existing widgets: one that writes `body { margin: 0 }` without a
-  padding now gets the client's padding (169 of the 208 corpus widgets); a `body`
-  background no longer spreads under the `html` one, so a body margin shows the bubble's
-  colour. Widgets that style their own elements keep their look.
+- Visible changes for existing widgets: none of the 208 corpus widgets changes its box
+  layout; text that relied on the engine's defaults gets the layer's (the font, heading
+  sizes, list indents, links without an underline).
 - Native renderers bake the template into their master CSS: `apps/renderer-litehtml` reads
   it from `profile.json` at build time and sets the theme variables itself
   (`src/theme.cpp`); what TwidgetCore and the Swift renderer must do is in
   `docs/decisions.md`. Reference pictures everywhere (dev app, conformance build, the
   native demos' reference modes) use one stylesheet, `packages/core/src/shared/reference.ts`.
-- The shadow-DOM renderer's base stylesheet no longer sets `body { margin: 8px }`.
+
+**Text selection** (D18 replaced, `docs/decisions.md`, "Text selection"): text is not
+selectable by default; a widget enables it with `user-select: text` (or
+`-webkit-user-select`), children included. The profile takes `user-select: none | text |
+auto`; `all`, `contain` and `::selection` stay out. The rule moved into the layer without
+`!important`; the web renderers let a mouse drag select only over selectable text, and a
+press anywhere else still selects nothing and keeps the chat input's focus.
+**New client work** (`docs/sdk-v1.md` §5.10): on touch, long press and double tap stay
+with the bubble, so selection inside a widget starts the way the client selects message
+text, and copy is the client's copy. A native renderer that cannot select yet keeps the
+text unselectable (an accepted exception to "every client draws it", like `:hover`).
 
 **Examples and conformance**
 
 - `corpus/defaults`: six widgets with little or no CSS (text card, list, table, FAQ with
   `<button>`, survey, link card), `pnpm test:defaults`.
 - `packages/conformance`: `visual/14-unstyled-document` (no CSS at all, light and dark
-  pictures on the reference tokens) and `auto/22-ua-defaults` (the computed defaults
-  against the client's own tokens; author CSS wins). "bare" widgets carry the harness
-  script without its CSS. The harness sets `body { padding: 0 }`, so the other pictures
-  did not move.
+  pictures on the reference tokens), `visual/15-body-background` (a body background without
+  a margin reset fills the bubble), `visual/16-selection` (only the opted-in paragraph can be
+  selected) and `auto/22-ua-defaults` (the computed defaults against the client's own tokens;
+  author CSS wins); `auto/06-text-fonts-c` checks the selection values. "bare" widgets carry
+  the harness script without its CSS. The harness sets `body { padding: 0 }`, so the other
+  pictures did not move. Reference pictures get the bubble's colour as the page's canvas.
 
 **The test group**: `scripts/conformance/publish-channel.ts` fills the Telegram test forum
 group through a test bot (topics Visual, Client SDK, Auto and, new, Defaults; Showcase,

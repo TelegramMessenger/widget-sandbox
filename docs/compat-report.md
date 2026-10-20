@@ -1,6 +1,6 @@
 # Compat report
 
-Generated 2026-10-20T13:35:05.478Z by `pnpm test:compat`.
+Generated 2026-10-20T15:35:14.818Z by `pnpm test:compat`.
 
 **18 / 18 supported widgets pass (100%).** 2 known-unsupported widgets checked for graceful fallback: 2 ok.
 
@@ -8,26 +8,26 @@ Pass = sandbox loaded without JS errors, the scripted interaction produced the e
 
 | Widget | Pass | Behaviour (sandbox) | Pixel diff | Tolerance | JS ms | Ops | Sync queries (cache hits) | Diagnostics | Note |
 |---|---|---|---|---|---|---|---|---|---|
-| tabs.html | ✅ | ok | 0.00% | 2% | 33 | 132 | 0 (0) |  |  |
-| fragment.html | ✅ | ok | 0.00% | 2% | 19 | 92 | 0 (0) |  |  |
-| calculator.html | ✅ | ok | 0.00% | 2% | 33 | 123 | 0 (0) |  |  |
-| table-sort.html | ✅ | ok | 0.00% | 2% | 82 | 259 | 0 (0) |  |  |
-| quiz-buttons.html | ✅ | ok | 0.00% | 2% | 58 | 136 | 0 (0) |  |  |
-| svg-chart.html | ✅ | ok | 0.00% | 2% | 34 | 125 | 6 (0) |  |  |
-| svg-bar-chart.html | ✅ | ok | 0.00% | 2% | 40 | 156 | 1 (0) |  |  |
-| svg-line-chart.html | ✅ | ok | 0.00% | 2% | 60 | 202 | 3 (0) |  |  |
-| canvas-line-chart.html | ✅ | ok | 0.00% | 2% | 62 | 62 | 15 (0) |  |  |
-| canvas-bar-chart.html | ✅ | ok | 0.00% | 2% | 48 | 53 | 16 (2) |  |  |
-| css-animation.html | ✅ | ok | 0.00% | 100% | 24 | 51 | 0 (0) |  | spinner frame differs by timing |
-| clock.html | ✅ | ok | 0.58% | 100% | 45 | 42 | 0 (0) |  | time of day differs |
-| raf-animation.html | ✅ | ok | 3.08% | 100% | 71 | 232 | 4 (4) |  | ball position depends on frame timing |
-| drag.html | ✅ | ok | 0.00% | 2% | 17 | 32 | 0 (0) |  |  |
-| notes-storage.html | ✅ | ok | 0.08% | 2% | 40 | 115 | 0 (0) |  |  |
-| dark-mode.html | ✅ | ok | 0.55% | 6% | 17 | 49 | 5 (2) |  | bridge line differs by design (reference has no TelegramWidget) |
-| dark-mode.html (dark theme) | ✅ | ok | 0.57% | 6% | 17 | 49 | 5 (2) |  | host-owned colour scheme; bridge line differs by design |
-| stepper.html | ✅ | ok | 0.00% | 2% | 31 | 98 | 0 (0) |  |  |
-| three-js.html | ✅ | ok | 0.00% | 100% | 12 | 38 | 0 (0) | script-skipped×1: external script not available: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js | expected unsupported: Three.js/WebGL → fallback text |
-| webgl.html | ✅ | ok | 56.61% | 100% | 17 | 38 | 0 (0) | unsupported×1: WebGL | expected unsupported: WebGL → 2D fallback |
+| tabs.html | ✅ | ok | 0.00% | 2% | 23 | 132 | 0 (0) |  |  |
+| fragment.html | ✅ | ok | 0.00% | 2% | 14 | 92 | 0 (0) |  |  |
+| calculator.html | ✅ | ok | 0.00% | 2% | 17 | 123 | 0 (0) |  |  |
+| table-sort.html | ✅ | ok | 0.00% | 2% | 29 | 259 | 0 (0) |  |  |
+| quiz-buttons.html | ✅ | ok | 0.00% | 2% | 26 | 128 | 0 (0) |  |  |
+| svg-chart.html | ✅ | ok | 0.00% | 2% | 23 | 125 | 6 (0) |  |  |
+| svg-bar-chart.html | ✅ | ok | 0.00% | 2% | 27 | 156 | 1 (0) |  |  |
+| svg-line-chart.html | ✅ | ok | 0.00% | 2% | 32 | 202 | 3 (0) |  |  |
+| canvas-line-chart.html | ✅ | ok | 0.00% | 2% | 38 | 62 | 15 (0) |  |  |
+| canvas-bar-chart.html | ✅ | ok | 0.00% | 2% | 35 | 53 | 16 (2) |  |  |
+| css-animation.html | ✅ | ok | 0.00% | 100% | 14 | 51 | 0 (0) |  | spinner frame differs by timing |
+| clock.html | ✅ | ok | 0.76% | 100% | 31 | 42 | 0 (0) |  | time of day differs |
+| raf-animation.html | ✅ | ok | 3.02% | 100% | 44 | 239 | 4 (4) |  | ball position depends on frame timing |
+| drag.html | ✅ | ok | 0.00% | 2% | 12 | 32 | 0 (0) |  |  |
+| notes-storage.html | ✅ | ok | 0.08% | 2% | 25 | 115 | 0 (0) |  |  |
+| dark-mode.html | ✅ | ok | 0.55% | 6% | 13 | 49 | 5 (2) |  | bridge line differs by design (reference has no TelegramWidget) |
+| dark-mode.html (dark theme) | ✅ | ok | 0.57% | 6% | 13 | 49 | 5 (2) |  | host-owned colour scheme; bridge line differs by design |
+| stepper.html | ✅ | ok | 0.00% | 2% | 21 | 98 | 0 (0) |  |  |
+| three-js.html | ✅ | ok | 0.00% | 100% | 9 | 38 | 0 (0) | script-skipped×1: external script not available: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js | expected unsupported: Three.js/WebGL → fallback text |
+| webgl.html | ✅ | ok | 56.61% | 100% | 8 | 38 | 0 (0) | unsupported×1: WebGL | expected unsupported: WebGL → 2D fallback |
 
 ## Failures and top causes
 

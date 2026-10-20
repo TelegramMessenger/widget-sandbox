@@ -35,7 +35,7 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
   framework tag: `catalogue.json` (255 profile features, statuses synced from `profile.json`), `auto/`
-  (39 self-checking widgets), `visual/` (18 widgets for people + `visual/sdk`, 17 client-SDK cases),
+  (39 self-checking widgets), `visual/` (20 widgets for people + `visual/sdk`, 17 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B of gzip) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
@@ -265,7 +265,7 @@ layer 233; `.tgw` only as the development format) in `docs/tgw-format.md`.
 2026-10-17: widget profile 1 frozen and enforced (`packages/core/profile.json`,
 `docs/profile-v1.md`, `docs/decisions.md` "Frozen as widget profile 1"): the validator,
 `NativeValidator`, the shim (`TelegramWidget.profile`, `isProfileAtLeast`, `CSS.supports`
-and `@supports` from one evaluator) and the renderer (no keyboard or focus, no selection,
+and `@supports` from one evaluator) and the renderer (no keyboard or focus, no selection (opt-in since v0.1.1),
 the client-styled `<button>`); no bundled libraries on any platform; `Intl.formatToParts`
 in every glue copy; the compat widgets that need libraries or form controls moved to
 `corpus/out-of-profile/`.
@@ -275,10 +275,14 @@ policy with four copies and a fixture (`packages/core/src/shared/sdk-policy.ts`,
 `WidgetTheme` / `onAction` / `onStorageCommit` / `onGestureClaim` on every host, Web Storage
 per message, `sendMessage` gone; the corpora reworked for profile 1 and SDK v1.
 2026-10-20: v0.1.1 (`docs/changes.md`): the renderer's UA layer covers the root and the text
-elements (a clarification of profile 1, `docs/decisions.md` "The renderer's defaults"), text
-tokens `WidgetTheme.text` → `--tg-text-*` on every host, `bg_color` = this bubble's colour;
+elements (a clarification of profile 1, `docs/decisions.md` "The renderer's defaults"; the
+padding token is the body's margin, the bubble under the transparent renderer is the canvas,
+the shadow renderer copies a root or body background onto its host), text tokens
+`WidgetTheme.text` → `--tg-text-*` on every host, `bg_color` = this bubble's colour; text is
+not selectable by default and `user-select: text` enables it (D18 replaced, "Text selection");
 litehtml bakes the layer in (CMake reads `profile.json`, `src/theme.cpp` sets the variables);
-`corpus/defaults`, conformance `visual/14-unstyled-document` and `auto/22-ua-defaults`;
+`corpus/defaults`, conformance `visual/14-unstyled-document`, `15-body-background`,
+`16-selection` and `auto/22-ua-defaults`;
 `scripts/conformance/publish-channel.ts` fills the test group (config and state in
 `~/.config/widget-sandbox`, never in the repository).
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
