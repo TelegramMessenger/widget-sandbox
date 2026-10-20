@@ -148,6 +148,8 @@ export interface RunOptions {
   bundle?: string;
   /** `__host` kinds the harness does not know, with their argument. */
   unknownHost?: (kind: string, arg: string) => void;
+  /** Answers for `intl` requests (the request as the shim sends it) instead of Node's own Intl; undefined falls through to it. */
+  intl?: (req: any) => string | undefined;
   /** Host clock (`now`) and random bytes (`random`) instead of performance.now / Math.random, for reproducible runs. */
   now?: () => number;
   random?: (count: number) => number[];
@@ -274,7 +276,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         log('[storage]', arg.slice(0, 2000));
         return vm.undefined;
       }
-      case 'intl': return vm.newString(String(intl(JSON.parse(arg))));
+      case 'intl': { const req = JSON.parse(arg); return vm.newString(String(opts.intl?.(req) ?? intl(req))); }
       case 'random': return vm.newString(JSON.stringify(opts.random ? opts.random(Number(arg) | 0) : Array.from({ length: Number(arg) | 0 }, () => (Math.random() * 256) | 0)));
       default: opts.unknownHost?.(kind, arg); return vm.undefined;
     }

@@ -925,11 +925,11 @@ enum IntlBridge {
         case "date", "dateMethod":
             let date = Date(timeIntervalSince1970: value / 1000)
             let method = req["method"] as? String
-            let f = dateFormatter(locale: locale, options: dateTimeDefaults(opts, method: method), method: method)
+            let f = dateFormatter(locale: locale, options: opts, method: method)
             return f.string(from: date)
         case "dateParts":
             let method = req["method"] as? String
-            let f = dateFormatter(locale: locale, options: dateTimeDefaults(opts, method: method), method: method)
+            let f = dateFormatter(locale: locale, options: opts, method: method)
             return json(dateParts(Date(timeIntervalSince1970: value / 1000), f))
         case "numberOptions":
             let f = numberFormatter(locale: locale, options: opts)
@@ -940,7 +940,7 @@ enum IntlBridge {
             return jsonObject(out)
         case "dateOptions":
             let zone = (opts["timeZone"] as? String).flatMap(TimeZone.init(identifier:)) ?? .current
-            var out = dateTimeDefaults(opts, method: nil).filter { $0.value is String || $0.value is NSNumber }
+            var out = opts.filter { $0.value is String || $0.value is NSNumber }
             out.merge(["locale": languageTag(locale), "calendar": "gregory", "numberingSystem": "latn", "timeZone": zone.identifier]) { $1 }
             return jsonObject(out)
         case "plural":
@@ -976,20 +976,6 @@ enum IntlBridge {
         default:
             return ""
         }
-    }
-
-    /// ECMA-402 ToDateTimeOptions: no date or time field and no style means numeric year, month and day
-    /// (DateTimeFormat, toLocaleDateString), hour, minute and second (toLocaleTimeString), or both (toLocaleString).
-    static func dateTimeDefaults(_ options: [String: Any], method: String?) -> [String: Any] {
-        let required = method == "toLocaleDateString" ? "date" : method == "toLocaleTimeString" ? "time" : "any"
-        let defaults = method == "toLocaleTimeString" ? "time" : method == "toLocaleString" ? "all" : "date"
-        if options["dateStyle"] != nil || options["timeStyle"] != nil { return options }
-        if required != "time", ["weekday", "year", "month", "day"].contains(where: { options[$0] != nil }) { return options }
-        if required != "date", ["dayPeriod", "hour", "minute", "second", "fractionalSecondDigits"].contains(where: { options[$0] != nil }) { return options }
-        var out = options
-        if defaults != "time" { for key in ["year", "month", "day"] { out[key] = "numeric" } }
-        if defaults != "date" { for key in ["hour", "minute", "second"] { out[key] = "numeric" } }
-        return out
     }
 
     @available(macOS 10.15, iOS 13.0, *)

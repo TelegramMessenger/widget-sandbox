@@ -249,6 +249,27 @@ function intl(req: any): string {
 }
 const parse = (s: string, fallback: any) => { try { return JSON.parse(s); } catch { return fallback; } };
 
+const DATE_FIELDS = ['weekday', 'year', 'month', 'day'];
+const TIME_FIELDS = ['dayPeriod', 'hour', 'minute', 'second', 'fractionalSecondDigits'];
+/**
+ * ECMA-402 ToDateTimeOptions, once for every host: without a date or time field and without a
+ * style, a format gets numeric year, month and day (DateTimeFormat, toLocaleDateString), hour,
+ * minute and second (toLocaleTimeString), or both (toLocaleString). Option handling only, no
+ * locale data, so the host's formatter always receives explicit fields. A copy: the widget's
+ * object is left alone.
+ */
+function dateTimeOptions(opts: any, required: 'date' | 'time' | 'any', defaults: 'date' | 'time' | 'all') {
+  const o: any = opts !== null && (typeof opts === 'object' || typeof opts === 'function') ? { ...opts } : {};
+  const has = (keys: string[]) => keys.some((k) => o[k] !== undefined);
+  if (o.dateStyle !== undefined || o.timeStyle !== undefined) return o;
+  if (required !== 'time' && has(DATE_FIELDS)) return o;
+  if (required !== 'date' && has(TIME_FIELDS)) return o;
+  if (defaults !== 'time') o.year = o.month = o.day = 'numeric';
+  if (defaults !== 'date') o.hour = o.minute = o.second = 'numeric';
+  return o;
+}
+const DATE_METHODS = { toLocaleString: ['any', 'all'], toLocaleDateString: ['date', 'date'], toLocaleTimeString: ['time', 'time'] } as const;
+
 function installIntl() {
   class NumberFormat {
     _l: any; _o: any;
@@ -260,7 +281,7 @@ function installIntl() {
   }
   class DateTimeFormat {
     _l: any; _o: any;
-    constructor(locale?: any, opts?: any) { this._l = locale; this._o = opts; this.format = this.format.bind(this); }
+    constructor(locale?: any, opts?: any) { this._l = locale; this._o = dateTimeOptions(opts, 'any', 'date'); this.format = this.format.bind(this); }
     format(value?: any) { return intl({ kind: 'date', locale: this._l, opts: this._o, value: value === undefined ? Date.now() : +new Date(value) }); }
     formatToParts(value?: any) { return parse(intl({ kind: 'dateParts', locale: this._l, opts: this._o, value: value === undefined ? Date.now() : +new Date(value) }), []); }
     resolvedOptions() { return parse(intl({ kind: 'dateOptions', locale: this._l, opts: this._o }), {}); }
@@ -289,8 +310,8 @@ function installIntl() {
   G.Intl = { NumberFormat, DateTimeFormat, PluralRules, RelativeTimeFormat, ListFormat, Collator, getCanonicalLocales: (l: any) => [].concat(l ?? []) };
   const def = (proto: any, name: string, value: any) => Object.defineProperty(proto, name, { value, writable: true, configurable: true });
   def(Number.prototype, 'toLocaleString', function (this: number, l?: any, o?: any) { return intl({ kind: 'number', locale: l, opts: o, value: Number(this) }); });
-  for (const method of ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString']) {
-    def(Date.prototype, method, function (this: Date, l?: any, o?: any) { return intl({ kind: 'dateMethod', method, locale: l, opts: o, value: this.getTime() }); });
+  for (const [method, [required, defaults]] of Object.entries(DATE_METHODS)) {
+    def(Date.prototype, method, function (this: Date, l?: any, o?: any) { return intl({ kind: 'dateMethod', method, locale: l, opts: dateTimeOptions(o, required, defaults), value: this.getTime() }); });
   }
   def(String.prototype, 'localeCompare', function (this: string, other: string, l?: any, o?: any) { return Number(intl({ kind: 'compare', locale: l, opts: o, a: String(this), b: String(other) })); });
 }

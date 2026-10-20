@@ -38,8 +38,7 @@ object IntlBridge {
                 "dateOptions" -> {
                     val f = dateFormat(req, locale, opts)
                     val out = JSONObject()
-                    val defaults = dateTimeDefaults(opts, null)
-                    for (key in defaults.keys()) defaults.opt(key).takeIf { it is String || it is Number || it is Boolean }?.let { out.put(key, it) }
+                    for (key in opts.keys()) opts.opt(key).takeIf { it is String || it is Number || it is Boolean }?.let { out.put(key, it) }
                     out.put("locale", locale.toLanguageTag()).put("calendar", "gregory").put("numberingSystem", "latn").put("timeZone", f.timeZone.id).toString()
                 }
                 "relative" -> {
@@ -151,22 +150,8 @@ object IntlBridge {
         else -> "literal"
     }
 
-    /** ECMA-402 ToDateTimeOptions: no date or time field and no style means numeric year, month and day (DateTimeFormat, toLocaleDateString), hour, minute and second (toLocaleTimeString), or both (toLocaleString). */
-    private fun dateTimeDefaults(opts: JSONObject, method: String?): JSONObject {
-        val required = when (method) { "toLocaleDateString" -> "date"; "toLocaleTimeString" -> "time"; else -> "any" }
-        val defaults = when (method) { "toLocaleTimeString" -> "time"; "toLocaleString" -> "all"; else -> "date" }
-        if (opts.has("dateStyle") || opts.has("timeStyle")) return opts
-        if (required != "time" && listOf("weekday", "year", "month", "day").any { opts.has(it) }) return opts
-        if (required != "date" && listOf("dayPeriod", "hour", "minute", "second", "fractionalSecondDigits").any { opts.has(it) }) return opts
-        val out = JSONObject(opts.toString())
-        if (defaults != "time") for (key in listOf("year", "month", "day")) out.put(key, "numeric")
-        if (defaults != "date") for (key in listOf("hour", "minute", "second")) out.put(key, "numeric")
-        return out
-    }
-
-    private fun dateFormat(req: JSONObject, locale: Locale, rawOpts: JSONObject): DateFormat {
+    private fun dateFormat(req: JSONObject, locale: Locale, opts: JSONObject): DateFormat {
         val method = req.optString("method")
-        val opts = dateTimeDefaults(rawOpts, method.ifEmpty { null })
         val wantsDate = listOf("weekday", "year", "month", "day", "dateStyle").any { opts.has(it) }
         val wantsTime = listOf("hour", "minute", "second", "timeStyle").any { opts.has(it) }
         val f: DateFormat = if (wantsDate || wantsTime) {

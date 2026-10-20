@@ -1020,6 +1020,15 @@ TEST(intl_fallback_formats_through_the_host) {
     CHECK_MSG(r.host.hasLog("1,234.5|one|25%"), r.logsText());
 }
 
+// ECMA-402's date defaults come from the shim: a format without fields reaches the provider with numeric ones.
+TEST(intl_fallback_date_defaults_from_the_shim) {
+    Run r("<script>var u={timeZone:'UTC'},d=new Date(0);"
+          "console.log(['D',new Intl.DateTimeFormat('en-US',u).format(d),d.toLocaleDateString('en-US',u),d.toLocaleString('en-US',u),d.toLocaleTimeString('en-US',u)].join('|'));</script>");
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.hasLog("D|1/1/1970|1/1/1970|1/1/1970, 00:00:00|00:00:00"), r.logsText());
+}
+
 // formatToParts is in the widget profile: the basic provider splits what it formats.
 TEST(intl_fallback_format_to_parts) {
     Run r("<script>var j=function(p){return p.map(function(x){return x.type+'='+x.value}).join(';')};"

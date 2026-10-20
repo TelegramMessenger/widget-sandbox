@@ -111,15 +111,18 @@ static Parts dateParts(double epochMs, const Json& opts, const std::string& meth
     bool wantsTime = has("hour") || has("minute") || has("second") || has("timeStyle");
     if (wantsDate || wantsTime) {
         if (has("weekday")) { std::string w = days[tmv.tm_wday]; field("weekday", opts["weekday"].asString() == "long" ? w : w.substr(0, 3)); lit(", "); }
-        if (has("month")) {
-            std::string m = opts["month"].asString();
-            if (m == "long") field("month", months[tmv.tm_mon]);
-            else if (m == "short") field("month", std::string(months[tmv.tm_mon]).substr(0, 3));
-            else field("month", std::to_string(tmv.tm_mon + 1));
-            lit(" ");
+        std::string m = opts["month"].asString();
+        if (has("month") && m != "long" && m != "short") {
+            // en-US numeric order, M/D/YYYY: what the shim's ECMA-402 defaults ask for.
+            field("month", std::to_string(tmv.tm_mon + 1));
+            if (has("day")) { lit("/"); field("day", std::to_string(tmv.tm_mday)); }
+            if (has("year")) { lit("/"); field("year", std::to_string(tmv.tm_year + 1900)); }
+            lit(wantsTime ? ", " : " ");
+        } else {
+            if (has("month")) { field("month", m == "long" ? std::string(months[tmv.tm_mon]) : std::string(months[tmv.tm_mon]).substr(0, 3)); lit(" "); }
+            if (has("day")) { field("day", std::to_string(tmv.tm_mday)); lit(has("year") ? ", " : " "); }
+            if (has("year")) { field("year", std::to_string(tmv.tm_year + 1900)); lit(" "); }
         }
-        if (has("day")) { field("day", std::to_string(tmv.tm_mday)); lit(has("year") ? ", " : " "); }
-        if (has("year")) { field("year", std::to_string(tmv.tm_year + 1900)); lit(" "); }
         if (has("dateStyle")) {
             field("month", std::to_string(tmv.tm_mon + 1)); lit("/"); field("day", std::to_string(tmv.tm_mday)); lit("/"); field("year", std::to_string(tmv.tm_year + 1900)); lit(" ");
         }

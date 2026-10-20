@@ -97,21 +97,26 @@ final class IntlBridgeTests: XCTestCase {
         IntlBridge.format(requestJson: String(decoding: try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]), as: UTF8.self))
     }
 
-    /// ECMA-402 ToDateTimeOptions: no field and no style is numeric year/month/day (or the time, or both).
+    /// ECMA-402 ToDateTimeOptions is the shim's (globals.ts `dateTimeOptions`): a format without a field or a style
+    /// reaches the glue with numeric year/month/day (or the time, or both) and comes out as JavaScriptCore formats it.
     func testDefaultsWithoutFieldsAreNumeric() throws {
-        for locale in ["en-US", "en-GB", "de-DE", "ru-RU"] {
-            for timestamp in [0.0, 1736942400000.0] {
-                try check(["timeZone": "UTC"], timestamp: timestamp, locale: locale)
-                for method in ["toLocaleString", "toLocaleDateString", "toLocaleTimeString"] {
-                    try check(["timeZone": "UTC"], timestamp: timestamp, locale: locale, method: method)
-                }
-                try check(["timeZone": "UTC", "hour": "numeric"], timestamp: timestamp, locale: locale, method: "toLocaleDateString")
-                try check(["timeZone": "UTC", "weekday": "long"], timestamp: timestamp, locale: locale)
-            }
-        }
-        XCTAssertEqual(try format(["kind": "date", "locale": "en-US", "opts": ["timeZone": "UTC"], "value": 0]), "1/1/1970")
-        let parts = try format(["kind": "dateParts", "locale": "en-US", "opts": ["timeZone": "UTC"], "value": 0])
-        XCTAssertTrue(parts.contains("{\"type\":\"year\",\"value\":\"1970\"}") || parts.contains("\"value\":\"1970\""), parts)
+        let script = """
+            var u={timeZone:'UTC'},out=[];
+            ['en-US','en-GB','de-DE','ru-RU'].forEach(function(l){[0,1736942400000].forEach(function(t){var d=new Date(t);
+              out.push(new Intl.DateTimeFormat(l,u).format(d),d.toLocaleString(l,u),d.toLocaleDateString(l,u),d.toLocaleTimeString(l,u),
+                d.toLocaleDateString(l,{timeZone:'UTC',hour:'numeric'}),new Intl.DateTimeFormat(l,{timeZone:'UTC',weekday:'long'}).format(d));});});
+            var r=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Tokyo'}).resolvedOptions();out.push(r.year+','+r.month+','+r.day+','+r.timeZone);
+            """
+        let context = try XCTUnwrap(JSContext())
+        let expected = try XCTUnwrap(context.evaluateScript(script + "out")?.toArray() as? [String])
+        XCTAssertNil(context.exception)
+        let h = UserActivationTests.Harness("<script>\(script)out.forEach(function(s,i){console.log('intl'+i+'='+s);});</script>")
+        h.pump { h.logs.contains { $0.hasPrefix("intl\(expected.count - 1)=") } }
+        let got = (0..<expected.count).map { i in h.logs.first { $0.hasPrefix("intl\(i)=") }.map { String($0.dropFirst("intl\(i)=".count)) } ?? "?" }
+        let narrow = { (s: String) in s.replacingOccurrences(of: "\u{202f}", with: " ") }
+        XCTAssertEqual(got.map(narrow), expected.map(narrow))
+        XCTAssertEqual(got.first, "1/1/1970")
+        XCTAssertEqual(got.last, "numeric,numeric,numeric,Asia/Tokyo")
     }
 
     /// The CLDR rules match the system ICU (JavaScriptCore's Intl.PluralRules) for every language they list.
@@ -158,7 +163,7 @@ final class IntlBridgeTests: XCTestCase {
         XCTAssertLessThan(Int(try format(["kind": "compare", "locale": "en", "a": "a", "b": "B"])) ?? 0, 0)
         XCTAssertEqual(try format(["kind": "compare", "locale": "en", "opts": ["sensitivity": "base"], "a": "a", "b": "\u{e1}"]), "0")
         XCTAssertEqual(try format(["kind": "compare", "locale": "en", "opts": ["numeric": true], "a": "2", "b": "10"]), "-1")
-        let resolved = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try format(["kind": "dateOptions", "locale": "en-US", "opts": ["timeZone": "Asia/Tokyo"]]).utf8)) as? [String: Any])
+        let resolved = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try format(["kind": "dateOptions", "locale": "en-US", "opts": ["timeZone": "Asia/Tokyo", "year": "numeric"]]).utf8)) as? [String: Any])
         XCTAssertEqual(resolved["timeZone"] as? String, "Asia/Tokyo")
         XCTAssertEqual(resolved["year"] as? String, "numeric")
     }
