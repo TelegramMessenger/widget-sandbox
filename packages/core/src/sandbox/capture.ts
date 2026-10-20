@@ -35,15 +35,13 @@ let nextId = DOCUMENT_ID + 1;
 const byId = new Map<number, any>();
 const mirror = new Map<number, Mirror>();
 let generation = 0;
-/** Bumped on every dirty mark and flush: anything derived from the tree (live collections) is stale when it changed. */
+/**
+ * Bumped by the mutations that can change which elements a live collection holds: an element
+ * inserted or removed, a `class` attribute written. Reads (classList, dataset), styles, text and
+ * flushes leave it alone, so a loop that reads or styles the items of a collection stays linear.
+ */
 export const domGeneration = (): number => generation;
-class DirtySet extends Set<any> {
-  add(node: any): this {
-    generation++;
-    return super.add(node);
-  }
-}
-const dirty = new DirtySet();
+const dirty = new Set<any>();
 let ops: any[] | OpWriter = [];
 
 /** Switch the op stream to binary records (`binaryOps` feature); a no-op unless the glue installed `__hostOps`. */
@@ -475,7 +473,6 @@ export function flush(full = false): void {
 }
 
 function flushNow(full: boolean): void {
-  generation++;
   if (!dirty.size && !postOps.length && !full && !pendingStyles.size) {
     hooks.flushExtra((o) => ops.push(o));
     if (ops.length) send();
@@ -529,6 +526,8 @@ function send() {
 
 /** End-of-task flush, with the periodic full walk as a safety net. */
 export function flushTick(): void {
+  // Once per task: a mutation the wrappers do not see (an Attr's value) reaches live collections by the next task.
+  generation++;
   const now = Date.now();
   const full = now - lastFullSync > 500;
   if (full) lastFullSync = now;
@@ -546,6 +545,34 @@ const PARENT_METHODS = ['before', 'after', 'replaceWith', 'remove', 'insertAdjac
 /** Accessors that hand out live objects through which the element can be mutated later. */
 const LIVE_GETTERS = ['classList', 'dataset', 'relList', 'part'];
 const SKIP_SETTERS = new Set(['scrollTop', 'scrollLeft', 'value', 'checked', 'selectedIndex', 'selected', 'indeterminate', 'onclick']);
+/** Setters that can insert or remove elements or change the class (domGeneration); textContent only over element children. */
+const TREE_SETTERS = new Set(['className', 'innerHTML', 'outerHTML', 'textContent', 'innerText', 'outerText']);
+const elementLike = (x: any) => !!x && typeof x === 'object' && (x.nodeType === 1 || x.nodeType === 11);
+
+/**
+ * How a wrapped method decides whether it moves domGeneration: 0 always, 1 the `class` attribute,
+ * 2 an element argument, 3 an element `this` or argument, 4 never, 5 an element child or argument.
+ */
+function treeKind(name: string): number {
+  if (name === 'setAttribute' || name === 'removeAttribute' || name === 'toggleAttribute') return 1;
+  if (name === 'appendChild' || name === 'insertBefore' || name === 'removeChild' || name === 'replaceChild') return 2;
+  if (name === 'append' || name === 'prepend' || name === 'before' || name === 'after') return 2;
+  if (name === 'remove' || name === 'replaceWith') return 3;
+  if (name === 'normalize' || name === 'insertAdjacentText') return 4;
+  if (name === 'replaceChildren') return 5;
+  return 0;
+}
+
+function changesTree(kind: number, self: any, a: any, b: any): boolean {
+  switch (kind) {
+    case 0: return true;
+    case 1: return String(a).toLowerCase() === 'class';
+    case 2: return elementLike(a) || elementLike(b);
+    case 3: return self.nodeType === 1 || elementLike(a) || elementLike(b);
+    case 5: return !!self.firstElementChild || elementLike(a) || elementLike(b);
+    default: return false;
+  }
+}
 
 function markArgs(args: any[]) {
   for (let i = 0; i < args.length; i++) {
@@ -579,6 +606,7 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
         const parent = PARENT_METHODS.includes(name);
         if (!self && !parent) continue;
         const orig = d.value;
+        const kind = treeKind(name);
         Object.defineProperty(proto, name, {
           ...d,
           // Arity-specialized: most DOM calls take one or two arguments, so no
@@ -588,6 +616,7 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
           value: function (this: any, a?: any, b?: any) {
             'use strict';
             const n = arguments.length;
+            if (n > 2 || changesTree(kind, this, a, b)) generation++;
             if (self) dirty.add(this);
             if (parent) dirty.add(this.parentNode);
             if (n > 2) {
@@ -603,6 +632,8 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
         const set = d.set;
         const live = LIVE_GETTERS.includes(name) && d.get;
         const get = d.get;
+        const tree = TREE_SETTERS.has(name);
+        const text = name === 'textContent' || name === 'innerText';
         Object.defineProperty(proto, name, {
           ...d,
           get: live
@@ -614,6 +645,7 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
               }
             : get,
           set: function (this: any, v: any) {
+            if (tree && (!text || this.firstElementChild)) generation++;
             dirty.add(this);
             // CharacterData and Attr setters affect what their owner renders.
             if (this.nodeType === 2) dirty.add(this.ownerElement);
@@ -641,6 +673,7 @@ export function installDirtyTracking(protos: any[], tokenListProto: any) {
       const orig = tokenListProto[name];
       if (typeof orig !== 'function') continue;
       tokenListProto[name] = function (this: any, ...args: any[]) {
+        generation++;
         dirty.add(tokenOwner.get(this));
         return orig.apply(this, args);
       };
