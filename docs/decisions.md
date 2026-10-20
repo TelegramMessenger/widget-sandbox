@@ -1246,3 +1246,122 @@ when profile 2 can add them. Freeze now, with these defaults.
   so a sandbox-vs-reference diff shows what the profile removes, not the
   client's button style.
 
+
+### The renderer's defaults: the root and the text (v0.1.1, 2026-10-20)
+
+The first client implementations showed that a widget without CSS does not look
+native: profile 1 defined no defaults for the root and the text, so every
+renderer fell back to its own stylesheet. A WebView drew Times at 16 px with an
+8 px body margin; litehtml, TwidgetCore and the Swift renderer each have their
+own master CSS; `--tg-theme-bg-color`, the bubble's colour, was set on the root
+and applied to nothing. The same widget looked different on every client and
+like the client on none.
+
+Artem decided (2026-10-20):
+
+- **A full normalized UA layer** for the profile-1 elements, in the same
+  `@layer tw-ua` as the button template, declared first, every selector in
+  `:where()`, so any unlayered author rule wins. `html` takes the bubble's
+  colours and the client's text font; `body` has no margin and the client's
+  padding; headings, paragraphs, lists, `dl`, tables, `hr`, `pre`/`code`,
+  quotes, figures, images and the inline elements get explicit sizes and
+  margins in `em` (the table in `docs/sdk-v1.md` §2.4).
+- **Text tokens next to the button tokens** on every host (`WidgetTheme.text`:
+  `fontSize`, `lineHeight`, `padding` in TS, Swift, Kotlin, C++, and in the Node
+  harness's renderer message), set as `--tg-text-*` on the renderer root. The
+  renderer always sets them; the reference set 15 px / 1.35 / `8px 12px` stands
+  for what the client does not pass, so a client on defaults gets sane output.
+  `fontSize` follows the client's chat text-size setting.
+- **`bg_color` is this bubble's colour**: an outgoing bubble's when the user
+  sent or forwarded the widget. The palette is the bubble's (`docs/sdk-v1.md`
+  §2.3, §5.1).
+- **Shipped in v0.1.1 as a clarification of profile 1**, not as profile 2.
+
+Why a clarification. The profile's rule, a feature goes in when every client
+draws it, governs what a widget may use and detect. The UA layer adds nothing
+a widget can use or detect: no element, property, value or API; `profile` stays
+1, `CSS.supports` and `@supports` answer as before. Profile 1 already had a
+user-agent layer (the `<button>` template) and already promised UA defaults:
+"h1–h6 with UA default sizes and margins", "blockquote, figure, figcaption (UA
+indents)", "lists with markers". It did not say whose UA, and the engines'
+answers differ. Saying it now defines what was unspecified; every widget valid
+under profile 1 stays valid, and one that styles its own elements keeps its
+look (any author rule wins). "UA default" in profile 1 means this layer
+(decision `P1-ua` in `profile.json`).
+
+How the values were chosen.
+
+- Every property that WebKit's, Chromium's or litehtml's own stylesheet sets
+  differently is set explicitly, so the three agree (the conformance widget
+  `visual/14-unstyled-document` measures 494 px at 320 px wide in Chromium and
+  500 px through litehtml; the difference is litehtml's line boxes in table
+  cells).
+- Sizes are compact, for a 300 px bubble rather than a page: headings 1.6 to
+  0.87 em at weight 600, 0.6 em between blocks, 1.5 em list indents, quotes
+  and figures without the 40 px indent, a table with separator lines and its
+  outer cells flush with the text, `pre` wrapping (the bubble does not scroll).
+- `em`, never `rem`: on the shadow-DOM renderer `rem` resolves against the chat
+  page's root, not the widget's.
+- Physical properties first, logical ones after (`padding-left` then
+  `padding-inline-start`): litehtml keeps the first, the WebViews take the
+  second, so RTL widgets indent on the right where the engine can.
+- `img` gets `max-width: 100%` but not `height: auto`: a layered rule outranks
+  the presentational `height` attribute, so `height: auto` would replace the
+  author's `<img height>` (measured in Chromium).
+- The colours have no fallback inside the template: a renderer that sets no
+  variables paints no background and keeps the engine's text colour, what
+  v0.1.0 drew. The text sizes and the padding fall back to the reference set.
+- The `body` padding is inside the reported content height, so the bubble
+  grows by it.
+
+Consequences for existing widgets.
+
+- The `html` background now exists, so a `body` background is no longer
+  propagated to the canvas: a widget that paints `body` and keeps a body margin
+  shows the bubble's colour in the margin. No corpus widget does.
+- A widget that writes `body { margin: 0 }` without a padding (to go edge to
+  edge) now gets the client's padding. 169 of the 208 corpus widgets do (every
+  widget of `showcase`, `common` and `htmlbubbles-ported`); their
+  sandbox-vs-reference diffs are unchanged because the reference gets the same
+  layer, but they sit 12 px further in and are 16 px taller. The token as the
+  body's *margin* instead would leave all 208 as they were (open question to
+  Artem, 2026-10-20).
+
+Where it lives.
+
+- The WebView renderers (iframe, shadow DOM, WKWebView, Android WebView) insert
+  `PROFILE_UA_STYLESHEET` through the shared renderer core and set the
+  variables from the host's `theme` message (`themeVariables`). The shadow
+  renderer's base stylesheet lost its unlayered `body { margin: 8px }`, which
+  would have beaten the layer.
+- Native renderers bake the template into their master CSS.
+  `apps/renderer-litehtml` reads it from `profile.json` at build time (CMake;
+  `scripts/build-litehtml-web.ts` for the wasm build), so there is no copy to
+  keep in sync, and handles the `theme` message with `src/theme.cpp`, a twin of
+  `themeVariables`, writing the variables inline and `!important` on `<html>`.
+  Two litehtml behaviours needed care: it applies a `var()` inside a shorthand
+  after the cascade (so `padding: var(…)` from the master CSS beat a widget's
+  `padding: 0`), and it sorts the master CSS by specificity (so its own
+  `body { margin: 8px }` beat a later `:where(body)`). The renderer therefore
+  puts the theme's values into the template and unwraps `:where()` before
+  handing it over; litehtml applies the whole master CSS before any author CSS,
+  so no author rule can lose to it. TwidgetCore and the Swift renderer (in the
+  twidget repository) must do the same: append `tables.uaStylesheet` to their
+  master CSS (with litehtml: values substituted, `:where()` unwrapped), set the
+  variables of the `theme` message on the root with `themeVariables`'
+  semantics (the fixed names, the grammars, the palette and text tokens always
+  complete), refuse the widget's own style ops for those names on the root, and
+  report the content height with the body padding. The Blitz prototype has
+  neither the button template nor the variables yet.
+- Reference pictures use one stylesheet, `packages/core/src/shared/reference.ts`:
+  the layer plus the default palettes and the reference text tokens. The dev
+  app's reference mode, the conformance build's native runs and the iOS/macOS
+  and Android demos' reference modes (`Corpus/reference.css`, written by
+  `scripts/sync-demo-corpus.ts`) apply it, so a corpus diff still shows what
+  the profile removes.
+- The conformance harness sets `body { padding: 0 }` next to its `margin: 0`,
+  so the existing pictures did not move; `auto/22-ua-defaults` checks the
+  computed defaults against the client's own tokens, and
+  `visual/14-unstyled-document` is a page with no CSS at all, both "bare" (no
+  harness CSS). `corpus/defaults` holds six example widgets with little or no
+  CSS.

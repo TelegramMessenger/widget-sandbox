@@ -41,6 +41,27 @@ What is added on top of litehtml in the UA styles (`UA_EXTRA` in `renderer.cpp`)
 not even be drawn as a box), `[hidden]`, `details`/`dialog` without `open`.
 The `<input>` value is still not drawn — that is a litehtml hole, not the glue's.
 
+Since v0.1.1 the profile's UA layer follows `UA_EXTRA` in the master CSS, as on every
+renderer (`docs/sdk-v1.md` §2.4, `docs/decisions.md`, "The renderer's defaults"): the
+root and text defaults on the theme variables and the client-styled `<button>`.
+CMake reads it from `packages/core/profile.json` (`tables.uaStylesheet`) into
+`tw_ua_stylesheet.h` at configure time (`scripts/build-litehtml-web.ts` does the same
+for the wasm build), so there is no copy here. The host's `theme` message goes
+through `src/theme.cpp`, the C++ twin of `themeVariables` (the fixed names, the
+grammars, the palette and the text tokens always complete), into an inline
+`!important` style on `<html>`; the widget's own style ops for those names on the root
+are dropped. Before the first theme message the scheme's defaults stand. Two litehtml
+behaviours shape how the layer goes in: a `var()` inside a shorthand is substituted
+after the cascade, so the master CSS's `padding: var(…)` would beat a widget's
+`padding: 0`; and the master CSS is sorted by specificity, so litehtml's own
+`body { margin: 8px }` would beat a later `:where(body)`. The renderer therefore
+replaces each `var()` of the template with the theme's value (`theme::substitute`)
+and unwraps `:where()` (`theme::unwrap_where`), and rebuilds the document when the
+theme changes. litehtml applies the whole master CSS before any author CSS, so the
+widget still wins every property it sets. Known differences from the WebViews:
+`ui-monospace` is not resolved by the CoreText backend (code falls back to the text
+font) and `opacity` on a disabled `<button>` is not painted.
+
 ## How to look
 
 iOS / macOS (the Xcode project's pre-build phase calls

@@ -1,8 +1,9 @@
 // Dev tool: run a widget through the real sandbox bundle inside QuickJS under
 // Node, with a fake host that logs everything. Layout queries get canned
 // answers. Usage: pnpm tsx scripts/sandbox-node.ts corpus/compat/tabs.html [--ops] [--ops-file msgs.json] [--events]
-// `--ops-file` writes the validated ops as one host → renderer `ops` message (a JSON array of
-// messages) for the native renderer harnesses (renderer-litehtml/tools/run.cpp).
+// `--ops-file` writes the host → renderer messages a renderer gets (a JSON array: the `theme`
+// message WidgetHost sends first, then the validated ops as one `ops` message) for the native
+// renderer harnesses (renderer-litehtml/tools/run.cpp).
 //
 // Mirrors the worker glue (src/host/worker.ts) closely enough to debug the shim
 // and to drive unit tests of the mutation protocol.
@@ -15,8 +16,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CpuBudget, queryBudgetMs } from '../src/host/cpu-budget.ts';
 import {
-  DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams,
-  type StorageCommit, type ThemeParams, type WidgetAction,
+  DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams, toWidgetTheme,
+  type ButtonTokens, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
 import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
@@ -27,6 +28,8 @@ import { sandboxBuildOptions } from './sandbox-build.ts';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export interface RunResult {
+  /** The theme WidgetHost passes to the renderer at load (`{type:'theme', theme}`, docs/sdk-v1.md §3.4): scheme, checked palette, button and text tokens. */
+  theme: WidgetTheme;
   /** One entry per `morph` script step: whether the shim applied it. */
   morphed: boolean[];
   ops: unknown[][];
@@ -128,6 +131,9 @@ export interface RunOptions {
   theme?: 'light' | 'dark';
   /** The client's palette (checked as WidgetHost does: unknown keys and non-#rrggbb values are dropped). */
   themeParams?: Record<string, unknown>;
+  /** The client's button and text tokens (docs/sdk-v1.md §2.4): no effect on the sandbox, they go to the renderer in RunResult.theme. */
+  button?: ButtonTokens;
+  text?: TextTokens;
   /** The client's UI language (default en-US). */
   locale?: string;
   /** The client's Web Storage preload; over the quota it is dropped whole (`storage-rejected`). */
@@ -177,7 +183,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
   const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
   if (opts.storage !== undefined) {
     const preload = checkStorageCommit(opts.storage);
@@ -500,14 +506,18 @@ function intl(req: any): string {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const file = process.argv[2];
-  if (!file) { console.error('usage: tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--verbose]'); process.exit(2); }
+  if (!file) { console.error('usage: tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose]'); process.exit(2); }
   const verbose = process.argv.includes('--verbose');
   const probes = process.argv.flatMap((a, i) => (a === '--eval' ? [process.argv[i + 1]] : []));
-  const r = await runWidget(fs.readFileSync(file, 'utf8'), { verbose, probes, cssScope: process.argv.includes('--shadow') ? 'shadow' : 'document' });
+  const fontSize = process.argv.indexOf('--font-size');
+  const r = await runWidget(fs.readFileSync(file, 'utf8'), {
+    verbose, probes, cssScope: process.argv.includes('--shadow') ? 'shadow' : 'document', theme: process.argv.includes('--dark') ? 'dark' : 'light',
+    ...(fontSize > 0 ? { text: { fontSize: Number(process.argv[fontSize + 1]) } } : {}),
+  });
   r.probes.forEach((p, i) => console.log(`probe[${i}] ${probes[i]} → ${p}`));
   if (process.argv.includes('--ops')) console.log(JSON.stringify(r.renderOps, null, 0));
   const opsFile = process.argv.indexOf('--ops-file');
-  if (opsFile > 0 && process.argv[opsFile + 1]) fs.writeFileSync(process.argv[opsFile + 1], JSON.stringify([{ type: 'ops', ops: r.renderOps }]));
+  if (opsFile > 0 && process.argv[opsFile + 1]) fs.writeFileSync(process.argv[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'ops', ops: r.renderOps }]));
   const tags = r.renderOps.filter((o) => o.op === 'el').length;
   console.log(`\nbatches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);

@@ -71,9 +71,24 @@ class ReferenceWebView(context: Context, html: String, theme: String) {
             "img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; " +
             "child-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'"
 
-        /** = the web dev server's reference mode: a doctype (no library is bundled since profile 1, so a CDN script fails here as in the sandbox). */
-        fun rewrite(html: String): String =
-            if (Regex("""^\s*<!doctype""", RegexOption.IGNORE_CASE).containsMatchIn(html)) html else "<!DOCTYPE html>\n$html"
+        /**
+         * = the web dev server's reference mode: a doctype (no library is bundled since profile 1, so a CDN script fails here as in
+         * the sandbox), and right after it what the renderer adds to every widget with the reference theme (`Corpus/reference.css`,
+         * written by `scripts/sync-demo-corpus.ts`): the profile's UA layer and the default palettes and reference text tokens.
+         */
+        fun rewrite(html: String, referenceCss: String = ""): String {
+            val doc = if (Regex("""^\s*<!doctype""", RegexOption.IGNORE_CASE).containsMatchIn(html)) html else "<!DOCTYPE html>\n$html"
+            if (referenceCss.isEmpty()) return doc
+            val doctype = Regex("""^\s*<!doctype[^>]*>""", RegexOption.IGNORE_CASE).find(doc) ?: return doc
+            val end = doctype.range.last + 1
+            return doc.substring(0, end) + "<style data-tw-ua>" + referenceCss + "</style>" + doc.substring(end)
+        }
+
+        @Volatile private var cachedCss: String? = null
+
+        /** The demo's copy of the reference stylesheet; empty when the corpus sync has not written it. */
+        fun referenceCss(context: Context): String = cachedCss
+            ?: runCatching { context.assets.open("Corpus/reference.css").use { it.readBytes().toString(Charsets.UTF_8) } }.getOrDefault("").also { cachedCss = it }
 
         /** Reports the page's own timings, its height (like the web UI's ResizeObserver + poll) and uncaught errors. */
         const val PROBE_SCRIPT = """
@@ -114,7 +129,7 @@ class ReferenceWebView(context: Context, html: String, theme: String) {
     private var started = false
 
     init {
-        var doc = rewrite(html)
+        var doc = rewrite(html, referenceCss(context) + demoReferenceCss())
         // The probe runs before the page's own scripts: as a document-start script where
         // the WebView supports it, otherwise inlined at the top (CSP allows 'unsafe-inline' here).
         val startScript = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)

@@ -111,8 +111,15 @@ final class ReferenceWebView: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     // Same as the web dev server's REFERENCE_CSP.
     static let csp = "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'"
 
+    /// What the renderer adds to every widget, with the reference theme (`Corpus/reference.css`, written by
+    /// `scripts/sync-demo-corpus.ts` from packages/core/src/shared/reference.ts): the profile's UA layer (the root and
+    /// text defaults, the client-styled <button>) and the default palettes and reference text tokens as `--tg-*`.
+    static let referenceCss: String = Bundle.main.url(forResource: "reference", withExtension: "css", subdirectory: "Corpus")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+
     /// = the web dev server's reference mode: a doctype (no library is bundled since profile 1, so a CDN
-    /// script fails here as it does in the sandbox). On iOS also a viewport meta when the file has none:
+    /// script fails here as it does in the sandbox) and the renderer's own stylesheet with the reference theme
+    /// right after it. On iOS also a viewport meta when the file has none:
     /// without it mobile WebKit lays the page out at 980 px and scales it down, while the sandbox renderer always declares one.
     static func rewrite(_ html: String) -> String {
         var out = html
@@ -125,7 +132,10 @@ final class ReferenceWebView: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             out.insert(contentsOf: meta, at: anchor?.upperBound ?? out.startIndex)
         }
         #endif
-        return out.range(of: #"^\s*<!doctype"#, options: [.regularExpression, .caseInsensitive]) != nil ? out : "<!DOCTYPE html>\n" + out
+        if out.range(of: #"^\s*<!doctype"#, options: [.regularExpression, .caseInsensitive]) == nil { out = "<!DOCTYPE html>\n" + out }
+        guard !referenceCss.isEmpty, let doctype = out.range(of: #"^\s*<!doctype[^>]*>"#, options: [.regularExpression, .caseInsensitive]) else { return out }
+        out.insert(contentsOf: "<style data-tw-ua>\(referenceCss)\(DemoTheme.referenceCss)</style>", at: doctype.upperBound)
+        return out
     }
 
     /// Reports the page's own timings, its height (like the web UI's ResizeObserver + poll) and uncaught errors.

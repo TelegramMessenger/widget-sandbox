@@ -62,6 +62,40 @@ for (const shadow of [false, true]) {
     expect(await css(probe, '--tg-button-font')).toBe('');
   });
 
+  test(`${renderer}: the UA layer draws an unstyled widget on the bubble's colour and the text tokens; author CSS wins`, async ({ page }) => {
+    const root = await load(page, `<h1 id="h">Title</h1><p id="p">Text <a id="a" href="https://telegram.org">link</a></p><ul id="ul"><li>x</li></ul>`, { shadow });
+    const html = shadow ? root.locator('html') : root;
+    const body = root.locator('body');
+    const h = root.locator('#h');
+    expect(await css(html, 'background-color')).toBe('rgb(255, 255, 255)');
+    expect(await css(html, 'color')).toBe('rgb(0, 0, 0)');
+    expect([await css(html, 'font-size'), await css(html, 'line-height')]).toEqual(['15px', '20.25px']);
+    expect([await css(body, 'margin-top'), await css(body, 'padding')]).toEqual(['0px', '8px 12px']);
+    expect([await css(h, 'font-size'), await css(h, 'margin-top'), await css(h, 'font-weight')]).toEqual(['24px', '0px', '600']);
+    expect(await css(root.locator('#a'), 'color')).toBe('rgb(51, 144, 236)');
+    expect(await css(root.locator('#ul'), 'padding-left')).toBe('22.5px');
+    expect(await css(h, '--tg-text-font-size')).toBe('15px');
+    const height = (await tw(page)).height;
+
+    await page.evaluate(() => (window as any).__tw.host.setTheme({ colorScheme: 'dark', params: { bg_color: '#101820' }, text: { fontSize: 18, lineHeight: 1.5, padding: '4px 6px' } }));
+    await expect.poll(() => css(html, 'font-size')).toBe('18px');
+    expect(await css(html, 'background-color')).toBe('rgb(16, 24, 32)');
+    expect(await css(html, 'color')).toBe('rgb(255, 255, 255)');
+    expect(await css(html, 'line-height')).toBe('27px');
+    expect(await css(body, 'padding')).toBe('4px 6px');
+    expect(await css(h, 'font-size')).toBe('28.8px');
+    await expect.poll(async () => (await tw(page)).height).toBeGreaterThan(height);
+
+    await page.evaluate(() => (window as any).__tw.host.setTheme({ colorScheme: 'light', text: { fontSize: 100, lineHeight: '2em', padding: 'auto' } }));
+    await expect.poll(() => css(html, 'font-size')).toBe('15px');
+    expect([await css(html, 'line-height'), await css(body, 'padding')]).toEqual(['20.25px', '8px 12px']);
+
+    const styled = await load(page, `<style>body { padding: 0 } h1 { margin-top: 5px; font-size: 10px } a { color: #ff0000 }</style><h1 id="h">T</h1><a id="a" href="https://telegram.org">l</a>`, { shadow });
+    expect(await css(styled.locator('body'), 'padding')).toBe('0px');
+    expect([await css(styled.locator('#h'), 'margin-top'), await css(styled.locator('#h'), 'font-size')]).toEqual(['5px', '10px']);
+    expect(await css(styled.locator('#a'), 'color')).toBe('rgb(255, 0, 0)');
+  });
+
   test(`${renderer}: each primary pointerdown reports which drag axes the widget takes`, async ({ page }) => {
     const root = await load(page, `<style>div { height: 30px; margin: 4px; background: #ddd; }</style>
       <div id="none" style="touch-action: none">none</div><div id="pany" style="touch-action: pan-y">pan-y</div>

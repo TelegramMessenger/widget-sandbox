@@ -908,7 +908,7 @@ TEST(sdk_locale_reaches_the_widget) {
     CHECK(b.engine.probe("navigator.language") == "en-US");
 }
 
-/// WidgetHost: the renderer's first message is the theme (scheme, checked params, button tokens as given),
+/// WidgetHost: the renderer's first message is the theme (scheme, checked params, button and text tokens as given),
 /// and every setTheme sends another; the widget gets the scheme, the palette and the locale; the renderer's
 /// gesture report becomes onGestureClaim.
 TEST(sdk_widget_host_theme_locale_and_gestures) {
@@ -918,6 +918,8 @@ TEST(sdk_widget_host_theme_locale_and_gestures) {
     theme.params = {{"bg_color", "#ABCDEF"}, {"link_color", "blue"}};
     theme.button.radius = "10px";
     theme.button.pressedOpacity = 0.7;
+    theme.text.fontSize = 17;
+    theme.text.padding = "6px 10px";
     WidgetHostOptions options;
     options.locale = "ru";
     options.storage.local = {{"k", "v"}};
@@ -931,7 +933,7 @@ TEST(sdk_widget_host_theme_locale_and_gestures) {
     CHECK(host.waitLoaded(20));
     {
         std::lock_guard<std::mutex> l(renderer->mutex);
-        CHECK_MSG(!renderer->messages.empty() && renderer->messages[0] == "{\"type\":\"theme\",\"theme\":{\"colorScheme\":\"dark\",\"params\":{\"bg_color\":\"#abcdef\"},\"button\":{\"radius\":\"10px\",\"pressedOpacity\":0.7}}}",
+        CHECK_MSG(!renderer->messages.empty() && renderer->messages[0] == "{\"type\":\"theme\",\"theme\":{\"colorScheme\":\"dark\",\"params\":{\"bg_color\":\"#abcdef\"},\"button\":{\"radius\":\"10px\",\"pressedOpacity\":0.7},\"text\":{\"fontSize\":17,\"padding\":\"6px 10px\"}}}",
                   renderer->messages.empty() ? "nothing sent" : renderer->messages[0]);
     }
     CHECK(host.probe("TelegramWidget.colorScheme + ',' + TelegramWidget.themeParams.bg_color + ',' + TelegramWidget.themeParams.link_color + ',' + navigator.language + ',' + localStorage.k") ==
@@ -943,7 +945,7 @@ TEST(sdk_widget_host_theme_locale_and_gestures) {
     host.onHostThread([] {});
     CHECK(host.probe("TelegramWidget.colorScheme + ',' + TelegramWidget.themeParams.bg_color") == "light,#ffffff");
     auto themes = renderer->sent("theme");
-    CHECK_MSG(themes.size() == 2 && themes[1].dump() == "{\"type\":\"theme\",\"theme\":{\"colorScheme\":\"light\",\"params\":{\"bg_color\":\"#ffffff\"},\"button\":{}}}",
+    CHECK_MSG(themes.size() == 2 && themes[1].dump() == "{\"type\":\"theme\",\"theme\":{\"colorScheme\":\"light\",\"params\":{\"bg_color\":\"#ffffff\"},\"button\":{},\"text\":{}}}",
               themes.empty() ? "none" : themes.back().dump());
     {
         std::lock_guard<std::mutex> l(renderer->mutex);
@@ -1286,7 +1288,7 @@ struct LitehtmlRun {
 
 /// litehtml answers layout queries with real geometry, reports the document height and paints a raster of width × dpr.
 TEST(litehtml_lays_out_answers_queries_and_paints) {
-    LitehtmlRun r("<style>body{margin:0}#d{height:50px;background:#f00}</style><div id=\"d\">x</div>"
+    LitehtmlRun r("<style>body{margin:0;padding:0}#d{height:50px;background:#f00}</style><div id=\"d\">x</div>"
                   "<script>console.log('rect=' + document.getElementById('d').getBoundingClientRect().width + 'x' + document.getElementById('d').getBoundingClientRect().height);</script>");
     auto d = r.host.diagnostics();
     CHECK_MSG(d.loaded, "loaded");
@@ -1323,7 +1325,7 @@ TEST(litehtml_click_reaches_the_widget) {
 
 /// A killed runtime freezes the document: the last render stays, pointers stop reaching anything.
 TEST(litehtml_frozen_after_kill_keeps_last_render) {
-    LitehtmlRun r("<style>body{margin:0}</style><div style=\"height:40px;background:#00f\"></div><script>setTimeout(function () { for (;;) {} }, 50);</script>");
+    LitehtmlRun r("<style>body{margin:0;padding:0}</style><div style=\"height:40px;background:#00f\"></div><script>setTimeout(function () { for (;;) {} }, 50);</script>");
     CHECK_MSG(r.host.waitUntil([](const WidgetDiagnostics& d) { return d.dead.has_value(); }, 10), "the CPU limit kills the loop");
     sleepMs(100);
     LitehtmlRenderer::Frame f = r.lite->paint();

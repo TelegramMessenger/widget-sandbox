@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { REFERENCE_STYLESHEET } from '../packages/core/src/shared/reference.ts';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const TARGETS = {
@@ -36,4 +37,6 @@ for (const group of ['compat', 'attacks', 'generated/with-profile', 'generated/w
   fs.mkdirSync(path.join(corpusOut, group), { recursive: true });
   for (const f of fs.readdirSync(dir)) if (f.endsWith('.html')) fs.copyFileSync(path.join(dir, f), path.join(corpusOut, group, f));
 }
+// The demos' reference mode puts it into the widget file: the renderer's UA layer with the reference theme.
+fs.writeFileSync(path.join(corpusOut, 'reference.css'), REFERENCE_STYLESHEET);
 console.log(`corpus copied to ${target}`);

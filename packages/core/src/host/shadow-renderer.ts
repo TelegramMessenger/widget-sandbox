@@ -24,11 +24,13 @@ import type { Renderer, RendererFactory } from './renderer';
  * `:where()` keeps the specificity at zero: the widget's own `html { }` /
  * `body { }` rules always win. `flow-root` on <html> keeps body margins inside
  * the measured height (our <html> is not a root element, its margins would
- * otherwise collapse through).
+ * otherwise collapse through). The body's margin and padding, the font and the
+ * colours come from the renderer's UA layer (profile.json `uaStylesheet`), as in
+ * the iframe: an unlayered rule here would beat that layer.
  */
 const BASE_CSS =
   ':host{all:initial;display:block;width:100%;position:relative;contain:layout paint style;container-type:size;container-name:tw}' +
-  ':where(html){display:flow-root;position:relative;min-height:0}:where(head){display:none}:where(body){display:block;margin:8px}';
+  ':where(html){display:flow-root;position:relative;min-height:0}:where(head){display:none}:where(body){display:block}';
 
 /** `(min-width: 400px)`-style queries on the widget's own box; anything else goes to the window. */
 const SIZE_QUERY = /^\s*\(\s*(min|max)-(width|height)\s*:\s*([\d.]+)px\s*\)\s*$/i;

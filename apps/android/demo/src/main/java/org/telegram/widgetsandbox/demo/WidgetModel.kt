@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -28,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,10 +64,20 @@ enum class DemoRenderer(val title: String, val factory: RendererFactory?) {
 }
 
 /**
- * The demo's chat theme: the colour scheme only, so the renderer fills the palette from the
- * Telegram defaults. A client passes the bubble's own colours and button (docs/sdk-v1.md §5.1).
+ * The demo's chat theme: the colour scheme and, as `bg_color`, the colour the demo draws its bubbles in
+ * (the Material `surface` of the widget screen; the UA layer paints the widget's root with it); the rest of
+ * the palette and the button and text tokens take the framework's defaults. A client passes the bubble's
+ * own colours, button and text (docs/sdk-v1.md §5.1).
  */
-fun demoTheme(dark: Boolean) = WidgetTheme(if (dark) "dark" else "light")
+fun demoTheme(dark: Boolean) = WidgetTheme(if (dark) "dark" else "light", mapOf("bg_color" to demoBubbleHex(dark)))
+
+/** The Material `surface` the widget screen draws its bubbles in, as `#rrggbb`. */
+fun demoBubbleHex(dark: Boolean): String =
+    String.format("#%06x", (if (dark) darkColorScheme() else lightColorScheme()).surface.toArgb() and 0xffffff)
+
+/** The same bubble colour for the reference mode (dev tooling), after `Corpus/reference.css`. */
+fun demoReferenceCss(): String =
+    ":root{--tg-theme-bg-color:${demoBubbleHex(false)}}@media (prefers-color-scheme: dark){:root{--tg-theme-bg-color:${demoBubbleHex(true)}}}"
 
 /** Observable façade over WidgetHost for Compose screens (= WidgetModel.swift). */
 class WidgetModel(context: Context, html: String, theme: WidgetTheme, widthDp: Double, options: WidgetHost.Options = WidgetHost.Options(), val renderer: DemoRenderer = DemoRenderer.WEBVIEW, rendererFactory: RendererFactory? = null) {

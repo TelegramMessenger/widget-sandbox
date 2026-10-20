@@ -1,6 +1,8 @@
 #include "renderer.h"
 
 #include "css.h"
+#include "theme.h"
+#include "tw_ua_stylesheet.h"
 
 #include <litehtml.h>
 #include <litehtml/html_tag.h>
@@ -28,7 +30,9 @@ const char* const ALWAYS_FORWARD[] = {"click", "input", "change", "submit", "res
 
 /// Chromium/WebKit UA rules litehtml's master.css lacks and widgets rely on. Form controls get a
 /// visible box: litehtml has no controls of its own (the container would own them), so they are
-/// bordered inline blocks here, with the value as text where the shadow tree knows it.
+/// bordered inline blocks here, with the value as text where the shadow tree knows it. The profile's
+/// UA layer (TW_UA_STYLESHEET, generated from packages/core/profile.json) comes after it: the root and
+/// text defaults on the theme variables and the client-styled <button>, as every renderer draws them.
 const char* const UA_EXTRA = R"css(
 button,input,select,textarea,meter,progress{box-sizing:border-box}
 input,select,textarea,button{display:inline-block;border:1px solid #8f8f8f;border-radius:3px;background:#fff;color:#000;padding:2px 6px;font:13.333px -apple-system,system-ui,sans-serif;min-height:1.8em;min-width:2em;vertical-align:middle}
@@ -231,6 +235,14 @@ public:
     /// True when the last build patched the previous document instead of parsing a new one.
     bool patched() const { return patched_; }
 
+    /// The master CSS of the next document; a change drops the current one (a patch keeps the master it was made with).
+    void set_master(std::string css) {
+        if (css == master_css_) return;
+        master_css_ = std::move(css);
+        elements_.clear();
+        doc_ = nullptr;
+    }
+
     void build(const std::string& html, int vp_height) {
         bool viewport_changed = vp_height != vp_height_;
         vp_height_ = vp_height;
@@ -258,9 +270,9 @@ public:
         elements_.clear();
         doc_ = nullptr;
 #ifdef TW_LITEHTML_TWIDGET
-        doc_ = litehtml::document::createUpdatableFromString(html, this, std::string(litehtml::master_css) + UA_EXTRA);
+        doc_ = litehtml::document::createUpdatableFromString(html, this, master_css_);
 #else
-        doc_ = litehtml::document::createFromString(litehtml::estring(html), this, std::string(litehtml::master_css) + UA_EXTRA);
+        doc_ = litehtml::document::createFromString(litehtml::estring(html), this, master_css_);
 #endif
         if (!doc_) return;
         rendered_width_ = float(r_.width_);
@@ -980,6 +992,7 @@ private:
     std::vector<litehtml::transform_matrix> groups_;  // accumulated, during draw()
 #endif
     int vp_height_ = int(MIN_HEIGHT);
+    std::string master_css_;
     float rendered_width_ = 0;
     uint64_t layouts_ = 0;
     bool patched_ = false;
@@ -1007,7 +1020,17 @@ Renderer::Renderer(double width, double dpr, bool dark, Backend& backend)
     head_node_->parent = html_node_.get();
     body_node_->parent = html_node_.get();
     html_node_->children = {head_node_.get(), body_node_.get()};
+    // The scheme's defaults until the host's theme message (its first one) replaces them.
+    apply_theme(Json::object().set("colorScheme", dark_ ? "dark" : "light"));
     rebuild();
+}
+
+void Renderer::apply_theme(const Json& theme) {
+    theme_vars_ = theme::variables(theme);
+    // The UA layer with the theme's values in place of its var() (litehtml substitutes a var() in a shorthand after the
+    // cascade, so `padding: var(…)` from the master CSS would beat the widget's own `padding: 0`) and without :where()
+    // (theme.h, unwrap_where).
+    container_->set_master(std::string(litehtml::master_css) + UA_EXTRA + theme::unwrap_where(theme::substitute(TW_UA_STYLESHEET, theme_vars_)));
 }
 
 Renderer::~Renderer() {
@@ -1052,6 +1075,10 @@ std::vector<Json> Renderer::receive(const Json& msg) {
     } else if (type == "frozen") {
         freeze(msg["reason"].asString(), msg["fatal"].asBool());
         rebuild();
+    } else if (type == "theme") {
+        apply_theme(msg["theme"]);
+        rebuild();
+        report_size(out);
     }
     flush_pending(out);
     return out;
@@ -1185,6 +1212,8 @@ void Renderer::apply_op(const Json& op, std::vector<Json>& out) {
         forget(n);
     } else if (kind == "style") {
         std::string name = css::starts_with(str("name"), "--") ? str("name") : lower(str("name"));
+        // The host's theme variables on the root are not the widget's to change (it can shadow them on its own elements).
+        if (n == html_node_.get() && theme::is_variable(name)) return;
         if (!css::is_property_name(name)) {
             out.push_back(Json::object().set("type", "violation").set("detail", "property name"));
             return;
@@ -1340,6 +1369,8 @@ void Renderer::write_style(const Node* n, std::string& out) const {
         plain.push_back(':');
         plain += css::resolve_light_dark(value, dark_);
     };
+    if (n == html_node_.get())
+        for (const auto& [name, value] : theme_vars_) declare(name, value + " !important");
     for (const auto& [name, value] : n->styles)
         if (css::is_property_name(name)) declare(name, value);
     if (auto it = overrides_.find(n->id); n->id && it != overrides_.end()) {
@@ -1361,7 +1392,7 @@ std::string Renderer::serialize() const {
     out += "<html";
     if (html->id) out += " data-twid=\"" + std::to_string(html->id) + "\"";
     if (frozen_) out += frozen_fatal_ ? " data-tw-frozen=\"fatal\"" : " data-tw-frozen=\"paused\"";
-    bool styled = !html->styles.empty() || overrides_.count(html->id);
+    bool styled = !html->styles.empty() || overrides_.count(html->id) || !theme_vars_.empty();
     for (const auto& [name, value] : html->attrs) {
         if (name == "style") { styled = true; continue; }
         if (!css::is_attribute_name(name)) continue;

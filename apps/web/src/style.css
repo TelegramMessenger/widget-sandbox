@@ -20,7 +20,9 @@
   --muted: #8b98a5;
   --border: #243442;
   --chat: #0e1621;
-  --bubble: #182533;
+  /* = bg_color of the framework's default dark palette (sdk-policy.ts DEFAULT_THEME_PARAMS), which the dev app passes:
+     the renderer paints the widget's root in it (the UA layer, docs/sdk-v1.md §2.4), so the bubble must be that colour. */
+  --bubble: #212121;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }

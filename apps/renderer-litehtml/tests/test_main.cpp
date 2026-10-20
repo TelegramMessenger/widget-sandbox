@@ -40,7 +40,8 @@ static Json card_ops() {
       {"op":"text","id":8,"data":"Go"},
       {"op":"ins","id":8,"parent":7},
       {"op":"ins","id":7,"parent":6},
-      {"op":"style","id":4,"name":"margin","value":"0"}
+      {"op":"style","id":4,"name":"margin","value":"0"},
+      {"op":"style","id":4,"name":"padding","value":"0"}
     ])");
 }
 
@@ -66,7 +67,7 @@ static void test_ops_layout_and_queries() {
     }
     CHECK(r.last_html().find("data-twid=\"6\"") != std::string::npos);
     CHECK(r.last_html().find("lang=\"en\"") != std::string::npos);
-    CHECK(r.last_html().find("<body data-twid=\"4\" style=\"margin:0\">") != std::string::npos);
+    CHECK(r.last_html().find("<body data-twid=\"4\" style=\"margin:0;padding:0\">") != std::string::npos);
 
     // rect of the box: full width, 100 px tall
     Json q = parse(R"({"type":"query","qid":1,"query":{"q":"rect","id":6}})");
@@ -113,6 +114,53 @@ static void test_theme() {
     red = false;
     for (const Command& c : list) if (c.kind == Cmd::FillRect && c.color.r == 255 && c.color.g == 0) red = true;
     CHECK(red);
+}
+
+/// The host's theme message: the variables inline and !important on <html> (the palette and the text tokens completed,
+/// bad values dropped), the widget's own style op on a theme variable ignored; the profile's UA layer draws the root on
+/// them: the bubble's colour behind everything, the text tokens' padding and size, the first child's margin trimmed.
+static void test_theme_variables_and_ua_layer() {
+    CGBackend backend;
+    Renderer r(300, 1, false, backend);
+    Json theme = parse(R"({"type":"theme","theme":{"colorScheme":"light","params":{"bg_color":"#123456","text_color":"red"},
+      "button":{"radius":"10px","font":"15px Helvetica"},"text":{"fontSize":20,"lineHeight":9,"padding":"10px 20px"}}})");
+    r.receive(theme);
+    Json msg = Json::object();
+    msg.set("type", "ops").set("ops", parse(R"([
+      {"op":"el","id":2,"tag":"html","adopt":"html"},
+      {"op":"el","id":3,"tag":"head","adopt":"head"},
+      {"op":"el","id":4,"tag":"body","adopt":"body"},
+      {"op":"el","id":5,"tag":"h1"},
+      {"op":"text","id":6,"data":"Title"},
+      {"op":"ins","id":6,"parent":5},
+      {"op":"ins","id":5,"parent":4},
+      {"op":"el","id":7,"tag":"p"},
+      {"op":"text","id":8,"data":"Text"},
+      {"op":"ins","id":8,"parent":7},
+      {"op":"ins","id":7,"parent":4},
+      {"op":"style","id":2,"name":"--tg-theme-bg-color","value":"#ff0000"}
+    ])"));
+    r.receive(msg);
+    const std::string& html = r.last_html();
+    CHECK(html.find("--tg-theme-bg-color:#123456 !important") != std::string::npos);
+    CHECK(html.find("--tg-theme-text-color:#000000 !important") != std::string::npos);
+    CHECK(html.find("--tg-button-radius:10px !important") != std::string::npos);
+    CHECK(html.find("--tg-button-font") == std::string::npos);
+    CHECK(html.find("--tg-text-font-size:20px !important") != std::string::npos);
+    CHECK(html.find("--tg-text-line-height:1.35 !important") != std::string::npos);
+    CHECK(html.find("--tg-text-padding:10px 20px !important") != std::string::npos);
+    CHECK(html.find("#ff0000") == std::string::npos);
+    // h1: the first child, at the padding (its top margin trimmed), 1.6 × 20 px at line height 1.25
+    Json res = r.receive(parse(R"({"type":"query","qid":1,"query":{"q":"rect","id":5}})"))[0]["result"];
+    CHECK(res["x"].asNumber() == 20);
+    CHECK(res["y"].asNumber() == 10);
+    CHECK(res["width"].asNumber() == 260);
+    CHECK(res["height"].asNumber() >= 39 && res["height"].asNumber() <= 41);
+    // the bubble's colour fills the root
+    DisplayList list = r.paint();
+    bool bg = false;
+    for (const Command& c : list) if (c.kind == Cmd::FillRect && c.color.r == 0x12 && c.color.g == 0x34 && c.color.b == 0x56) bg = true;
+    CHECK(bg);
 }
 
 static void test_tap_events() {
@@ -200,6 +248,7 @@ int main() {
     test_color_scheme_rewrite();
     test_ops_layout_and_queries();
     test_theme();
+    test_theme_variables_and_ua_layer();
     test_tap_events();
     test_mutations();
     test_measure_text();

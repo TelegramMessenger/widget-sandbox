@@ -49,7 +49,8 @@ class WidgetDiagnostics(
 }
 
 /**
- * The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §5.1):
+ * The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §5.1): its own colours (an
+ * outgoing bubble's when the user sent or forwarded the widget), the client's button and its message text;
  * pass it at creation and call `setTheme` on every change.
  */
 data class WidgetTheme(
@@ -59,6 +60,8 @@ data class WidgetTheme(
     val params: Map<String, String> = emptyMap(),
     /** The client's own button, for the widget's `<button>`. */
     val button: WidgetButtonTokens = WidgetButtonTokens(),
+    /** The client's message text: the root's font size and line height, the bubble's padding. */
+    val text: WidgetTextTokens = WidgetTextTokens(),
 )
 
 /** The client's button (docs/sdk-v1.md §2.4); every field optional. The renderer takes only values that match their grammar, the template's defaults stand for the rest. */
@@ -79,6 +82,19 @@ data class WidgetButtonTokens(
     val pressedOpacity: Double? = null,
     /** 0–1, at most three decimals */
     val disabledOpacity: Double? = null,
+)
+
+/**
+ * The client's message text (docs/sdk-v1.md §2.4); every field optional, the reference set stands for the rest
+ * (15, 1.35, `8px 12px`). The renderer takes only values that match their grammar and sets them as `--tg-text-*`.
+ */
+data class WidgetTextTokens(
+    /** The chat's message font size in dp (= CSS px), 8–64: follows the client's text-size setting. */
+    val fontSize: Double? = null,
+    /** Unitless, 1–3: a multiple of the font size. */
+    val lineHeight: Double? = null,
+    /** Between the bubble's edge and the widget's content, one to four CSS lengths: `8px 12px` */
+    val padding: String? = null,
 )
 
 /** Web Storage of the message as the client keeps it (docs/sdk-v1.md §2.8, §5.4): the stored `local` area and the in-memory `session` one. */
@@ -240,6 +256,12 @@ class WidgetHost(
         b.pressedOpacity?.takeIf { it.isFinite() }?.let { button.put("pressedOpacity", it) }
         b.disabledOpacity?.takeIf { it.isFinite() }?.let { button.put("disabledOpacity", it) }
         if (button.length() > 0) t.put("button", button)
+        val x = theme.text
+        val text = JSONObject()
+        x.fontSize?.takeIf { it.isFinite() }?.let { text.put("fontSize", it) }
+        x.lineHeight?.takeIf { it.isFinite() }?.let { text.put("lineHeight", it) }
+        x.padding?.let { text.put("padding", it) }
+        if (text.length() > 0) t.put("text", text)
         return JSONObject().put("type", "theme").put("theme", t).toString()
     }
 

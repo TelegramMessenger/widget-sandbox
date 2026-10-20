@@ -37,8 +37,16 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 
 ## c. SDK v1
 
-- [ ] Theme: the chat palette and the button tokens into `WidgetTheme`, updated on
-      theme change ([sdk-v1.md §5.1](sdk-v1.md#51-theme)).
+- [ ] Theme: the palette of the bubble the widget sits in (an outgoing bubble's when
+      the user sent or forwarded it), the button tokens and the text tokens into
+      `WidgetTheme`, updated on theme change ([sdk-v1.md §5.1](sdk-v1.md#51-theme)).
+- [ ] Text tokens (v0.1.1): `fontSize` follows the chat's text-size setting and
+      `setTheme` runs when the user changes it; `lineHeight` and `padding` match your
+      message text. `visual/14-unstyled-document` and `corpus/defaults` look like your
+      own messages ([sdk-v1.md §2.4](sdk-v1.md#24-the-renderers-defaults-the-root-the-text-button)).
+- [ ] A native renderer (not a WebView) puts the profile's UA layer into its master CSS
+      and sets the theme variables on the root (`docs/decisions.md`, "The renderer's
+      defaults").
 - [ ] Links: `openLink` / `openTelegramLink` only from a real tap; confirmation
       showing the full URL; then open ([sdk-v1.md §5.2](sdk-v1.md#52-links)).
 - [ ] Haptics with the rate limit ([sdk-v1.md §5.3](sdk-v1.md#53-haptics)).

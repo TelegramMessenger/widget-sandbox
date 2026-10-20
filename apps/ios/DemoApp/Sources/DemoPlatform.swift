@@ -1,10 +1,35 @@
 import SwiftUI
 import WidgetSandbox
 
-/// The chat's theme as the demo passes it (SDK v1 `WidgetTheme`): the colour scheme of the Dark switch;
-/// the palette and the button tokens take the framework's defaults (a client maps its own chat theme, docs/sdk-v1.md §5.1).
+/// The chat's theme as the demo passes it (SDK v1 `WidgetTheme`): the colour scheme of the Dark switch and, as
+/// `bg_color`, the colour the demo draws its bubbles in (the UA layer paints the widget's root with it); the rest of
+/// the palette and the button and text tokens take the framework's defaults (a client maps its own chat theme,
+/// docs/sdk-v1.md §5.1).
 enum DemoTheme {
-    static func make(dark: Bool) -> WidgetTheme { WidgetTheme(colorScheme: dark ? .dark : .light) }
+    static func make(dark: Bool) -> WidgetTheme {
+        WidgetTheme(colorScheme: dark ? .dark : .light, params: ["bg_color": bubbleHex(dark: dark)])
+    }
+
+    /// The same bubble colour for the reference mode (dev tooling): after `Corpus/reference.css`, so the native
+    /// rendering of a widget sits on the colour the sandboxed one gets.
+    static var referenceCss: String {
+        ":root{--tg-theme-bg-color:\(bubbleHex(dark: false))}@media (prefers-color-scheme: dark){:root{--tg-theme-bg-color:\(bubbleHex(dark: true))}}"
+    }
+
+    /// `DemoColor.bubble` resolved for the scheme, as `#rrggbb`.
+    static func bubbleHex(dark: Bool) -> String {
+        var r: CGFloat = 1, g: CGFloat = 1, b: CGFloat = 1, a: CGFloat = 1
+        #if os(macOS)
+        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua) ?? NSAppearance.currentDrawing()
+        appearance.performAsCurrentDrawingAppearance {
+            NSColor.textBackgroundColor.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
+        }
+        #else
+        UIColor.systemBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: dark ? .dark : .light)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        #endif
+        let byte = { (c: CGFloat) in Int((max(0, min(1, c)) * 255).rounded()) }
+        return String(format: "#%02x%02x%02x", byte(r), byte(g), byte(b))
+    }
 }
 
 /// Web Storage per corpus file for the demo's lifetime, so a Restart keeps it (a client keys it by message, docs/sdk-v1.md §5.4).

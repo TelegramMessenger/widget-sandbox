@@ -148,7 +148,8 @@ What it is on this platform:
   defaults as `protocol.ts`). `setVisible(false)` when the bubble leaves the
   screen.
 - SDK v1 (`docs/sdk-v1.md` §4.3, §5): build the host with a `WidgetTheme`
-  (scheme, the 15 `themeParams` colours, `WidgetButtonTokens`) and call
+  (scheme, this bubble's 15 `themeParams` colours, `WidgetButtonTokens`,
+  `WidgetTextTokens` with the chat's text size) and call
   `setTheme(WidgetTheme)` on every chat theme change; pass `locale` and the
   stored `storage` (`WidgetStorage { local, session }`) in `WidgetHostOptions`.
   `onAction` gets checked actions only (`OpenLink` / `OpenTelegramLink` with

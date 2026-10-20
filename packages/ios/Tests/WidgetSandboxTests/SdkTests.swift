@@ -95,7 +95,7 @@ final class SdkTests: XCTestCase {
     // MARK: theme, locale, gestures
 
     func testThemeParamsReachTheWidgetAndTheRenderer() throws {
-        let theme = WidgetTheme(colorScheme: .dark, params: ["bg_color": "#ABCDEF", "text_color": "red", "made_up": "#123456"], button: WidgetButtonTokens(radius: "10px", pressedOpacity: 0.7))
+        let theme = WidgetTheme(colorScheme: .dark, params: ["bg_color": "#ABCDEF", "text_color": "red", "made_up": "#123456"], button: WidgetButtonTokens(radius: "10px", pressedOpacity: 0.7), text: WidgetTextTokens(fontSize: 17, padding: "6px 10px"))
         let h = Harness("<script>var p=TelegramWidget.themeParams;console.log('p='+TelegramWidget.colorScheme+','+p.bg_color+','+p.text_color+','+('made_up' in p));TelegramWidget.onEvent('themeChanged',function(){var q=TelegramWidget.themeParams;console.log('changed='+TelegramWidget.colorScheme+','+q.bg_color+','+q.link_color);});</script>", theme: theme)
         h.pump { h.logs.contains { $0.hasPrefix("p=") } }
         XCTAssertTrue(h.logs.contains("p=dark,#abcdef,#ffffff,false"), "\(h.logs)")
@@ -106,6 +106,7 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(first["colorScheme"] as? String, "dark")
         XCTAssertEqual(first["params"] as? [String: String], ["bg_color": "#abcdef"])
         XCTAssertEqual(first["button"] as? NSDictionary, ["radius": "10px", "pressedOpacity": 0.7] as NSDictionary)
+        XCTAssertEqual(first["text"] as? NSDictionary, ["fontSize": 17, "padding": "6px 10px"] as NSDictionary)
 
         h.host.setTheme(WidgetTheme(colorScheme: .light, params: ["bg_color": "#101010", "link_color": "#00FF00"]))
         h.pump { h.logs.contains { $0.hasPrefix("changed=") } }
@@ -114,6 +115,7 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(last["colorScheme"] as? String, "light")
         XCTAssertEqual(last["params"] as? [String: String], ["bg_color": "#101010", "link_color": "#00ff00"])
         XCTAssertNil(last["button"])
+        XCTAssertNil(last["text"])
     }
 
     func testLocale() {
@@ -164,11 +166,12 @@ final class SdkTests: XCTestCase {
     // MARK: the WebView renderer
 
     /// The renderer core sets the variables inline and important on the widget's root: the widget's own `:root` rule cannot replace them.
+    /// The UA layer draws the root on them: the bubble's colour, the text tokens' size, the body's padding.
     @MainActor
     func testThemeVariablesOnTheRendererRoot() async throws {
         let window = TestWindow.makeVisible()
         defer { window.close() }
-        let theme = WidgetTheme(colorScheme: .dark, params: ["bg_color": "#123456"], button: WidgetButtonTokens(radius: "10px", font: "15px Helvetica"))
+        let theme = WidgetTheme(colorScheme: .dark, params: ["bg_color": "#123456"], button: WidgetButtonTokens(radius: "10px", font: "15px Helvetica"), text: WidgetTextTokens(fontSize: 17, lineHeight: 9))
         let host = try WidgetHost(html: "<style>:root{--tg-theme-bg-color:#ff0000}</style><p>x</p>", theme: theme, width: 300)
         defer { host.destroy() }
         var latest = WidgetDiagnostics()
@@ -177,17 +180,17 @@ final class SdkTests: XCTestCase {
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline, !latest.rendered { try await Task.sleep(nanoseconds: 50_000_000) }
         XCTAssertTrue(latest.rendered, "\(latest.diags)")
-        let probe = "(function(){var s=getComputedStyle(document.documentElement);return ['--tg-theme-bg-color','--tg-color-scheme','--tg-button-radius','--tg-button-font','--tg-theme-text-color'].map(function(n){return s.getPropertyValue(n).trim();}).join('|');})()"
+        let probe = "(function(){var s=getComputedStyle(document.documentElement);return ['--tg-theme-bg-color','--tg-color-scheme','--tg-button-radius','--tg-button-font','--tg-theme-text-color','--tg-text-font-size','--tg-text-line-height','--tg-text-padding'].map(function(n){return s.getPropertyValue(n).trim();}).concat([s.fontSize,s.backgroundColor,getComputedStyle(document.body).paddingLeft]).join('|');})()"
         let first = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
-        XCTAssertEqual(first, "#123456|dark|10px||#ffffff", "a font that is not a generic family is dropped by the renderer")
+        XCTAssertEqual(first, "#123456|dark|10px||#ffffff|17px|1.35|8px 12px|17px|rgb(18, 52, 86)|12px", "a font that is not a generic family and a line height over 3 are dropped by the renderer")
         host.setTheme(WidgetTheme(colorScheme: .light, params: ["bg_color": "#ABCDEF"]))
         var second = ""
         let changed = Date().addingTimeInterval(5)
-        while Date() < changed, second != "#abcdef|light|||#000000" {
+        while Date() < changed, second != "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgb(171, 205, 239)|12px" {
             try await Task.sleep(nanoseconds: 50_000_000)
             second = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
         }
-        XCTAssertEqual(second, "#abcdef|light|||#000000")
+        XCTAssertEqual(second, "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgb(171, 205, 239)|12px")
     }
 
     // MARK: helpers

@@ -43,7 +43,35 @@ public struct WidgetButtonTokens: Equatable {
     }
 }
 
-/// The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §5.1).
+/// The client's message text (docs/sdk-v1.md §2.4): every field optional, the reference set stands for the rest
+/// (15 px, 1.35, `8px 12px`). Passed to the renderer as given: the renderer core keeps a font size of 8–64 (CSS px =
+/// points), a unitless line height of 1–3 and one to four CSS lengths of padding, and sets them as `--tg-text-*`.
+public struct WidgetTextTokens: Equatable {
+    /// The chat's message font size in points (follows the client's text-size setting).
+    public var fontSize: Double?
+    /// Unitless, a multiple of the font size.
+    public var lineHeight: Double?
+    /// Between the bubble's edge and the widget's content, CSS padding: `8px 12px`.
+    public var padding: String?
+
+    public init(fontSize: Double? = nil, lineHeight: Double? = nil, padding: String? = nil) {
+        self.fontSize = fontSize
+        self.lineHeight = lineHeight
+        self.padding = padding
+    }
+
+    /// The fields that are set, with the TS `TextTokens` names.
+    var json: [String: Any] {
+        var out: [String: Any] = [:]
+        if let fontSize, fontSize.isFinite { out["fontSize"] = fontSize }
+        if let lineHeight, lineHeight.isFinite { out["lineHeight"] = lineHeight }
+        if let padding { out["padding"] = padding }
+        return out
+    }
+}
+
+/// The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §5.1): its own colours (an
+/// outgoing bubble's when the user sent or forwarded the widget), the client's button and its message text.
 public struct WidgetTheme: Equatable {
     public enum ColorScheme: String {
         case light
@@ -55,11 +83,13 @@ public struct WidgetTheme: Equatable {
     /// other values are dropped (`SdkPolicy.checkThemeParams`), a missing key takes the scheme's default.
     public var params: [String: String]
     public var button: WidgetButtonTokens
+    public var text: WidgetTextTokens
 
-    public init(colorScheme: ColorScheme = .light, params: [String: String] = [:], button: WidgetButtonTokens = WidgetButtonTokens()) {
+    public init(colorScheme: ColorScheme = .light, params: [String: String] = [:], button: WidgetButtonTokens = WidgetButtonTokens(), text: WidgetTextTokens = WidgetTextTokens()) {
         self.colorScheme = colorScheme
         self.params = params
         self.button = button
+        self.text = text
     }
 
     /// A plain colour scheme as the API before v1 took it: `"dark"` is dark, anything else light.
@@ -75,6 +105,8 @@ public struct WidgetTheme: Equatable {
         var theme: [String: Any] = ["colorScheme": colorScheme.rawValue, "params": checkedParams]
         let tokens = button.json
         if !tokens.isEmpty { theme["button"] = tokens }
+        let textTokens = text.json
+        if !textTokens.isEmpty { theme["text"] = textTokens }
         return SandboxEngine.json(["type": "theme", "theme": theme])
     }
 }

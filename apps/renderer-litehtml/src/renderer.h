@@ -178,6 +178,8 @@ private:
     bool canvas_source(int64_t node, int& image, int& canvas, float& w, float& h) override;
     int64_t canvas_allowance(int id) override;
     void freeze(const std::string& reason, bool fatal);
+    /// The host's theme (theme.h): the root's variables and the master CSS's UA layer with their values.
+    void apply_theme(const twidget::Json& theme);
 
     std::unique_ptr<Container> container_;
     Backend& backend_;
@@ -188,6 +190,8 @@ private:
     double doc_height_ = 0;
     bool dirty_ = true;
     std::string html_;
+    /// The host's theme variables (theme.h), written first and !important into <html>'s style.
+    std::vector<std::pair<std::string, std::string>> theme_vars_;
     BuildStats stats_;
     std::vector<std::string> pending_violations_;
 

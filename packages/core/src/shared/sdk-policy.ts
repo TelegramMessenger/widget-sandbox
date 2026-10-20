@@ -247,11 +247,26 @@ export interface ButtonTokens {
   disabledOpacity?: number | string;
 }
 
-/** What the host passes to the renderer: the colour scheme, the palette, the button tokens. */
+/**
+ * The client's message text (docs/sdk-v1.md §2.4): the root's font size (the chat's text-size setting, in CSS px),
+ * its line height (unitless) and the padding between the bubble's edge and the widget's content; every field
+ * optional, the reference set (`DEFAULT_TEXT_TOKENS`) stands for the rest.
+ */
+export interface TextTokens {
+  fontSize?: number | string;
+  lineHeight?: number | string;
+  padding?: string;
+}
+
+/** The reference text tokens: what a client on defaults gets, and what every reference picture is drawn with. */
+export const DEFAULT_TEXT_TOKENS = { fontSize: '15px', lineHeight: '1.35', padding: '8px 12px' } as const;
+
+/** What the host passes to the renderer: the colour scheme, the palette, the button and text tokens. */
 export interface WidgetTheme {
   colorScheme: 'light' | 'dark';
   params?: Partial<ThemeParams>;
   button?: ButtonTokens;
+  text?: TextTokens;
 }
 
 const LENGTH = /^(0|[0-9]{1,4}(\.[0-9]{1,3})?(px|em|rem))$/;
@@ -264,6 +279,19 @@ function opacity(v: unknown): string | null {
   return /^(0(\.[0-9]{1,3})?|1(\.0{1,3})?|\.[0-9]{1,3})$/.test(s) ? s : null;
 }
 
+const padding = (v: unknown) => (typeof v === 'string' && /^\S+( \S+){0,3}$/.test(v) && v.split(' ').every((p) => LENGTH.test(p)) ? v : null);
+
+/** A number in [min, max] with at most `decimals` decimals, as a number or its plain decimal string (+ `unit`); shortest form. */
+function bounded(v: unknown, min: number, max: number, decimals: number, unit: string): string | null {
+  let n: number;
+  if (typeof v === 'number') n = v;
+  else if (typeof v === 'string' && new RegExp(`^[0-9]{1,2}(\\.[0-9]{1,${decimals}})?${unit}$`).test(v)) n = parseFloat(v);
+  else return null;
+  if (!Number.isFinite(n) || n < min || n > max) return null;
+  const f = 10 ** decimals;
+  return String(Math.round(n * f) / f) + unit;
+}
+
 const BUTTON_VARS: [keyof ButtonTokens, string, (v: unknown) => string | null][] = [
   ['bg', '--tg-button-bg', (v) => (typeof v === 'string' && COLOR.test(v) ? v.toLowerCase() : null)],
   ['text', '--tg-button-text', (v) => (typeof v === 'string' && COLOR.test(v) ? v.toLowerCase() : null)],
@@ -272,10 +300,17 @@ const BUTTON_VARS: [keyof ButtonTokens, string, (v: unknown) => string | null][]
     const m = typeof v === 'string' ? FONT.exec(v) : null;
     return m && m[3].split(',').every((f) => GENERIC.has(f.trim())) ? (v as string) : null;
   }],
-  ['padding', '--tg-button-padding', (v) => (typeof v === 'string' && /^\S+( \S+){0,3}$/.test(v) && v.split(' ').every((p) => LENGTH.test(p)) ? v : null)],
+  ['padding', '--tg-button-padding', padding],
   ['height', '--tg-button-height', (v) => (typeof v === 'string' && LENGTH.test(v) ? v : null)],
   ['pressedOpacity', '--tg-button-pressed-opacity', opacity],
   ['disabledOpacity', '--tg-button-disabled-opacity', opacity],
+];
+
+/** Text tokens: font size 8–64 px (a number or `"15px"`), line height 1–3 (unitless), padding as the button's. */
+const TEXT_VARS: [keyof TextTokens, string, (v: unknown) => string | null][] = [
+  ['fontSize', '--tg-text-font-size', (v) => bounded(v, 8, 64, 2, 'px')],
+  ['lineHeight', '--tg-text-line-height', (v) => bounded(v, 1, 3, 3, '')],
+  ['padding', '--tg-text-padding', padding],
 ];
 
 /** Every variable name the renderer may set on the widget's root. */
@@ -283,9 +318,14 @@ export const THEME_VARIABLES: readonly string[] = [
   ...THEME_KEYS.map((k) => '--tg-theme-' + k.replace(/_/g, '-')),
   '--tg-color-scheme',
   ...BUTTON_VARS.map(([, name]) => name),
+  ...TEXT_VARS.map(([, name]) => name),
 ];
 
-/** The CSS variables of a theme (docs/sdk-v1.md §2.3, §2.4, §3.4): names from the fixed list, values that match their grammar. */
+/**
+ * The CSS variables of a theme (docs/sdk-v1.md §2.3, §2.4, §3.4): names from the fixed list, values that match their
+ * grammar. The palette and the text tokens are always complete (the scheme's defaults, `DEFAULT_TEXT_TOKENS`); a
+ * button token is set only when the client passed it (the template's default stands for it).
+ */
 export function themeVariables(theme: unknown): Record<string, string> {
   const t = (typeof theme === 'object' && theme !== null ? theme : {}) as Record<string, unknown>;
   const scheme = t.colorScheme === 'dark' ? 'dark' : 'light';
@@ -298,6 +338,8 @@ export function themeVariables(theme: unknown): Record<string, string> {
     const v = check(button[field]);
     if (v !== null) vars[name] = v;
   }
+  const text = (typeof t.text === 'object' && t.text !== null ? t.text : {}) as Record<string, unknown>;
+  for (const [field, name, check] of TEXT_VARS) vars[name] = check(text[field]) ?? DEFAULT_TEXT_TOKENS[field];
   return vars;
 }
 
@@ -306,5 +348,6 @@ export function toWidgetTheme(theme: unknown): WidgetTheme & { params: Partial<T
   if (theme === 'light' || theme === 'dark') return { colorScheme: theme, params: {} };
   const t = (typeof theme === 'object' && theme !== null ? theme : {}) as Record<string, unknown>;
   const button = typeof t.button === 'object' && t.button !== null ? (t.button as ButtonTokens) : undefined;
-  return { colorScheme: t.colorScheme === 'dark' ? 'dark' : 'light', params: checkThemeParams(t.params), ...(button ? { button } : {}) };
+  const text = typeof t.text === 'object' && t.text !== null ? (t.text as TextTokens) : undefined;
+  return { colorScheme: t.colorScheme === 'dark' ? 'dark' : 'light', params: checkThemeParams(t.params), ...(button ? { button } : {}), ...(text ? { text } : {}) };
 }

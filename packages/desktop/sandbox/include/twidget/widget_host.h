@@ -41,12 +41,23 @@ struct WidgetButtonTokens {
     std::optional<double> pressedOpacity, disabledOpacity;
 };
 
-/// The chat's theme (docs/sdk-v1.md §2.3, §2.4, §4.3): the colour scheme ("light" | "dark"; anything but
-/// "dark" is light), the palette under the 15 Mini Apps keys as `#rrggbb` (others are dropped), the button tokens.
+/// The client's message text (docs/sdk-v1.md §2.4); every field optional, the reference set stands for the rest
+/// (15, 1.35, "8px 12px"): the root's font size in CSS px (the chat's text-size setting), its unitless line height,
+/// the padding between the bubble's edge and the widget's content. The renderer keeps values that match the grammar.
+struct WidgetTextTokens {
+    std::optional<double> fontSize, lineHeight;
+    std::optional<std::string> padding;
+};
+
+/// The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §4.3): the colour scheme
+/// ("light" | "dark"; anything but "dark" is light), that bubble's palette under the 15 Mini Apps keys as `#rrggbb`
+/// (others are dropped; an outgoing bubble's colours when the user sent or forwarded the widget), the button and
+/// text tokens.
 struct WidgetTheme {
     std::string colorScheme = "light";
     std::map<std::string, std::string> params;
     WidgetButtonTokens button;
+    WidgetTextTokens text;
 };
 
 // WidgetStorage, WidgetAction and StorageArea are in twidget/sdk_policy.h (the engine checks with them).

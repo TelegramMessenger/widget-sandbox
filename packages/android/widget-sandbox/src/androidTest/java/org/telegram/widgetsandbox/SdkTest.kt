@@ -188,7 +188,7 @@ class SdkTest {
               });
             </script>
         """.trimIndent()
-        val probe = "(function(){ var s = document.documentElement.style; return ['--tg-theme-bg-color', '--tg-theme-text-color', '--tg-color-scheme', '--tg-button-radius', '--tg-button-pressed-opacity'].map(function (n) { return s.getPropertyValue(n).trim(); }).join('|'); })()"
+        val probe = "(function(){ var s = document.documentElement.style; return ['--tg-theme-bg-color', '--tg-theme-text-color', '--tg-color-scheme', '--tg-button-radius', '--tg-button-pressed-opacity', '--tg-text-font-size'].map(function (n) { return s.getPropertyValue(n).trim(); }).concat([getComputedStyle(document.documentElement).fontSize, getComputedStyle(document.body).paddingTop]).join('|'); })()"
         ActivityScenario.launch(TestActivity::class.java).use { scenario ->
             lateinit var host: WidgetHost
             val latest = AtomicReference(WidgetDiagnostics())
@@ -220,7 +220,7 @@ class SdkTest {
                 assertTrue(done.await(5, TimeUnit.SECONDS))
                 return out.get().trim('"')
             }
-            assertEquals("the scheme's defaults stand for what the client did not pass", "#abcdef|#000000|light||", eval())
+            assertEquals("the scheme's defaults and the reference text tokens stand for what the client did not pass", "#abcdef|#000000|light|||15px|15px|8px", eval())
 
             tap(host.view, 50f, 50f)
             assertTrue("actions: $actions, diags: ${latest.get().diags.keys}", waitFor { actions.size >= 2 && commits.isNotEmpty() })
@@ -236,9 +236,9 @@ class SdkTest {
             assertTrue("$claims", waitFor { claims.size >= 2 })
             assertEquals("touch-action: none takes both drags", true to true, claims[1])
 
-            instrumentation.runOnMainSync { host.setTheme(WidgetTheme("dark", mapOf("bg_color" to "#101010"), WidgetButtonTokens(radius = "10px", pressedOpacity = 0.7))) }
-            assertTrue(waitFor(5) { eval() == "#101010|#ffffff|dark|10px|0.7" })
-            assertEquals("#101010|#ffffff|dark|10px|0.7", eval())
+            instrumentation.runOnMainSync { host.setTheme(WidgetTheme("dark", mapOf("bg_color" to "#101010"), WidgetButtonTokens(radius = "10px", pressedOpacity = 0.7), WidgetTextTokens(fontSize = 17.0, padding = "4px 6px"))) }
+            assertTrue(waitFor(5) { eval() == "#101010|#ffffff|dark|10px|0.7|17px|17px|4px" })
+            assertEquals("#101010|#ffffff|dark|10px|0.7|17px|17px|4px", eval())
             assertEquals("callbacks run on the main thread", emptyList<String>(), offMain.toList())
             assertNull(latest.get().dead)
             instrumentation.runOnMainSync { host.destroy() }

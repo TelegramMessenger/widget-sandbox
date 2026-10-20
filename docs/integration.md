@@ -187,9 +187,21 @@ memory — and delete both with the message, the chat, the account and on "Clear
 cache" (`docs/sdk-v1.md` §5.4). The framework enforces the 16 KB quota.
 
 **Theme and language.** Pass the chat's theme as a `WidgetTheme` (colour
-scheme, the Mini Apps palette keys as `#rrggbb`, your button's tokens) and call
-`setTheme` on every change; pass the UI language as `locale`
-(`docs/sdk-v1.md` §2.3, §2.4, §2.9).
+scheme, the Mini Apps palette keys as `#rrggbb`, your button's tokens, your
+message text's tokens) and call `setTheme` on every change; pass the UI
+language as `locale` (`docs/sdk-v1.md` §2.3, §2.4, §2.9).
+
+- The palette is the colours of **this bubble**: the renderer paints the
+  widget's root in `bg_color` and its text in `text_color`. A widget the user
+  sent or forwarded sits in an outgoing bubble: pass the outgoing colours
+  (fill, text, hint, link, separator). Keep the widget view itself
+  transparent over your bubble as before.
+- The text tokens (since v0.1.1) are your message text: `fontSize` in points /
+  dp = CSS px, following the chat's text-size setting (call `setTheme` when the
+  user changes it), `lineHeight` (unitless) and `padding` (the inset of text in
+  your bubble, CSS lengths). Without them the renderer uses the reference set
+  15 / 1.35 / `8px 12px`. A widget without CSS is then drawn in your text style
+  on your bubble's colour; any widget CSS wins (`docs/sdk-v1.md` §2.4).
 
 ## iOS and macOS (Swift package)
 
@@ -204,8 +216,9 @@ var options = WidgetHost.Options()                  // policy .strict, features 
 options.features = ["webAnimations"]
 options.locale = "ru"
 options.storage = WidgetStorage(local: savedLocal, session: savedSession)   // this message's Web Storage
-let theme = WidgetTheme(colorScheme: .light, params: ["bg_color": "#ffffff", "text_color": "#000000" /* … every key */],
-                        button: WidgetButtonTokens(radius: "10px", font: "500 15px system-ui"))
+let theme = WidgetTheme(colorScheme: .light, params: ["bg_color": "#ffffff", "text_color": "#000000" /* … every key, this bubble's */],
+                        button: WidgetButtonTokens(radius: "10px", font: "500 15px system-ui"),
+                        text: WidgetTextTokens(fontSize: 17, lineHeight: 1.3, padding: "6px 10px"))
 let host = try WidgetHost(html: html, theme: theme, width: 360, options: options)
 host.onChange = { d in /* d.height, d.loaded, d.dead, d.lastError, d.stats */ }
 host.onAction = { action in /* .openLink(url): confirm, open; .openTelegramLink; .haptic; .ready */ }
@@ -240,7 +253,8 @@ import org.telegram.widgetsandbox.WidgetHost
 
 val options = WidgetHost.Options(features = setOf("webAnimations"),   // policy "strict" by default
     locale = "ru", storage = WidgetStorage(local = savedLocal, session = savedSession))
-val theme = WidgetTheme("light", params = mapOf("bg_color" to "#ffffff" /* … every key */), button = WidgetButtonTokens(radius = "10px"))
+val theme = WidgetTheme("light", params = mapOf("bg_color" to "#ffffff" /* … every key, this bubble's */), button = WidgetButtonTokens(radius = "10px"),
+                        text = WidgetTextTokens(fontSize = 16.0, padding = "6px 10px"))
 val host = WidgetHost(context, html, theme, widthDp = 360.0, options = options)
 host.onChange = { d -> /* d.height, d.loaded, d.dead, d.lastError */ }
 host.onAction = { action -> /* WidgetAction.OpenLink(url): confirm, open; OpenTelegramLink; Haptic; Ready */ }
@@ -281,7 +295,7 @@ export default { plugins: [widgetSandbox()] };
 import { WidgetHost } from '@telegram/widget-sandbox/host/widget-host';
 import { ShadowDomRenderer } from '@telegram/widget-sandbox/host/shadow-renderer';
 const host = new WidgetHost(bubbleElement, html, {
-  theme: { colorScheme: 'light', params: { bg_color: '#ffffff' /* … every key */ }, button: { radius: '10px' } },
+  theme: { colorScheme: 'light', params: { bg_color: '#ffffff' /* … every key, this bubble's */ }, button: { radius: '10px' }, text: { fontSize: 16, padding: '6px 10px' } },
   locale: 'ru',
   storage: { local: savedLocal, session: savedSession },   // this message's Web Storage
   features: ['webAnimations'],     // policy 'strict' by default
@@ -314,7 +328,7 @@ twidget::WidgetHostOptions options;            // policy "strict" by default
 options.features = {"webAnimations"};
 options.locale = "ru";
 options.storage = {savedLocal, savedSession};  // this message's Web Storage
-twidget::WidgetTheme theme{"light", {{"bg_color", "#ffffff"} /* … every key */}, {}};
+twidget::WidgetTheme theme{"light", {{"bg_color", "#ffffff"} /* … every key, this bubble's */}, {}, {.fontSize = 14, .padding = "6px 10px"}};
 twidget::WidgetHost host(html, theme, 360, options, resources, myRendererFactory);
 host.onAction = [](const twidget::WidgetAction& a) { /* OpenLink: confirm, open; OpenTelegramLink; Haptic; Ready */ };
 host.onStorageCommit = [](const std::string& area, const std::map<std::string, std::string>& values) {};

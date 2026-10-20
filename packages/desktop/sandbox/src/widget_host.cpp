@@ -4,6 +4,7 @@
 #include "twidget/quickjs_context.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
@@ -125,10 +126,16 @@ std::string WidgetHost::themeMessage() const {
     text("height", b.height);
     number("pressedOpacity", b.pressedOpacity);
     number("disabledOpacity", b.disabledOpacity);
+    const WidgetTextTokens& x = widgetTheme_.text;
+    Json text_tokens = Json::object();
+    if (x.fontSize && std::isfinite(*x.fontSize)) text_tokens.set("fontSize", *x.fontSize);
+    if (x.lineHeight && std::isfinite(*x.lineHeight)) text_tokens.set("lineHeight", *x.lineHeight);
+    if (x.padding) text_tokens.set("padding", *x.padding);
     Json theme = Json::object();
     theme.set("colorScheme", widgetTheme_.colorScheme);
     theme.set("params", sdk::themeParamsJson(widgetTheme_.params));
     theme.set("button", std::move(button));
+    theme.set("text", std::move(text_tokens));
     Json msg = Json::object();
     msg.set("type", "theme");
     msg.set("theme", std::move(theme));

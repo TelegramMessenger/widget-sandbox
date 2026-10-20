@@ -24,7 +24,7 @@ host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML, and
 |---|---|---|
 | widget API | `TelegramWidget`, Web Storage, `CSS.supports`, `navigator.language`, `visibilitychange`, the inert stubs | — |
 | checks | argument schemas, user activation, rate limits, storage quota, profile tables, in all five glue copies | — |
-| theme | CSS variables on the renderer root, `themeChanged`, the default `<button>` template | maps its chat theme to `themeParams` and button tokens, calls `setTheme` |
+| theme | CSS variables on the renderer root, `themeChanged`, the defaults of the root, the text and `<button>` (the UA layer) | maps the bubble's colours to `themeParams`, its button and message text to the button and text tokens, calls `setTheme` |
 | links | validates the URL, lets one call through per pointer press | shows the confirmation with the full URL, opens it |
 | haptics | validates, rate-limits, drops calls from hidden widgets | plays them (or ignores them on desktop and web) |
 | storage | preload at start, per-task commits, the quota | persists per message, deletes with the message, chat, account, "Clear cache" |
@@ -93,7 +93,7 @@ answer from the client: whether the user confirmed a link is not reported back.
 
 | key | meaning inside a bubble |
 |---|---|
-| `bg_color` | the bubble's background under the widget (incoming bubble of this chat's theme) |
+| `bg_color` | the colour of this bubble, behind the widget: an incoming bubble's, or an outgoing bubble's when the user sent or forwarded the widget (§5.1); the renderer paints the root with it (§2.4) |
 | `text_color` | message text |
 | `hint_color` | secondary text: time, meta |
 | `link_color` | links in messages |
@@ -102,9 +102,11 @@ answer from the client: whether the user confirmed a link is not reported back.
 | `accent_text_color` | accent text |
 | `subtitle_text_color` | subtitles |
 | `destructive_text_color` | destructive actions |
-| `section_bg_color`, `section_header_text_color`, `section_separator_color`, `header_bg_color`, `bottom_bar_bg_color` | no bubble counterpart; filled by the client from the closest colour so that Mini Apps code works |
+| `section_bg_color`, `section_header_text_color`, `section_separator_color`, `header_bg_color`, `bottom_bar_bg_color` | no bubble counterpart; filled by the client from the closest colour so that Mini Apps code works (`section_separator_color` draws the lines of a table and `<hr>`, §2.4) |
 
-Every key is always present. The same values are CSS custom properties on the
+The palette is the bubble's: a widget in an outgoing bubble gets that bubble's
+background, text, hint, link and separator colours, as the client draws a
+message there. Every key is always present. The same values are CSS custom properties on the
 widget's root element: `--tg-theme-bg-color`, `--tg-theme-text-color`, … (the
 key with `_` turned into `-`), plus `--tg-color-scheme: light | dark`. The host
 sets them in the renderer; a widget cannot overwrite the root's values, only
@@ -120,15 +122,71 @@ variables inline and `!important` on the root, so neither a widget stylesheet
 (`:root { … !important }`, any specificity) nor a style the widget sets on its
 own root element replaces them.
 
-### 2.4 The default `<button>`
+### 2.4 The renderer's defaults: the root, the text, `<button>`
 
-A `<button>` the widget did not style is drawn in the client's own button
-style; any author CSS overrides it (`docs/decisions.md`, "Profile v1"). The
-renderer inserts a user-agent-level stylesheet built from one template in
-`packages/core`: `@layer tw-ua` declared first, `:where(button)` selectors,
-values from the variables below (`uaStylesheet` in `packages/core/profile.json`).
-The template fixes the states: base, `:active` (not disabled), `[disabled]`; no
-hover state, no focus ring.
+Every renderer inserts one user-agent-level stylesheet built from one template
+in `packages/core` (`uaStylesheet` in `packages/core/profile.json`, printed in
+`docs/profile-v1.md`): `@layer tw-ua` declared first, every selector inside
+`:where()`, so any rule of the widget wins over it, whatever its specificity.
+A widget without CSS therefore looks the same on every client and like the
+client's own messages; the engine's own stylesheet (Times 16 px and an 8 px
+body margin in a WebView, litehtml's master CSS) never shows through. Since
+v0.1.1 the layer covers the root and the text elements, not only `<button>`: a
+clarification of profile 1, not profile 2 (`docs/decisions.md`, "The
+renderer's defaults").
+
+**The root.** `html`: background `--tg-theme-bg-color` (this bubble's colour,
+§2.3), text `--tg-theme-text-color`, font
+`var(--tg-text-font-size)/var(--tg-text-line-height) system-ui, sans-serif`,
+no text-size adjustment, long words wrap. `body`: no margin, padding
+`--tg-text-padding`; the first child's top margin and the last child's bottom
+margin are dropped, so text starts at the padding as in a message. The content
+height the renderer reports, and so the bubble's height, includes the padding.
+
+**The text elements**, in `em` of the parent's size, so they follow the
+client's text size:
+
+| element | default |
+|---|---|
+| `h1` … `h6` | 1.6, 1.35, 1.2, 1.07, 1, 0.87 em; weight 600; line height 1.25; 0.75 em above, 0.35 em below |
+| `p`, `ul`, `ol`, `menu`, `dl`, `pre`, `blockquote`, `figure`, `table` | 0.6 em above and below |
+| `ul`, `ol`, `menu` | 1.5 em of start padding; disc, decimal; a list inside a list item: circle, no margins |
+| `dt`, `dd` | weight 600; 1.5 em of start margin |
+| `table` | collapsed borders, no spacing; cells 0.3 em × 0.6 em of padding, start-aligned, top, a 1 px `--tg-theme-section-separator-color` line under each; `th` 600; no outer padding on the first and last cell of a row, so the text lines up with the paragraphs; `caption` in the hint colour, 0.87 em |
+| `hr` | one 1 px line in `--tg-theme-section-separator-color`, 0.6 em margins |
+| `pre`, `code`, `kbd`, `samp` | `ui-monospace, monospace` at 0.9 em (once: `code` inside `pre` keeps the size); `pre` wraps (`pre-wrap`, the bubble does not scroll) on a translucent grey, 0.5 em × 0.7 em of padding, 6 px radius |
+| `blockquote` | no indent; a 3 px bar in `--tg-theme-accent-text-color` and 0.75 em before the text |
+| `figure`, `figcaption` | no indent; `figcaption` in `--tg-theme-hint-color` at 0.87 em |
+| `a[href]` | `--tg-theme-link-color`, not underlined |
+| `b`, `strong`; `i`, `em`, `cite`, `dfn`, `var`; `small`; `sub`, `sup`; `mark` | 600; italic; 0.85 em; 0.75 em, shifted without changing the line height; a translucent yellow |
+| `img` | at most the bubble's width (`max-width: 100%`; the `width`/`height` attributes still apply) |
+
+Every property that WebKit's, Chromium's or litehtml's own stylesheet sets
+differently is set here, so the three draw the same. RTL widgets get the list,
+`dd`, table and quote indents on the right (logical properties after the
+physical ones, which litehtml keeps).
+
+**The text tokens.** The client passes them in the theme (`WidgetTheme.text`,
+§4); the renderer checks each one and always sets the three variables on the
+root, with the reference value for a token it did not get or refused:
+
+| token (`text.…`) | variable | grammar | reference value |
+|---|---|---|---|
+| `fontSize` | `--tg-text-font-size` | CSS px (= points, dp) 8–64: a number, or a string `"15px"` | `15px` |
+| `lineHeight` | `--tg-text-line-height` | a unitless number 1–3 | `1.35` |
+| `padding` | `--tg-text-padding` | one to four CSS lengths in `px`, `em`, `rem` | `8px 12px` (vertical, horizontal) |
+
+`fontSize` is the chat's message text size: it follows the client's text-size
+setting, and the client calls `setTheme` when it changes. A widget may use the
+variables in its own CSS (`calc(var(--tg-text-font-size) * 1.2)`). Every
+reference picture (the conformance set, the corpus reference mode) is drawn
+with the reference set and the default palettes
+(`packages/core/src/shared/reference.ts`).
+
+**The `<button>`.** A `<button>` the widget did not style is drawn in the
+client's own button style; any author CSS overrides it (`docs/decisions.md`,
+"Profile v1"). The template fixes the states: base, `:active` (not disabled),
+`[disabled]`; no hover state, no focus ring.
 
 The client passes its tokens in the theme (`WidgetTheme.button`, §4); the
 renderer sets each one it gets as the variable on the root and checks its
@@ -362,11 +420,11 @@ The `bridge` message (host → widget events such as a bot's answer) is gone wit
 
 | message | payload |
 |---|---|
-| `theme` | `{ type: 'theme', theme: { colorScheme, params, button } }`: the renderer core builds the variables of §2.3 and §2.4 (`themeVariables`) and sets them on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer); the colour scheme itself still goes to the renderer element (`color-scheme`, the WebView's appearance) as before |
+| `theme` | `{ type: 'theme', theme: { colorScheme, params, button, text } }`: the renderer core builds the variables of §2.3 and §2.4 (`themeVariables`) and sets them on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer); the colour scheme itself still goes to the renderer element (`color-scheme`, the WebView's appearance) as before. A native renderer does the same with its own copy of `themeVariables` (`apps/renderer-litehtml/src/theme.cpp`) |
 
 The renderer takes only variable names from the fixed list above and values
 that match their grammar (`#rrggbb`, CSS lengths, a font shorthand with a
-generic family, numbers 0–1).
+generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3).
 
 ### 3.5 Renderer → host
 
@@ -388,8 +446,9 @@ after it); the host → widget bridge events (`bridgeEvent`) are removed.
 ### 4.1 Swift (iOS, macOS): `WidgetHost`
 
 ```swift
-public struct WidgetTheme { var colorScheme: ColorScheme /* .light / .dark */; var params: [String: String]; var button: WidgetButtonTokens }
+public struct WidgetTheme { var colorScheme: ColorScheme /* .light / .dark */; var params: [String: String]; var button: WidgetButtonTokens; var text: WidgetTextTokens }
 public struct WidgetButtonTokens { var bg, text, radius, font, padding, height: String?; var pressedOpacity, disabledOpacity: Double? }
+public struct WidgetTextTokens { var fontSize, lineHeight: Double?; var padding: String? }   // v0.1.1
 public struct WidgetStorage { var local: [String: String]; var session: [String: String] }
 public enum WidgetStorageArea: String { case local, session }
 public enum WidgetHaptic { case impact(String), notification(String), selection }
@@ -415,9 +474,11 @@ check keeps (`[`, `]`, a second `#`); the checked string is
 ### 4.2 Kotlin (Android): `WidgetHost`
 
 ```kotlin
-data class WidgetTheme(val colorScheme: String = "light", val params: Map<String, String> = emptyMap(), val button: WidgetButtonTokens = WidgetButtonTokens())
+data class WidgetTheme(val colorScheme: String = "light", val params: Map<String, String> = emptyMap(), val button: WidgetButtonTokens = WidgetButtonTokens(),
+                       val text: WidgetTextTokens = WidgetTextTokens())
 data class WidgetButtonTokens(val bg: String? = null, val text: String? = null, val radius: String? = null, val font: String? = null,
                               val padding: String? = null, val height: String? = null, val pressedOpacity: Double? = null, val disabledOpacity: Double? = null)
+data class WidgetTextTokens(val fontSize: Double? = null, val lineHeight: Double? = null, val padding: String? = null)   // v0.1.1
 data class WidgetStorage(val local: Map<String, String> = emptyMap(), val session: Map<String, String> = emptyMap())
 sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(kind, value?) }   // kind: impact | notification | selection
 
@@ -438,8 +499,9 @@ only `wants`: the host reports it as `y`, with `x` false.
 ### 4.3 C++ (desktop core): `twidget::WidgetHost`
 
 ```cpp
-struct WidgetButtonTokens { std::string bg, text, radius, font, padding, height; std::optional<double> pressedOpacity, disabledOpacity; };
-struct WidgetTheme { std::string colorScheme; std::map<std::string, std::string> params; WidgetButtonTokens button; };
+struct WidgetButtonTokens { std::optional<std::string> bg, text, radius, font, padding, height; std::optional<double> pressedOpacity, disabledOpacity; };
+struct WidgetTextTokens { std::optional<double> fontSize, lineHeight; std::optional<std::string> padding; };   // v0.1.1
+struct WidgetTheme { std::string colorScheme; std::map<std::string, std::string> params; WidgetButtonTokens button; WidgetTextTokens text; };
 struct WidgetStorage { std::map<std::string, std::string> local, session; };
 struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } kind; std::string url, hapticKind, hapticValue; };
 
@@ -460,7 +522,8 @@ already on their way reach `onStorageCommit` before `destroy()` returns.
 ### 4.4 Web: `WidgetHost` (`@telegram/widget-sandbox/host/widget-host`)
 
 ```ts
-interface WidgetTheme { colorScheme: 'light' | 'dark'; params?: Partial<ThemeParams>; button?: ButtonTokens }
+interface WidgetTheme { colorScheme: 'light' | 'dark'; params?: Partial<ThemeParams>; button?: ButtonTokens; text?: TextTokens }
+interface TextTokens { fontSize?: number | string; lineHeight?: number | string; padding?: string }   // v0.1.1
 type WidgetAction =
   | { kind: 'ready' }
   | { kind: 'openLink'; url: string }
@@ -482,18 +545,28 @@ only Telegram's endpoints, `form-action 'none'`, no third-party
 ### 4.5 Node harness (`packages/core/scripts/sandbox-node.ts`)
 
 For tests and tooling, not for clients. `RunOptions` takes `theme`, `locale`,
-`themeParams`, `storage` and `script` steps `{ theme, themeParams }`;
-`RunResult` has `actions` (what `onAction` would get) and `storageCommits`.
+`themeParams`, `button`, `text`, `storage` and `script` steps `{ theme, themeParams }`;
+`RunResult` has `actions` (what `onAction` would get), `storageCommits` and
+`theme` (the renderer's `theme` message, which `--ops-file` writes before the ops).
 Gestures are injected per event (`gesture: n`).
 
 ## 5. What the client implements
 
 ### 5.1 Theme
 
-- Map the chat's theme to every key of §2.3, for the bubble the widget sits
-  in (incoming bubble colours, custom chat themes, night mode), and the
-  button tokens of §2.4 from the client's own button. Pass them at creation
-  and call `setTheme` on every change.
+- Map the chat's theme to every key of §2.3 for the bubble the widget sits
+  in: `bg_color` is that bubble's own fill, the colour the UA layer paints
+  behind the widget. A widget the user sent or forwarded sits in an outgoing
+  bubble: pass the outgoing bubble's colours (fill, text, hint, link,
+  separator), not the incoming ones; custom chat themes and night mode the
+  same way. A bubble with a gradient or a translucent fill has no single
+  colour: pass the one the widget's area shows most (the client draws the
+  bubble under a transparent widget view either way).
+- Pass the button tokens of §2.4 from the client's own button, and the text
+  tokens from its message text: `fontSize` = the chat's message font size,
+  following the text-size setting; `lineHeight` and `padding` as the client's
+  text bubble lays out text (the reference set 15 / 1.35 / `8px 12px` when
+  unsure). Pass them at creation and call `setTheme` on every change.
 - Pass the UI language as `locale`.
 
 ### 5.2 Links
