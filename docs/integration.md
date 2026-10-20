@@ -339,8 +339,8 @@ host.start();
 
 ## The conformance set
 
-`packages/conformance` ships with the tag: 38 self-checking widgets
-(`auto/`), 17 visual widgets and 17 client-SDK widgets for the test channel
+`packages/conformance` ships with the tag: 39 self-checking widgets
+(`auto/`), 18 visual widgets and 17 client-SDK widgets for the test channel
 (`visual/`), all of them mini-widgets, the feature catalogue, reference images,
 the posting order (`channel.json`) and the report tool. **`packages/conformance/CLIENTS.md`**
 is the step-by-step guide for a client team: configure the host as in

@@ -1,6 +1,6 @@
 # Conformance results
 
-Generated 2026-10-19 13:44 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; policy strict, features webAnimations).
+Generated 2026-10-20 14:46 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 078ddd9; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
@@ -8,30 +8,30 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 | Renderer | in (173) ✅ / ◐ / ❌ / ⏳ | out (82) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|
-| web iframe | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 225 / 225 | 0 |
-| web shadow | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 225 / 225 | 0 |
-| web blitz | 105 / 29 / 25 / 0 | 66 / 2 / 7 | 40 / 40 | 0 |
-| web litehtml | 64 / 42 / 53 / 0 | 60 / 3 / 12 | 40 / 40 | 0 |
+| web iframe | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 231 / 231 | 0 |
+| web shadow | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 231 / 231 | 0 |
+| web blitz | 99 / 34 / 26 / 0 | 66 / 2 / 7 | 41 / 41 | 0 |
+| web litehtml | 68 / 39 / 52 / 0 | 60 / 3 / 12 | 41 / 41 | 0 |
 
 ## In the profile
 
 | ID | web iframe | web shadow | web blitz | web litehtml | native chromium |
 |---|---|---|---|---|---|
 | `html.el.structure` | ✅ | ✅ | ◐ | ◐ | ✅ |
-| `html.el.headings` | ✅ | ✅ | ✅ | ◐ | ✅ |
+| `html.el.headings` | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `html.el.sections` | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `html.el.inline-text` | ✅ | ✅ | ◐ | ❌ | ✅ |
+| `html.el.inline-text` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `html.el.sub-sup` | ✅ | ✅ | ◐ | ◐ | ✅ |
-| `html.el.pre` | ✅ | ✅ | ✅ | ◐ | ✅ |
-| `html.el.blockquote` | ✅ | ✅ | ✅ | ❌ | ✅ |
-| `html.el.lists` | ✅ | ✅ | ✅ | ❌ | ✅ |
+| `html.el.pre` | ✅ | ✅ | ◐ | ◐ | ✅ |
+| `html.el.blockquote` | ✅ | ✅ | ❌ | ❌ | ✅ |
+| `html.el.lists` | ✅ | ✅ | ◐ | ❌ | ✅ |
 | `html.el.table` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `html.el.img` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `html.el.canvas` | ✅ | ✅ | ❌ | ❌ | · |
 | `html.el.button` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `html.el.details` | ✅ | ✅ | ◐ | ◐ | ✅ |
-| `html.el.a-fragment` | ✅ | ✅ | ✅ | ◐ | ✅ |
-| `html.el.a-external` | ✅ | ✅ | ✅ | ◐ | ✅ |
+| `html.el.a-fragment` | ✅ | ✅ | ◐ | ✅ | ✅ |
+| `html.el.a-external` | ✅ | ✅ | ◐ | ✅ | ✅ |
 | `html.el.unknown` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `html.attr.global` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `html.attr.dir` | ✅ | ✅ | ◐ | ❌ | ✅ |
@@ -125,11 +125,11 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `canvas.alpha` | ✅ | ✅ | ❌ | ❌ | · |
 | `canvas.path2d` | ✅ | ✅ | ❌ | ❌ | · |
 | `canvas.draw-image` | ◐ | ◐ | ❌ | ❌ | ✅ |
-| `canvas.hit-test` | ✅ | ✅ | ❌ | ❌ | ✅ |
+| `canvas.hit-test` | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `canvas.hidpi` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `js.dom.core` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `js.dom.query` | ◐ | ◐ | ◐ | ◐ | ✅ |
-| `js.dom.style` | ✅ | ✅ | ✅ | ◐ | ✅ |
+| `js.dom.style` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.dom.events` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.layout.rect` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `js.layout.box` | ✅ | ✅ | ◐ | ◐ | ✅ |
@@ -154,7 +154,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `js.visibility` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `tw.ready` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.theme` | ✅ | ✅ | ✅ | ✅ | – |
-| `tw.theme-params` | ✅ | ✅ | ◐ | ◐ | – |
+| `tw.theme-params` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `tw.events` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.is-active` | ✅ | ✅ | ✅ | ✅ | – |
 | `tw.open-link` | ✅ | ✅ | ✅ | ✅ | – |
@@ -205,7 +205,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `html.el.dialog-popover` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `html.el.media` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `html.el.embedding` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| `html.attr.legacy-presentational` | ✅ | ✅ | ✅ | ◐ | ❌ |
+| `html.attr.legacy-presentational` | ✅ | ✅ | ✅ | ◐ | ◐ |
 | `html.attr.contenteditable` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `html.attr.draggable` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `html.attr.tabindex` | ✅ | ✅ | ✅ | ✅ | ❌ |
@@ -298,13 +298,19 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 ## web blitz: in-profile failures
 
-- `html.el.structure`: 01-html-elements-a: wbr is a break opportunity (h 16)
-- `html.el.inline-text`: 01-html-elements-a: q adds quotation marks (16.5 vs 16.5)
-- `html.el.sub-sup`: 01-html-elements-c: sub sits lower, sup higher (base 26-49 sub 49 sup 26)
-- `html.el.table`: 01-html-elements-b: rowspan=2 spans two rows (12 vs 12)
+- `html.el.structure`: 01-html-elements-a: wbr is a break opportunity (h 16); 22-ua-defaults: root: the text tokens, system-ui (got "16,NaN,false", want "NaN,NaN,true"); 22-ua-defaults: body: no margin, the token as padding (got "8,8,0,0,0,0", want "0,0,NaN,NaN,NaN,NaN"); 22-ua-defaults: p: 0.6em margins; hr: one 1px line, no height (got "1,1,1,0", want "0.6,1,0,0")
+- `html.el.headings`: 22-ua-defaults: h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em (got "2,1.5,1.17,1,0.83,0.67", want "1.6,1.35,1.2,1.07,1,0.87"); 22-ua-defaults: headings: 600, line height 1.25; h2 0.75em above, 0.35em below (got "700,NaN,0.83,0.83", want "600,1.25,0.75,0.35")
+- `html.el.inline-text`: 01-html-elements-a: q adds quotation marks (16.5 vs 16.5); 22-ua-defaults: small 0.85em; b 600; code monospace 0.9em (got "0.83,700,true,0.81", want "0.85,600,true,0.9")
+- `html.el.sub-sup`: 01-html-elements-c: sub sits lower, sup higher (base 26-49 sub 49 sup 26); 22-ua-defaults: sup: 0.75em on the baseline, raised by position (got "0.83,,static", want "0.75,baseline,relative")
+- `html.el.pre`: 22-ua-defaults: pre: wraps, monospace 0.9em, code inside keeps the size (got "false,true,0.81,1", want "true,true,0.9,1")
+- `html.el.blockquote`: 01-html-elements-b: blockquote is set off by the UA layer: a 3px bar and 0.75em before the text (0px 0px); 01-html-elements-b: figure has no indent (got 40, want 0 ±0.5); 22-ua-defaults: blockquote: 3px bar, 0.75em padding; no indent, as figure (got "40,0,0,40", want "0,3,0.75,0")
+- `html.el.lists`: 01-html-elements-b: ul is padded 1.5em (got 40, want 19.5 ±0.5); 01-html-elements-b: dd is indented 1.5em (got 40, want 19.5 ±0.5); 01-html-elements-b: menu is a padded list (got 40, want 19.5 ±0.5); 22-ua-defaults: ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal (got "2.5,disc,circle,0,decimal", want "1.5,disc,circle,0,decimal")
+- `html.el.table`: 01-html-elements-b: rowspan=2 spans two rows (12 vs 12); 01-html-elements-b: th is bold and start-aligned (700 center); 22-ua-defaults: table: collapsed, cells touch; th 600, start-aligned (got "separate,false,700,false", want "collapse,true,600,true"); 22-ua-defaults: cells: 1px line under, 0.3em above, no outer padding at the ends (got "0,0.06,1,1", want "1,0.3,0,0")
 - `html.el.img`: 02-attributes-images-b: PNG decodes (naturalWidth 2) ( (timed out)); 02-attributes-images-b: GIF decodes (naturalWidth 1) ( (timed out)); 02-attributes-images-b: raster (diff 80.5 % of ink (max 5 %))
 - `html.el.canvas`: 12-canvas-a: rect (diff 100.0 % of ink (max 5 %))
 - `html.el.details`: 16-sdk-taps-b: tapping summary opens details (toggle event)
+- `html.el.a-fragment`: 01-html-elements-c: a[href=#…] is a link (the link colour, no underline) (0,0,238,1 underline)
+- `html.el.a-external`: 01-html-elements-c: it is still drawn as a link (not the text colour, no underline) (0,0,238,1 underline)
 - `html.attr.global`: 02-attributes-images-a: lang reaches the renderer (:lang(ru)) (got "17,17,17,1", want "0,100,0,1")
 - `html.attr.dir`: 02-attributes-images-a: dir=rtl lays out inline boxes right to left (a 188 b 198); 02-attributes-images-a: dir=auto with Hebrew text resolves to rtl (got "ltr", want "rtl")
 - `svg.shapes`: 13-svg-a: getBBox() of a rect (0,0,0,0); 13-svg-a: getTotalLength() of a path (got 0, want 40 ±0.1)
@@ -350,26 +356,24 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `js.layout.box`: 14-dom-layout-api-b: scrollHeight of overflowing content (got 136, want 70); 14-dom-layout-api-b: offsetParent (got false, want true)
 - `js.layout.computed-style`: 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
 - `js.layout.resize-observer`: 14-dom-layout-api-b: ResizeObserver reports the new width ( (timed out))
-- `tw.theme-params`: 16-sdk-taps-c: --tg-theme-bg-color is defined for CSS (1,2,3,1); 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css )
+- `tw.theme-params`: 16-sdk-taps-c: --tg-theme-bg-color is defined for CSS (1,2,3,1); 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css ); 22-ua-defaults: root: bg and text colours (got "0,0,0,0 0,0,0,1", want " "); 22-ua-defaults: a[href]: link colour, no underline; <a> without href: text colour (got "0,0,238,1 underline 0,0,0,1", want " none 0,0,0,1")
 - `input.mouse-compat`: 16-sdk-taps-a: mousedown → mouseup on a tap (pointerdown,pointerup,click)
 
 ## web litehtml: in-profile failures
 
-- `html.el.structure`: 01-html-elements-a: p has 1em block margins (got null, want 13 ±0.5)
-- `html.el.headings`: 01-html-elements-a: headings are bold (NaN,NaN)
+- `html.el.structure`: 01-html-elements-a: p has 1em block margins (got null, want 13 ±0.5); 22-ua-defaults: root: the text tokens, system-ui (got "15,NaN,false", want "NaN,NaN,true"); 22-ua-defaults: body: no margin, the token as padding (got "NaN,NaN,NaN,NaN,NaN,NaN", want "0,0,NaN,NaN,NaN,NaN"); 22-ua-defaults: p: 0.6em margins; hr: one 1px line, no height (got "NaN,NaN,NaN,1", want "0.6,1,0,0")
+- `html.el.headings`: 01-html-elements-a: h1 > h2 > … > h6 font sizes (20,17,15,13,13,11); 01-html-elements-a: headings are bold (NaN,NaN); 22-ua-defaults: h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em (got "1.6,1.33,1.2,1.07,1,0.87", want "1.6,1.35,1.2,1.07,1,0.87"); 22-ua-defaults: headings: 600, line height 1.25; h2 0.75em above, 0.35em below (got ",NaN,NaN,NaN", want "600,1.25,0.75,0.35")
 - `html.el.sections`: 01-html-elements-a: sectioning elements are blocks (block,block,inline,block,block,block,block,block,inline,inline); 01-html-elements-a: address is italic (got "", want "italic")
 - `html.el.inline-text`: 01-html-elements-a: b, strong are bold (NaN,NaN); 01-html-elements-a: i, em, cite, dfn, var are italic; 01-html-elements-a: u, ins underline; s, del strike ( / ); 01-html-elements-a: code, kbd, samp are monospace
-- `html.el.sub-sup`: 01-html-elements-c: sub sits lower, sup higher (base 26-26 sub 26 sup 26)
-- `html.el.pre`: 01-html-elements-b: pre is monospace
-- `html.el.blockquote`: 01-html-elements-b: blockquote is indented 40px (got null, want 40 ±0.5); 01-html-elements-b: figure is indented 40px (got null, want 40 ±0.5)
-- `html.el.lists`: 01-html-elements-b: ul is padded 40px (got null, want 40 ±0.5); 01-html-elements-b: ul items have discs (got "", want "disc"); 01-html-elements-b: ol items are numbered (got "", want "decimal"); 01-html-elements-b: dd is indented 40px (got null, want 40 ±0.5)
-- `html.el.table`: 01-html-elements-b: th is bold and centred (NaN )
+- `html.el.sub-sup`: 22-ua-defaults: sup: 0.75em on the baseline, raised by position (got "0.73,,", want "0.75,baseline,relative")
+- `html.el.pre`: 01-html-elements-b: pre is monospace; 22-ua-defaults: pre: wraps, monospace 0.9em, code inside keeps the size (got "false,false,0.87,1", want "true,true,0.9,1")
+- `html.el.blockquote`: 01-html-elements-b: blockquote is set off by the UA layer: a 3px bar and 0.75em before the text ( ); 01-html-elements-b: figure has no indent (got null, want 0 ±0.5); 22-ua-defaults: blockquote: 3px bar, 0.75em padding; no indent, as figure (got "NaN,NaN,NaN,NaN", want "0,3,0.75,0")
+- `html.el.lists`: 01-html-elements-b: ul is padded 1.5em (got null, want 19.5 ±0.5); 01-html-elements-b: ul items have discs (got "", want "disc"); 01-html-elements-b: ol items are numbered (got "", want "decimal"); 01-html-elements-b: dd is indented 1.5em (got null, want 19.5 ±0.5)
+- `html.el.table`: 01-html-elements-b: th is bold and start-aligned (NaN ); 22-ua-defaults: table: collapsed, cells touch; th 600, start-aligned (got ",true,,false", want "collapse,true,600,true"); 22-ua-defaults: cells: 1px line under, 0.3em above, no outer padding at the ends (got "NaN,NaN,NaN,NaN", want "1,0.3,0,0")
 - `html.el.img`: 02-attributes-images-b: PNG decodes (naturalWidth 2) ( (timed out)); 02-attributes-images-b: GIF decodes (naturalWidth 1) ( (timed out))
 - `html.el.canvas`: 12-canvas-a: rect (diff 100.0 % of ink (max 5 %))
-- `html.el.button`: 01-html-elements-c: button has a box with padding (54.28857421875x23.399999618530273)
+- `html.el.button`: 01-html-elements-c: button has a box with padding (72.20004272460938x32.80000305175781)
 - `html.el.details`: 01-html-elements-c: closed details is only as tall as its summary (0 vs 16); 01-html-elements-c: summary is a list item (disclosure marker) (got "block", want "list-item"); 16-sdk-taps-b: tapping summary opens details (toggle event)
-- `html.el.a-fragment`: 01-html-elements-c: a[href=#…] is a link (UA link colour, underline) (0,0,255,1)
-- `html.el.a-external`: 01-html-elements-c: it is still drawn as a link
 - `html.attr.global`: 02-attributes-images-a: lang reaches the renderer (:lang(ru)) (got "17,17,17,1", want "0,100,0,1")
 - `html.attr.dir`: 02-attributes-images-a: dir=rtl sets direction (got "", want "rtl"); 02-attributes-images-a: dir=rtl lays out inline boxes right to left (a 8 b 18); 02-attributes-images-a: dir=auto with Hebrew text resolves to rtl (got "", want "rtl")
 - `svg.shapes`: 13-svg-a: getBBox() of a rect (0,0,0,0); 13-svg-a: getTotalLength() of a path (got 0, want 40 ±0.1); 13-svg-a: shapes (diff 89.2 % of ink (max 5 %))
@@ -404,7 +408,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `css.text.transform`: 06-text-fonts-b: letter-spacing: 5px adds 5px per letter (got 0, want 20 ±1.5); 06-text-fonts-b: word-spacing: 10px adds 10px per space (got 0, want 20 ±1.5)
 - `css.text.wrap`: 06-text-fonts-b: overflow-wrap: anywhere breaks a long word (40x16); 06-text-fonts-b: word-break: break-all breaks a long word (16)
 - `css.text.overflow`: 06-text-fonts-c: ellipsis (diff 15.1 % of ink (max 50 %); #36c 0/70px)
-- `css.text.list-style`: 06-text-fonts-b: list-style-position: inside moves the text right (48 vs 48); 06-text-fonts-b: list-style-type: none (got "", want "none")
+- `css.text.list-style`: 06-text-fonts-b: list-style-position: inside moves the text right (27.5 vs 27.5); 06-text-fonts-b: list-style-type: none (got "", want "none")
 - `css.text.rtl`: 06-text-fonts-c: Hebrew in dir=rtl starts at the right edge (got 8, want 128 ±1)
 - `css.transform.2d`: 09-transforms-effects-a: translateX(30px) moves the box (got 0, want 30 ±0.5); 09-transforms-effects-a: rotate(90deg) swaps the bounding box (40x20); 09-transforms-effects-a: scale(2) with transform-origin 0 0 (110 10); 09-transforms-effects-a: the translate property (150,0)
 - `css.filter.blur-brightness-drop-shadow`: 09-transforms-effects-a: filter functions are kept; 09-transforms-effects-a: blur (diff 37.7 % of ink (max 10 %)); 09-transforms-effects-a: brightness-drop-shadow (diff 68.1 % of ink (max 5 %))
@@ -438,17 +442,15 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `canvas.alpha`: 12-canvas-b: alpha (diff 100.0 % of ink (max 5 %))
 - `canvas.path2d`: 12-canvas-b: path2d (diff 91.0 % of ink (max 5 %))
 - `canvas.draw-image`: 12-canvas-b: drawImage of a loaded <img> ( (timed out)); 12-canvas-b: draw-image (diff 96.4 % of ink (max 5 %))
-- `canvas.hit-test`: 12-canvas-a: isPointInPath inside / outside (false false); 12-canvas-a: isPointInStroke (false)
 - `canvas.hidpi`: 12-canvas-a: rect (diff 100.0 % of ink (max 5 %))
 - `js.dom.core`: 14-dom-layout-api-a: innerHTML replaces the children (1)
 - `js.dom.query`: 14-dom-layout-api-b: getElementsByClassName is live (0 → 0)
-- `js.dom.style`: 14-dom-layout-api-a: style.cssText replaces the declarations (21 1,2,3,1)
 - `js.layout.rect`: 14-dom-layout-api-b: getClientRects of a wrapped inline gives one rect per line (1)
 - `js.layout.box`: 14-dom-layout-api-b: scrollHeight of overflowing content (got 30, want 70); 14-dom-layout-api-b: offsetParent (got false, want true)
 - `js.layout.computed-style`: 14-dom-layout-api-b: longhand (width) (got "116.000000px", want "100px"); 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
 - `js.layout.resize-observer`: 14-dom-layout-api-b: ResizeObserver reports the new width ( (timed out))
 - `js.layout.measure-text`: 14-dom-layout-api-b: measureText agrees with DOM text width (got 88.92, want 0 ±1.5)
-- `tw.theme-params`: 16-sdk-taps-c: --tg-theme-bg-color is defined for CSS (1,2,3,1); 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css )
+- `tw.theme-params`: 20-client-behaviour: themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires (bg #ffffff → #212121, css ); 22-ua-defaults: root: bg and text colours (got "255,255,255,1 0,0,0,1", want " "); 22-ua-defaults: a[href]: link colour, no underline; <a> without href: text colour (got "51,144,236,1  0,0,0,1", want " none 0,0,0,1"); 22-ua-defaults: figcaption is --tg-theme-hint-color (got "112,117,121,1", want "")
 - `behaviour.policy-strict`: 19-limits: attr() of a text attribute (data-*) works (0)
 
 ## Visual set
@@ -474,6 +476,7 @@ For people (the test channel): judged by eye. Runners only check that each widge
 | visual/11-interaction | ✅ | ✅ | ✅ | ✅ |
 | visual/12-theme | ✅ | ✅ | ✅ | ✅ |
 | visual/13-out-of-profile | ✅ | ✅ | ✅ | ✅ |
+| visual/14-unstyled-document | ✅ | ✅ | ✅ | ✅ |
 | visual/sdk/01-link-external | ✅ | ✅ | ✅ | ✅ |
 | visual/sdk/02-link-telegram | ✅ | ✅ | ✅ | ✅ |
 | visual/sdk/03-link-rejected | ✅ | ✅ | ✅ | ✅ |

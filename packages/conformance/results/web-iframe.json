@@ -5,13 +5,13 @@
   "platform": "web",
   "renderer": "iframe",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "0936502",
+  "framework": "078ddd9",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-19T13:36:53.505Z",
-  "commit": "0936502"
+  "date": "2026-10-20T14:39:15.605Z",
+  "commit": "078ddd9"
  },
  "summary": {
   "in": {
@@ -47,7 +47,7 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 24
+    "pass": 48
    },
    "evidence": [
     {
@@ -73,7 +73,7 @@
      "kind": "check",
      "name": "hr draws a rule",
      "status": "pass",
-     "detail": "340x2",
+     "detail": "340x1",
      "theme": "dark",
      "width": 360
     },
@@ -82,7 +82,7 @@
      "kind": "check",
      "name": "wbr is a break opportunity",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 64",
      "theme": "dark",
      "width": 360
     },
@@ -109,7 +109,7 @@
      "kind": "check",
      "name": "hr draws a rule",
      "status": "pass",
-     "detail": "340x2",
+     "detail": "340x1",
      "theme": "dark",
      "width": 390
     },
@@ -118,7 +118,7 @@
      "kind": "check",
      "name": "wbr is a break opportunity",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 64",
      "theme": "dark",
      "width": 390
     },
@@ -145,7 +145,7 @@
      "kind": "check",
      "name": "hr draws a rule",
      "status": "pass",
-     "detail": "340x2",
+     "detail": "340x1",
      "theme": "dark",
      "width": 430
     },
@@ -154,7 +154,7 @@
      "kind": "check",
      "name": "wbr is a break opportunity",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 64",
      "theme": "dark",
      "width": 430
     },
@@ -181,7 +181,7 @@
      "kind": "check",
      "name": "hr draws a rule",
      "status": "pass",
-     "detail": "340x2",
+     "detail": "340x1",
      "theme": "light",
      "width": 360
     },
@@ -190,7 +190,7 @@
      "kind": "check",
      "name": "wbr is a break opportunity",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 64",
      "theme": "light",
      "width": 360
     },
@@ -217,7 +217,7 @@
      "kind": "check",
      "name": "hr draws a rule",
      "status": "pass",
-     "detail": "340x2",
+     "detail": "340x1",
      "theme": "light",
      "width": 390
     },
@@ -226,7 +226,7 @@
      "kind": "check",
      "name": "wbr is a break opportunity",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 64",
      "theme": "light",
      "width": 390
     },
@@ -253,7 +253,7 @@
      "kind": "check",
      "name": "hr draws a rule",
      "status": "pass",
-     "detail": "340x2",
+     "detail": "340x1",
      "theme": "light",
      "width": 430
     },
@@ -262,7 +262,223 @@
      "kind": "check",
      "name": "wbr is a break opportunity",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 64",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: the text tokens, system-ui",
+     "status": "pass",
+     "detail": "got \"15,20.25,true\", want \"15,20.25,true\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "body: no margin, the token as padding",
+     "status": "pass",
+     "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "p: 0.6em margins; hr: one 1px line, no height",
+     "status": "pass",
+     "detail": "got \"0.6,1,0,0\", want \"0.6,1,0,0\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "author rules win over the layer",
+     "status": "pass",
+     "detail": "got \"1,21,400,5,square\", want \"1,21,400,5,square\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: the text tokens, system-ui",
+     "status": "pass",
+     "detail": "got \"15,20.25,true\", want \"15,20.25,true\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "body: no margin, the token as padding",
+     "status": "pass",
+     "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "p: 0.6em margins; hr: one 1px line, no height",
+     "status": "pass",
+     "detail": "got \"0.6,1,0,0\", want \"0.6,1,0,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "author rules win over the layer",
+     "status": "pass",
+     "detail": "got \"1,21,400,5,square\", want \"1,21,400,5,square\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: the text tokens, system-ui",
+     "status": "pass",
+     "detail": "got \"15,20.25,true\", want \"15,20.25,true\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "body: no margin, the token as padding",
+     "status": "pass",
+     "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "p: 0.6em margins; hr: one 1px line, no height",
+     "status": "pass",
+     "detail": "got \"0.6,1,0,0\", want \"0.6,1,0,0\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "author rules win over the layer",
+     "status": "pass",
+     "detail": "got \"1,21,400,5,square\", want \"1,21,400,5,square\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: the text tokens, system-ui",
+     "status": "pass",
+     "detail": "got \"15,20.25,true\", want \"15,20.25,true\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "body: no margin, the token as padding",
+     "status": "pass",
+     "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "p: 0.6em margins; hr: one 1px line, no height",
+     "status": "pass",
+     "detail": "got \"0.6,1,0,0\", want \"0.6,1,0,0\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "author rules win over the layer",
+     "status": "pass",
+     "detail": "got \"1,21,400,5,square\", want \"1,21,400,5,square\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: the text tokens, system-ui",
+     "status": "pass",
+     "detail": "got \"15,20.25,true\", want \"15,20.25,true\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "body: no margin, the token as padding",
+     "status": "pass",
+     "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "p: 0.6em margins; hr: one 1px line, no height",
+     "status": "pass",
+     "detail": "got \"0.6,1,0,0\", want \"0.6,1,0,0\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "author rules win over the layer",
+     "status": "pass",
+     "detail": "got \"1,21,400,5,square\", want \"1,21,400,5,square\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: the text tokens, system-ui",
+     "status": "pass",
+     "detail": "got \"15,20.25,true\", want \"15,20.25,true\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "body: no margin, the token as padding",
+     "status": "pass",
+     "detail": "got \"0,0,8,12,8,12\", want \"0,0,8,12,8,12\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "p: 0.6em margins; hr: one 1px line, no height",
+     "status": "pass",
+     "detail": "got \"0.6,1,0,0\", want \"0.6,1,0,0\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "author rules win over the layer",
+     "status": "pass",
+     "detail": "got \"1,21,400,5,square\", want \"1,21,400,5,square\"",
      "theme": "light",
      "width": 430
     }
@@ -272,7 +488,7 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 12
+    "pass": 24
    },
    "evidence": [
     {
@@ -280,7 +496,7 @@
      "kind": "check",
      "name": "h1 > h2 > … > h6 font sizes",
      "status": "pass",
-     "detail": "26,19.5,15.21,13,10.79,8.71",
+     "detail": "20.8,17.55,15.6,13.91,13,11.31",
      "theme": "dark",
      "width": 360
     },
@@ -289,7 +505,7 @@
      "kind": "check",
      "name": "headings are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "dark",
      "width": 360
     },
@@ -298,7 +514,7 @@
      "kind": "check",
      "name": "h1 > h2 > … > h6 font sizes",
      "status": "pass",
-     "detail": "26,19.5,15.21,13,10.79,8.71",
+     "detail": "20.8,17.55,15.6,13.91,13,11.31",
      "theme": "dark",
      "width": 390
     },
@@ -307,7 +523,7 @@
      "kind": "check",
      "name": "headings are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "dark",
      "width": 390
     },
@@ -316,7 +532,7 @@
      "kind": "check",
      "name": "h1 > h2 > … > h6 font sizes",
      "status": "pass",
-     "detail": "26,19.5,15.21,13,10.79,8.71",
+     "detail": "20.8,17.55,15.6,13.91,13,11.31",
      "theme": "dark",
      "width": 430
     },
@@ -325,7 +541,7 @@
      "kind": "check",
      "name": "headings are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "dark",
      "width": 430
     },
@@ -334,7 +550,7 @@
      "kind": "check",
      "name": "h1 > h2 > … > h6 font sizes",
      "status": "pass",
-     "detail": "26,19.5,15.21,13,10.79,8.71",
+     "detail": "20.8,17.55,15.6,13.91,13,11.31",
      "theme": "light",
      "width": 360
     },
@@ -343,7 +559,7 @@
      "kind": "check",
      "name": "headings are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "light",
      "width": 360
     },
@@ -352,7 +568,7 @@
      "kind": "check",
      "name": "h1 > h2 > … > h6 font sizes",
      "status": "pass",
-     "detail": "26,19.5,15.21,13,10.79,8.71",
+     "detail": "20.8,17.55,15.6,13.91,13,11.31",
      "theme": "light",
      "width": 390
     },
@@ -361,7 +577,7 @@
      "kind": "check",
      "name": "headings are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "light",
      "width": 390
     },
@@ -370,7 +586,7 @@
      "kind": "check",
      "name": "h1 > h2 > … > h6 font sizes",
      "status": "pass",
-     "detail": "26,19.5,15.21,13,10.79,8.71",
+     "detail": "20.8,17.55,15.6,13.91,13,11.31",
      "theme": "light",
      "width": 430
     },
@@ -379,7 +595,115 @@
      "kind": "check",
      "name": "headings are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em",
+     "status": "pass",
+     "detail": "got \"1.6,1.35,1.2,1.07,1,0.87\", want \"1.6,1.35,1.2,1.07,1,0.87\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "headings: 600, line height 1.25; h2 0.75em above, 0.35em below",
+     "status": "pass",
+     "detail": "got \"600,1.25,0.75,0.35\", want \"600,1.25,0.75,0.35\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em",
+     "status": "pass",
+     "detail": "got \"1.6,1.35,1.2,1.07,1,0.87\", want \"1.6,1.35,1.2,1.07,1,0.87\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "headings: 600, line height 1.25; h2 0.75em above, 0.35em below",
+     "status": "pass",
+     "detail": "got \"600,1.25,0.75,0.35\", want \"600,1.25,0.75,0.35\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em",
+     "status": "pass",
+     "detail": "got \"1.6,1.35,1.2,1.07,1,0.87\", want \"1.6,1.35,1.2,1.07,1,0.87\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "headings: 600, line height 1.25; h2 0.75em above, 0.35em below",
+     "status": "pass",
+     "detail": "got \"600,1.25,0.75,0.35\", want \"600,1.25,0.75,0.35\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em",
+     "status": "pass",
+     "detail": "got \"1.6,1.35,1.2,1.07,1,0.87\", want \"1.6,1.35,1.2,1.07,1,0.87\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "headings: 600, line height 1.25; h2 0.75em above, 0.35em below",
+     "status": "pass",
+     "detail": "got \"600,1.25,0.75,0.35\", want \"600,1.25,0.75,0.35\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em",
+     "status": "pass",
+     "detail": "got \"1.6,1.35,1.2,1.07,1,0.87\", want \"1.6,1.35,1.2,1.07,1,0.87\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "headings: 600, line height 1.25; h2 0.75em above, 0.35em below",
+     "status": "pass",
+     "detail": "got \"600,1.25,0.75,0.35\", want \"600,1.25,0.75,0.35\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em",
+     "status": "pass",
+     "detail": "got \"1.6,1.35,1.2,1.07,1,0.87\", want \"1.6,1.35,1.2,1.07,1,0.87\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "headings: 600, line height 1.25; h2 0.75em above, 0.35em below",
+     "status": "pass",
+     "detail": "got \"600,1.25,0.75,0.35\", want \"600,1.25,0.75,0.35\"",
      "theme": "light",
      "width": 430
     }
@@ -506,7 +830,7 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 42
+    "pass": 48
    },
    "evidence": [
     {
@@ -514,7 +838,7 @@
      "kind": "check",
      "name": "b, strong are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "dark",
      "width": 360
     },
@@ -541,7 +865,7 @@
      "kind": "check",
      "name": "code, kbd, samp are monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "dark",
      "width": 360
     },
@@ -550,7 +874,7 @@
      "kind": "check",
      "name": "mark has a highlight",
      "status": "pass",
-     "detail": "255,255,0,1",
+     "detail": "255,204,0,0.4",
      "theme": "dark",
      "width": 360
     },
@@ -559,7 +883,7 @@
      "kind": "check",
      "name": "small is smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "11.05px",
      "theme": "dark",
      "width": 360
     },
@@ -577,7 +901,7 @@
      "kind": "check",
      "name": "b, strong are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "dark",
      "width": 390
     },
@@ -604,7 +928,7 @@
      "kind": "check",
      "name": "code, kbd, samp are monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "dark",
      "width": 390
     },
@@ -613,7 +937,7 @@
      "kind": "check",
      "name": "mark has a highlight",
      "status": "pass",
-     "detail": "255,255,0,1",
+     "detail": "255,204,0,0.4",
      "theme": "dark",
      "width": 390
     },
@@ -622,7 +946,7 @@
      "kind": "check",
      "name": "small is smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "11.05px",
      "theme": "dark",
      "width": 390
     },
@@ -640,7 +964,7 @@
      "kind": "check",
      "name": "b, strong are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "dark",
      "width": 430
     },
@@ -667,7 +991,7 @@
      "kind": "check",
      "name": "code, kbd, samp are monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "dark",
      "width": 430
     },
@@ -676,7 +1000,7 @@
      "kind": "check",
      "name": "mark has a highlight",
      "status": "pass",
-     "detail": "255,255,0,1",
+     "detail": "255,204,0,0.4",
      "theme": "dark",
      "width": 430
     },
@@ -685,7 +1009,7 @@
      "kind": "check",
      "name": "small is smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "11.05px",
      "theme": "dark",
      "width": 430
     },
@@ -703,7 +1027,7 @@
      "kind": "check",
      "name": "b, strong are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "light",
      "width": 360
     },
@@ -730,7 +1054,7 @@
      "kind": "check",
      "name": "code, kbd, samp are monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "light",
      "width": 360
     },
@@ -739,7 +1063,7 @@
      "kind": "check",
      "name": "mark has a highlight",
      "status": "pass",
-     "detail": "255,255,0,1",
+     "detail": "255,204,0,0.4",
      "theme": "light",
      "width": 360
     },
@@ -748,7 +1072,7 @@
      "kind": "check",
      "name": "small is smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "11.05px",
      "theme": "light",
      "width": 360
     },
@@ -766,7 +1090,7 @@
      "kind": "check",
      "name": "b, strong are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "light",
      "width": 390
     },
@@ -793,7 +1117,7 @@
      "kind": "check",
      "name": "code, kbd, samp are monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "light",
      "width": 390
     },
@@ -802,7 +1126,7 @@
      "kind": "check",
      "name": "mark has a highlight",
      "status": "pass",
-     "detail": "255,255,0,1",
+     "detail": "255,204,0,0.4",
      "theme": "light",
      "width": 390
     },
@@ -811,7 +1135,7 @@
      "kind": "check",
      "name": "small is smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "11.05px",
      "theme": "light",
      "width": 390
     },
@@ -829,7 +1153,7 @@
      "kind": "check",
      "name": "b, strong are bold",
      "status": "pass",
-     "detail": "700,700",
+     "detail": "600,600",
      "theme": "light",
      "width": 430
     },
@@ -856,7 +1180,7 @@
      "kind": "check",
      "name": "code, kbd, samp are monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "light",
      "width": 430
     },
@@ -865,7 +1189,7 @@
      "kind": "check",
      "name": "mark has a highlight",
      "status": "pass",
-     "detail": "255,255,0,1",
+     "detail": "255,204,0,0.4",
      "theme": "light",
      "width": 430
     },
@@ -874,7 +1198,7 @@
      "kind": "check",
      "name": "small is smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "11.05px",
      "theme": "light",
      "width": 430
     },
@@ -884,6 +1208,60 @@
      "name": "q adds quotation marks",
      "status": "pass",
      "detail": "23.15625 vs 14.46875",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "small 0.85em; b 600; code monospace 0.9em",
+     "status": "pass",
+     "detail": "got \"0.85,600,true,0.9\", want \"0.85,600,true,0.9\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "small 0.85em; b 600; code monospace 0.9em",
+     "status": "pass",
+     "detail": "got \"0.85,600,true,0.9\", want \"0.85,600,true,0.9\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "small 0.85em; b 600; code monospace 0.9em",
+     "status": "pass",
+     "detail": "got \"0.85,600,true,0.9\", want \"0.85,600,true,0.9\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "small 0.85em; b 600; code monospace 0.9em",
+     "status": "pass",
+     "detail": "got \"0.85,600,true,0.9\", want \"0.85,600,true,0.9\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "small 0.85em; b 600; code monospace 0.9em",
+     "status": "pass",
+     "detail": "got \"0.85,600,true,0.9\", want \"0.85,600,true,0.9\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "small 0.85em; b 600; code monospace 0.9em",
+     "status": "pass",
+     "detail": "got \"0.85,600,true,0.9\", want \"0.85,600,true,0.9\"",
      "theme": "light",
      "width": 430
     }
@@ -893,7 +1271,7 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 12
+    "pass": 18
    },
    "evidence": [
     {
@@ -901,7 +1279,7 @@
      "kind": "check",
      "name": "sub sits lower, sup higher",
      "status": "pass",
-     "detail": "base 31.328125-46.328125 sub 48.921875 sup 28",
+     "detail": "base 26-41 sub 42.4375 sup 23.125",
      "theme": "dark",
      "width": 360
     },
@@ -910,7 +1288,7 @@
      "kind": "check",
      "name": "sub and sup are smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "9.75px",
      "theme": "dark",
      "width": 360
     },
@@ -919,7 +1297,7 @@
      "kind": "check",
      "name": "sub sits lower, sup higher",
      "status": "pass",
-     "detail": "base 31.328125-46.328125 sub 48.921875 sup 28",
+     "detail": "base 26-41 sub 42.4375 sup 23.125",
      "theme": "dark",
      "width": 390
     },
@@ -928,7 +1306,7 @@
      "kind": "check",
      "name": "sub and sup are smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "9.75px",
      "theme": "dark",
      "width": 390
     },
@@ -937,7 +1315,7 @@
      "kind": "check",
      "name": "sub sits lower, sup higher",
      "status": "pass",
-     "detail": "base 31.328125-46.328125 sub 48.921875 sup 28",
+     "detail": "base 26-41 sub 42.4375 sup 23.125",
      "theme": "dark",
      "width": 430
     },
@@ -946,7 +1324,7 @@
      "kind": "check",
      "name": "sub and sup are smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "9.75px",
      "theme": "dark",
      "width": 430
     },
@@ -955,7 +1333,7 @@
      "kind": "check",
      "name": "sub sits lower, sup higher",
      "status": "pass",
-     "detail": "base 31.328125-46.328125 sub 48.921875 sup 28",
+     "detail": "base 26-41 sub 42.4375 sup 23.125",
      "theme": "light",
      "width": 360
     },
@@ -964,7 +1342,7 @@
      "kind": "check",
      "name": "sub and sup are smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "9.75px",
      "theme": "light",
      "width": 360
     },
@@ -973,7 +1351,7 @@
      "kind": "check",
      "name": "sub sits lower, sup higher",
      "status": "pass",
-     "detail": "base 31.328125-46.328125 sub 48.921875 sup 28",
+     "detail": "base 26-41 sub 42.4375 sup 23.125",
      "theme": "light",
      "width": 390
     },
@@ -982,7 +1360,7 @@
      "kind": "check",
      "name": "sub and sup are smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "9.75px",
      "theme": "light",
      "width": 390
     },
@@ -991,7 +1369,7 @@
      "kind": "check",
      "name": "sub sits lower, sup higher",
      "status": "pass",
-     "detail": "base 31.328125-46.328125 sub 48.921875 sup 28",
+     "detail": "base 26-41 sub 42.4375 sup 23.125",
      "theme": "light",
      "width": 430
     },
@@ -1000,7 +1378,61 @@
      "kind": "check",
      "name": "sub and sup are smaller",
      "status": "pass",
-     "detail": "10.8333px",
+     "detail": "9.75px",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "sup: 0.75em on the baseline, raised by position",
+     "status": "pass",
+     "detail": "got \"0.75,baseline,relative\", want \"0.75,baseline,relative\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "sup: 0.75em on the baseline, raised by position",
+     "status": "pass",
+     "detail": "got \"0.75,baseline,relative\", want \"0.75,baseline,relative\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "sup: 0.75em on the baseline, raised by position",
+     "status": "pass",
+     "detail": "got \"0.75,baseline,relative\", want \"0.75,baseline,relative\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "sup: 0.75em on the baseline, raised by position",
+     "status": "pass",
+     "detail": "got \"0.75,baseline,relative\", want \"0.75,baseline,relative\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "sup: 0.75em on the baseline, raised by position",
+     "status": "pass",
+     "detail": "got \"0.75,baseline,relative\", want \"0.75,baseline,relative\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "sup: 0.75em on the baseline, raised by position",
+     "status": "pass",
+     "detail": "got \"0.75,baseline,relative\", want \"0.75,baseline,relative\"",
      "theme": "light",
      "width": 430
     }
@@ -1010,7 +1442,7 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 12
+    "pass": 18
    },
    "evidence": [
     {
@@ -1018,7 +1450,7 @@
      "kind": "check",
      "name": "pre keeps the line break",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 43.6875",
      "theme": "dark",
      "width": 360
     },
@@ -1027,7 +1459,7 @@
      "kind": "check",
      "name": "pre is monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "dark",
      "width": 360
     },
@@ -1036,7 +1468,7 @@
      "kind": "check",
      "name": "pre keeps the line break",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 43.6875",
      "theme": "dark",
      "width": 390
     },
@@ -1045,7 +1477,7 @@
      "kind": "check",
      "name": "pre is monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "dark",
      "width": 390
     },
@@ -1054,7 +1486,7 @@
      "kind": "check",
      "name": "pre keeps the line break",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 43.6875",
      "theme": "dark",
      "width": 430
     },
@@ -1063,7 +1495,7 @@
      "kind": "check",
      "name": "pre is monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "dark",
      "width": 430
     },
@@ -1072,7 +1504,7 @@
      "kind": "check",
      "name": "pre keeps the line break",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 43.6875",
      "theme": "light",
      "width": 360
     },
@@ -1081,7 +1513,7 @@
      "kind": "check",
      "name": "pre is monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "light",
      "width": 360
     },
@@ -1090,7 +1522,7 @@
      "kind": "check",
      "name": "pre keeps the line break",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 43.6875",
      "theme": "light",
      "width": 390
     },
@@ -1099,7 +1531,7 @@
      "kind": "check",
      "name": "pre is monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
      "theme": "light",
      "width": 390
     },
@@ -1108,7 +1540,7 @@
      "kind": "check",
      "name": "pre keeps the line break",
      "status": "pass",
-     "detail": "h 32",
+     "detail": "h 43.6875",
      "theme": "light",
      "width": 430
     },
@@ -1117,7 +1549,61 @@
      "kind": "check",
      "name": "pre is monospace",
      "status": "pass",
-     "detail": "monospace",
+     "detail": "ui-monospace, monospace",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "pre: wraps, monospace 0.9em, code inside keeps the size",
+     "status": "pass",
+     "detail": "got \"true,true,0.9,1\", want \"true,true,0.9,1\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "pre: wraps, monospace 0.9em, code inside keeps the size",
+     "status": "pass",
+     "detail": "got \"true,true,0.9,1\", want \"true,true,0.9,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "pre: wraps, monospace 0.9em, code inside keeps the size",
+     "status": "pass",
+     "detail": "got \"true,true,0.9,1\", want \"true,true,0.9,1\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "pre: wraps, monospace 0.9em, code inside keeps the size",
+     "status": "pass",
+     "detail": "got \"true,true,0.9,1\", want \"true,true,0.9,1\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "pre: wraps, monospace 0.9em, code inside keeps the size",
+     "status": "pass",
+     "detail": "got \"true,true,0.9,1\", want \"true,true,0.9,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "pre: wraps, monospace 0.9em, code inside keeps the size",
+     "status": "pass",
+     "detail": "got \"true,true,0.9,1\", want \"true,true,0.9,1\"",
      "theme": "light",
      "width": 430
     }
@@ -1127,114 +1613,168 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 12
+    "pass": 18
    },
    "evidence": [
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "blockquote is indented 40px",
+     "name": "blockquote is set off by the UA layer: a 3px bar and 0.75em before the text",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "3px 9.75px",
      "theme": "dark",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "figure is indented 40px",
+     "name": "figure has no indent",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 0, want 0 ±0.5",
      "theme": "dark",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "blockquote is indented 40px",
+     "name": "blockquote is set off by the UA layer: a 3px bar and 0.75em before the text",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "3px 9.75px",
      "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "figure is indented 40px",
+     "name": "figure has no indent",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 0, want 0 ±0.5",
      "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "blockquote is indented 40px",
+     "name": "blockquote is set off by the UA layer: a 3px bar and 0.75em before the text",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "3px 9.75px",
      "theme": "dark",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "figure is indented 40px",
+     "name": "figure has no indent",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 0, want 0 ±0.5",
      "theme": "dark",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "blockquote is indented 40px",
+     "name": "blockquote is set off by the UA layer: a 3px bar and 0.75em before the text",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "3px 9.75px",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "figure is indented 40px",
+     "name": "figure has no indent",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 0, want 0 ±0.5",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "blockquote is indented 40px",
+     "name": "blockquote is set off by the UA layer: a 3px bar and 0.75em before the text",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "3px 9.75px",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "figure is indented 40px",
+     "name": "figure has no indent",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 0, want 0 ±0.5",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "blockquote is indented 40px",
+     "name": "blockquote is set off by the UA layer: a 3px bar and 0.75em before the text",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "3px 9.75px",
      "theme": "light",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "figure is indented 40px",
+     "name": "figure has no indent",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 0, want 0 ±0.5",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "blockquote: 3px bar, 0.75em padding; no indent, as figure",
+     "status": "pass",
+     "detail": "got \"0,3,0.75,0\", want \"0,3,0.75,0\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "blockquote: 3px bar, 0.75em padding; no indent, as figure",
+     "status": "pass",
+     "detail": "got \"0,3,0.75,0\", want \"0,3,0.75,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "blockquote: 3px bar, 0.75em padding; no indent, as figure",
+     "status": "pass",
+     "detail": "got \"0,3,0.75,0\", want \"0,3,0.75,0\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "blockquote: 3px bar, 0.75em padding; no indent, as figure",
+     "status": "pass",
+     "detail": "got \"0,3,0.75,0\", want \"0,3,0.75,0\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "blockquote: 3px bar, 0.75em padding; no indent, as figure",
+     "status": "pass",
+     "detail": "got \"0,3,0.75,0\", want \"0,3,0.75,0\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "blockquote: 3px bar, 0.75em padding; no indent, as figure",
+     "status": "pass",
+     "detail": "got \"0,3,0.75,0\", want \"0,3,0.75,0\"",
      "theme": "light",
      "width": 430
     }
@@ -1244,15 +1784,15 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 30
+    "pass": 42
    },
    "evidence": [
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "ul is padded 40px",
+     "name": "ul is padded 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 360
     },
@@ -1277,9 +1817,9 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "dd is indented 40px",
+     "name": "dd is indented 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 360
     },
@@ -1288,16 +1828,16 @@
      "kind": "check",
      "name": "menu is a padded list",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "ul is padded 40px",
+     "name": "ul is padded 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 390
     },
@@ -1322,9 +1862,9 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "dd is indented 40px",
+     "name": "dd is indented 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 390
     },
@@ -1333,16 +1873,16 @@
      "kind": "check",
      "name": "menu is a padded list",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "ul is padded 40px",
+     "name": "ul is padded 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 430
     },
@@ -1367,9 +1907,9 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "dd is indented 40px",
+     "name": "dd is indented 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 430
     },
@@ -1378,16 +1918,16 @@
      "kind": "check",
      "name": "menu is a padded list",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "dark",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "ul is padded 40px",
+     "name": "ul is padded 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 360
     },
@@ -1412,9 +1952,9 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "dd is indented 40px",
+     "name": "dd is indented 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 360
     },
@@ -1423,16 +1963,16 @@
      "kind": "check",
      "name": "menu is a padded list",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "ul is padded 40px",
+     "name": "ul is padded 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -1457,9 +1997,9 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "dd is indented 40px",
+     "name": "dd is indented 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -1468,16 +2008,16 @@
      "kind": "check",
      "name": "menu is a padded list",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "ul is padded 40px",
+     "name": "ul is padded 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 430
     },
@@ -1502,9 +2042,9 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "dd is indented 40px",
+     "name": "dd is indented 1.5em",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
      "theme": "light",
      "width": 430
     },
@@ -1513,7 +2053,115 @@
      "kind": "check",
      "name": "menu is a padded list",
      "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "detail": "got 19.5, want 19.5 ±0.5",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal",
+     "status": "pass",
+     "detail": "got \"1.5,disc,circle,0,decimal\", want \"1.5,disc,circle,0,decimal\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "dt 600; dd indented 1.5em",
+     "status": "pass",
+     "detail": "got \"600 1.5\", want \"600 1.5\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal",
+     "status": "pass",
+     "detail": "got \"1.5,disc,circle,0,decimal\", want \"1.5,disc,circle,0,decimal\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "dt 600; dd indented 1.5em",
+     "status": "pass",
+     "detail": "got \"600 1.5\", want \"600 1.5\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal",
+     "status": "pass",
+     "detail": "got \"1.5,disc,circle,0,decimal\", want \"1.5,disc,circle,0,decimal\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "dt 600; dd indented 1.5em",
+     "status": "pass",
+     "detail": "got \"600 1.5\", want \"600 1.5\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal",
+     "status": "pass",
+     "detail": "got \"1.5,disc,circle,0,decimal\", want \"1.5,disc,circle,0,decimal\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "dt 600; dd indented 1.5em",
+     "status": "pass",
+     "detail": "got \"600 1.5\", want \"600 1.5\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal",
+     "status": "pass",
+     "detail": "got \"1.5,disc,circle,0,decimal\", want \"1.5,disc,circle,0,decimal\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "dt 600; dd indented 1.5em",
+     "status": "pass",
+     "detail": "got \"600 1.5\", want \"600 1.5\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal",
+     "status": "pass",
+     "detail": "got \"1.5,disc,circle,0,decimal\", want \"1.5,disc,circle,0,decimal\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "dt 600; dd indented 1.5em",
+     "status": "pass",
+     "detail": "got \"600 1.5\", want \"600 1.5\"",
      "theme": "light",
      "width": 430
     }
@@ -1523,7 +2171,7 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 30
+    "pass": 42
    },
    "evidence": [
     {
@@ -1549,7 +2197,7 @@
      "kind": "check",
      "name": "rowspan=2 spans two rows",
      "status": "pass",
-     "detail": "24 vs 12",
+     "detail": "26 vs 13",
      "theme": "dark",
      "width": 360
     },
@@ -1558,16 +2206,16 @@
      "kind": "check",
      "name": "caption sits above the rows",
      "status": "pass",
-     "detail": "222 / 222",
+     "detail": "228.0625 / 228.0625",
      "theme": "dark",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "th is bold and centred",
+     "name": "th is bold and start-aligned",
      "status": "pass",
-     "detail": "700 center",
+     "detail": "600 start",
      "theme": "dark",
      "width": 360
     },
@@ -1594,7 +2242,7 @@
      "kind": "check",
      "name": "rowspan=2 spans two rows",
      "status": "pass",
-     "detail": "24 vs 12",
+     "detail": "26 vs 13",
      "theme": "dark",
      "width": 390
     },
@@ -1603,16 +2251,16 @@
      "kind": "check",
      "name": "caption sits above the rows",
      "status": "pass",
-     "detail": "222 / 222",
+     "detail": "228.0625 / 228.0625",
      "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "th is bold and centred",
+     "name": "th is bold and start-aligned",
      "status": "pass",
-     "detail": "700 center",
+     "detail": "600 start",
      "theme": "dark",
      "width": 390
     },
@@ -1639,7 +2287,7 @@
      "kind": "check",
      "name": "rowspan=2 spans two rows",
      "status": "pass",
-     "detail": "24 vs 12",
+     "detail": "26 vs 13",
      "theme": "dark",
      "width": 430
     },
@@ -1648,16 +2296,16 @@
      "kind": "check",
      "name": "caption sits above the rows",
      "status": "pass",
-     "detail": "222 / 222",
+     "detail": "228.0625 / 228.0625",
      "theme": "dark",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "th is bold and centred",
+     "name": "th is bold and start-aligned",
      "status": "pass",
-     "detail": "700 center",
+     "detail": "600 start",
      "theme": "dark",
      "width": 430
     },
@@ -1684,7 +2332,7 @@
      "kind": "check",
      "name": "rowspan=2 spans two rows",
      "status": "pass",
-     "detail": "24 vs 12",
+     "detail": "26 vs 13",
      "theme": "light",
      "width": 360
     },
@@ -1693,16 +2341,16 @@
      "kind": "check",
      "name": "caption sits above the rows",
      "status": "pass",
-     "detail": "222 / 222",
+     "detail": "228.0625 / 228.0625",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "th is bold and centred",
+     "name": "th is bold and start-aligned",
      "status": "pass",
-     "detail": "700 center",
+     "detail": "600 start",
      "theme": "light",
      "width": 360
     },
@@ -1729,7 +2377,7 @@
      "kind": "check",
      "name": "rowspan=2 spans two rows",
      "status": "pass",
-     "detail": "24 vs 12",
+     "detail": "26 vs 13",
      "theme": "light",
      "width": 390
     },
@@ -1738,16 +2386,16 @@
      "kind": "check",
      "name": "caption sits above the rows",
      "status": "pass",
-     "detail": "222 / 222",
+     "detail": "228.0625 / 228.0625",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "th is bold and centred",
+     "name": "th is bold and start-aligned",
      "status": "pass",
-     "detail": "700 center",
+     "detail": "600 start",
      "theme": "light",
      "width": 390
     },
@@ -1774,7 +2422,7 @@
      "kind": "check",
      "name": "rowspan=2 spans two rows",
      "status": "pass",
-     "detail": "24 vs 12",
+     "detail": "26 vs 13",
      "theme": "light",
      "width": 430
     },
@@ -1783,16 +2431,124 @@
      "kind": "check",
      "name": "caption sits above the rows",
      "status": "pass",
-     "detail": "222 / 222",
+     "detail": "228.0625 / 228.0625",
      "theme": "light",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "th is bold and centred",
+     "name": "th is bold and start-aligned",
      "status": "pass",
-     "detail": "700 center",
+     "detail": "600 start",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "table: collapsed, cells touch; th 600, start-aligned",
+     "status": "pass",
+     "detail": "got \"collapse,true,600,true\", want \"collapse,true,600,true\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "cells: 1px line under, 0.3em above, no outer padding at the ends",
+     "status": "pass",
+     "detail": "got \"1,0.3,0,0\", want \"1,0.3,0,0\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "table: collapsed, cells touch; th 600, start-aligned",
+     "status": "pass",
+     "detail": "got \"collapse,true,600,true\", want \"collapse,true,600,true\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "cells: 1px line under, 0.3em above, no outer padding at the ends",
+     "status": "pass",
+     "detail": "got \"1,0.3,0,0\", want \"1,0.3,0,0\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "table: collapsed, cells touch; th 600, start-aligned",
+     "status": "pass",
+     "detail": "got \"collapse,true,600,true\", want \"collapse,true,600,true\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "cells: 1px line under, 0.3em above, no outer padding at the ends",
+     "status": "pass",
+     "detail": "got \"1,0.3,0,0\", want \"1,0.3,0,0\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "table: collapsed, cells touch; th 600, start-aligned",
+     "status": "pass",
+     "detail": "got \"collapse,true,600,true\", want \"collapse,true,600,true\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "cells: 1px line under, 0.3em above, no outer padding at the ends",
+     "status": "pass",
+     "detail": "got \"1,0.3,0,0\", want \"1,0.3,0,0\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "table: collapsed, cells touch; th 600, start-aligned",
+     "status": "pass",
+     "detail": "got \"collapse,true,600,true\", want \"collapse,true,600,true\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "cells: 1px line under, 0.3em above, no outer padding at the ends",
+     "status": "pass",
+     "detail": "got \"1,0.3,0,0\", want \"1,0.3,0,0\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "table: collapsed, cells touch; th 600, start-aligned",
+     "status": "pass",
+     "detail": "got \"collapse,true,600,true\", want \"collapse,true,600,true\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "cells: 1px line under, 0.3em above, no outer padding at the ends",
+     "status": "pass",
+     "detail": "got \"1,0.3,0,0\", want \"1,0.3,0,0\"",
      "theme": "light",
      "width": 430
     }
@@ -1810,7 +2566,7 @@
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "status": "pass",
-     "detail": "rt 278-301 ruby 278-301",
+     "detail": "rt 295.859375-318.859375 ruby 295.859375-318.859375",
      "theme": "dark",
      "width": 360
     },
@@ -1828,7 +2584,7 @@
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "status": "pass",
-     "detail": "rt 278-301 ruby 278-301",
+     "detail": "rt 295.859375-318.859375 ruby 295.859375-318.859375",
      "theme": "dark",
      "width": 390
     },
@@ -1846,7 +2602,7 @@
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "status": "pass",
-     "detail": "rt 278-301 ruby 278-301",
+     "detail": "rt 295.859375-318.859375 ruby 295.859375-318.859375",
      "theme": "dark",
      "width": 430
     },
@@ -1864,7 +2620,7 @@
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "status": "pass",
-     "detail": "rt 278-301 ruby 278-301",
+     "detail": "rt 295.859375-318.859375 ruby 295.859375-318.859375",
      "theme": "light",
      "width": 360
     },
@@ -1882,7 +2638,7 @@
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "status": "pass",
-     "detail": "rt 278-301 ruby 278-301",
+     "detail": "rt 295.859375-318.859375 ruby 295.859375-318.859375",
      "theme": "light",
      "width": 390
     },
@@ -1900,7 +2656,7 @@
      "kind": "check",
      "name": "ruby renders as a span: rt stays inline, not above the base (profile 1: out)",
      "status": "pass",
-     "detail": "rt 278-301 ruby 278-301",
+     "detail": "rt 295.859375-318.859375 ruby 295.859375-318.859375",
      "theme": "light",
      "width": 430
     },
@@ -3158,54 +3914,54 @@
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "a[href=#…] is a link (UA link colour, underline)",
+     "name": "a[href=#…] is a link (the link colour, no underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "135,116,225,1 none",
      "theme": "dark",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "a[href=#…] is a link (UA link colour, underline)",
+     "name": "a[href=#…] is a link (the link colour, no underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "135,116,225,1 none",
      "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "a[href=#…] is a link (UA link colour, underline)",
+     "name": "a[href=#…] is a link (the link colour, no underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "135,116,225,1 none",
      "theme": "dark",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "a[href=#…] is a link (UA link colour, underline)",
+     "name": "a[href=#…] is a link (the link colour, no underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "51,144,236,1 none",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "a[href=#…] is a link (UA link colour, underline)",
+     "name": "a[href=#…] is a link (the link colour, no underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "51,144,236,1 none",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "a[href=#…] is a link (UA link colour, underline)",
+     "name": "a[href=#…] is a link (the link colour, no underline)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "51,144,236,1 none",
      "theme": "light",
      "width": 430
     },
@@ -3277,16 +4033,16 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "135,116,225,1",
      "theme": "dark",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "it is still drawn as a link",
+     "name": "it is still drawn as a link (not the text colour, no underline)",
      "status": "pass",
-     "detail": "underline",
+     "detail": "135,116,225,1 none",
      "theme": "dark",
      "width": 360
     },
@@ -3295,16 +4051,16 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "135,116,225,1",
      "theme": "dark",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "it is still drawn as a link",
+     "name": "it is still drawn as a link (not the text colour, no underline)",
      "status": "pass",
-     "detail": "underline",
+     "detail": "135,116,225,1 none",
      "theme": "dark",
      "width": 390
     },
@@ -3313,16 +4069,16 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "135,116,225,1",
      "theme": "dark",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "it is still drawn as a link",
+     "name": "it is still drawn as a link (not the text colour, no underline)",
      "status": "pass",
-     "detail": "underline",
+     "detail": "135,116,225,1 none",
      "theme": "dark",
      "width": 430
     },
@@ -3331,16 +4087,16 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "51,144,236,1",
      "theme": "light",
      "width": 360
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "it is still drawn as a link",
+     "name": "it is still drawn as a link (not the text colour, no underline)",
      "status": "pass",
-     "detail": "underline",
+     "detail": "51,144,236,1 none",
      "theme": "light",
      "width": 360
     },
@@ -3349,16 +4105,16 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "51,144,236,1",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "it is still drawn as a link",
+     "name": "it is still drawn as a link (not the text colour, no underline)",
      "status": "pass",
-     "detail": "underline",
+     "detail": "51,144,236,1 none",
      "theme": "light",
      "width": 390
     },
@@ -3367,16 +4123,16 @@
      "kind": "check",
      "name": "an external href never reaches the renderer (a[href^=https] does not match)",
      "status": "pass",
-     "detail": "0,0,238,1",
+     "detail": "51,144,236,1",
      "theme": "light",
      "width": 430
     },
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "it is still drawn as a link",
+     "name": "it is still drawn as a link (not the text colour, no underline)",
      "status": "pass",
-     "detail": "underline",
+     "detail": "51,144,236,1 none",
      "theme": "light",
      "width": 430
     },
@@ -5221,7 +5977,7 @@
      "kind": "check",
      "name": "cellpadding is dropped",
      "status": "pass",
-     "detail": "1px",
+     "detail": "0px",
      "theme": "dark",
      "width": 360
     },
@@ -5257,7 +6013,7 @@
      "kind": "check",
      "name": "cellpadding is dropped",
      "status": "pass",
-     "detail": "1px",
+     "detail": "0px",
      "theme": "dark",
      "width": 390
     },
@@ -5293,15 +6049,6 @@
      "kind": "check",
      "name": "cellpadding is dropped",
      "status": "pass",
-     "detail": "1px",
-     "theme": "dark",
-     "width": 430
-    },
-    {
-     "test": "auto/02-attributes-images-a",
-     "kind": "check",
-     "name": "border=1 is dropped",
-     "status": "pass",
      "detail": "0px",
      "theme": "dark",
      "width": 430
@@ -5309,6 +6056,15 @@
     {
      "test": "auto/02-attributes-images-a",
      "kind": "check",
+     "name": "border=1 is dropped",
+     "status": "pass",
+     "detail": "0px",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/02-attributes-images-a",
+     "kind": "check",
      "name": "align is dropped: no centring",
      "status": "pass",
      "detail": "start",
@@ -5329,7 +6085,7 @@
      "kind": "check",
      "name": "cellpadding is dropped",
      "status": "pass",
-     "detail": "1px",
+     "detail": "0px",
      "theme": "light",
      "width": 360
     },
@@ -5365,7 +6121,7 @@
      "kind": "check",
      "name": "cellpadding is dropped",
      "status": "pass",
-     "detail": "1px",
+     "detail": "0px",
      "theme": "light",
      "width": 390
     },
@@ -5401,7 +6157,7 @@
      "kind": "check",
      "name": "cellpadding is dropped",
      "status": "pass",
-     "detail": "1px",
+     "detail": "0px",
      "theme": "light",
      "width": 430
     },
@@ -12790,7 +13546,7 @@
      "kind": "check",
      "name": "list-style-position: inside moves the text right",
      "status": "pass",
-     "detail": "66 vs 48",
+     "detail": "45.5 vs 27.5",
      "theme": "dark",
      "width": 360
     },
@@ -12808,7 +13564,7 @@
      "kind": "check",
      "name": "list-style-position: inside moves the text right",
      "status": "pass",
-     "detail": "66 vs 48",
+     "detail": "45.5 vs 27.5",
      "theme": "dark",
      "width": 390
     },
@@ -12826,7 +13582,7 @@
      "kind": "check",
      "name": "list-style-position: inside moves the text right",
      "status": "pass",
-     "detail": "66 vs 48",
+     "detail": "45.5 vs 27.5",
      "theme": "dark",
      "width": 430
     },
@@ -12844,7 +13600,7 @@
      "kind": "check",
      "name": "list-style-position: inside moves the text right",
      "status": "pass",
-     "detail": "66 vs 48",
+     "detail": "45.5 vs 27.5",
      "theme": "light",
      "width": 360
     },
@@ -12862,7 +13618,7 @@
      "kind": "check",
      "name": "list-style-position: inside moves the text right",
      "status": "pass",
-     "detail": "66 vs 48",
+     "detail": "45.5 vs 27.5",
      "theme": "light",
      "width": 390
     },
@@ -12880,7 +13636,7 @@
      "kind": "check",
      "name": "list-style-position: inside moves the text right",
      "status": "pass",
-     "detail": "66 vs 48",
+     "detail": "45.5 vs 27.5",
      "theme": "light",
      "width": 430
     },
@@ -12972,24 +13728,6 @@
      "status": "pass",
      "detail": "got 128, want 128 ±1",
      "theme": "dark",
-     "width": 360
-    },
-    {
-     "test": "auto/06-text-fonts-c",
-     "kind": "check",
-     "name": "Arabic lam-alef is shaped (ligature narrower than its letters)",
-     "status": "pass",
-     "detail": "10.515625 vs 15.375",
-     "theme": "dark",
-     "width": 360
-    },
-    {
-     "test": "auto/06-text-fonts-c",
-     "kind": "check",
-     "name": "Hebrew in dir=rtl starts at the right edge",
-     "status": "pass",
-     "detail": "got 128, want 128 ±1",
-     "theme": "dark",
      "width": 390
     },
     {
@@ -13072,6 +13810,24 @@
      "detail": "10.515625 vs 15.375",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "Hebrew in dir=rtl starts at the right edge",
+     "status": "pass",
+     "detail": "got 128, want 128 ±1",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "Arabic lam-alef is shaped (ligature narrower than its letters)",
+     "status": "pass",
+     "detail": "10.515625 vs 15.375",
+     "theme": "dark",
+     "width": 360
     }
    ]
   },
@@ -13089,33 +13845,6 @@
      "status": "pass",
      "detail": "22",
      "theme": "dark",
-     "width": 360
-    },
-    {
-     "test": "auto/06-text-fonts-c",
-     "kind": "check",
-     "name": "flag sequence is one glyph",
-     "status": "pass",
-     "detail": "22 vs 22",
-     "theme": "dark",
-     "width": 360
-    },
-    {
-     "test": "auto/06-text-fonts-c",
-     "kind": "check",
-     "name": "ZWJ sequence is one glyph",
-     "status": "pass",
-     "detail": "22 vs 22",
-     "theme": "dark",
-     "width": 360
-    },
-    {
-     "test": "auto/06-text-fonts-c",
-     "kind": "check",
-     "name": "emoji glyph has an advance",
-     "status": "pass",
-     "detail": "22",
-     "theme": "dark",
      "width": 390
     },
     {
@@ -13270,6 +13999,33 @@
      "detail": "diff 0.0 % of ink (max 50 %)",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "emoji glyph has an advance",
+     "status": "pass",
+     "detail": "22",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "flag sequence is one glyph",
+     "status": "pass",
+     "detail": "22 vs 22",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "ZWJ sequence is one glyph",
+     "status": "pass",
+     "detail": "22 vs 22",
+     "theme": "dark",
+     "width": 360
     }
    ]
   },
@@ -13287,15 +14043,6 @@
      "status": "pass",
      "detail": "got \"none\", want \"none\"",
      "theme": "dark",
-     "width": 360
-    },
-    {
-     "test": "auto/06-text-fonts-c",
-     "kind": "check",
-     "name": "user-select: text cannot re-enable selection",
-     "status": "pass",
-     "detail": "got \"none\", want \"none\"",
-     "theme": "dark",
      "width": 390
     },
     {
@@ -13333,6 +14080,15 @@
      "detail": "got \"none\", want \"none\"",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/06-text-fonts-c",
+     "kind": "check",
+     "name": "user-select: text cannot re-enable selection",
+     "status": "pass",
+     "detail": "got \"none\", want \"none\"",
+     "theme": "dark",
+     "width": 360
     }
    ]
   },
@@ -13458,51 +14214,6 @@
      "status": "pass",
      "detail": "got 30, want 30 ±0.5",
      "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "check",
-     "name": "rotate(90deg) swaps the bounding box",
-     "status": "pass",
-     "detail": "20x40",
-     "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "check",
-     "name": "scale(2) with transform-origin 0 0",
-     "status": "pass",
-     "detail": "110 20",
-     "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "check",
-     "name": "the translate property",
-     "status": "pass",
-     "detail": "160,5",
-     "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "stage",
-     "name": "transform-2d",
-     "status": "pass",
-     "detail": "diff 0.0 % of ink (max 5 %)",
-     "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "check",
-     "name": "translateX(30px) moves the box",
-     "status": "pass",
-     "detail": "got 30, want 30 ±0.5",
-     "theme": "light",
      "width": 390
     },
     {
@@ -13585,6 +14296,51 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "check",
+     "name": "translateX(30px) moves the box",
+     "status": "pass",
+     "detail": "got 30, want 30 ±0.5",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "check",
+     "name": "rotate(90deg) swaps the bounding box",
+     "status": "pass",
+     "detail": "20x40",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "check",
+     "name": "scale(2) with transform-origin 0 0",
+     "status": "pass",
+     "detail": "110 20",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "check",
+     "name": "the translate property",
+     "status": "pass",
+     "detail": "160,5",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "stage",
+     "name": "transform-2d",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 360
     }
    ]
   },
@@ -13629,24 +14385,6 @@
      "status": "pass",
      "detail": "got 40, want 40 ±0.5",
      "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "stage",
-     "name": "transform-3d",
-     "status": "pass",
-     "detail": "diff 0.0 % of ink (max 5 %)",
-     "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "check",
-     "name": "rotateY(60deg) is dropped: the box keeps its width",
-     "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
-     "theme": "light",
      "width": 390
     },
     {
@@ -13675,6 +14413,24 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "check",
+     "name": "rotateY(60deg) is dropped: the box keeps its width",
+     "status": "pass",
+     "detail": "got 40, want 40 ±0.5",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "stage",
+     "name": "transform-3d",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 360
     }
    ]
   },
@@ -13719,33 +14475,6 @@
      "status": "pass",
      "detail": "blur(2px) brightness(1.5) drop-shadow(rgb(255, 0, 0) 1px 1px 0px)",
      "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "stage",
-     "name": "blur",
-     "status": "pass",
-     "detail": "diff 0.0 % of ink (max 10 %)",
-     "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "stage",
-     "name": "brightness-drop-shadow",
-     "status": "pass",
-     "detail": "diff 0.0 % of ink (max 5 %)",
-     "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "check",
-     "name": "filter functions are kept",
-     "status": "pass",
-     "detail": "blur(2px) brightness(1.5) drop-shadow(rgb(255, 0, 0) 1px 1px 0px)",
-     "theme": "light",
      "width": 390
     },
     {
@@ -13792,6 +14521,33 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "check",
+     "name": "filter functions are kept",
+     "status": "pass",
+     "detail": "blur(2px) brightness(1.5) drop-shadow(rgb(255, 0, 0) 1px 1px 0px)",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "stage",
+     "name": "blur",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 10 %)",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "stage",
+     "name": "brightness-drop-shadow",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 360
     }
    ]
   },
@@ -13809,15 +14565,6 @@
      "status": "pass",
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "stage",
-     "name": "filter-other",
-     "status": "pass",
-     "detail": "diff 0.0 % of ink (max 5 %)",
-     "theme": "light",
      "width": 390
     },
     {
@@ -13828,6 +14575,15 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "stage",
+     "name": "filter-other",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 360
     }
    ]
   },
@@ -13845,15 +14601,6 @@
      "status": "pass",
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
-     "width": 360
-    },
-    {
-     "test": "auto/09-transforms-effects-a",
-     "kind": "stage",
-     "name": "filter-url",
-     "status": "pass",
-     "detail": "diff 0.0 % of ink (max 5 %)",
-     "theme": "light",
      "width": 390
     },
     {
@@ -13864,6 +14611,15 @@
      "detail": "diff 0.0 % of ink (max 5 %)",
      "theme": "light",
      "width": 430
+    },
+    {
+     "test": "auto/09-transforms-effects-a",
+     "kind": "stage",
+     "name": "filter-url",
+     "status": "pass",
+     "detail": "diff 0.0 % of ink (max 5 %)",
+     "theme": "light",
+     "width": 360
     }
    ]
   },
@@ -20632,7 +21388,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "147.90000000000003",
+     "detail": "130",
      "theme": "dark",
      "width": 360
     },
@@ -20740,7 +21496,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "142.60000000000002",
+     "detail": "128.5",
      "theme": "dark",
      "width": 390
     },
@@ -20848,7 +21604,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "136.9",
+     "detail": "132.20000000000002",
      "theme": "dark",
      "width": 430
     },
@@ -20956,7 +21712,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "145.5",
+     "detail": "133.60000000000002",
      "theme": "light",
      "width": 360
     },
@@ -21091,7 +21847,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "151.10000000000002",
+     "detail": "139.7",
      "theme": "light",
      "width": 390
     },
@@ -21226,7 +21982,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "141.9",
+     "detail": "126.60000000000002",
      "theme": "light",
      "width": 430
     },
@@ -24955,7 +25711,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "93,108,125",
+     "detail": "46,62,77",
      "theme": "dark",
      "width": 360
     },
@@ -24964,7 +25720,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "49,65,81",
+     "detail": "47,64,80",
      "theme": "dark",
      "width": 390
     },
@@ -24973,7 +25729,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "49,65,82",
+     "detail": "32,49,65",
      "theme": "dark",
      "width": 430
     },
@@ -24982,7 +25738,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "46,63,79",
+     "detail": "44,60,75",
      "theme": "light",
      "width": 360
     },
@@ -24991,7 +25747,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "52,68,84",
+     "detail": "33,51,66",
      "theme": "light",
      "width": 390
     },
@@ -25000,7 +25756,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "48,65,81",
+     "detail": "34,51,67",
      "theme": "light",
      "width": 430
     }
@@ -27953,7 +28709,7 @@
    "status": "in",
    "verdict": "pass",
    "counts": {
-    "pass": 21
+    "pass": 39
    },
    "evidence": [
     {
@@ -28142,6 +28898,168 @@
      "name": "themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires",
      "status": "pass",
      "detail": "bg #ffffff → #212121, css #212121",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: bg and text colours",
+     "status": "pass",
+     "detail": "got \"33,33,33,1 255,255,255,1\", want \"33,33,33,1 255,255,255,1\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "a[href]: link colour, no underline; <a> without href: text colour",
+     "status": "pass",
+     "detail": "got \"135,116,225,1 none 255,255,255,1\", want \"135,116,225,1 none 255,255,255,1\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "figcaption is --tg-theme-hint-color",
+     "status": "pass",
+     "detail": "got \"170,170,170,1\", want \"170,170,170,1\"",
+     "theme": "dark",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: bg and text colours",
+     "status": "pass",
+     "detail": "got \"33,33,33,1 255,255,255,1\", want \"33,33,33,1 255,255,255,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "a[href]: link colour, no underline; <a> without href: text colour",
+     "status": "pass",
+     "detail": "got \"135,116,225,1 none 255,255,255,1\", want \"135,116,225,1 none 255,255,255,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "figcaption is --tg-theme-hint-color",
+     "status": "pass",
+     "detail": "got \"170,170,170,1\", want \"170,170,170,1\"",
+     "theme": "dark",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: bg and text colours",
+     "status": "pass",
+     "detail": "got \"33,33,33,1 255,255,255,1\", want \"33,33,33,1 255,255,255,1\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "a[href]: link colour, no underline; <a> without href: text colour",
+     "status": "pass",
+     "detail": "got \"135,116,225,1 none 255,255,255,1\", want \"135,116,225,1 none 255,255,255,1\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "figcaption is --tg-theme-hint-color",
+     "status": "pass",
+     "detail": "got \"170,170,170,1\", want \"170,170,170,1\"",
+     "theme": "dark",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: bg and text colours",
+     "status": "pass",
+     "detail": "got \"255,255,255,1 0,0,0,1\", want \"255,255,255,1 0,0,0,1\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "a[href]: link colour, no underline; <a> without href: text colour",
+     "status": "pass",
+     "detail": "got \"51,144,236,1 none 0,0,0,1\", want \"51,144,236,1 none 0,0,0,1\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "figcaption is --tg-theme-hint-color",
+     "status": "pass",
+     "detail": "got \"112,117,121,1\", want \"112,117,121,1\"",
+     "theme": "light",
+     "width": 360
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: bg and text colours",
+     "status": "pass",
+     "detail": "got \"255,255,255,1 0,0,0,1\", want \"255,255,255,1 0,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "a[href]: link colour, no underline; <a> without href: text colour",
+     "status": "pass",
+     "detail": "got \"51,144,236,1 none 0,0,0,1\", want \"51,144,236,1 none 0,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "figcaption is --tg-theme-hint-color",
+     "status": "pass",
+     "detail": "got \"112,117,121,1\", want \"112,117,121,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: bg and text colours",
+     "status": "pass",
+     "detail": "got \"255,255,255,1 0,0,0,1\", want \"255,255,255,1 0,0,0,1\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "a[href]: link colour, no underline; <a> without href: text colour",
+     "status": "pass",
+     "detail": "got \"51,144,236,1 none 0,0,0,1\", want \"51,144,236,1 none 0,0,0,1\"",
+     "theme": "light",
+     "width": 430
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "figcaption is --tg-theme-hint-color",
+     "status": "pass",
+     "detail": "got \"112,117,121,1\", want \"112,117,121,1\"",
      "theme": "light",
      "width": 430
     }
@@ -32869,23 +33787,6 @@
    "id": "auto/06-text-fonts-c",
    "set": "auto",
    "theme": "dark",
-   "width": 360,
-   "loaded": true,
-   "dead": null,
-   "status": "done",
-   "errors": [],
-   "harnessErrors": [],
-   "skippedActions": [],
-   "counts": {
-    "pass": 6
-   },
-   "stages": [],
-   "host": []
-  },
-  {
-   "id": "auto/06-text-fonts-c",
-   "set": "auto",
-   "theme": "dark",
    "width": 390,
    "loaded": true,
    "dead": null,
@@ -33385,54 +34286,6 @@
     "pass": 6
    },
    "stages": [],
-   "host": []
-  },
-  {
-   "id": "auto/09-transforms-effects-a",
-   "set": "auto",
-   "theme": "light",
-   "width": 360,
-   "loaded": true,
-   "dead": null,
-   "status": "done",
-   "errors": [],
-   "harnessErrors": [],
-   "skippedActions": [],
-   "counts": {
-    "pass": 6
-   },
-   "stages": [
-    {
-     "name": "transform-2d",
-     "diff": 0,
-     "status": "pass"
-    },
-    {
-     "name": "transform-3d",
-     "diff": 0,
-     "status": "pass"
-    },
-    {
-     "name": "blur",
-     "diff": 0,
-     "status": "pass"
-    },
-    {
-     "name": "brightness-drop-shadow",
-     "diff": 0,
-     "status": "pass"
-    },
-    {
-     "name": "filter-other",
-     "diff": 0,
-     "status": "pass"
-    },
-    {
-     "name": "filter-url",
-     "diff": 0,
-     "status": "pass"
-    }
-   ],
    "host": []
   },
   {
@@ -36478,6 +37331,108 @@
    ]
   },
   {
+   "id": "auto/22-ua-defaults",
+   "set": "auto",
+   "theme": "dark",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/22-ua-defaults",
+   "set": "auto",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/22-ua-defaults",
+   "set": "auto",
+   "theme": "dark",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/22-ua-defaults",
+   "set": "auto",
+   "theme": "light",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/22-ua-defaults",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/22-ua-defaults",
+   "set": "auto",
+   "theme": "light",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 17
+   },
+   "stages": [],
+   "host": []
+  },
+  {
    "id": "visual/01-boxes",
    "set": "visual",
    "theme": "dark",
@@ -38018,6 +38973,96 @@
   },
   {
    "id": "visual/13-out-of-profile",
+   "set": "visual",
+   "theme": "light",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "dark",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "dark",
+   "width": 430,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "light",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/14-unstyled-document",
    "set": "visual",
    "theme": "light",
    "width": 430,
@@ -39583,6 +40628,71 @@
    "skippedActions": [],
    "counts": {},
    "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/06-text-fonts-c",
+   "set": "auto",
+   "theme": "dark",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 6
+   },
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "auto/09-transforms-effects-a",
+   "set": "auto",
+   "theme": "light",
+   "width": 360,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "pass": 6
+   },
+   "stages": [
+    {
+     "name": "transform-2d",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "transform-3d",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "blur",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "brightness-drop-shadow",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "filter-other",
+     "diff": 0,
+     "status": "pass"
+    },
+    {
+     "name": "filter-url",
+     "diff": 0,
+     "status": "pass"
+    }
+   ],
    "host": []
   }
  ]

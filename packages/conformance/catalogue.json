@@ -27,7 +27,8 @@
     "proposed": "Proposed by this catalogue, to be confirmed",
     "P1": "Profile v1 freeze (2026-10-17): a candidate is in when the corpus uses it and the web renderers draw it; the rest are out until the native renderers are measured (profile 2)",
     "P1-grid": "Grid is in on condition that the Swift renderer and TwidgetCore implement it before their releases (2026-10-17)",
-    "P1-libs": "No bundled libraries in v1 (2026-10-17)"
+    "P1-libs": "No bundled libraries in v1 (2026-10-17)",
+    "P1-ua": "Clarified in v0.1.1 (2026-10-20): the renderer's user-agent layer (tables.uaStylesheet) also fixes the root and the text elements: the bubble's colours, the client's text tokens (--tg-text-font-size, --tg-text-line-height, --tg-text-padding) and explicit sizes and margins for headings, paragraphs, lists, tables, quotes and code, so a UA default in this profile means that layer, not an engine's own stylesheet"
   },
   "features": [
     {

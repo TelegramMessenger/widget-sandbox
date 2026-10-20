@@ -82,6 +82,8 @@ export interface WidgetMeta {
   pending?: string;
   /** Taller than the bubble's cap on purpose (13-max-height tests the clip): exempt from the build's height gate. */
   tall?: boolean;
+  /** No harness CSS (the harness script and the stage geometry only): the widget tests the renderer's own defaults (the UA layer). */
+  bare?: boolean;
 }
 
 export interface StageInfo {

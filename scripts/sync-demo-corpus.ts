@@ -30,8 +30,9 @@ const subGroups = (parent: string) => {
   return fs.existsSync(dir) ? fs.readdirSync(dir).filter((d) => fs.statSync(path.join(dir, d)).isDirectory()).sort().map((d) => `${parent}/${d}`) : [];
 };
 // htmlbubbles-ported/<chat>: Telegram's demos as classic widgets; common/<batch>: the renderer-comparison corpus (corpus/common/README.md);
-// showcase/<batch>: the interactive, animated demos on the full web profile (corpus/showcase/README.md).
-for (const group of ['compat', 'attacks', 'generated/with-profile', 'generated/without-profile', ...subGroups('htmlbubbles-ported'), ...subGroups('common'), ...subGroups('showcase')]) {
+// showcase/<batch>: the interactive, animated demos on the full web profile (corpus/showcase/README.md);
+// defaults/<batch>: widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults/README.md).
+for (const group of ['compat', 'attacks', 'generated/with-profile', 'generated/without-profile', ...subGroups('htmlbubbles-ported'), ...subGroups('common'), ...subGroups('showcase'), ...subGroups('defaults')]) {
   const dir = path.join(root, 'corpus', group);
   if (!fs.existsSync(dir)) continue;
   fs.mkdirSync(path.join(corpusOut, group), { recursive: true });

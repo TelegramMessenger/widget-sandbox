@@ -72,6 +72,8 @@ const TOPICS: TopicSpec[] = [
   { name: 'Visual', channel: 'visual/', default: true, color: 0x6fb9f0 },
   { name: 'Client SDK', channel: 'visual/sdk/', default: true, color: 0xffd67e },
   { name: 'Auto', channel: 'auto/', default: true, color: 0x8eee98 },
+  // Widgets with little or no CSS, drawn by the renderer's UA layer (v0.1.1, corpus/defaults/README.md).
+  { name: 'Defaults', corpus: 'corpus/defaults', default: true, color: 0xcb86db },
   { name: 'Showcase', corpus: 'corpus/showcase', default: false, color: 0xcb86db },
   { name: 'Common', corpus: 'corpus/common', default: false, color: 0xff93b2 },
   { name: 'Generated', corpus: 'corpus/generated/with-profile', default: false, color: 0xfb6f5f },

@@ -24,15 +24,15 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `html.el.structure` | div, span, p, br, hr, wbr | in | D3a | kept |  | auto/01-html-elements-a |
-| `html.el.headings` | h1–h6 with UA default sizes and margins | in | D3a | kept |  | auto/01-html-elements-a |
+| `html.el.structure` | div, span, p, br, hr, wbr | in | D3a | kept |  | auto/01-html-elements-a, auto/22-ua-defaults, visual/14-unstyled-document |
+| `html.el.headings` | h1–h6 with UA default sizes and margins | in | D3a | kept |  | auto/01-html-elements-a, auto/22-ua-defaults, visual/14-unstyled-document |
 | `html.el.sections` | header, footer, main, nav, section, article, aside, hgroup, search, address | in | D3a | kept |  | auto/01-html-elements-a |
-| `html.el.inline-text` | Inline text semantics with UA styles: b, i, u, s, em, strong, small, mark, code, kbd, samp, var, abbr, cite, q, del, ins, dfn, time, data | in | D3a | kept |  | auto/01-html-elements-a |
-| `html.el.sub-sup` | sub, sup (baseline shift, smaller size) | in | D3a | kept |  | auto/01-html-elements-c |
-| `html.el.pre` | pre (monospace, preserved white space and line breaks) | in | D3a | kept |  | auto/01-html-elements-b |
-| `html.el.blockquote` | blockquote, figure, figcaption (UA indents) | in | D3a | kept |  | auto/01-html-elements-b |
-| `html.el.lists` | ul, ol, li, dl, dt, dd, menu with markers | in | D3a | kept |  | auto/01-html-elements-b |
-| `html.el.table` | table, thead, tbody, tfoot, tr, td, th, caption, colgroup, col; colspan/rowspan | in | D3a | kept |  | auto/01-html-elements-b, visual/04-layout |
+| `html.el.inline-text` | Inline text semantics with UA styles: b, i, u, s, em, strong, small, mark, code, kbd, samp, var, abbr, cite, q, del, ins, dfn, time, data | in | D3a | kept |  | auto/01-html-elements-a, auto/22-ua-defaults, visual/14-unstyled-document |
+| `html.el.sub-sup` | sub, sup (baseline shift, smaller size) | in | D3a | kept |  | auto/01-html-elements-c, auto/22-ua-defaults |
+| `html.el.pre` | pre (monospace, preserved white space and line breaks) | in | D3a | kept |  | auto/01-html-elements-b, auto/22-ua-defaults, visual/14-unstyled-document |
+| `html.el.blockquote` | blockquote, figure, figcaption (UA indents) | in | D3a | kept |  | auto/01-html-elements-b, auto/22-ua-defaults, visual/14-unstyled-document |
+| `html.el.lists` | ul, ol, li, dl, dt, dd, menu with markers | in | D3a | kept |  | auto/01-html-elements-b, auto/22-ua-defaults, visual/14-unstyled-document |
+| `html.el.table` | table, thead, tbody, tfoot, tr, td, th, caption, colgroup, col; colspan/rowspan | in | D3a | kept |  | auto/01-html-elements-b, auto/22-ua-defaults, visual/04-layout, visual/14-unstyled-document |
 | `html.el.ruby` | ruby, rt, rp, bdi, bdo<br><sub>Annotation layout is rarely implemented by small engines.</sub> | out | P1 | replaced | rendered as <span> (the annotation shows inline) | auto/01-html-elements-b |
 | `html.el.legacy` | Legacy presentational elements: center, font, big, tt, strike, nobr | out | P1 | replaced | <center> becomes a <div>, the others a <span>; the presentational attributes are dropped | auto/01-html-elements-c |
 | `html.el.img` | <img> with a data: PNG, JPEG, GIF or WebP; width/height attributes | in | D3a | kept |  | auto/02-attributes-images-a, auto/02-attributes-images-b, visual/10-images |
@@ -40,10 +40,10 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `html.el.img-other-formats` | <img> with data: AVIF, BMP, ICO<br><sub>Release plan, security stream 7.</sub> | out | P1 | replaced | url-policy refuses the MIME: placeholder image | auto/02-attributes-images-b, visual/10-images |
 | `html.el.img-remote` | <img src="https://…"> (any non-data: URL) | out | inv4 | replaced | placeholder image; no request | auto/02-attributes-images-b, visual/10-images |
 | `html.el.canvas` | <canvas> element (2D context through the command stream) | in | D3a | kept |  | auto/12-canvas-a |
-| `html.el.button` | <button> as a tappable box with UA look<br><sub>An unstyled <button> is drawn in the client's style: the profile's UA stylesheet and --tg-button-*.</sub> | in | D4 | kept |  | auto/01-html-elements-c |
+| `html.el.button` | <button> as a tappable box with UA look<br><sub>An unstyled <button> is drawn in the client's style: the profile's UA stylesheet and --tg-button-*.</sub> | in | D4 | kept |  | auto/01-html-elements-c, visual/14-unstyled-document |
 | `html.el.details` | details/summary: open state and toggle on tap<br><sub>Probes: drawn by Blitz and litehtml; it is a disclosure, not a form.</sub> | in | P1 | kept |  | auto/01-html-elements-c, auto/16-sdk-taps-b, visual/11-interaction |
 | `html.el.a-fragment` | <a href="#id">: no navigation, :target-free | in | P1 | kept |  | auto/01-html-elements-c, auto/16-sdk-taps-b |
-| `html.el.a-external` | <a href="https://…">: href becomes "#" + data-tg-link, the tap goes to openLink (with a gesture) | in | D8 | replaced |  | auto/01-html-elements-c, auto/16-sdk-taps-a, visual/11-interaction, visual/sdk/01-link-external |
+| `html.el.a-external` | <a href="https://…">: href becomes "#" + data-tg-link, the tap goes to openLink (with a gesture) | in | D8 | replaced |  | auto/01-html-elements-c, auto/16-sdk-taps-a, visual/11-interaction, visual/14-unstyled-document, visual/sdk/01-link-external |
 | `html.el.forms` | Form controls: form, input (all types), select, option, optgroup, textarea, label, fieldset, legend, datalist, output | out | D3a | stripped | controls are dropped with their subtree (input, select, option, optgroup, textarea, datalist, fieldset, progress, meter); <form> becomes a <div>, <label>, <legend> and <output> a <span> | auto/18-out-of-profile, visual/13-out-of-profile |
 | `html.el.progress-meter` | progress, meter (native gauges)<br><sub>Not input, but a native control look that differs per platform.</sub> | out | P1 | stripped | dropped with the subtree, like the other controls | auto/01-html-elements-c |
 | `html.el.dialog-popover` | dialog (show/showModal), popover attribute<br><sub>The top layer is the page: in the Shadow DOM renderer a modal dialog or popover is drawn over the whole chat, outside the bubble.</sub> | out | P1 | replaced | a dialog renders as a <div>; the popover attributes and the dialog and popover methods are dropped | auto/18-out-of-profile, visual/13-out-of-profile |
@@ -275,7 +275,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 |---|---|---|---|---|---|---|
 | `tw.ready` | TelegramWidget.ready() | in | D8 | kept |  | auto/16-sdk-taps-c |
 | `tw.theme` | TelegramWidget.colorScheme ("light" \| "dark"); theme and onTheme(cb) kept as deprecated aliases | in | D14 | kept |  | auto/16-sdk-taps-c, visual/12-theme, visual/sdk/14-theme-palette |
-| `tw.theme-params` | themeParams (every Mini Apps key, #rrggbb) and the --tg-theme-* / --tg-color-scheme variables on the root, updated in one task with themeChanged | in | D14 | kept |  | auto/16-sdk-taps-c, auto/20-client-behaviour, visual/12-theme, visual/sdk/14-theme-palette |
+| `tw.theme-params` | themeParams (every Mini Apps key, #rrggbb) and the --tg-theme-* / --tg-color-scheme variables on the root, updated in one task with themeChanged | in | D14 | kept |  | auto/16-sdk-taps-c, auto/20-client-behaviour, auto/22-ua-defaults, visual/12-theme, visual/14-unstyled-document, visual/sdk/14-theme-palette |
 | `tw.events` | onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type | in | SDK | kept |  | auto/16-sdk-taps-c, visual/sdk/14-theme-palette |
 | `tw.is-active` | TelegramWidget.isActive mirrors visibility (activated / deactivated) | in | SDK | kept |  | auto/16-sdk-taps-c, auto/20-client-behaviour |
 | `tw.open-link` | openLink(url): an absolute https URL of at most 256 characters, no user info, not a t.me host; one call per pointer press; the client confirms showing the full URL<br><sub>Invalid arguments throw TypeError; one call per tap reaches the client.</sub> | in | D8 | host |  | auto/16-sdk-taps-a, visual/11-interaction, visual/sdk/01-link-external, visual/sdk/03-link-rejected, visual/sdk/04-link-timer |
@@ -374,3 +374,4 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **P1**: Profile v1 freeze (2026-10-17): a candidate is in when the corpus uses it and the web renderers draw it; the rest are out until the native renderers are measured (profile 2)
 - **P1-grid**: Grid is in on condition that the Swift renderer and TwidgetCore implement it before their releases (2026-10-17)
 - **P1-libs**: No bundled libraries in v1 (2026-10-17)
+- **P1-ua**: Clarified in v0.1.1 (2026-10-20): the renderer's user-agent layer (tables.uaStylesheet) also fixes the root and the text elements: the bubble's colours, the client's text tokens (--tg-text-font-size, --tg-text-line-height, --tg-text-padding) and explicit sizes and margins for headings, paragraphs, lists, tables, quotes and code, so a UA default in this profile means that layer, not an engine's own stylesheet

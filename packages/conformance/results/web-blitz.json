@@ -5,19 +5,19 @@
   "platform": "web",
   "renderer": "blitz",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "0936502",
+  "framework": "078ddd9",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-19T13:27:17.257Z",
-  "commit": "0936502"
+  "date": "2026-10-20T14:25:54.790Z",
+  "commit": "078ddd9"
  },
  "summary": {
   "in": {
-   "pass": 105,
-   "partial": 29,
-   "fail": 25,
+   "pass": 99,
+   "partial": 34,
+   "fail": 26,
    "xfail": 0,
    "xpass": 0,
    "skip": 4,
@@ -47,8 +47,8 @@
    "status": "in",
    "verdict": "partial",
    "counts": {
-    "pass": 3,
-    "fail": 1
+    "pass": 4,
+    "fail": 4
    },
    "evidence": [
     {
@@ -86,14 +86,51 @@
      "detail": "h 16",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: the text tokens, system-ui",
+     "status": "fail",
+     "detail": "got \"16,NaN,false\", want \"NaN,NaN,true\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "body: no margin, the token as padding",
+     "status": "fail",
+     "detail": "got \"8,8,0,0,0,0\", want \"0,0,NaN,NaN,NaN,NaN\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "p: 0.6em margins; hr: one 1px line, no height",
+     "status": "fail",
+     "detail": "got \"1,1,1,0\", want \"0.6,1,0,0\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "author rules win over the layer",
+     "status": "pass",
+     "detail": "got \"1,21,400,5,square\", want \"1,21,400,5,square\"",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
   "html.el.headings": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "partial",
    "counts": {
-    "pass": 2
+    "pass": 2,
+    "fail": 2
    },
    "evidence": [
     {
@@ -111,6 +148,24 @@
      "name": "headings are bold",
      "status": "pass",
      "detail": "700,700",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "h1–h6: 1.6, 1.35, 1.2, 1.07, 1, 0.87 em",
+     "status": "fail",
+     "detail": "got \"2,1.5,1.17,1,0.83,0.67\", want \"1.6,1.35,1.2,1.07,1,0.87\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "headings: 600, line height 1.25; h2 0.75em above, 0.35em below",
+     "status": "fail",
+     "detail": "got \"700,NaN,0.83,0.83\", want \"600,1.25,0.75,0.35\"",
      "theme": "light",
      "width": 390
     }
@@ -148,7 +203,7 @@
    "verdict": "partial",
    "counts": {
     "pass": 6,
-    "fail": 1
+    "fail": 2
    },
    "evidence": [
     {
@@ -213,6 +268,15 @@
      "detail": "16.5 vs 16.5",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "small 0.85em; b 600; code monospace 0.9em",
+     "status": "fail",
+     "detail": "got \"0.83,700,true,0.81\", want \"0.85,600,true,0.9\"",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
@@ -220,7 +284,7 @@
    "status": "in",
    "verdict": "partial",
    "counts": {
-    "fail": 1,
+    "fail": 2,
     "pass": 1
    },
    "evidence": [
@@ -241,14 +305,24 @@
      "detail": "10.8281px",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "sup: 0.75em on the baseline, raised by position",
+     "status": "fail",
+     "detail": "got \"0.83,,static\", want \"0.75,baseline,relative\"",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
   "html.el.pre": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "partial",
    "counts": {
-    "pass": 2
+    "pass": 2,
+    "fail": 1
    },
    "evidence": [
     {
@@ -268,31 +342,49 @@
      "detail": "monospace",
      "theme": "light",
      "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "pre: wraps, monospace 0.9em, code inside keeps the size",
+     "status": "fail",
+     "detail": "got \"false,true,0.81,1\", want \"true,true,0.9,1\"",
+     "theme": "light",
+     "width": 390
     }
    ]
   },
   "html.el.blockquote": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "fail",
    "counts": {
-    "pass": 2
+    "fail": 3
    },
    "evidence": [
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "blockquote is indented 40px",
-     "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "name": "blockquote is set off by the UA layer: a 3px bar and 0.75em before the text",
+     "status": "fail",
+     "detail": "0px 0px",
      "theme": "light",
      "width": 390
     },
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "figure is indented 40px",
-     "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "name": "figure has no indent",
+     "status": "fail",
+     "detail": "got 40, want 0 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "blockquote: 3px bar, 0.75em padding; no indent, as figure",
+     "status": "fail",
+     "detail": "got \"40,0,0,40\", want \"0,3,0.75,0\"",
      "theme": "light",
      "width": 390
     }
@@ -300,17 +392,18 @@
   },
   "html.el.lists": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "partial",
    "counts": {
-    "pass": 5
+    "fail": 5,
+    "pass": 2
    },
    "evidence": [
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "ul is padded 40px",
-     "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "name": "ul is padded 1.5em",
+     "status": "fail",
+     "detail": "got 40, want 19.5 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -335,9 +428,9 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "dd is indented 40px",
-     "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "name": "dd is indented 1.5em",
+     "status": "fail",
+     "detail": "got 40, want 19.5 ±0.5",
      "theme": "light",
      "width": 390
     },
@@ -345,8 +438,26 @@
      "test": "auto/01-html-elements-b",
      "kind": "check",
      "name": "menu is a padded list",
-     "status": "pass",
-     "detail": "got 40, want 40 ±0.5",
+     "status": "fail",
+     "detail": "got 40, want 19.5 ±0.5",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "ul: 1.5em start padding, disc; nested: circle, no margin; ol: decimal",
+     "status": "fail",
+     "detail": "got \"2.5,disc,circle,0,decimal\", want \"1.5,disc,circle,0,decimal\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "dt 600; dd indented 1.5em",
+     "status": "fail",
+     "detail": "got \"400 2.5\", want \"600 1.5\"",
      "theme": "light",
      "width": 390
     }
@@ -356,8 +467,8 @@
    "status": "in",
    "verdict": "partial",
    "counts": {
-    "pass": 4,
-    "fail": 1
+    "pass": 3,
+    "fail": 4
    },
    "evidence": [
     {
@@ -399,9 +510,27 @@
     {
      "test": "auto/01-html-elements-b",
      "kind": "check",
-     "name": "th is bold and centred",
-     "status": "pass",
+     "name": "th is bold and start-aligned",
+     "status": "fail",
      "detail": "700 center",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "table: collapsed, cells touch; th 600, start-aligned",
+     "status": "fail",
+     "detail": "got \"separate,false,700,false\", want \"collapse,true,600,true\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "cells: 1px line under, 0.3em above, no outer padding at the ends",
+     "status": "fail",
+     "detail": "got \"0,0.06,1,1\", want \"1,0.3,0,0\"",
      "theme": "light",
      "width": 390
     }
@@ -718,17 +847,18 @@
   },
   "html.el.a-fragment": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "partial",
    "counts": {
-    "pass": 2
+    "fail": 1,
+    "pass": 1
    },
    "evidence": [
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "a[href=#…] is a link (UA link colour, underline)",
-     "status": "pass",
-     "detail": "0,0,238,1",
+     "name": "a[href=#…] is a link (the link colour, no underline)",
+     "status": "fail",
+     "detail": "0,0,238,1 underline",
      "theme": "light",
      "width": 390
     },
@@ -745,9 +875,10 @@
   },
   "html.el.a-external": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "partial",
    "counts": {
-    "pass": 3,
+    "pass": 2,
+    "fail": 1,
     "skip": 1
    },
    "evidence": [
@@ -763,9 +894,9 @@
     {
      "test": "auto/01-html-elements-c",
      "kind": "check",
-     "name": "it is still drawn as a link",
-     "status": "pass",
-     "detail": "underline",
+     "name": "it is still drawn as a link (not the text colour, no underline)",
+     "status": "fail",
+     "detail": "0,0,238,1 underline",
      "theme": "light",
      "width": 390
     },
@@ -5229,7 +5360,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "138.60000000000002",
+     "detail": "154.79999999999998",
      "theme": "light",
      "width": 390
     },
@@ -6279,7 +6410,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "58,75,91",
+     "detail": "54,71,87",
      "theme": "light",
      "width": 390
     }
@@ -6938,7 +7069,7 @@
    "verdict": "partial",
    "counts": {
     "pass": 2,
-    "fail": 2
+    "fail": 5
    },
    "evidence": [
     {
@@ -6974,6 +7105,33 @@
      "name": "themeParams and --tg-theme-bg-color change with the theme, before themeChanged fires",
      "status": "fail",
      "detail": "bg #ffffff → #212121, css ",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "root: bg and text colours",
+     "status": "fail",
+     "detail": "got \"0,0,0,0 0,0,0,1\", want \" \"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "a[href]: link colour, no underline; <a> without href: text colour",
+     "status": "fail",
+     "detail": "got \"0,0,238,1 underline 0,0,0,1\", want \" none 0,0,0,1\"",
+     "theme": "light",
+     "width": 390
+    },
+    {
+     "test": "auto/22-ua-defaults",
+     "kind": "check",
+     "name": "figcaption is --tg-theme-hint-color",
+     "status": "fail",
+     "detail": "got \"0,0,0,1\", want \"\"",
      "theme": "light",
      "width": 390
     }
@@ -7864,8 +8022,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 15,
-    "fail": 1
+    "pass": 9,
+    "fail": 7
    },
    "stages": [],
    "host": []
@@ -7882,8 +8040,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 1,
-    "pass": 19
+    "fail": 3,
+    "pass": 17
    },
    "stages": [],
    "host": []
@@ -8977,6 +9135,24 @@
    ]
   },
   {
+   "id": "auto/22-ua-defaults",
+   "set": "auto",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {
+    "fail": 16,
+    "pass": 1
+   },
+   "stages": [],
+   "host": []
+  },
+  {
    "id": "visual/01-boxes",
    "set": "visual",
    "theme": "light",
@@ -9255,6 +9431,36 @@
    "host": []
   },
   {
+   "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/14-unstyled-document",
+   "set": "visual",
+   "theme": "dark",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "no result",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
    "id": "visual/sdk/01-link-external",
    "set": "visual",
    "theme": "light",
@@ -9475,7 +9681,7 @@
    "width": 390,
    "loaded": true,
    "dead": null,
-   "status": "done",
+   "status": "no result",
    "errors": [],
    "harnessErrors": [],
    "skippedActions": [],

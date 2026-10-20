@@ -34,6 +34,7 @@ import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
 import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
+import { REFERENCE_STYLESHEET } from '../../packages/core/src/shared/reference.ts';
 
 const args = process.argv.slice(2);
 const opt = (name: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : undefined);
@@ -65,10 +66,12 @@ const SDK_MOCK = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url)
 const SIZE_LIMIT = { gzip: 3800, raw: 32768 };
 const sizeOf = (html: string) => { const b = Buffer.from(html); return { raw: b.length, gzip6: zlib.gzipSync(b, { level: 6 }).length, gzip9: zlib.gzipSync(b, { level: 9 }).length }; };
 const isSdk = (w: Widget) => w.id.startsWith('visual/sdk/');
-/** The renderer's UA stylesheet (profile.json tables.uaStylesheet): every renderer draws an unstyled <button> with it, so the native runs do too. */
-const PROFILE_FILE = path.join(ROOT, 'packages', 'core', 'profile.json');
-const UA_CSS = readJson<{ tables?: { uaStylesheet?: string } }>(PROFILE_FILE, {}).tables?.uaStylesheet ?? '';
-if (!UA_CSS) console.log('no profile.json uaStylesheet: native runs use the engine\'s own <button>');
+/**
+ * The renderer's UA layer (profile.json tables.uaStylesheet: the root and text defaults, the unstyled <button>) with
+ * the reference theme (default palettes, reference text tokens): every renderer adds it to a widget, so the native
+ * runs do too (packages/core/src/shared/reference.ts).
+ */
+const UA_CSS = REFERENCE_STYLESHEET;
 
 // ───────────── 2. harness region ─────────────
 
@@ -104,12 +107,15 @@ function withHarness(w: Widget): string {
   if (w.html.includes(MINI_BEGIN)) {
     const i = w.html.indexOf(MINI_BEGIN), j = w.html.indexOf(MINI_END);
     if (j < 0) throw new Error(`${w.id}: no ${MINI_END}`);
-    return w.html.slice(0, i) + `${MINI_BEGIN}<style>${MINI_CSS.replace(/\n/g, '')}</style><script>${MINI_JS}</script>${MINI_END}` + w.html.slice(j + MINI_END.length);
+    const css = w.meta.bare ? '' : `<style>${MINI_CSS.replace(/\n/g, '')}</style>`;
+    return w.html.slice(0, i) + `${MINI_BEGIN}${css}<script>${MINI_JS}</script>${MINI_END}` + w.html.slice(j + MINI_END.length);
   }
   const i = w.html.indexOf(BEGIN), j = w.html.indexOf(END);
   if (i < 0 || j < 0) throw new Error(`${w.id}: no ${BEGIN} … ${END} region`);
   const body = w.html.slice(0, i) + w.html.slice(j + END.length);
-  const region = `${BEGIN}<style>${HARNESS_CSS[w.set]}${stageCss(w)}</style><script>${harnessJs(body)}</script>${END}`;
+  // A bare widget tests the renderer's own defaults: no harness CSS over them.
+  const css = (w.meta.bare ? '' : HARNESS_CSS[w.set]) + stageCss(w);
+  const region = `${BEGIN}${css ? `<style>${css}</style>` : ''}<script>${harnessJs(body)}</script>${END}`;
   return w.html.slice(0, i) + region + w.html.slice(j + END.length);
 }
 
