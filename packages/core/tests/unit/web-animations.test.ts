@@ -131,6 +131,14 @@ describe('web animations: shim', () => {
       for (const k of Object.keys(f.values)) assert.ok(!/^(animation|transition|will-change)/.test(k), k);
     }
   });
+
+  it('sends the state a script just set before a layout query in the same task', async () => {
+    const r = await runWidget("<div id=a></div><script>setTimeout(function(){var el=document.getElementById('a'),a=el.animate([{width:'20px'},{width:'120px'}],{duration:1000,fill:'forwards'});a.pause();a.currentTime=250;el.getBoundingClientRect();},20);</script>", { webAnimations: true, now: clock() });
+    const query = r.stream.findIndex((s) => s.kind === 'query' && JSON.parse(s.json).q === 'rect');
+    const seek = r.stream.findIndex((s) => s.kind === 'anim' && (JSON.parse(s.json) as any[]).some((a) => a.holdTime === 250));
+    assert.ok(query > 0, 'no rect query');
+    assert.ok(seek >= 0 && seek < query, `the seeked record went out at ${seek}, the query at ${query}: ${r.stream.map((s) => s.kind).join()}`);
+  });
 });
 
 describe('web animations: validateAnim', () => {
@@ -230,7 +238,7 @@ describe('web animations: validateAnim', () => {
   });
 });
 
-type Stream = { kind: 'ops' | 'anim'; json: string }[];
+type Stream = { kind: 'ops' | 'anim' | 'query'; json: string }[];
 
 const SKELETON = JSON.stringify([
   { op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null },
@@ -293,6 +301,7 @@ function replayApp(bundle: string, stream: Stream) {
   v.create('light');
   const out: { out: string; diags: string[] }[] = [];
   for (const s of stream) {
+    if (s.kind === 'query') continue;
     if (s.kind === 'ops') { v.processOps(s.json); continue; }
     diags.length = 0;
     out.push({ out: compact(v.validateAnim(s.json)), diags: [...diags] });
@@ -305,6 +314,7 @@ function replayNew(stream: Stream) {
   const v = new Validator((k, d) => diags.push(`${k}: ${d}`));
   const out: { out: string; diags: string[] }[] = [];
   for (const s of stream) {
+    if (s.kind === 'query') continue;
     if (s.kind === 'ops') { v.processOps(JSON.parse(s.json)); continue; }
     diags.length = 0;
     out.push({ out: compact(JSON.stringify(v.validateAnim(JSON.parse(s.json)))), diags: [...diags] });

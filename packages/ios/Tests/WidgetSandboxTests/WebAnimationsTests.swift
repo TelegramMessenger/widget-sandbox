@@ -205,6 +205,31 @@ final class WebAnimationsTests: XCTestCase {
         engine.terminate()
     }
 
+    /// A seek, then a layout query in the same task: the shim sends the anim batch before the query, the host keeps the two
+    /// in order (anim used to be posted past the paced queue), and the renderer answers from the seeked frame.
+    func testLayoutQueryAfterASeekAnswersFromTheNewFrame() throws {
+        let html = "<div id=p style='width:20px;height:10px'></div><p id=out></p><script>setTimeout(function(){var el=document.getElementById('p'),a=el.animate([{width:'20px'},{width:'120px'}],{duration:1000,fill:'forwards'});a.pause();a.currentTime=250;document.getElementById('out').textContent='w='+Math.round(el.getBoundingClientRect().width);},50);</script>"
+        for asyncValidation in [false, true] {
+            let window = TestWindow.makeVisible()
+            var options = WidgetHost.Options()
+            options.features = ["webAnimations"]
+            options.asyncValidation = asyncValidation
+            let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 360, options: options)
+            window.attach(host.view)
+            var text = ""
+            let deadline = Date().addingTimeInterval(15)
+            while Date() < deadline, !text.hasPrefix("w=") {
+                var answer: String?
+                host.evaluateInRenderer("document.getElementById('out')?.textContent") { answer = $0 }
+                while answer == nil, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+                text = answer ?? ""
+            }
+            XCTAssertEqual(text, "w=45", "asyncValidation \(asyncValidation)")
+            XCTAssertNil(host.diagnostics.dead)
+            host.destroy()
+        }
+    }
+
     func testShimReportsUnsupportedWithoutTheFeature() {
         let config = SandboxConfig(innerWidth: 300, innerHeight: 200, devicePixelRatio: 2, theme: "light")
         let engine = SandboxEngine(html: Self.widget, config: config)

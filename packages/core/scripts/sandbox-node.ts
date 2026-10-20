@@ -58,7 +58,8 @@ export interface RunResult {
   binaryBatches: number;
   anims: unknown[][];
   animOps: unknown[][];
-  stream: { kind: 'ops' | 'anim'; json: string }[];
+  /** Ops batches, anim batches and sync queries in the order the shim sent them. */
+  stream: { kind: 'ops' | 'anim' | 'query'; json: string }[];
 }
 
 /** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */
@@ -214,6 +215,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'query': {
         const q = JSON.parse(arg);
         res.queries.push(q);
+        res.stream.push({ kind: 'query', json: arg });
         if (queryLimitHit) return vm.newString('{"error":"query budget exceeded"}');
         const clean = validator.validateQuery(q);
         const q0 = performance.now();
