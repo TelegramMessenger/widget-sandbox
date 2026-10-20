@@ -51,9 +51,10 @@ h2, h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spa
 .stage.compare .chat { width: 340px; }
 .chat .compare-status { font-size: 11px; color: var(--muted); margin: 4px 0 0 8px; white-space: pre-wrap; }
 .bubble-head { font-size: 11px; color: var(--muted); margin: 0 0 4px 8px; }
-.bubble { background: var(--bubble); border-radius: 14px; padding: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-/* Edge-to-edge widgets (corpus/showcase): the widget owns the whole bubble like a photo message, the bubble clips it with its radius. The older corpora are cards inside a padded bubble, as in Telegram's macOS beta. */
-.bubble.edge { padding: 0; overflow: hidden; border-radius: 18px; }
+/* The bubble is the widget's canvas, as on a client (docs/sdk-v1.md §2.4, docs/integration.md): no padding of its own (the
+   widget's body margin is the inset), the background in exactly the bg_color the dev app passes (main.ts sets --bubble from
+   the same palette), and the radius clips what the widget paints. Text bubbles of the feed keep their padding (below). */
+.bubble { background: var(--bubble); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 #widget-error { margin: 4px 8px 0; font-size: 11px; color: var(--bad); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #widget-error.hidden { display: none; }
 .frame-wrap { width: 100%; }

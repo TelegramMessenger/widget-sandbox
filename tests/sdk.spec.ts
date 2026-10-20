@@ -103,12 +103,49 @@ for (const shadow of [false, true]) {
     await load(page, `<style>body { background: #2b5278; color: #fff }</style><p>Body background, no margin reset.</p>`, { shadow });
     const frame = page.locator('#sandbox-wrap .widget-frame');
     const box = (await frame.boundingBox())!;
-    // a pixel inside the body's 12 px side margin, and one in the middle
+    // pixels in the body's margins (12 px at the sides, 8 px at the top), away from the bubble's rounded corners
     const shot = await page.screenshot({ clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 40) } });
     const png = PNG.sync.read(shot);
     const at = (x: number, y: number) => { const i = (y * png.width + x) * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
     const scale = png.width / box.width;
-    for (const [x, y] of [[3, 3], [Math.round(box.width / 2), 3], [Math.round(box.width) - 3, 20]]) expect(at(Math.round(x * scale), Math.round(y * scale)), `${x},${y}`).toEqual([0x2b, 0x52, 0x78]);
+    for (const [x, y] of [[3, 20], [Math.round(box.width / 2), 3], [Math.round(box.width) - 3, 20]]) expect(at(Math.round(x * scale), Math.round(y * scale)), `${x},${y}`).toEqual([0x2b, 0x52, 0x78]);
+  });
+
+  test(`${renderer}: the demo bubble is the canvas: a body background fills it to the rounded corners (visual/15-body-background)`, async ({ page }) => {
+    for (const theme of ['light', 'dark'] as const) {
+      const q = new URLSearchParams({ file: 'conformance/visual/15-body-background.html', ...(shadow ? { shadow: '1' } : {}), ...(theme === 'dark' ? { theme: 'dark' } : {}) });
+      await page.goto('/?' + q);
+      await page.waitForFunction(() => (window as any).__tw.state.loaded);
+      await page.waitForTimeout(300);
+      // The whole bubble the dev app draws, not only the renderer's element: a padded bubble would leave a strip of its own colour.
+      const bubble = page.locator('#sandbox-wrap').locator('xpath=..');
+      const png = PNG.sync.read(await bubble.screenshot());
+      const at = (x: number, y: number) => { const i = (y * png.width + x) * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
+      const w = png.width, h = png.height, s = Math.round(png.width / ((await bubble.boundingBox())!.width));
+      const blue = [0x2b, 0x52, 0x78];
+      // just inside the 14 px radius at each corner, and the middle of each edge
+      for (const [x, y] of [[6, 6], [w / s - 7, 6], [6, h / s - 7], [w / s - 7, h / s - 7], [w / s / 2, 1], [1, h / s / 2], [w / s - 2, h / s / 2], [w / s / 2, h / s - 2]]) {
+        expect(at(Math.round(x * s), Math.round(y * s)), `${theme} ${x},${y}`).toEqual(blue);
+      }
+      // the very corner is outside the radius: clipped, not blue
+      expect(at(0, 0), `${theme} corner`).not.toEqual(blue);
+    }
+  });
+
+  test(`${renderer}: an unstyled widget sits on the bubble's own colour in both themes (the renderer stays transparent)`, async ({ page }) => {
+    for (const theme of ['light', 'dark'] as const) {
+      const q = new URLSearchParams({ file: 'defaults/static/01-text-card.html', ...(shadow ? { shadow: '1' } : {}), ...(theme === 'dark' ? { theme: 'dark' } : {}) });
+      await page.goto('/?' + q);
+      await page.waitForFunction(() => (window as any).__tw.state.loaded);
+      await page.waitForTimeout(300);
+      const bubble = page.locator('#sandbox-wrap').locator('xpath=..');
+      const png = PNG.sync.read(await bubble.screenshot());
+      const at = (x: number, y: number) => { const i = (y * png.width + x) * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
+      const s = Math.round(png.width / ((await bubble.boundingBox())!.width));
+      const want = theme === 'dark' ? [0x21, 0x21, 0x21] : [0xff, 0xff, 0xff];
+      // in the body's margin: the bubble's colour shows through the renderer, never a canvas of the renderer's own
+      for (const [x, y] of [[6, 6], [png.width / s - 7, png.height / s - 4], [png.width / s / 2, 3]]) expect(at(Math.round(x * s), Math.round(y * s)), `${theme} ${x},${y}`).toEqual(want);
+    }
   });
 
   test(`${renderer}: text is not selectable by default; user-select: text enables it, children included`, async ({ page }) => {

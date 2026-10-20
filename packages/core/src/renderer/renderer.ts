@@ -14,6 +14,16 @@ declare const __TW_TRANSPORT__: 'port' | 'webkit' | 'android';
 
 const doc = document;
 
+/** The frame's root scheme, in the UA layer so a widget's own `color-scheme` still wins (core.ts `frameColorScheme`). */
+let schemeStyle: HTMLStyleElement | null = null;
+function frameColorScheme(scheme: 'light' | 'dark') {
+  if (!schemeStyle) {
+    schemeStyle = doc.createElement('style');
+    doc.head.appendChild(schemeStyle);
+  }
+  schemeStyle.textContent = `@layer tw-ua{:where(html){color-scheme:${scheme}}}`;
+}
+
 /** The whole document is the widget's: coordinates coincide, the window is the viewport. */
 function documentEnv(): RendererEnv {
   return {
@@ -33,6 +43,8 @@ function documentEnv(): RendererEnv {
       mq.addEventListener('change', cb);
       return () => mq.removeEventListener('change', cb);
     },
+    // The web's frame only: WebViews are top-level documents over the bubble.
+    ...(__TW_TRANSPORT__ === 'port' ? { frameColorScheme } : {}),
   };
 }
 

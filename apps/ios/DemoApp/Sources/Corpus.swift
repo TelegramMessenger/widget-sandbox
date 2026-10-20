@@ -13,8 +13,6 @@ enum Corpus {
     static let commonGroups = subGroups(of: "common")
     /// The showcase: interactive, animated demos on the full web profile, one group per batch (corpus/showcase/README.md).
     static let showcaseGroups = subGroups(of: "showcase")
-    /// Showcase widgets own the whole bubble (edge to edge, clipped by the bubble's corner radius); the other groups are cards inside a padded bubble.
-    static func isEdge(_ group: String) -> Bool { group.hasPrefix("showcase/") }
 
     private static func subGroups(of parent: String) -> [String] {
         guard let dir = Bundle.main.resourceURL?.appendingPathComponent("Corpus/\(parent)"),

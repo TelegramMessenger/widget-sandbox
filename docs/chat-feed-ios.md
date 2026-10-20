@@ -214,10 +214,12 @@ three minutes of scrolling.
 The setup screen's **Widgets** picker chooses what fills the bubbles: `showcase`
 (default on the phone: `corpus/showcase`, the 21 interactive demos in exactly
 the web feed's order — each batch shuffled with the web's seeds, one of each
-batch in turn, the web's text bubbles before every other one — drawn edge to edge — `FeedConfig.edgeBubbles`: no bubble
-padding, the cell clips the widget at its 16 px corner radius) or `classic`
+batch in turn, the web's text bubbles before every other one) or `classic`
 (compat → generated → Telegram demos, the set every number above was measured
-on; still the default from a shell, `--feed-set corpus=showcase` switches).
+on; still the default from a shell, `--feed-set corpus=showcase` switches). Since
+v0.1.1 every widget fills its bubble, as on a client: no bubble padding (the widget's
+body margin is the inset), the cell clips the widget at its 16 px corner radius, and
+the bubble's colour is the `bg_color` the feed passes.
 
 ## The feed bar (2026-10-12)
 

@@ -1,6 +1,6 @@
 # Compat report — defaults
 
-Generated 2026-10-20T15:57:19.919Z by `CORPUS_GROUP=defaults pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-20T19:49:34.918Z by `CORPUS_GROUP=defaults pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## interactive: 2 / 2 pass (100%)
 

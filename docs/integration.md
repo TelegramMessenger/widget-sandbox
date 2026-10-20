@@ -198,7 +198,11 @@ language as `locale` (`docs/sdk-v1.md` §2.3, §2.4, §2.9).
 - The palette is the colours of **this bubble**. Keep the widget view
   transparent over your bubble as before: the bubble you draw in `bg_color` is
   the widget's canvas, its text is drawn in `text_color`, and a background the
-  widget sets on its root or body covers the whole bubble. A widget the user
+  widget sets on its root or body covers the whole bubble. **The widget view
+  fills the bubble: no padding of the bubble's own around it** (the widget's
+  body margin, the `padding` text token, is the inset), and the bubble clips
+  the view at its corner radius, so a widget background reaches the rounded
+  edges (`visual/15-body-background`). A widget the user
   sent or forwarded sits in an outgoing bubble: pass the outgoing colours
   (fill, text, hint, link, separator).
 - The text tokens (since v0.1.1) are your message text: `fontSize` in points /

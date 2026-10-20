@@ -48,7 +48,7 @@ Keep the last value. You need no hook in the renderer and no DOM.
 
 Build it as a test target or a debug mode in your client. For every entry of `manifest.tests` with `set: "auto"`, and for every theme in its `themes`:
 
-1. **Configure the host as in production.** Policy `strict`. `features` as the profile sets them, today `["webAnimations"]`. Your renderer, the theme (your palette, button and text tokens: `auto/22-ua-defaults` checks the renderer's defaults against whatever tokens you pass), and a width of 390 CSS px (points or dp); 360 and 430 are welcome too.
+1. **Configure the host as in production.** The widget view fills the bubble with no padding of the bubble's own around it, over the bubble drawn in `bg_color` and clipped at its corner radius (`docs/integration.md`, "Theme and language"). Policy `strict`. `features` as the profile sets them, today `["webAnimations"]`. Your renderer, the theme (your palette, button and text tokens: `auto/22-ua-defaults` checks the renderer's defaults against whatever tokens you pass), and a width of 390 CSS px (points or dp); 360 and 430 are welcome too.
 2. **Focus the chat input**, or a stand-in text field, before loading the widget.
 3. **Load the widget HTML** and observe the validated ops. Every platform has the same renderer seam, so wrap your renderer: see "Reading the ops" below.
 4. **Wait** for `status` `done`, or `awaiting` when the test has `actions`. Give up after 20 s and record what you have.

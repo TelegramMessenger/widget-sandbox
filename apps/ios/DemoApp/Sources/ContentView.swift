@@ -154,7 +154,7 @@ struct WidgetScreen: View {
 
     private func sandboxColumn(_ model: WidgetModel, viewport: CGSize) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            ChatBubble(model: model, edge: Corpus.isEdge(group), viewport: viewport) { onScreen = $0; pushVisibility() }
+            ChatBubble(model: model, viewport: viewport) { onScreen = $0; pushVisibility() }
             DiagnosticsPanel(model: model)
         }
         #if os(macOS)
@@ -221,7 +221,6 @@ struct ReferenceBubble: View {
             Text("reference — native WebKit, no sandbox, dev tooling only").font(.caption2).foregroundStyle(.secondary).padding(.leading, 8)
             ReferenceView(model: model)
                 .frame(width: 360, height: max(model.height, 24))
-                .padding(8)
                 .background(DemoColor.bubble)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
             // Same definition as the sandbox panel's "loaded in": wall clock from creating the web view.
@@ -238,8 +237,6 @@ struct ReferenceBubble: View {
 
 struct ChatBubble: View {
     @ObservedObject var model: WidgetModel
-    /// Edge to edge (corpus/showcase): no padding, the bubble clips the widget at its corner radius.
-    var edge = false
     /// Size of the enclosing scroll view (coordinate space "scroll"), to tell whether the bubble is on screen.
     var viewport: CGSize = .zero
     /// Called when the bubble enters or leaves the screen (the owner's side of the off-screen pause).
@@ -247,11 +244,12 @@ struct ChatBubble: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(DemoRenderer.label).font(.caption2).foregroundStyle(.secondary).padding(.leading, 8)
+            // The bubble is the widget's canvas, as on a client: no padding of its own (the widget's body margin is the
+            // inset), the colour DemoTheme passes as bg_color, the radius clips what the widget paints.
             WidgetView(host: model.host)
                 .frame(width: 360, height: max(model.diagnostics.height, 24))
-                .padding(edge ? 0 : 8)
                 .background(DemoColor.bubble)
-                .clipShape(RoundedRectangle(cornerRadius: edge ? 18 : 14))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
                 .onScreen(viewport: viewport, onScreenChange)
             // What a product shows under the bubble: the widget stays on screen (frozen) with a one-line reason.
             if let dead = model.diagnostics.dead {

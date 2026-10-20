@@ -280,7 +280,7 @@ class ReferenceModel(context: Context, html: String, theme: String) {
 fun ReferenceBubble(model: ReferenceModel, widthDp: Int = 360) {
     Column {
         Text("reference — native WebView, no sandbox, dev tooling only", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
-        Column(modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface).padding(8.dp)) {
+        Column(modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface)) {
             // key: a new model (theme change, Restart) must get a new AndroidView, or the factory is never re-run.
             key(model) {
                 AndroidView(

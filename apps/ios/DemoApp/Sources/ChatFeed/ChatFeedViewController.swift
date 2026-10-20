@@ -36,9 +36,10 @@ final class ChatFeedViewController: UIViewController, UICollectionViewDataSource
     private(set) var finishedSummary: String?
 
     static let horizontalInset: CGFloat = 12
-    /// Cards inside a padded bubble (the classic corpora); showcase widgets are edge to edge, the bubble clips them (`FeedConfig.edgeBubbles`).
-    static let bubblePadding: CGFloat = 8
-    var bubblePadding: CGFloat { config.edgeBubbles ? 0 : Self.bubblePadding }
+    /// The bubble is the widget's canvas, as on a client: no padding of its own (the widget's body margin is the inset),
+    /// the radius clips what the widget paints, the colour is the one DemoTheme passes as bg_color.
+    static let bubblePadding: CGFloat = 0
+    var bubblePadding: CGFloat { Self.bubblePadding }
     static let captionHeight: CGFloat = 14
     static let itemSpacing: CGFloat = 8
 

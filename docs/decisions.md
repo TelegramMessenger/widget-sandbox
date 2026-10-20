@@ -1318,6 +1318,19 @@ renderer against one picture. Reference pictures get the bubble's colour as
 the page's default background (Chromium, outside the document), so
 propagation shows there too.
 
+Two details make the transparent renderer hold on the web. The bubble itself
+has no padding around the widget and clips it at its corner radius (the
+widget's body margin is the inset): the dev app, the web and iOS chat feeds
+and the native demos draw their bubbles that way, in exactly the `bg_color`
+they pass, and `tests/sdk.spec.ts` screenshots the whole demo bubble. And the
+web's frame: `IframeRenderer` puts the theme's `color-scheme` on the frame
+element, and Chromium gives a frame whose root scheme differs from its
+element's an opaque canvas, white in a dark chat. The renderer therefore sets
+the same scheme on the frame's root, in the UA layer so a widget's own
+`color-scheme` still wins (`RendererEnv.frameColorScheme`, the web frame only:
+a dark root in a top-level WebView makes Chromium paint its own dark canvas);
+the dev app's reference frame gets the same.
+
 How the values were chosen.
 
 - Every property that WebKit's, Chromium's or litehtml's own stylesheet sets

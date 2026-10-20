@@ -43,6 +43,12 @@ export interface RendererEnv {
    * (root background propagation). A document has a canvas of its own: undefined.
    */
   canvas?: HTMLElement;
+  /**
+   * A frame inside a page (the web's IframeRenderer, whose element carries the theme's scheme): give the frame's root the
+   * same scheme, or the frame gets an opaque canvas in the root's scheme over the bubble behind the transparent renderer.
+   * Not in a WebView: a dark root there paints a dark canvas of its own.
+   */
+  frameColorScheme?(scheme: 'light' | 'dark'): void;
 }
 export type Send = (msg: RendererToHost, transfer: Transferable[]) => void;
 export interface RendererCore {
@@ -658,6 +664,7 @@ function onMessage(msg: HostToRenderer) {
     case 'theme':
       themeVars = themeVariables(msg.theme);
       applyThemeVariables();
+      env.frameColorScheme?.(themeVars['--tg-color-scheme'] === 'dark' ? 'dark' : 'light');
       canvasDirty = true;
       syncCanvas();
       break;

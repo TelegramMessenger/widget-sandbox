@@ -165,7 +165,9 @@ fun ChatBubble(model: WidgetModel) {
     Column {
         Text(model.renderer.label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
         Column(
-            modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface).padding(8.dp),
+            // The bubble is the widget's canvas, as on a client: no padding of its own (the widget's body margin is the inset),
+            // the colour demoTheme passes as bg_color, the radius clips what the widget paints.
+            modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface),
         ) { WidgetView(model) }
         // What a product shows under the bubble: the widget stays on screen (frozen) with a one-line reason.
         val d = model.diagnostics

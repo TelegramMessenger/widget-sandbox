@@ -24,7 +24,10 @@ defaults"): a widget without CSS now looks native on every client.
 - The renderer paints no background: the client's bubble under the transparent renderer,
   drawn in `bg_color`, is the canvas, and a root or body background a widget sets covers the
   whole bubble as in a browser. The shadow-DOM renderer, which has no canvas, paints that
-  background on its host element.
+  background on its host element. The widget view fills the bubble with no padding of the
+  bubble's own (the widget's body margin is the inset), clipped at the bubble's corner
+  radius; the dev app, the web and iOS chat feeds and the native demos draw their bubbles
+  that way now.
 - **Text tokens** next to the button tokens, on every host: `WidgetTheme.text` with
   `fontSize` (the chat's text-size setting, 8–64 CSS px), `lineHeight` (1–3) and
   `padding` (one to four lengths) → `--tg-text-font-size`, `--tg-text-line-height`,

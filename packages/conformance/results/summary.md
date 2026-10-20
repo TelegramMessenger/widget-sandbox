@@ -1,6 +1,6 @@
 # Conformance results
 
-Generated 2026-10-20 16:26 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; policy strict, features webAnimations).
+Generated 2026-10-20 20:08 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ bca908a; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ bca908a; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 

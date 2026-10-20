@@ -11,7 +11,7 @@ import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import type { FeedApi } from './feed';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
-import type { StorageCommit, WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { DEFAULT_THEME_PARAMS, themeVariables, type StorageCommit, type WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const el = {
@@ -165,8 +165,6 @@ function load(html: string, name: string | null) {
   host = null;
   Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], stats: null, height: 0, lastError: null });
   tasksAtError = 0;
-  // Showcase widgets own the whole bubble (edge to edge, the bubble clips); the older corpora are cards in a padded bubble (style.css .bubble.edge).
-  for (const b of document.querySelectorAll('.stage .bubble')) b.classList.toggle('edge', isEdge(name));
   el.title.textContent = name ?? 'dropped file';
   el.sandboxWrap.replaceChildren();
   renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole();
@@ -243,7 +241,7 @@ function updateCompare() {
     head.className = 'bubble-head';
     head.textContent = r.title;
     const bubble = document.createElement('div');
-    bubble.className = 'bubble' + (isEdge(state.file) ? ' edge' : '');
+    bubble.className = 'bubble';
     const wrap = document.createElement('div');
     wrap.className = 'frame-wrap';
     bubble.appendChild(wrap);
@@ -297,9 +295,6 @@ function ready(): Promise<void> {
   return new Promise((r) => loadWaiters.push(r));
 }
 
-/** corpus/showcase widgets are edge-to-edge bubbles (no padding, clipped by the bubble's radius); the other groups are cards inside a padded bubble. */
-export const isEdge = (file: string | null) => !!file && file.startsWith('showcase/');
-
 async function openFile(rel: string) {
   const res = await fetch('/corpus/' + rel);
   if (!res.ok) throw new Error('no such corpus file: ' + rel);
@@ -309,6 +304,21 @@ async function openFile(rel: string) {
 
 // Reference mode (dev tooling): native render of a repo corpus file in a
 // sandboxed iframe served with connect-src 'none'. Never used for attacks.
+/**
+ * The dev app's theme in the reference frame: the palette of the toggle (the reference stylesheet alone follows the
+ * browser's prefers-color-scheme), and the frame's root in the same scheme as its element, or the frame gets an opaque
+ * canvas over the bubble, as the renderer's frame would (core.ts frameColorScheme).
+ */
+function referenceScheme(f: HTMLIFrameElement, theme: 'light' | 'dark') {
+  try {
+    const d = f.contentDocument;
+    if (!d?.head) return;
+    const style = d.getElementById('tw-ref-scheme') ?? d.head.appendChild(Object.assign(d.createElement('style'), { id: 'tw-ref-scheme' }));
+    const vars = Object.entries(themeVariables({ colorScheme: theme })).map(([k, v]) => `${k}:${v}`).join(';');
+    style.textContent = `@layer tw-ua{:where(html){color-scheme:${theme}}}:root{${vars}}`;
+  } catch {}
+}
+
 function updateReference() {
   // compare mode shows the reference too (never for attacks: reference mode has no sandbox)
   const on = (el.reference.checked || el.compare.checked) && state.file && !state.file.startsWith('attacks/');
@@ -323,6 +333,7 @@ function updateReference() {
   // allow-forms so that `submit` events fire, like in the product renderer.
   f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
   f.style.colorScheme = state.theme;
+  f.addEventListener('load', () => referenceScheme(f, state.theme));
   f.src = '/reference/' + state.file;
   el.referenceWrap.replaceChildren(f);
   referenceFrame = f;
@@ -348,9 +359,11 @@ function setTheme(theme: 'light' | 'dark') {
   state.theme = theme;
   el.dark.checked = theme === 'dark';
   document.documentElement.dataset.theme = theme;
+  // The bubbles are the widgets' canvas: their colour is the bg_color the hosts get (the scheme's default palette here).
+  document.documentElement.style.setProperty('--bubble', DEFAULT_THEME_PARAMS[theme].bg_color);
   host?.setTheme(theme);
   for (const h of compareHosts) h.setTheme(theme);
-  if (referenceFrame) referenceFrame.style.colorScheme = theme;
+  if (referenceFrame) { referenceFrame.style.colorScheme = theme; referenceScheme(referenceFrame, theme); }
   feed?.setTheme(theme);
   syncUrl();
 }

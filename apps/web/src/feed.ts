@@ -614,7 +614,7 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     const head = document.createElement('div');
     head.className = 'bubble-head';
     const bubble = document.createElement('div');
-    bubble.className = 'bubble' + (file.startsWith('showcase/') ? ' edge' : ''); // edge to edge, the bubble clips (style.css)
+    bubble.className = 'bubble'; // the widget's canvas: no padding, the radius clips (style.css)
     const wrap = document.createElement('div');
     wrap.className = 'frame-wrap feed-wrap';
     bubble.appendChild(wrap);

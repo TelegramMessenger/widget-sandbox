@@ -45,9 +45,8 @@ struct FeedConfig: Codable, Equatable {
     /// `--feed-run-id`: echoed in the report so a shell can tell a fresh report from the previous run's.
     var runId = ""
     /// Which widgets fill the feed: `classic` = compat → generated → Telegram demos (the measured set, docs/chat-feed-ios.md),
-    /// `showcase` = corpus/showcase, the interactive demos, edge to edge in their bubbles (no padding, clipped at the corner radius).
+    /// `showcase` = corpus/showcase, the interactive demos. Every widget fills its bubble (no padding, clipped at the corner radius).
     var corpus = "classic"
-    var edgeBubbles: Bool { corpus == "showcase" }
     /// The feed bar's other switches at start (the web feed's bar, src/feed.ts): the renderer ("" = the demo's picker,
     /// `DemoRenderer.kind`) and the hostile bubble — an `attacks/` file name that takes the third widget bubble, "none" for none.
     var renderer = ""

@@ -5,13 +5,13 @@
   "platform": "web",
   "renderer": "iframe",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "4e85ffb",
+  "framework": "bca908a",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-20T16:16:11.943Z",
-  "commit": "4e85ffb"
+  "date": "2026-10-20T19:58:23.792Z",
+  "commit": "bca908a"
  },
  "summary": {
   "in": {
@@ -21496,7 +21496,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "128.5",
+     "detail": "154.39999999999998",
      "theme": "dark",
      "width": 360
     },
@@ -21604,7 +21604,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "128.8",
+     "detail": "152.7",
      "theme": "dark",
      "width": 390
     },
@@ -21712,7 +21712,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "125.7",
+     "detail": "145.5",
      "theme": "dark",
      "width": 430
     },
@@ -21820,7 +21820,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "132.8",
+     "detail": "149",
      "theme": "light",
      "width": 360
     },
@@ -21955,7 +21955,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "137.5",
+     "detail": "175.8",
      "theme": "light",
      "width": 390
     },
@@ -22090,7 +22090,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "125.8",
+     "detail": "149.5",
      "theme": "light",
      "width": 430
     },
@@ -25819,7 +25819,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "40,56,72",
+     "detail": "57,73,89",
      "theme": "dark",
      "width": 360
     },
@@ -25828,7 +25828,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "50,65,81",
+     "detail": "52,70,85",
      "theme": "dark",
      "width": 390
     },
@@ -25837,7 +25837,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "51,66,82",
+     "detail": "55,70,86",
      "theme": "dark",
      "width": 430
     },
@@ -25846,7 +25846,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "48,64,80",
+     "detail": "53,68,84",
      "theme": "light",
      "width": 360
     },
@@ -25855,7 +25855,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "36,52,69",
+     "detail": "50,65,81",
      "theme": "light",
      "width": 390
     },
@@ -25864,7 +25864,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "39,56,71",
+     "detail": "62,78,94",
      "theme": "light",
      "width": 430
     }

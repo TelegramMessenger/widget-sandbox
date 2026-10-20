@@ -654,6 +654,10 @@ ignore them.
 - Content beyond the bubble's height (600 in auto mode, or the fixed height) is
   clipped: no inner scrolling (outside the profile), no fullscreen button
   (D12a).
+- The widget view fills the bubble: no padding of the bubble's own around it
+  (the widget's body margin, the `padding` text token, is the inset, §2.4), and
+  the bubble clips the view at its corner radius, so a background the widget
+  paints reaches the rounded edges.
 - Text is not selectable unless the widget enables it with `user-select: text`
   (D18 since v0.1.1; §2.4, §5.10).
 
