@@ -3,6 +3,59 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.1.1 — release notes (2026-10-20)
+
+A clarification of widget profile 1 and the tooling around the test group; profile,
+SDK and protocol versions stay 1, and every widget valid under v0.1.0 stays valid.
+
+**Default widget styles** (`docs/sdk-v1.md` §2.4, `docs/decisions.md`, "The renderer's
+defaults"): a widget without CSS now looks native on every client.
+
+- The renderer's user-agent layer (`tables.uaStylesheet` in `packages/core/profile.json`,
+  `@layer tw-ua`, every selector in `:where()`, so any author rule wins) covers the root
+  and the text elements, not only `<button>`: `html` is painted in `--tg-theme-bg-color`
+  with `--tg-theme-text-color` and the client's text font; `body` has no margin and the
+  client's padding (inside the reported height); headings, paragraphs, lists, `dl`,
+  tables, `hr`, `pre`/`code`, quotes, figures, images and inline elements get explicit
+  sizes and margins in `em`, the same in WebKit, Chromium and litehtml. Before, each
+  engine's own stylesheet showed (Times 16 px and an 8 px margin in a WebView).
+- **Text tokens** next to the button tokens, on every host: `WidgetTheme.text` with
+  `fontSize` (the chat's text-size setting, 8–64 CSS px), `lineHeight` (1–3) and
+  `padding` (one to four lengths) → `--tg-text-font-size`, `--tg-text-line-height`,
+  `--tg-text-padding`, always set on the renderer root; the reference set 15 px / 1.35 /
+  `8px 12px` stands for what a client does not pass. Swift `WidgetTextTokens`, Kotlin
+  `WidgetTextTokens`, C++ `twidget::WidgetTextTokens`, TS `TextTokens`; the Node harness
+  takes `text` / `button` and writes the `theme` message into `--ops-file`.
+- **`bg_color` is this bubble's colour**: a widget the user sent or forwarded sits in an
+  outgoing bubble and gets that bubble's palette (`docs/sdk-v1.md` §2.3, §5.1).
+- Visible changes for existing widgets: one that writes `body { margin: 0 }` without a
+  padding now gets the client's padding (169 of the 208 corpus widgets); a `body`
+  background no longer spreads under the `html` one, so a body margin shows the bubble's
+  colour. Widgets that style their own elements keep their look.
+- Native renderers bake the template into their master CSS: `apps/renderer-litehtml` reads
+  it from `profile.json` at build time and sets the theme variables itself
+  (`src/theme.cpp`); what TwidgetCore and the Swift renderer must do is in
+  `docs/decisions.md`. Reference pictures everywhere (dev app, conformance build, the
+  native demos' reference modes) use one stylesheet, `packages/core/src/shared/reference.ts`.
+- The shadow-DOM renderer's base stylesheet no longer sets `body { margin: 8px }`.
+
+**Examples and conformance**
+
+- `corpus/defaults`: six widgets with little or no CSS (text card, list, table, FAQ with
+  `<button>`, survey, link card), `pnpm test:defaults`.
+- `packages/conformance`: `visual/14-unstyled-document` (no CSS at all, light and dark
+  pictures on the reference tokens) and `auto/22-ua-defaults` (the computed defaults
+  against the client's own tokens; author CSS wins). "bare" widgets carry the harness
+  script without its CSS. The harness sets `body { padding: 0 }`, so the other pictures
+  did not move.
+
+**The test group**: `scripts/conformance/publish-channel.ts` fills the Telegram test forum
+group through a test bot (topics Visual, Client SDK, Auto and, new, Defaults; Showcase,
+Common, Generated on request), with size anchors in the file name, `--dry-run`, `--only`,
+`--rebuild`, `--reset`; config and state outside the repository. Visual 03, 05, 08 and
+09 are split into `-a`/`-b` so every widget fits the 600 px bubble; `build.ts` gates 560 px
+at 320 px wide and `heights.ts` measures every widget through the sandbox.
+
 ## v0.1.0 — release notes (2026-10-17)
 
 The first tagged state of the framework: the integration branch `telegram-macos`

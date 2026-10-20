@@ -26,7 +26,7 @@ the tag, never a branch: `main` moves, and the JS bundles, the native
 bytecode and the QuickJS submodule change together, so a mixed checkout does
 not boot.
 
-- **SwiftPM (iOS, macOS)**: `.package(url: "https://github.com/TelegramMessenger/widget-sandbox.git", exact: "0.1.0")`
+- **SwiftPM (iOS, macOS)**: `.package(url: "https://github.com/TelegramMessenger/widget-sandbox.git", exact: "0.1.1")`
   (SwiftPM reads the `v` prefix of the tag). The manifest is the repo-root
   `Package.swift`; SwiftPM clones the QuickJS submodule itself. A registry or
   zip copy without the submodule does not build.
@@ -39,7 +39,7 @@ not boot.
   as `apps/android` does. The AAR carries the native library (arm64-v8a, x86_64)
   and the bundles as assets; a Maven publication comes later.
 - **npm (web)**: `@telegram/widget-sandbox` lives in `packages/core`. With pnpm:
-  `"@telegram/widget-sandbox": "github:TelegramMessenger/widget-sandbox#v0.1.0&path:packages/core"`;
+  `"@telegram/widget-sandbox": "github:TelegramMessenger/widget-sandbox#v0.1.1&path:packages/core"`;
   with another package manager, a checkout at the tag and a `file:` / workspace
   dependency on `packages/core`. The package is not on the npm registry yet.
 

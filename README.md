@@ -45,7 +45,7 @@ engine is the TelegramMessenger/quickjs fork, a git submodule.
 
 ## For client teams
 
-Pin the tag `v0.1.0`, never a branch: the bundles, the bytecode and the
+Pin the latest tag (`v0.1.1`), never a branch: the bundles, the bytecode and the
 QuickJS submodule change together. Then read, in this order:
 
 | | |

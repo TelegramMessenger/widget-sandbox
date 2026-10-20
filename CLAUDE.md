@@ -23,7 +23,10 @@ pnpm workspace). A framework change touches `packages/` only.
   `profile.json` is the widget profile (profile 1, frozen 2026-10-17): the single
   source of what the validator, the shim and the renderer enforce;
   `scripts/profile-build.ts` generates `src/shared/profile-tables.ts` and
-  `docs/profile-v1.md` from it (never edit those two by hand).
+  `docs/profile-v1.md` from it (never edit those two by hand). Its
+  `tables.uaStylesheet` is the renderer's UA layer (the root and text defaults on
+  `--tg-theme-*` / `--tg-text-*`, the client-styled `<button>`, since v0.1.1);
+  `src/shared/reference.ts` adds the reference theme to it for every reference rendering.
 - `packages/ios` — the Swift package (iOS + macOS); its manifest is the
   repo-root `Package.swift` (SwiftPM needs it there for a git dependency).
 - `packages/android` — the `widget-sandbox` Gradle library,
@@ -32,7 +35,7 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
   framework tag: `catalogue.json` (255 profile features, statuses synced from `profile.json`), `auto/`
-  (38 self-checking widgets), `visual/` (17 widgets for people + `visual/sdk`, 17 client-SDK cases),
+  (39 self-checking widgets), `visual/` (18 widgets for people + `visual/sdk`, 17 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B of gzip) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
@@ -45,7 +48,7 @@ pnpm workspace). A framework change touches `packages/` only.
   Gradle build with `includeBuild("../../packages/android")`);
   `apps/renderer-blitz`, `apps/renderer-litehtml` — the native renderer prototypes.
 - Shared data at the root: `corpus/` (attacks, compat, generated, common,
-  showcase, htmlbubbles*), `tests/` (the Playwright suites, run against
+  showcase, defaults, htmlbubbles*), `tests/` (the Playwright suites, run against
   `apps/web`), `docs/`, `scripts/` (repo tooling: corpus generation, benches,
   profiling, `sync-demo-corpus.ts`).
 
@@ -158,7 +161,7 @@ corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "
 corepack pnpm test:unit
 corepack pnpm test:attacks            # 99 files, canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
-corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md): theme variables on the renderer root, gesture claims, storage across a restart, locale, link and haptic actions; iframe + shadow
+corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md): theme variables on the renderer root, the UA layer's root and text defaults on the text tokens, gesture claims, storage across a restart, locale, link and haptic actions; iframe + shadow
 corepack pnpm test:compat             # → docs/compat-report.md
 corepack pnpm test:generated          # → docs/compat-report-generated.md
 corepack pnpm test:lifecycle          # off-screen pause (frames stop, timers 1 Hz, visibilitychange)
@@ -166,6 +169,7 @@ corepack pnpm test:htmlbubbles        # 116 Telegram demos ported to classic wid
 TW_RENDERER=shadow corepack pnpm test:attacks   # the same suite on the Shadow DOM renderer (no iframe): must stay at 0 hits / 0 requests; also test:generated / test:common → docs/compat-report-<group>-shadow.md
 corepack pnpm tsx scripts/feed-bench.ts --counts 50,200 --mode ops,host --cv --pool 8,32 --out docs/feed-bench-web.md   # iframe vs shadow renderer in a feed of N bubbles (needs pnpm dev); ops = renderer only, host = full WidgetHost per bubble, --pool = also with a warmed worker pool
 corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://127.0.0.1:5173   # the feed's bench headless (6 renderer × pool cells × 5 passes × 60 bubbles, ~30 min; --combos iframe:on,blitz:off,…) → docs/feed-report-web.json + .md; needs pnpm dev and the two wasm builds
+corepack pnpm test:defaults           # 6 widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults, README there; the test group's Defaults topic) → docs/compat-report-defaults.md
 corepack pnpm test:showcase           # 21 interactive demos on the full web profile (corpus/showcase, README there; the web feed's content) → docs/compat-report-showcase.md; in the iOS/macOS demo: the showcase/<batch> sections, --autorun showcase, and the iOS chat feed's Widgets picker (showcase by default; --feed-set corpus=showcase from a shell, edge-to-edge bubbles)
 corepack pnpm test:common             # 32 widgets on the common WebView/Blitz/litehtml profile (corpus/common, README there) → docs/compat-report-common.md; the same files run on every renderer: --autorun common [--blitz|--litehtml] in the iOS/macOS demo, --es autorun common on Android, CORPUS=common scripts/android-bench.sh <renderer> 20
 corepack pnpm build:blitz-web         # Blitz renderer for the web dev app: cargo (wasm32, rustup) + wasm-bindgen-cli (version from apps/renderer-blitz/Cargo.lock) → apps/renderer-blitz/pkg-web (gitignored, served at /blitz/); then the Blitz toggle / ?blitz=1, apps/web/tests/unit/blitz-wasm.test.ts stops skipping
@@ -189,7 +193,7 @@ corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html 
 scripts/android-bench.sh webview|blitz|litehtml|none 20 [prewarm]   # renderer start-up/memory bench in the Android demo (needs installDebug + emulator); POOLS=1 = validator pool; python3 -I scripts/android-bench-print.py --table <names>; docs/android-renderer-bench.md
 xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # 223 tests (the test scheme SwiftPM generates); corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
 cd apps/ios/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemo -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' CODE_SIGNING_ALLOWED=NO -derivedDataPath /tmp/twidget-sim && xcrun simctl install booted /tmp/twidget-sim/Build/Products/Debug-iphonesimulator/TwidgetDemo.app && xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz   # demo on the Blitz renderer (--litehtml: litehtml); the pre-build phases run apps/renderer-blitz/build-apple.sh (rustup cargo) and apps/renderer-litehtml/build-apple.sh (cmake + ninja)
-cd apps/renderer-litehtml && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-litehtml-tests && ./build/twidget-litehtml-run msgs.json out.png --width 360 --dpr 2   # litehtml core on the host: 6 tests; msgs.json from `pnpm tsx packages/core/scripts/sandbox-node.ts <widget> --ops-file msgs.json`
+cd apps/renderer-litehtml && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-litehtml-tests && ./build/twidget-litehtml-run msgs.json out.png --width 360 --dpr 2   # litehtml core on the host: 7 tests; msgs.json (the theme message, then the ops) from `pnpm tsx packages/core/scripts/sandbox-node.ts <widget> --ops-file msgs.json [--dark] [--font-size 17]`
 xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --autorun feed --feed max --feed-count 40 --feed-scroll step   # chat feed (iOS only): scripted scroll, feed-report.json in the app container; `--feed baseline`, `--feed-set pools=false,…`; build with -configuration Release for numbers (docs/chat-feed-ios.md); the feed has the web feed's bar: renderer WebView | Blitz | litehtml switched live, pool on/off, hostile bubble, corpus, count, reset, ▶ scroll (`--feed-set renderer=blitz,hostile=cpu-raf-burn,corpus=showcase`)
 xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # 222 tests; the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
 cd apps/macos/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemoMac -destination 'platform=macOS' -derivedDataPath /tmp/twidget-mac && /tmp/twidget-mac/Build/Products/Debug/TwidgetDemoMac.app/Contents/MacOS/TwidgetDemoMac --autorun attacks   # also generated|compat|pause; --features binaryOps,canvasWords runs the attacks through the Swift native node model (NativeValidator), which Playwright never exercises; reports in ~/Library/Application Support/org.telegram.widgetsandbox.TwidgetDemoMac
@@ -270,6 +274,13 @@ policy with four copies and a fixture (`packages/core/src/shared/sdk-policy.ts`,
 `SdkPolicy.swift`, `SdkPolicy.kt`, `sdk_policy.cpp`, `packages/core/tests/fixtures/sdk-policy.json`),
 `WidgetTheme` / `onAction` / `onStorageCommit` / `onGestureClaim` on every host, Web Storage
 per message, `sendMessage` gone; the corpora reworked for profile 1 and SDK v1.
+2026-10-20: v0.1.1 (`docs/changes.md`): the renderer's UA layer covers the root and the text
+elements (a clarification of profile 1, `docs/decisions.md` "The renderer's defaults"), text
+tokens `WidgetTheme.text` → `--tg-text-*` on every host, `bg_color` = this bubble's colour;
+litehtml bakes the layer in (CMake reads `profile.json`, `src/theme.cpp` sets the variables);
+`corpus/defaults`, conformance `visual/14-unstyled-document` and `auto/22-ua-defaults`;
+`scripts/conformance/publish-channel.ts` fills the test group (config and state in
+`~/.config/widget-sandbox`, never in the repository).
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
