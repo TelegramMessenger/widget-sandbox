@@ -5,18 +5,18 @@
   "platform": "web",
   "renderer": "litehtml",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "4e85ffb",
+  "framework": "b808668",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-20T16:26:23.769Z",
-  "commit": "4e85ffb"
+  "date": "2026-10-20T20:38:10.792Z",
+  "commit": "b808668"
  },
  "summary": {
   "in": {
-   "pass": 68,
-   "partial": 40,
+   "pass": 69,
+   "partial": 39,
    "fail": 52,
    "xfail": 0,
    "xpass": 0,
@@ -5384,7 +5384,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "127.20000000000002",
+     "detail": "148.3",
      "theme": "light",
      "width": 390
     },
@@ -6025,10 +6025,9 @@
   },
   "js.dom.query": {
    "status": "in",
-   "verdict": "partial",
+   "verdict": "pass",
    "counts": {
-    "pass": 2,
-    "fail": 1
+    "pass": 3
    },
    "evidence": [
     {
@@ -6053,8 +6052,8 @@
      "test": "auto/14-dom-layout-api-b",
      "kind": "check",
      "name": "getElementsByClassName is live",
-     "status": "fail",
-     "detail": "0 → 0",
+     "status": "pass",
+     "detail": "0 → 1",
      "theme": "light",
      "width": 390
     }
@@ -6434,7 +6433,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "36,48,65",
+     "detail": "42,54,71",
      "theme": "light",
      "width": 390
     }
@@ -8886,8 +8885,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "fail": 11,
-    "pass": 9
+    "fail": 10,
+    "pass": 10
    },
    "stages": [],
    "host": []

@@ -5,9 +5,9 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## v0.1.1 — release notes (2026-10-20)
 
-A clarification of widget profile 1, opt-in text selection, and the tooling around the
-test group; profile, SDK and protocol versions stay 1, and every widget valid under v0.1.0
-stays valid.
+A clarification of widget profile 1, opt-in text selection, live collections and Intl fixes,
+and the tooling around the test group; profile, SDK and protocol versions stay 1, and every
+widget valid under v0.1.0 stays valid.
 
 **Default widget styles** (`docs/sdk-v1.md` §2.4, `docs/decisions.md`, "The renderer's
 defaults"): a widget without CSS now looks native on every client.
@@ -68,6 +68,41 @@ text unselectable (an accepted exception to "every client draws it", like `:hove
   author CSS wins); `auto/06-text-fonts-c` checks the selection values. "bare" widgets carry
   the harness script without its CSS. The harness sets `body { padding: 0 }`, so the other
   pictures did not move. Reference pictures get the bubble's colour as the page's canvas.
+
+**Shim, glue and Intl** (three commits on GitHub main of 2026-10-19, folded in with fixes):
+
+- **Live collections**: `getElementsByClassName` and `getElementsByTagName` answer live
+  `HTMLCollection`s as in browsers (linkedom gave a snapshot); class lists with several
+  names and `'*'` match as in browsers. A collection re-reads its matches only after an
+  element is inserted or removed or a class is written (and once per task), so an indexed
+  loop that reads, styles or measures the items stays linear; a loop that replaces each
+  item's element children re-scans per step, as in browsers.
+- **Web Animations before a layout query** (`webAnimations` feature): a synchronous
+  layout query first sends the animation state the script set in the task, so a seek is
+  visible to `getBoundingClientRect` in the same task (conformance `anim.waapi` ◐ → ✅).
+  The Apple `WidgetHost` sends the `anim` batch in order with ops and queries; it was
+  posted past them, so the query answered from the old frame (Kotlin, C++ and the web
+  already kept the order).
+- **Date defaults in the shim**: ECMA-402's defaults for a format without a date or time
+  field and without a style (numeric year, month and day for `DateTimeFormat` and
+  `toLocaleDateString`, the time for `toLocaleTimeString`, both for `toLocaleString`) are
+  applied by the shim, so every host's formatter gets explicit fields, the C++ `BasicIntl`
+  and tdesktop's `IntlProvider` included (`new Intl.DateTimeFormat('en-US').format(d)` is
+  `1/1/1970`, not a medium date with a time). The Swift and Kotlin glue keep no copy of
+  their own; `BasicIntl` prints numeric months in the en-US order.
+- **Intl on Apple**: CLDR plural rules for about 150 languages, with the `v`/`f`/`t`
+  operands from `minimumFractionDigits` (checked against JavaScriptCore on 63 locales);
+  `RelativeTimeFormat` `numeric: 'auto'` and `style`; `ListFormat` in the given locale;
+  `Collator` `sensitivity` and `numeric`; `NumberFormat` `minimumIntegerDigits`,
+  significant digits, `currencyDisplay`, `signDisplay: 'always'`; `resolvedOptions()` of
+  `NumberFormat` and `DateTimeFormat`; `era`, `timeZoneName` and `fractionalSecondDigits`
+  in date patterns. **On Android**: ordinal plural rules, `RelativeTimeFormat` `style`
+  (`numeric: 'auto'` from API 28), `DateTimeFormat.resolvedOptions()`.
+- Known gaps in Intl: the Kotlin `IntlBridge` has no `NumberFormat.resolvedOptions()`, no
+  `NumberFormat` digit, currency-display or sign options, no `Collator` options, no
+  `era`/`timeZoneName`/`fractionalSecondDigits`, and its plural rules ignore
+  `minimumFractionDigits`; the C++ `BasicIntl` (the fallback without locale data) has no
+  ordinal rules and no `numeric: 'auto'`, and prints 24-hour times.
 
 **The test group**: `scripts/conformance/publish-channel.ts` fills the Telegram test forum
 group through a test bot (topics Visual, Client SDK, Auto and, new, Defaults; Showcase,
@@ -203,8 +238,7 @@ and CLAUDE.md).
   condition that both draw it.
 - *Shim gaps found by the conformance set*: `getComputedStyle` answers `""` for
   shorthands (`white-space`, `overflow`, `margin`); `animation*` / `transitionend` events carry no `animationName`,
-  `elapsedTime`, `propertyName`; `getElementsByClassName` is not live; canvas
-  `drawImage(off-DOM canvas)` draws nothing.
+  `elapsedTime`, `propertyName`; canvas `drawImage(off-DOM canvas)` draws nothing.
 - *Android instrumented suite on the emulator*: `GestureTest.rangeSliderAndInnerScrollerKeepTheGesture`
   fails on AVD twidget-35 (API 35, software GLES): the first WebView in the test
   process takes ~25 s to initialise against the test's 15 s load deadline, and under

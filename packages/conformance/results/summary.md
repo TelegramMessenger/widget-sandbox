@@ -1,6 +1,6 @@
 # Conformance results
 
-Generated 2026-10-20 20:08 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ bca908a; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ bca908a; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 4e85ffb; policy strict, features webAnimations).
+Generated 2026-10-20 20:53 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ b808668; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ b808668; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ b808668; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ b808668; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
@@ -8,10 +8,10 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 | Renderer | in (174) ✅ / ◐ / ❌ / ⏳ | out (81) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|
-| web iframe | 159 / 5 / 0 / 0 | 80 / 0 / 0 | 231 / 231 | 0 |
-| web shadow | 159 / 5 / 0 / 0 | 80 / 0 / 0 | 231 / 231 | 0 |
-| web blitz | 99 / 35 / 26 / 0 | 66 / 2 / 6 | 41 / 41 | 0 |
-| web litehtml | 68 / 40 / 52 / 0 | 60 / 3 / 11 | 41 / 41 | 0 |
+| web iframe | 161 / 3 / 0 / 0 | 80 / 0 / 0 | 231 / 231 | 0 |
+| web shadow | 161 / 3 / 0 / 0 | 80 / 0 / 0 | 231 / 231 | 0 |
+| web blitz | 100 / 34 / 26 / 0 | 66 / 2 / 6 | 41 / 41 | 0 |
+| web litehtml | 69 / 39 / 52 / 0 | 60 / 3 / 11 | 41 / 41 | 0 |
 
 ## In the profile
 
@@ -113,7 +113,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `anim.play-state` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `anim.easing` | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `anim.events` | ◐ | ◐ | ❌ | ❌ | ✅ |
-| `anim.waapi` * | ◐ | ◐ | ◐ | ◐ | ✅ |
+| `anim.waapi` * | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `anim.waapi-css-control` * | ✅ | ✅ | ❌ | ❌ | ✅ |
 | `canvas.rect` | ✅ | ✅ | ❌ | ❌ | · |
 | `canvas.path` | ✅ | ✅ | ❌ | ❌ | · |
@@ -129,7 +129,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `canvas.hit-test` | ✅ | ✅ | ❌ | ✅ | ✅ |
 | `canvas.hidpi` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `js.dom.core` | ✅ | ✅ | ✅ | ◐ | ✅ |
-| `js.dom.query` | ◐ | ◐ | ◐ | ◐ | ✅ |
+| `js.dom.query` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.dom.style` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.dom.events` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.layout.rect` | ✅ | ✅ | ◐ | ◐ | ✅ |
@@ -283,17 +283,13 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 ## web iframe: in-profile failures
 
 - `anim.events`: 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName ("")
-- `anim.waapi`: 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5)
 - `canvas.draw-image`: 12-canvas-b: draw-image (diff 50.4 % of ink (max 5 %))
-- `js.dom.query`: 14-dom-layout-api-b: getElementsByClassName is live (0 → 0)
 - `js.layout.computed-style`: 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
 
 ## web shadow: in-profile failures
 
 - `anim.events`: 10-css-animations: animation events carry animationName and elapsedTime ("" at 0); 10-css-animations: transitionend carries propertyName ("")
-- `anim.waapi`: 11-web-animations: a seek is visible to a layout query in the same task (got 20, want 45 ±0.5)
 - `canvas.draw-image`: 12-canvas-b: draw-image (diff 50.4 % of ink (max 5 %))
-- `js.dom.query`: 14-dom-layout-api-b: getElementsByClassName is live (0 → 0)
 - `js.layout.computed-style`: 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
 
 ## web blitz: in-profile failures
@@ -352,7 +348,6 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `canvas.draw-image`: 12-canvas-b: drawImage of a loaded <img> ( (timed out)); 12-canvas-b: draw-image (diff 96.4 % of ink (max 5 %))
 - `canvas.hit-test`: 12-canvas-a: isPointInPath inside / outside (false false); 12-canvas-a: isPointInStroke (false)
 - `canvas.hidpi`: 12-canvas-a: rect (diff 100.0 % of ink (max 5 %))
-- `js.dom.query`: 14-dom-layout-api-b: getElementsByClassName is live (0 → 0)
 - `js.layout.rect`: 14-dom-layout-api-b: getClientRects of a wrapped inline gives one rect per line (1)
 - `js.layout.box`: 14-dom-layout-api-b: scrollHeight of overflowing content (got 136, want 70); 14-dom-layout-api-b: offsetParent (got false, want true)
 - `js.layout.computed-style`: 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
@@ -446,7 +441,6 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `canvas.draw-image`: 12-canvas-b: drawImage of a loaded <img> ( (timed out)); 12-canvas-b: draw-image (diff 96.4 % of ink (max 5 %))
 - `canvas.hidpi`: 12-canvas-a: rect (diff 100.0 % of ink (max 5 %))
 - `js.dom.core`: 14-dom-layout-api-a: innerHTML replaces the children (1)
-- `js.dom.query`: 14-dom-layout-api-b: getElementsByClassName is live (0 → 0)
 - `js.layout.rect`: 14-dom-layout-api-b: getClientRects of a wrapped inline gives one rect per line (1)
 - `js.layout.box`: 14-dom-layout-api-b: scrollHeight of overflowing content (got 30, want 70); 14-dom-layout-api-b: offsetParent (got false, want true)
 - `js.layout.computed-style`: 14-dom-layout-api-b: longhand (width) (got "116.000000px", want "100px"); 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
