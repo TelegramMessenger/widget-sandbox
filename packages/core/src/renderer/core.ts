@@ -37,6 +37,12 @@ export interface RendererEnv {
   onViewportResize(cb: () => void): () => void;
   /** Fires when the OS colour scheme changes under the renderer (the host re-asserts its theme); returns the unsubscribe. */
   onColorSchemeChange(cb: () => void): () => void;
+  /**
+   * The element that stands for the canvas when the widget's <html> is not a document root (the shadow renderer's
+   * host): the core paints on it what CSS paints on a document's canvas, the root's background or else the body's
+   * (root background propagation). A document has a canvas of its own: undefined.
+   */
+  canvas?: HTMLElement;
 }
 export type Send = (msg: RendererToHost, transfer: Transferable[]) => void;
 export interface RendererCore {
@@ -104,8 +110,9 @@ const noop = () => {};
 /**
  * Input that belongs to the chat, never to the widget (D4, docs/profile-v1.md):
  * keys and editing are swallowed (no Enter or Space activation), the platform's
- * context menu is cancelled (the bubble's own menu wins), a mouse press never
- * moves the focus into the widget nor starts a text selection, and the focus
+ * context menu is cancelled (the bubble's own menu wins), a mouse press neither
+ * moves the focus into the widget nor starts a text selection unless it lands on
+ * text the widget made selectable (`user-select: text`, D18), and the focus
  * never stays in it.
  */
 const SWALLOWED = ['keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'contextmenu', 'mousedown', 'focusin', 'submit', 'selectstart'];
@@ -182,6 +189,7 @@ function applyOp(op: RenderOp) {
       const tag = op.tag.toLowerCase();
       if (FORBIDDEN_TAGS.has(tag)) return violation(`element <${op.tag}>`);
       let el: Element;
+      if (op.adopt) canvasDirty = true;
       if (op.adopt === 'html') el = HTML;
       else if (op.adopt === 'head') el = HEAD;
       else if (op.adopt === 'body') el = BODY;
@@ -197,6 +205,8 @@ function applyOp(op: RenderOp) {
   }
   const node = nodes.get(op.id);
   if (!node) return;
+  // What can change the root's or the body's background: their own attributes and styles, any stylesheet.
+  if (node === HTML || node === BODY || op.op === 'css' || ((op.op === 'ins' || op.op === 'rm') && node instanceof HTMLStyleElement)) canvasDirty = true;
   switch (op.op) {
     case 'attr':
       applyAttr(node as Element, op.name, op.value);
@@ -620,6 +630,7 @@ function onMessage(msg: HostToRenderer) {
       for (const op of msg.ops) {
         try { applyOp(op); } catch (e) { violation('op failed: ' + String(e)); }
       }
+      syncCanvas();
       reportSize();
       break;
     case 'query': {
@@ -647,6 +658,8 @@ function onMessage(msg: HostToRenderer) {
     case 'theme':
       themeVars = themeVariables(msg.theme);
       applyThemeVariables();
+      canvasDirty = true;
+      syncCanvas();
       break;
   }
 }
@@ -664,6 +677,42 @@ function applyThemeVariables() {
     if (v === undefined) style.removeProperty(name);
     else style.setProperty(name, v, 'important');
   }
+}
+
+// ───────────────────────── the canvas of a widget that is not a document (shadow renderer) ─────────────────────────
+
+let canvasDirty = true;
+/** Painted on the canvas element; `background-attachment` stays `scroll` (fixed would follow the chat page's viewport). */
+const CANVAS_PROPS = ['background-color', 'background-image', 'background-position', 'background-size', 'background-repeat', 'background-origin', 'background-clip'];
+const transparentColor = (c: string) => c === 'transparent' || /^rgba\(\s*0,\s*0,\s*0,\s*0\s*\)$/.test(c);
+
+/**
+ * CSS paints a document's canvas with the root element's background, or with the body's when the root has none
+ * (and a body background then reaches the whole bubble, its margins included). A shadow root has no canvas, so the
+ * core does it on `env.canvas` after every change that can move either background. Widget content only: the values
+ * are the widget's own computed, validated ones; the bubble's own colour is behind the renderer, never painted here.
+ */
+function syncCanvas() {
+  const canvas = env.canvas;
+  if (!canvas || !canvasDirty || !HTML || !BODY) return;
+  canvasDirty = false;
+  const root = getComputedStyle(HTML);
+  const src = root.backgroundImage !== 'none' || !transparentColor(root.backgroundColor) ? root : getComputedStyle(BODY);
+  const style = styleOf(canvas);
+  for (const p of CANVAS_PROPS) style.setProperty(p, src.getPropertyValue(p));
+}
+
+/** Whether a press on `t` may start a text selection: the nearest `user-select` that is not `auto`, from the target up to the root, where the UA layer says none (D18). */
+function selectable(t: EventTarget | null): boolean {
+  let el: Element | null = t instanceof Element ? t : t instanceof Node ? t.parentElement : null;
+  while (el) {
+    const cs = getComputedStyle(el);
+    const v = cs.userSelect || (cs as unknown as { webkitUserSelect?: string }).webkitUserSelect;
+    if (v && v !== 'auto') return v !== 'none';
+    if (el === HTML) return false;
+    el = el.parentElement;
+  }
+  return false;
 }
 
 // ───────────────────────── frozen state (last render as fallback) ─────────────────────────
@@ -698,9 +747,10 @@ let offViewport: (() => void) | null = null;
 
 /** Input the chat keeps (SWALLOWED): never forwarded to the widget, and without its default action inside it. */
 function swallow(e: Event) {
-  if (e.type === 'mousedown') {
-    // No focus move and no selection from a press; the press itself still reaches the widget (pointerdown, mousedown, :active).
-    if (e.cancelable) e.preventDefault();
+  if (e.type === 'mousedown' || e.type === 'selectstart') {
+    // No focus move and no selection from a press, unless it lands on text the widget made selectable (user-select: text,
+    // D18); the press itself still reaches the widget (pointerdown, mousedown, :active).
+    if (e.cancelable && !selectable(e.target)) e.preventDefault();
     return;
   }
   if (e.type === 'focusin') {
@@ -715,7 +765,8 @@ function swallow(e: Event) {
 function init(s: Send) {
   send = s;
   ({ html: HTML, head: HEAD, body: BODY } = env.roots());
-  // The renderer's own stylesheet (trusted, from the profile): the client-styled <button> and no text selection.
+  // The renderer's own stylesheet (trusted, from the profile): the root and text defaults, text not selectable unless the
+  // widget says user-select: text, the client-styled <button>.
   const ua = createElement(doc, 'style');
   setTextContent(ua, PROFILE_UA_STYLESHEET);
   insertBefore(HEAD, ua, firstChildOf(HEAD));

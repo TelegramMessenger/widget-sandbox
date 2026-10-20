@@ -26,7 +26,9 @@ import type { Renderer, RendererFactory } from './renderer';
  * the measured height (our <html> is not a root element, its margins would
  * otherwise collapse through). The body's margin and padding, the font and the
  * colours come from the renderer's UA layer (profile.json `uaStylesheet`), as in
- * the iframe: an unlayered rule here would beat that layer.
+ * the iframe: an unlayered rule here would beat that layer. The host element is
+ * the canvas: the renderer core paints the root's or the body's background on it
+ * (`RendererEnv.canvas`), so a body background covers the body's margins too.
  */
 const BASE_CSS =
   ':host{all:initial;display:block;width:100%;position:relative;contain:layout paint style;container-type:size;container-name:tw}' +
@@ -96,6 +98,8 @@ export class ShadowDomRenderer implements Renderer {
         mq.addEventListener('change', cb);
         return () => mq.removeEventListener('change', cb);
       },
+      // The host element is the bubble's canvas: a body background reaches the whole bubble, as in a frame.
+      canvas: el,
     };
   }
 

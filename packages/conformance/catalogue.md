@@ -1,12 +1,12 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 255 features: 173 in (4 conditional on every renderer drawing them), 82 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 255 features: 174 in (4 conditional on every renderer drawing them), 81 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
 | html | 34 | 20 | 14 | 0 | 34 |
 | svg | 10 | 5 | 5 | 0 | 10 |
-| css | 76 | 53 | 23 | 0 | 76 |
+| css | 76 | 54 | 22 | 0 | 76 |
 | selector | 13 | 7 | 6 | 0 | 13 |
 | at-rule | 13 | 5 | 8 | 0 | 13 |
 | animation | 8 | 7 | 1 | 0 | 8 |
@@ -16,7 +16,7 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | input | 14 | 7 | 7 | 0 | 14 |
 | limit | 11 | 11 | 0 | 0 | 7 |
 | behaviour | 11 | 11 | 0 | 0 | 11 |
-| **all** | 255 | 173 | 82 | 0 | 251 |
+| **all** | 255 | 174 | 81 | 0 | 251 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the pipeline of the tag does with it under `strict`: profile 1 enforced, SDK v1; legend below), **tests** (conformance widgets that judge it).
 
@@ -24,7 +24,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `html.el.structure` | div, span, p, br, hr, wbr | in | D3a | kept |  | auto/01-html-elements-a, auto/22-ua-defaults, visual/14-unstyled-document |
+| `html.el.structure` | div, span, p, br, hr, wbr | in | D3a | kept |  | auto/01-html-elements-a, auto/22-ua-defaults, visual/14-unstyled-document, visual/15-body-background |
 | `html.el.headings` | h1–h6 with UA default sizes and margins | in | D3a | kept |  | auto/01-html-elements-a, auto/22-ua-defaults, visual/14-unstyled-document |
 | `html.el.sections` | header, footer, main, nav, section, article, aside, hgroup, search, address | in | D3a | kept |  | auto/01-html-elements-a |
 | `html.el.inline-text` | Inline text semantics with UA styles: b, i, u, s, em, strong, small, mark, code, kbd, samp, var, abbr, cite, q, del, ins, dfn, time, data | in | D3a | kept |  | auto/01-html-elements-a, auto/22-ua-defaults, visual/14-unstyled-document |
@@ -55,7 +55,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `html.attr.data-aria` | data-* and aria-* attributes (selectors, attr()); no a11y semantics in v1<br><sub>Counted against the strict text budget.</sub> | in | D21 | kept |  | auto/02-attributes-images-a |
 | `html.attr.legacy-presentational` | align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap | out | P1 | stripped | the attributes are dropped | auto/02-attributes-images-a |
 | `html.attr.event-handlers` | Inline on* handler attributes (run inside QuickJS, never reach the renderer) | in | P1 | host |  | auto/02-attributes-images-a |
-| `html.attr.contenteditable` | contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize<br><sub>Editing is form input; text selection is forbidden (D18).</sub> | out | P1 | stripped | drop the attribute | auto/02-attributes-images-a |
+| `html.attr.contenteditable` | contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize<br><sub>Editing is form input. Text is not selectable by default (D18); user-select: text enables selection, never editing.</sub> | out | P1 | stripped | drop the attribute | auto/02-attributes-images-a |
 | `html.attr.draggable` | draggable (HTML drag and drop) | out | D4 | stripped | drop the attribute; drag in v1 is pointer events | auto/02-attributes-images-a |
 | `html.attr.tabindex` | tabindex, autofocus, accesskey (keyboard focus and shortcuts) | out | D4 | stripped | drop the attributes (no keyboard: D4) | auto/02-attributes-images-a |
 
@@ -108,7 +108,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.color.modern` | Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color() | out | P1 | stripped | the declaration is dropped (an earlier fallback declaration applies) | auto/05-colour-backgrounds-a, visual/02-colours-gradients |
 | `css.color.mix` | color-mix()<br><sub>Missing in the litehtml prototype.</sub> | out | P1 | stripped | the declaration is dropped | auto/05-colour-backgrounds-a, visual/02-colours-gradients |
 | `css.color.light-dark` | light-dark() and color-scheme: light dark, resolved to the chat theme | in | P1 | resolved |  | auto/05-colour-backgrounds-a, visual/12-theme |
-| `css.background.basic` | background-color, background-image: url(data:…), background-size/position/repeat, several layers | in | D3a | kept |  | auto/05-colour-backgrounds-b, visual/02-colours-gradients |
+| `css.background.basic` | background-color, background-image: url(data:…), background-size/position/repeat, several layers | in | D3a | kept |  | auto/05-colour-backgrounds-b, visual/02-colours-gradients, visual/15-body-background |
 | `css.background.clip-text` | background-clip: text (gradient text) | out | P1 | stripped | the declaration is dropped | auto/05-colour-backgrounds-b |
 | `css.gradient.linear` | linear-gradient(), repeating-linear-gradient() | in | D3a | kept |  | auto/05-colour-backgrounds-b, visual/02-colours-gradients |
 | `css.gradient.radial` | radial-gradient(), repeating-radial-gradient() | in | D3a | kept |  | auto/05-colour-backgrounds-b, visual/02-colours-gradients |
@@ -133,7 +133,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.text.writing-mode` | writing-mode, text-orientation (vertical text) | out | P1 | stripped | the declaration is dropped | auto/06-text-fonts-b |
 | `css.text.rtl` | Right-to-left and bidi text (direction, unicode-bidi, Hebrew/Arabic shaping) | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
 | `css.text.emoji` | Colour emoji glyphs (system emoji font)<br><sub>Blitz on iOS had blank emoji on the vello backend.</sub> | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
-| `css.text.selection` | Text selection (user-select: text, ::selection, select by drag or long press) | out | D18 | stripped | the renderer disables selection on its root and the validator drops user-select | auto/06-text-fonts-c |
+| `css.text.selection` | Text selection: not selectable by default; user-select: text (or -webkit-user-select) enables it (none \| text \| auto)<br><sub>user-select: all and contain, and ::selection, stay out. A native renderer that cannot select text yet keeps it unselectable: the widget still works (an accepted exception to 'every client draws it', like :hover).</sub> | in | D18 | kept |  | auto/06-text-fonts-c, visual/16-selection |
 | `css.transform.2d` | 2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
 | `css.transform.3d` | 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility | out | D3a | stripped | a transform with a 3D function is dropped; perspective, transform-style and backface-visibility are dropped | auto/09-transforms-effects-a, visual/05-transforms-effects-a, visual/13-out-of-profile |
 | `css.filter.blur-brightness-drop-shadow` | filter: blur(), brightness(), drop-shadow()<br><sub>Not drawn by Blitz or the litehtml prototype today (probe filter).</sub> | in* | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
@@ -326,7 +326,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `behaviour.theme-switch` | Live theme switch: prefers-color-scheme, light-dark() and onTheme follow the chat theme without a reload | in | D14 | host |  | auto/20-client-behaviour, visual/12-theme, visual/sdk/14-theme-palette |
 | `behaviour.offscreen-pause` | Off-screen: frames stop, timers at most 1 Hz, visibilitychange fires | in | P1 | host |  | auto/20-client-behaviour |
 | `behaviour.auto-height` | The bubble takes the widget height; above the cap it is clipped hard | in | D12a | host |  | auto/20-client-behaviour, visual/sdk/13-max-height, visual/sdk/17-size-hint |
-| `behaviour.no-selection` | No text selection in a widget (drag over text selects nothing) | in | D18 | kept |  | auto/17-drag-hover |
+| `behaviour.no-selection` | Text is not selectable by default (a drag over text selects nothing); user-select: text enables it | in | D18 | kept |  | auto/17-drag-hover, visual/16-selection |
 | `behaviour.restart` | After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again<br><sub>The frozen frame and badge are the framework's; the restart count is the client's.</sub> | in | SDK | host |  | visual/sdk/11-crash-restart |
 | `behaviour.gesture-claim` | Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures<br><sub>onGestureClaim(x, y) per primary pointerdown (v1).</sub> | in | SDK | host |  | visual/sdk/12-drag-gestures |
 | `behaviour.storage-persist` | localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message | in | SDK | host |  | visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart, visual/sdk/09-storage-delete |
@@ -348,7 +348,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 ## Decisions
 
-- **D3**: A feature is in when every client draws it; :hover is the exception (progressive enhancement)
+- **D3**: A feature is in when every client draws it; :hover and user-select: text are the exceptions (progressive enhancement: where a client lacks them, the widget still works)
 - **D3a**: v1: canvas 2D; Web Animations, filter, backdrop-filter if clients draw them; out: forms, inner scroll, 3D transforms, magic move; CSS animations and transitions in
 - **D3b**: Fonts: system generic families only, other names dropped
 - **D4**: Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)
@@ -360,7 +360,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D12a**: Above the cap: hard clip, no fullscreen
 - **D14**: Theme: themeParams + --tg-theme-*, theme change event
 - **D17**: State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory
-- **D18**: Text selection forbidden
+- **D18**: Text is not selectable by default; a widget enables selection with user-select: text (2026-10-20, replaces "Text selection forbidden")
 - **D20**: Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB after gzip and 32 KB uncompressed, delivered in the message; the server gzips the HTML from the bot and enforces both limits
 - **D21**: No accessibility in v1
 - **D23**: Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile
@@ -374,4 +374,4 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **P1**: Profile v1 freeze (2026-10-17): a candidate is in when the corpus uses it and the web renderers draw it; the rest are out until the native renderers are measured (profile 2)
 - **P1-grid**: Grid is in on condition that the Swift renderer and TwidgetCore implement it before their releases (2026-10-17)
 - **P1-libs**: No bundled libraries in v1 (2026-10-17)
-- **P1-ua**: Clarified in v0.1.1 (2026-10-20): the renderer's user-agent layer (tables.uaStylesheet) also fixes the root and the text elements: the bubble's colours, the client's text tokens (--tg-text-font-size, --tg-text-line-height, --tg-text-padding) and explicit sizes and margins for headings, paragraphs, lists, tables, quotes and code, so a UA default in this profile means that layer, not an engine's own stylesheet
+- **P1-ua**: Clarified in v0.1.1 (2026-10-20): the renderer's user-agent layer (tables.uaStylesheet) also fixes the root and the text elements: the bubble's text colour (the bubble's own fill is the canvas behind a transparent renderer), the client's text tokens (--tg-text-font-size, --tg-text-line-height, --tg-text-padding as the body's margin) and explicit sizes and margins for headings, paragraphs, lists, tables, quotes and code, so a UA default in this profile means that layer, not an engine's own stylesheet

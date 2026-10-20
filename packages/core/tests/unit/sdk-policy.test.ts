@@ -114,12 +114,22 @@ describe('sdk-policy (TS only)', () => {
     for (const bad of ['10px;color:red', '1px 2px 3px 4px 5px', 'auto', 12]) assert.equal(t({ padding: bad })['--tg-text-padding'], '8px 12px', String(bad));
     for (const name of ['--tg-text-font-size', '--tg-text-line-height', '--tg-text-padding']) assert.ok(THEME_VARIABLES.includes(name), name);
   });
-  it('the UA layer is one @layer declared first, every selector of it in :where(), the text and root defaults on the tokens', () => {
+  it('the UA layer is one @layer and nothing else, every selector in :where(), nothing !important, the text and root defaults on the tokens', () => {
     const ua = PROFILE_UA_STYLESHEET;
-    assert.ok(ua.startsWith('@layer tw-ua{'));
-    const layer = ua.slice('@layer tw-ua{'.length, ua.lastIndexOf('}*{'));
+    assert.ok(ua.startsWith('@layer tw-ua{') && ua.endsWith('}}'));
+    const layer = ua.slice('@layer tw-ua{'.length, -1);
+    assert.equal((layer.match(/\{/g) ?? []).length, (layer.match(/\}/g) ?? []).length, 'one block');
     for (const m of layer.matchAll(/(?:^|})([^{}]+)\{/g)) assert.ok(m[1].startsWith(':where('), m[1]);
-    for (const v of ['--tg-theme-bg-color', '--tg-theme-text-color', '--tg-theme-link-color', '--tg-text-font-size', '--tg-text-line-height', '--tg-text-padding']) assert.ok(layer.includes(`var(${v}`), v);
+    // any author rule wins, user-select: text included (D18)
+    assert.ok(!layer.includes('!important'));
+    for (const v of ['--tg-theme-text-color', '--tg-theme-link-color', '--tg-text-font-size', '--tg-text-line-height', '--tg-text-padding']) assert.ok(layer.includes(`var(${v}`), v);
+    // the bubble's fill is the canvas behind the renderer: no root background, so a body background reaches the canvas
+    assert.ok(!/:where\(html\)\{[^}]*background/.test(layer));
+    assert.match(layer, /:where\(body\)\{margin:var\(--tg-text-padding,8px 12px\);padding:0\}/);
+    // selection off on the root only: user-select is not inherited, so an element's `auto` follows its parent and
+    // `user-select: text` on a container reaches its children
+    assert.match(layer, /:where\(html\)\{[^}]*;user-select:none;/);
+    assert.equal(layer.match(/user-select:none/g)?.length, 2, '-webkit- and unprefixed, both on the root');
     // rem would resolve against the chat page's root on the shadow-DOM renderer
     assert.ok(!/[0-9]rem\b/.test(layer));
   });

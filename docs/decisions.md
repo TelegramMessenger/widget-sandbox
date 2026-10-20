@@ -1175,7 +1175,7 @@ milestones; recorded here so the work in between does not drift from it.
     their specificity. It fixes the structure: base look, `:active`,
     `[disabled]` (`:disabled` itself is outside the profile and is rewritten to
     it), no focus ring. It is `tables.uaStylesheet` in `profile.json`, with
-    text selection switched off in the same sheet.
+    text selection switched off in the same sheet (since v0.1.1 inside the layer and overridable, "Text selection" below).
   - Values are per-client tokens (background and text from `themeParams`,
     radius, font, padding, height, pressed and disabled opacity) that the host
     sets as variables on the renderer root and updates with the theme. Native
@@ -1206,7 +1206,7 @@ libraries; the rarely used rest out until the native renderers are measured,
 when profile 2 can add them. Freeze now, with these defaults.
 
 - **One source.** `packages/core/profile.json`: the 255 features of the
-  conformance catalogue with their status (173 in, 82 out), the decision each
+  conformance catalogue with their status (173 in, 82 out; 174 and 81 since v0.1.1 made text selection opt-in), the decision each
   comes from, how each out feature is neutralised, and the tables that are
   enforced. `packages/core/scripts/profile-build.ts` generates
   `src/shared/profile-tables.ts` and `docs/profile-v1.md` from it;
@@ -1253,17 +1253,16 @@ The first client implementations showed that a widget without CSS does not look
 native: profile 1 defined no defaults for the root and the text, so every
 renderer fell back to its own stylesheet. A WebView drew Times at 16 px with an
 8 px body margin; litehtml, TwidgetCore and the Swift renderer each have their
-own master CSS; `--tg-theme-bg-color`, the bubble's colour, was set on the root
-and applied to nothing. The same widget looked different on every client and
-like the client on none.
+own master CSS. The same widget looked different on every client and like the
+client on none.
 
 Artem decided (2026-10-20):
 
 - **A full normalized UA layer** for the profile-1 elements, in the same
   `@layer tw-ua` as the button template, declared first, every selector in
-  `:where()`, so any unlayered author rule wins. `html` takes the bubble's
-  colours and the client's text font; `body` has no margin and the client's
-  padding; headings, paragraphs, lists, `dl`, tables, `hr`, `pre`/`code`,
+  `:where()`, so any unlayered author rule wins. `html` takes the bubble's text
+  colour and the client's text font; `body` takes the client's padding token as
+  its margin; headings, paragraphs, lists, `dl`, tables, `hr`, `pre`/`code`,
   quotes, figures, images and the inline elements get explicit sizes and
   margins in `em` (the table in `docs/sdk-v1.md` §2.4).
 - **Text tokens next to the button tokens** on every host (`WidgetTheme.text`:
@@ -1289,6 +1288,36 @@ under profile 1 stays valid, and one that styles its own elements keeps its
 look (any author rule wins). "UA default" in profile 1 means this layer
 (decision `P1-ua` in `profile.json`).
 
+**The padding token is the body's margin, not its padding.** The first draft
+said `body { margin: 0; padding: var(--tg-text-padding) }`. 169 of the 208
+corpus widgets (every widget of `showcase`, `common` and `htmlbubbles-ported`)
+write `body { margin: 0 }` without a padding to go edge to edge, as authors do
+in a browser; under the draft each of them gained an 8/12 px inset and 16 px of
+height. With `body { margin: var(--tg-text-padding); padding: 0 }` none of the
+208 changes, an unstyled widget looks the same, and the margin is inside the
+reported height as the padding was (the root is a flow root on every
+renderer). Artem's goal is that an unstyled widget looks native; the padding
+was wording, not a decision (2026-10-20).
+
+**The bubble is the canvas; the layer paints no background.** Painting
+`html { background: var(--tg-theme-bg-color) }` would stop CSS's root
+background propagation: a widget's `body { background: X }` with the default
+margin would show a ring of the bubble's colour around the body, where a
+browser paints X over the whole canvas. So the renderer stays transparent and
+the client's bubble under it, drawn in `bg_color`, is the canvas, as before
+v0.1.1. The engines propagate a root or body background to the canvas
+themselves: WebKit and Chromium in the iframe and the WebViews, litehtml in its
+root background (`html_tag::get_background`, painted over the whole raster).
+The shadow-DOM renderer has no canvas, so the renderer core does it on the host
+element (`RendererEnv.canvas`): after every batch that touches the root, the
+body or a stylesheet, it copies the root's background, or the body's when the
+root has none, onto the host. Colours match a frame exactly; a body gradient is
+drawn once on the host and once on the body box, so its geometry can differ at
+the body's edges. `visual/15-body-background` checks the result on every
+renderer against one picture. Reference pictures get the bubble's colour as
+the page's default background (Chromium, outside the document), so
+propagation shows there too.
+
 How the values were chosen.
 
 - Every property that WebKit's, Chromium's or litehtml's own stylesheet sets
@@ -1308,24 +1337,15 @@ How the values were chosen.
 - `img` gets `max-width: 100%` but not `height: auto`: a layered rule outranks
   the presentational `height` attribute, so `height: auto` would replace the
   author's `<img height>` (measured in Chromium).
-- The colours have no fallback inside the template: a renderer that sets no
-  variables paints no background and keeps the engine's text colour, what
-  v0.1.0 drew. The text sizes and the padding fall back to the reference set.
-- The `body` padding is inside the reported content height, so the bubble
-  grows by it.
+- Colours in the template have no fallback: a renderer that sets no variables
+  keeps the engine's text colour. The text sizes and the margin fall back to
+  the reference set.
 
-Consequences for existing widgets.
-
-- The `html` background now exists, so a `body` background is no longer
-  propagated to the canvas: a widget that paints `body` and keeps a body margin
-  shows the bubble's colour in the margin. No corpus widget does.
-- A widget that writes `body { margin: 0 }` without a padding (to go edge to
-  edge) now gets the client's padding. 169 of the 208 corpus widgets do (every
-  widget of `showcase`, `common` and `htmlbubbles-ported`); their
-  sandbox-vs-reference diffs are unchanged because the reference gets the same
-  layer, but they sit 12 px further in and are 16 px taller. The token as the
-  body's *margin* instead would leave all 208 as they were (open question to
-  Artem, 2026-10-20).
+Consequences for existing widgets: none of the 208 corpus widgets changes its
+box layout (all of them set the body's margin); a widget that never mentions
+the body's margin gets the client's inset instead of the engine's 8 px; text
+that relied on the engine's defaults (Times, 16 px, 40 px list indents,
+underlined links) now gets the layer's.
 
 Where it lives.
 
@@ -1340,8 +1360,8 @@ Where it lives.
   keep in sync, and handles the `theme` message with `src/theme.cpp`, a twin of
   `themeVariables`, writing the variables inline and `!important` on `<html>`.
   Two litehtml behaviours needed care: it applies a `var()` inside a shorthand
-  after the cascade (so `padding: var(…)` from the master CSS beat a widget's
-  `padding: 0`), and it sorts the master CSS by specificity (so its own
+  after the cascade (so `margin: var(…)` from the master CSS would beat a
+  widget's `margin: 0`), and it sorts the master CSS by specificity (so its own
   `body { margin: 8px }` beat a later `:where(body)`). The renderer therefore
   puts the theme's values into the template and unwraps `:where()` before
   handing it over; litehtml applies the whole master CSS before any author CSS,
@@ -1350,9 +1370,11 @@ Where it lives.
   master CSS (with litehtml: values substituted, `:where()` unwrapped), set the
   variables of the `theme` message on the root with `themeVariables`'
   semantics (the fixed names, the grammars, the palette and text tokens always
-  complete), refuse the widget's own style ops for those names on the root, and
-  report the content height with the body padding. The Blitz prototype has
-  neither the button template nor the variables yet.
+  complete), refuse the widget's own style ops for those names on the root,
+  paint no background of their own (a root or body background propagates to
+  the whole raster), report the content height with the body's margins, and
+  honour `user-select: text` (below). The Blitz prototype has neither the
+  button template nor the variables yet.
 - Reference pictures use one stylesheet, `packages/core/src/shared/reference.ts`:
   the layer plus the default palettes and the reference text tokens. The dev
   app's reference mode, the conformance build's native runs and the iOS/macOS
@@ -1365,3 +1387,39 @@ Where it lives.
   `visual/14-unstyled-document` is a page with no CSS at all, both "bare" (no
   harness CSS). `corpus/defaults` holds six example widgets with little or no
   CSS.
+
+### Text selection: off by default, `user-select: text` turns it on (v0.1.1, 2026-10-20)
+
+Replaces D18 ("text selection forbidden"), Artem's decision. Text in a widget
+is not selectable by default anywhere; a widget makes text selectable with
+`user-select: text` (or `-webkit-user-select: text`). Widgets that show data a
+user wants to copy (an address, a code, a result) no longer need a workaround,
+and a widget that is a drawing stays one.
+
+- **The default is in the UA layer, without `!important`**:
+  `-webkit-user-select: none; user-select: none; -webkit-touch-callout: none`
+  on `:where(html)`. Before, a `*{… !important}` rule outside the layer beat
+  any author CSS. Only the root: `user-select` is not inherited, and an
+  element's `auto` follows its parent, so `user-select: text` on a container
+  reaches its children (with `:where(*)` every child would have been reset to
+  `none`; WebKit inherits `-webkit-user-select`, with the same result).
+- **The profile** takes `user-select` and `-webkit-user-select` with `none`,
+  `text` and `auto` (`css.text.selection` is in; `all`, `contain` and
+  `::selection` stay out and are dropped). `behaviour.no-selection` now reads
+  "not selectable by default". Editing (`contenteditable`) stays out. The
+  widget cannot read or change the selection: `getSelection()` stays a stub.
+- **The web renderers**: a mouse press no longer cancels its default action
+  when it lands on selectable text, so a drag selects there; anywhere else it
+  is still cancelled (no selection, no focus move, the chat input keeps the
+  focus), and `selectstart` likewise. Copy is the browser's.
+- **Touch**: long press and double tap stay with the bubble (decided earlier),
+  so a selection inside a widget starts the way the client selects text in an
+  ordinary message, and copy is the client's: client work
+  (`docs/sdk-v1.md` §5.10).
+- **An accepted exception to "every client draws it"**, like `:hover`: a native
+  renderer that cannot select text yet (litehtml here; TwidgetCore and the
+  Swift renderer until they implement it) keeps the text unselectable, and the
+  widget still works. Conformance: `auto/06-text-fonts-c` checks the computed
+  values, `auto/17-drag-hover` that a drag over ordinary text selects nothing,
+  and `visual/16-selection` lets a tester select one paragraph and nothing
+  else.

@@ -188,7 +188,7 @@ class SdkTest {
               });
             </script>
         """.trimIndent()
-        val probe = "(function(){ var s = document.documentElement.style; return ['--tg-theme-bg-color', '--tg-theme-text-color', '--tg-color-scheme', '--tg-button-radius', '--tg-button-pressed-opacity', '--tg-text-font-size'].map(function (n) { return s.getPropertyValue(n).trim(); }).concat([getComputedStyle(document.documentElement).fontSize, getComputedStyle(document.body).paddingTop]).join('|'); })()"
+        val probe = "(function(){ var s = document.documentElement.style; return ['--tg-theme-bg-color', '--tg-theme-text-color', '--tg-color-scheme', '--tg-button-radius', '--tg-button-pressed-opacity', '--tg-text-font-size'].map(function (n) { return s.getPropertyValue(n).trim(); }).concat([getComputedStyle(document.documentElement).fontSize, getComputedStyle(document.body).marginTop]).join('|'); })()"
         ActivityScenario.launch(TestActivity::class.java).use { scenario ->
             lateinit var host: WidgetHost
             val latest = AtomicReference(WidgetDiagnostics())

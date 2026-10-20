@@ -25,8 +25,10 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       [200, max]; height 0 = placeholder, then the content height in [50, 600] cached per
       message, H = fixed clamp(H, 50, 600); hard clip at the bubble's height, no fullscreen
       ([integration.md, "Bubble sizing"](integration.md#bubble-sizing), [sdk-v1.md §5.6](sdk-v1.md#56-bubble-size)).
-- [ ] Taps only reach the widget; no text selection, no keyboard input, no focus
-      ([integration.md, "Input"](integration.md#input)).
+- [ ] Taps only reach the widget; no keyboard input, no focus; text is not selectable
+      unless the widget sets `user-select: text`, and then it is selected the way your
+      client selects message text and copied with your copy command
+      ([integration.md, "Input"](integration.md#input), [sdk-v1.md §5.10](sdk-v1.md#510-text-selection-v011)).
 - [ ] Off-screen pause: frames stop, timers at 1 Hz when the bubble leaves the screen.
 - [ ] A killed widget keeps its last frame with the "Widget stopped" badge; the
       bubble does not collapse ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
@@ -39,14 +41,16 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 
 - [ ] Theme: the palette of the bubble the widget sits in (an outgoing bubble's when
       the user sent or forwarded it), the button tokens and the text tokens into
-      `WidgetTheme`, updated on theme change ([sdk-v1.md §5.1](sdk-v1.md#51-theme)).
+      `WidgetTheme`, updated on theme change; the widget view stays transparent over
+      the bubble, which is its canvas ([sdk-v1.md §5.1](sdk-v1.md#51-theme)).
 - [ ] Text tokens (v0.1.1): `fontSize` follows the chat's text-size setting and
       `setTheme` runs when the user changes it; `lineHeight` and `padding` match your
       message text. `visual/14-unstyled-document` and `corpus/defaults` look like your
       own messages ([sdk-v1.md §2.4](sdk-v1.md#24-the-renderers-defaults-the-root-the-text-button)).
-- [ ] A native renderer (not a WebView) puts the profile's UA layer into its master CSS
-      and sets the theme variables on the root (`docs/decisions.md`, "The renderer's
-      defaults").
+- [ ] A native renderer (not a WebView) puts the profile's UA layer into its master CSS,
+      sets the theme variables on the root, propagates a body background to the whole
+      bubble and honours `user-select: text` (`docs/decisions.md`, "The renderer's
+      defaults", "Text selection").
 - [ ] Links: `openLink` / `openTelegramLink` only from a real tap; confirmation
       showing the full URL; then open ([sdk-v1.md §5.2](sdk-v1.md#52-links)).
 - [ ] Haptics with the rate limit ([sdk-v1.md §5.3](sdk-v1.md#53-haptics)).

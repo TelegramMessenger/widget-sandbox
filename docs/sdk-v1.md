@@ -93,7 +93,7 @@ answer from the client: whether the user confirmed a link is not reported back.
 
 | key | meaning inside a bubble |
 |---|---|
-| `bg_color` | the colour of this bubble, behind the widget: an incoming bubble's, or an outgoing bubble's when the user sent or forwarded the widget (§5.1); the renderer paints the root with it (§2.4) |
+| `bg_color` | the colour of this bubble, behind the widget: an incoming bubble's, or an outgoing bubble's when the user sent or forwarded the widget (§5.1). The client draws it under the transparent renderer: it is the widget's canvas (§2.4) |
 | `text_color` | message text |
 | `hint_color` | secondary text: time, meta |
 | `link_color` | links in messages |
@@ -135,13 +135,30 @@ v0.1.1 the layer covers the root and the text elements, not only `<button>`: a
 clarification of profile 1, not profile 2 (`docs/decisions.md`, "The
 renderer's defaults").
 
-**The root.** `html`: background `--tg-theme-bg-color` (this bubble's colour,
-§2.3), text `--tg-theme-text-color`, font
+**The root.** `html`: text `--tg-theme-text-color`, font
 `var(--tg-text-font-size)/var(--tg-text-line-height) system-ui, sans-serif`,
-no text-size adjustment, long words wrap. `body`: no margin, padding
-`--tg-text-padding`; the first child's top margin and the last child's bottom
-margin are dropped, so text starts at the padding as in a message. The content
-height the renderer reports, and so the bubble's height, includes the padding.
+no text-size adjustment, long words wrap, text not selectable (below). It has
+no background of its own: the renderer is transparent and the bubble the
+client draws under it, in `bg_color`, is the canvas. A background the widget
+sets on its root or on its body paints the whole bubble, as in a browser (root
+background propagation: the shadow-DOM renderer paints it on its host
+element). `body`: the padding token as its margin
+(`margin: var(--tg-text-padding)`), no padding; the first child's top margin
+and the last child's bottom margin are dropped, so text starts at the token's
+inset as in a message. A widget that writes `body { margin: 0 }` goes edge to
+edge, as authors expect from a browser. The content height the renderer
+reports, and so the bubble's height, includes the body's margins.
+
+**Text selection** (D18 since v0.1.1). Text in a widget is not selectable by
+default: the layer sets `user-select: none` on the root. A widget makes text
+selectable with `user-select: text` (or `-webkit-user-select: text`) on an
+element; its children follow (`auto`), and `none` turns it off again below.
+`user-select: all` and `contain`, `::selection` and editing stay outside the
+profile. The widget cannot read or change the selection (`getSelection()` is a
+stub); the user selects and copies with the client's own gestures and copy
+command (§5.10). A renderer that cannot select text yet keeps it
+unselectable: the widget still works (an accepted exception to "every client
+draws it", like `:hover`).
 
 **The text elements**, in `em` of the parent's size, so they follow the
 client's text size:
@@ -174,7 +191,7 @@ root, with the reference value for a token it did not get or refused:
 |---|---|---|---|
 | `fontSize` | `--tg-text-font-size` | CSS px (= points, dp) 8–64: a number, or a string `"15px"` | `15px` |
 | `lineHeight` | `--tg-text-line-height` | a unitless number 1–3 | `1.35` |
-| `padding` | `--tg-text-padding` | one to four CSS lengths in `px`, `em`, `rem` | `8px 12px` (vertical, horizontal) |
+| `padding` | `--tg-text-padding` (the body's margin) | one to four CSS lengths in `px`, `em`, `rem` | `8px 12px` (vertical, horizontal) |
 
 `fontSize` is the chat's message text size: it follows the client's text-size
 setting, and the client calls `setTheme` when it changes. A widget may use the
@@ -637,8 +654,8 @@ ignore them.
 - Content beyond the bubble's height (600 in auto mode, or the fixed height) is
   clipped: no inner scrolling (outside the profile), no fullscreen button
   (D12a).
-- No text selection in the bubble (D18); the renderers disable it in profile
-  v1.
+- Text is not selectable unless the widget enables it with `user-select: text`
+  (D18 since v0.1.1; §2.4, §5.10).
 
 ### 5.7 Failures and restarts (D22)
 
@@ -669,6 +686,22 @@ goes to the background, `setVisible(true)` when it is back.
   reference picture posted next to it (`packages/conformance/channel.json`,
   `docs/integration.md`, "Testing"); `.tgw` is only the local development
   format.
+
+### 5.10 Text selection (v0.1.1)
+
+Text a widget marked `user-select: text` is selectable; everything else is not
+(§2.4).
+
+- Touch: long press and double tap stay with the bubble (§5.5), so selection
+  inside a widget starts the way the client selects text in an ordinary
+  message (its bubble menu's Select, or its own selection mode), and the
+  renderer view then takes the selection gestures.
+- Mouse (desktop, web): a drag over selectable text selects it; a press
+  anywhere else still selects nothing and keeps the chat input's focus.
+- Copy uses the client's normal copy command and menu.
+- A native renderer (litehtml, TwidgetCore, the Swift renderer) must honour
+  `user-select: text` to be conformant; until it does, the text stays
+  unselectable and the widget still works.
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 

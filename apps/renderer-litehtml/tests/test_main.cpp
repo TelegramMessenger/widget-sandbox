@@ -118,7 +118,8 @@ static void test_theme() {
 
 /// The host's theme message: the variables inline and !important on <html> (the palette and the text tokens completed,
 /// bad values dropped), the widget's own style op on a theme variable ignored; the profile's UA layer draws the root on
-/// them: the bubble's colour behind everything, the text tokens' padding and size, the first child's margin trimmed.
+/// them: the text tokens' size, the padding token as the body's margin, the first child's margin trimmed, and no
+/// background of its own (the bubble behind the renderer is the canvas), so a body background covers the whole canvas.
 static void test_theme_variables_and_ua_layer() {
     CGBackend backend;
     Renderer r(300, 1, false, backend);
@@ -156,11 +157,33 @@ static void test_theme_variables_and_ua_layer() {
     CHECK(res["y"].asNumber() == 10);
     CHECK(res["width"].asNumber() == 260);
     CHECK(res["height"].asNumber() >= 39 && res["height"].asNumber() <= 41);
-    // the bubble's colour fills the root
+    // the renderer never paints the bubble's colour itself
     DisplayList list = r.paint();
     bool bg = false;
     for (const Command& c : list) if (c.kind == Cmd::FillRect && c.color.r == 0x12 && c.color.g == 0x34 && c.color.b == 0x56) bg = true;
-    CHECK(bg);
+    CHECK(!bg);
+
+    // a body background propagates to the canvas: the body's margins are painted too, no ring of the bubble
+    Renderer g(300, 1, false, backend);
+    g.receive(theme);
+    Json body_bg = Json::object();
+    body_bg.set("type", "ops").set("ops", parse(R"([
+      {"op":"el","id":2,"tag":"html","adopt":"html"},
+      {"op":"el","id":3,"tag":"head","adopt":"head"},
+      {"op":"el","id":4,"tag":"body","adopt":"body"},
+      {"op":"el","id":5,"tag":"style"},
+      {"op":"css","id":5,"text":"body{background:#00ff00}"},
+      {"op":"ins","id":5,"parent":3},
+      {"op":"el","id":6,"tag":"p"},
+      {"op":"text","id":7,"data":"x"},
+      {"op":"ins","id":7,"parent":6},
+      {"op":"ins","id":6,"parent":4}
+    ])"));
+    g.receive(body_bg);
+    bool canvas = false;
+    for (const Command& c : g.paint())
+        if (c.kind == Cmd::FillRect && c.color.g == 255 && c.color.r == 0 && c.rect.x == 0 && c.rect.y == 0 && c.rect.w == 300) canvas = true;
+    CHECK(canvas);
 }
 
 static void test_tap_events() {

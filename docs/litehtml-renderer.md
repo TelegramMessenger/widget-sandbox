@@ -52,15 +52,22 @@ grammars, the palette and the text tokens always complete), into an inline
 `!important` style on `<html>`; the widget's own style ops for those names on the root
 are dropped. Before the first theme message the scheme's defaults stand. Two litehtml
 behaviours shape how the layer goes in: a `var()` inside a shorthand is substituted
-after the cascade, so the master CSS's `padding: var(…)` would beat a widget's
-`padding: 0`; and the master CSS is sorted by specificity, so litehtml's own
+after the cascade, so the master CSS's `margin: var(…)` would beat a widget's
+`margin: 0`; and the master CSS is sorted by specificity, so litehtml's own
 `body { margin: 8px }` would beat a later `:where(body)`. The renderer therefore
 replaces each `var()` of the template with the theme's value (`theme::substitute`)
 and unwraps `:where()` (`theme::unwrap_where`), and rebuilds the document when the
 theme changes. litehtml applies the whole master CSS before any author CSS, so the
-widget still wins every property it sets. Known differences from the WebViews:
-`ui-monospace` is not resolved by the CoreText backend (code falls back to the text
-font) and `opacity` on a disabled `<button>` is not painted.
+widget still wins every property it sets. litehtml propagates a root or
+body background to the whole raster itself (`html_tag::get_background`, the root's
+solid fill covers the canvas), so the layer paints no background and the bubble shows
+where the widget paints none. Known differences from the WebViews: `ui-monospace` is
+not resolved by the CoreText backend (code falls back to the text font), `opacity` on
+a disabled `<button>` is not painted, the `cs` query answers only a few properties
+and no custom properties (most of `auto/22-ua-defaults` reads as failed although the
+picture is right), and there is no text selection at all, so `user-select: text`
+leaves the text unselectable (allowed: the widget still works, `docs/decisions.md`,
+"Text selection").
 
 ## How to look
 

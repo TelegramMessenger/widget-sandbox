@@ -5,6 +5,7 @@
 // (packages/core/tests/unit/sdk.test.ts).
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { PNG } from 'pngjs';
 
 test.skip(process.env.VITE_TW_POLICY === 'compat', 'user activation belongs to the strict policy');
 
@@ -62,15 +63,16 @@ for (const shadow of [false, true]) {
     expect(await css(probe, '--tg-button-font')).toBe('');
   });
 
-  test(`${renderer}: the UA layer draws an unstyled widget on the bubble's colour and the text tokens; author CSS wins`, async ({ page }) => {
+  test(`${renderer}: the UA layer draws an unstyled widget on the text tokens, the bubble behind it; author CSS wins`, async ({ page }) => {
     const root = await load(page, `<h1 id="h">Title</h1><p id="p">Text <a id="a" href="https://telegram.org">link</a></p><ul id="ul"><li>x</li></ul>`, { shadow });
     const html = shadow ? root.locator('html') : root;
     const body = root.locator('body');
     const h = root.locator('#h');
-    expect(await css(html, 'background-color')).toBe('rgb(255, 255, 255)');
+    // no background of its own: the bubble behind the transparent renderer is the canvas
+    expect(await css(html, 'background-color')).toBe('rgba(0, 0, 0, 0)');
     expect(await css(html, 'color')).toBe('rgb(0, 0, 0)');
     expect([await css(html, 'font-size'), await css(html, 'line-height')]).toEqual(['15px', '20.25px']);
-    expect([await css(body, 'margin-top'), await css(body, 'padding')]).toEqual(['0px', '8px 12px']);
+    expect([await css(body, 'margin'), await css(body, 'padding')]).toEqual(['8px 12px', '0px']);
     expect([await css(h, 'font-size'), await css(h, 'margin-top'), await css(h, 'font-weight')]).toEqual(['24px', '0px', '600']);
     expect(await css(root.locator('#a'), 'color')).toBe('rgb(51, 144, 236)');
     expect(await css(root.locator('#ul'), 'padding-left')).toBe('22.5px');
@@ -79,21 +81,60 @@ for (const shadow of [false, true]) {
 
     await page.evaluate(() => (window as any).__tw.host.setTheme({ colorScheme: 'dark', params: { bg_color: '#101820' }, text: { fontSize: 18, lineHeight: 1.5, padding: '4px 6px' } }));
     await expect.poll(() => css(html, 'font-size')).toBe('18px');
-    expect(await css(html, 'background-color')).toBe('rgb(16, 24, 32)');
+    expect(await css(html, '--tg-theme-bg-color')).toBe('#101820');
+    expect(await css(html, 'background-color')).toBe('rgba(0, 0, 0, 0)');
     expect(await css(html, 'color')).toBe('rgb(255, 255, 255)');
     expect(await css(html, 'line-height')).toBe('27px');
-    expect(await css(body, 'padding')).toBe('4px 6px');
+    expect(await css(body, 'margin')).toBe('4px 6px');
     expect(await css(h, 'font-size')).toBe('28.8px');
     await expect.poll(async () => (await tw(page)).height).toBeGreaterThan(height);
 
     await page.evaluate(() => (window as any).__tw.host.setTheme({ colorScheme: 'light', text: { fontSize: 100, lineHeight: '2em', padding: 'auto' } }));
     await expect.poll(() => css(html, 'font-size')).toBe('15px');
-    expect([await css(html, 'line-height'), await css(body, 'padding')]).toEqual(['20.25px', '8px 12px']);
+    expect([await css(html, 'line-height'), await css(body, 'margin')]).toEqual(['20.25px', '8px 12px']);
 
-    const styled = await load(page, `<style>body { padding: 0 } h1 { margin-top: 5px; font-size: 10px } a { color: #ff0000 }</style><h1 id="h">T</h1><a id="a" href="https://telegram.org">l</a>`, { shadow });
-    expect(await css(styled.locator('body'), 'padding')).toBe('0px');
+    const styled = await load(page, `<style>body { margin: 0 } h1 { margin-top: 5px; font-size: 10px } a { color: #ff0000 }</style><h1 id="h">T</h1><a id="a" href="https://telegram.org">l</a>`, { shadow });
+    expect(await css(styled.locator('body'), 'margin')).toBe('0px');
     expect([await css(styled.locator('#h'), 'margin-top'), await css(styled.locator('#h'), 'font-size')]).toEqual(['5px', '10px']);
     expect(await css(styled.locator('#a'), 'color')).toBe('rgb(255, 0, 0)');
+  });
+
+  test(`${renderer}: a body background reaches the whole bubble, its margins included (root background propagation)`, async ({ page }) => {
+    await load(page, `<style>body { background: #2b5278; color: #fff }</style><p>Body background, no margin reset.</p>`, { shadow });
+    const frame = page.locator('#sandbox-wrap .widget-frame');
+    const box = (await frame.boundingBox())!;
+    // a pixel inside the body's 12 px side margin, and one in the middle
+    const shot = await page.screenshot({ clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 40) } });
+    const png = PNG.sync.read(shot);
+    const at = (x: number, y: number) => { const i = (y * png.width + x) * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
+    const scale = png.width / box.width;
+    for (const [x, y] of [[3, 3], [Math.round(box.width / 2), 3], [Math.round(box.width) - 3, 20]]) expect(at(Math.round(x * scale), Math.round(y * scale)), `${x},${y}`).toEqual([0x2b, 0x52, 0x78]);
+  });
+
+  test(`${renderer}: text is not selectable by default; user-select: text enables it, children included`, async ({ page }) => {
+    const root = await load(page, `<p id="off">This text cannot be selected.</p><p id="on" style="user-select: text; -webkit-user-select: text">This text <b id="kid">can</b> be selected.</p>`, { shadow });
+    // The renderer frame is sandboxed (an opaque origin): read its selection through Playwright, not from the page.
+    const frame = shadow ? null : await (await page.locator('#sandbox-wrap iframe').elementHandle())!.contentFrame();
+    const selected = () => frame ? frame.evaluate(() => getSelection()!.toString()) : page.evaluate(() => {
+      const host = document.querySelector('#sandbox-wrap .widget-shadow')!;
+      const r = (host.shadowRoot as any).getSelection?.() ?? document.getSelection();
+      return r ? r.toString() : '';
+    });
+    const drag = async (sel: string) => {
+      const b = (await root.locator(sel).boundingBox())!;
+      await page.mouse.move(b.x + 2, b.y + b.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(b.x + b.width - 2, b.y + b.height / 2, { steps: 8 });
+      await page.mouse.up();
+    };
+    // Blink inherits user-select; the spec's `auto` would follow the parent to the same used value
+    expect(await css(root.locator('#off'), 'user-select')).toMatch(/^(none|auto)$/);
+    expect(await css(root.locator('#on'), 'user-select')).toBe('text');
+    expect(await css(root.locator('#kid'), 'user-select')).toMatch(/^(text|auto)$/);
+    await drag('#off');
+    expect(await selected()).toBe('');
+    await drag('#on');
+    expect(await selected()).toContain('can be selected');
   });
 
   test(`${renderer}: each primary pointerdown reports which drag axes the widget takes`, async ({ page }) => {

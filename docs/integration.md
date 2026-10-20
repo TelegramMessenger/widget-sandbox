@@ -148,10 +148,14 @@ widget.
 
 ## Input
 
-- **No text selection.** A widget is a drawing, not a text message: the
-  client's bubble must not let the user select or copy its text or start a
-  drag from it (the web renderers do not disable it yet, `docs/changes.md`
-  known issues; native containers do it in the view).
+- **Text selection is the widget's choice** (since v0.1.1, `docs/sdk-v1.md`
+  §2.4, §5.10). Text is not selectable by default; text the widget marks
+  `user-select: text` is. Long press and double tap stay with the bubble, so on
+  touch a selection inside a widget starts the way your client selects text in
+  an ordinary message (its menu's Select, or its selection mode); with a mouse,
+  a drag over selectable text selects it. Copy is your normal copy command.
+  The bubble never lets the user start a drag of the widget's content. A
+  native renderer that cannot select yet keeps the text unselectable.
 - **No keyboard input, no focus.** Widgets get no key events and never take
   keyboard focus (`docs/decisions.md`, "Profile v1"). The chat's input field
   keeps the focus while a widget is on screen; a widget's `focus()` must not
@@ -191,15 +195,17 @@ scheme, the Mini Apps palette keys as `#rrggbb`, your button's tokens, your
 message text's tokens) and call `setTheme` on every change; pass the UI
 language as `locale` (`docs/sdk-v1.md` §2.3, §2.4, §2.9).
 
-- The palette is the colours of **this bubble**: the renderer paints the
-  widget's root in `bg_color` and its text in `text_color`. A widget the user
+- The palette is the colours of **this bubble**. Keep the widget view
+  transparent over your bubble as before: the bubble you draw in `bg_color` is
+  the widget's canvas, its text is drawn in `text_color`, and a background the
+  widget sets on its root or body covers the whole bubble. A widget the user
   sent or forwarded sits in an outgoing bubble: pass the outgoing colours
-  (fill, text, hint, link, separator). Keep the widget view itself
-  transparent over your bubble as before.
+  (fill, text, hint, link, separator).
 - The text tokens (since v0.1.1) are your message text: `fontSize` in points /
   dp = CSS px, following the chat's text-size setting (call `setTheme` when the
   user changes it), `lineHeight` (unitless) and `padding` (the inset of text in
-  your bubble, CSS lengths). Without them the renderer uses the reference set
+  your bubble, CSS lengths; the body's margin, so `body { margin: 0 }` in a
+  widget still goes edge to edge). Without them the renderer uses the reference set
   15 / 1.35 / `8px 12px`. A widget without CSS is then drawn in your text style
   on your bubble's colour; any widget CSS wins (`docs/sdk-v1.md` §2.4).
 
@@ -340,7 +346,7 @@ host.start();
 ## The conformance set
 
 `packages/conformance` ships with the tag: 39 self-checking widgets
-(`auto/`), 18 visual widgets and 17 client-SDK widgets for the test channel
+(`auto/`), 20 visual widgets and 17 client-SDK widgets for the test channel
 (`visual/`), all of them mini-widgets, the feature catalogue, reference images,
 the posting order (`channel.json`) and the report tool. **`packages/conformance/CLIENTS.md`**
 is the step-by-step guide for a client team: configure the host as in

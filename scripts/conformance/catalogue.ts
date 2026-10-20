@@ -102,7 +102,7 @@ h('attr.dir', 'dir="rtl" / dir="auto": bidi layout', 'in', 'D3a', 'kept', { matc
 h('attr.data-aria', 'data-* and aria-* attributes (selectors, attr()); no a11y semantics in v1', 'in', 'D21', 'kept', { match: { attrs: ['data-*', 'aria-*'] }, note: 'Counted against the strict text budget.' });
 h('attr.legacy-presentational', 'align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap', 'candidate', 'proposed', 'stripped', { match: { attrs: ['align', 'valign', 'bgcolor', 'border', 'cellpadding', 'cellspacing', 'color', 'face', 'nowrap'] } });
 h('attr.event-handlers', 'Inline on* handler attributes (run inside QuickJS, never reach the renderer)', 'in', 'today', 'host', { match: { attrs: ['on*'] } });
-h('attr.contenteditable', 'contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize', 'out', 'proposed', 'stripped', { match: { attrs: ['contenteditable', 'spellcheck', 'inputmode', 'enterkeyhint', 'autocapitalize'] }, neutralise: 'drop the attribute', note: 'Editing is form input; text selection is forbidden (D18).' });
+h('attr.contenteditable', 'contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize', 'out', 'proposed', 'stripped', { match: { attrs: ['contenteditable', 'spellcheck', 'inputmode', 'enterkeyhint', 'autocapitalize'] }, neutralise: 'drop the attribute', note: 'Editing is form input. Text is not selectable by default (D18); user-select: text enables selection, never editing.' });
 h('attr.draggable', 'draggable (HTML drag and drop)', 'out', 'D4', 'stripped', { match: { attrs: ['draggable'] }, neutralise: 'drop the attribute; drag in v1 is pointer events' });
 h('attr.tabindex', 'tabindex, autofocus, accesskey (keyboard focus and shortcuts)', 'out', 'D4', 'stripped', { match: { attrs: ['tabindex', 'autofocus', 'accesskey'] }, neutralise: 'drop the attributes (no keyboard: D4)' });
 
@@ -180,7 +180,7 @@ c('text.list-style', 'list-style-type / position (disc, decimal, none, …)', 'i
 c('text.writing-mode', 'writing-mode, text-orientation (vertical text)', 'out', 'proposed', 'stripped', { match: { properties: ['writing-mode', 'text-orientation'] }, neutralise: 'the declaration is dropped' });
 c('text.rtl', 'Right-to-left and bidi text (direction, unicode-bidi, Hebrew/Arabic shaping)', 'in', 'D3a', 'kept', { match: { properties: ['direction', 'unicode-bidi'] } });
 c('text.emoji', 'Colour emoji glyphs (system emoji font)', 'in', 'D3a', 'kept', { note: 'Blitz on iOS had blank emoji on the vello backend.' });
-c('text.selection', 'Text selection (user-select: text, ::selection, select by drag or long press)', 'out', 'D18', 'stripped', { match: { properties: ['user-select', '-webkit-user-select'], selectors: ['::selection'] }, neutralise: 'the client renders with selection disabled whatever the widget says' });
+c('text.selection', 'Text selection: not selectable by default; user-select: text (or -webkit-user-select) enables it (none | text | auto)', 'in', 'D18', 'kept', { match: { properties: ['user-select', '-webkit-user-select'] }, note: "user-select: all and contain, and ::selection, stay out. A native renderer that cannot select text yet keeps it unselectable: the widget still works (an accepted exception to 'every client draws it', like :hover)." });
 
 // ───────────── CSS: transforms, effects ─────────────
 c('transform.2d', '2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties', 'in', 'D3a', 'kept', { match: { properties: ['transform', 'transform-origin', 'translate', 'rotate', 'scale'], functions: ['translate', 'translateX', 'translateY', 'rotate', 'scale', 'scaleX', 'scaleY', 'skew', 'skewX', 'skewY', 'matrix'] }, note: 'Missing in the litehtml prototype.' });
@@ -359,7 +359,7 @@ const b = (id: string, title: string, st: Status, d: string, t: Today, x: Partia
 b('theme-switch', 'Live theme switch: prefers-color-scheme, light-dark() and onTheme follow the chat theme without a reload', 'in', 'D14', 'host');
 b('offscreen-pause', 'Off-screen: frames stop, timers at most 1 Hz, visibilitychange fires', 'in', 'today', 'host');
 b('auto-height', 'The bubble takes the widget height; above the cap it is clipped hard', 'in', 'D12a', 'host');
-b('no-selection', 'No text selection in a widget (drag over text selects nothing)', 'in', 'D18', 'kept');
+b('no-selection', 'Text is not selectable by default (a drag over text selects nothing); user-select: text enables it', 'in', 'D18', 'kept');
 b('restart', 'After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again', 'in', 'SDK', 'host', { note: 'The frozen frame and badge are the framework\'s; the restart count is the client\'s.' });
 b('gesture-claim', 'Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures', 'in', 'SDK', 'host', { note: 'onGestureClaim(x, y) per primary pointerdown (v1).' });
 b('storage-persist', 'localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message', 'in', 'SDK', 'host');
@@ -413,7 +413,7 @@ const PROFILE_1: Record<string, Partial<Feature>> = {
   "css.text.line-clamp": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
   "css.text.shadow": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
   "css.text.writing-mode": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
-  "css.text.selection": {"status": "out", "decision": "D18", "neutralise": "the renderer disables selection on its root and the validator drops user-select"},
+  "css.text.selection": {"status": "in", "decision": "D18"},
   "css.filter.other": {"status": "out", "decision": "P1", "neutralise": "the function is removed from the filter list; an empty list drops the declaration"},
   "css.filter.url": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
   "css.blend": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
@@ -503,7 +503,7 @@ export const DECISIONS: Record<string, string> = {
   D12a: 'Above the cap: hard clip, no fullscreen',
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',
   D17: 'State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory',
-  D18: 'Text selection forbidden',
+  D18: 'Text is not selectable by default; user-select: text enables it (2026-10-20)',
   D20: 'Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB after gzip and 32 KB uncompressed, delivered in the message; the server gzips the HTML from the bot and enforces both limits',
   D21: 'No accessibility in v1',
   D23: 'Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile',

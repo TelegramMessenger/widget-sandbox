@@ -166,7 +166,8 @@ final class SdkTests: XCTestCase {
     // MARK: the WebView renderer
 
     /// The renderer core sets the variables inline and important on the widget's root: the widget's own `:root` rule cannot replace them.
-    /// The UA layer draws the root on them: the bubble's colour, the text tokens' size, the body's padding.
+    /// The UA layer draws the root on them: the text tokens' size and the padding token as the body's margin; the root
+    /// has no background of its own (the bubble behind the transparent renderer is the canvas).
     @MainActor
     func testThemeVariablesOnTheRendererRoot() async throws {
         let window = TestWindow.makeVisible()
@@ -180,17 +181,17 @@ final class SdkTests: XCTestCase {
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline, !latest.rendered { try await Task.sleep(nanoseconds: 50_000_000) }
         XCTAssertTrue(latest.rendered, "\(latest.diags)")
-        let probe = "(function(){var s=getComputedStyle(document.documentElement);return ['--tg-theme-bg-color','--tg-color-scheme','--tg-button-radius','--tg-button-font','--tg-theme-text-color','--tg-text-font-size','--tg-text-line-height','--tg-text-padding'].map(function(n){return s.getPropertyValue(n).trim();}).concat([s.fontSize,s.backgroundColor,getComputedStyle(document.body).paddingLeft]).join('|');})()"
+        let probe = "(function(){var s=getComputedStyle(document.documentElement);return ['--tg-theme-bg-color','--tg-color-scheme','--tg-button-radius','--tg-button-font','--tg-theme-text-color','--tg-text-font-size','--tg-text-line-height','--tg-text-padding'].map(function(n){return s.getPropertyValue(n).trim();}).concat([s.fontSize,s.backgroundColor,getComputedStyle(document.body).marginLeft,getComputedStyle(document.body).paddingLeft]).join('|');})()"
         let first = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
-        XCTAssertEqual(first, "#123456|dark|10px||#ffffff|17px|1.35|8px 12px|17px|rgb(18, 52, 86)|12px", "a font that is not a generic family and a line height over 3 are dropped by the renderer")
+        XCTAssertEqual(first, "#123456|dark|10px||#ffffff|17px|1.35|8px 12px|17px|rgba(0, 0, 0, 0)|12px|0px", "a font that is not a generic family and a line height over 3 are dropped by the renderer")
         host.setTheme(WidgetTheme(colorScheme: .light, params: ["bg_color": "#ABCDEF"]))
         var second = ""
         let changed = Date().addingTimeInterval(5)
-        while Date() < changed, second != "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgb(171, 205, 239)|12px" {
+        while Date() < changed, second != "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgba(0, 0, 0, 0)|12px|0px" {
             try await Task.sleep(nanoseconds: 50_000_000)
             second = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
         }
-        XCTAssertEqual(second, "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgb(171, 205, 239)|12px")
+        XCTAssertEqual(second, "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgba(0, 0, 0, 0)|12px|0px")
     }
 
     // MARK: helpers
