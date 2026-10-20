@@ -8,6 +8,9 @@
 
 #include "../harness/recording_host.h"
 #include "twidget/cpu_budget.h"
+#ifdef _WIN32
+#include "twidget/icu_intl.h"
+#endif
 #include "twidget/json.h"
 #include "twidget/sdk_policy.h"
 #ifdef TW_HAVE_BLITZ
@@ -1025,6 +1028,25 @@ TEST(intl_fallback_format_to_parts) {
     CHECK_MSG(r.host.hasLog("minusSign=-;integer=1;group=,;integer=234;decimal=.;fraction=5"), r.logsText());
     CHECK_MSG(r.host.hasLog("month=January;literal= ;day=1;literal=, ;year=1970"), r.logsText());
 }
+
+#ifdef _WIN32
+// The system's ICU: CLDR data for the locale a widget names, where the basic provider writes English.
+TEST(icu_intl_formats_with_cldr) {
+    RecordingHost host("light", RES);
+    SandboxEngine engine("<script>console.log(new Intl.NumberFormat('ru-RU').format(1234.5).replace(/\\s/g, ' ') + '|' + new Intl.PluralRules('ru-RU').select(3) + '|' +"
+                         " new Intl.RelativeTimeFormat('en', {numeric: 'auto'}).format(-1, 'day') + '|' + new Intl.DateTimeFormat('en-US', {timeZone: 'UTC'}).format(new Date(0)) + '|' +"
+                         " new Intl.ListFormat('en', {type: 'conjunction'}).format(['a', 'b', 'c']));</script>",
+                         testConfig(), RES, std::make_shared<IcuIntl>());
+    engine.setDelegate(&host);
+    engine.start();
+    host.waitLoaded(20);
+    engine.thread().sync([] {});
+    auto l = host.lock();
+    std::string logs;
+    for (auto& log : host.logs) logs += log.second + "\n";
+    CHECK_MSG(host.hasLog("1 234,5|few|yesterday|1/1/1970|a, b, and c"), logs);
+}
+#endif
 
 /// Engines created and torn down quickly, some before they finished booting.
 TEST(engine_create_and_teardown_churn) {

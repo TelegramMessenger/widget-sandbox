@@ -55,7 +55,9 @@ add_library(twidget-sandbox STATIC
 target_include_directories(twidget-sandbox PUBLIC sandbox/include)
 target_link_libraries(twidget-sandbox PUBLIC twquickjs Threads::Threads)
 if(WIN32)
-    target_link_libraries(twidget-sandbox PUBLIC bcrypt)
+    # Intl on the system's ICU (icu.dll, Windows 10 1903 and later).
+    target_sources(twidget-sandbox PRIVATE sandbox/src/icu_intl.cpp)
+    target_link_libraries(twidget-sandbox PUBLIC bcrypt icu)
 endif()
 if(NOT MSVC)
     target_compile_options(twidget-sandbox PRIVATE -Wall -Wextra)
