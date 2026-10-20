@@ -8,12 +8,33 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import zlib from 'node:zlib';
+import { PLACEHOLDER_IMAGE } from '@telegram/widget-sandbox/host/url-policy';
 import { Validator } from '@telegram/widget-sandbox/host/validator';
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..');
 const glueFile = path.join(root, 'apps', 'renderer-blitz', 'pkg-web', 'twidget_blitz.js');
 const wasmFile = path.join(root, 'apps', 'renderer-blitz', 'pkg-web', 'twidget_blitz_bg.wasm');
 const built = fs.existsSync(glueFile) && fs.existsSync(wasmFile);
+
+/** A `w`×`h` PNG of one colour, as a data: URL (PNG is in profile 1; SVG images are not). */
+function pngDataUrl(w: number, h: number, [r, g, b]: number[]): string {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(w, 0);
+  header.writeUInt32BE(h, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: w }, () => [r, g, b]).flat())]);
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(Buffer.concat(Array(h).fill(row)))), chunk('IEND', Buffer.alloc(0))]);
+  return 'data:image/png;base64,' + png.toString('base64');
+}
 
 interface Exports {
   memory: WebAssembly.Memory;
@@ -142,15 +163,21 @@ describe('Blitz renderer (wasm)', { skip: built ? false : 'apps/renderer-blitz/p
     const diags: string[] = [];
     const ops = validated([
       { op: 'el', id: 4, tag: 'img', attrs: { src: 'http://127.0.0.1:9999/hit/blitz-wasm', style: 'background:url(http://127.0.0.1:9999/hit/css)' } }, { op: 'ins', parent: 3, id: 4, before: null },
-      { op: 'el', id: 5, tag: 'img', attrs: { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="blue"/></svg>' } }, { op: 'ins', parent: 3, id: 5, before: null },
+      { op: 'el', id: 5, tag: 'img', attrs: { src: pngDataUrl(20, 20, [0, 0, 255]) } }, { op: 'ins', parent: 3, id: 5, before: null },
+      { op: 'el', id: 6, tag: 'img', attrs: { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="blue"/></svg>' } }, { op: 'ins', parent: 3, id: 6, before: null },
     ], diags);
     assert.ok(!JSON.stringify(ops).includes('127.0.0.1'), 'the validator stripped the URLs');
+    const svg = (ops as any[]).find((o) => o.op === 'el' && o.id === 6);
+    assert.equal(new Map(svg.attrs).get('src'), PLACEHOLDER_IMAGE, 'a data: SVG image is out of profile 1: the validator puts the placeholder in');
+    assert.ok(diags.some((m) => m.startsWith('url-blocked: img[src]=data:image/svg+xml')), diags.join('; '));
     const out = d.send({ type: 'ops', ops });
     assert.deepEqual(out.filter((m) => m.type === 'violation'), [], 'no fetch refused by the renderer');
     const [res] = d.send({ type: 'query', qid: 1, query: { q: 'rect', id: 5 } });
-    assert.deepEqual([res.result.width, res.result.height], [20, 20], 'the data: SVG has its intrinsic size');
+    assert.deepEqual([res.result.width, res.result.height], [20, 20], 'the data: PNG has its intrinsic size');
     const r = d.render();
-    assert.deepEqual(d.pixel(r, Math.round(res.result.left + 10), Math.round(res.result.top + 10)).slice(0, 3), [0, 0, 255], 'the data: SVG painted');
+    assert.deepEqual(d.pixel(r, Math.round(res.result.left + 10), Math.round(res.result.top + 10)).slice(0, 3), [0, 0, 255], 'the data: PNG painted');
+    const [placeholder] = d.send({ type: 'query', qid: 2, query: { q: 'rect', id: 6 } });
+    assert.deepEqual([placeholder.result.width, placeholder.result.height], [48, 48], 'the placeholder at its own size');
     d.destroy();
   });
 
