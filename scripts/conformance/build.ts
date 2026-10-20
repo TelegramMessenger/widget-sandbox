@@ -11,7 +11,9 @@
 //      packages/conformance/refs/<set>/<widget>/<stage>.<engine>[.dark].png;
 //   4. the reference pictures posted next to the visual set and the client-SDK
 //      group in the test channel: the whole widget rendered natively at the
-//      reference width (refs/visual/<widget>[.dark].png);
+//      reference width (refs/visual/<widget>[.dark].png); the height gate
+//      (MAX_HEIGHT): a visual or client-SDK widget taller than the bubble's
+//      cap allows fails the build;
 //   5. the native run of every widget (no template swap): what a plain
 //      browser engine says to each check, recorded in the manifest as a sanity
 //      reference for the tests themselves;
@@ -30,7 +32,7 @@ import { chromium, webkit, type Browser, type BrowserContext, type Page } from '
 import { PNG } from 'pngjs';
 import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
-import { AUTO_GRID, CONF, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
+import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 
 const args = process.argv.slice(2);
@@ -113,8 +115,8 @@ function withHarness(w: Widget): string {
 
 // ───────────── native runs ─────────────
 
-async function newContext(browser: Browser, theme: 'light' | 'dark'): Promise<BrowserContext> {
-  const ctx = await browser.newContext({ viewport: { width: WIDTH, height: 2000 }, deviceScaleFactor: DPR, colorScheme: theme });
+async function newContext(browser: Browser, theme: 'light' | 'dark', width = WIDTH): Promise<BrowserContext> {
+  const ctx = await browser.newContext({ viewport: { width, height: 2000 }, deviceScaleFactor: DPR, colorScheme: theme });
   // A native page has the network: nothing may leave it (the widgets never need it; links must not navigate).
   await ctx.route('**/*', (r) => (r.request().url().startsWith('data:') ? r.continue() : r.abort()));
   return ctx;
@@ -221,6 +223,17 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
   return out;
 }
 
+/** The height gate: the widget's height at MAX_HEIGHT.width, drawn natively in reference mode. */
+async function measureHeight(browser: Browser, w: Widget, html: string): Promise<number> {
+  const ctx = await newContext(browser, 'light', MAX_HEIGHT.width);
+  const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette');
+  await waitStatus(page, ['done', 'awaiting'], 15_000);
+  await page.waitForTimeout(300);
+  const h = await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height));
+  await ctx.close();
+  return h;
+}
+
 /** Sanity check of a reftest: the stage drawn natively by the feature vs its template. */
 async function selfVsRef(browser: Browser, w: Widget, html: string): Promise<Record<string, number>> {
   const res: Record<string, number> = {};
@@ -283,6 +296,7 @@ async function main() {
   const entries = new Map<string, any>(prev.tests.map((t) => [t.id, t]));
   const problems: string[] = [];
   const tooLarge: string[] = [];
+  const tooTall: string[] = [];
 
   for (const w0 of widgets) {
     let html = withHarness(w0);
@@ -290,6 +304,8 @@ async function main() {
     process.stdout.write(`${w.id}: `);
     const refs = NO_REFS ? (entries.get(w.id)?.stages ?? []).reduce((m: any, s: any) => ({ ...m, [s.name]: s.refs }), {}) : await renderRefs(browsers, w, html);
     const refImages = w.set === 'visual' ? (NO_REFS ? entries.get(w.id)?.refImages ?? {} : await renderPictures(browsers.chromium, w, html)) : undefined;
+    const height = w.set === 'visual' ? await measureHeight(browsers.chromium, w, html) : undefined;
+    if (height !== undefined && height > MAX_HEIGHT.height && !w.meta.tall) tooTall.push(`${w.id}: ${height} px at ${MAX_HEIGHT.width} px wide`);
     const size = sizeOf(html);
     const bad = checkSize(w, html);
     if (bad) tooLarge.push(bad);
@@ -344,10 +360,11 @@ async function main() {
       gzip: size.gzip9,
       gzip6: size.gzip6,
       ...(refImages ? { refImages } : {}),
+      ...(height !== undefined ? { height } : {}),
       ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending } : {}),
     });
     const n = native.chromium.checks.reduce((m: Record<string, number>, c) => ({ ...m, [c[2]]: (m[c[2]] ?? 0) + 1 }), {});
-    console.log(`${checks.length} checks (chromium: ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ')}), ${w.stages.length} stages, ${(size.raw / 1024).toFixed(1)} KB (${size.gzip6} / ${size.gzip9} B gzipped)${bad ? ' TOO LARGE' : ''}`);
+    console.log(`${checks.length} checks (chromium: ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ')}), ${w.stages.length} stages, ${(size.raw / 1024).toFixed(1)} KB (${size.gzip6} / ${size.gzip9} B gzipped)${bad ? ' TOO LARGE' : ''}${height !== undefined ? `, ${height} px tall${tooTall.at(-1)?.startsWith(w.id + ':') ? ' TOO TALL' : ''}` : ''}`);
   }
   for (const b of Object.values(browsers)) await b.close();
 
@@ -405,6 +422,11 @@ async function main() {
   if (tooLarge.length) {
     console.log(`\ntoo large for a mini-widget (${SIZE_LIMIT.gzip} B gzipped at level 6 and 9, ${SIZE_LIMIT.raw} B of HTML):`);
     for (const p of tooLarge) console.log('  ' + p);
+    process.exitCode = 1;
+  }
+  if (tooTall.length) {
+    console.log(`\ntaller than ${MAX_HEIGHT.height} px at a ${MAX_HEIGHT.width} px bubble (the cap is 600; split the widget, or "tall": true for a test of the cap):`);
+    for (const p of tooTall) console.log('  ' + p);
     process.exitCode = 1;
   }
 }

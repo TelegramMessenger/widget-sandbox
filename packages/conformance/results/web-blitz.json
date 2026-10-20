@@ -5,13 +5,13 @@
   "platform": "web",
   "renderer": "blitz",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "b98ab86",
+  "framework": "0936502",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-17T13:06:08.392Z",
-  "commit": "b98ab86"
+  "date": "2026-10-19T13:27:17.257Z",
+  "commit": "0936502"
  },
  "summary": {
   "in": {
@@ -5229,7 +5229,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "126.1",
+     "detail": "138.60000000000002",
      "theme": "light",
      "width": 390
     },
@@ -6279,7 +6279,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "36,53,69",
+     "detail": "58,75,91",
      "theme": "light",
      "width": 390
     }
@@ -7734,9 +7734,9 @@
     {
      "test": "auto/20-client-behaviour",
      "kind": "host",
-     "name": "the bubble grows with the widget and is clipped at the cap (900px)",
+     "name": "the bubble grows with the widget and is clipped at the cap (600px)",
      "status": "pass",
-     "detail": "height 900",
+     "detail": "height 600",
      "theme": "light",
      "width": 390
     }
@@ -8934,9 +8934,9 @@
    "host": [
     {
      "id": "behaviour.auto-height",
-     "name": "the bubble grows with the widget and is clipped at the cap (900px)",
+     "name": "the bubble grows with the widget and is clipped at the cap (600px)",
      "status": "pass",
-     "detail": "height 900"
+     "detail": "height 600"
     }
    ]
   },
@@ -9007,7 +9007,22 @@
    "host": []
   },
   {
-   "id": "visual/03-text",
+   "id": "visual/03-text-a",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/03-text-b",
    "set": "visual",
    "theme": "light",
    "width": 390,
@@ -9037,7 +9052,22 @@
    "host": []
   },
   {
-   "id": "visual/05-transforms-effects",
+   "id": "visual/05-transforms-effects-a",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/05-transforms-effects-b",
    "set": "visual",
    "theme": "light",
    "width": 390,
@@ -9084,7 +9114,7 @@
    "host": []
   },
   {
-   "id": "visual/08-canvas",
+   "id": "visual/08-canvas-a",
    "set": "visual",
    "theme": "light",
    "width": 390,
@@ -9099,7 +9129,37 @@
    "host": []
   },
   {
-   "id": "visual/09-svg",
+   "id": "visual/08-canvas-b",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/09-svg-a",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/09-svg-b",
    "set": "visual",
    "theme": "light",
    "width": 390,

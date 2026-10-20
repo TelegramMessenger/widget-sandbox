@@ -1,6 +1,6 @@
 # Conformance results
 
-Generated 2026-10-17 13:07 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ b98ab86; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ b98ab86; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ b98ab86; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ b98ab86; policy strict, features webAnimations).
+Generated 2026-10-19 13:44 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; web blitz — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; web litehtml — Chromium 153.0.8010.12 (headless, Playwright) @ 0936502; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
@@ -8,10 +8,10 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 
 | Renderer | in (173) ✅ / ◐ / ❌ / ⏳ | out (82) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|
-| web iframe | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 190 / 190 | 0 |
-| web shadow | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 190 / 190 | 0 |
+| web iframe | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 225 / 225 | 0 |
+| web shadow | 158 / 5 / 0 / 0 | 81 / 0 / 0 | 225 / 225 | 0 |
 | web blitz | 105 / 29 / 25 / 0 | 66 / 2 / 7 | 40 / 40 | 0 |
-| web litehtml | 66 / 41 / 52 / 0 | 60 / 3 / 12 | 40 / 40 | 0 |
+| web litehtml | 64 / 42 / 53 / 0 | 60 / 3 / 12 | 40 / 40 | 0 |
 
 ## In the profile
 
@@ -125,11 +125,11 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `canvas.alpha` | ✅ | ✅ | ❌ | ❌ | · |
 | `canvas.path2d` | ✅ | ✅ | ❌ | ❌ | · |
 | `canvas.draw-image` | ◐ | ◐ | ❌ | ❌ | ✅ |
-| `canvas.hit-test` | ✅ | ✅ | ❌ | ✅ | ✅ |
+| `canvas.hit-test` | ✅ | ✅ | ❌ | ❌ | ✅ |
 | `canvas.hidpi` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `js.dom.core` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `js.dom.query` | ◐ | ◐ | ◐ | ◐ | ✅ |
-| `js.dom.style` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `js.dom.style` | ✅ | ✅ | ✅ | ◐ | ✅ |
 | `js.dom.events` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `js.layout.rect` | ✅ | ✅ | ◐ | ◐ | ✅ |
 | `js.layout.box` | ✅ | ✅ | ◐ | ◐ | ✅ |
@@ -438,9 +438,11 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 - `canvas.alpha`: 12-canvas-b: alpha (diff 100.0 % of ink (max 5 %))
 - `canvas.path2d`: 12-canvas-b: path2d (diff 91.0 % of ink (max 5 %))
 - `canvas.draw-image`: 12-canvas-b: drawImage of a loaded <img> ( (timed out)); 12-canvas-b: draw-image (diff 96.4 % of ink (max 5 %))
+- `canvas.hit-test`: 12-canvas-a: isPointInPath inside / outside (false false); 12-canvas-a: isPointInStroke (false)
 - `canvas.hidpi`: 12-canvas-a: rect (diff 100.0 % of ink (max 5 %))
 - `js.dom.core`: 14-dom-layout-api-a: innerHTML replaces the children (1)
 - `js.dom.query`: 14-dom-layout-api-b: getElementsByClassName is live (0 → 0)
+- `js.dom.style`: 14-dom-layout-api-a: style.cssText replaces the declarations (21 1,2,3,1)
 - `js.layout.rect`: 14-dom-layout-api-b: getClientRects of a wrapped inline gives one rect per line (1)
 - `js.layout.box`: 14-dom-layout-api-b: scrollHeight of overflowing content (got 30, want 70); 14-dom-layout-api-b: offsetParent (got false, want true)
 - `js.layout.computed-style`: 14-dom-layout-api-b: longhand (width) (got "116.000000px", want "100px"); 14-dom-layout-api-b: shorthand white-space (got "", want "nowrap"); 14-dom-layout-api-b: shorthand overflow (got "", want "hidden"); 14-dom-layout-api-b: shorthand margin (got "", want "4px 0px")
@@ -457,13 +459,17 @@ For people (the test channel): judged by eye. Runners only check that each widge
 |---|---|---|---|---|
 | visual/01-boxes | ✅ | ✅ | ✅ | ✅ |
 | visual/02-colours-gradients | ✅ | ✅ | ✅ | ✅ |
-| visual/03-text | ✅ | ✅ | ✅ | ✅ |
+| visual/03-text-a | ✅ | ✅ | ✅ | ✅ |
+| visual/03-text-b | ✅ | ✅ | ✅ | ✅ |
 | visual/04-layout | ✅ | ✅ | ✅ | ✅ |
-| visual/05-transforms-effects | ✅ | ✅ | ✅ | ✅ |
+| visual/05-transforms-effects-a | ✅ | ✅ | ✅ | ✅ |
+| visual/05-transforms-effects-b | ✅ | ✅ | ✅ | ✅ |
 | visual/06-css-animations | ✅ | ✅ | ✅ | ✅ |
 | visual/07-web-animations | ✅ | ✅ | ✅ | ✅ |
-| visual/08-canvas | ✅ | ✅ | ✅ | ✅ |
-| visual/09-svg | ✅ | ✅ | ✅ | ✅ |
+| visual/08-canvas-a | ✅ | ✅ | ✅ | ✅ |
+| visual/08-canvas-b | ✅ | ✅ | ✅ | ✅ |
+| visual/09-svg-a | ✅ | ✅ | ✅ | ✅ |
+| visual/09-svg-b | ✅ | ✅ | ✅ | ✅ |
 | visual/10-images | ✅ | ✅ | ✅ | ✅ |
 | visual/11-interaction | ✅ | ✅ | ✅ | ✅ |
 | visual/12-theme | ✅ | ✅ | ✅ | ✅ |

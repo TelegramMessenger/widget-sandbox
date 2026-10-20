@@ -10,7 +10,7 @@
    "photos": [
     "refs/visual/01-boxes.png"
    ],
-   "gzip": 2008
+   "gzip": 2003
   },
   {
    "widget": "visual/02-colours-gradients.html",
@@ -20,17 +20,27 @@
    "photos": [
     "refs/visual/02-colours-gradients.png"
    ],
-   "gzip": 2472
+   "gzip": 2467
   },
   {
-   "widget": "visual/03-text.html",
+   "widget": "visual/03-text-a.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/03-text · Text: system font families, weights, decoration, alignment, ellipsis, RTL and Arabic shaping, emoji; line clamp and text-shadow out. Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
+   "caption": "visual/03-text-a · Text (1/2): system font families, weights, decoration, alignment. Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
    "photos": [
-    "refs/visual/03-text.png"
+    "refs/visual/03-text-a.png"
    ],
-   "gzip": 2756
+   "gzip": 2111
+  },
+  {
+   "widget": "visual/03-text-b.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/03-text-b · Text (2/2): ellipsis, RTL and Arabic shaping, emoji; line clamp and text-shadow out. Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
+   "photos": [
+    "refs/visual/03-text-b.png"
+   ],
+   "gzip": 2311
   },
   {
    "widget": "visual/04-layout.html",
@@ -40,17 +50,27 @@
    "photos": [
     "refs/visual/04-layout.png"
    ],
-   "gzip": 2435
+   "gzip": 2434
   },
   {
-   "widget": "visual/05-transforms-effects.html",
+   "widget": "visual/05-transforms-effects-a.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/05-transforms-effects · 2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow and backdrop-filter blur/brightness; other filters, blend modes, clip-path and mask out. Each box should look like the reference picture posted next to this message. The 3D row must look flat.",
+   "caption": "visual/05-transforms-effects-a · Transforms and effects (1/2): 2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow. Each box should look like the reference picture posted next to this message. The 3D row must look flat.",
    "photos": [
-    "refs/visual/05-transforms-effects.png"
+    "refs/visual/05-transforms-effects-a.png"
    ],
-   "gzip": 2565
+   "gzip": 2074
+  },
+  {
+   "widget": "visual/05-transforms-effects-b.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/05-transforms-effects-b · Transforms and effects (2/2): backdrop-filter blur/brightness; other filters, blend modes, clip-path and mask out. Each box should look like the reference picture posted next to this message.",
+   "photos": [
+    "refs/visual/05-transforms-effects-b.png"
+   ],
+   "gzip": 2139
   },
   {
    "widget": "visual/06-css-animations.html",
@@ -60,7 +80,7 @@
    "photos": [
     "refs/visual/06-css-animations.png"
    ],
-   "gzip": 2896
+   "gzip": 2895
   },
   {
    "widget": "visual/07-web-animations.html",
@@ -70,27 +90,47 @@
    "photos": [
     "refs/visual/07-web-animations.png"
    ],
-   "gzip": 2668
+   "gzip": 2667
   },
   {
-   "widget": "visual/08-canvas.html",
+   "widget": "visual/08-canvas-a.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/08-canvas · Canvas 2D drawing: shapes and paths, line styles, gradients and patterns, text, transforms and clipping, alpha; shadows, ctx.filter and conic gradients out; a chart. Each canvas should look like the reference picture posted next to this message.",
+   "caption": "visual/08-canvas-a · Canvas 2D (1/2): shapes and paths, line styles, colours, gradients and patterns, text, alpha. Each canvas should look like the reference picture posted next to this message.",
    "photos": [
-    "refs/visual/08-canvas.png"
+    "refs/visual/08-canvas-a.png"
    ],
-   "gzip": 3403
+   "gzip": 2675
   },
   {
-   "widget": "visual/09-svg.html",
+   "widget": "visual/08-canvas-b.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/09-svg · Inline SVG: shapes, structure and viewBox, gradients, text, CSS on SVG; clipPath/mask, filters and SMIL out. Each picture should look like the reference picture posted next to this message. The last row moves.",
+   "caption": "visual/08-canvas-b · Canvas 2D (2/2): transforms and clipping; shadows, ctx.filter and conic gradients out; a chart. Each canvas should look like the reference picture posted next to this message.",
    "photos": [
-    "refs/visual/09-svg.png"
+    "refs/visual/08-canvas-b.png"
    ],
-   "gzip": 3055
+   "gzip": 2620
+  },
+  {
+   "widget": "visual/09-svg-a.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/09-svg-a · Inline SVG (1/2): shapes, structure and viewBox, gradients, text. Each picture should look like the reference picture posted next to this message.",
+   "photos": [
+    "refs/visual/09-svg-a.png"
+   ],
+   "gzip": 2382
+  },
+  {
+   "widget": "visual/09-svg-b.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/09-svg-b · Inline SVG (2/2): CSS on SVG; clipPath/mask, filters and SMIL out. Each picture should look like the reference picture posted next to this message. Nothing moves: SMIL is out.",
+   "photos": [
+    "refs/visual/09-svg-b.png"
+   ],
+   "gzip": 2352
   },
   {
    "widget": "visual/10-images.html",
@@ -100,7 +140,7 @@
    "photos": [
     "refs/visual/10-images.png"
    ],
-   "gzip": 3161
+   "gzip": 3156
   },
   {
    "widget": "visual/11-interaction.html",
@@ -110,7 +150,7 @@
    "photos": [
     "refs/visual/11-interaction.png"
    ],
-   "gzip": 3134
+   "gzip": 3137
   },
   {
    "widget": "visual/12-theme.html",
@@ -121,7 +161,7 @@
     "refs/visual/12-theme.png",
     "refs/visual/12-theme.dark.png"
    ],
-   "gzip": 1976
+   "gzip": 1974
   },
   {
    "widget": "visual/13-out-of-profile.html",
@@ -131,7 +171,7 @@
    "photos": [
     "refs/visual/13-out-of-profile.png"
    ],
-   "gzip": 2620
+   "gzip": 2618
   },
   {
    "widget": "visual/sdk/01-link-external.html",
@@ -261,7 +301,7 @@
    "photos": [
     "refs/visual/sdk/13-max-height.png"
    ],
-   "gzip": 1583
+   "gzip": 1591
   },
   {
    "widget": "visual/sdk/14-theme-palette.html",

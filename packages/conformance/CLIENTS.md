@@ -11,7 +11,7 @@ You need three things: the framework tag, your own host and renderer, and Node �
 | | |
 |---|---|
 | `auto/*.html` | The automatic set: 38 widgets that check themselves. Required. |
-| `visual/*.html` | The visual set: 13 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
+| `visual/*.html` | The visual set: 17 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
 | `channel.json` | The test channel in posting order: per message the widget, its size anchors, the caption and the reference photos. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
 | `catalogue.json` | The profile features with their IDs and status (in / out), as `packages/core/profile.json` freezes them, plus the SDK v1 limits, and what the framework does with each (`today`; legend in `catalogue.md`). `version` is the profile version. |
@@ -183,7 +183,7 @@ They need SDK v1 in the framework (`docs/sdk-v1.md`).
 
 ## The whole set in the test channel
 
-Every widget of the set is a mini-widget, so a test bot sends all of them as real layer-233 messages (`inputMediaWidget` with the HTML; bots may post only into private chats, so a tester forwards them into the shared channel). `channel.json` is the posting order: the visual set (`visual/01…13`, in reading order), the client SDK group, then the automatic set. Each post has the widget, its size anchors (`width` / `height`, `0` = auto), a caption saying what to check, and the reference photos to post right after it: `refs/visual/<widget>.png`, plus `.dark.png` for the theme-dependent ones.
+Every widget of the set is a mini-widget, so a test bot sends all of them as real layer-233 messages (`inputMediaWidget` with the HTML; bots may post only into private chats, so a tester forwards them into the shared channel). `channel.json` is the posting order: the visual set (`visual/01…13`, in reading order, with the parts of a split topic one after the other), the client SDK group, then the automatic set. Each post has the widget, its size anchors (`width` / `height`, `0` = auto), a caption saying what to check, and the reference photos to post right after it: `refs/visual/<widget>.png`, plus `.dark.png` for the theme-dependent ones.
 
 In a visual widget each row shows a group of features drawn live by your client, with one line saying what to compare with the same row of the picture. Interactive rows say what to tap or drag. Testers scroll through on a phone and report a row that does not match, with a screenshot. Fonts differ between platforms by design: compare the structure, not the letter shapes. An automatic widget reports itself: its result line at the bottom must say `done` and show no `fail` count (each failing check is listed under it). `.tgw` is only a local development format; nothing in the channel needs it.
 

@@ -5,19 +5,19 @@
   "platform": "web",
   "renderer": "litehtml",
   "engine": "Chromium 153.0.8010.12 (headless, Playwright)",
-  "framework": "b98ab86",
+  "framework": "0936502",
   "policy": "strict",
   "features": [
    "webAnimations"
   ],
-  "date": "2026-10-17T13:07:35.633Z",
-  "commit": "b98ab86"
+  "date": "2026-10-19T13:28:49.939Z",
+  "commit": "0936502"
  },
  "summary": {
   "in": {
-   "pass": 66,
-   "partial": 41,
-   "fail": 52,
+   "pass": 64,
+   "partial": 42,
+   "fail": 53,
    "xfail": 0,
    "xpass": 0,
    "skip": 4,
@@ -5241,7 +5241,7 @@
      "kind": "check",
      "name": "document.timeline.currentTime is a number",
      "status": "pass",
-     "detail": "123.39999999999999",
+     "detail": "147.9",
      "theme": "light",
      "width": 390
     },
@@ -5709,17 +5709,17 @@
   },
   "canvas.hit-test": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "fail",
    "counts": {
-    "pass": 2
+    "fail": 2
    },
    "evidence": [
     {
      "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "isPointInPath inside / outside",
-     "status": "pass",
-     "detail": "true false",
+     "status": "fail",
+     "detail": "false false",
      "theme": "light",
      "width": 390
     },
@@ -5727,8 +5727,8 @@
      "test": "auto/12-canvas-a",
      "kind": "check",
      "name": "isPointInStroke",
-     "status": "pass",
-     "detail": "true",
+     "status": "fail",
+     "detail": "false",
      "theme": "light",
      "width": 390
     }
@@ -5919,9 +5919,10 @@
   },
   "js.dom.style": {
    "status": "in",
-   "verdict": "pass",
+   "verdict": "partial",
    "counts": {
-    "pass": 3
+    "pass": 2,
+    "fail": 1
    },
    "evidence": [
     {
@@ -5937,8 +5938,8 @@
      "test": "auto/14-dom-layout-api-a",
      "kind": "check",
      "name": "style.cssText replaces the declarations",
-     "status": "pass",
-     "detail": "21 0,0,0,0",
+     "status": "fail",
+     "detail": "21 1,2,3,1",
      "theme": "light",
      "width": 390
     },
@@ -5947,7 +5948,7 @@
      "kind": "check",
      "name": "removeProperty",
      "status": "pass",
-     "detail": "49.8671875",
+     "detail": "33",
      "theme": "light",
      "width": 390
     }
@@ -6291,7 +6292,7 @@
      "kind": "check",
      "name": "requestAnimationFrame: three frames with increasing timestamps",
      "status": "pass",
-     "detail": "35,48,64",
+     "detail": "58,74,91",
      "theme": "light",
      "width": 390
     }
@@ -7746,9 +7747,9 @@
     {
      "test": "auto/20-client-behaviour",
      "kind": "host",
-     "name": "the bubble grows with the widget and is clipped at the cap (900px)",
+     "name": "the bubble grows with the widget and is clipped at the cap (600px)",
      "status": "pass",
-     "detail": "height 900",
+     "detail": "height 600",
      "theme": "light",
      "width": 390
     }
@@ -8498,7 +8499,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 9
+    "pass": 7,
+    "fail": 2
    },
    "stages": [
     {
@@ -8698,8 +8700,8 @@
    "harnessErrors": [],
    "skippedActions": [],
    "counts": {
-    "pass": 13,
-    "fail": 1
+    "pass": 12,
+    "fail": 2
    },
    "stages": [],
    "host": []
@@ -8948,9 +8950,9 @@
    "host": [
     {
      "id": "behaviour.auto-height",
-     "name": "the bubble grows with the widget and is clipped at the cap (900px)",
+     "name": "the bubble grows with the widget and is clipped at the cap (600px)",
      "status": "pass",
-     "detail": "height 900"
+     "detail": "height 600"
     }
    ]
   },
@@ -9021,7 +9023,22 @@
    "host": []
   },
   {
-   "id": "visual/03-text",
+   "id": "visual/03-text-a",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/03-text-b",
    "set": "visual",
    "theme": "light",
    "width": 390,
@@ -9051,7 +9068,22 @@
    "host": []
   },
   {
-   "id": "visual/05-transforms-effects",
+   "id": "visual/05-transforms-effects-a",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/05-transforms-effects-b",
    "set": "visual",
    "theme": "light",
    "width": 390,
@@ -9098,7 +9130,7 @@
    "host": []
   },
   {
-   "id": "visual/08-canvas",
+   "id": "visual/08-canvas-a",
    "set": "visual",
    "theme": "light",
    "width": 390,
@@ -9113,7 +9145,37 @@
    "host": []
   },
   {
-   "id": "visual/09-svg",
+   "id": "visual/08-canvas-b",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/09-svg-a",
+   "set": "visual",
+   "theme": "light",
+   "width": 390,
+   "loaded": true,
+   "dead": null,
+   "status": "done",
+   "errors": [],
+   "harnessErrors": [],
+   "skippedActions": [],
+   "counts": {},
+   "stages": [],
+   "host": []
+  },
+  {
+   "id": "visual/09-svg-b",
    "set": "visual",
    "theme": "light",
    "width": 390,

@@ -63,14 +63,14 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `svg.shapes` | Inline <svg>: rect, circle, ellipse, line, polyline, polygon, path with presentation attributes | in | D3a | kept |  | auto/13-svg-a, visual/09-svg |
-| `svg.structure` | g, defs, symbol, use (fragment href), transform attribute, viewBox/preserveAspectRatio | in | D3a | kept |  | auto/13-svg-a, visual/09-svg |
-| `svg.text` | SVG text, tspan | in | D3a | kept |  | auto/13-svg-a, visual/09-svg |
-| `svg.gradients` | linearGradient, radialGradient, stop; fill="url(#id)" | in | P1 | kept |  | auto/13-svg-a, visual/09-svg |
-| `svg.css` | CSS on inline SVG: fill/stroke from a stylesheet rule, :hover, CSS animation of SVG properties<br><sub>Blitz and the litehtml prototype ignore SVG CSS (probe svg-css).</sub> | in | P1 | kept |  | auto/13-svg-a, visual/09-svg |
-| `svg.clip-mask` | clipPath, mask, pattern, marker | out | P1 | stripped | the elements are dropped with their subtree; clip-path, mask and marker attributes are dropped | auto/13-svg-b, visual/09-svg |
-| `svg.filters` | SVG filter primitives (fe*) | out | P1 | stripped | filter and the fe* elements are dropped with their subtree; the filter attribute is dropped | auto/13-svg-b, visual/09-svg |
-| `svg.smil` | SMIL animation: animate, animateTransform, animateMotion<br><sub>Animation driven by the renderer, outside CSS animations and WAAPI.</sub> | out | P1 | stripped | animate, animateTransform, animateMotion and mpath are dropped | auto/13-svg-b, visual/09-svg |
+| `svg.shapes` | Inline <svg>: rect, circle, ellipse, line, polyline, polygon, path with presentation attributes | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
+| `svg.structure` | g, defs, symbol, use (fragment href), transform attribute, viewBox/preserveAspectRatio | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
+| `svg.text` | SVG text, tspan | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
+| `svg.gradients` | linearGradient, radialGradient, stop; fill="url(#id)" | in | P1 | kept |  | auto/13-svg-a, visual/09-svg-a |
+| `svg.css` | CSS on inline SVG: fill/stroke from a stylesheet rule, :hover, CSS animation of SVG properties<br><sub>Blitz and the litehtml prototype ignore SVG CSS (probe svg-css).</sub> | in | P1 | kept |  | auto/13-svg-a, visual/09-svg-b |
+| `svg.clip-mask` | clipPath, mask, pattern, marker | out | P1 | stripped | the elements are dropped with their subtree; clip-path, mask and marker attributes are dropped | auto/13-svg-b, visual/09-svg-b |
+| `svg.filters` | SVG filter primitives (fe*) | out | P1 | stripped | filter and the fe* elements are dropped with their subtree; the filter attribute is dropped | auto/13-svg-b, visual/09-svg-b |
+| `svg.smil` | SMIL animation: animate, animateTransform, animateMotion<br><sub>Animation driven by the renderer, outside CSS animations and WAAPI.</sub> | out | P1 | stripped | animate, animateTransform, animateMotion and mpath are dropped | auto/13-svg-b, visual/09-svg-b |
 | `svg.foreign-object` | foreignObject (HTML inside SVG) | out | P1 | stripped | drop the subtree | auto/13-svg-b |
 | `svg.image` | <image href="data:…"> inside SVG | out | P1 | stripped | dropped | auto/13-svg-b |
 
@@ -114,35 +114,35 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.gradient.radial` | radial-gradient(), repeating-radial-gradient() | in | D3a | kept |  | auto/05-colour-backgrounds-b, visual/02-colours-gradients |
 | `css.gradient.conic` | conic-gradient() | in | P1 | kept |  | auto/05-colour-backgrounds-b, visual/02-colours-gradients |
 | `css.url.remote` | url() / image-set() with anything but a data: image or #fragment | out | inv4 | stripped | the declaration is dropped | auto/05-colour-backgrounds-b |
-| `css.font.generic` | font-family with system generic families: system-ui, sans-serif, serif, monospace | in | D3b | kept |  | auto/06-text-fonts-a, visual/03-text |
+| `css.font.generic` | font-family with system generic families: system-ui, sans-serif, serif, monospace | in | D3b | kept |  | auto/06-text-fonts-a, visual/03-text-a |
 | `css.font.ui-families` | font-family: ui-sans-serif, ui-serif, ui-monospace, ui-rounded<br><sub>Generic per CSS Fonts 4, but only WebKit resolves them; the validator appends the generic fallback (ui-monospace → monospace).</sub> | in | P1 | kept |  | auto/06-text-fonts-a |
 | `css.font.named` | font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …) | out | D3b | stripped | the validator drops non-generic names from the list; -apple-system and BlinkMacSystemFont, the vendor names of the system UI font, become system-ui; an empty list falls back to the default (system-ui) | auto/06-text-fonts-a, visual/13-out-of-profile |
 | `css.font.face` | @font-face (web fonts) | out | D3b | stripped | the at-rule is dropped | auto/06-text-fonts-a |
-| `css.font.basic` | font-size, font-weight (100–900, bold), font-style italic, line-height, font shorthand | in | D3a | kept |  | auto/06-text-fonts-a, visual/03-text |
+| `css.font.basic` | font-size, font-weight (100–900, bold), font-style italic, line-height, font shorthand | in | D3a | kept |  | auto/06-text-fonts-a, visual/03-text-a |
 | `css.font.variant-numeric` | font-variant-numeric: tabular-nums (and font-feature-settings "tnum") | in | P1 | kept |  | auto/06-text-fonts-a |
-| `css.text.align` | text-align (left, right, center, justify, start, end), text-indent | in | D3a | kept |  | auto/06-text-fonts-b, visual/03-text |
-| `css.text.decoration` | text-decoration (underline, line-through, overline; colour, style, thickness) | in | D3a | kept |  | auto/06-text-fonts-b, auto/06-text-fonts-c, visual/03-text |
+| `css.text.align` | text-align (left, right, center, justify, start, end), text-indent | in | D3a | kept |  | auto/06-text-fonts-b, visual/03-text-a |
+| `css.text.decoration` | text-decoration (underline, line-through, overline; colour, style, thickness) | in | D3a | kept |  | auto/06-text-fonts-b, auto/06-text-fonts-c, visual/03-text-a |
 | `css.text.transform` | text-transform, letter-spacing, word-spacing | in | D3a | kept |  | auto/06-text-fonts-b |
 | `css.text.white-space` | white-space: normal, nowrap, pre, pre-wrap, pre-line<br><sub>pre missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/06-text-fonts-b |
 | `css.text.wrap` | overflow-wrap / word-break (breaking long words) | in | D3a | kept |  | auto/06-text-fonts-b |
-| `css.text.overflow` | text-overflow: ellipsis (single line) | in | P1 | kept |  | auto/06-text-fonts-c, visual/03-text |
-| `css.text.line-clamp` | -webkit-line-clamp / line-clamp (multi-line ellipsis) | out | P1 | stripped | the declaration is dropped | auto/06-text-fonts-b, visual/03-text |
-| `css.text.shadow` | text-shadow<br><sub>Not drawn by Blitz or the litehtml prototype (probe text-shadow).</sub> | out | P1 | stripped | the declaration is dropped | auto/06-text-fonts-c, visual/03-text |
+| `css.text.overflow` | text-overflow: ellipsis (single line) | in | P1 | kept |  | auto/06-text-fonts-c, visual/03-text-b |
+| `css.text.line-clamp` | -webkit-line-clamp / line-clamp (multi-line ellipsis) | out | P1 | stripped | the declaration is dropped | auto/06-text-fonts-b, visual/03-text-b |
+| `css.text.shadow` | text-shadow<br><sub>Not drawn by Blitz or the litehtml prototype (probe text-shadow).</sub> | out | P1 | stripped | the declaration is dropped | auto/06-text-fonts-c, visual/03-text-b |
 | `css.text.vertical-align` | vertical-align (baseline, middle, top, sub, super, lengths) | in | D3a | kept |  | auto/06-text-fonts-b |
 | `css.text.list-style` | list-style-type / position (disc, decimal, none, …) | in | D3a | kept |  | auto/06-text-fonts-b |
 | `css.text.writing-mode` | writing-mode, text-orientation (vertical text) | out | P1 | stripped | the declaration is dropped | auto/06-text-fonts-b |
-| `css.text.rtl` | Right-to-left and bidi text (direction, unicode-bidi, Hebrew/Arabic shaping) | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text |
-| `css.text.emoji` | Colour emoji glyphs (system emoji font)<br><sub>Blitz on iOS had blank emoji on the vello backend.</sub> | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text |
+| `css.text.rtl` | Right-to-left and bidi text (direction, unicode-bidi, Hebrew/Arabic shaping) | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
+| `css.text.emoji` | Colour emoji glyphs (system emoji font)<br><sub>Blitz on iOS had blank emoji on the vello backend.</sub> | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
 | `css.text.selection` | Text selection (user-select: text, ::selection, select by drag or long press) | out | D18 | stripped | the renderer disables selection on its root and the validator drops user-select | auto/06-text-fonts-c |
-| `css.transform.2d` | 2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects |
-| `css.transform.3d` | 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility | out | D3a | stripped | a transform with a 3D function is dropped; perspective, transform-style and backface-visibility are dropped | auto/09-transforms-effects-a, visual/05-transforms-effects, visual/13-out-of-profile |
-| `css.filter.blur-brightness-drop-shadow` | filter: blur(), brightness(), drop-shadow()<br><sub>Not drawn by Blitz or the litehtml prototype today (probe filter).</sub> | in* | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects |
-| `css.filter.other` | filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() | out | P1 | stripped | the function is removed from the filter list; an empty list drops the declaration | auto/09-transforms-effects-a, visual/05-transforms-effects |
+| `css.transform.2d` | 2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
+| `css.transform.3d` | 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility | out | D3a | stripped | a transform with a 3D function is dropped; perspective, transform-style and backface-visibility are dropped | auto/09-transforms-effects-a, visual/05-transforms-effects-a, visual/13-out-of-profile |
+| `css.filter.blur-brightness-drop-shadow` | filter: blur(), brightness(), drop-shadow()<br><sub>Not drawn by Blitz or the litehtml prototype today (probe filter).</sub> | in* | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
+| `css.filter.other` | filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() | out | P1 | stripped | the function is removed from the filter list; an empty list drops the declaration | auto/09-transforms-effects-a, visual/05-transforms-effects-b |
 | `css.filter.url` | filter: url(#svg-filter) | out | P1 | stripped | the declaration is dropped | auto/09-transforms-effects-a |
-| `css.backdrop-filter` | backdrop-filter: blur(), brightness() | in* | D3a | kept |  | auto/09-transforms-effects-b, visual/05-transforms-effects |
-| `css.blend` | mix-blend-mode, isolation, background-blend-mode | out | P1 | stripped | the declaration is dropped | auto/09-transforms-effects-b, visual/05-transforms-effects |
-| `css.clip-path` | clip-path: inset(), circle(), ellipse(), polygon()<br><sub>Blitz draws it, the litehtml prototype does not.</sub> | out | P1 | stripped | the declaration is dropped | auto/09-transforms-effects-b, visual/05-transforms-effects |
-| `css.mask` | mask / -webkit-mask with gradients or data: images | out | P1 | stripped | the declaration is dropped | auto/09-transforms-effects-b, visual/05-transforms-effects |
+| `css.backdrop-filter` | backdrop-filter: blur(), brightness() | in* | D3a | kept |  | auto/09-transforms-effects-b, visual/05-transforms-effects-b |
+| `css.blend` | mix-blend-mode, isolation, background-blend-mode | out | P1 | stripped | the declaration is dropped | auto/09-transforms-effects-b, visual/05-transforms-effects-b |
+| `css.clip-path` | clip-path: inset(), circle(), ellipse(), polygon()<br><sub>Blitz draws it, the litehtml prototype does not.</sub> | out | P1 | stripped | the declaration is dropped | auto/09-transforms-effects-b, visual/05-transforms-effects-b |
+| `css.mask` | mask / -webkit-mask with gradients or data: images | out | P1 | stripped | the declaration is dropped | auto/09-transforms-effects-b, visual/05-transforms-effects-b |
 | `css.pointer-events` | pointer-events: none / auto (hit testing passes through) | in | P1 | kept |  | auto/09-transforms-effects-b, auto/17-drag-hover |
 | `css.touch-action` | touch-action: none / pan-x / pan-y (the widget claims a swipe from the chat)<br><sub>D4: drag in v1 needs gesture arbitration; the Android host reads it from the renderer (`gesture` message).</sub> | in | P1 | kept |  | auto/09-transforms-effects-b |
 | `css.cursor` | cursor (desktop only)<br><sub>Progressive enhancement like :hover; no-op on touch clients.</sub> | in | D3 | kept |  | auto/09-transforms-effects-b |
@@ -208,25 +208,25 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `canvas.rect` | fillRect, strokeRect, clearRect | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas |
-| `canvas.path` | Paths: beginPath, moveTo, lineTo, arc, arcTo, bezierCurveTo, quadraticCurveTo, ellipse, rect, roundRect, closePath, fill (nonzero/evenodd), stroke | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas |
-| `canvas.line-style` | lineWidth, lineCap, lineJoin, miterLimit, setLineDash, lineDashOffset | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas |
-| `canvas.colors` | fillStyle / strokeStyle with CSS colours | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas |
-| `canvas.gradients` | createLinearGradient, createRadialGradient, addColorStop | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas |
-| `canvas.conic-gradient` | createConicGradient | out | P1 | replaced | createConicGradient returns a gradient that draws nothing | auto/12-canvas-a, visual/08-canvas |
-| `canvas.pattern` | createPattern from a canvas or image | out | P1 | replaced | createPattern returns a pattern that draws nothing | auto/12-canvas-b, visual/08-canvas |
-| `canvas.transform` | save, restore, translate, rotate, scale, transform, setTransform, resetTransform | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas |
-| `canvas.clip` | clip() with a path | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas |
-| `canvas.text` | fillText, strokeText, font, textAlign, textBaseline, measureText | in | D3a | kept |  | auto/12-canvas-a, auto/12-canvas-b, visual/08-canvas |
-| `canvas.alpha` | globalAlpha | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas |
+| `canvas.rect` | fillRect, strokeRect, clearRect | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a, visual/08-canvas-b |
+| `canvas.path` | Paths: beginPath, moveTo, lineTo, arc, arcTo, bezierCurveTo, quadraticCurveTo, ellipse, rect, roundRect, closePath, fill (nonzero/evenodd), stroke | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a, visual/08-canvas-b |
+| `canvas.line-style` | lineWidth, lineCap, lineJoin, miterLimit, setLineDash, lineDashOffset | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a, visual/08-canvas-b |
+| `canvas.colors` | fillStyle / strokeStyle with CSS colours | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a |
+| `canvas.gradients` | createLinearGradient, createRadialGradient, addColorStop | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a |
+| `canvas.conic-gradient` | createConicGradient | out | P1 | replaced | createConicGradient returns a gradient that draws nothing | auto/12-canvas-a, visual/08-canvas-b |
+| `canvas.pattern` | createPattern from a canvas or image | out | P1 | replaced | createPattern returns a pattern that draws nothing | auto/12-canvas-b, visual/08-canvas-a |
+| `canvas.transform` | save, restore, translate, rotate, scale, transform, setTransform, resetTransform | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas-b |
+| `canvas.clip` | clip() with a path | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas-b |
+| `canvas.text` | fillText, strokeText, font, textAlign, textBaseline, measureText | in | D3a | kept |  | auto/12-canvas-a, auto/12-canvas-b, visual/08-canvas-a |
+| `canvas.alpha` | globalAlpha | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas-a |
 | `canvas.composite` | globalCompositeOperation (source-over, destination-out, multiply, …) | out | P1 | stripped | the property is not applied (source-over) | auto/12-canvas-b |
-| `canvas.shadow` | shadowBlur, shadowColor, shadowOffsetX/Y | out | P1 | stripped | the properties are not applied | auto/12-canvas-b, visual/08-canvas |
-| `canvas.filter` | ctx.filter (CSS filter on canvas drawing) | out | P1 | stripped | the property is not applied | auto/12-canvas-b, visual/08-canvas |
+| `canvas.shadow` | shadowBlur, shadowColor, shadowOffsetX/Y | out | P1 | stripped | the properties are not applied | auto/12-canvas-b, visual/08-canvas-b |
+| `canvas.filter` | ctx.filter (CSS filter on canvas drawing) | out | P1 | stripped | the property is not applied | auto/12-canvas-b, visual/08-canvas-b |
 | `canvas.path2d` | Path2D objects (from SVG path data or built), fill/stroke/clip with them | in | D3a | kept |  | auto/12-canvas-b |
 | `canvas.draw-image` | drawImage from an <img> (data:) or another canvas | in | D3a | kept |  | auto/12-canvas-b |
 | `canvas.image-data` | getImageData / putImageData / createImageData (pixel read-back)<br><sub>getImageData is a sync query answered by the renderer: a native renderer must rasterize to answer.</sub> | out | P1 | stub | getImageData returns transparent pixels, putImageData draws nothing | auto/12-canvas-a, auto/12-canvas-b |
 | `canvas.hit-test` | isPointInPath / isPointInStroke | in | P1 | kept |  | auto/12-canvas-a |
-| `canvas.hidpi` | Backing store sized by width/height attributes, CSS size independent (devicePixelRatio scaling) | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas |
+| `canvas.hidpi` | Backing store sized by width/height attributes, CSS size independent (devicePixelRatio scaling) | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a, visual/08-canvas-b |
 | `canvas.readback` | toDataURL, toBlob, captureStream | out | P1 | stub | toBlob/captureStream are stubs; toDataURL returns an empty image (data:,) | auto/12-canvas-a |
 | `canvas.webgl` | WebGL, OffscreenCanvas, bitmaprenderer contexts | out | D6 | stub | getContext returns null; OffscreenCanvas throws | auto/12-canvas-a |
 

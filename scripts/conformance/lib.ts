@@ -12,6 +12,16 @@ export const CONF = path.join(ROOT, 'packages', 'conformance');
 export const SETS = ['auto', 'visual'] as const;
 export type SetName = (typeof SETS)[number];
 
+/**
+ * The bubble is at most 600 px tall on every client and on the server (docs/integration.md, "Bubble sizing").
+ * Every widget stays within `height` at a narrow bubble width, which leaves room for platform fonts and an
+ * automatic widget's list of failures; a header's "tall": true exempts a widget that tests the cap
+ * (13-max-height). build.ts checks the visual set and the client-SDK group drawn natively; heights.ts checks
+ * every widget through the sandbox (drawn natively, an automatic widget also lists the out-of-profile checks
+ * Chromium fails, which makes it taller than on a client).
+ */
+export const MAX_HEIGHT = { width: 320, height: 560 };
+
 /** Default stage sizes (CSS px) and the auto set's grid. */
 export const STAGE = { auto: { w: 80, h: 60 }, visual: { w: 150, h: 90 } };
 export const AUTO_GRID = { left: 8, top: 8, dx: 88, dy: 68, perRow: 4 };
@@ -70,6 +80,8 @@ export interface WidgetMeta {
   contract?: string;
   /** Not runnable yet: what it waits for (e.g. the server). */
   pending?: string;
+  /** Taller than the bubble's cap on purpose (13-max-height tests the clip): exempt from the build's height gate. */
+  tall?: boolean;
 }
 
 export interface StageInfo {

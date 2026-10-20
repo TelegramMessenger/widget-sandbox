@@ -6885,12 +6885,13 @@
      }
     }
    ],
-   "bytes": 4657,
-   "gzip": 2008,
-   "gzip6": 2008,
+   "bytes": 4656,
+   "gzip": 2003,
+   "gzip6": 2003,
    "refImages": {
     "light": "refs/visual/01-boxes.png"
-   }
+   },
+   "height": 448
   },
   {
    "id": "visual/02-colours-gradients",
@@ -6992,7 +6993,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/02-colours-gradients/functions.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 1
     },
     {
      "name": "background",
@@ -7013,18 +7015,19 @@
      }
     }
    ],
-   "bytes": 5512,
-   "gzip": 2471,
-   "gzip6": 2472,
+   "bytes": 5511,
+   "gzip": 2466,
+   "gzip6": 2467,
    "refImages": {
     "light": "refs/visual/02-colours-gradients.png"
-   }
+   },
+   "height": 560
   },
   {
-   "id": "visual/03-text",
+   "id": "visual/03-text-a",
    "set": "visual",
-   "file": "visual/03-text.html",
-   "title": "Text: system font families, weights, decoration, alignment, ellipsis, RTL and Arabic shaping, emoji; line clamp and text-shadow out",
+   "file": "visual/03-text-a.html",
+   "title": "Text (1/2): system font families, weights, decoration, alignment",
    "hint": "Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
    "kind": [
     "pixel"
@@ -7033,12 +7036,7 @@
     "css.font.basic",
     "css.font.generic",
     "css.text.align",
-    "css.text.decoration",
-    "css.text.emoji",
-    "css.text.line-clamp",
-    "css.text.overflow",
-    "css.text.rtl",
-    "css.text.shadow"
+    "css.text.decoration"
    ],
    "themes": [
     "light"
@@ -7065,7 +7063,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/03-text/families.chromium.png"
+      "chromium": "refs/visual/03-text-a/families.chromium.png"
      }
     },
     {
@@ -7081,7 +7079,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/03-text/weights.chromium.png"
+      "chromium": "refs/visual/03-text-a/weights.chromium.png"
      }
     },
     {
@@ -7097,9 +7095,46 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/03-text/align.chromium.png"
+      "chromium": "refs/visual/03-text-a/align.chromium.png"
      }
-    },
+    }
+   ],
+   "bytes": 4854,
+   "gzip": 2110,
+   "gzip6": 2111,
+   "refImages": {
+    "light": "refs/visual/03-text-a.png"
+   },
+   "height": 428
+  },
+  {
+   "id": "visual/03-text-b",
+   "set": "visual",
+   "file": "visual/03-text-b.html",
+   "title": "Text (2/2): ellipsis, RTL and Arabic shaping, emoji; line clamp and text-shadow out",
+   "hint": "Fonts differ between platforms: compare the structure (which line is bold, where text breaks, what is underlined), not the exact letter shapes.",
+   "kind": [
+    "pixel"
+   ],
+   "covers": [
+    "css.text.emoji",
+    "css.text.line-clamp",
+    "css.text.overflow",
+    "css.text.rtl",
+    "css.text.shadow"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [
     {
      "name": "ellipsis",
      "rect": null,
@@ -7113,8 +7148,9 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/visual/03-text/ellipsis.chromium.png"
-     }
+      "chromium": "refs/visual/03-text-b/ellipsis.chromium.png"
+     },
+     "nativeVsTemplate": 0.2213
     },
     {
      "name": "scripts",
@@ -7129,7 +7165,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/03-text/scripts.chromium.png"
+      "chromium": "refs/visual/03-text-b/scripts.chromium.png"
      }
     },
     {
@@ -7145,16 +7181,18 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/visual/03-text/text-shadow.chromium.png"
-     }
+      "chromium": "refs/visual/03-text-b/text-shadow.chromium.png"
+     },
+     "nativeVsTemplate": 0.3384
     }
    ],
-   "bytes": 7269,
-   "gzip": 2752,
-   "gzip6": 2756,
+   "bytes": 5287,
+   "gzip": 2311,
+   "gzip6": 2311,
    "refImages": {
-    "light": "refs/visual/03-text.png"
-   }
+    "light": "refs/visual/03-text-b.png"
+   },
+   "height": 428
   },
   {
    "id": "visual/04-layout",
@@ -7265,32 +7303,29 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/04-layout/float-columns.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.1241
     }
    ],
-   "bytes": 6313,
-   "gzip": 2435,
-   "gzip6": 2435,
+   "bytes": 6312,
+   "gzip": 2432,
+   "gzip6": 2434,
    "refImages": {
     "light": "refs/visual/04-layout.png"
-   }
+   },
+   "height": 544
   },
   {
-   "id": "visual/05-transforms-effects",
+   "id": "visual/05-transforms-effects-a",
    "set": "visual",
-   "file": "visual/05-transforms-effects.html",
-   "title": "2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow and backdrop-filter blur/brightness; other filters, blend modes, clip-path and mask out",
+   "file": "visual/05-transforms-effects-a.html",
+   "title": "Transforms and effects (1/2): 2D transforms; 3D transforms out (must look flat); filter blur, brightness, drop-shadow",
    "hint": "Each box should look like the reference picture posted next to this message. The 3D row must look flat.",
    "kind": [
     "pixel"
    ],
    "covers": [
-    "css.backdrop-filter",
-    "css.blend",
-    "css.clip-path",
     "css.filter.blur-brightness-drop-shadow",
-    "css.filter.other",
-    "css.mask",
     "css.transform.2d",
     "css.transform.3d"
    ],
@@ -7319,7 +7354,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/05-transforms-effects/transform-2d.chromium.png"
+      "chromium": "refs/visual/05-transforms-effects-a/transform-2d.chromium.png"
      }
     },
     {
@@ -7335,8 +7370,9 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/visual/05-transforms-effects/transform-3d.chromium.png"
-     }
+      "chromium": "refs/visual/05-transforms-effects-a/transform-3d.chromium.png"
+     },
+     "nativeVsTemplate": 0.4329
     },
     {
      "name": "filters",
@@ -7351,9 +7387,46 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/05-transforms-effects/filters.chromium.png"
+      "chromium": "refs/visual/05-transforms-effects-a/filters.chromium.png"
      }
-    },
+    }
+   ],
+   "bytes": 4680,
+   "gzip": 2069,
+   "gzip6": 2074,
+   "refImages": {
+    "light": "refs/visual/05-transforms-effects-a.png"
+   },
+   "height": 352
+  },
+  {
+   "id": "visual/05-transforms-effects-b",
+   "set": "visual",
+   "file": "visual/05-transforms-effects-b.html",
+   "title": "Transforms and effects (2/2): backdrop-filter blur/brightness; other filters, blend modes, clip-path and mask out",
+   "hint": "Each box should look like the reference picture posted next to this message.",
+   "kind": [
+    "pixel"
+   ],
+   "covers": [
+    "css.backdrop-filter",
+    "css.blend",
+    "css.clip-path",
+    "css.filter.other",
+    "css.mask"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [
     {
      "name": "filters-other",
      "rect": null,
@@ -7367,8 +7440,9 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/visual/05-transforms-effects/filters-other.chromium.png"
-     }
+      "chromium": "refs/visual/05-transforms-effects-b/filters-other.chromium.png"
+     },
+     "nativeVsTemplate": 1
     },
     {
      "name": "backdrop",
@@ -7383,7 +7457,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/05-transforms-effects/backdrop.chromium.png"
+      "chromium": "refs/visual/05-transforms-effects-b/backdrop.chromium.png"
      }
     },
     {
@@ -7399,16 +7473,18 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/visual/05-transforms-effects/blend-clip-mask.chromium.png"
-     }
+      "chromium": "refs/visual/05-transforms-effects-b/blend-clip-mask.chromium.png"
+     },
+     "nativeVsTemplate": 0.4332
     }
    ],
-   "bytes": 7449,
-   "gzip": 2556,
-   "gzip6": 2565,
+   "bytes": 5643,
+   "gzip": 2138,
+   "gzip6": 2139,
    "refImages": {
-    "light": "refs/visual/05-transforms-effects.png"
-   }
+    "light": "refs/visual/05-transforms-effects-b.png"
+   },
+   "height": 352
   },
   {
    "id": "visual/06-css-animations",
@@ -7465,7 +7541,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/slide.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.6305
     },
     {
      "name": "spin-pulse",
@@ -7481,7 +7558,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.8422
     },
     {
      "name": "steps",
@@ -7497,7 +7575,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/steps.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.5037
     },
     {
      "name": "frozen",
@@ -7529,15 +7608,17 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/06-css-animations/transition.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.9824
     }
    ],
-   "bytes": 8059,
-   "gzip": 2895,
-   "gzip6": 2896,
+   "bytes": 8058,
+   "gzip": 2894,
+   "gzip6": 2895,
    "refImages": {
     "light": "refs/visual/06-css-animations.png"
-   }
+   },
+   "height": 544
   },
   {
    "id": "visual/07-web-animations",
@@ -7583,7 +7664,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0
     },
     {
      "name": "seek",
@@ -7599,7 +7681,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/seek.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0
     },
     {
      "name": "offsets",
@@ -7615,7 +7698,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/offsets.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0
     },
     {
      "name": "css-control",
@@ -7631,40 +7715,37 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/07-web-animations/css-control.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.0154
     }
    ],
-   "bytes": 7443,
-   "gzip": 2665,
-   "gzip6": 2668,
+   "bytes": 7442,
+   "gzip": 2664,
+   "gzip6": 2667,
    "refImages": {
     "light": "refs/visual/07-web-animations.png"
-   }
+   },
+   "height": 464
   },
   {
-   "id": "visual/08-canvas",
+   "id": "visual/08-canvas-a",
    "set": "visual",
-   "file": "visual/08-canvas.html",
-   "title": "Canvas 2D drawing: shapes and paths, line styles, gradients and patterns, text, transforms and clipping, alpha; shadows, ctx.filter and conic gradients out; a chart",
+   "file": "visual/08-canvas-a.html",
+   "title": "Canvas 2D (1/2): shapes and paths, line styles, colours, gradients and patterns, text, alpha",
    "hint": "Each canvas should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
    ],
    "covers": [
     "canvas.alpha",
-    "canvas.clip",
     "canvas.colors",
-    "canvas.conic-gradient",
-    "canvas.filter",
     "canvas.gradients",
     "canvas.hidpi",
     "canvas.line-style",
     "canvas.path",
     "canvas.pattern",
     "canvas.rect",
-    "canvas.shadow",
-    "canvas.text",
-    "canvas.transform"
+    "canvas.text"
    ],
    "themes": [
     "light"
@@ -7691,7 +7772,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/08-canvas/shapes.chromium.png"
+      "chromium": "refs/visual/08-canvas-a/shapes.chromium.png"
      }
     },
     {
@@ -7707,7 +7788,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/08-canvas/paint.chromium.png"
+      "chromium": "refs/visual/08-canvas-a/paint.chromium.png"
      }
     },
     {
@@ -7723,9 +7804,50 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/08-canvas/text.chromium.png"
+      "chromium": "refs/visual/08-canvas-a/text.chromium.png"
      }
-    },
+    }
+   ],
+   "bytes": 6045,
+   "gzip": 2675,
+   "gzip6": 2675,
+   "refImages": {
+    "light": "refs/visual/08-canvas-a.png"
+   },
+   "height": 358
+  },
+  {
+   "id": "visual/08-canvas-b",
+   "set": "visual",
+   "file": "visual/08-canvas-b.html",
+   "title": "Canvas 2D (2/2): transforms and clipping; shadows, ctx.filter and conic gradients out; a chart",
+   "hint": "Each canvas should look like the reference picture posted next to this message.",
+   "kind": [
+    "pixel"
+   ],
+   "covers": [
+    "canvas.clip",
+    "canvas.conic-gradient",
+    "canvas.filter",
+    "canvas.hidpi",
+    "canvas.line-style",
+    "canvas.path",
+    "canvas.rect",
+    "canvas.shadow",
+    "canvas.transform"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [
     {
      "name": "transform-clip",
      "rect": null,
@@ -7739,7 +7861,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/08-canvas/transform-clip.chromium.png"
+      "chromium": "refs/visual/08-canvas-b/transform-clip.chromium.png"
      }
     },
     {
@@ -7755,7 +7877,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/08-canvas/candidates.chromium.png"
+      "chromium": "refs/visual/08-canvas-b/candidates.chromium.png"
      }
     },
     {
@@ -7771,33 +7893,30 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/08-canvas/chart.chromium.png"
+      "chromium": "refs/visual/08-canvas-b/chart.chromium.png"
      }
     }
    ],
-   "bytes": 8441,
-   "gzip": 3400,
-   "gzip6": 3403,
+   "bytes": 5611,
+   "gzip": 2620,
+   "gzip6": 2620,
    "refImages": {
-    "light": "refs/visual/08-canvas.png"
-   }
+    "light": "refs/visual/08-canvas-b.png"
+   },
+   "height": 352
   },
   {
-   "id": "visual/09-svg",
+   "id": "visual/09-svg-a",
    "set": "visual",
-   "file": "visual/09-svg.html",
-   "title": "Inline SVG: shapes, structure and viewBox, gradients, text, CSS on SVG; clipPath/mask, filters and SMIL out",
-   "hint": "Each picture should look like the reference picture posted next to this message. The last row moves.",
+   "file": "visual/09-svg-a.html",
+   "title": "Inline SVG (1/2): shapes, structure and viewBox, gradients, text",
+   "hint": "Each picture should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
    ],
    "covers": [
-    "svg.clip-mask",
-    "svg.css",
-    "svg.filters",
     "svg.gradients",
     "svg.shapes",
-    "svg.smil",
     "svg.structure",
     "svg.text"
    ],
@@ -7826,7 +7945,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/09-svg/shapes.chromium.png"
+      "chromium": "refs/visual/09-svg-a/shapes.chromium.png"
      }
     },
     {
@@ -7842,7 +7961,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/09-svg/structure-gradients.chromium.png"
+      "chromium": "refs/visual/09-svg-a/structure-gradients.chromium.png"
      }
     },
     {
@@ -7858,9 +7977,45 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/09-svg/text.chromium.png"
+      "chromium": "refs/visual/09-svg-a/text.chromium.png"
      }
-    },
+    }
+   ],
+   "bytes": 4903,
+   "gzip": 2382,
+   "gzip6": 2382,
+   "refImages": {
+    "light": "refs/visual/09-svg-a.png"
+   },
+   "height": 352
+  },
+  {
+   "id": "visual/09-svg-b",
+   "set": "visual",
+   "file": "visual/09-svg-b.html",
+   "title": "Inline SVG (2/2): CSS on SVG; clipPath/mask, filters and SMIL out",
+   "hint": "Each picture should look like the reference picture posted next to this message. Nothing moves: SMIL is out.",
+   "kind": [
+    "pixel"
+   ],
+   "covers": [
+    "svg.clip-mask",
+    "svg.css",
+    "svg.filters",
+    "svg.smil"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [],
+   "stages": [
     {
      "name": "css",
      "rect": null,
@@ -7874,7 +8029,7 @@
      ],
      "reftest": false,
      "refs": {
-      "chromium": "refs/visual/09-svg/css.chromium.png"
+      "chromium": "refs/visual/09-svg-b/css.chromium.png"
      }
     },
     {
@@ -7890,8 +8045,9 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/visual/09-svg/clip-filter.chromium.png"
-     }
+      "chromium": "refs/visual/09-svg-b/clip-filter.chromium.png"
+     },
+     "nativeVsTemplate": 0.3951
     },
     {
      "name": "smil",
@@ -7906,16 +8062,18 @@
      ],
      "reftest": true,
      "refs": {
-      "chromium": "refs/visual/09-svg/smil.chromium.png"
-     }
+      "chromium": "refs/visual/09-svg-b/smil.chromium.png"
+     },
+     "nativeVsTemplate": 0.7214
     }
    ],
-   "bytes": 7250,
-   "gzip": 3055,
-   "gzip6": 3055,
+   "bytes": 5208,
+   "gzip": 2352,
+   "gzip6": 2352,
    "refImages": {
-    "light": "refs/visual/09-svg.png"
-   }
+    "light": "refs/visual/09-svg-b.png"
+   },
+   "height": 352
   },
   {
    "id": "visual/10-images",
@@ -7975,7 +8133,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/10-images/svg-image.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.8973
     },
     {
      "name": "refused",
@@ -7991,7 +8150,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/10-images/refused.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.7602
     },
     {
      "name": "object-fit",
@@ -8010,12 +8170,13 @@
      }
     }
    ],
-   "bytes": 9288,
-   "gzip": 3156,
-   "gzip6": 3161,
+   "bytes": 9287,
+   "gzip": 3150,
+   "gzip6": 3156,
    "refImages": {
     "light": "refs/visual/10-images.png"
-   }
+   },
+   "height": 448
   },
   {
    "id": "visual/11-interaction",
@@ -8095,12 +8256,13 @@
     }
    ],
    "stages": [],
-   "bytes": 7094,
-   "gzip": 3134,
-   "gzip6": 3134,
+   "bytes": 7093,
+   "gzip": 3137,
+   "gzip6": 3137,
    "refImages": {
     "light": "refs/visual/11-interaction.png"
-   }
+   },
+   "height": 332
   },
   {
    "id": "visual/12-theme",
@@ -8150,13 +8312,14 @@
      }
     }
    ],
-   "bytes": 4027,
-   "gzip": 1976,
-   "gzip6": 1976,
+   "bytes": 4026,
+   "gzip": 1974,
+   "gzip6": 1974,
    "refImages": {
     "light": "refs/visual/12-theme.png",
     "dark": "refs/visual/12-theme.dark.png"
-   }
+   },
+   "height": 236
   },
   {
    "id": "visual/13-out-of-profile",
@@ -8206,7 +8369,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/forms.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.6194
     },
     {
      "name": "scroll-sticky",
@@ -8222,7 +8386,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/scroll-sticky.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0
     },
     {
      "name": "fonts",
@@ -8238,7 +8403,8 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/fonts.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.3812
     },
     {
      "name": "three-d",
@@ -8254,15 +8420,17 @@
      "reftest": true,
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/three-d.chromium.png"
-     }
+     },
+     "nativeVsTemplate": 0.436
     }
    ],
-   "bytes": 6373,
-   "gzip": 2620,
-   "gzip6": 2620,
+   "bytes": 6372,
+   "gzip": 2618,
+   "gzip6": 2618,
    "refImages": {
     "light": "refs/visual/13-out-of-profile.png"
-   }
+   },
+   "height": 494
   },
   {
    "id": "visual/sdk/01-link-external",
@@ -8293,6 +8461,7 @@
    "refImages": {
     "light": "refs/visual/sdk/01-link-external.png"
    },
+   "height": 159,
    "group": "sdk",
    "expect": "A native confirmation with the full URL and Open / Cancel; Open goes to the browser (or the in-app browser, as the client usually does).",
    "contract": "docs/sdk-v1.md §2.5, §5.2"
@@ -8325,6 +8494,7 @@
    "refImages": {
     "light": "refs/visual/sdk/02-link-telegram.png"
    },
+   "height": 159,
    "group": "sdk",
    "expect": "The client's own t.me handling, with its usual confirmations; no external browser.",
    "contract": "docs/sdk-v1.md §2.5, §5.2"
@@ -8434,6 +8604,7 @@
    "refImages": {
     "light": "refs/visual/sdk/03-link-rejected.png"
    },
+   "height": 121,
    "group": "sdk",
    "expect": "No dialog for a non-https URL, user info, javascript:, tg:, a t.me URL through openLink or a 257-character URL (the widget gets a TypeError); a dialog for the 256-character one.",
    "contract": "docs/sdk-v1.md §2.5, §2.11"
@@ -8467,6 +8638,7 @@
    "refImages": {
     "light": "refs/visual/sdk/04-link-timer.png"
    },
+   "height": 159,
    "group": "sdk",
    "expect": "No dialog from the timer (the host drops it as activation-blocked); one dialog for the two calls of one press.",
    "contract": "docs/sdk-v1.md §2.5 (user activation)"
@@ -8499,6 +8671,7 @@
    "refImages": {
     "light": "refs/visual/sdk/05-haptics.png"
    },
+   "height": 276,
    "group": "sdk",
    "expect": "impact light/medium/heavy/rigid/soft, notification error/success/warning, selection played with the platform's generators; nothing on desktop and web.",
    "contract": "docs/sdk-v1.md §2.6, §5.3"
@@ -8532,6 +8705,7 @@
    "refImages": {
     "light": "refs/visual/sdk/06-haptics-rate.png"
    },
+   "height": 159,
    "group": "sdk",
    "expect": "A bucket of 5 refilled at 10 per second; the rest dropped silently; nothing from a hidden widget.",
    "contract": "docs/sdk-v1.md §2.6"
@@ -8566,6 +8740,7 @@
    "refImages": {
     "light": "refs/visual/sdk/07-storage-recreate.png"
    },
+   "height": 157,
    "group": "sdk",
    "expect": "localStorage and sessionStorage come back with the re-created widget (the client passes its copy at creation).",
    "contract": "docs/sdk-v1.md §2.8, §5.4"
@@ -8600,6 +8775,7 @@
    "refImages": {
     "light": "refs/visual/sdk/08-storage-restart.png"
    },
+   "height": 157,
    "group": "sdk",
    "expect": "localStorage is on disk per (account, chat, message); sessionStorage is in memory until the app restarts.",
    "contract": "docs/sdk-v1.md §2.8, §5.4"
@@ -8632,6 +8808,7 @@
    "refImages": {
     "light": "refs/visual/sdk/09-storage-delete.png"
    },
+   "height": 178,
    "group": "sdk",
    "expect": "Both areas are deleted with the message, with the chat or its history, with the account and on Clear cache.",
    "contract": "docs/sdk-v1.md §2.8, §5.4"
@@ -8689,6 +8866,7 @@
    "refImages": {
     "light": "refs/visual/sdk/10-storage-quota.png"
    },
+   "height": 121,
    "group": "sdk",
    "expect": "16384 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
    "contract": "docs/sdk-v1.md §2.8"
@@ -8721,6 +8899,7 @@
    "refImages": {
     "light": "refs/visual/sdk/11-crash-restart.png"
    },
+   "height": 157,
    "group": "sdk",
    "expect": "The frozen last frame with the localised badge; one rebuild after the first crash; none after the second, until the app restarts or the message gets new HTML.",
    "contract": "docs/sdk-v1.md §2.7, §5.7"
@@ -8756,6 +8935,7 @@
    "refImages": {
     "light": "refs/visual/sdk/12-drag-gestures.png"
    },
+   "height": 259,
    "group": "sdk",
    "expect": "The widget claims horizontal drags of the knob (touch-action: none, preventDefault); elsewhere the chat keeps swipe-to-reply and scrolling; double tap and long press stay with the bubble and never reach the widget.",
    "contract": "docs/sdk-v1.md §3.5, §5.5"
@@ -8782,12 +8962,13 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 3082,
-   "gzip": 1583,
-   "gzip6": 1583,
+   "bytes": 3094,
+   "gzip": 1591,
+   "gzip6": 1591,
    "refImages": {
     "light": "refs/visual/sdk/13-max-height.png"
    },
+   "height": 3078,
    "group": "sdk",
    "expect": "The bubble's height is the cap, 600 px on every client (the shared v0.1.0 value; maximumHeight / maxHeightDp / the web MAX_HEIGHT); content below is clipped.",
    "contract": "docs/sdk-v1.md §5.6"
@@ -8825,6 +9006,7 @@
     "light": "refs/visual/sdk/14-theme-palette.png",
     "dark": "refs/visual/sdk/14-theme-palette.dark.png"
    },
+   "height": 422,
    "group": "sdk",
    "expect": "Every themeParams key as #rrggbb, the same values as --tg-theme-* on the root, updated in one task with themeChanged.",
    "contract": "docs/sdk-v1.md §2.3, §5.1"
@@ -8857,6 +9039,7 @@
    "refImages": {
     "light": "refs/visual/sdk/15-storage-forward.png"
    },
+   "height": 153,
    "group": "sdk",
    "expect": "Storage keyed by (account, chat, message id): the destination chat's copy starts empty.",
    "contract": "docs/sdk-v1.md §2.8"
@@ -8889,6 +9072,7 @@
    "refImages": {
     "light": "refs/visual/sdk/16-bot-edit.png"
    },
+   "height": 153,
    "group": "sdk",
    "expect": "An edit with the same HTML keeps the running widget; with different HTML the widget restarts on the same storage.",
    "contract": "docs/sdk-v1.md §2.8"
@@ -8922,6 +9106,7 @@
    "refImages": {
     "light": "refs/visual/sdk/17-size-hint.png"
    },
+   "height": 240,
    "group": "sdk",
    "expect": "Width 0 = the bubble's width, W = a fixed width clamped to [200, max]; height 0 = auto (placeholder, then the reported 240 clamped to [50, 600], cached per message), H = a fixed clamp(H, 50, 600) that the content does not change.",
    "contract": "docs/sdk-v1.md §5.6"
