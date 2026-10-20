@@ -90,19 +90,34 @@ text unselectable (an accepted exception to "every client draws it", like `:hove
   and tdesktop's `IntlProvider` included (`new Intl.DateTimeFormat('en-US').format(d)` is
   `1/1/1970`, not a medium date with a time). The Swift and Kotlin glue keep no copy of
   their own; `BasicIntl` prints numeric months in the en-US order.
-- **Intl on Apple**: CLDR plural rules for about 150 languages, with the `v`/`f`/`t`
-  operands from `minimumFractionDigits` (checked against JavaScriptCore on 63 locales);
-  `RelativeTimeFormat` `numeric: 'auto'` and `style`; `ListFormat` in the given locale;
-  `Collator` `sensitivity` and `numeric`; `NumberFormat` `minimumIntegerDigits`,
-  significant digits, `currencyDisplay`, `signDisplay: 'always'`; `resolvedOptions()` of
-  `NumberFormat` and `DateTimeFormat`; `era`, `timeZoneName` and `fractionalSecondDigits`
-  in date patterns. **On Android**: ordinal plural rules, `RelativeTimeFormat` `style`
-  (`numeric: 'auto'` from API 28), `DateTimeFormat.resolvedOptions()`.
-- Known gaps in Intl: the Kotlin `IntlBridge` has no `NumberFormat.resolvedOptions()`, no
-  `NumberFormat` digit, currency-display or sign options, no `Collator` options, no
-  `era`/`timeZoneName`/`fractionalSecondDigits`, and its plural rules ignore
-  `minimumFractionDigits`; the C++ `BasicIntl` (the fallback without locale data) has no
-  ordinal rules and no `numeric: 'auto'`, and prints 24-hour times.
+- **Intl parity**: the Swift, Kotlin and C++ copies of the `intl` capability answer like V8
+  (the web worker and the Node harness, which run V8's own `Intl`) and are checked against
+  one fixture, `packages/core/tests/fixtures/intl-cases.json` (166 requests as the shim sends
+  them with V8's answers; `scripts/intl-cases.ts` writes it, `intl-cases.test.ts` keeps it
+  current; `IntlBridgeTests.testSharedFixtureMatchesV8`, androidTest `IntlBridgeTest`, desktop
+  `intl_fallback_matches_v8_on_the_basic_cases`). Every copy now does: CLDR plural rules with the
+  `v`/`f`/`t` operands from the fraction digits (`{minimumFractionDigits: 1}.select(1)` is
+  `other`), English ordinals; `RelativeTimeFormat` `numeric: 'auto'` ("yesterday", "last
+  quarter", "now") and `style`; `ListFormat` `type` (`conjunction`, `disjunction`, `unit`) and
+  `style`; `Collator` `sensitivity` and `numeric`; `NumberFormat` rounding half away from zero
+  (2.5 → 3), `minimumIntegerDigits`, significant digits, `currencyDisplay`, `signDisplay`
+  (`always`, `exceptZero`, `negative`, `never`) and `resolvedOptions()`; `era`, `timeZoneName`,
+  `fractionalSecondDigits`, `hour12` and `hourCycle` in dates, "UTC" as the UTC zone's name.
+  The Node harness answers every kind now (relative, list and case mapping were missing):
+  `src/shared/intl.ts` is the worker's and the harness's one implementation.
+- What stays approximate in Intl:
+  - Apple: Foundation's relative formatter has no quarter, so quarters are worded in English
+    and counted in months in other languages; it has no unit lists either, so a unit list is
+    a narrow conjunction (the same in English).
+  - Android: `ListFormat` `type` and `style` need API 33 (below, the wide conjunction);
+    below API 28 `numeric: 'auto'` words days, weeks, months, years and "now" only (minutes,
+    hours and quarters stay numeric, quarters counted in months); CLDR's minimum grouping digits
+    need API 31 (below, es, it, pl and others group four-digit integers).
+  - C++ `BasicIntl` is the fallback without locale data (tdesktop plugs its own
+    `IntlProvider`): numbers take the separators of about 40 languages but place currencies
+    as en-US does; dates, relative times and lists are English in every locale; dates are in
+    UTC whatever `timeZone` says; collation folds Latin-1 letters; case mapping is ASCII. It
+    answers every check of conformance `auto/15-js-runtime-b` and the fixture's `basic` cases.
 
 **The test group**: `scripts/conformance/publish-channel.ts` fills the Telegram test forum
 group through a test bot (topics Visual, Client SDK, Auto and, new, Defaults; Showcase,

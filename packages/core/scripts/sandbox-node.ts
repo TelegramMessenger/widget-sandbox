@@ -20,6 +20,7 @@ import {
   type ButtonTokens, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
+import { formatIntl } from '../src/shared/intl.ts';
 import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
 import { Validator } from '../src/host/validator.ts';
 import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
@@ -278,7 +279,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         log('[storage]', arg.slice(0, 2000));
         return vm.undefined;
       }
-      case 'intl': { const req = JSON.parse(arg); return vm.newString(String(opts.intl?.(req) ?? intl(req))); }
+      case 'intl': { const req = JSON.parse(arg); let v = opts.intl?.(req); if (v === undefined) { try { v = formatIntl(req); } catch { v = ''; } } return vm.newString(String(v)); }
       case 'random': return vm.newString(JSON.stringify(opts.random ? opts.random(Number(arg) | 0) : Array.from({ length: Number(arg) | 0 }, () => (Math.random() * 256) | 0)));
       default: opts.unknownHost?.(kind, arg); return vm.undefined;
     }
@@ -488,24 +489,6 @@ function defaultAnswer(q: any): unknown {
     case 'canvasCall': return q.method === 'toDataURL' ? 'data:,' : false;
     default: return null;
   }
-}
-
-function intl(req: any): string {
-  try {
-    const d = new Date(Number(req.value));
-    switch (req.kind) {
-      case 'number': return new Intl.NumberFormat(req.locale, req.opts).format(Number(req.value));
-      case 'numberParts': return JSON.stringify(new Intl.NumberFormat(req.locale, req.opts).formatToParts(Number(req.value)));
-      case 'numberOptions': return JSON.stringify(new Intl.NumberFormat(req.locale, req.opts).resolvedOptions());
-      case 'dateOptions': return JSON.stringify(new Intl.DateTimeFormat(req.locale, req.opts).resolvedOptions());
-      case 'date': return new Intl.DateTimeFormat(req.locale, req.opts).format(d);
-      case 'dateParts': return JSON.stringify(new Intl.DateTimeFormat(req.locale, req.opts).formatToParts(d));
-      case 'dateMethod': return req.method === 'toLocaleDateString' ? d.toLocaleDateString(req.locale, req.opts) : req.method === 'toLocaleTimeString' ? d.toLocaleTimeString(req.locale, req.opts) : d.toLocaleString(req.locale, req.opts);
-      case 'compare': return String(new Intl.Collator(req.locale, req.opts).compare(req.a, req.b));
-      case 'plural': return new Intl.PluralRules(req.locale, req.opts).select(Number(req.value));
-      default: return '';
-    }
-  } catch { return ''; }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {

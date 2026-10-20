@@ -11,6 +11,7 @@
 #ifdef _WIN32
 #include "twidget/icu_intl.h"
 #endif
+#include "twidget/intl.h"
 #include "twidget/json.h"
 #include "twidget/sdk_policy.h"
 #ifdef TW_HAVE_BLITZ
@@ -1026,7 +1027,45 @@ TEST(intl_fallback_date_defaults_from_the_shim) {
           "console.log(['D',new Intl.DateTimeFormat('en-US',u).format(d),d.toLocaleDateString('en-US',u),d.toLocaleString('en-US',u),d.toLocaleTimeString('en-US',u)].join('|'));</script>");
     r.barrier();
     auto l = r.host.lock();
-    CHECK_MSG(r.host.hasLog("D|1/1/1970|1/1/1970|1/1/1970, 00:00:00|00:00:00"), r.logsText());
+    CHECK_MSG(r.host.hasLog("D|1/1/1970|1/1/1970|1/1/1970, 12:00:00\xE2\x80\xAF" "AM|12:00:00\xE2\x80\xAF" "AM"), r.logsText());
+}
+
+/// The three spaces V8 uses (U+00A0, U+202F, U+2009) as one, as the fixture says to compare.
+static std::string intlSpaces(std::string s) {
+    for (const char* sp : {"\xC2\xA0", "\xE2\x80\xAF", "\xE2\x80\x89"}) {
+        for (size_t at; (at = s.find(sp)) != std::string::npos;) s.replace(at, std::strlen(sp), " ");
+    }
+    return s;
+}
+
+/// BasicIntl against V8's answers in the fixture shared with intl.ts, IntlBridge.swift and IntlBridge.kt
+/// (tests/fixtures/intl-cases.json): every case it marks `basic`.
+TEST(intl_fallback_matches_v8_on_the_basic_cases) {
+    auto root = Json::parse(readFile(std::string(TW_FIXTURES) + "/intl-cases.json"));
+    CHECK_MSG(root.has_value(), "fixture missing — run pnpm build:desktop");
+    if (!root) return;
+    BasicIntl intl;
+    int basic = 0;
+    for (const auto& c : (*root)["cases"].arr()) {
+        if (!c["basic"].asBool()) continue;
+        basic++;
+        std::string got = intl.format(c["request"]);
+        const Json& want = c["expected"];
+        bool ok = false;
+        if (want.isString()) ok = intlSpaces(got) == intlSpaces(want.asString());
+        else if (auto g = Json::parse(got)) {
+            if (want.isArray()) {
+                ok = g->isArray() && g->size() == want.size();
+                for (size_t i = 0; ok && i < want.size(); i++)
+                    ok = (*g)[i]["type"].asString() == want[i]["type"].asString() && intlSpaces((*g)[i]["value"].asString()) == intlSpaces(want[i]["value"].asString());
+            } else {
+                ok = g->isObject();
+                for (const auto& kv : want.obj()) ok = ok && (*g)[kv.first].dump() == kv.second.dump();
+            }
+        }
+        CHECK_MSG(ok, c["request"].dump() + " → " + got + ", want " + want.dump());
+    }
+    CHECK(basic > 100);
 }
 
 // formatToParts is in the widget profile: the basic provider splits what it formats.

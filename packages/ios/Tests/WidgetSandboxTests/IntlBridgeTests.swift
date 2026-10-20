@@ -119,6 +119,42 @@ final class IntlBridgeTests: XCTestCase {
         XCTAssertEqual(got.last, "numeric,numeric,numeric,Asia/Tokyo")
     }
 
+    /// The cases shared with intl.ts, IntlBridge.kt and intl.cpp: V8's answers (tests/fixtures/intl-cases.json,
+    /// copied here by `pnpm build:ios`).
+    func testSharedFixtureMatchesV8() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "intl-cases", withExtension: "json", subdirectory: "Fixtures"))
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let cases = try XCTUnwrap(root["cases"] as? [[String: Any]])
+        var mismatches: [String] = []
+        for c in cases {
+            let request = try XCTUnwrap(c["request"] as? [String: Any])
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]), as: UTF8.self)
+            let got = IntlBridge.format(requestJson: json)
+            if !Self.matches(got, c["expected"]) { mismatches.append("\(json): \(got) != \(c["expected"] ?? "nil")") }
+        }
+        XCTAssertGreaterThan(cases.count, 100)
+        XCTAssertEqual(mismatches, [], mismatches.joined(separator: "\n"))
+    }
+
+    private static func spaces(_ s: String) -> String {
+        s.replacingOccurrences(of: "\u{a0}", with: " ").replacingOccurrences(of: "\u{202f}", with: " ").replacingOccurrences(of: "\u{2009}", with: " ")
+    }
+
+    /// Strings with the three spaces as one; parts as [type, value] lists; options on the expected keys.
+    private static func matches(_ got: String, _ expected: Any?) -> Bool {
+        if let s = expected as? String { return spaces(got) == spaces(s) }
+        let parsed = try? JSONSerialization.jsonObject(with: Data(got.utf8))
+        if let list = expected as? [[String: String]] {
+            guard let g = parsed as? [[String: Any]] else { return false }
+            return g.map { [$0["type"] as? String ?? "", spaces($0["value"] as? String ?? "")] } == list.map { [$0["type"] ?? "", spaces($0["value"] ?? "")] }
+        }
+        if let object = expected as? [String: Any] {
+            guard let g = parsed as? [String: Any] else { return false }
+            return object.allSatisfy { (g[$0.key] as? NSObject)?.isEqual($0.value) == true }
+        }
+        return false
+    }
+
     /// The CLDR rules match the system ICU (JavaScriptCore's Intl.PluralRules) for every language they list.
     func testPluralRulesMatchICU() throws {
         let context = try XCTUnwrap(JSContext())

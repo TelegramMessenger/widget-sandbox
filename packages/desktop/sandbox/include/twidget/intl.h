@@ -18,9 +18,10 @@ public:
     virtual std::string format(const Json& request) = 0;
 };
 
-/// English-style formatting without locale data: grouping, fraction digits,
-/// percent/currency codes, ISO-like dates in UTC, `one`/`other` plurals,
-/// byte-wise collation. Returns "" for the `*Parts` / `*Options` kinds.
+/// Formatting without locale data, as V8 answers in en-US: numbers (with the
+/// separators of a few dozen languages), dates in UTC, CLDR plural rules,
+/// relative times, lists, a Latin-1 collator, every kind incl. `*Parts` and
+/// `*Options`; checked against tests/fixtures/intl-cases.json (`basic` cases).
 class BasicIntl : public IntlProvider {
 public:
     std::string format(const Json& request) override;

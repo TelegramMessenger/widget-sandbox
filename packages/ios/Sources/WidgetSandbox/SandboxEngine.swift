@@ -917,10 +917,10 @@ enum IntlBridge {
         let value = (req["value"] as? NSNumber)?.doubleValue ?? 0
         switch kind {
         case "number":
-            let f = numberFormatter(locale: locale, options: opts)
+            let f = numberFormatter(locale: locale, options: opts, value: value)
             return f.string(from: NSNumber(value: value)) ?? String(value)
         case "numberParts":
-            let f = numberFormatter(locale: locale, options: opts)
+            let f = numberFormatter(locale: locale, options: opts, value: value)
             return json(numberParts(f.string(from: NSNumber(value: value)) ?? String(value), f))
         case "date", "dateMethod":
             let date = Date(timeIntervalSince1970: value / 1000)
@@ -935,7 +935,8 @@ enum IntlBridge {
             let f = numberFormatter(locale: locale, options: opts)
             var out: [String: Any] = ["locale": languageTag(locale), "numberingSystem": "latn", "style": opts["style"] as? String ?? "decimal",
                                       "minimumIntegerDigits": f.minimumIntegerDigits, "minimumFractionDigits": f.minimumFractionDigits,
-                                      "maximumFractionDigits": f.maximumFractionDigits, "useGrouping": f.usesGroupingSeparator ? "auto" : false]
+                                      "maximumFractionDigits": f.maximumFractionDigits, "useGrouping": f.usesGroupingSeparator ? "auto" : false,
+                                      "signDisplay": opts["signDisplay"] as? String ?? "auto"]
             if let currency = opts["currency"] as? String { out["currency"] = currency.uppercased() }
             return jsonObject(out)
         case "dateOptions":
@@ -954,6 +955,12 @@ enum IntlBridge {
             let items = (req["value"] as? [Any])?.map { "\($0)" } ?? []
             guard #available(macOS 10.15, iOS 13.0, *) else {
                 return items.joined(separator: ", ")
+            }
+            let type = opts["type"] as? String, style = opts["style"] as? String
+            if #available(macOS 12, iOS 15, *) {
+                // Foundation has no unit lists: a narrow conjunction is the closest (the same in English).
+                let narrow = style == "narrow" || type == "unit"
+                return items.formatted(.list(type: type == "disjunction" ? .or : .and, width: narrow ? .narrow : style == "short" ? .short : .standard).locale(locale))
             }
             let f = ListFormatter()
             f.locale = locale
@@ -980,6 +987,11 @@ enum IntlBridge {
 
     @available(macOS 10.15, iOS 13.0, *)
     private static func relative(_ value: Double, unit rawUnit: String, locale: Locale, options: [String: Any]) -> String {
+        if rawUnit == "quarter" || rawUnit == "quarters" {
+            // RelativeDateTimeFormatter has no quarter: English is written out, other languages count months.
+            if CLDRPluralRules.languageKey(locale) == "en" { return englishQuarters(value, options: options) }
+            return relative(value * 3, unit: "month", locale: locale, options: options)
+        }
         let f = RelativeDateTimeFormatter()
         f.locale = locale
         f.dateTimeStyle = options["numeric"] as? String == "auto" ? .named : .numeric
@@ -1011,9 +1023,43 @@ enum IntlBridge {
         return f.localizedString(fromTimeInterval: value * seconds)
     }
 
-    private static func numberFormatter(locale: Locale, options opts: [String: Any]) -> NumberFormatter {
+    /// `RelativeTimeFormat` in English for the quarter unit, as CLDR words it.
+    private static func englishQuarters(_ value: Double, options: [String: Any]) -> String {
+        let style = options["style"] as? String ?? "long"
+        if options["numeric"] as? String == "auto", value == value.rounded(), abs(value) <= 1 {
+            let unit = style == "long" ? "quarter" : "qtr."
+            return (value < 0 ? "last " : value > 0 ? "next " : "this ") + unit
+        }
+        let n = NumberFormatter()
+        n.locale = Locale(identifier: "en_US")
+        n.numberStyle = .decimal
+        n.maximumFractionDigits = 3
+        let count = n.string(from: NSNumber(value: abs(value))) ?? String(abs(value))
+        let one = count == "1"
+        let amount = style == "narrow" ? count + "q" : count + " " + (style == "short" ? (one ? "qtr." : "qtrs.") : (one ? "quarter" : "quarters"))
+        return value < 0 || (value == 0 && value.sign == .minus) ? amount + " ago" : "in " + amount
+    }
+
+    /// ECMA-402's signDisplay on a formatter: "always" signs everything, "exceptZero" what does not round to zero,
+    /// "negative" puts a minus only on negatives that do not round to zero, "never" shows none ("auto" is the default).
+    private static func applySignDisplay(_ sign: String, value: Double, to f: NumberFormatter) {
+        let shown = f.string(from: NSNumber(value: abs(value))) ?? ""
+        let zero = !shown.unicodeScalars.contains { $0.properties.numericType == .decimal && $0.properties.numericValue != 0 }
+        let negative = value < 0 || (value == 0 && value.sign == .minus)
+        let plus = (sign == "always" && !negative) || (sign == "exceptZero" && !negative && !zero)
+        let noMinus = sign == "never" || ((sign == "exceptZero" || sign == "negative") && zero)
+        if plus { f.positivePrefix = f.plusSign + f.positivePrefix }
+        if noMinus {
+            f.negativePrefix = f.positivePrefix
+            f.negativeSuffix = f.positiveSuffix
+        }
+    }
+
+    private static func numberFormatter(locale: Locale, options opts: [String: Any], value: Double? = nil) -> NumberFormatter {
         let f = NumberFormatter()
         f.locale = locale
+        // ECMA-402 rounds half away from zero (halfExpand); NumberFormatter's default is half-even.
+        f.roundingMode = .halfUp
         switch opts["style"] as? String {
         case "currency": f.numberStyle = .currency; if let c = opts["currency"] as? String { f.currencyCode = c }
         case "percent": f.numberStyle = .percent
@@ -1035,7 +1081,7 @@ enum IntlBridge {
             default: break
             }
         }
-        if opts["signDisplay"] as? String == "always" { f.positivePrefix = f.plusSign + f.positivePrefix }
+        if let sign = opts["signDisplay"] as? String, sign != "auto", let value { applySignDisplay(sign, value: value, to: f) }
         return f
     }
 
@@ -1125,6 +1171,45 @@ enum IntlBridge {
         return out
     }
 
+    /// `pattern` with every unquoted run of the field letter `field` replaced by `with`.
+    static func replacingField(_ field: Character, in pattern: String, with replacement: String) -> String {
+        var out = "", quoted = false, inField = false
+        for c in pattern {
+            if c == "'" { quoted.toggle() }
+            if !quoted && c == field {
+                if !inField { out += replacement }
+                inField = true
+            } else {
+                inField = false
+                out.append(c)
+            }
+        }
+        return out
+    }
+
+    /// Apple's patterns join a medium or short date to the time with the "at" connector; ECMA-402 (CLDR's standard
+    /// date-time format) uses it only after a long date (full month or weekday name) and joins the others as the
+    /// numeric skeleton does ("Jan 1, 1970, 1:45 PM").
+    static func plainConnector(_ pattern: String, locale: Locale) -> String {
+        func middle(_ whole: String?, _ head: String?, _ tail: String?) -> String? {
+            guard let whole, let head, let tail, whole.count > head.count + tail.count, whole.hasPrefix(head), whole.hasSuffix(tail) else { return nil }
+            return String(whole.dropFirst(head.count).dropLast(tail.count))
+        }
+        let template = { (t: String) in DateFormatter.dateFormat(fromTemplate: t, options: 0, locale: locale) }
+        let styled = { (d: DateFormatter.Style, t: DateFormatter.Style) -> String? in
+            let f = DateFormatter()
+            f.locale = locale
+            f.dateStyle = d
+            f.timeStyle = t
+            return f.dateFormat
+        }
+        guard let at = middle(styled(.medium, .short), styled(.medium, .none), styled(.none, .short)),
+              let plain = middle(template("yMdjmm"), template("yMd"), template("jmm")),
+              at != plain, pattern.contains(at),
+              !["MMMM", "LLLL", "EEEE", "cccc"].contains(where: pattern.contains) else { return pattern }
+        return pattern.replacingOccurrences(of: at, with: plain)
+    }
+
     private static func dateFormatter(locale: Locale, options: [String: Any], method: String?) -> DateFormatter {
         let zone = (options["timeZone"] as? String).flatMap(TimeZone.init(identifier:)) ?? .current
         let optionsData = (try? JSONSerialization.data(withJSONObject: options, options: [.sortedKeys])) ?? Data()
@@ -1173,7 +1258,16 @@ enum IntlBridge {
                 formatter.timeStyle = Self.style(options["timeStyle"] as? String)
             } else {
                 formatter.setLocalizedDateFormatFromTemplate(template)
+                // The pattern generator may pick another era width than asked for (en: "GGGGG", a lone "A").
+                if let era = options["era"] as? String {
+                    formatter.dateFormat = replacingField("G", in: formatter.dateFormat, with: era == "long" ? "GGGG" : era == "narrow" ? "GGGGG" : "G")
+                }
+                // ECMA-402 calls the UTC zone "UTC" (Foundation: "GMT").
+                if options["timeZoneName"] as? String == "short", ["UTC", "GMT", "Etc/UTC", "Etc/GMT"].contains(zone.identifier) {
+                    formatter.dateFormat = replacingField("z", in: formatter.dateFormat, with: "'UTC'")
+                }
             }
+            formatter.dateFormat = plainConnector(formatter.dateFormat, locale: locale)
         }
         if hourSymbol != "j" || options["hour"] as? String == "2-digit" {
             let defaultTimePattern = DateFormatter.dateFormat(fromTemplate: "jmm", options: 0, locale: locale) ?? ""

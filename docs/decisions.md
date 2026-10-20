@@ -736,8 +736,10 @@ first and alone, as a library with no renderer.
   the engine (`sandbox_engine.cpp`) is `SandboxEngine.swift` line for line:
   same `__host` kinds, same deferred queue, same 1 Hz hidden timers, same
   kill messages.
-- **`Intl` is an interface** (`IntlProvider`); `BasicIntl` is an English-style
-  fallback for the harness and tests. A product host plugs `QLocale`/ICU in —
+- **`Intl` is an interface** (`IntlProvider`); `BasicIntl` is the fallback without
+  locale data: en-US formatting with CLDR plural rules and a few dozen languages'
+  number separators, checked against V8 on the `basic` cases of
+  `tests/fixtures/intl-cases.json`. A product host plugs `QLocale`/ICU in —
   deliberately not done here, to keep the core Qt-free.
 - **Harness leak scan instead of a canary.** Without a renderer there is no
   network to hit, so `twidget-run --attacks` inspects the *validated* ops: any
