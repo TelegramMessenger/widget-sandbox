@@ -3,21 +3,64 @@
 #include "twidget/json.h"
 
 #include <icu.h>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #pragma comment(lib, "icu.lib")
 
-// Only the C API that Windows 10 1903's icu.dll (ICU 64) exports: icu.h gates the newer functions by
-// NTDDI_VERSION, which a build for the latest SDK does not stop. Hence ulistfmt_open (and lists that
-// are no conjunction from BasicIntl) rather than ulistfmt_openForType, an ICU 67 function.
+// Linked: only the C API that Windows 10 1903's icu.dll (ICU 64) exports. icu.h gates the newer functions by
+// NTDDI_VERSION, which a build for the latest SDK does not stop, and one imported function the system's
+// icu.dll lacks keeps the whole module from loading: those are looked up by name (`newer()`) instead.
 
 namespace twidget {
 namespace {
 
 using U16 = std::basic_string<UChar>;
+
+/// ICU functions past Windows 10 1903's, from icu.dll when it has them; null when it does not.
+struct Newer {
+    decltype(&unumf_openForSkeletonAndLocale) numberOpen = nullptr;
+    decltype(&unumf_close) numberClose = nullptr;
+    decltype(&unumf_openResult) resultOpen = nullptr;
+    decltype(&unumf_closeResult) resultClose = nullptr;
+    decltype(&unumf_formatDouble) formatDouble = nullptr;
+    decltype(&uplrules_selectFormatted) pluralSelect = nullptr;
+    decltype(&ulistfmt_openForType) listOpen = nullptr;
+
+    bool numbers() const { return numberOpen && numberClose && resultOpen && resultClose && formatDouble; }
+};
+
+const Newer& newer() {
+    static const Newer functions = [] {
+        Newer n;
+        HMODULE icu = GetModuleHandleW(L"icu.dll");
+        if (!icu) return n;
+        auto get = [&](auto& fn, const char* name) {
+            fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(reinterpret_cast<void*>(GetProcAddress(icu, name)));
+        };
+        get(n.numberOpen, "unumf_openForSkeletonAndLocale");
+        get(n.numberClose, "unumf_close");
+        get(n.resultOpen, "unumf_openResult");
+        get(n.resultClose, "unumf_closeResult");
+        get(n.formatDouble, "unumf_formatDouble");
+        get(n.pluralSelect, "uplrules_selectFormatted");
+        get(n.listOpen, "ulistfmt_openForType");
+        return n;
+    }();
+    return functions;
+}
 
 U16 u16(const std::string& s) {
     UErrorCode e = U_ZERO_ERROR;
@@ -86,23 +129,81 @@ std::string language_tag(const std::string& id) {
     return U_SUCCESS(e) ? std::string(tag) : id;
 }
 
+std::string upper(std::string s) {
+    for (char& c : s) c = char(std::toupper(static_cast<unsigned char>(c)));
+    return s;
+}
+
+bool significant(const Json& opts) { return opts["minimumSignificantDigits"].isNumber() || opts["maximumSignificantDigits"].isNumber(); }
+
 Number open_number(const char* locale, const Json& opts) {
     const std::string& style = opts["style"].asString();
-    UNumberFormatStyle kind = style == "currency" ? UNUM_CURRENCY : style == "percent" ? UNUM_PERCENT : UNUM_DECIMAL;
+    const std::string& display = opts["currencyDisplay"].asString();
+    UNumberFormatStyle kind = style == "percent" ? UNUM_PERCENT
+                              : style != "currency" ? UNUM_DECIMAL
+                              : display == "code"   ? UNUM_CURRENCY_ISO
+                              : display == "name"   ? UNUM_CURRENCY_PLURAL
+                                                    : UNUM_CURRENCY;
     UErrorCode e = U_ZERO_ERROR;
     Number f(unum_open(kind, nullptr, 0, locale, nullptr, &e));
     if (U_FAILURE(e)) return nullptr;
-    if (kind == UNUM_CURRENCY) {
-        U16 code = u16(opts["currency"].asString());
+    if (style == "currency") {
+        U16 code = u16(upper(opts["currency"].asString()));
         if (code.size() == 3) unum_setTextAttribute(f.get(), UNUM_CURRENCY_CODE, code.data(), 3, &e);
         if (U_FAILURE(e)) return nullptr;
     }
+    // ECMA-402 rounds half away from zero (ICU's half-up), and groups as the locale's data says (CLDR's
+    // minimumGroupingDigits: es writes 1234,5); the legacy formatter does neither by default.
+    unum_setAttribute(f.get(), UNUM_ROUNDING_MODE, UNUM_ROUND_HALFUP);
+    unum_setAttribute(f.get(), UNUM_MINIMUM_GROUPING_DIGITS, UNUM_MINIMUM_GROUPING_DIGITS_AUTO);
     // A minimum past the maximum raises it, as the spec's SetNumberFormatDigitOptions does.
     if (opts["minimumIntegerDigits"].isNumber()) unum_setAttribute(f.get(), UNUM_MIN_INTEGER_DIGITS, opts["minimumIntegerDigits"].asInt());
-    if (opts["minimumFractionDigits"].isNumber()) unum_setAttribute(f.get(), UNUM_MIN_FRACTION_DIGITS, opts["minimumFractionDigits"].asInt());
-    if (opts["maximumFractionDigits"].isNumber()) unum_setAttribute(f.get(), UNUM_MAX_FRACTION_DIGITS, opts["maximumFractionDigits"].asInt());
+    if (significant(opts)) {
+        unum_setAttribute(f.get(), UNUM_SIGNIFICANT_DIGITS_USED, 1);
+        unum_setAttribute(f.get(), UNUM_MIN_SIGNIFICANT_DIGITS, opts["minimumSignificantDigits"].isNumber() ? opts["minimumSignificantDigits"].asInt() : 1);
+        unum_setAttribute(f.get(), UNUM_MAX_SIGNIFICANT_DIGITS, opts["maximumSignificantDigits"].isNumber() ? opts["maximumSignificantDigits"].asInt() : 21);
+    } else {
+        if (opts["minimumFractionDigits"].isNumber()) unum_setAttribute(f.get(), UNUM_MIN_FRACTION_DIGITS, opts["minimumFractionDigits"].asInt());
+        if (opts["maximumFractionDigits"].isNumber()) unum_setAttribute(f.get(), UNUM_MAX_FRACTION_DIGITS, opts["maximumFractionDigits"].asInt());
+    }
     if (opts["useGrouping"].isBool()) unum_setAttribute(f.get(), UNUM_GROUPING_USED, opts["useGrouping"].asBool());
     return f;
+}
+
+U16 format_number(UNumberFormat* f, double value) {
+    U16 out;
+    written(out, [&](UChar* b, int32_t c, UErrorCode* e) { return unum_formatDouble(f, value, b, c, nullptr, e); });
+    return out;
+}
+
+/// `signDisplay`: the value to format, and whether a positive one shows a plus (`show_plus` sets the formatter
+/// up for it). Whether a value is zero is decided after rounding: -0.0001 at no fraction digits is a zero.
+std::pair<double, bool> sign_display(UNumberFormat* f, double value, const std::string& display) {
+    if (display.empty() || display == "auto" || std::isnan(value)) return {value, false};
+    bool negative = std::signbit(value);
+    double magnitude = std::fabs(value);
+    if (display == "never") return {magnitude, false};
+    bool zero = format_number(f, magnitude) == format_number(f, 0);
+    if (display == "always") return {value, !negative};
+    if (display == "exceptZero") return zero ? std::pair{0.0, false} : std::pair{value, !negative};
+    if (display == "negative") return {negative && !zero ? value : magnitude, false};
+    return {value, false};
+}
+
+/// A positive number written as the negative one with the locale's plus sign for its minus: `+$5.00` in en-US,
+/// the plus before the number and the euro sign after it in de-DE.
+void show_plus(UNumberFormat* f) {
+    U16 minus, plus;
+    written(minus, [&](UChar* b, int32_t c, UErrorCode* e) { return unum_getSymbol(f, UNUM_MINUS_SIGN_SYMBOL, b, c, e); });
+    written(plus, [&](UChar* b, int32_t c, UErrorCode* e) { return unum_getSymbol(f, UNUM_PLUS_SIGN_SYMBOL, b, c, e); });
+    if (minus.empty() || plus.empty()) return;
+    for (auto [from, to] : {std::pair{UNUM_NEGATIVE_PREFIX, UNUM_POSITIVE_PREFIX}, std::pair{UNUM_NEGATIVE_SUFFIX, UNUM_POSITIVE_SUFFIX}}) {
+        U16 text;
+        if (!written(text, [&](UChar* b, int32_t c, UErrorCode* e) { return unum_getTextAttribute(f, from, b, c, e); })) continue;
+        for (size_t at; (at = text.find(minus)) != U16::npos;) text.replace(at, minus.size(), plus);
+        UErrorCode e = U_ZERO_ERROR;
+        unum_setTextAttribute(f, to, text.data(), int32_t(text.size()), &e);
+    }
 }
 
 /// ECMA-402 ToDateTimeOptions: no date or time field and no style means numeric year, month and day
@@ -136,7 +237,14 @@ U16 skeleton_of(const Json& opts) {
     }
     if (!field("day").empty()) s += field("day") == "2-digit" ? "dd" : "d";
     if (!field("hour").empty()) {
-        char h = opts["hour12"].isBool() ? (opts["hour12"].asBool() ? 'h' : 'H') : 'j';
+        // hour12 outranks hourCycle, as in ECMA-402; with neither, the locale's own cycle.
+        const std::string& cycle = field("hourCycle");
+        char h = opts["hour12"].isBool() ? (opts["hour12"].asBool() ? 'h' : 'H')
+                 : cycle == "h23"        ? 'H'
+                 : cycle == "h24"        ? 'k'
+                 : cycle == "h11"        ? 'K'
+                 : cycle == "h12"        ? 'h'
+                                         : 'j';
         s += std::string(field("hour") == "2-digit" ? 2 : 1, h);
     }
     if (!field("minute").empty()) s += field("minute") == "2-digit" ? "mm" : "m";
@@ -210,6 +318,8 @@ const char* number_part(int32_t field) {
     }
 }
 
+const char* number_part_plus(int32_t field) { return field == UNUM_SIGN_FIELD ? "plusSign" : number_part(field); }
+
 const char* date_part(int32_t field) {
     switch (field) {
     case UDAT_ERA_FIELD: return "era";
@@ -262,27 +372,38 @@ std::string IcuIntl::format(const Json& req) {
             Json o = Json::object();
             o.set("locale", language_tag(id)).set("numberingSystem", "latn");
             o.set("style", opts["style"].asString().empty() ? std::string("decimal") : opts["style"].asString());
-            if (opts["style"].asString() == "currency") o.set("currency", opts["currency"].asString());
+            if (opts["style"].asString() == "currency") {
+                o.set("currency", upper(opts["currency"].asString()));
+                o.set("currencyDisplay", opts["currencyDisplay"].asString().empty() ? std::string("symbol") : opts["currencyDisplay"].asString());
+            }
             o.set("minimumIntegerDigits", unum_getAttribute(f.get(), UNUM_MIN_INTEGER_DIGITS));
-            o.set("minimumFractionDigits", unum_getAttribute(f.get(), UNUM_MIN_FRACTION_DIGITS));
-            o.set("maximumFractionDigits", unum_getAttribute(f.get(), UNUM_MAX_FRACTION_DIGITS));
+            if (significant(opts)) {
+                o.set("minimumSignificantDigits", unum_getAttribute(f.get(), UNUM_MIN_SIGNIFICANT_DIGITS));
+                o.set("maximumSignificantDigits", unum_getAttribute(f.get(), UNUM_MAX_SIGNIFICANT_DIGITS));
+            } else {
+                o.set("minimumFractionDigits", unum_getAttribute(f.get(), UNUM_MIN_FRACTION_DIGITS));
+                o.set("maximumFractionDigits", unum_getAttribute(f.get(), UNUM_MAX_FRACTION_DIGITS));
+            }
             o.set("useGrouping", unum_getAttribute(f.get(), UNUM_GROUPING_USED) != 0);
+            o.set("signDisplay", opts["signDisplay"].asString().empty() ? std::string("auto") : opts["signDisplay"].asString());
             return o.dump();
         }
+        auto [number, plus] = sign_display(f.get(), value, opts["signDisplay"].asString());
+        if (plus) show_plus(f.get());
         if (kind == "number") {
-            if (!written(out, [&](UChar* b, int32_t c, UErrorCode* e) { return unum_formatDouble(f.get(), value, b, c, nullptr, e); })) return basic_.format(req);
+            if (!written(out, [&](UChar* b, int32_t c, UErrorCode* e) { return unum_formatDouble(f.get(), number, b, c, nullptr, e); })) return basic_.format(req);
             return utf8(out.data(), int32_t(out.size()));
         }
         UErrorCode e = U_ZERO_ERROR;
         Fields fields(ufieldpositer_open(&e));
         if (U_FAILURE(e)) return basic_.format(req);
         // Formatting again for the fields: a growing buffer would leave the iterator with the first try's.
-        if (!written(out, [&](UChar* b, int32_t c, UErrorCode* s) { return unum_formatDouble(f.get(), value, b, c, nullptr, s); })) return basic_.format(req);
+        if (!written(out, [&](UChar* b, int32_t c, UErrorCode* s) { return unum_formatDouble(f.get(), number, b, c, nullptr, s); })) return basic_.format(req);
         U16 text(out.size() + 1, u'\0');
-        int32_t n = unum_formatDoubleForFields(f.get(), value, text.data(), int32_t(text.size()), fields.get(), &e);
+        int32_t n = unum_formatDoubleForFields(f.get(), number, text.data(), int32_t(text.size()), fields.get(), &e);
         if (U_FAILURE(e)) return basic_.format(req);
         text.resize(size_t(n));
-        return parts_json(text, fields.get(), number_part);
+        return parts_json(text, fields.get(), plus ? number_part_plus : number_part);
     }
 
     if (kind == "date" || kind == "dateMethod" || kind == "dateParts" || kind == "dateOptions") {
@@ -291,7 +412,8 @@ std::string IcuIntl::format(const Json& req) {
         if (!f) return basic_.format(req);
         if (kind == "dateOptions") {
             Json o = Json::object();
-            for (const auto& [key, v] : date_defaults(opts, method).obj())
+            const Json asked = date_defaults(opts, method);
+            for (const auto& [key, v] : asked.obj())
                 if (v.isString() || v.isNumber() || v.isBool()) o.set(key, v);
             U16 zone;
             if (!opts["timeZone"].asString().empty()) zone = u16(opts["timeZone"].asString());
@@ -317,7 +439,34 @@ std::string IcuIntl::format(const Json& req) {
     if (kind == "plural") {
         UErrorCode e = U_ZERO_ERROR;
         Plurals rules(uplrules_openForType(locale, opts["type"].asString() == "ordinal" ? UPLURAL_TYPE_ORDINAL : UPLURAL_TYPE_CARDINAL, &e));
-        if (U_FAILURE(e) || !written(out, [&](UChar* b, int32_t c, UErrorCode* s) { return uplrules_select(rules.get(), value, b, c, s); }))
+        if (U_FAILURE(e)) return basic_.format(req);
+        // With digit options the rules see the formatted number: 1 at one fraction digit is "1.0", whose v
+        // operand is 1, so English says "other". That takes the number formatter newer ICUs have; without it,
+        // the bare value.
+        const Newer& icu = newer();
+        bool digits = significant(opts) || opts["minimumFractionDigits"].isNumber() || opts["maximumFractionDigits"].isNumber();
+        if (digits && icu.numbers() && icu.pluralSelect) {
+            std::string skeleton = "rounding-mode-half-up ";
+            if (significant(opts)) {
+                int lo = opts["minimumSignificantDigits"].isNumber() ? opts["minimumSignificantDigits"].asInt() : 1;
+                int hi = opts["maximumSignificantDigits"].isNumber() ? opts["maximumSignificantDigits"].asInt() : 21;
+                skeleton += std::string(size_t(std::clamp(lo, 1, 21)), '@') + std::string(size_t(std::clamp(hi - lo, 0, 20)), '#');
+            } else {
+                int lo = opts["minimumFractionDigits"].isNumber() ? opts["minimumFractionDigits"].asInt() : 0;
+                int hi = std::max(lo, opts["maximumFractionDigits"].isNumber() ? opts["maximumFractionDigits"].asInt() : std::max(lo, 3));
+                skeleton += hi == 0 ? std::string("precision-integer") : "." + std::string(size_t(std::clamp(lo, 0, 20)), '0') + std::string(size_t(std::clamp(hi - lo, 0, 20)), '#');
+            }
+            U16 sk = u16(skeleton);
+            UNumberFormatter* formatter = icu.numberOpen(sk.data(), int32_t(sk.size()), locale, &e);
+            UFormattedNumber* result = U_SUCCESS(e) ? icu.resultOpen(&e) : nullptr;
+            if (U_SUCCESS(e)) icu.formatDouble(formatter, value, result, &e);
+            bool selected = U_SUCCESS(e) && written(out, [&](UChar* b, int32_t c, UErrorCode* s) { return icu.pluralSelect(rules.get(), result, b, c, s); });
+            if (result) icu.resultClose(result);
+            if (formatter) icu.numberClose(formatter);
+            if (selected) return utf8(out.data(), int32_t(out.size()));
+            e = U_ZERO_ERROR;
+        }
+        if (!written(out, [&](UChar* b, int32_t c, UErrorCode* s) { return uplrules_select(rules.get(), value, b, c, s); }))
             return basic_.format(req);
         return utf8(out.data(), int32_t(out.size()));
     }
@@ -340,7 +489,10 @@ std::string IcuIntl::format(const Json& req) {
     if (kind == "list") {
         const std::string& type = opts["type"].asString();
         const std::string& style = opts["style"].asString();
-        if ((!type.empty() && type != "conjunction") || (!style.empty() && style != "long")) return basic_.format(req);
+        bool plain = (type.empty() || type == "conjunction") && (style.empty() || style == "long");
+        // Other types and styles take ulistfmt_openForType (ICU 67); without it, BasicIntl's English.
+        auto open_for_type = newer().listOpen;
+        if (!plain && !open_for_type) return basic_.format(req);
         std::vector<U16> items;
         for (const Json& item : req["value"].arr()) items.push_back(u16(item.asString()));
         std::vector<const UChar*> strings;
@@ -350,7 +502,9 @@ std::string IcuIntl::format(const Json& req) {
             lengths.push_back(int32_t(item.size()));
         }
         UErrorCode e = U_ZERO_ERROR;
-        List f(ulistfmt_open(locale, &e));
+        List f(plain ? ulistfmt_open(locale, &e)
+                     : open_for_type(locale, type == "disjunction" ? ULISTFMT_TYPE_OR : type == "unit" ? ULISTFMT_TYPE_UNITS : ULISTFMT_TYPE_AND,
+                                     style == "short" ? ULISTFMT_WIDTH_SHORT : style == "narrow" ? ULISTFMT_WIDTH_NARROW : ULISTFMT_WIDTH_WIDE, &e));
         if (U_FAILURE(e) || !written(out, [&](UChar* b, int32_t c, UErrorCode* s) {
                 return ulistfmt_format(f.get(), strings.data(), lengths.data(), int32_t(items.size()), b, c, s);
             }))
@@ -365,6 +519,11 @@ std::string IcuIntl::format(const Json& req) {
         const std::string& sensitivity = opts["sensitivity"].asString();
         if (sensitivity == "base") ucol_setStrength(c.get(), UCOL_PRIMARY);
         else if (sensitivity == "accent") ucol_setStrength(c.get(), UCOL_SECONDARY);
+        // case: letters and their case, not accents, as ECMA-402 maps it onto ICU.
+        else if (sensitivity == "case") {
+            ucol_setStrength(c.get(), UCOL_PRIMARY);
+            ucol_setAttribute(c.get(), UCOL_CASE_LEVEL, UCOL_ON, &e);
+        }
         if (opts["numeric"].asBool()) ucol_setAttribute(c.get(), UCOL_NUMERIC_COLLATION, UCOL_ON, &e);
         U16 a = u16(req["a"].asString()), b = u16(req["b"].asString());
         UCollationResult r = ucol_strcoll(c.get(), a.data(), int32_t(a.size()), b.data(), int32_t(b.size()));

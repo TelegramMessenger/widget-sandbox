@@ -3,6 +3,14 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+- **Intl on Windows**: `IcuIntl` answers all 166 cases of `intl-cases.json` as V8 does (`icu_intl_matches_v8`):
+  `currencyDisplay`, `signDisplay`, significant digits, rounding half away from zero, the locale's minimum
+  grouping, `hourCycle`, the date options it resolves, plural rules on the formatted number, list types and
+  styles, and collation by `case`. What Windows 10 1903's ICU lacks is looked up at run time: on such a system a
+  plural rule with digit options sees the bare value, and a list that is no long conjunction is `BasicIntl`'s.
+
 ## v0.1.1 — release notes (2026-10-20)
 
 A clarification of widget profile 1, opt-in text selection, live collections and Intl fixes,
