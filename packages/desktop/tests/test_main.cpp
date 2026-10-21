@@ -1038,17 +1038,15 @@ static std::string intlSpaces(std::string s) {
     return s;
 }
 
-/// BasicIntl against V8's answers in the fixture shared with intl.ts, IntlBridge.swift and IntlBridge.kt
-/// (tests/fixtures/intl-cases.json): every case it marks `basic`.
-TEST(intl_fallback_matches_v8_on_the_basic_cases) {
+/// The cases of the fixture shared with intl.ts, IntlBridge.swift and IntlBridge.kt (tests/fixtures/intl-cases.json,
+/// V8's answers) through `intl`: every case, or only those marked `basic`. Returns one line per mismatch.
+static std::vector<std::string> intlMismatches(IntlProvider& intl, bool basicOnly, int& checked) {
+    std::vector<std::string> bad;
     auto root = Json::parse(readFile(std::string(TW_FIXTURES) + "/intl-cases.json"));
-    CHECK_MSG(root.has_value(), "fixture missing — run pnpm build:desktop");
-    if (!root) return;
-    BasicIntl intl;
-    int basic = 0;
+    if (!root) return {"fixture missing — run pnpm build:desktop"};
     for (const auto& c : (*root)["cases"].arr()) {
-        if (!c["basic"].asBool()) continue;
-        basic++;
+        if (basicOnly && !c["basic"].asBool()) continue;
+        checked++;
         std::string got = intl.format(c["request"]);
         const Json& want = c["expected"];
         bool ok = false;
@@ -1063,10 +1061,28 @@ TEST(intl_fallback_matches_v8_on_the_basic_cases) {
                 for (const auto& kv : want.obj()) ok = ok && (*g)[kv.first].dump() == kv.second.dump();
             }
         }
-        CHECK_MSG(ok, c["request"].dump() + " → " + got + ", want " + want.dump());
+        if (!ok) bad.push_back(c["request"].dump() + " → " + got + ", want " + want.dump());
     }
-    CHECK(basic > 100);
+    return bad;
 }
+
+/// BasicIntl, the provider without locale data, on every case the fixture marks `basic`.
+TEST(intl_fallback_matches_v8_on_the_basic_cases) {
+    BasicIntl intl;
+    int checked = 0;
+    for (const auto& m : intlMismatches(intl, true, checked)) CHECK_MSG(false, m);
+    CHECK(checked > 100);
+}
+
+#ifdef _WIN32
+/// IcuIntl, on the system's ICU, on every case of the fixture.
+TEST(icu_intl_matches_v8) {
+    IcuIntl intl;
+    int checked = 0;
+    for (const auto& m : intlMismatches(intl, false, checked)) CHECK_MSG(false, m);
+    CHECK(checked > 100);
+}
+#endif
 
 // formatToParts is in the widget profile: the basic provider splits what it formats.
 TEST(intl_fallback_format_to_parts) {

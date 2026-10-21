@@ -118,6 +118,9 @@ text unselectable (an accepted exception to "every client draws it", like `:hove
     as en-US does; dates, relative times and lists are English in every locale; dates are in
     UTC whatever `timeZone` says; collation folds Latin-1 letters; case mapping is ASCII. It
     answers every check of conformance `auto/15-js-runtime-b` and the fixture's `basic` cases.
+- The C++ core gained an optional `IcuIntl` on Windows' own ICU (`icu.dll`, b7c47cc, Fela), which a
+  host passes instead of `BasicIntl`; not yet checked against the fixture (the `_WIN32` test
+  `icu_intl_matches_v8` runs it on Windows).
 
 **The test group**: `scripts/conformance/publish-channel.ts` fills the Telegram test forum
 group through a test bot (topics Visual, Client SDK, Auto and, new, Defaults; Showcase,

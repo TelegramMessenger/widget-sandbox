@@ -142,7 +142,7 @@ public:
     [[deprecated("pass a WidgetTheme (SDK v1)")]]
     WidgetHost(std::string html, std::string theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
                RendererFactory rendererFactory, std::shared_ptr<IntlProvider> intl = nullptr)
-        : WidgetHost(std::move(html), WidgetTheme{std::move(theme), {}, {}}, width, std::move(options), std::move(resources), std::move(rendererFactory), std::move(intl)) {}
+        : WidgetHost(std::move(html), WidgetTheme{std::move(theme), {}, {}, {}}, width, std::move(options), std::move(resources), std::move(rendererFactory), std::move(intl)) {}
     ~WidgetHost();
     WidgetHost(const WidgetHost&) = delete;
     WidgetHost& operator=(const WidgetHost&) = delete;
@@ -153,7 +153,7 @@ public:
     /// scheme and the variables, the widget gets `colorScheme`, `themeParams` and `themeChanged` in one task.
     void setTheme(const WidgetTheme& theme);
     [[deprecated("pass a WidgetTheme (SDK v1)")]]
-    void setTheme(const std::string& theme) { setTheme(WidgetTheme{theme, {}, {}}); }
+    void setTheme(const std::string& theme) { setTheme(WidgetTheme{theme, {}, {}, {}}); }
     /// Off-screen pause: no animation frames, timers at 1 Hz, `document.hidden` inside the widget.
     void setVisible(bool visible);
     /// A DOM event for the widget that did not come from the renderer (the harness's `--events`).
