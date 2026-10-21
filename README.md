@@ -58,6 +58,8 @@ QuickJS submodule change together. Then read, in this order:
 | [`packages/conformance/CLIENTS.md`](packages/conformance/CLIENTS.md) | the conformance set: run it on your renderer and compare with the other clients |
 | [`docs/changes.md`](docs/changes.md) | release notes, known issues, API changes per platform |
 
+Changing the framework: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 Packages: Swift package `WidgetSandbox` (repo-root `Package.swift`, iOS and
 macOS), Gradle library `org.telegram.widgetsandbox:widget-sandbox`
 (`packages/android`), npm `@telegram/widget-sandbox` (`packages/core`), C++

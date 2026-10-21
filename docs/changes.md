@@ -122,6 +122,9 @@ text unselectable (an accepted exception to "every client draws it", like `:hove
   host passes instead of `BasicIntl`; not yet checked against the fixture (the `_WIN32` test
   `icu_intl_matches_v8` runs it on Windows).
 
+**Contributing**: `CONTRIBUTING.md` lists what a commit to `main` must include (the copies and
+fixtures that change with it, the tests per platform, the release notes).
+
 **The test group**: `scripts/conformance/publish-channel.ts` fills the Telegram test forum
 group through a test bot (topics Visual, Client SDK, Auto and, new, Defaults; Showcase,
 Common, Generated on request), with size anchors in the file name, `--dry-run`, `--only`,

@@ -124,6 +124,7 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
 
 ## Working rules
 
+- `CONTRIBUTING.md` is the checklist for a commit to `main`: what must change with it, the tests, the notes.
 - Fix the shim generally (`packages/core/src/sandbox/*`), never per widget. The attack suite
   must stay green; a compat/generated regression is a shim bug until proven
   otherwise.
