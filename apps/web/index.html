@@ -16,6 +16,8 @@
       <div class="toolbar">
         <span id="title">no widget loaded</span>
         <span class="spacer"></span>
+        <label class="single-only" title="the bubble's width: what a client lays the widget out at (the reference and compare columns follow); free: drag the column's corner"><select id="width"></select> <span id="width-value" class="muted"></span></label>
+        <label title="who gets a press (docs/sdk-v1.md §5.5): the bubble of a phone client or of a desktop client, unless touch-action claims it; off: the widget gets everything (no client does that)">gestures <select id="gesture-mode"></select></label>
         <label><input type="checkbox" id="dark"> dark</label>
         <label class="single-only"><input type="checkbox" id="reference"> reference mode</label>
         <label class="single-only" title="Blitz renderer (wasm) instead of the iframe — dev tooling, needs pnpm build:blitz-web"><input type="checkbox" id="blitz"> Blitz</label>
@@ -46,6 +48,7 @@
       <section><h3>Stats</h3><table id="stats"></table></section>
       <section><h3>Diagnostics</h3><ul id="diags"></ul></section>
       <section><h3>Bridge</h3><ul id="bridge"></ul></section>
+      <section><h3>Gestures</h3><ul id="gestures"></ul></section>
       <section class="grow"><h3>Widget console</h3><pre id="console"></pre></section>
     </aside>
   </div>

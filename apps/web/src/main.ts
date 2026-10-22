@@ -6,9 +6,10 @@ import './style.css';
 import { BlitzRenderer } from './renderers/blitz-renderer';
 import { LitehtmlRenderer } from './renderers/litehtml-renderer';
 import { ShadowDomRenderer } from '@telegram/widget-sandbox/host/shadow-renderer';
-import { WidgetHost } from '@telegram/widget-sandbox/host/widget-host';
+import { WidgetHost, type BubbleGesture, type GestureClaim } from '@telegram/widget-sandbox/host/widget-host';
 import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
+import { GESTURE_MODES, bubbleGestureLabel, bubbleGesturesOption, claimLabel, gestureMode, showBubbleGesture, type GestureMode } from './bubble-gestures';
 import type { FeedApi } from './feed';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
 import { DEFAULT_THEME_PARAMS, themeVariables, type StorageCommit, type WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
@@ -20,7 +21,8 @@ const el = {
   app: $('#app'), feedView: $('#feed-view'),
   sandboxWrap: $('#sandbox-wrap'), referenceWrap: $('#reference-wrap'), chatReference: $('#chat-reference'), compareChats: $('#compare-chats'), stage: $('.stage'),
   status: $('#status'), stats: $('#stats'), diags: $('#diags'), bridge: $('#bridge'), console: $('#console'),
-  widgetError: $('#widget-error'),
+  widgetError: $('#widget-error'), width: $<HTMLSelectElement>('#width'), widthValue: $('#width-value'), gestureMode: $<HTMLSelectElement>('#gesture-mode'),
+  chatSandbox: $('#chat-sandbox'), bubble: $('#chat-sandbox .bubble'), gestures: $('#gestures'),
 };
 
 export interface TwState {
@@ -35,14 +37,21 @@ export interface TwState {
   /** What the widget asked the client to do (SDK v1 `onAction`), in order. */
   actions: WidgetAction[];
   /** Gesture claims of the primary pointerdowns (`onGestureClaim`), in order. */
-  gestures: { x: boolean; y: boolean }[];
+  gestures: GestureClaim[];
+  /** Presses the bubble took (`onBubbleGesture`: the message menu, the reaction, a swipe, the list scroll), in order. */
+  bubbleGestures: BubbleGesture[];
   stats: (Stats & { nodes: number }) | null;
   height: number;
   /** Last uncaught widget error, shown under the bubble until a later task completes without one. */
   lastError: string | null;
 }
 
-const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], stats: null, height: 0, lastError: null };
+const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null };
+/** The bubble's own presses (docs/sdk-v1.md §5.5): `?gestures=phone` (default), `desktop` or `off`. */
+let gestures: GestureMode = gestureMode(new URLSearchParams(location.search).get('gestures'));
+/** Bubble widths a client lays out (CSS px); 0 = the default column, -1 = free (drag the column's corner). */
+const WIDTH_PRESETS = [200, 320, 360, 390, 430, 600];
+let bubbleWidth = 0;
 /** `?locale=ru`: the client's UI language passed to the widget (navigator.language, the Intl default); en-US otherwise. */
 const LOCALE = new URLSearchParams(location.search).get('locale') ?? undefined;
 
@@ -148,6 +157,11 @@ function renderBridge() {
     return li;
   }));
 }
+function renderGestures() {
+  const rows = state.gestures.slice(-6).map((c) => `press on ${claimLabel(c)}`);
+  const taken = state.bubbleGestures.slice(-4).map((g) => `bubble: ${bubbleGestureLabel(g)} (${g.gesture}; the widget got pointercancel)`);
+  el.gestures.replaceChildren(...[...rows, ...taken].map((t) => Object.assign(document.createElement('li'), { textContent: t })));
+}
 function renderConsole() {
   el.console.replaceChildren(...state.logs.slice(-300).map((l) => {
     const div = document.createElement('div');
@@ -163,11 +177,11 @@ function renderConsole() {
 function load(html: string, name: string | null) {
   host?.destroy();
   host = null;
-  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], stats: null, height: 0, lastError: null });
+  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null });
   tasksAtError = 0;
   el.title.textContent = name ?? 'dropped file';
   el.sandboxWrap.replaceChildren();
-  renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole();
+  renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole(); renderGestures();
   host = new WidgetHost(el.sandboxWrap, html, {
     policy: WIDGET_POLICY,
     features: WIDGET_FEATURES,
@@ -195,7 +209,9 @@ function load(html: string, name: string | null) {
     onBridge: (method, args) => { state.bridge.push({ method, args }); coalesce(renderBridge); },
     onAction: (action) => { state.actions.push(action); },
     onStorageCommit: (area, values) => commitStorage(name, area, values),
-    onGestureClaim: (claim) => { if (state.gestures.length < 1000) state.gestures.push(claim); },
+    onGestureClaim: (claim) => { if (state.gestures.length < 1000) state.gestures.push(claim); coalesce(renderGestures); },
+    bubbleGestures: bubbleGesturesOption(gestures),
+    onBubbleGesture: (g) => { if (state.bubbleGestures.length < 1000) state.bubbleGestures.push(g); showBubbleGesture(el.bubble, g); coalesce(renderGestures); },
     onDead: (reason) => { state.dead = reason; renderStatus(); settle(); },
     onLoaded: () => { state.loaded = true; renderStatus(); settle(); },
     onResize: (h) => { state.height = h; coalesce(renderStats); },
@@ -270,6 +286,7 @@ function updateCompare() {
       theme: state.theme,
       ...limits,
       rendererFactory: r.factory,
+      bubbleGestures: bubbleGesturesOption(gestures),
       onLoaded: () => { lines.status = `loaded in ${(performance.now() - t0).toFixed(0)} ms`; coalesce(show); settle(); },
       onDead: (reason) => { lines.status = `dead: ${reason.split('\n')[0]}`; coalesce(show); settle(); },
       onError: (text) => { lines.error = text.split('\n')[0]; coalesce(show); },
@@ -380,7 +397,37 @@ function syncUrl() {
   if (el.compare.checked) p.set('compare', '1');
   for (const k of LIMIT_PARAMS) if (limits[k] !== undefined) p.set(k, String(limits[k]));
   if (workerPool) p.set('pool', String(workerPool.size));
+  if (bubbleWidth) p.set('width', bubbleWidth > 0 ? String(bubbleWidth) : 'free');
+  if (gestures !== 'phone') p.set('gestures', gestures);
   history.replaceState(null, '', '?' + p.toString());
+}
+
+/** The bubble's width (every column of the stage: sandbox, reference, compare): a preset, the default column, or free. */
+function setWidth(w: number | 'free') {
+  bubbleWidth = w === 'free' ? -1 : WIDTH_PRESETS.includes(w) || (w >= 200 && w <= 1200) ? w : 0;
+  el.stage.classList.toggle('free-width', bubbleWidth < 0);
+  if (bubbleWidth > 0) el.stage.style.setProperty('--chat-width', bubbleWidth + 'px');
+  else el.stage.style.removeProperty('--chat-width');
+  if (bubbleWidth >= 0) el.chatSandbox.style.width = '';
+  el.width.value = bubbleWidth < 0 ? 'free' : String(bubbleWidth);
+  if (el.width.value === '' && bubbleWidth > 0) el.width.value = String(bubbleWidth); // a width from the URL outside the presets
+  showWidth();
+  syncUrl();
+}
+function showWidth() { el.widthValue.textContent = `${Math.round(el.chatSandbox.getBoundingClientRect().width)} px`; }
+// Free width: the sandbox column has a resize handle; the reference column follows it.
+new ResizeObserver(() => {
+  showWidth();
+  if (bubbleWidth < 0) el.stage.style.setProperty('--chat-width', Math.round(el.chatSandbox.getBoundingClientRect().width) + 'px');
+}).observe(el.chatSandbox);
+
+/** The bubble's presses: `phone` (the mouse as a finger), `desktop` (as a mouse) or `off`; applied to the live hosts. */
+function setGestures(mode: GestureMode) {
+  gestures = mode;
+  el.gestureMode.value = mode;
+  for (const h of [host, ...compareHosts]) h?.setBubbleGestures(bubbleGesturesOption(mode));
+  feed?.setGestures(mode);
+  syncUrl();
 }
 
 // ───────────── wiring ─────────────
@@ -401,9 +448,10 @@ async function init() {
     el.feed.checked = true;
     el.app.classList.add('feed-mode');
     el.feedView.classList.remove('hidden');
+    el.gestureMode.value = gestures;
     setTheme(params.get('theme') === 'dark' ? 'dark' : 'light');
     const { startFeed } = await import('./feed');
-    feed = startFeed(el.feedView, { theme: state.theme, params });
+    feed = startFeed(el.feedView, { theme: state.theme, params, gestures });
     (window as any).__tw.feed = feed;
     return;
   }
@@ -417,12 +465,19 @@ async function init() {
   el.litehtml.checked = params.get('litehtml') === '1';
   el.shadow.checked = params.get('shadow') === '1';
   el.compare.checked = params.get('compare') === '1';
+  const w = params.get('width');
+  setWidth(w === 'free' ? 'free' : Number(w) || 0);
+  setGestures(gestures);
   setTheme(params.get('theme') === 'dark' ? 'dark' : 'light');
   const file = params.get('file');
   if (file && files.includes(file)) await openFile(file);
 }
 
 el.dark.addEventListener('change', () => setTheme(el.dark.checked ? 'dark' : 'light'));
+el.width.replaceChildren(...[['0', 'default'], ...WIDTH_PRESETS.map((w) => [String(w), `${w} px`]), ['free', 'free (drag)']].map(([v, t]) => Object.assign(document.createElement('option'), { value: v, textContent: t })));
+el.width.addEventListener('change', () => setWidth(el.width.value === 'free' ? 'free' : Number(el.width.value)));
+el.gestureMode.replaceChildren(...GESTURE_MODES.map((g) => Object.assign(document.createElement('option'), { value: g.mode, textContent: g.mode, title: g.title })));
+el.gestureMode.addEventListener('change', () => setGestures(gestureMode(el.gestureMode.value)));
 el.reference.addEventListener('change', () => { updateReference(); syncUrl(); });
 el.compare.addEventListener('change', () => { updateCompare(); updateReference(); syncUrl(); });
 // The two native renderers are exclusive: ticking one unticks the other.
@@ -454,6 +509,10 @@ el.drop.addEventListener('drop', async (e) => {
   setTheme,
   /** Re-create the WidgetHost from the same HTML (what a "Restart" action in a product would do). */
   restart: () => { if (state.html) load(state.html, state.file); },
+  /** The bubble's width in CSS px (200–1200; 0 = the default column) or 'free'. */
+  setWidth,
+  /** The bubble's presses: 'phone' (default: a hold is the menu, a double tap the reaction, swipes the chat's, unless touch-action claims them), 'desktop' or 'off'. */
+  setGestures: (mode: GestureMode) => setGestures(mode),
   /** Force the widget's visibility (null = back to the IntersectionObserver / page visibility). */
   setVisible: (v: boolean | null) => { forcedVisible = v; applyVisibility(); },
   /** The Web Storage the dev app keeps for a file (`local` survives a page reload), and forgetting it. */

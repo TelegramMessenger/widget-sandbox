@@ -44,17 +44,18 @@ h2, h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spa
 #title { font-family: ui-monospace, Menlo, monospace; }
 /* min-height: 0 — a flex child with overflow: auto only scrolls when it may shrink below its content (needed by tests/lifecycle.spec.ts, which scrolls the bubble away). */
 .stage { flex: 1; min-height: 0; display: flex; gap: 24px; justify-content: center; align-items: flex-start; padding: 24px; overflow: auto; background: var(--chat); }
-.chat { width: 420px; flex: none; }
+.chat { width: var(--chat-width, 420px); flex: none; }
+.stage.free-width #chat-sandbox { resize: horizontal; overflow: hidden; min-width: 200px; max-width: 1200px; padding-right: 6px; }
 .chat.hidden { display: none; }
 /* compare mode: the extra columns sit in the stage's flex row; four bubbles need narrower columns */
 .compare-chats { display: contents; }
-.stage.compare .chat { width: 340px; }
+.stage.compare .chat { width: var(--chat-width, 340px); }
 .chat .compare-status { font-size: 11px; color: var(--muted); margin: 4px 0 0 8px; white-space: pre-wrap; }
 .bubble-head { font-size: 11px; color: var(--muted); margin: 0 0 4px 8px; }
 /* The bubble is the widget's canvas, as on a client (docs/sdk-v1.md §2.4, docs/integration.md): no padding of its own (the
    widget's body margin is the inset), the background in exactly the bg_color the dev app passes (main.ts sets --bubble from
    the same palette), and the radius clips what the widget paints. Text bubbles of the feed keep their padding (below). */
-.bubble { background: var(--bubble); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.bubble { position: relative; background: var(--bubble); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 #widget-error { margin: 4px 8px 0; font-size: 11px; color: var(--bad); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #widget-error.hidden { display: none; }
 .frame-wrap { width: 100%; }
@@ -137,3 +138,9 @@ section.grow { flex: 1; }
 .feed-overlay .bad { color: var(--bad); font-weight: 600; }
 .feed-overlay .warn { color: var(--warn); }
 .feed-overlay .muted { color: var(--muted); }
+
+/* What the bubble did with a press (bubble-gestures.ts): a label over the bubble for a moment. */
+.bubble-gesture { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 2px 8px; border-radius: 10px; font: 12px/1.4 system-ui, sans-serif; color: #fff; background: rgba(40, 40, 40, .78); pointer-events: none; animation: bubble-gesture 1.2s ease-out forwards; }
+@keyframes bubble-gesture { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+#gestures { font-size: 12px; }
+#width-value { color: var(--muted); font-variant-numeric: tabular-nums; }

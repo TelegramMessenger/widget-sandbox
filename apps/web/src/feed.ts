@@ -34,6 +34,7 @@ import { ShadowDomRenderer } from '@telegram/widget-sandbox/host/shadow-renderer
 import { WidgetHost } from '@telegram/widget-sandbox/host/widget-host';
 import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
+import { bubbleGesturesOption, showBubbleGesture, type GestureMode } from './bubble-gestures';
 
 export type FeedRenderer = 'iframe' | 'shadow' | 'blitz' | 'litehtml';
 /** Which corpus fills the widget bubbles; `BATCH_ORDER` is the round-robin over its batches (light first). */
@@ -149,10 +150,14 @@ const newSamples = (): Samples => ({ boot: [], shown: [], loaded: [], misses: 0 
 export interface FeedOptions {
   theme: 'light' | 'dark';
   params: URLSearchParams;
+  /** The bubbles' own presses (bubble-gestures.ts); `phone` when absent. */
+  gestures?: GestureMode;
 }
 
 export interface FeedApi {
   setTheme(theme: 'light' | 'dark'): void;
+  /** Who gets a press: the bubble of a phone or a desktop client unless touch-action claims it, or (`off`) the widget. */
+  setGestures(mode: GestureMode): void;
   setRenderer(kind: FeedRenderer): void;
   setPool(on: boolean): void;
   /** `rebuild` false: only the setting changes, the next `reset` applies it (the bench sets several at once). */
@@ -224,6 +229,7 @@ function shuffled<T>(xs: T[], seed: number): T[] {
 export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
   const params = opts.params;
   let theme = opts.theme;
+  let gestures: GestureMode = opts.gestures ?? 'phone';
   let renderer: FeedRenderer = (RENDERERS.find((r) => r.kind === params.get('renderer'))?.kind) ?? 'iframe';
   let corpus: FeedCorpus = (CORPORA.find((c) => c.kind === params.get('corpus'))?.kind) ?? 'showcase';
   const poolSize = Math.max(1, Number(params.get('poolSize') ?? 6));
@@ -467,6 +473,8 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
       rendererFactory: timedFactory(FACTORIES[renderer], rec),
       workerPool: pool ?? undefined,
       visible: b.visible,
+      bubbleGestures: bubbleGesturesOption(gestures),
+      onBubbleGesture: (g) => { if (b.wrap.parentElement) showBubbleGesture(b.wrap.parentElement, g); },
       onLoaded: () => {
         if (gen !== generation) return;
         b.loadedAt = now();
@@ -776,11 +784,17 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     for (const b of bubbles) b.host?.setTheme(t);
     syncUrl();
   }
+  function setGestures(mode: GestureMode) {
+    gestures = mode;
+    for (const b of bubbles) b.host?.setBubbleGestures(bubbleGesturesOption(mode));
+    syncUrl();
+  }
 
   function syncUrl() {
     const p = new URLSearchParams();
     p.set('feed', '1');
     if (theme === 'dark') p.set('theme', 'dark');
+    if (gestures !== 'phone') p.set('gestures', gestures);
     if (corpus !== 'showcase') p.set('corpus', corpus);
     if (renderer !== 'iframe') p.set('renderer', renderer);
     if (!poolOn) p.set('pool', '0');
@@ -936,7 +950,7 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
   void build().then(() => { syncUrl(); renderOverlay(); });
 
   const api: FeedApi = {
-    setTheme, setRenderer, setPool, setHostile, setCorpus, setCount, reset, clear, autoScroll, stop, quiet, setKeep, scroller,
+    setTheme, setGestures, setRenderer, setPool, setHostile, setCorpus, setCount, reset, clear, autoScroll, stop, quiet, setKeep, scroller,
     get summary() { return summary(); },
     get bubbles() { return bubbles; },
     get pool() { return pool; },
