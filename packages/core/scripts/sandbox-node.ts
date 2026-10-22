@@ -15,6 +15,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CpuBudget, queryBudgetMs } from '../src/host/cpu-budget.ts';
+import { GestureCounter } from '../src/host/user-activation.ts';
+import type { GestureClaim } from '../src/shared/gesture-policy.ts';
+import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
 import {
   DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams, toWidgetTheme,
   type ButtonTokens, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetTheme,
@@ -61,6 +64,12 @@ export interface RunResult {
   animOps: unknown[][];
   /** Ops batches, anim batches and sync queries in the order the shim sent them. */
   stream: { kind: 'ops' | 'anim' | 'query'; json: string }[];
+  /** With `gestures` or `layout`: the content height the renderer laid out at `width` (before the bubble's 50–600 clamp). */
+  height?: number;
+  /** One report per `gestures` step: target, claim, the policy's outcome, what the widget received, a hint. */
+  gestures?: GestureReport[];
+  /** Event types the widget listens for (the shim's `listen`, validated). */
+  listens: string[];
 }
 
 /** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */
@@ -165,6 +174,14 @@ export interface RunOptions {
   frames?: number;
   /** Advertise `morphUpdates` (in-place document updates through the `morph` dispatch). */
   morphUpdates?: boolean;
+  /** The bubble's width in CSS px (default 400): the widget's innerWidth, and the renderer's page with `gestures` / `layout`. */
+  width?: number;
+  /** Presses after the timer rounds, on the real renderer core in headless Chromium (gesture-run.ts); reported in RunResult.gestures. */
+  gestures?: GestureStep[];
+  /** The renderer plays a desktop client's bubble (a mouse) instead of a phone's (a finger). */
+  desktop?: boolean;
+  /** Lay the widget out in the renderer even without gestures (RunResult.height). */
+  layout?: boolean;
 }
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
@@ -187,8 +204,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [] };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [] };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
   if (opts.storage !== undefined) {
     const preload = checkStorageCommit(opts.storage);
     if (preload) config.storage = preload;
@@ -202,6 +219,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const timers = new Map<number, number>();
   let activeGesture = 0;
   let consumedGesture = 0;
+  let pdKeys: string[] = [];
   let visible = config.visible;
   const log = (...a: unknown[]) => opts.verbose && console.log(...a);
 
@@ -220,7 +238,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         if (queryLimitHit) return vm.newString('{"error":"query budget exceeded"}');
         const clean = validator.validateQuery(q);
         const q0 = performance.now();
-        const answer = clean ? opts.answer?.(clean) ?? defaultAnswer(clean) : { error: 'invalid query' };
+        const answer = clean ? opts.answer?.(clean) ?? defaultAnswer(clean, config.viewport) : { error: 'invalid query' };
         const dt = performance.now() - q0;
         taskQueries++;
         deadline += dt; // time spent in the answer is not widget CPU time (as in the worker); the query budget below bounds it instead
@@ -281,6 +299,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         log('[storage]', arg.slice(0, 2000));
         return vm.undefined;
       }
+      case 'listen': { try { res.listens = validator.validateListen(JSON.parse(arg)); } catch {} return vm.undefined; }
+      case 'pd': { try { pdKeys = validator.validatePreventDefault(JSON.parse(arg)); } catch {} return vm.undefined; }
       case 'intl': { const req = JSON.parse(arg); let v = opts.intl?.(req); if (v === undefined) { try { v = formatIntl(req); } catch { v = ''; } } return vm.newString(String(v)); }
       case 'random': return vm.newString(JSON.stringify(opts.random ? opts.random(Number(arg) | 0) : Array.from({ length: Number(arg) | 0 }, () => (Math.random() * 256) | 0)));
       default: opts.unknownHost?.(kind, arg); return vm.undefined;
@@ -430,7 +450,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
 
   task('boot', () => tw('boot', JSON.stringify({ html, config })));
   task('boot', () => tw('loaded'));
-  for (const ev of opts.events ?? []) {
+  const inject = (ev: Record<string, unknown>) => {
     const { gesture, ...event } = ev as Record<string, unknown> & { gesture?: number };
     task('event', () => {
       activeGesture = visible && typeof gesture === 'number' && gesture > consumedGesture ? gesture : 0;
@@ -440,14 +460,17 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         activeGesture = 0;
       }
     });
-  }
+  };
+  for (const ev of opts.events ?? []) inject(ev);
   // Due timers by delay; equal delays in the order they were set.
   const dueTimers = () => [...timers.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
-  for (let round = 0; round < (opts.timerRounds ?? 2); round++) {
+  const timerRound = () => {
     const due = dueTimers();
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
     if (visible) task('frame', () => tw('frame', String(coarseNowMs(performance.now()))));
-  }
+  };
+  for (let round = 0; round < (opts.timerRounds ?? 2); round++) timerRound();
+  if (opts.gestures?.length || opts.layout) await pressInRenderer();
   for (let round = 0; round < (opts.frames ?? 0); round++) {
     const due = dueTimers();
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
@@ -475,9 +498,79 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   vm.dispose();
   rt.dispose();
   return res;
+
+  /**
+   * The validated ops go to the renderer core in headless Chromium, which lays them out at `width` and plays the bubble;
+   * each press of `opts.gestures` goes in as real mouse input, and the events the renderer forwards come back into the
+   * sandbox as trusted input (gesture-run.ts).
+   */
+  async function pressInRenderer() {
+    const { openRenderer, replay, hint } = await import('./gesture-run.ts');
+    const width = opts.width ?? 400;
+    const desktop = opts.desktop === true;
+    const counter = new GestureCounter();
+    let current: { claims: GestureClaim[]; bubble: string[]; received: string[] } | null = null;
+    const labels = new Map<number, string>();
+    let labelled = 0;
+    const labelOf = (id: unknown) => {
+      for (; labelled < res.renderOps.length; labelled++) {
+        const op = res.renderOps[labelled] as any;
+        if (op.op !== 'el') continue;
+        const attrs = new Map<string, string>(op.attrs ?? []);
+        const cls = (attrs.get('class') ?? '').trim();
+        labels.set(op.id, op.adopt ?? op.tag + (attrs.get('id') ? '#' + attrs.get('id') : '') + (cls ? '.' + cls.split(/\s+/).slice(0, 2).join('.') : ''));
+      }
+      return labels.get(Number(id)) ?? '#' + String(id);
+    };
+    let sent = 0, sentListens = '', sentPd = '';
+    const r = await openRenderer(width, (msg) => {
+      switch (msg?.type) {
+        case 'event': {
+          const ev = msg.ev as Record<string, unknown>;
+          const gesture = msg.trusted === true ? counter.gestureFor(ev) : 0;
+          current?.received.push(`${ev.type} ${labelOf(ev.targetId)}`);
+          inject(gesture ? { ...ev, gesture } : ev);
+          flush();
+          break;
+        }
+        case 'gesture': current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'bubble': current?.bubble.push(String(msg.action) + (msg.edge ? ' (edge strip)' : '')); break;
+        case 'size': if (Number.isFinite(msg.height)) res.height = msg.height; break;
+      }
+    });
+    const flush = () => {
+      if (res.renderOps.length > sent) { r.send({ type: 'ops', ops: res.renderOps.slice(sent) }); sent = res.renderOps.length; }
+      const l = JSON.stringify(res.listens), p = JSON.stringify(pdKeys);
+      if (l !== sentListens) { sentListens = l; r.send({ type: 'listen', types: res.listens }); }
+      if (p !== sentPd) { sentPd = p; r.send({ type: 'preventDefault', keys: pdKeys }); }
+    };
+    try {
+      r.send({ type: 'theme', theme: res.theme });
+      r.send({ type: 'arbitrate', bubble: true, touch: !desktop });
+      flush();
+      await r.settle();
+      const reports: GestureReport[] = [];
+      for (const step of opts.gestures ?? []) {
+        const { target, touchAction } = await r.describe(step.x, step.y);
+        current = { claims: [], bubble: [], received: [] };
+        await r.perform(step);
+        const claim = current.claims.at(-1) ?? null;
+        const report: GestureReport = { step, target, touchAction, claim, outcome: claim ? replay(step, claim, desktop) : null, bubble: current.bubble, received: current.received, hint: null };
+        report.hint = hint(report, new Set(res.listens));
+        reports.push(report);
+        current = null;
+        timerRound();
+        flush();
+        await r.settle();
+      }
+      if (opts.gestures) res.gestures = reports;
+    } finally {
+      await r.close();
+    }
+  }
 }
 
-function defaultAnswer(q: any): unknown {
+function defaultAnswer(q: any, viewport: { innerWidth: number; innerHeight: number; dpr: number }): unknown {
   switch (q.q) {
     case 'rect': return { x: 0, y: 0, width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20 };
     case 'rects': return [{ x: 0, y: 0, width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20 }];
@@ -486,7 +579,7 @@ function defaultAnswer(q: any): unknown {
     case 'svg': return q.method === 'getBBox' ? { x: 0, y: 0, width: 50, height: 12 } : q.method.startsWith('get') && /CTM/.test(q.method) ? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 } : 42;
     case 'measureText': return { width: String(q.text).length * 6, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2 };
     case 'matchMedia': return { matches: false };
-    case 'viewport': return { innerWidth: 400, innerHeight: 300, dpr: 1 };
+    case 'viewport': return viewport;
     case 'anims': return { list: [] };
     case 'validity': return { valid: true, message: '' };
     case 'elementFromPoint': return 0;
@@ -497,22 +590,51 @@ function defaultAnswer(q: any): unknown {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const file = process.argv[2];
-  if (!file) { console.error('usage: tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose]'); process.exit(2); }
-  const verbose = process.argv.includes('--verbose');
-  const probes = process.argv.flatMap((a, i) => (a === '--eval' ? [process.argv[i + 1]] : []));
-  const fontSize = process.argv.indexOf('--font-size');
+  const args = process.argv.slice(3);
+  if (!file) {
+    console.error(`usage: tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose] [--json]
+       [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
+  --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
+  the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),
+  and each is reported: the element, its touch-action claim, who got the press, the events the widget received, a hint.`);
+    process.exit(2);
+  }
+  const verbose = args.includes('--verbose');
+  const json = args.includes('--json');
+  const probes = args.flatMap((a, i) => (a === '--eval' ? [args[i + 1]] : []));
+  const fontSize = args.indexOf('--font-size');
+  const widthAt = args.indexOf('--width');
+  const width = widthAt >= 0 ? Number(args[widthAt + 1]) : undefined;
+  if (width !== undefined && !(width >= 100 && width <= 2000)) { console.error('--width takes CSS px between 100 and 2000'); process.exit(2); }
+  const gestures: GestureStep[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (!['--tap', '--hold', '--double-tap', '--swipe', '--right-click'].includes(args[i])) continue;
+    const step = parseStep(args[i], args[i + 1]);
+    if (!step) { console.error(`${args[i]} ${args[i + 1] ?? ''}: expected x,y${args[i] === '--hold' ? '[,ms]' : args[i] === '--swipe' ? ',dx,dy' : ''} in CSS px`); process.exit(2); }
+    gestures.push(step);
+  }
+  const desktop = args.includes('--desktop');
   const r = await runWidget(fs.readFileSync(file, 'utf8'), {
-    verbose, probes, cssScope: process.argv.includes('--shadow') ? 'shadow' : 'document', theme: process.argv.includes('--dark') ? 'dark' : 'light',
-    ...(fontSize > 0 ? { text: { fontSize: Number(process.argv[fontSize + 1]) } } : {}),
+    verbose, probes, cssScope: args.includes('--shadow') ? 'shadow' : 'document', theme: args.includes('--dark') ? 'dark' : 'light',
+    ...(fontSize >= 0 ? { text: { fontSize: Number(args[fontSize + 1]) } } : {}),
+    width, desktop, layout: width !== undefined, ...(gestures.length ? { gestures } : {}),
   });
+  if (json) {
+    const { ops, renderOps, stream, anims, animOps, ...rest } = r;
+    console.log(JSON.stringify(rest, null, 1));
+    process.exit(0);
+  }
   r.probes.forEach((p, i) => console.log(`probe[${i}] ${probes[i]} → ${p}`));
-  if (process.argv.includes('--ops')) console.log(JSON.stringify(r.renderOps, null, 0));
-  const opsFile = process.argv.indexOf('--ops-file');
-  if (opsFile > 0 && process.argv[opsFile + 1]) fs.writeFileSync(process.argv[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'ops', ops: r.renderOps }]));
+  if (args.includes('--ops')) console.log(JSON.stringify(r.renderOps, null, 0));
+  const opsFile = args.indexOf('--ops-file');
+  if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'ops', ops: r.renderOps }]));
   const tags = r.renderOps.filter((o) => o.op === 'el').length;
   console.log(`\nbatches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
+  if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
+  console.log(`listens for: ${r.listens.length ? r.listens.join(', ') : '(no listeners)'}; click, load, error and toggle are always delivered`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);
   for (const l of r.logs) console.log(`[${l.level}]`, l.text);
   for (const a of r.actions) console.log('action', JSON.stringify(a));
   for (const c of r.storageCommits) console.log('storage', JSON.stringify(c).slice(0, 500));
+  if (r.gestures) console.log('\n' + formatReports(r.gestures, width ?? 400, desktop));
 }
