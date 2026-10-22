@@ -598,11 +598,24 @@ function defaultAnswer(q: any, viewport: { innerWidth: number; innerHeight: numb
   }
 }
 
+/** The authors' guide's block for a model's system prompt (docs/widget-runtime-profile.md, "Agent block"). */
+export function agentBlock(): string {
+  const guide = fs.readFileSync(path.join(root, '..', '..', 'docs', 'widget-runtime-profile.md'), 'utf8');
+  const block = guide.slice(guide.indexOf('<!-- agent-block -->'), guide.indexOf('<!-- /agent-block -->'));
+  return block.replace(/^[^]*?```text\n/, '').replace(/\n```[^]*$/, '');
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const file = process.argv[2];
   const args = process.argv.slice(3);
+  if (file === '--guide') {
+    console.log(agentBlock());
+    console.log('\nThe whole guide: docs/widget-runtime-profile.md; the profile: docs/profile-v1.md; the API: docs/sdk-v1.md §2.');
+    process.exit(0);
+  }
   if (!file) {
-    console.error(`usage: tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose] [--json]
+    console.error(`usage: tsx scripts/sandbox-node.ts --guide     (the rules for a model writing widgets)
+       tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose] [--json]
        [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
   --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
   the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),

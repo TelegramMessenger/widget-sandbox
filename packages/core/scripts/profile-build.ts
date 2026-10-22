@@ -1,9 +1,11 @@
 // The widget profile's generated files, from packages/core/profile.json (the single source):
-//   src/shared/profile-tables.ts  the tables the validator, the shim and the renderer enforce
-//   docs/profile-v1.md            the profile for widget authors and client teams
+//   src/shared/profile-tables.ts     the tables the validator, the shim and the renderer enforce
+//   docs/profile-v1.md               the profile for widget authors and client teams
+//   docs/widget-runtime-profile.md   the authors' guide: only its "Out of the profile" list, between
+//                                    <!-- profile:summary --> and <!-- /profile:summary -->; the rest is written by hand
 //
-//   corepack pnpm tsx packages/core/scripts/profile-build.ts           # write both
-//   corepack pnpm tsx packages/core/scripts/profile-build.ts --check   # exit 1 when either is stale
+//   corepack pnpm tsx packages/core/scripts/profile-build.ts           # write them
+//   corepack pnpm tsx packages/core/scripts/profile-build.ts --check   # exit 1 when one is stale
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -123,9 +125,35 @@ export function docSource(p: ProfileFile): string {
   return out.join('\n');
 }
 
-const TARGETS = [
+/** The guide's list of what is out, one line per area (titles up to their first parenthesis), with the counts. */
+export function summarySource(p: ProfileFile): string {
+  const counts = { in: 0, out: 0 };
+  for (const f of p.features) counts[f.status]++;
+  const out = [`*Generated from \`packages/core/profile.json\` (profile ${p.profile}): ${p.features.length} features, ${counts.in} in, ${counts.out} out; each one with how it is removed in \`docs/profile-v1.md\`.*`, ''];
+  const areas = [...AREAS, ...[...new Set(p.features.map((f) => f.area))].filter((a) => !AREAS.some(([k]) => k === a)).map((a) => [a, a] as [string, string])];
+  for (const [area, title] of areas) {
+    const list = p.features.filter((f) => f.area === area);
+    if (!list.length) continue;
+    const gone = list.filter((f) => f.status === 'out').map((f) => f.title.split(' (')[0].replace(/\|/g, '/').replace(/</g, '&lt;'));
+    out.push(`- **${title}** (${list.length - gone.length} in, ${gone.length} out)${gone.length ? ': ' + gone.join(' · ') : ''}`);
+  }
+  return out.join('\n');
+}
+
+const SUMMARY_BEGIN = '<!-- profile:summary -->';
+const SUMMARY_END = '<!-- /profile:summary -->';
+
+/** `have` with its summary region replaced; the guide must keep both markers. */
+export function guideSource(p: ProfileFile, have: string): string {
+  const i = have.indexOf(SUMMARY_BEGIN), j = have.indexOf(SUMMARY_END);
+  if (i < 0 || j < i) throw new Error(`docs/widget-runtime-profile.md lost its ${SUMMARY_BEGIN} … ${SUMMARY_END} markers`);
+  return have.slice(0, i + SUMMARY_BEGIN.length) + '\n' + summarySource(p) + '\n' + have.slice(j);
+}
+
+const TARGETS: { file: string; make: (p: ProfileFile, have: string) => string }[] = [
   { file: path.join(pkgRoot, 'src', 'shared', 'profile-tables.ts'), make: tablesSource },
   { file: path.join(root, 'docs', 'profile-v1.md'), make: docSource },
+  { file: path.join(root, 'docs', 'widget-runtime-profile.md'), make: guideSource },
 ];
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
@@ -133,8 +161,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
   const check = process.argv.includes('--check');
   let stale = 0;
   for (const t of TARGETS) {
-    const want = t.make(p);
     const have = fs.existsSync(t.file) ? fs.readFileSync(t.file, 'utf8') : '';
+    const want = t.make(p, have);
     if (have === want) continue;
     if (check) { console.error(`stale: ${path.relative(root, t.file)}`); stale++; }
     else { fs.writeFileSync(t.file, want); console.log(`wrote ${path.relative(root, t.file)}`); }

@@ -28,8 +28,15 @@ function sanitized(prop: string, value: string): boolean {
 }
 
 describe('widget profile: the generated files', () => {
-  it('profile-tables.ts and docs/profile-v1.md are what profile-build.ts makes from profile.json', () => {
+  it('profile-tables.ts, docs/profile-v1.md and the guide\'s out list are what profile-build.ts makes from profile.json', () => {
     execFileSync(process.execPath, ['--import', 'tsx', path.join(pkgRoot, 'scripts', 'profile-build.ts'), '--check'], { cwd: pkgRoot, stdio: 'pipe' });
+  });
+  it('the authors\' guide (docs/widget-runtime-profile.md) names every out feature and has its agent block', () => {
+    const guide = fs.readFileSync(path.join(pkgRoot, '..', '..', 'docs', 'widget-runtime-profile.md'), 'utf8');
+    const list = guide.slice(guide.indexOf('<!-- profile:summary -->'), guide.indexOf('<!-- /profile:summary -->'));
+    for (const f of profile.features) if (f.status === 'out') assert.ok(list.includes(f.title.split(' (')[0].replace(/\|/g, '/').replace(/</g, '&lt;')), f.id);
+    const block = guide.slice(guide.indexOf('<!-- agent-block -->'), guide.indexOf('<!-- /agent-block -->'));
+    assert.ok(block.length > 500 && block.split(/\s+/).length <= 420, `agent block: ${block.split(/\s+/).length} words`);
   });
   it('docs/profile-v1.md lists every feature', () => {
     const doc = fs.readFileSync(path.join(pkgRoot, '..', '..', 'docs', 'profile-v1.md'), 'utf8');

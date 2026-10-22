@@ -75,10 +75,13 @@ libraries, long text. Widget profile 1 (`docs/profile-v1.md`) and SDK v1
 the theme, the button style and the APIs every widget would otherwise embed,
 and there are no bundled libraries.
 
-Widget authors see one number, the uncompressed limit; the compressed one is
-the server's to check, because the author cannot know how the server's gzip
-compresses. A bot that gets `INPUT_MEDIA_WIDGET_TOO_LARGE` for HTML under
-32 KB has hit the gzip limit.
+The server compresses at the default level (6, PHP `gzencode`), so an author
+can measure what it counts: `gzip -6 -n < widget.html | wc -c`, the harness's
+`size:` line or the dev app's stats panel (both warn above 3800 B, the margin
+the conformance set keeps, and flag anything over a limit). A bot that gets
+`INPUT_MEDIA_WIDGET_TOO_LARGE` for HTML under 32 KB has hit the gzip limit.
+How to write widgets that fit, and everything else an author needs:
+`docs/widget-runtime-profile.md`.
 
 ## `.tgw`: the development format
 

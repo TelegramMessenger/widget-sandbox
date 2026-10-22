@@ -1,158 +1,245 @@
-# Widget runtime profile
+# Writing widgets
 
-*What an HTML widget in a Telegram message can rely on. Written for widget
-authors and for the tool description a bot gives to its model. The exact
-contract, feature by feature and table by table, is **widget profile 1**:
-`docs/profile-v1.md`, generated from `packages/core/profile.json`. The
-`TelegramWidget` API is in `docs/sdk-v1.md`.*
+*The guide for widget authors and the models that write widgets for them
+(v0.1.2, widget profile 1, SDK v1). The exact contracts: the profile feature by
+feature in `docs/profile-v1.md` (generated from `packages/core/profile.json`),
+the `TelegramWidget` API in `docs/sdk-v1.md` §2, the payload in
+`docs/tgw-format.md`. A block for a model's system prompt is at the end, and
+`sandbox-node.ts --guide` prints it.*
 
 ## In one paragraph
 
-A widget is **one self-contained HTML file** (a full document or a bare
-fragment) with inline CSS and JavaScript. It is rendered inside a chat bubble
-about **360–420 px wide**; height follows the content up to the client's cap,
-and what does not fit is clipped (nothing scrolls inside a widget). The widget
-has **no network access of any kind** — not for scripts, images, fonts,
-stylesheets, `fetch`, WebSockets or WebRTC — and it cannot navigate anywhere.
-No library is bundled. It is drawn the same way on every Telegram client
-because every client's validator removes what is outside the profile before it
-reaches the renderer; a widget can ask which profile it runs on
-(`TelegramWidget.profile`, `CSS.supports`, `@supports`).
+A widget is **one self-contained HTML document** (or a bare fragment) with
+inline CSS and JavaScript, sent by a bot in a message and drawn inside the
+chat bubble. It has **no network access of any kind** and cannot navigate; no
+library is bundled. It is drawn the same way on iOS, Android, macOS, desktop and
+the web because every client removes what is outside the profile before it
+reaches the renderer. The bubble is **200–600 px wide** (phones lay it out at
+about 320–430) and at most 600 px tall; what does not fit is clipped, and
+nothing scrolls inside a widget.
+
+## Size: mini-HTML
+
+- At most **32 768 bytes of HTML** and **4096 bytes after gzip**. The server
+  gzips at the default level (6) and refuses anything larger with
+  `INPUT_MEDIA_WIDGET_TOO_LARGE`. Keep a margin: aim for 3800 B.
+- Measure: `gzip -6 -n < widget.html | wc -c`, or let the harness print it
+  (`sandbox-node.ts widget.html`, the line `size:`), or read the dev app's
+  stats panel.
+- What costs bytes: `data:` images barely compress; repeated inline styles and
+  long class names compress well; SVG paths are cheap until they are long.
+
+## The bubble
+
+- **Size.** The bot sends `width` and `height` with the widget (`0` = auto, each
+  axis on its own). Width `0`: the bubble's width; `W`: a fixed width clamped
+  to [200, the bubble's maximum]. Height `0`: the content height clamped to
+  [50, 600]; `H`: a fixed height clamp(H, 50, 600) that the content does not
+  change. Above the height the content is clipped hard: no inner scrolling, no
+  fullscreen. Lay out with `%`, flex or grid; never with `vh` (out of the
+  profile).
+- **The bubble is the canvas.** The widget view fills the bubble with no
+  padding of its own, and the bubble clips it at its rounded corners. `html`
+  has no background: the bubble's colour (`--tg-theme-bg-color`) shows through,
+  and a background you set on `html` or `body` paints the whole bubble.
+- **Defaults** (the renderer's own layer, `docs/sdk-v1.md` §2.4): the text is the
+  client's message text (`--tg-text-font-size`, `--tg-text-line-height`), in
+  `--tg-theme-text-color`; `body` has the client's text padding as its margin
+  (`--tg-text-padding`, about `8px 12px`), so `body { margin: 0 }` goes edge to
+  edge; headings, paragraphs, lists, tables, `pre`, quotes get native sizes
+  and margins; a `<button>` you do not style looks like the client's own. Any
+  CSS of yours wins over these defaults.
+- **Theme.** The chat's palette is on the root as `--tg-theme-bg-color`,
+  `--tg-theme-text-color`, `--tg-theme-hint-color`, `--tg-theme-link-color`,
+  `--tg-theme-button-color`, `--tg-theme-button-text-color`,
+  `--tg-theme-secondary-bg-color`, … and `--tg-color-scheme`; in JS
+  `TelegramWidget.themeParams` and `colorScheme`. `prefers-color-scheme`,
+  `color-scheme: light dark` and `light-dark()` follow the **chat** theme, live.
+- **Text is not selectable** unless you say `user-select: text` (and
+  `-webkit-user-select: text`) on what a user may want to copy.
+
+## Input: who gets a press
+
+Taps (`click`) and pointer events (`pointerdown`/`move`/`up`/`cancel`,
+enter/leave/over/out, `setPointerCapture`) reach the widget, with the mouse
+compatibility events. **Taps and double taps are always the widget's**, on every
+element: a double tap arrives as both clicks and then `dblclick` (the chat's
+reaction stays on the bubble outside the widget). Holds and drags are claimed
+**per element with CSS `touch-action`**, decided when the finger goes down:
+
+| over an element with | hold | horizontal drag | vertical drag |
+|---|---|---|---|
+| `auto` (the default) | the chat's message menu | swipe-to-reply | the chat scrolls |
+| `pan-y` | menu | **the widget's** | the chat scrolls |
+| `pan-x` | menu | swipe-to-reply | **the widget's** |
+| `none` | **the widget's** (+ `contextmenu`) | **the widget's** | **the widget's** |
+
+When the chat takes a press, the widget gets `pointercancel` and no `click`.
+The leading 20 px of the widget never take a claim (the system back
+gesture), and the bubble outside the widget stays the chat's. With a mouse, a
+right click follows the same claim; clicks, double clicks, holds and drags are
+the widget's. Thresholds: a hold is 500 ms within 10 px, a double tap 300 ms and
+40 px apart.
+
+**Rule of thumb: a button you hold, a joystick, a canvas you draw on →
+`touch-action: none` on it; a horizontal slider or carousel → `pan-y`; a
+vertical slider → `pan-x`; everything else stays `auto`**, so people keep the
+chat's menu, reply and scrolling over the rest of the widget. `touch-action` on
+a container covers its children, as in CSS. Keep controls at least 20 px from
+the widget's leading edge.
+
+No keyboard and no focus at all: no key events, no text input, `focus()` does
+nothing. No touch events (use pointer events), no wheel or scroll events.
 
 ## What works
 
-- **Markup.** Text, headings, lists, tables, `<details>`/`<summary>`, `<a>`,
-  `<img>`, `<canvas>`, `<button>` (drawn in the client's own button style
-  unless the widget styles it), inline SVG (shapes, paths, text, `<use>`,
-  gradients). `<form>` and `<dialog>` render as plain blocks.
-- **CSS.** Flexbox, grid, tables, positioning (`relative`, `absolute`, `fixed`
-  inside the bubble), box model, borders, radii, shadows, backgrounds and
-  linear, radial and conic gradients, 2D transforms, `opacity`, `filter` and
-  `backdrop-filter` with `blur()`, `brightness()` and `drop-shadow()`,
-  transitions and `@keyframes`, custom properties, `calc()`/`min()`/`max()`/
-  `clamp()`, `:hover`/`:active`/structural pseudo-classes, `::before`/`::after`,
+- **Markup:** text, headings, lists, tables, `<details>`/`<summary>`, `<a>`,
+  `<img>` (`data:` PNG, JPEG, GIF, WebP), `<canvas>`, `<button>`, inline SVG
+  (shapes, paths, text, `<use>`, gradients). `<form>` renders as a block, its
+  controls are removed.
+- **CSS:** flexbox, grid, tables, positioning (`fixed` is inside the bubble),
+  box model, borders, radii, shadows, linear, radial and conic gradients, 2D
+  transforms, `opacity`, `filter` / `backdrop-filter` with `blur()`,
+  `brightness()`, `drop-shadow()`, transitions and `@keyframes`, custom
+  properties, `calc()`/`min()`/`max()`/`clamp()`, `:hover` (desktop only),
+  `:active`, structural pseudo-classes, `::before`/`::after`,
   `text-overflow: ellipsis`, `font-variant-numeric`, `touch-action`,
-  `pointer-events`, `@media` on the bubble's width, `prefers-color-scheme`,
-  `prefers-reduced-motion`, `@supports`.
-- **Fonts.** System generic families only: `system-ui`, `sans-serif`, `serif`,
-  `monospace`, `ui-sans-serif`, `ui-serif`, `ui-monospace`, `ui-rounded`; other
-  names are removed from the list (an empty list becomes `system-ui`).
-- **Scripts.** Inline `<script>` runs in document order, then
-  `DOMContentLoaded` and `load` fire. ES2023 language features, Promises,
-  `async/await`, timers, `requestAnimationFrame`, `queueMicrotask`,
-  `console.*`, `JSON`, `Intl` (number/date formatting with `formatToParts`,
-  collation, plural rules, relative time, lists), `crypto.getRandomValues/
-  randomUUID`, `structuredClone`, `TextEncoder/Decoder`, `URL`/
-  `URLSearchParams` (parsing only).
-- **DOM.** `querySelector*`, `createElement(NS)`, `innerHTML`,
-  `insertAdjacentHTML`, `classList`, `dataset`, `style`, `cloneNode`,
-  `MutationObserver`, `ResizeObserver`, `IntersectionObserver`, `matchMedia`,
-  `getBoundingClientRect`, `offsetWidth` & co, `getComputedStyle`,
-  `elementFromPoint`, SVG `getBBox`, `getCTM`, `getTotalLength`,
-  `getPointAtLength`; Web Animations (`element.animate`) where the client
-  enables it.
-- **Input.** Taps (`click`), pointer events (`pointerdown`/`move`/`up`/
-  `cancel`, enter/leave/over/out, `setPointerCapture`) and the mouse
-  compatibility events; drags when the widget claims them with `touch-action`.
-  `preventDefault()` works. No keyboard, no focus, no `dblclick` (a double tap is
-  the bubble's reaction) and no context menu (a long press is the message menu).
-- **Canvas 2D** — paths, `Path2D`, text and `measureText`, linear and radial
-  gradients, transforms, clipping, `drawImage` from other canvases and `data:`
-  images, hit testing.
-- **Images** — only as `data:` URLs embedded in the file: PNG, JPEG, GIF, WebP.
-  **Audio and video are not rendered** at all.
-- **Storage.** `localStorage` / `sessionStorage`, 16 KB each, kept by the client
-  for this message and there from the first line of script (`docs/sdk-v1.md` §2.8).
-- **Theme.** Follow the chat theme with `@media (prefers-color-scheme: dark)`,
-  `color-scheme: light dark`, `light-dark()`, `matchMedia` and/or
-  `TelegramWidget.onEvent('themeChanged', fn)`; the chat's palette is in
-  `TelegramWidget.themeParams` and the `--tg-theme-*` CSS variables.
-  `prefers-color-scheme` reflects the **chat theme** (not the OS setting) and
-  the widget is re-styled live when the user switches themes.
+  `pointer-events`, `user-select`, `@media` on the width,
+  `prefers-color-scheme`, `prefers-reduced-motion`, `@supports`. Fonts:
+  `system-ui`, `sans-serif`, `serif`, `monospace`, `ui-*` only.
+- **JavaScript:** ES2023, Promises, timers, `requestAnimationFrame`, the DOM
+  (`querySelector`, `innerHTML`, `classList`, `style`, observers), layout reads
+  (`getBoundingClientRect`, `getComputedStyle`, `offsetWidth`, `matchMedia`,
+  `measureText`), canvas 2D, Web Animations (`element.animate`), `Intl` in the
+  client's locale (`navigator.language`), `crypto.getRandomValues`,
+  `TextEncoder`, `URL`, `structuredClone`, `localStorage` / `sessionStorage`.
 
 ## Out of the profile
 
-The validator removes these on every client; `docs/profile-v1.md` says how each
-one is neutralised.
+Removed by every client before rendering: a declaration, a selector, an
+element or an event that is out never reaches the renderer, the rest of the
+widget still works. Detect anything newer with `CSS.supports`, `@supports`
+or `TelegramWidget.isProfileAtLeast(n)`. `fetch`, `XMLHttpRequest`,
+`WebSocket` and the like throw `NetworkDisabledError`; external `<script src>`,
+stylesheets, fonts and images are never loaded. The full list, generated
+from the profile:
 
-| Feature | Behaviour |
-|---|---|
-| Form controls (`input`, `select`, `textarea`, `progress`, `meter`, `fieldset`…), `contenteditable`, `tabindex` | dropped; use `<button>` and taps |
-| Keyboard, focus, `:focus`, text selection, `dblclick`, context menu, wheel, scrolling inside the widget | never delivered; `overflow: auto/scroll` becomes `hidden`, `position: sticky` becomes `relative` |
-| `<dialog>` modality, popovers | a dialog is a plain block, popovers stay in place |
-| Named fonts, `@font-face` | generic families only |
-| `vh`/`dvh`, 3D transforms, logical properties, columns, `color-mix()`, `oklch()` and the other new colour functions, `text-shadow`, `line-clamp`, `clip-path`, `mask`, blend modes, filters other than blur/brightness/drop-shadow | the declaration (or the filter function) is dropped |
-| `:has()`, `::marker`, `::first-letter`, `::first-line`, `:target`, form states | the selector never matches |
-| `@container`, `@layer`, `@property`, nesting, `@media` on height, hover, pointer, print | dropped |
-| SVG clip paths, masks, patterns, markers, filters, SMIL, `<image>`, `<foreignObject>` | dropped |
-| Canvas patterns, conic gradients, shadows, compositing, `ctx.filter`, `getImageData`/`putImageData`, `toDataURL` | not drawn / transparent / empty |
-| SVG, AVIF, BMP and ICO images | placeholder image |
-| `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `navigator.sendBeacon`, `RTCPeerConnection`, `Worker`, `importScripts`, `import()` | throw `NetworkDisabledError` (`fetch` rejects) |
-| External `<script src>` (CDN libraries included), `<link rel=stylesheet>`, `@import`, external images, `<iframe>`, `<object>`, `<embed>` | dropped; external `<img>` shows a placeholder |
-| `<audio>`, `<video>`, `<source>`, `<track>` | dropped: no media playback |
-| WebGL / WebGPU, Web Audio, `OffscreenCanvas`, `Blob`/`File`/`URL.createObjectURL` | `getContext('webgl')` returns `null`; the rest throw or are absent |
-| `alert`, `confirm`, `prompt`, `window.print`, clipboard, `navigator.share`, fullscreen, geolocation, camera | no-ops / rejected promises (`NotAllowedError`); nothing reaches the client |
-| `TelegramWidget.sendMessage` | removed: a widget keeps its state in `localStorage` or links out |
-| Shadow DOM, custom elements | not rendered / no-op |
-| `document.cookie`, `document.write` after load, `eval` of remote code | no-ops |
+<!-- profile:summary -->
+*Generated from `packages/core/profile.json` (profile 1): 255 features, 176 in, 79 out; each one with how it is removed in `docs/profile-v1.md`.*
 
-## Bridge: `window.TelegramWidget`
+- **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> · Form controls: form, input · progress, meter · dialog · audio, video, source, track · script · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
+- **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
+- **CSS** (54 in, 22 out): display: flow-root, contents, list-item · Logical properties: margin-inline, padding-block, inset-inline, inline-size, … · Multi-column layout · position: sticky · overflow: auto / scroll · Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color() · color-mix() · background-clip: text · url() / image-set() with anything but a data: image or #fragment · font-family naming a font · @font-face · -webkit-line-clamp / line-clamp · text-shadow · writing-mode, text-orientation · 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility · filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() · filter: url(#svg-filter) · mix-blend-mode, isolation, background-blend-mode · clip-path: inset(), circle(), ellipse(), polygon() · mask / -webkit-mask with gradients or data: images · vh / dvh / svh / vb: height-relative units · env()
+- **Selectors** (7 in, 6 out): :has() · ::first-letter, ::first-line, ::marker · :focus, :focus-visible, :focus-within · :checked, :disabled, :enabled, :valid, :invalid, :placeholder-shown, ::placeholder · :host, :host-context(), ::slotted(), ::part(), :scope · :target
+- **At-rules** (5 in, 8 out): @media · @media print, resolution, other media features · @import, @namespace · @container queries · @layer cascade layers · @property · @counter-style, @starting-style, @scope, @page, @font-feature-values, @font-palette-values, @position-try · CSS nesting
+- **Animation** (7 in, 1 out): Magic move
+- **Canvas 2D** (13 in, 8 out): createConicGradient · createPattern from a canvas or image · globalCompositeOperation · shadowBlur, shadowColor, shadowOffsetX/Y · ctx.filter · getImageData / putImageData / createImageData · toDataURL, toBlob, captureStream · WebGL, OffscreenCanvas, bitmaprenderer contexts
+- **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
+- **TelegramWidget (SDK v1)** (9 in, 1 out): TelegramWidget.sendMessage
+- **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
+- **Limits** (11 in, 0 out)
+- **Client behaviour** (11 in, 0 out)
+<!-- /profile:summary -->
+
+## `TelegramWidget` in brief
 
 ```js
-TelegramWidget.profile;                    // 1: the widget profile this client enforces
-TelegramWidget.isProfileAtLeast(2);        // false on a profile-1 client
-TelegramWidget.colorScheme;                // 'light' | 'dark': the chat's theme
-TelegramWidget.themeParams.bg_color;       // the chat's palette, '#rrggbb', Mini Apps keys
-TelegramWidget.onEvent('themeChanged', fn); // also 'activated' / 'deactivated' (on / off screen)
-TelegramWidget.isActive;                   // !document.hidden
-TelegramWidget.openLink('https://…');      // in a tap handler; the user confirms in a native dialog
+TelegramWidget.profile;                      // 1; isProfileAtLeast(n)
+TelegramWidget.colorScheme;                  // 'light' | 'dark', the chat's
+TelegramWidget.themeParams.bg_color;         // the palette, '#rrggbb' (Mini Apps keys)
+TelegramWidget.onEvent('themeChanged', fn);  // also 'activated' / 'deactivated'; isActive
+TelegramWidget.openLink('https://…');        // in a tap handler: the user confirms the full URL
 TelegramWidget.openTelegramLink('https://t.me/…');
-TelegramWidget.HapticFeedback.impactOccurred('light'); // also notificationOccurred, selectionChanged
-TelegramWidget.ready();                    // optional: "initial render done"
+TelegramWidget.HapticFeedback.impactOccurred('light'); // notificationOccurred, selectionChanged
+TelegramWidget.ready();                      // optional: first state drawn
 ```
 
-The full SDK v1 is in `docs/sdk-v1.md`. The palette is also on the root as CSS
-variables (`var(--tg-theme-bg-color)`, `--tg-theme-text-color`, …,
-`--tg-color-scheme`). Links must be `https:` and at most 256 characters; a bad
-URL throws `TypeError`, and one tap opens one link. `localStorage` /
-`sessionStorage` keep 16 KB each for this message (`QuotaExceededError` past
-it) and survive the widget being recreated. `navigator.language` is the
-client's language. There is no `sendMessage`: nothing is sent to the chat or
-the bot on the user's behalf. Clicking an `<a href="https://…">` is
-equivalent to `openLink(href)` (`openTelegramLink` for t.me); links never
-navigate the widget, and `#fragment` links do not scroll. `location.*`
-writes, `form.submit()` and `<meta http-equiv=refresh>` are ignored (and
-logged).
+- **Links:** `https:` only, at most 256 characters, one call per tap, only in
+  the handler of a real tap (not from a timer or a promise); a bad URL throws
+  `TypeError`. A tapped `<a href="https://…">` does the same. The widget is not
+  told whether the user opened it.
+- **Storage:** `localStorage` is kept for this message on this device, there
+  from the first line of script, 16 KB per area (`QuotaExceededError` past
+  it: catch it); `sessionStorage` until the app restarts. A forwarded copy
+  starts empty; a bot edit with new HTML restarts the widget on the same
+  storage.
+- **Haptics:** no tap needed, only while visible, 5 in a burst then 10 per
+  second; desktop and web play nothing.
+- **Gone:** `sendMessage` (nothing is sent to the chat or the bot), `alert` /
+  `confirm` / `prompt` (no dialog), clipboard, share, fullscreen.
+- Outside Telegram (a plain browser) `window.TelegramWidget` is undefined:
+  check for it.
 
-## Recommendations for authors (and for models)
+## Lifecycle and limits
 
-1. One file, no external resources — inline everything, prefer inline SVG and
-   CSS over images, use the generic font families.
-2. Design for a **400 px wide** column; make charts `width: 100%` with a
-   `viewBox`; never size anything from the viewport height.
-3. Keep initial rendering synchronous and fast (the sandbox has a CPU budget of
-   ~500 ms per task and 64 MB of memory). Use `requestAnimationFrame` for
-   animation, `setInterval` for clocks.
-4. Give interactive elements `id`s and visible state; the message may be
-   re-rendered from a static snapshot after the widget is paused, and the
-   widget recreated at any time: keep what the user chose in `localStorage`
-   and restore it on load.
-5. Draw charts yourself with inline SVG or canvas: no library is available.
-6. Interaction is taps and drags on buttons and other elements: no text input.
-7. Gate anything newer on `CSS.supports(...)`, `@supports` or
-   `TelegramWidget.isProfileAtLeast(n)`; what an older client does not support is
-   removed, not half-drawn.
-8. Support both themes via `prefers-color-scheme`; use `color-scheme: light dark`.
+- Off screen: `document.hidden`, no animation frames, timers at most once per
+  second. The widget can be destroyed and recreated at any time; only Web
+  Storage survives: keep the user's choices in `localStorage`.
+- CPU: 300 ms per second (timers and frames wait beyond that), 500 ms in one
+  task; 64 MB of memory; 256 live timers; 50 000 nodes. A widget over a limit
+  or crashed keeps its last frame with a "Widget stopped" badge.
+- Keep the first render synchronous and fast; animate with
+  `requestAnimationFrame`, never read layout in every frame.
 
-## Example tool description for a bot
+## How to test
 
-> `show_widget(html: string)` — Renders a self-contained HTML widget in the
-> chat. The widget runs offline: no network, no external scripts, images or
-> fonts, no libraries; draw charts with inline SVG or canvas. Width ≈ 400 px,
-> height auto, clipped at the cap, no inner scrolling. Input is taps and drags
-> only (no text fields, no keyboard). Generic font families only. Links open
-> via a confirmation dialog (`TelegramWidget.openLink`, https only, one per
-> tap); nothing can be sent to the chat. Keep state in `localStorage` (16 KB).
-> Follow the chat theme with `prefers-color-scheme` or the `--tg-theme-*`
-> variables. No WebGL. Inline `<script>`, `<style>` and `data:`
-> PNG/JPEG/GIF/WebP images only.
+- **The harness** (no browser window, prints text for people and agents):
+  `corepack pnpm tsx packages/core/scripts/sandbox-node.ts widget.html` runs the
+  widget in the real sandbox and prints the size, what the profile removed
+  (`diag` lines), errors and the actions it asked for. Add `--width 360` to lay
+  it out in the real renderer at that bubble width (the content height), and
+  presses to check gestures: `--tap x,y`, `--hold x,y[,ms]`,
+  `--double-tap x,y`, `--swipe x,y,dx,dy`, `--right-click x,y` (`--desktop`
+  for a mouse client). Each press reports the element, its claim, who got it,
+  what the widget received and a hint, for example
+  `hint: the hold went to the message menu and the widget got pointercancel: set touch-action: none on button#fire …`.
+  `--json` gives the whole result.
+- **The dev app** (`corepack pnpm dev`): drop the file, pick a width (200–600 or
+  free), toggle dark, and use the mouse as a finger (`gestures: phone`, the
+  default): the bubble takes holds and swipes as a phone does and says so over
+  the bubble.
+- **On clients:** a test bot sends the widget to your private chat.
+
+## Agent block
+
+For a model's system prompt (also `sandbox-node.ts --guide`):
+
+<!-- agent-block -->
+```text
+You write Telegram widgets: one self-contained HTML document with inline CSS and
+JS, shown inside a chat bubble.
+- Size: at most 4096 bytes after gzip (level 6) and 32768 bytes of HTML. Aim for
+  3800 B gzip. data: images barely compress.
+- Offline: no network (fetch, XHR, WebSocket throw), no external scripts,
+  stylesheets, fonts or images, no libraries. Images only as data: PNG/JPEG/GIF/
+  WebP or inline SVG. Draw charts with SVG or canvas.
+- Layout: the bubble is 200-600 px wide and at most 600 px tall; content beyond
+  is clipped, nothing scrolls inside. Stretch with %, flex or grid; no vh units.
+  body has the client's padding as its margin (body{margin:0} goes edge to edge);
+  html has no background, the bubble's colour shows through.
+- Fonts: system-ui, sans-serif, serif, monospace, ui-* only. No @font-face.
+- Colours: var(--tg-theme-bg-color), --tg-theme-text-color, --tg-theme-hint-color,
+  --tg-theme-link-color, --tg-theme-button-color, --tg-theme-button-text-color,
+  --tg-theme-secondary-bg-color. prefers-color-scheme follows the chat theme.
+- Out of the profile (removed): form controls except <button>, inner scrolling,
+  3D transforms, :has(), @container, @layer, CSS nesting, clip-path, masks,
+  blend modes, text-shadow, getImageData, keyboard input and focus.
+- Input: taps and pointer events; double taps are always yours (two clicks,
+  then dblclick). touch-action decides holds and drags: on auto (default) a hold
+  is the chat's menu and a swipe its reply or scroll, and the widget gets
+  pointercancel. Put touch-action: none on anything held or dragged (game
+  buttons, joysticks, canvases): then the widget also gets contextmenu. Use
+  touch-action: pan-y on horizontal sliders, pan-x on vertical ones; it covers
+  an element's children too. Keep controls 20 px from the leading edge. No
+  keyboard, no text input.
+- Text is not selectable unless you set user-select: text.
+- API: window.TelegramWidget (check it exists): openLink(https URL, max 256
+  chars) and openTelegramLink(https://t.me/...) only inside a click handler, one
+  per tap; HapticFeedback.impactOccurred('light'); themeParams; colorScheme;
+  onEvent('themeChanged', fn). No sendMessage, no alert/confirm/prompt.
+- State: localStorage, 16 KB, per message; catch QuotaExceededError. The widget
+  may be recreated at any time; restore state on load.
+- Limits: 300 ms CPU per second, 500 ms per task, 64 MB, 256 timers. Render the
+  first state synchronously; animate with requestAnimationFrame.
+```
+<!-- /agent-block -->

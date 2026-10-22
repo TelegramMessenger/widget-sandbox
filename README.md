@@ -3,7 +3,14 @@
 A **widget is mini-HTML**: one self-contained HTML document with inline CSS and
 JS, at most 4 KB after gzip and 32 KB uncompressed, delivered right in the
 message. This repository is the framework every Telegram client runs it with,
-released as tags (`v0.1.0` is the first):
+released as tags (`v0.1.0` is the first).
+
+**Writing widgets** (or prompting a model to): [`docs/widget-runtime-profile.md`](docs/widget-runtime-profile.md)
+is the authors' guide, with a block for a model's system prompt
+(`corepack pnpm tsx packages/core/scripts/sandbox-node.ts --guide`) and how to test a widget at a
+bubble width and with presses.
+
+What the framework does:
 
 - **The widget's JavaScript runs only inside QuickJS**, on its own thread, with
   no network capability at all: `fetch`, XHR, WebSocket and the rest are stubs.
@@ -157,7 +164,7 @@ tooling, consuming the packages the way a client would. `corpus/`, `tests/`
 | `packages/ios/` | Swift package `WidgetSandbox` (the QuickJS fork + WKWebView, same JS bundles) for iOS and macOS; the manifest is the repo-root `Package.swift` — see [packages/ios/README.md](packages/ios/README.md); `pnpm build:ios` builds its bundles |
 | `packages/android/` | Gradle library `widget-sandbox` = `org.telegram.widgetsandbox:widget-sandbox` (the same QuickJS sources via NDK + `android.webkit.WebView`, same JS bundles) — see [packages/android/README.md](packages/android/README.md); `pnpm build:android` |
 | `packages/desktop/` | Qt-free C++ core for tdesktop-class hosts — see [packages/desktop/README.md](packages/desktop/README.md); `pnpm build:desktop` |
-| `packages/conformance/` | the widget profile conformance set: feature catalogue, 39 self-checking widgets, 20 visual widgets and 17 client-SDK cases (every one a mini-widget), reference pictures, the test-channel post list, the report tool — see [packages/conformance/README.md](packages/conformance/README.md) and `CLIENTS.md` |
+| `packages/conformance/` | the widget profile conformance set: feature catalogue, 40 self-checking widgets, 20 visual widgets and 17 client-SDK cases (every one a mini-widget), reference pictures, the test-channel post list, the report tool — see [packages/conformance/README.md](packages/conformance/README.md) and `CLIENTS.md` |
 | `packages/quickjs-wasm/` | the QuickJS fork compiled to wasm for the web host and the Node harness (`build.sh`; the output is committed) |
 | `packages/tools/qjsc` | bytecode compiler from the QuickJS submodule (`.qbc` next to each bundle) |
 | `apps/web/` | the dev app (`src/main.ts`, exposes `window.__tw` for the Playwright suites), the chat feed demo (`src/feed.ts`), bench pages, the Blitz / litehtml wasm renderer glue (`src/renderers/`) |
