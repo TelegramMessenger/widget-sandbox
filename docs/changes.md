@@ -10,6 +10,11 @@ nothing until the host lists them; "default" items apply to every host.
   grouping, `hourCycle`, the date options it resolves, plural rules on the formatted number, list types and
   styles, and collation by `case`. What Windows 10 1903's ICU lacks is looked up at run time: on such a system a
   plural rule with digit options sees the bare value, and a list that is no long conjunction is `BasicIntl`'s.
+- **Hidden timers keep their order** (default, every host): a hidden widget's timers wait at least 1 s, and
+  every delay under it used to become the same 1 s, so they ran in the order they were set (`setTimeout` 20,
+  10, 0 ran 20, 10, 0). The hidden delay is now `max(delay, 1 s + delay / 10)`: still about 1 Hz, in the
+  order of the delays. Web worker, Swift, Kotlin and C++ glue; the Node harness fires a round's timers by
+  delay too (it ran them in the order they were set, hidden or not).
 
 ## v0.1.1 — release notes (2026-10-20)
 

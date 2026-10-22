@@ -191,7 +191,9 @@ function hostCall(kind: string, arg: string): string | number | undefined {
         return;
       }
       let ms = Math.min(Math.max(Number(delay) || 0, 0), MAX_TIMER_DELAY_MS);
-      if (!visible) ms = Math.max(ms, 1000); // hidden: 1 Hz, like a background tab
+      // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
+      // event loop's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
+      if (!visible) ms = Math.max(ms, 1000 + ms / 10);
       timers.set(id, setTimeout(() => onTimerFired(id), ms));
       return;
     }

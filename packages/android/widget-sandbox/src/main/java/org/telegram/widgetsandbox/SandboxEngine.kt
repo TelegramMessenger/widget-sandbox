@@ -392,7 +392,9 @@ class SandboxEngine(
                 val id = pair.optInt(0, Int.MIN_VALUE)
                 if (id == Int.MIN_VALUE) return HostReturn.Undefined
                 var delayMs = minOf(maxOf(0.0, pair.optDouble(1, 0.0)), maxTimerDelayMs)
-                if (!visible) delayMs = maxOf(delayMs, 1000.0) // hidden: 1 Hz, like a background tab
+                // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
+                // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
+                if (!visible) delayMs = maxOf(delayMs, 1000.0 + delayMs / 10)
                 if (timers.size >= config.maxTimers) {
                     // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
                     if (!timerLimitReported) {

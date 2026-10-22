@@ -83,6 +83,13 @@ describe('shim: runtime limits', () => {
     assert.equal(r.diags.filter((d) => d.kind === 'timer-limit-enforced').length, 0, 'the glue backstop must not be needed');
     assert.equal(r.timers, 8);
   });
+  it('fires timers in the order of their delays, hidden ones too (1 Hz, still in order)', async () => {
+    const widget = `<script>var order = []; [20, 10, 0].forEach(function (d) { setTimeout(function () { order.push(d); }, d); });</script>`;
+    for (const visible of [true, false]) {
+      const r = await runWidget(widget, { visible, timerRounds: 1, probes: ['order.join()'] });
+      assert.equal(r.probes[0], '0,10,20', visible ? 'visible' : 'hidden');
+    }
+  });
   it('frees a slot when a timer fires or is cleared', async () => {
     const r = await runWidget(`<script>var ok = 0; var a = setTimeout(function () {}, 1); var b = setTimeout(function () {}, 1); clearTimeout(a);
       try { setTimeout(function () { ok++; }, 1); } catch (e) { ok = -1; }</script>`, { maxTimers: 2, timerRounds: 1, probes: ['ok'] });

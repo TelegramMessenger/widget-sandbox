@@ -553,7 +553,9 @@ public final class SandboxEngine {
         case "timer":
             guard let pair = Self.parse(arg) as? [Any], pair.count == 2, let id = (pair[0] as? NSNumber)?.intValue else { return .undefined }
             var delay = min(max(0, (pair[1] as? NSNumber)?.doubleValue ?? 0) / 1000, maxTimerDelay)
-            if !visible { delay = max(delay, 1) } // hidden: 1 Hz, like a background tab
+            // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
+            // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
+            if !visible { delay = max(delay, 1 + delay / 10) }
             guard timers.count < config.maxTimers else {
                 // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
                 if !timerLimitReported {

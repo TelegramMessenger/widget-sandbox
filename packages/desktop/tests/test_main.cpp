@@ -561,6 +561,19 @@ TEST(hidden_timers_are_coalesced_to_one_hertz) {
     CHECK(!r.host.died);
 }
 
+/// Hidden: the timers still run in the order of their delays (all at about 1 s; setTimeout 20, 10, 0 → 0, 10, 20).
+TEST(hidden_timers_keep_their_order) {
+    Run r("<script>document.addEventListener('visibilitychange', function () { if (!document.hidden) return; [20, 10, 0].forEach(function (d) { setTimeout(function () { console.log('order ' + d); }, d); }); });</script>");
+    r.engine.setVisible(false);
+    // Hidden timers fire at the next 1 Hz wake-up after their delay: up to 2 s.
+    r.host.waitUntil([&] { return r.host.countLogPrefix("order") >= 3; }, 4);
+    auto l = r.host.lock();
+    std::string order;
+    for (auto& lg : r.host.logs) if (lg.second.rfind("order ", 0) == 0) order += lg.second.substr(6) + ",";
+    CHECK_MSG(order == "0,10,20,", order + "\n" + r.logsText());
+    CHECK(!r.host.died);
+}
+
 static int countActions(const std::vector<WidgetAction>& actions, WidgetAction::Kind kind) {
     int n = 0;
     for (auto& a : actions) if (a.kind == kind) n++;

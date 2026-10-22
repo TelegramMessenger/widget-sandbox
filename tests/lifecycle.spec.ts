@@ -69,6 +69,16 @@ test('the widget sees document.hidden and visibilitychange, like a background ta
   await expect(f.locator('#a')).toHaveText('-false+true-false+true');
 });
 
+test('hidden: the timers still run in the order of their delays (setTimeout 20, 10, 0 → 0, 10, 20)', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => (window as any).__tw.load(`<p id="o"></p><script>var o = []; document.addEventListener('visibilitychange', function () { if (!document.hidden) return; [20, 10, 0].forEach(function (d) { setTimeout(function () { o.push(d); document.getElementById('o').textContent = o.join(); }, d); }); });</script>`, null));
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  await setVisible(page, false);
+  await page.waitForTimeout(1600);
+  await setVisible(page, true);
+  await expect(page.frameLocator('#sandbox-wrap iframe').locator('#o')).toHaveText('0,10,20');
+});
+
 // ───────── the triggers: the dev UI's IntersectionObserver and the page's own visibility ─────────
 
 const frames = async (page: Page) => Number(await page.frameLocator('#sandbox-wrap iframe').locator('#frames').textContent());

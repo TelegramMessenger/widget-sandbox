@@ -233,7 +233,9 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'timer': {
         const [id, delay] = JSON.parse(arg);
         if (timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }
-        timers.set(id, Math.min(Math.max(Number(delay) || 0, 0), MAX_TIMER_DELAY_MS));
+        const ms = Math.min(Math.max(Number(delay) || 0, 0), MAX_TIMER_DELAY_MS);
+        // Rounds fire timers by delay, as a clock would; hidden ones as the other glue copies clamp them (1 Hz, in order).
+        timers.set(id, visible ? ms : Math.max(ms, 1000 + ms / 10));
         return vm.undefined;
       }
       case 'clearTimer': timers.delete(Number(arg)); return vm.undefined;
@@ -439,13 +441,15 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       }
     });
   }
+  // Due timers by delay; equal delays in the order they were set.
+  const dueTimers = () => [...timers.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
   for (let round = 0; round < (opts.timerRounds ?? 2); round++) {
-    const due = [...timers.keys()];
+    const due = dueTimers();
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
     if (visible) task('frame', () => tw('frame', String(coarseNowMs(performance.now()))));
   }
   for (let round = 0; round < (opts.frames ?? 0); round++) {
-    const due = [...timers.keys()];
+    const due = dueTimers();
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
     if (visible) task('frame', () => tw('frame', String(coarseNowMs(performance.now()))));
   }

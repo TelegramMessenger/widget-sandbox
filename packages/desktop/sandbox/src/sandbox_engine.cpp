@@ -323,7 +323,9 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         if (!pair || !pair->isArray() || pair->size() != 2 || !(*pair)[0].isNumber()) return HostReturn::undefined();
         int id = (*pair)[0].asInt();
         double delay = std::min(std::max(0.0, (*pair)[1].asNumber()) / 1000, kMaxTimerDelaySeconds);
-        if (!visible_) delay = std::max(delay, 1.0); // hidden: 1 Hz, like a background tab
+        // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
+        // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
+        if (!visible_) delay = std::max(delay, 1.0 + delay / 10);
         if (int(timers_.size()) >= config_.maxTimers) {
             // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
             if (!timerLimitReported_) {

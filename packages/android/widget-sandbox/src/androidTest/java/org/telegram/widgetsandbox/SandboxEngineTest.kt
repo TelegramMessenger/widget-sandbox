@@ -230,6 +230,21 @@ class SandboxEngineTest {
         engine.terminate()
     }
 
+    /** Hidden: the timers still run in the order of their delays (all at about 1 s; setTimeout 20, 10, 0 → 0, 10, 20). */
+    @Test
+    fun hiddenTimersKeepTheirOrder() {
+        val (d, engine) = run("<script>document.addEventListener('visibilitychange', function () { if (!document.hidden) return; [20, 10, 0].forEach(function (d) { setTimeout(function () { console.log('order ' + d); }, d); }); });</script>")
+        engine.setVisible(false)
+        // Hidden timers fire at the next 1 Hz wake-up after their delay: up to 2 s.
+        val orders = { engine.thread.sync { d.logs.map { it.second }.filter { it.startsWith("order ") }.map { it.removePrefix("order ") } } }
+        val deadline = System.currentTimeMillis() + 4000
+        while (System.currentTimeMillis() < deadline && orders().size < 3) Thread.sleep(50)
+        val order = orders()
+        assertEquals("${d.logs}", listOf("0", "10", "20"), order)
+        assertNull(d.died)
+        engine.terminate()
+    }
+
     @Test
     fun policyIsStrictByDefaultAndFailsClosed() {
         assertEquals("strict", SandboxConfig(innerWidth = 1.0, innerHeight = 1.0, devicePixelRatio = 1.0, theme = "light").policy)

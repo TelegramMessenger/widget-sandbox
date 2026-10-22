@@ -173,6 +173,19 @@ final class SandboxEngineTests: XCTestCase {
         XCTAssertNil(d.died)
     }
 
+    /// Hidden: the timers still run in the order of their delays (all at about 1 s; setTimeout 20, 10, 0 → 0, 10, 20).
+    func testHiddenTimersKeepTheirOrder() {
+        let (d, engine) = run("<script>document.addEventListener('visibilitychange', function () { if (!document.hidden) return; [20, 10, 0].forEach(function (d) { setTimeout(function () { console.log('order ' + d); }, d); }); });</script>")
+        engine.setVisible(false)
+        // Hidden timers fire at the next 1 Hz wake-up after their delay: up to 2 s.
+        let orders = { engine.queue.sync { d.logs.map { $0.1 }.filter { $0.hasPrefix("order ") }.map { String($0.dropFirst(6)) } } }
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline, orders().count < 3 { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        let order = orders()
+        XCTAssertEqual(order, ["0", "10", "20"], "\(d.logs)")
+        XCTAssertNil(d.died)
+    }
+
     func testCompatPolicyForwardsEveryBridgeCall() {
         let (d, engine) = run("<script>TelegramWidget.ready(); setTimeout(() => TelegramWidget.openTelegramLink('https://t.me/later'), 30); Promise.resolve().then(() => TelegramWidget.openLink('https://example.com/boot'));</script>", configure: { $0.policy = .compat })
         let deadline = Date().addingTimeInterval(3)
