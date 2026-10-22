@@ -3,7 +3,7 @@
 // pointercancel (the message menu) and a horizontal drag is swipe-to-reply, while `touch-action: none` gives the widget
 // holds (`contextmenu`); a double tap is always the widget's (`dblclick`, on every element); the leading 20 px take
 // no claim. `?gestures=desktop` plays a desktop client, `off` no bubble. Iframe and Shadow DOM renderer.
-// Also the dev app's bubble-width control.
+// Also the dev app's other agent tooling: the bubble-width control and the size row (gzip as the server counts it).
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -187,4 +187,25 @@ test('the width control lays the bubble out at a preset or a free width', async 
   await page.selectOption('#width', 'free');
   expect(new URL(page.url()).searchParams.get('width')).toBe('free');
   await expect(page.locator('#chat-sandbox')).toHaveCSS('resize', 'horizontal');
+});
+
+test('the stats panel shows the size as the server counts it, with a warning and an error past the limits', async ({ page }) => {
+  await page.goto('/');
+  const load = async (html: string) => {
+    await page.evaluate((h) => (window as any).__tw.load(h, null), html);
+    await page.waitForFunction(() => (window as any).__tw.state.size);
+    return page.evaluate(() => (window as any).__tw.state.size as { gzip: number; raw: number });
+  };
+  // Incompressible text: a deterministic pseudo-random string of n characters (xorshift32; 5150 → 3900 B, 6000 → 4537 B).
+  const noise = (n: number) => { let x = 2463534242, t = ''; for (let i = 0; i < n; i++) { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; t += 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[(x >>> 8) % 62]; } return t; };
+  const small = await load('<p>hello</p>');
+  expect(small.raw).toBe(12);
+  expect(small.gzip).toBeGreaterThan(20);
+  await expect(page.locator('#stats tr.size-ok')).toContainText('B gzip / 0.0 KB raw (limit 4096 / 32768)');
+  const near = await load('<!--' + noise(5150) + '-->');
+  expect(near.gzip).toBeGreaterThan(3800);
+  expect(near.gzip).toBeLessThanOrEqual(4096);
+  await expect(page.locator('#stats tr.size-warning')).toContainText('aim for 3800 B or less');
+  await load('<!--' + noise(6000) + '-->');
+  await expect(page.locator('#stats tr.size-error')).toContainText('INPUT_MEDIA_WIDGET_TOO_LARGE');
 });

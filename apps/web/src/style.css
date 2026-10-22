@@ -144,3 +144,6 @@ section.grow { flex: 1; }
 @keyframes bubble-gesture { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 #gestures { font-size: 12px; }
 #width-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+#stats tr.size-warning td { color: var(--warn); font-weight: 500; }
+#stats tr.size-error td { color: var(--bad); font-weight: 600; }
+#stats tr.size td div { font-weight: 400; font-size: 11px; max-width: 280px; }

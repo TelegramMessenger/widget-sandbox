@@ -13,11 +13,13 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 import variant from '@telegram/widget-sandbox-quickjs';
 import fs from 'node:fs';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { CpuBudget, queryBudgetMs } from '../src/host/cpu-budget.ts';
 import { GestureCounter } from '../src/host/user-activation.ts';
 import type { GestureClaim } from '../src/shared/gesture-policy.ts';
 import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
+import { sizeLine, sizeVerdict, type WidgetSize } from '../src/shared/widget-size.ts';
 import {
   DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams, toWidgetTheme,
   type ButtonTokens, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetTheme,
@@ -70,6 +72,14 @@ export interface RunResult {
   gestures?: GestureReport[];
   /** Event types the widget listens for (the shim's `listen`, validated). */
   listens: string[];
+  /** The HTML's size as the server counts it: gzip at level 6 and UTF-8 bytes (widget-size.ts has the limits). */
+  size: WidgetSize;
+}
+
+/** Bytes after gzip at level 6 (the server's: PHP gzencode's default) and of the HTML as UTF-8. */
+export function widgetSize(html: string): WidgetSize {
+  const raw = Buffer.from(html, 'utf8');
+  return { gzip: gzipSync(raw, { level: 6 }).length, raw: raw.length };
 }
 
 /** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */
@@ -204,7 +214,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [] };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
   const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
   if (opts.storage !== undefined) {
     const preload = checkStorageCommit(opts.storage);
@@ -621,7 +631,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
   });
   if (json) {
     const { ops, renderOps, stream, anims, animOps, ...rest } = r;
-    console.log(JSON.stringify(rest, null, 1));
+    console.log(JSON.stringify({ ...rest, sizeCheck: sizeVerdict(r.size) }, null, 1));
     process.exit(0);
   }
   r.probes.forEach((p, i) => console.log(`probe[${i}] ${probes[i]} → ${p}`));
@@ -629,7 +639,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
   const opsFile = args.indexOf('--ops-file');
   if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'ops', ops: r.renderOps }]));
   const tags = r.renderOps.filter((o) => o.op === 'el').length;
-  console.log(`\nbatches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
+  const size = sizeVerdict(r.size);
+  console.log(sizeLine(r.size));
+  if (size.message) console.log(size.message);
+  console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
   console.log(`listens for: ${r.listens.length ? r.listens.join(', ') : '(no listeners)'}; click, load, error and toggle are always delivered`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);

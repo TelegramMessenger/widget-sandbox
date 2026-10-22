@@ -13,6 +13,7 @@ import { GESTURE_MODES, bubbleGestureLabel, bubbleGesturesOption, claimLabel, ge
 import type { FeedApi } from './feed';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
 import { DEFAULT_THEME_PARAMS, themeVariables, type StorageCommit, type WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { sizeVerdict, type WidgetSize } from '@telegram/widget-sandbox/shared/widget-size';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const el = {
@@ -44,9 +45,11 @@ export interface TwState {
   height: number;
   /** Last uncaught widget error, shown under the bubble until a later task completes without one. */
   lastError: string | null;
+  /** The HTML's size as the server counts it (gzip level 6, UTF-8 bytes; widget-size.ts): null until measured. */
+  size: WidgetSize | null;
 }
 
-const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null };
+const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null, size: null };
 /** The bubble's own presses (docs/sdk-v1.md §5.5): `?gestures=phone` (default), `desktop` or `off`. */
 let gestures: GestureMode = gestureMode(new URLSearchParams(location.search).get('gestures'));
 /** Bubble widths a client lays out (CSS px); 0 = the default column, -1 = free (drag the column's corner). */
@@ -118,9 +121,31 @@ function renderStatus() {
   el.widgetError.textContent = line;
   el.widgetError.classList.toggle('hidden', !line);
 }
+/** Bytes after gzip as the server counts them (CompressionStream: zlib's default level 6, a 10-byte header) and of the HTML. */
+async function measureSize(html: string): Promise<WidgetSize> {
+  const raw = new TextEncoder().encode(html);
+  const gz = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+  return { gzip: gz.byteLength, raw: raw.length };
+}
+
+/** The size row: green under 3800 B of gzip, a warning up to the 4096 B limit, an error past it or past 32 KB of HTML. */
+function sizeRow(size: WidgetSize): HTMLTableRowElement {
+  const v = sizeVerdict(size);
+  const tr = document.createElement('tr');
+  tr.className = 'size size-' + v.level;
+  const th = document.createElement('th'); th.textContent = 'size (server)';
+  const td = document.createElement('td');
+  td.textContent = `${size.gzip} B gzip / ${(size.raw / 1024).toFixed(1)} KB raw (limit 4096 / 32768)`;
+  if (v.message) { const d = document.createElement('div'); d.textContent = v.message; td.appendChild(d); }
+  tr.title = 'gzip at level 6, as the server counts it (docs/tgw-format.md); past either limit it answers INPUT_MEDIA_WIDGET_TOO_LARGE';
+  tr.append(th, td);
+  return tr;
+}
+
 function renderStats() {
   const s = state.stats;
-  if (!s) { el.stats.textContent = ''; return; }
+  const size = state.size ? [sizeRow(state.size)] : [];
+  if (!s) { el.stats.replaceChildren(...size); return; }
   const rows: [string, string][] = [
     ['JS time', `${s.jsMs.toFixed(0)} ms in ${s.tasks} tasks`],
     ['memory', `${(s.memoryBytes / 1024 / 1024).toFixed(1)} MB`],
@@ -131,7 +156,7 @@ function renderStats() {
     ['CPU quota', `${s.cpuWindowMs.toFixed(0)} ms used in the current window, ${s.throttledTasks} tasks deferred`],
     ['bubble height', `${state.height} px`],
   ];
-  el.stats.replaceChildren(...rows.map(([k, v]) => {
+  el.stats.replaceChildren(...size, ...rows.map(([k, v]) => {
     const tr = document.createElement('tr');
     const th = document.createElement('th'); th.textContent = k;
     const td = document.createElement('td'); td.textContent = v;
@@ -177,7 +202,8 @@ function renderConsole() {
 function load(html: string, name: string | null) {
   host?.destroy();
   host = null;
-  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null });
+  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null, size: null });
+  void measureSize(html).then((size) => { if (state.html === html) { state.size = size; coalesce(renderStats); } });
   tasksAtError = 0;
   el.title.textContent = name ?? 'dropped file';
   el.sandboxWrap.replaceChildren();
