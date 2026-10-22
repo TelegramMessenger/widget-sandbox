@@ -158,6 +158,26 @@ for (const shadow of [false, true]) {
   });
 }
 
+for (const shadow of [false, true]) {
+  test(`${shadow ? 'shadow' : 'iframe'}: touch-action on a container covers its children, as in CSS`, async ({ page }) => {
+    await page.goto(shadow ? '/?shadow=1' : '/');
+    await page.evaluate(() => (window as any).__tw.load(`<style>body{margin:0}#pad{touch-action:none;padding:10px 10px 10px 40px}#t{height:60px;background:#ddd}</style><div id="pad"><div id="t"></div></div><p id="log"></p><script>
+      var log = [];
+      ['pointerdown', 'pointerup', 'pointercancel', 'contextmenu'].forEach(function (t) { document.getElementById('t').addEventListener(t, function () { log.push(t); document.getElementById('log').textContent = log.join(' '); }); });
+      </script>`, null));
+    await page.waitForFunction(() => (window as any).__tw.state.loaded);
+    await page.waitForTimeout(200);
+    const root = shadow ? page.locator('#sandbox-wrap .widget-shadow') : page.frameLocator('#sandbox-wrap iframe').locator(':root');
+    // #t says nothing itself: its container's touch-action: none claims the hold.
+    await root.locator('#t').click();
+    await expect.poll(async () => (await claims(page)).length).toBe(1);
+    expect(await claims(page)).toEqual([{ x: true, y: true, hold: true }]);
+    await page.waitForTimeout(400);
+    await hold(page, await at(root, 't'));
+    await expect(root.locator('#log')).toHaveText('pointerdown pointerup pointerdown contextmenu pointerup');
+  });
+}
+
 for (const [mode, type] of [['phone', 'touch'], ['desktop', 'mouse']] as const) {
   test(`${mode}: the widget sees the press as pointerType ${type}, a hover move stays the mouse's`, async ({ page }) => {
     await page.goto(mode === 'phone' ? '/' : '/?gestures=desktop');
