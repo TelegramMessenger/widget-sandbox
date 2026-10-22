@@ -23,7 +23,7 @@
   }
  },
  "coverage": {
-  "auto": 245,
+  "auto": 246,
   "visual": 114,
   "catalogue": 255,
   "external": {
@@ -5832,7 +5832,7 @@
    "id": "auto/16-sdk-taps-b",
    "set": "auto",
    "file": "auto/16-sdk-taps-b.html",
-   "title": "Taps: details toggle, #fragment links, :active; double tap, context menu, keyboard and wheel stay out",
+   "title": "Taps: details toggle, #fragment links, :active; a double tap is the widget's (dblclick), the context menu stays out on touch-action: auto (auto/23 has none); keyboard and wheel stay out",
    "hint": "Tap “summary” and “frag”, press and hold “active”, then double-tap “dbl”, long-press or right-click “ctx”, tap “kbd” and press a key, scroll over “wheel”, tap Finish.",
    "kind": [
     "self",
@@ -5944,16 +5944,16 @@
     },
     {
      "id": "input.dblclick",
-     "name": "no dblclick reaches the widget (the double tap stays with the bubble)",
+     "name": "a double tap on touch-action: auto reaches the widget as dblclick (the reaction stays outside the widget)",
      "native": {
-      "chromium": "fail"
+      "chromium": "pass"
      }
     },
     {
      "id": "input.long-press",
-     "name": "no contextmenu event reaches the widget",
+     "name": "no contextmenu reaches the widget from touch-action: auto (the hold or right click is the message menu)",
      "native": {
-      "chromium": "fail"
+      "chromium": "skip"
      }
     },
     {
@@ -5972,9 +5972,9 @@
     }
    ],
    "stages": [],
-   "bytes": 7156,
-   "gzip": 3177,
-   "gzip6": 3179
+   "bytes": 7363,
+   "gzip": 3263,
+   "gzip6": 3264
   },
   {
    "id": "auto/16-sdk-taps-c",
@@ -6145,8 +6145,8 @@
    "id": "auto/17-drag-hover",
    "set": "auto",
    "file": "auto/17-drag-hover.html",
-   "title": "Drag (pointer events with capture), hover events and :hover (desktop pointers), pointer-events: none, touch events on touch clients, no text selection",
-   "hint": "Hover “hover”, drag the knob to the right end, drag it again past the track, tap the striped overlay, drag across the stage text, tap Finish.",
+   "title": "Drag (pointer events with capture), hover events and :hover (desktop), pointer-events: none, touch events on touch clients, no text selection",
+   "hint": "Hover “hover”, drag the knob to the right end and again past the track, tap the striped overlay, drag across the stage text (on touch: the chat's swipe), tap Finish.",
    "kind": [
     "self",
     "pixel",
@@ -6188,7 +6188,8 @@
      "by": true,
      "steps": 12,
      "ids": [
-      "input.drag"
+      "input.drag",
+      "behaviour.gesture-claim"
      ]
     },
     {
@@ -6246,14 +6247,14 @@
     },
     {
      "id": "input.drag",
-     "name": "setPointerCapture keeps moves coming past the element",
+     "name": "setPointerCapture keeps moves coming past the track",
      "native": {
       "chromium": "pass"
      }
     },
     {
      "id": "input.drag",
-     "name": "movementX adds up to the distance",
+     "name": "movementX sums to the distance",
      "native": {
       "chromium": "pass"
      }
@@ -6267,7 +6268,7 @@
     },
     {
      "id": "input.touch-events",
-     "name": "no touch events reach the widget on a touch client: pointer events only (profile 1: out)",
+     "name": "no touch events on a touch client, pointer events only",
      "native": {
       "chromium": "skip"
      }
@@ -6300,7 +6301,7 @@
      "nativeVsTemplate": 0
     }
    ],
-   "bytes": 8830,
+   "bytes": 8832,
    "gzip": 3797,
    "gzip6": 3798
   },
@@ -6979,6 +6980,134 @@
    "bytes": 8611,
    "gzip": 3766,
    "gzip6": 3768
+  },
+  {
+   "id": "auto/23-gestures",
+   "set": "auto",
+   "file": "auto/23-gestures.html",
+   "title": "Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); the leading 20 px take no claim",
+   "hint": "Hold “none” and “auto” for a second each, double-tap “none ×2” and “auto ×2”, drag the pad to the right from its red strip and then from its green mark, tap Finish.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "behaviour.gesture-claim",
+    "input.dblclick",
+    "input.long-press"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
+    {
+     "press": "none",
+     "ms": 700,
+     "ids": [
+      "input.long-press"
+     ]
+    },
+    {
+     "press": "auto",
+     "ms": 700,
+     "ids": [
+      "behaviour.gesture-claim"
+     ]
+    },
+    {
+     "dblclick": "nonedbl",
+     "ids": [
+      "input.dblclick"
+     ]
+    },
+    {
+     "dblclick": "autodbl",
+     "ids": [
+      "input.dblclick"
+     ]
+    },
+    {
+     "drag": "edge",
+     "to": [
+      120,
+      0
+     ],
+     "by": true,
+     "steps": 10,
+     "ids": [
+      "behaviour.gesture-claim"
+     ]
+    },
+    {
+     "drag": "mid",
+     "to": [
+      120,
+      0
+     ],
+     "by": true,
+     "steps": 10,
+     "ids": [
+      "behaviour.gesture-claim"
+     ]
+    },
+    {
+     "tap": "finish"
+    }
+   ],
+   "host": [],
+   "checks": [
+    {
+     "id": "input.long-press",
+     "name": "a hold on touch-action: none is the widget's: pointerdown … pointerup, no pointercancel, and contextmenu from a finger",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "behaviour.gesture-claim",
+     "name": "a hold on auto is the message menu: pointercancel, no pointerup (a mouse hold stays the widget's)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "input.dblclick",
+     "name": "a double tap on touch-action: none: both clicks, then dblclick",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "input.dblclick",
+     "name": "a double tap on auto is the widget's too: both clicks, then dblclick, no pointercancel",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "behaviour.gesture-claim",
+     "name": "a drag from the leading 20 px of a touch-action: none pad is the back gesture: pointercancel (a mouse drag stays the widget's)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "behaviour.gesture-claim",
+     "name": "the same drag from 60 px in is the widget's: moves, pointerup, no pointercancel",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 7763,
+   "gzip": 3183,
+   "gzip6": 3185
   },
   {
    "id": "visual/01-boxes",
@@ -8264,7 +8393,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7266
+     "nativeVsTemplate": 0.7173
     }
    ],
    "bytes": 5218,
@@ -9213,8 +9342,8 @@
    "id": "visual/sdk/12-drag-gestures",
    "set": "visual",
    "file": "visual/sdk/12-drag-gestures.html",
-   "title": "Drag inside the widget versus the bubble's gestures",
-   "hint": "Drag the knob left and right: no swipe-to-reply, the list does not scroll. Swipe left on the grey area: swipe-to-reply. Double tap: the reaction appears. Long press: the bubble menu. The counters stay 0.",
+   "title": "Who gets a press: double taps always, holds and drags by touch-action, and the edge strip",
+   "hint": "Blue (touch-action: none): drag the knob, hold “Hold me” (it counts the time); no swipe-to-reply, no menu, the counters move. Striped (auto): long press = the message menu, swipe = reply; “cancelled” counts each one. Double-tap anywhere in the widget: no reaction, the widget counts the double taps. Bottom pad: a drag from the red strip is the back gesture, from the rest it moves the green mark.",
    "kind": [],
    "covers": [
     "behaviour.gesture-claim",
@@ -9234,15 +9363,15 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 4276,
-   "gzip": 1966,
-   "gzip6": 1966,
+   "bytes": 6588,
+   "gzip": 2651,
+   "gzip6": 2659,
    "refImages": {
     "light": "refs/visual/sdk/12-drag-gestures.png"
    },
-   "height": 259,
+   "height": 434,
    "group": "sdk",
-   "expect": "The widget claims horizontal drags of the knob (touch-action: none, preventDefault); elsewhere the chat keeps swipe-to-reply and scrolling; double tap and long press stay with the bubble and never reach the widget.",
+   "expect": "A double tap over the widget is always the widget's: both clicks and dblclick, on every element, and the client's reaction stays on the bubble outside the widget. touch-action: none gives the widget drags on both axes and holds (it gets contextmenu, no message menu); on auto the bubble takes holds and swipes and the widget gets pointercancel; a press in the leading 20 px of the widget is never the widget's (system back). The client follows the shared gesture policy (gesture-policy.ts: 500 ms hold, 300 ms / 40 px double tap, 10 px slop, 20 px edge strip).",
    "contract": "docs/sdk-v1.md §3.5, §5.5"
   },
   {

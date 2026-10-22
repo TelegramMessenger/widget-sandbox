@@ -71,6 +71,8 @@ Build it as a test target or a debug mode in your client. For every entry of `ma
    | `{"wait": n}` | wait n ms |
 
    An action your platform cannot perform goes into `skippedActions` (its index); the checks it feeds are then reported as skipped, not failed.
+
+   Perform the actions through your **real bubble**, with its recognizers on: `auto/23-gestures` (and `auto/16-sdk-taps-b`, `auto/17-drag-hover`) check who gets each press, by the shared gesture policy (`docs/sdk-v1.md` §5.5): a `press` of 700 ms on a `touch-action: auto` element must reach the widget as `pointercancel` (your message menu took it), a `drag` from the widget's leading 20 px as well (back); on `touch-action: none` the widget must get the whole press and the renderer's own `contextmenu`; a `dblclick` must reach the widget whole on every element (both clicks and `dblclick`: your reaction never acts over the widget). A desktop client performs `press` and `drag` with the mouse, and those checks expect the widget to keep them. A runner that injects input below the bubble (straight into the renderer view) reports these checks as failures: that is the bubble the test is about.
 7. **Snapshot the widget** at 2× scale. Crop every stage in `manifest.tests[].stages` whose `themes` include this theme, at `rect` (`[x, y, w, h]` in CSS px from the widget's top-left). Each crop is a PNG of `2w × 2h` pixels. Save it next to the run file.
 8. **Record what the host saw:**
    - the bridge calls your host accepted after the gesture gate (`openLink` and the like, with their arguments);
@@ -163,7 +165,7 @@ Seventeen small widgets test what **your client** implements on its side of SDK 
 - haptics of each kind and the rate limit;
 - storage (re-creation, app restart, deletion with the message, the 16 KB quota);
 - stopping after 2 consecutive crashes;
-- drag versus swipe-to-reply, with double tap and long press staying with the bubble;
+- who gets a press (`12-drag-gestures`): double taps are always the widget's; drags and holds on `touch-action: none` are the widget's, on `auto` the bubble's (menu, swipe-to-reply); a drag from the leading 20 px is back;
 - the hard clip at the maximum height (600 px, the shared v0.1.0 value);
 - the theme palette with a live switch.
 

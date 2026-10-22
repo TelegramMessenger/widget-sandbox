@@ -319,11 +319,11 @@
    "widget": "visual/sdk/12-drag-gestures.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/sdk/12-drag-gestures · Drag inside the widget versus the bubble's gestures. Drag the knob left and right: no swipe-to-reply, the list does not scroll. Swipe left on the grey area: swipe-to-reply. Double tap: the reaction appears. Long press: the bubble menu. The counters stay 0. The client must: The widget claims horizontal drags of the knob (touch-action: none, preventDefault); elsewhere the chat keeps swipe-to-reply and scrolling; double tap and long press stay with the bubble and never reach the widget.",
+   "caption": "visual/sdk/12-drag-gestures · Who gets a press: double taps always, holds and drags by touch-action, and the edge strip. Blue (touch-action: none): drag the knob, hold “Hold me” (it counts the time); no swipe-to-reply, no menu, the counters move. Striped (auto): long press = the message menu, swipe = reply; “cancelled” counts each one. Double-tap anywhere in the widget: no reaction, the widget counts the double taps. Bottom pad: a drag from the red strip is the back gesture, from the rest it moves the green mark. The client must: A double tap over the widget is always the widget's: both clicks and dblclick, on every element, and the client's reaction stays on the bubble outside the widget. touch-action: none gives the widget drags on both axes and holds (it gets contextmenu, no message menu); on auto the bubble takes holds and swipes and the widget gets pointercancel; a press in the leading 20 px of the widget is never the widget's (system back). The client follows the shared gesture policy (gesture-policy.ts: 500 ms hold, 300 ms / 40 px double tap, 10 px slop, 20 px edge strip).",
    "photos": [
     "refs/visual/sdk/12-drag-gestures.png"
    ],
-   "gzip": 1966
+   "gzip": 2659
   },
   {
    "widget": "visual/sdk/13-max-height.html",
@@ -658,9 +658,9 @@
    "widget": "auto/16-sdk-taps-b.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/16-sdk-taps-b · Taps: details toggle, #fragment links, :active; double tap, context menu, keyboard and wheel stay out. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/16-sdk-taps-b · Taps: details toggle, #fragment links, :active; a double tap is the widget's (dblclick), the context menu stays out on touch-action: auto (auto/23 has none); keyboard and wheel stay out. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "gzip": 3179
+   "gzip": 3264
   },
   {
    "widget": "auto/16-sdk-taps-c.html",
@@ -674,7 +674,7 @@
    "widget": "auto/17-drag-hover.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/17-drag-hover · Drag (pointer events with capture), hover events and :hover (desktop pointers), pointer-events: none, touch events on touch clients, no text selection. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/17-drag-hover · Drag (pointer events with capture), hover events and :hover (desktop), pointer-events: none, touch events on touch clients, no text selection. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
    "gzip": 3798
   },
@@ -717,6 +717,14 @@
    "caption": "auto/22-ua-defaults · The UA layer: the root on the text tokens over the bubble, text defaults, author CSS wins. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
    "gzip": 3768
+  },
+  {
+   "widget": "auto/23-gestures.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/23-gestures · Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); the leading 20 px take no claim. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "gzip": 3185
   }
  ]
 }
