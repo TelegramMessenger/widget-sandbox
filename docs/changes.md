@@ -3,7 +3,110 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release
+## v0.1.2 — release notes (2026-10-22)
+
+Who gets a press: double taps over the widget are the widget's, and for holds and drags CSS
+`touch-action` is the claim, decided by one shared policy on every client and in the sandbox (`docs/decisions.md`, "Gestures: `touch-action` is the claim";
+`docs/sdk-v1.md` §5.5). Profile, SDK and protocol versions stay 1; a widget that worked on a
+client still works there, and a widget that only worked in the sandbox now fails there too.
+
+**The rule** (replaces "double tap and long press always stay with the bubble"):
+
+- Taps and double taps over the widget are always the widget's, on every element: a double
+  tap arrives as both clicks and then `dblclick`. The double-tap reaction stays on the bubble
+  outside the widget.
+- `touch-action: auto` (the default): the bubble wins: a hold opens the message menu, a
+  horizontal swipe is reply or back, a vertical one scrolls the list; the widget gets
+  `pointercancel` for the press the bubble takes.
+- `pan-y` / `pan-x`: drags on the other axis are the widget's; holds stay with the bubble.
+- `none`: everything over that element is the widget's: drags on both axes and holds (it
+  gets `contextmenu`). `touch-action` on a container covers its children, as in CSS.
+- The leading 20 px of the widget and the bubble outside it never take a claim. With a
+  mouse: a right click is the menu or `contextmenu` by the same claim; clicks, double clicks,
+  holds and drags are the widget's.
+- Rule of thumb for authors: a button you hold → `touch-action: none` on it; horizontal
+  sliders and carousels → `pan-y` (`docs/widget-runtime-profile.md`).
+
+**Framework**
+
+- The shared policy: `GestureArbiter`, `claimOf` and the thresholds (10 px slop, 500 ms
+  hold, 300 ms / 40 px double tap, 20 px edge strip) in `src/shared/gesture-policy.ts`,
+  `GesturePolicy.swift`, `GesturePolicy.kt` and `twidget/gesture_policy.h`, all four checked
+  against `packages/core/tests/fixtures/gesture-policy.json`; public on every host, so a
+  client drives its recognizers from it.
+- The renderer's claim message carries `hold` (only from `touch-action: none`):
+  `onGestureClaim` in Swift and on the web gets it; Kotlin and C++ get
+  `onGesture(WidgetGestureClaim)`, and their `onGestureClaim(x, y)` is a deprecated forward.
+  The Android WebView renderer keeps its parent out for `hold` too.
+- The renderer sends the widget its own `dblclick` (every double tap) and `contextmenu` (a
+  hold the widget claims), from the policy; the engine's own never reach it, so every WebView
+  and native renderer delivers them alike. `input.dblclick` is in the profile, and
+  `input.long-press` on `touch-action: none` (decision G1); `behaviour.gesture-claim`
+  reworded.
+- The web host can play the bubble itself: `WidgetHostOptions.bubbleGestures` (and
+  `setBubbleGestures`) has the renderer cancel the presses the bubble takes and report them
+  in `onBubbleGesture` (menu, swipe, scroll, back); `touch` arbitrates a mouse as
+  a finger (the widget sees `pointerType: 'touch'`). New protocol messages `arbitrate`
+  (host → renderer) and `bubble` (renderer → host), `docs/protocol.md`.
+
+**Tooling for authors and agents**
+
+- The dev app's bubble plays a phone client by default (`gestures`: phone, desktop, off;
+  `?gestures=`): a hold on `auto` gets `pointercancel`, a horizontal drag is swipe-to-reply,
+  with a label over the bubble and a Gestures panel; every Playwright suite runs on it.
+  The feed demo does the same. A bubble-width control: presets 200, 320, 360, 390, 430,
+  600 and a free width (`?width=`, `__tw.setWidth`).
+- The Node harness lays the widget out and presses it: `sandbox-node.ts widget.html
+  --width 360 --tap x,y --hold x,y[,ms] --double-tap x,y --swipe x,y,dx,dy --right-click x,y
+  [--desktop] [--json]` runs the renderer core in headless Chromium on the sandbox's ops
+  and reports per press the element, its claim, the policy's outcome, the events the
+  widget received and a hint ("the hold went to the message menu: set touch-action: none
+  on button#fire"); also the content height at that width.
+- Native demos: the iOS/macOS and Android `ChatBubble` drive recognizers from the policy
+  (the menu, swipe-to-reply, back as labels) and cancel the widget's touch.
+
+- **Size as the server counts it**: the harness prints `size: 2134 B gzip / 9.8 KB raw (limit
+  4096 / 32768)` (gzip at level 6, PHP `gzencode`'s default) with a warning above 3800 B and an
+  error past a limit (`INPUT_MEDIA_WIDGET_TOO_LARGE`); the dev app's stats panel shows the same
+  row in the warning and error colours (`src/shared/widget-size.ts`). Node's and Chromium's zlib
+  count up to a few dozen bytes more than GNU gzip on real widgets: the numbers err on the safe
+  side.
+- **The authors' guide** `docs/widget-runtime-profile.md` ("Writing widgets"), refreshed for
+  v0.1.1 and v0.1.2 as the document for widget authors and their models: mini-HTML limits and
+  how to measure them, the bubble (size rule, the bubble as the canvas, the UA defaults and text
+  tokens, opt-in text selection), the gesture rule and its rule of thumb, what works, the
+  `TelegramWidget` API in brief, limits, how to test, and a block for a model's system prompt
+  (`sandbox-node.ts --guide` prints it). Its out-of-profile list is generated from
+  `profile.json` by `profile-build.ts` and checked by `profile.test.ts`. Linked from the README
+  and `docs/tgw-format.md`; CONTRIBUTING.md asks a change visible to authors to update it.
+
+**Conformance**: `auto/23-gestures` (a hold on `none` is the widget's with `contextmenu`, a
+hold on `auto` ends with `pointercancel`, a double tap on `none` and on `auto` gets both
+clicks and `dblclick`, a drag from the leading 20 px is back, one from further in is the
+widget's); `visual/sdk/12-drag-gestures` rewritten for testers; `auto/16-sdk-taps-b`
+and `auto/17-drag-hover` updated. Runners perform the actions through the real bubble
+(`packages/conformance/CLIENTS.md`).
+
+**Tests**: `tests/gestures.spec.ts` (`pnpm test:gestures`, iframe and shadow),
+`packages/core/tests/unit/gesture-policy.test.ts` and `harness-gestures.test.ts`, the
+fixture on iOS, macOS, Android (JVM and instrumented) and the desktop core.
+
+**Known issues**
+
+- Native renderers behind the seam (Blitz, litehtml) report only `wants` and do not send
+  `dblclick` / `contextmenu`: holds and double taps reach them as plain pointer events.
+- The renderer and native hosts arbitrate left-to-right unless told otherwise
+  (`arbitrate` `rtl` on the web); a right-to-left client must mirror x for its own
+  recognizers.
+- Android's `GestureWebView` keeps a `none` element's vertical drag that starts in the
+  leading edge strip (the policy gives it to the list); the client's own arbiter decides.
+- iOS (WKWebView): `cancelsTouchesInView` does not cancel WebKit's touch; the demo toggles the
+  web view's own recognizers once to get `pointercancel` (`docs/sdk-v1.md` §5.5). A hold on
+  `none` shows WebKit's lift preview over the element while the widget gets its `contextmenu`;
+  `RendererWebView` does not suppress it yet. On macOS the demo only labels the menu: the mouse
+  press is the web view's before the claim arrives.
+
+**Also in this release**
 
 - **Intl on Windows**: `IcuIntl` answers all 166 cases of `intl-cases.json` as V8 does (`icu_intl_matches_v8`):
   `currencyDisplay`, `signDisplay`, significant digits, rounding half away from zero, the locale's minimum

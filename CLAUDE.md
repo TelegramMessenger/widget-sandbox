@@ -22,8 +22,9 @@ pnpm workspace). A framework change touches `packages/` only.
   `./vite` = the Vite plugin that builds the bundles, `./node` = the harness).
   `profile.json` is the widget profile (profile 1, frozen 2026-10-17): the single
   source of what the validator, the shim and the renderer enforce;
-  `scripts/profile-build.ts` generates `src/shared/profile-tables.ts` and
-  `docs/profile-v1.md` from it (never edit those two by hand). Its
+  `scripts/profile-build.ts` generates `src/shared/profile-tables.ts`,
+  `docs/profile-v1.md` and the out list of the authors' guide
+  `docs/widget-runtime-profile.md` from it (never edit those by hand). Its
   `tables.uaStylesheet` is the renderer's UA layer (the root and text defaults on
   `--tg-theme-*` / `--tg-text-*`, the client-styled `<button>`, since v0.1.1);
   `src/shared/reference.ts` adds the reference theme to it for every reference rendering.
@@ -35,7 +36,7 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
   framework tag: `catalogue.json` (255 profile features, statuses synced from `profile.json`), `auto/`
-  (39 self-checking widgets), `visual/` (20 widgets for people + `visual/sdk`, 17 client-SDK cases),
+  (40 self-checking widgets), `visual/` (20 widgets for people + `visual/sdk`, 17 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B of gzip) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
@@ -125,6 +126,12 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
 ## Working rules
 
 - `CONTRIBUTING.md` is the checklist for a commit to `main`: what must change with it, the tests, the notes.
+- Gestures: who gets a press is `packages/core/src/shared/gesture-policy.ts` (four copies:
+  `GesturePolicy.swift`, `GesturePolicy.kt`, `gesture_policy.cpp`, checked against
+  `packages/core/tests/fixtures/gesture-policy.json`; change all four and the fixture together).
+  Double taps over the widget are always the widget's; `touch-action: auto` leaves holds and swipes to
+  the bubble, `none` gives the widget everything; the renderer core sends `dblclick` / `contextmenu` itself and, with `arbitrate`
+  (the web's `bubbleGestures`, the dev app and the feed by default), plays the bubble.
 - Fix the shim generally (`packages/core/src/sandbox/*`), never per widget. The attack suite
   must stay green; a compat/generated regression is a shim bug until proven
   otherwise.
@@ -165,6 +172,7 @@ corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "
 corepack pnpm test:unit
 corepack pnpm test:attacks            # 99 files, canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
+corepack pnpm test:gestures           # who gets a press (docs/sdk-v1.md §5.5, gesture-policy.ts): the dev app's bubble in phone mode cancels a hold / swipe on touch-action: auto, none gets contextmenu, a double tap is always the widget's (dblclick), the leading 20 px, desktop and off modes, the width control and the size row; iframe + shadow
 corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md): theme variables on the renderer root, the UA layer's root and text defaults on the text tokens, gesture claims, storage across a restart, locale, link and haptic actions; iframe + shadow
 corepack pnpm test:compat             # → docs/compat-report.md
 corepack pnpm test:generated          # → docs/compat-report-generated.md
@@ -182,25 +190,27 @@ corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetS
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 50 tests; 99 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 53 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
+cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 51 tests; 99 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 54 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
 TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile --blitz --dpr 2 --png-dir /tmp/gen-cg   # Blitz laid out by Rust, painted by CoreGraphics/CoreText (apps/renderer-blitz/src/cg.rs, Apple only; twb_set_backend in the C ABI); three-way gallery: corepack pnpm tsx scripts/blitz-experiment/gallery-native.mts reports/blitz-experiment/native/generated vello=DIR:TABLE cg=DIR:TABLE litehtml=DIR:TABLE --strips 20; on the simulator: SIMCTL_CHILD_TWB_BACKEND=cg xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz (iOS emoji paint only on this backend); Android twin: apps/renderer-blitz/src/dl.rs records the scene as a display list, CanvasScene.kt replays it with Canvas.drawGlyphs — `--es renderer blitz_canvas` in the demo (Blitz·Canvas in the picker)
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 56 tests with both; the same flags as --blitz
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 57 tests with both; the same flags as --blitz
 corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscripten) → apps/renderer-litehtml/pkg-web; the dev UI's litehtml toggle / ?litehtml=1, TW_RENDERER=litehtml pnpm test:generated, apps/web/tests/unit/litehtml-wasm.test.ts
 # dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
-corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
+corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md + the out list in docs/widget-runtime-profile.md (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
 corepack pnpm tsx packages/core/scripts/intl-cases.ts   # after adding an Intl case (or an ICU update of Node): rewrites packages/core/tests/fixtures/intl-cases.json with V8's answers (--check: exit 1 when stale; intl-cases.test.ts runs it); then pnpm build:ios|android|desktop copy it to the native tests
 corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance
 corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
 corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage behind the historical draft docs/widget-profile-draft.md and widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
 cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:connectedDebugAndroidTest   # needs a booted emulator (AVD twidget-35)
-corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose
+corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose   # also prints the widget's size as the server counts it (gzip -6 / raw, limits 4096 / 32768, src/shared/widget-size.ts) with a warning or an error line
+corepack pnpm tsx packages/core/scripts/sandbox-node.ts --guide   # the agent block of the authors' guide (docs/widget-runtime-profile.md, the document for widget authors and their models; its out list is generated by profile-build.ts)
+corepack pnpm tsx packages/core/scripts/sandbox-node.ts widget.html --width 360 --hold 120,40 --double-tap 120,40 --swipe 60,80,120,0 --tap x,y --right-click x,y [--desktop] [--json]   # the real renderer core in headless Chromium at that bubble width (content height) and the presses on a phone's bubble: per press the element, its touch-action claim, the policy's outcome, the events the widget received, a hint
 scripts/android-bench.sh webview|blitz|litehtml|none 20 [prewarm]   # renderer start-up/memory bench in the Android demo (needs installDebug + emulator); POOLS=1 = validator pool; python3 -I scripts/android-bench-print.py --table <names>; docs/android-renderer-bench.md
-xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # 229 tests (the test scheme SwiftPM generates); corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # 234 tests (the test scheme SwiftPM generates); corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
 cd apps/ios/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemo -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' CODE_SIGNING_ALLOWED=NO -derivedDataPath /tmp/twidget-sim && xcrun simctl install booted /tmp/twidget-sim/Build/Products/Debug-iphonesimulator/TwidgetDemo.app && xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz   # demo on the Blitz renderer (--litehtml: litehtml); the pre-build phases run apps/renderer-blitz/build-apple.sh (rustup cargo) and apps/renderer-litehtml/build-apple.sh (cmake + ninja)
 cd apps/renderer-litehtml && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-litehtml-tests && ./build/twidget-litehtml-run msgs.json out.png --width 360 --dpr 2   # litehtml core on the host: 7 tests; msgs.json (the theme message, then the ops) from `pnpm tsx packages/core/scripts/sandbox-node.ts <widget> --ops-file msgs.json [--dark] [--font-size 17]`
 xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --autorun feed --feed max --feed-count 40 --feed-scroll step   # chat feed (iOS only): scripted scroll, feed-report.json in the app container; `--feed baseline`, `--feed-set pools=false,…`; build with -configuration Release for numbers (docs/chat-feed-ios.md); the feed has the web feed's bar: renderer WebView | Blitz | litehtml switched live, pool on/off, hostile bubble, corpus, count, reset, ▶ scroll (`--feed-set renderer=blitz,hostile=cpu-raf-burn,corpus=showcase`)
-xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # 228 tests; the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # 233 tests; the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
 cd apps/macos/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemoMac -destination 'platform=macOS' -derivedDataPath /tmp/twidget-mac && /tmp/twidget-mac/Build/Products/Debug/TwidgetDemoMac.app/Contents/MacOS/TwidgetDemoMac --autorun attacks   # also generated|compat|pause; --features binaryOps,canvasWords runs the attacks through the Swift native node model (NativeValidator), which Playwright never exercises; reports in ~/Library/Application Support/org.telegram.widgetsandbox.TwidgetDemoMac
 ```
 
@@ -298,6 +308,21 @@ rules and fuller Intl options on Apple; the ECMA-402 date defaults moved into th
 (`installIntl` in `globals.ts`) for every host; Intl parity on Swift, Kotlin and the C++
 `BasicIntl`, all checked against V8's answers in `packages/core/tests/fixtures/intl-cases.json`
 (what stays approximate per platform: `docs/changes.md`, v0.1.1).
+2026-10-22: v0.1.2 (`docs/changes.md`, `docs/decisions.md` "Gestures: `touch-action` is the
+claim"): who gets a press is decided by one shared policy (`gesture-policy.ts` and its Swift,
+Kotlin and C++ twins on `tests/fixtures/gesture-policy.json`; 10 px slop, 500 ms hold, 300 ms /
+40 px double tap, 20 px leading edge strip): double taps over the widget are always the widget's
+(`dblclick` on every element; the reaction stays outside the widget); holds and drags by CSS
+`touch-action` per element: `auto` leaves holds (menu) and swipes to the bubble and the widget
+gets `pointercancel`; `pan-y` / `pan-x` give it the other axis; `none` gives it everything, with
+the renderer's own `contextmenu` (`input.dblclick` in, `input.long-press` in on `none`, decision
+G1); a container's touch-action covers its children, as in CSS. The claim gains `hold` (Kotlin and
+C++: `onGesture`); the web
+renderer can play the bubble (`bubbleGestures`, `arbitrate` / `bubble` messages), which the dev
+app (`gestures` select: phone | desktop | off, a bubble-width control) and the feed use by
+default; the Node harness got `--width` and simulated presses (`gesture-run.ts`, headless
+Chromium); the demo bubbles on iOS/macOS and Android follow the policy; conformance
+`auto/23-gestures`, `visual/sdk/12-drag-gestures` rewritten.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
