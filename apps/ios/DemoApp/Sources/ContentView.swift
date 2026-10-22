@@ -1,5 +1,8 @@
 import SwiftUI
 import WidgetSandbox
+#if os(iOS)
+import UIKit.UIGestureRecognizerSubclass
+#endif
 
 struct ContentView: View {
     var body: some View {
@@ -241,9 +244,16 @@ struct ChatBubble: View {
     var viewport: CGSize = .zero
     /// Called when the bubble enters or leaves the screen (the owner's side of the off-screen pause).
     var onScreenChange: (Bool) -> Void = { _ in }
+    @StateObject private var gestures = BubbleGestures()
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(DemoRenderer.label).font(.caption2).foregroundStyle(.secondary).padding(.leading, 8)
+            HStack {
+                Text(DemoRenderer.label).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                // What the bubble did with a press it took (there is no real menu or reply in the demo).
+                if let toast = gestures.toast { Text("bubble: \(toast)").font(.caption2.bold()).foregroundStyle(.blue) }
+            }
+            .padding(.horizontal, 8)
             // The bubble is the widget's canvas, as on a client: no padding of its own (the widget's body margin is the
             // inset), the colour DemoTheme passes as bg_color, the radius clips what the widget paints.
             WidgetView(host: model.host)
@@ -251,6 +261,7 @@ struct ChatBubble: View {
                 .background(DemoColor.bubble)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .onScreen(viewport: viewport, onScreenChange)
+                .onAppear { gestures.attach(to: model.host) }
             // What a product shows under the bubble: the widget stays on screen (frozen) with a one-line reason.
             if let dead = model.diagnostics.dead {
                 Text("Widget stopped: \(dead.split(separator: "\n").first.map(String.init) ?? dead)").font(.caption2).foregroundStyle(.red).lineLimit(1).padding(.leading, 8)
@@ -260,6 +271,272 @@ struct ChatBubble: View {
         }
     }
 }
+
+// MARK: the bubble's gestures (docs/sdk-v1.md §5.5)
+
+/// The demo bubble's own recognizers over the widget, as a client has them: every press goes to a GestureArbiter
+/// with the claim the renderer reports for it (`onGestureClaim`, a few ms after the touch began: the press waits for
+/// it up to 150 ms, then counts as claiming nothing). A press the bubble takes is taken from the WebView (the
+/// widget gets pointercancel) and named in the caption; vertical drags stay the list's own scrolling.
+final class BubbleGestures: ObservableObject {
+    /// What the bubble did with the last press it took, for a moment.
+    @Published private(set) var toast: String?
+    /// The platform recognizer's side: take the open press from the renderer view; the press is over.
+    fileprivate var take: () -> Void = {}
+    fileprivate var release: () -> Void = {}
+
+    private enum Step {
+        case down(Double, Double, Double, GesturePolicy.PointerKind, Int)
+        case move(Double, Double, Double)
+        case up(Double, Double, Double)
+    }
+
+    private var arbiter = GestureArbiter()
+    private weak var host: WidgetHost?
+    private var claim: WidgetGestureClaim?
+    /// The press's down and what followed it while its claim is on the way; nil once they went to the arbiter.
+    private var waiting: [Step]?
+    private var claimTimeout: DispatchWorkItem?
+    private var holdTimer: DispatchWorkItem?
+    private var toastTimer: DispatchWorkItem?
+
+    func attach(to host: WidgetHost) {
+        guard self.host !== host else { return }
+        self.host = host
+        host.onGestureClaim = { [weak self] in self?.claimed($0) }
+        #if os(iOS)
+        host.view.addGestureRecognizer(BubbleTouchRecognizer(bubble: self))
+        #else
+        host.view.addGestureRecognizer(BubbleMouseRecognizer(bubble: self))
+        #endif
+    }
+
+    /// x from the widget's leading edge, y from its top, points; t in ms since boot (UITouch / NSEvent timestamps).
+    fileprivate func began(at t: Double, x: Double, y: Double, pointer: GesturePolicy.PointerKind, button: Int = 0) {
+        claim = nil
+        waiting = [.down(t, x, y, pointer, button)]
+        let timeout = DispatchWorkItem { [weak self] in self?.feedWaiting() }
+        claimTimeout?.cancel()
+        claimTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: timeout)
+    }
+
+    fileprivate func moved(at t: Double, x: Double, y: Double) { step(.move(t, x, y)) }
+    fileprivate func ended(at t: Double, x: Double, y: Double) { step(.up(t, x, y)) }
+
+    /// The platform ended the press (another recognizer, the system): no double tap continues it.
+    fileprivate func cancelled() {
+        claimTimeout?.cancel()
+        holdTimer?.cancel()
+        waiting = nil
+        arbiter.cancel()
+    }
+
+    private func claimed(_ claim: WidgetGestureClaim) {
+        // Only the first claim after a press began is its own.
+        guard waiting != nil, self.claim == nil else { return }
+        self.claim = claim
+        feedWaiting()
+    }
+
+    private func step(_ step: Step) {
+        if waiting != nil { waiting?.append(step) } else { feed(step) }
+    }
+
+    private func feedWaiting() {
+        claimTimeout?.cancel()
+        guard let steps = waiting else { return }
+        waiting = nil
+        steps.forEach(feed)
+    }
+
+    private func feed(_ step: Step) {
+        let verdict: GestureVerdict?
+        switch step {
+        case let .down(t, x, y, pointer, button): verdict = arbiter.down(at: t, x: x, y: y, claim: claim ?? GesturePolicy.noClaim, pointer: pointer, button: button)
+        case let .move(t, x, y): verdict = arbiter.move(at: t, x: x, y: y)
+        case let .up(t, x, y): verdict = arbiter.up(at: t, x: x, y: y)
+        }
+        if let verdict { act(verdict) }
+        if case .up = step { release() }
+        scheduleHold()
+    }
+
+    private func scheduleHold() {
+        holdTimer?.cancel()
+        guard let at = arbiter.holdDeadline() else { return }
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self, let verdict = self.arbiter.tick(at: max(ProcessInfo.processInfo.systemUptime * 1000, at)) else { return }
+            self.act(verdict)
+        }
+        holdTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, at - ProcessInfo.processInfo.systemUptime * 1000) / 1000, execute: timer)
+    }
+
+    private func act(_ verdict: GestureVerdict) {
+        guard verdict.cancel, let action = verdict.action else { return }
+        take()
+        switch action {
+        case .menu: show("message menu")
+        case .swipe: show("swipe → reply")
+        case .back: show("back")
+        case .scroll: break
+        }
+    }
+
+    private func show(_ text: String) {
+        toast = text
+        toastTimer?.cancel()
+        let timer = DispatchWorkItem { [weak self] in self?.toast = nil }
+        toastTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+    }
+}
+
+#if os(iOS)
+/// Feeds BubbleGestures the first touch over the widget. It never blocks the list or WebKit (it recognizes
+/// simultaneously with every other recognizer); when the bubble takes the press it begins (or, at the touch's end,
+/// recognizes) and ends the touch for the WebView.
+private final class BubbleTouchRecognizer: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private let bubble: BubbleGestures
+    private var touch: UITouch?
+    private var touchEnded = false
+    private var pressOpen = false
+
+    init(bubble: BubbleGestures) {
+        self.bubble = bubble
+        super.init(target: nil, action: nil)
+        delegate = self
+        bubble.take = { [weak self] in self?.take() }
+        bubble.release = { [weak self] in self?.release() }
+    }
+
+    private func point(_ touch: UITouch) -> (t: Double, x: Double, y: Double) {
+        let p = touch.location(in: view)
+        let rtl = view?.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        return (touch.timestamp * 1000, rtl ? Double((view?.bounds.width ?? 0) - p.x) : Double(p.x), Double(p.y))
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        for t in touches where touch != nil || t !== touches.first { ignore(t, for: event) }
+        guard touch == nil, let t = touches.first else { return }
+        touch = t
+        touchEnded = false
+        pressOpen = true
+        let p = point(t)
+        let pointer: GesturePolicy.PointerKind = t.type == .pencil ? .pen : t.type == .indirectPointer ? .mouse : .touch
+        bubble.began(at: p.t, x: p.x, y: p.y, pointer: pointer, button: event.buttonMask.contains(.secondary) ? 2 : 0)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let t = touch, touches.contains(t) else { return }
+        let p = point(t)
+        bubble.moved(at: p.t, x: p.x, y: p.y)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let t = touch, touches.contains(t) else { return }
+        touchEnded = true
+        let p = point(t)
+        bubble.ended(at: p.t, x: p.x, y: p.y)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let t = touch, touches.contains(t) else { return }
+        pressOpen = false
+        bubble.cancelled()
+        state = state == .possible ? .failed : .cancelled
+    }
+
+    override func reset() {
+        super.reset()
+        if pressOpen { bubble.cancelled() }
+        touch = nil
+        pressOpen = false
+    }
+
+    private func take() {
+        if state == .possible { state = touchEnded ? .ended : .began }
+        // WKWebView reads touches through recognizers of its own, which no other recognizer can prevent:
+        // `cancelsTouchesInView` alone leaves the page its pointerup and click (iOS 26.5 simulator). Switching them
+        // off and on cancels them, and WebKit sends the page pointercancel for the touch.
+        var views = view?.subviews ?? []
+        while let v = views.popLast() {
+            views += v.subviews
+            for g in v.gestureRecognizers ?? [] where g.isEnabled {
+                g.isEnabled = false
+                g.isEnabled = true
+            }
+        }
+    }
+
+    private func release() {
+        pressOpen = false
+        switch state {
+        case .possible: state = .failed
+        case .began, .changed: state = .ended
+        default: break
+        }
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+}
+#else
+/// Feeds BubbleGestures the mouse presses over the widget (a right click; a double click is always the widget's). The
+/// WebView has the press before the renderer can say what the widget claims, so the bubble cannot take it back here:
+/// it only names what it does (the menu), and the widget sees that press's own pointer events.
+private final class BubbleMouseRecognizer: NSGestureRecognizer {
+    private let bubble: BubbleGestures
+    private var pressOpen = false
+
+    init(bubble: BubbleGestures) {
+        self.bubble = bubble
+        super.init(target: nil, action: nil)
+        delaysPrimaryMouseButtonEvents = false
+        delaysSecondaryMouseButtonEvents = false
+        bubble.release = { [weak self] in
+            self?.pressOpen = false
+            self?.state = .failed
+        }
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    private func point(_ event: NSEvent) -> (t: Double, x: Double, y: Double) {
+        guard let view else { return (event.timestamp * 1000, 0, 0) }
+        let p = view.convert(event.locationInWindow, from: nil)
+        let x = view.userInterfaceLayoutDirection == .rightToLeft ? view.bounds.width - p.x : p.x
+        return (event.timestamp * 1000, Double(x), Double(view.isFlipped ? p.y : view.bounds.height - p.y))
+    }
+
+    private func down(_ event: NSEvent, button: Int) {
+        pressOpen = true
+        let p = point(event)
+        bubble.began(at: p.t, x: p.x, y: p.y, pointer: .mouse, button: button)
+    }
+
+    private func up(_ event: NSEvent) {
+        guard pressOpen else { return }
+        let p = point(event)
+        bubble.ended(at: p.t, x: p.x, y: p.y)
+    }
+
+    override func mouseDown(with event: NSEvent) { down(event, button: 0) }
+    override func rightMouseDown(with event: NSEvent) { down(event, button: 2) }
+    override func mouseDragged(with event: NSEvent) {
+        let p = point(event)
+        bubble.moved(at: p.t, x: p.x, y: p.y)
+    }
+    override func mouseUp(with event: NSEvent) { up(event) }
+    override func rightMouseUp(with event: NSEvent) { up(event) }
+
+    override func reset() {
+        super.reset()
+        if pressOpen { bubble.cancelled() }
+        pressOpen = false
+    }
+}
+#endif
 
 /// Reports whether a view's frame intersects the visible part of the enclosing
 /// ScrollView (coordinate space "scroll", `viewport` = the scroll view's size);

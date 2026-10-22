@@ -2,6 +2,7 @@ package org.telegram.widgetsandbox.demo
 
 import android.content.Context
 import android.view.HapticFeedbackConstants
+import android.view.View
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.lifecycle.Lifecycle
@@ -35,6 +37,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.delay
 import org.telegram.widgetsandbox.WidgetAction
 import org.telegram.widgetsandbox.WidgetDiagnostics
 import org.telegram.widgetsandbox.WidgetHost
@@ -85,9 +88,16 @@ class WidgetModel(context: Context, html: String, theme: WidgetTheme, widthDp: D
     val host = WidgetHost(context, html, theme, widthDp, options, rendererFactory = rendererFactory ?: renderer.factory)
     var diagnostics by mutableStateOf(WidgetDiagnostics())
         private set
+    /** What the bubble did with the last press it took (BubbleGestureLayout); ChatBubble shows it for a moment. */
+    var bubbleNote by mutableStateOf<BubbleNote?>(null)
+    private val bubbleLayout = lazy { BubbleGestureLayout(context, host.view) { bubbleNote = BubbleNote(BubbleGestureLayout.label(it)) } }
+    /** host.view inside the bubble's recognizers: what ChatBubble shows. */
+    val bubbleView: View by bubbleLayout
 
     init {
         host.onChange = { diagnostics = it }
+        // The claim of each press, for the bubble's recognizers (a client's own over the widget, docs/sdk-v1.md §5.5).
+        host.onGesture = { claim -> if (bubbleLayout.isInitialized()) bubbleLayout.value.claim(claim) }
         // What a client does with the actions (docs/sdk-v1.md §5.2, §5.3), reduced to dev tooling:
         // haptics play, links are shown and not opened (the panel lists every action).
         host.onAction = { action ->
@@ -132,14 +142,17 @@ fun RendererPicker(selected: DemoRenderer, onSelect: (DemoRenderer) -> Unit) {
     }
 }
 
-/** The widget at chat-bubble width; its height follows the renderer's size reports. */
+/** One note per press the bubble took (a new instance each time: ChatBubble's timer restarts). */
+class BubbleNote(val text: String)
+
+/** The widget at chat-bubble width; its height follows the renderer's size reports. `bubble`: inside the bubble's recognizers (ChatBubble). */
 @Composable
-fun WidgetView(model: WidgetModel, widthDp: Int = 360) {
+fun WidgetView(model: WidgetModel, widthDp: Int = 360, bubble: Boolean = false) {
     // key: a new model (Restart) must get a new AndroidView, or the factory is never re-run and the
     // destroyed host's view stays on screen.
     key(model) {
         AndroidView(
-            factory = { model.host.view },
+            factory = { if (bubble) model.bubbleView else model.host.view },
             modifier = Modifier.width(widthDp.dp).height(maxOf(model.diagnostics.height, 24.0).dp)
                 // boundsInWindow is clipped by the scrolling parents: empty means scrolled out of view.
                 .onGloballyPositioned { val b = it.boundsInWindow(); model.setOnScreen(b.width > 0f && b.height > 0f) },
@@ -168,11 +181,19 @@ fun ChatBubble(model: WidgetModel) {
             // The bubble is the widget's canvas, as on a client: no padding of its own (the widget's body margin is the inset),
             // the colour demoTheme passes as bg_color, the radius clips what the widget paints.
             modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface),
-        ) { WidgetView(model) }
+        ) { WidgetView(model, bubble = true) }
         // What a product shows under the bubble: the widget stays on screen (frozen) with a one-line reason.
         val d = model.diagnostics
         val line = d.dead?.let { "Widget stopped: " + it.lineSequence().first() } ?: d.lastError?.lineSequence()?.first()
         if (line != null) Text(line, fontSize = 10.sp, color = Color.Red, maxLines = 1, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
+        // In place of the menu or the reply a client would show: what the bubble took the press for.
+        model.bubbleNote?.let { note ->
+            Text("bubble: ${note.text}", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
+            LaunchedEffect(note) {
+                delay(1500)
+                if (model.bubbleNote === note) model.bubbleNote = null
+            }
+        }
     }
 }
 
