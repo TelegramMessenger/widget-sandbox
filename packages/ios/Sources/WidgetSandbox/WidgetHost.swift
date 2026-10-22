@@ -104,7 +104,8 @@ public final class WidgetHost: SandboxEngineDelegate {
     public var onAction: ((WidgetAction) -> Void)?
     /// The new full content of a Web Storage area, at the end of each task that changed it; `local` first (docs/sdk-v1.md §5.4). Main thread.
     public var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?
-    /// On every primary pointerdown: which drags of this touch the widget takes (docs/sdk-v1.md §5.5). Main thread.
+    /// On every primary pointerdown: what of this press the widget claims, drags, holds and double taps (docs/sdk-v1.md §5.5);
+    /// the client's recognizers decide with it (GestureArbiter). Main thread, a few ms after the touch began.
     public var onGestureClaim: ((WidgetGestureClaim) -> Void)?
     /// The raw method and arguments JSON of each call `onAction` gets.
     @available(*, deprecated, message: "use onAction (SDK v1)")
@@ -669,7 +670,10 @@ public final class WidgetHost: SandboxEngineDelegate {
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
             engine.theme(scheme, params: theme.params)
         case "gesture":
-            let claim = WidgetGestureClaim(x: Self.isTrue(msg["x"]), y: Self.isTrue(msg["y"]))
+            // The renderer core sends x, y and hold (`wants` is y); a renderer that sends only `wants`
+            // (the Blitz and litehtml prototypes) claims vertical drags with it and nothing else.
+            let y = msg["y"] == nil ? Self.isTrue(msg["wants"]) : Self.isTrue(msg["y"])
+            let claim = WidgetGestureClaim(x: Self.isTrue(msg["x"]), y: y, hold: Self.isTrue(msg["hold"]))
             onMain { self.onGestureClaim?(claim) }
         case "violation":
             diag("renderer-violation", msg["detail"] as? String ?? "")

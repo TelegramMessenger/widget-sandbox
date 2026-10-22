@@ -159,7 +159,15 @@ class WidgetHost(
     var onAction: ((WidgetAction) -> Unit)? = null
     /** The new full content of a Web Storage area ("local" | "session") at the end of each task that changed it, in order (docs/sdk-v1.md §5.4). */
     var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)? = null
-    /** On every primary pointerdown: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch (docs/sdk-v1.md §5.5). The WebView renderer already keeps its parent from intercepting when `y`. */
+    /**
+     * On every primary pointerdown: what of this press the widget claims with CSS `touch-action` (docs/sdk-v1.md §5.5,
+     * GesturePolicy.kt): horizontal (`x`) and vertical (`y`) drags and holds (`hold`: no message menu); taps and double
+     * taps are always the widget's. A client's recognizers feed it to a GestureArbiter with the press; it comes a few ms
+     * after the touch starts. The WebView renderer already keeps its parent from intercepting when `y` or `hold`.
+     */
+    var onGesture: ((WidgetGestureClaim) -> Unit)? = null
+    /** The claim's drags, right after `onGesture`. */
+    @Deprecated("Since v0.1.2: onGesture, whose claim also carries hold")
     var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)? = null
     /** The raw method and arguments JSON of each call `onAction` gets, right after it. */
     @Deprecated("Since SDK v1: onAction")
@@ -429,10 +437,13 @@ class WidgetHost(
                 if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
             }
             "gesture" -> {
-                // `wants` is `y`; a renderer that sends only `wants` (the native prototypes) claims no horizontal drags.
+                // `wants` is `y`; a renderer that sends only `wants` (the native prototypes) claims no horizontal drags, holds or double taps.
                 val wants = msg.optBoolean("wants", false)
-                renderer.gestureDecision(wants)
-                onGestureClaim?.invoke(msg.optBoolean("x", false), msg.optBoolean("y", wants))
+                val claim = WidgetGestureClaim(msg.optBoolean("x", false), msg.optBoolean("y", wants), msg.optBoolean("hold", false))
+                renderer.gestureDecision(claim)
+                onGesture?.invoke(claim)
+                @Suppress("DEPRECATION")
+                onGestureClaim?.invoke(claim.x, claim.y)
             }
             "result" -> {
                 val id = msg.optInt("qid", -1)

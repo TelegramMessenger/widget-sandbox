@@ -49,6 +49,12 @@ android {
     packaging {
         jniLibs.useLegacyPackaging = false
     }
+
+    // Fixture tests written once for both runs: the JVM unit tests (src/test) and the instrumented ones (src/androidTest).
+    sourceSets {
+        getByName("test").java.srcDir("src/sharedTest/java")
+        getByName("androidTest").java.srcDir("src/sharedTest/java")
+    }
 }
 
 kotlin {
@@ -63,6 +69,7 @@ dependencies {
     implementation(libs.androidx.webkit)
 
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
 
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)

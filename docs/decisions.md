@@ -1224,8 +1224,10 @@ when profile 2 can add them. Freeze now, with these defaults.
   now with the SVG attributes and the replaced elements apart), the shim
   (`TelegramWidget.profile` and `isProfileAtLeast`, `CSS.supports` from the
   same evaluator as `@supports`, out-of-profile element methods and canvas
-  read-back are local no-ops) and the renderer (no key, focus, `dblclick`,
-  context-menu, touch, wheel or scroll events; the user-agent stylesheet).
+  read-back are local no-ops) and the renderer (no key, focus, touch, wheel
+  or scroll events; `dblclick` and `contextmenu` only the renderer's own since
+  v0.1.2: `dblclick` for every double tap, `contextmenu` on `touch-action:
+  none`, "Gestures" below; the user-agent stylesheet).
   A removal the profile causes is the `profile` diagnostic; `css-dropped`,
   `url-blocked` and `tag-dropped` stay the security ones.
 - **The Shadow DOM gaps resolved by the profile**: the top layer (`<dialog>`
@@ -1427,9 +1429,10 @@ and a widget that is a drawing stays one.
   when it lands on selectable text, so a drag selects there; anywhere else it
   is still cancelled (no selection, no focus move, the chat input keeps the
   focus), and `selectstart` likewise. Copy is the browser's.
-- **Touch**: long press and double tap stay with the bubble (decided earlier),
-  so a selection inside a widget starts the way the client selects text in an
-  ordinary message, and copy is the client's: client work
+- **Touch**: a long press over ordinary text (`touch-action: auto`) is the
+  bubble's (since v0.1.2 by the gesture rule below), so a selection inside a
+  widget starts the way the client selects text in an ordinary message, and
+  copy is the client's: client work
   (`docs/sdk-v1.md` §5.10).
 - **An accepted exception to "every client draws it"**, like `:hover`: a native
   renderer that cannot select text yet (litehtml here; TwidgetCore and the
@@ -1438,3 +1441,125 @@ and a widget that is a drawing stays one.
   values, `auto/17-drag-hover` that a drag over ordinary text selects nothing,
   and `visual/16-selection` lets a tester select one paragraph and nothing
   else.
+
+## Gestures: `touch-action` is the claim (v0.1.2, 2026-10-22)
+
+Artem's decisions, after a client developer (Android) showed the sandbox and a
+client disagreeing. Replaces "double tap and long press always stay with the
+bubble" (SDK v1, decided 2026-10-17, `docs/sdk-v1.md` §6 item 5).
+
+**What went wrong.** In the web dev app a widget's "hold a button" worked
+(`pointerdown` … `pointerup`, the game controls of a wolf3d port), and a
+double tap made of two clicks worked too. On Android the held touch got
+`pointercancel` unless the element had `touch-action: none`. The rule "long
+press and double tap stay with the bubble" was enforced only by each client's
+own recognizers (they cancel the touch), the demo apps had none, and the
+renderer dropped `dblclick` and `contextmenu` for everyone. So a widget that
+worked in the sandbox failed in a client, and AI agents that test widgets in
+the sandbox were misled.
+
+**The rule.** The framework decides who gets a press over the widget, with one
+shared policy:
+
+- Taps and **double taps are always the widget's**, on every element, whatever
+  `touch-action` says: a double tap reaches it as both clicks and then
+  `dblclick`. The bubble's double-tap reaction stays on the bubble outside the
+  widget (caption, time, edges). A first version gave the second tap on
+  `touch-action: auto` to the reaction; the compat suite showed what that costs
+  (a counter's "+", a tab switch or a sort header tapped twice quickly lost the
+  second tap: tabs, fragment, table-sort and stepper failed under the phone
+  bubble), and the client developer's view was that nobody double-taps a widget
+  to react. Decided the same day: the double tap is the widget's.
+- The rest is claimed per element, at `pointerdown`, by standard CSS
+  `touch-action` on the target and its ancestors (the renderer already reported
+  the drag axes from it):
+  - `auto` (the default): the bubble wins. A hold opens the message menu and
+    the widget gets `pointercancel` when the hold is recognised; a horizontal
+    swipe is reply or back; a vertical one scrolls the list.
+  - `pan-y` / `pan-x`: the widget gets drags on the other axis; holds stay
+    with the bubble.
+  - `none`: the widget gets everything over that element: drags on both axes
+    and holds (no menu; it gets `contextmenu`). The platform's own context menu
+    stays cancelled.
+- Never claimable: the bubble outside the widget stays the place for the menu
+  and the reaction, and the leading 20 px of the widget (the left edge, the
+  right one in a right-to-left UI) take no claim, so the system back gesture
+  keeps working where the widget touches the screen edge.
+- With a mouse (desktop): a right click is the message menu over anything but
+  `none`, and `contextmenu` for the widget on `none`; clicks, double clicks,
+  holds and drags are the widget's (desktop has no long-press menu and no
+  swipes).
+
+Why CSS `touch-action`: it is the web's own declaration of "this element
+handles its touches", authors and models already write it for sliders and
+canvases, the renderer reads it synchronously at `pointerdown` (a computed
+style, no round trip to the sandbox), and every client's WebView already obeys
+it for scrolling. A widget-side API (`TelegramWidget.claimGestures()`) would
+have been a second, non-standard way to say the same thing, asked for after the
+press had started. A learned `preventDefault` on `pointerdown` keeps claiming
+the drag axes (as before), never holds: those need the declaration.
+
+**The hold is per element.** Decided the same day: no whole-widget flag (no
+`<meta>`, no SDK call), and nothing treats the root differently. `touch-action`
+on an ancestor covers its descendants through the normal intersection, as in
+browsers (the chain the renderer reads runs up to the widget's `<html>`).
+
+**One shared policy.** `packages/core/src/shared/gesture-policy.ts` is pure: given
+the claim and the press's movement and timing, a `GestureArbiter` says who wins
+and when the widget's pointer must end with `pointercancel`. Twins:
+`GesturePolicy.swift`, `GesturePolicy.kt`, `gesture_policy.cpp`, all checked
+against `packages/core/tests/fixtures/gesture-policy.json` like the CPU budget
+and the SDK checks; every host exposes it, so a client drives its recognizers
+from it instead of inventing thresholds. The values (open for Artem; they are
+constants in four copies and the fixture):
+
+| constant | value | from |
+|---|---|---|
+| `TOUCH_SLOP_PX` | 10 | iOS `UILongPressGestureRecognizer.allowableMovement` 10 pt; Android `ViewConfiguration` touch slop 8 dp |
+| `HOLD_MS` | 500 | iOS `minimumPressDuration` 0.5 s; Android's long-press timeout (500 ms in AOSP 9, 400 ms in later releases) |
+| `DOUBLE_TAP_MS` | 300 | Android `DOUBLE_TAP_TIMEOUT` (first up to second down); decides when the widget gets `dblclick` |
+| `DOUBLE_TAP_SLOP_PX` | 40 | tighter than Android's 100 dp: two adjacent buttons tapped quickly are two taps, not a `dblclick` |
+| `EDGE_STRIP_PX` | 20 | iOS's edge-pan region (about 20 pt); Android's gesture-navigation back inset is 18–40 dp by setting |
+
+The axis of a drag is the dominant one when the press leaves the slop (a tie
+is vertical: the list scroll is the commoner gesture).
+
+**Where it runs.**
+
+- The renderer core always runs an arbiter on the primary pointer: it is what
+  sends the widget `dblclick` (after the second tap's click, for every double
+  tap) and `contextmenu` (at a hold or a right-button press the widget claims).
+  The engine's own `dblclick` and `contextmenu` never reach the widget, so
+  WebKit, Chromium and the native renderers deliver the same events at the same
+  thresholds. `input.dblclick` is now in the profile, and `input.long-press` on
+  `touch-action: none` elements (decision G1 in `profile.json`;
+  `TelegramWidget.profile` stays 1: what changes is which presses the bubble
+  keeps, not what a renderer draws).
+- Native clients keep their own recognizers, driven by the policy and the
+  claim the host reports (`onGestureClaim` / `onGesture`: `x`, `y`, `hold`), and
+  cancel the touch to the WebView the platform's way (it becomes
+  `pointercancel`); a double-tap recognizer must not act over the widget. The
+  demo apps' bubbles do the same.
+- The web has no recognizers over the widget, so there the renderer plays the
+  bubble (`WidgetHost` `bubbleGestures`, the `arbitrate` message): a press the
+  bubble takes ends for the widget with `pointercancel` and nothing more of that
+  pointer, and the host gets `onBubbleGesture` (menu, swipe, scroll, back). The
+  dev app and the feed demo use it by default with a mouse arbitrated as a
+  finger (the `gestures` select: phone, desktop, off), and every Playwright
+  suite runs on that default, so "works in the sandbox" now means "works in a
+  client". In that mode the widget also sees `pointerType: 'touch'` for the
+  press and no click after a drag or a hold, as on a phone.
+- The Node harness (`sandbox-node.ts --width N --tap / --hold / --double-tap /
+  --swipe / --right-click`) runs the same renderer core in headless Chromium on
+  the sandbox's ops and reports per press the element, its claim, the policy's
+  outcome, what the widget received and a hint for the author.
+
+**Possible later step: an area quota.** A widget that puts `touch-action: none`
+on its whole surface takes the bubble's menu and swipes away from the widget's
+area entirely (they remain on the caption, the time and the bubble's edges).
+A client developer suggested capping how much of the widget may claim holds,
+like Android's limit on gesture-exclusion rects (200 dp of each edge). Not now:
+the rule is simple and testable as it is, and the conformance and corpus
+widgets claim small areas (buttons, knobs, canvases). If widgets start
+claiming everything, the policy can take an area budget per widget and fall
+back to `auto` beyond it.

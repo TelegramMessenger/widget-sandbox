@@ -150,9 +150,9 @@ widget.
 
 - **Text selection is the widget's choice** (since v0.1.1, `docs/sdk-v1.md`
   §2.4, §5.10). Text is not selectable by default; text the widget marks
-  `user-select: text` is. Long press and double tap stay with the bubble, so on
-  touch a selection inside a widget starts the way your client selects text in
-  an ordinary message (its menu's Select, or its selection mode); with a mouse,
+  `user-select: text` is. A long press over text is the bubble's (below), so
+  on touch a selection inside a widget starts the way your client
+  selects text in an ordinary message (its menu's Select, or its selection mode); with a mouse,
   a drag over selectable text selects it. Copy is your normal copy command.
   The bubble never lets the user start a drag of the widget's content. A
   native renderer that cannot select yet keeps the text unselectable.
@@ -166,13 +166,25 @@ widget.
   tap or click the renderer saw (`trusted`), one call per press; no key press
   counts. A renderer behind your own `Renderer` implementation must mark its
   real input `trusted: true` or the widget never gets a gesture.
-- **Drags.** On every primary pointer press the host reports `onGestureClaim(x, y)`:
-  whether the widget takes horizontal (`x`) and vertical (`y`) drags of this
-  touch, from `touch-action` and the widget's `preventDefault`. Keep
-  swipe-to-reply off a touch with `x`, the list still on one with `y`; with
-  neither the touch is the chat's. Double tap and long press stay with the
-  bubble (`docs/sdk-v1.md` §5.5). On Android `RendererWebView` already applies
-  `y` to its parent.
+- **Who gets a press: `touch-action` is the claim** (v0.1.2, `docs/sdk-v1.md`
+  §5.5). On every primary pointer press the host reports the widget's claim
+  (`onGestureClaim` in Swift and on the web, `onGesture` in Kotlin and C++):
+  horizontal (`x`) and vertical (`y`) drags and `hold` (only from
+  `touch-action: none`). Taps and double taps over the widget are always the
+  widget's: your double-tap reaction must not act over the widget (it stays on
+  the bubble outside it), and the renderer gives the widget its own `dblclick`.
+  Drive your bubble's recognizers from the shared `GestureArbiter` (every
+  package ships it with its thresholds: 10 px slop, 500 ms hold, 300 ms / 40 px
+  double tap, 20 px leading edge strip): over an element that does not claim
+  the press, a hold opens the message menu, a horizontal swipe is reply or back
+  and a vertical one scrolls the list, and you cancel the widget's touch the
+  platform's way (it gets `pointercancel`, no `click`); over one that does, you
+  stand back and the renderer gives the widget its own `contextmenu`. The
+  bubble outside the widget stays yours. With a mouse, a right click follows
+  the same claim; clicks, double clicks, holds and drags are the widget's. On Android `RendererWebView` already applies `y` to its parent. On
+  the web pass `bubbleGestures` and the renderer plays the bubble itself
+  (`onBubbleGesture` says what it took). The conformance widgets
+  `auto/23-gestures` and `visual/sdk/12-drag-gestures` check your client.
 - **What the widget asks for** arrives as `onAction`, checked: `openLink(url)`
   (show a confirmation with the full URL, then the browser),
   `openTelegramLink(url)` (your own t.me handling), `haptic(…)` (play it or
@@ -233,7 +245,7 @@ let host = try WidgetHost(html: html, theme: theme, width: 360, options: options
 host.onChange = { d in /* d.height, d.loaded, d.dead, d.lastError, d.stats */ }
 host.onAction = { action in /* .openLink(url): confirm, open; .openTelegramLink; .haptic; .ready */ }
 host.onStorageCommit = { area, values in /* keep values as the new content of that area */ }
-host.onGestureClaim = { claim in /* claim.x: no swipe-to-reply for this touch; claim.y: hold the list */ }
+host.onGestureClaim = { claim in /* x, y, hold: feed your bubble's GestureArbiter (docs/sdk-v1.md §5.5) */ }
 bubble.addSubview(host.view)          // UIView on iOS, NSView on macOS; its height follows the widget
 // later:
 host.setVisible(false)                // off screen
@@ -269,7 +281,7 @@ val host = WidgetHost(context, html, theme, widthDp = 360.0, options = options)
 host.onChange = { d -> /* d.height, d.loaded, d.dead, d.lastError */ }
 host.onAction = { action -> /* WidgetAction.OpenLink(url): confirm, open; OpenTelegramLink; Haptic; Ready */ }
 host.onStorageCommit = { area, values -> /* "local" | "session": keep values */ }
-host.onGestureClaim = { x, y -> }
+host.onGesture = { claim -> /* x, y, hold: feed your bubble's GestureArbiter (docs/sdk-v1.md §5.5) */ }
 bubble.addView(host.view)             // a View whose height follows the widget (minHeightDp / maxHeightDp in Options)
 host.setVisible(false); host.setTheme(darkTheme); host.destroy()
 ```
@@ -313,7 +325,9 @@ const host = new WidgetHost(bubbleElement, html, {
   onResize: (h) => {},            // CSS px
   onAction: (action) => {},       // { kind: 'openLink', url } | 'openTelegramLink' | 'haptic' | 'ready'
   onStorageCommit: (area, values) => {},
-  onGestureClaim: ({ x, y }) => {},
+  onGestureClaim: ({ x, y, hold }) => {},
+  bubbleGestures: true,           // no recognizers of your own over the widget: the renderer plays the bubble
+  onBubbleGesture: ({ action }) => {},   // 'menu' | 'swipe' | 'scroll' | 'back'
   onDead: (reason) => {},
 });
 host.setVisible(false); host.setTheme(darkTheme); host.destroy();
@@ -342,14 +356,14 @@ twidget::WidgetTheme theme{"light", {{"bg_color", "#ffffff"} /* … every key, t
 twidget::WidgetHost host(html, theme, 360, options, resources, myRendererFactory);
 host.onAction = [](const twidget::WidgetAction& a) { /* OpenLink: confirm, open; OpenTelegramLink; Haptic; Ready */ };
 host.onStorageCommit = [](const std::string& area, const std::map<std::string, std::string>& values) {};
-host.onGestureClaim = [](bool x, bool y) {};
+host.onGesture = [](const twidget::WidgetGestureClaim& c) { /* feed your bubble's twidget::GestureArbiter */ };
 host.start();
 // host.setVisible(false); host.setTheme(darkTheme); host.destroy();
 ```
 
 ## The conformance set
 
-`packages/conformance` ships with the tag: 39 self-checking widgets
+`packages/conformance` ships with the tag: 40 self-checking widgets
 (`auto/`), 20 visual widgets and 17 client-SDK widgets for the test channel
 (`visual/`), all of them mini-widgets, the feature catalogue, reference images,
 the posting order (`channel.json`) and the report tool. **`packages/conformance/CLIENTS.md`**

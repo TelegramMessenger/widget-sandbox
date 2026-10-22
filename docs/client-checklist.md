@@ -57,8 +57,14 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 - [ ] Storage per (account, chat, message id) on disk, preloaded at creation,
       committed from `onStorageCommit`, deleted with the message, the chat, the
       account and on "Clear cache" ([sdk-v1.md §5.4](sdk-v1.md#54-storage)).
-- [ ] Drag arbitration against swipe-to-reply and the list scroll; double tap and
-      long press stay with the bubble ([sdk-v1.md §5.5](sdk-v1.md#55-gestures-and-drag-d4)).
+- [ ] Gestures by the shared policy (v0.1.2): the bubble's recognizers driven by
+      `GestureArbiter` and the claim from `onGestureClaim` / `onGesture`; the menu,
+      swipe-to-reply and list scroll over elements that do not claim the press, the
+      widget's touch cancelled (`pointercancel`) when the bubble takes it; nothing taken
+      over `touch-action: none`; no double-tap reaction over the widget (double taps are
+      always the widget's); the leading 20 px never claimed
+      ([sdk-v1.md §5.5](sdk-v1.md#55-gestures-and-drag-d4); conformance `auto/23-gestures`,
+      `visual/sdk/12-drag-gestures`).
 - [ ] A widget stays stopped after 2 crashes in a row ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
 - [ ] A forwarded copy works like the original with its own, empty storage; a bot
       edit replaces the payload and restarts the widget on the same storage.

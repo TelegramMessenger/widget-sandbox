@@ -223,8 +223,16 @@ class RendererWebView(context: Context, rendererBundle: String, theme: String) :
      * not allowed to intercept; a `false` (or 150 ms of silence) hands the
      * gesture back to the scrolling container. Main thread.
      */
-    override fun gestureDecision(wants: Boolean) {
-        (webView as GestureWebView).decide(wants)
+    override fun gestureDecision(wants: Boolean) = gestureDecision(WidgetGestureClaim(x = false, y = wants))
+
+    /**
+     * The whole claim: the parent stays out of the press when the widget claims
+     * vertical drags (the list must not scroll) or holds (a parent's long-press
+     * recognizer that intercepts must stand back too).
+     * Horizontal drags are the client's own recognizers' (WidgetHost.onGesture).
+     */
+    override fun gestureDecision(claim: WidgetGestureClaim) {
+        (webView as GestureWebView).decide(claim.y || claim.hold)
     }
 
     /**

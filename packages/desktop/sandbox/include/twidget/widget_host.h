@@ -8,13 +8,14 @@
 // Threading. A Qt-free library has no main thread, so the host owns a "host
 // thread" that stands in for it: every renderer call, every diagnostics update
 // and `onChange` / `onRenderOps` / `onAction` / `onStorageCommit` /
-// `onGestureClaim` (and the deprecated `onBridgeCall`) run there, in order. Engine
+// `onGesture` (and the deprecated `onGestureClaim` and `onBridgeCall`) run there, in order. Engine
 // callbacks hop from the engine thread; a layout query blocks the engine
 // thread (≤ 3 s) until the renderer answers on the host thread. A Qt host
 // would replace the thread with the UI thread (`crl::on_main`) one for one.
 // `destroy()` is called from the owner's thread, never from the host thread.
 #pragma once
 
+#include "twidget/gesture_policy.h"
 #include "twidget/renderer.h"
 #include "twidget/sandbox_engine.h"
 #include "twidget/trusted_validator.h"
@@ -187,7 +188,14 @@ public:
     /// The new full content of a Web Storage area, "local" or "session", at the end of each task that changed it
     /// (docs/sdk-v1.md §5.4). Within the quota; a lone surrogate of the widget's string arrives in its WTF-8 form.
     std::function<void(const std::string& area, const std::map<std::string, std::string>& values)> onStorageCommit;
-    /// On every primary pointerdown: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch (§5.5).
+    /// On every primary pointerdown, what of this press the widget claims with `touch-action` (docs/sdk-v1.md §5.5):
+    /// horizontal (`x`) and vertical (`y`) drags and holds (`hold`: no message menu, the widget gets `contextmenu`); taps
+    /// and double taps are always the widget's. Feed it to the GestureArbiter of the client's recognizers
+    /// over this widget (twidget/gesture_policy.h). It arrives a few ms after the touch starts. A renderer that reports only
+    /// `wants` (the Blitz and litehtml prototypes) claims vertical drags with it and nothing else.
+    std::function<void(const WidgetGestureClaim& claim)> onGesture;
+    /// Deprecated since v0.1.2 (`onGesture`): the claim's `x` and `y`, right after `onGesture`.
+    [[deprecated("use onGesture (v0.1.2)")]]
     std::function<void(bool x, bool y)> onGestureClaim;
     /// Deprecated since SDK v1 (`onAction`): the raw method and arguments JSON of each call `onAction` gets, right after it.
     [[deprecated("use onAction (SDK v1)")]]

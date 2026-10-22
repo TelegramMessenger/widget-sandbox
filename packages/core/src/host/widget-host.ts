@@ -17,6 +17,7 @@ import {
   type StorageCommit, type WidgetAction, type WidgetTheme,
 } from '../shared/sdk-policy';
 import { PROFILE_VERSION } from '../shared/profile-tables';
+import type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
 import type { Renderer, RendererFactory } from './renderer';
 import type { PooledWorker, WorkerPool } from './worker-pool';
 import { Validator } from './validator';
@@ -26,6 +27,17 @@ import {
 } from '../shared/protocol';
 
 export type { WidgetAction, WidgetTheme } from '../shared/sdk-policy';
+export type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
+
+/** A press the bubble took (`bubbleGestures`): what the bubble does with it, and where the pointer was, in widget coordinates. */
+export interface BubbleGesture {
+  action: BubbleAction;
+  gesture: Gesture;
+  x: number;
+  y: number;
+  /** It started in the leading edge strip, where the widget's claim does not apply. */
+  edge: boolean;
+}
 
 export interface WidgetHostOptions {
   /** The chat's theme (docs/sdk-v1.md §2.3, §2.4); a plain colour scheme is still accepted. */
@@ -50,8 +62,20 @@ export interface WidgetHostOptions {
   onAction?: (action: WidgetAction) => void;
   /** The new full content of a Web Storage area, at the end of each task that changed it. */
   onStorageCommit?: (area: 'local' | 'session', values: Record<string, string>) => void;
-  /** On every primary pointerdown: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch. */
-  onGestureClaim?: (claim: { x: boolean; y: boolean }) => void;
+  /**
+   * On every primary pointerdown: what of this press the widget claims with `touch-action` (gesture-policy.ts):
+   * horizontal (`x`) and vertical (`y`) drags and holds (`hold`, no message menu). Taps and double taps are always its own.
+   */
+  onGestureClaim?: (claim: GestureClaim) => void;
+  /**
+   * The renderer plays the bubble (docs/sdk-v1.md §5.5): presses the widget does not claim are the bubble's, and the
+   * widget gets `pointercancel` when the bubble takes one (`onBubbleGesture`). For a client with no recognizers of its
+   * own over the widget (the web client, the dev app). `touch`: a mouse's primary button arbitrates as a finger, so a
+   * desktop browser reproduces a phone; `rtl`: the leading edge strip is on the right.
+   */
+  bubbleGestures?: boolean | { touch?: boolean; rtl?: boolean };
+  /** With `bubbleGestures`: the bubble took a press (the message menu, swipe-to-reply or back, the list scroll). */
+  onBubbleGesture?: (gesture: BubbleGesture) => void;
   /** @deprecated since v1: `onAction`. The raw method and arguments of each call `onAction` gets. */
   onBridge?: (method: string, args: unknown[]) => void;
   /** Fatal: the runtime is gone. The renderer keeps the last state (frozen); call `destroy()` to remove it. */
@@ -78,6 +102,8 @@ export interface WidgetHostOptions {
 const MIN_HEIGHT = 50;
 const MAX_HEIGHT = 600;
 const encoder = new TextEncoder();
+const BUBBLE_ACTIONS = new Set<unknown>(['menu', 'swipe', 'scroll', 'back']);
+const GESTURES = new Set<unknown>(['press', 'tap', 'double-tap', 'hold', 'drag-x', 'drag-y', 'menu-click']);
 
 export class WidgetHost {
   /** The renderer's element in the bubble (an iframe for the product renderer, a canvas for Blitz). */
@@ -121,6 +147,7 @@ export class WidgetHost {
     this.renderer.onDiag = diag;
     this.renderer.load();
     this.toRenderer({ type: 'theme', theme: this.widgetTheme });
+    if (opts.bubbleGestures) this.setBubbleGestures(opts.bubbleGestures);
 
     // ── sandbox ──
     // The worker boots in parallel with the renderer: a renderer that is not ready yet queues what it gets.
@@ -175,6 +202,12 @@ export class WidgetHost {
     const ops = this.validator.setTheme(this.theme);
     if (ops.length) this.toRenderer({ type: 'ops', ops });
     this.toWorker({ type: 'theme', theme: this.theme, themeParams: this.widgetTheme.params });
+  }
+
+  /** Turns the renderer's bubble on or off (`WidgetHostOptions.bubbleGestures`). */
+  setBubbleGestures(mode: boolean | { touch?: boolean; rtl?: boolean }) {
+    const o = typeof mode === 'object' ? mode : {};
+    this.toRenderer({ type: 'arbitrate', bubble: mode !== false, touch: o.touch === true, rtl: o.rtl === true });
   }
 
   private preload(storage: unknown): StorageCommit {
@@ -375,8 +408,14 @@ export class WidgetHost {
         break;
       }
       case 'gesture':
-        this.opts.onGestureClaim?.({ x: msg.x === true, y: msg.y === true });
+        this.opts.onGestureClaim?.({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true });
         break;
+      case 'bubble': {
+        const x = finiteNumber(msg.x), y = finiteNumber(msg.y);
+        if (!BUBBLE_ACTIONS.has(msg.action) || !GESTURES.has(msg.gesture) || x === undefined || y === undefined) break;
+        this.opts.onBubbleGesture?.({ action: msg.action, gesture: msg.gesture, x, y, edge: msg.edge === true });
+        break;
+      }
       case 'media':
         // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
         this.toWorker({ type: 'theme', theme: this.theme, themeParams: this.widgetTheme.params });

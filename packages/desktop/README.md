@@ -20,6 +20,8 @@ packages/desktop/
     cpu_budget.h             CpuBudget (fixture: packages/core/tests/fixtures/cpu-budget.json)
     sdk_policy.h             SDK v1 checks: links, haptics + HapticGate, theme params, locale, storage, bridge calls
                              (= SdkPolicy.swift / .kt; fixture: packages/core/tests/fixtures/sdk-policy.json)
+    gesture_policy.h         the widget or the bubble: claimOf + GestureArbiter for the client's recognizers
+                             (= GesturePolicy.swift / .kt; fixture: packages/core/tests/fixtures/gesture-policy.json)
     js_thread.h              one dedicated thread per runtime, 8 MB stack, timers
     quickjs_context.h        thin wrapper over quickjs-ng via packages/ios/Sources/CQuickJS/shim
     resources.h              WidgetJS/ loader + CDN URL → bundled library
@@ -41,7 +43,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 45 tests (engine, limits, validator, JSThread, CpuBudget and SDK fixtures, SDK v1, JSON)
+./build/twidget-tests                             # 50 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …` and `storage …`; "gesture" makes a trusted press
@@ -156,7 +158,14 @@ What it is on this platform:
   the normalised URL, at most one per pointer press; `Haptic`, rate-limited;
   `Ready`); `onStorageCommit(area, values)` the full new content of an area at
   the end of each task that changed it, within the 16 KB quota (persist
-  `local`, keep `session` in memory); `onGestureClaim(x, y)` on every primary
-  press. Strings are UTF-8; a widget's lone surrogate arrives in its 3-byte
-  WTF-8 form. The string-theme constructor, `setTheme(std::string)` and
-  `onBridgeCall` are deprecated forwards; the host → widget `bridgeEvent` is gone.
+  `local`, keep `session` in memory); `onGesture(WidgetGestureClaim)` on every
+  primary press: what of it the widget claims with `touch-action` (`x`, `y`
+  drags, `hold`; taps and double taps are always the widget's). Feed the claim
+  to a `GestureArbiter` (`gesture_policy.h`) in your recognizers over the
+  widget and act on its verdicts: on `cancel` end the press for the widget,
+  then do the bubble's `action` (message menu, swipe-to-reply or back, list
+  scroll).
+  Strings are UTF-8; a widget's lone surrogate arrives in its 3-byte WTF-8
+  form. The string-theme constructor, `setTheme(std::string)`, `onBridgeCall`
+  and `onGestureClaim(x, y)` are deprecated forwards; the host → widget
+  `bridgeEvent` is gone.

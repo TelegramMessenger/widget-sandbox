@@ -3,6 +3,7 @@
 
 import { PROFILE_EVENTS } from './profile-tables';
 import type { StorageCommit, ThemeParams, WidgetTheme } from './sdk-policy';
+import type { BubbleAction, Gesture } from './gesture-policy';
 
 export type NodeId = number;
 /** The widget's Document node. Never rendered; parent of the <html> element. */
@@ -137,7 +138,11 @@ export interface WidgetEvent {
   scrollLeft?: number;
 }
 
-/** Event types the renderer delivers to the widget: the widget profile's (no keyboard, focus, dblclick, contextmenu, touch, wheel or scroll). Everything else is ignored. */
+/**
+ * Event types the renderer delivers to the widget: the widget profile's (no keyboard, focus, touch, wheel or scroll).
+ * `dblclick` and `contextmenu` come from the renderer itself, only for a double tap or a hold the widget claims with
+ * `touch-action: none` (gesture-policy.ts); the engine's own never reach the widget. Everything else is ignored.
+ */
 export const EVENT_TYPES: readonly string[] = PROFILE_EVENTS;
 
 // ───────────── host ⇄ renderer envelope ─────────────
@@ -152,7 +157,15 @@ export type HostToRenderer =
   /** The chat's theme (docs/sdk-v1.md §3.4): the renderer sets the CSS variables `themeVariables` makes of it on the widget's root. */
   | { type: 'theme'; theme: WidgetTheme }
   /** The runtime is gone (fatal) or paused: keep the last render, stop forwarding events and frames, show a badge with `reason`. */
-  | { type: 'frozen'; reason: string; fatal: boolean };
+  | { type: 'frozen'; reason: string; fatal: boolean }
+  /**
+   * How the renderer arbitrates presses (gesture-policy.ts, docs/sdk-v1.md §5.5). `bubble`: the renderer plays the
+   * bubble itself (the web hosts, which have no recognizers of their own): a press the bubble takes ends for the widget
+   * with `pointercancel` and the host gets `bubble`. Off (the default), the client's own recognizers take presses and
+   * the renderer only gives the widget the double taps and holds it claims. `touch`: arbitrate a mouse's primary
+   * button as a finger (the dev app reproducing a phone). `rtl`: the leading edge is the right one.
+   */
+  | { type: 'arbitrate'; bubble: boolean; touch?: boolean; rtl?: boolean };
 
 export type RendererToHost =
   | { type: 'ready' }
@@ -163,15 +176,18 @@ export type RendererToHost =
   | { type: 'frame'; time: number }
   | { type: 'media' }
   /**
-   * Sent on every primary pointerdown: whether the widget wants the touch
-   * gesture for itself (an ancestor's `touch-action` forbids vertical panning,
-   * or the sandbox has prevented pointerdown/touchstart there before). Hosts
-   * whose renderer sits inside a scrolling container that cannot see into the
-   * WebView (Android) use it to stop the container from intercepting. `x` / `y`:
-   * the widget takes horizontal / vertical drags of this touch (the host's
-   * `onGestureClaim`, docs/sdk-v1.md §5.5); `wants` is `y`.
+   * Sent on every primary pointerdown: what of this press the widget claims
+   * (gesture-policy.ts `claimOf`: the computed `touch-action` of the target and
+   * its ancestors, and a pointerdown the sandbox has prevented there before).
+   * `x` / `y`: horizontal / vertical drags; `hold`: a hold or right click (no
+   * message menu). Taps and double taps are always the widget's. The host's
+   * `onGestureClaim`, docs/sdk-v1.md §5.5. Hosts whose renderer sits inside a
+   * scrolling container that cannot see into the WebView (Android) use `y` to
+   * stop the container from intercepting; `wants` is `y` (the field before v1).
    */
-  | { type: 'gesture'; wants: boolean; x: boolean; y: boolean }
+  | { type: 'gesture'; wants: boolean; x: boolean; y: boolean; hold: boolean }
+  /** With `arbitrate` `bubble` on: the bubble took a press (`action`); (x, y): the pointer then, in widget coordinates. */
+  | { type: 'bubble'; action: BubbleAction; gesture: Gesture; x: number; y: number; edge: boolean }
   | { type: 'violation'; detail: string };
 
 // ───────────── worker ⇄ host envelope ─────────────

@@ -143,11 +143,11 @@ Memory and CPU limits are part of the public API: `WidgetHost.Options(memoryLimi
 SDK v1 (`docs/sdk-v1.md` §4.2): `WidgetHost(context, html, WidgetTheme(colorScheme, params,
 button), widthDp, Options(locale, storage = WidgetStorage(local, session), …))`, `setTheme(WidgetTheme)`,
 `onAction` (`WidgetAction.Ready` / `OpenLink` / `OpenTelegramLink` / `Haptic`), `onStorageCommit(area,
-values)`, `onGestureClaim(x, y)`; all callbacks on the main thread. `SandboxEngine` checks every bridge
+values)`, `onGesture(WidgetGestureClaim)`; all callbacks on the main thread. `SandboxEngine` checks every bridge
 call with `SdkPolicy.kt` (the twin of `sdk-policy.ts`, `SdkPolicyTest` against the shared fixture):
 the call itself (`bridge-rejected`), one link per tap under `strict` (`activation-blocked`), the haptic
 limit (`haptic-limit`); storage commits and the preload against the 16 KB quota (`storage-rejected`).
-The string-theme constructor, `setTheme(String)` and `onBridge` remain as deprecated conveniences;
+The string-theme constructor, `setTheme(String)`, `onBridge` and `onGestureClaim(x, y)` remain as deprecated conveniences;
 `bridgeEvent` is gone.
 
 Touch gestures: a `WebView` inside a scrolling container loses the touch to
@@ -158,6 +158,15 @@ from `ACTION_DOWN` and releases it when the renderer's `gesture` message
 (sent on every primary `pointerdown`, see `docs/protocol.md`) says the
 widget does not want the gesture, or after 150 ms of silence. A vertical
 swipe on a plain widget therefore still scrolls the list (`GestureTest`).
+The same message carries the whole claim (`WidgetHost.onGesture`): drags on
+either axis and holds (`touch-action: none`), and the parent stays out for `y`
+or `hold`; taps and double taps over the widget are always the widget's. The
+bubble's own recognizers (the message menu on a hold, swipe-to-reply) are the
+client's: `GesturePolicy.kt` (the twin of `gesture-policy.ts`,
+`GesturePolicyTest` against the shared fixture) gives them a `GestureArbiter`
+to feed the press and the claim, and a verdict with `cancel` is the moment to
+take the touch from the renderer's view (`ACTION_CANCEL`: the widget gets
+`pointercancel`); the demo's `BubbleGestureLayout` does exactly that.
 
 Native pickers: Chromium's colour / date dialogs and `<select>` popups need
 an Activity reachable behind the WebView's context — pass an Activity (or a

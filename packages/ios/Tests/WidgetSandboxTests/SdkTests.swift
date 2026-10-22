@@ -137,8 +137,48 @@ final class SdkTests: XCTestCase {
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":true,\"x\":false,\"y\":true}")
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":true,\"x\":true,\"y\":true}")
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":1,\"x\":1,\"y\":\"yes\"}")
-        h.pump { h.claims.count >= 3 }
-        XCTAssertEqual(h.claims, [WidgetGestureClaim(x: false, y: true), WidgetGestureClaim(x: true, y: true), WidgetGestureClaim(x: false, y: false)])
+        h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":true,\"x\":true,\"y\":true,\"hold\":true}")
+        h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":false,\"x\":false,\"y\":false,\"hold\":1}")
+        // A renderer that sends only `wants` (the Blitz and litehtml prototypes): it is `y`.
+        h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":true}")
+        h.pump { h.claims.count >= 6 }
+        XCTAssertEqual(h.claims, [
+            WidgetGestureClaim(x: false, y: true), WidgetGestureClaim(x: true, y: true), WidgetGestureClaim(x: false, y: false),
+            WidgetGestureClaim(x: true, y: true, hold: true), WidgetGestureClaim(x: false, y: false),
+            WidgetGestureClaim(x: false, y: true),
+        ])
+    }
+
+    /// The claim the WebView renderer computes from `touch-action` at a pointerdown (gesture-policy.ts `claimOf`) reaches
+    /// `onGestureClaim` whole: `none` on an ancestor claims holds too, `pan-y` horizontal drags, `auto` nothing.
+    @MainActor
+    func testTouchActionClaimsFromTheWebViewRenderer() async throws {
+        let html = "<div id='free'>auto</div><div style='touch-action:none'><p id='own'>none</p></div><div id='pan' style='touch-action:pan-y'>pan-y</div>"
+        let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 300)
+        defer { host.destroy() }
+        var claims: [WidgetGestureClaim] = []
+        var latest = WidgetDiagnostics()
+        host.onChange = { latest = $0 }
+        host.onGestureClaim = { claims.append($0) }
+        let window = TestWindow.makeVisible()
+        window.attach(host.view)
+        var deadline = Date().addingTimeInterval(15)
+        while Date() < deadline, !latest.rendered { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertTrue(latest.rendered, "\(latest.diags)")
+        for (n, id) in ["free", "own", "pan"].enumerated() {
+            // A synthetic press: the renderer computes the claim at any primary pointerdown (only trusted input activates).
+            let script = "var t=document.getElementById('\(id)'),o={bubbles:true,cancelable:true,isPrimary:true,pointerId:\(n + 1),pointerType:'touch',clientX:60,clientY:5};" +
+                "t.dispatchEvent(new PointerEvent('pointerdown',o));t.dispatchEvent(new PointerEvent('pointerup',o));'ok'"
+            let result = await withCheckedContinuation { c in host.evaluateInRenderer(script) { c.resume(returning: $0) } }
+            XCTAssertEqual(result, "ok", id)
+            deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, claims.count <= n { try await Task.sleep(nanoseconds: 20_000_000) }
+        }
+        XCTAssertEqual(claims, [
+            WidgetGestureClaim(x: false, y: false, hold: false),
+            WidgetGestureClaim(x: true, y: true, hold: true),
+            WidgetGestureClaim(x: true, y: false, hold: false),
+        ])
     }
 
     // MARK: the API before v1

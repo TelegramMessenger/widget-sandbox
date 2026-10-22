@@ -331,8 +331,8 @@ inp('mouse-compat', 'mousedown / mouseup compatibility events of a tap', 'in', '
 inp('touch-events', 'touchstart / touchmove / touchend (touch clients only)', 'candidate', 'proposed', 'stripped', { match: { events: ['touchstart', 'touchmove', 'touchend', 'touchcancel'] }, note: 'Desktop clients have none; widgets should use pointer events.' });
 inp('drag', 'Drag: pointermove with buttons while pressed, setPointerCapture, movementX/Y', 'in', 'D4', 'kept', { match: { events: ['pointermove'], apis: ['setPointerCapture', 'releasePointerCapture'] }, note: 'v1 (not the PoC): drag with gesture arbitration.' });
 inp('hover-events', 'pointerover/enter/leave/out, mouseover/enter/leave (desktop pointer only)', 'in', 'D3', 'kept', { match: { events: ['pointerover', 'pointerenter', 'pointerleave', 'pointerout', 'mouseover', 'mouseenter', 'mouseleave', 'mouseout', 'mousemove'] } });
-inp('dblclick', 'dblclick / double tap', 'out', 'SDK', 'stripped', { match: { events: ['dblclick'] }, neutralise: 'the double tap stays with the bubble (reaction); it never reaches the widget' });
-inp('long-press', 'contextmenu / long press', 'out', 'SDK', 'stripped', { match: { events: ['contextmenu'] }, neutralise: 'the long press stays with the bubble (its menu); no contextmenu event' });
+inp('dblclick', 'dblclick / double tap: a double tap over the widget is always the widget\'s, on every element (the reaction stays outside the widget)', 'in', 'G1', 'emulated', { match: { events: ['dblclick'] }, note: 'v0.1.2: both clicks, then the renderer\'s own dblclick (gesture-policy.ts: 300 ms, 40 px); the engine\'s own never reaches the widget.' });
+inp('long-press', 'contextmenu / long press (or right click) claimed by touch-action: none on the element or an ancestor; on auto the hold is the bubble\'s message menu and the widget gets pointercancel', 'in', 'G1', 'emulated', { match: { events: ['contextmenu'] }, note: 'v0.1.2: the renderer sends its own contextmenu at a 500 ms hold within 10 px or a right-button press; the platform menu stays cancelled.' });
 inp('keyboard', 'Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys', 'out', 'D4', 'stripped', { match: { events: ['keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'focus', 'blur', 'focusin', 'focusout'] }, neutralise: 'the renderer never forwards key events; the widget never owns keyboard focus' });
 inp('key-activation', 'Enter / Space activate a focused button or link (a click from the keyboard)', 'out', 'D4', 'stripped', { match: { events: ['click'] }, neutralise: 'keys do nothing in a widget: no synthetic click from Enter or Space' });
 inp('key-gesture', 'A key press counts as a user gesture for privileged bridge calls', 'out', 'D4', 'stripped', { match: { apis: ['TelegramWidget.openLink'] }, neutralise: 'only taps (pointer presses) grant a gesture' });
@@ -361,7 +361,7 @@ b('offscreen-pause', 'Off-screen: frames stop, timers at most 1 Hz, visibilitych
 b('auto-height', 'The bubble takes the widget height; above the cap it is clipped hard', 'in', 'D12a', 'host');
 b('no-selection', 'Text is not selectable by default (a drag over text selects nothing); user-select: text enables it', 'in', 'D18', 'kept');
 b('restart', 'After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again', 'in', 'SDK', 'host', { note: 'The frozen frame and badge are the framework\'s; the restart count is the client\'s.' });
-b('gesture-claim', 'Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures', 'in', 'SDK', 'host', { note: 'onGestureClaim(x, y) per primary pointerdown (v1).' });
+b('gesture-claim', 'touch-action is the claim: taps and double taps over the widget are always its own; on auto holds and swipes are the bubble\'s (the widget gets pointercancel); pan-y / pan-x give the widget drags on the other axis; none gives it everything; the leading 20 px and the bubble outside the widget never take a claim', 'in', 'G1', 'host', { note: 'onGestureClaim (x, y, hold) per primary pointerdown; the client\'s recognizers follow the shared gesture policy (v0.1.2).' });
 b('storage-persist', 'localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message', 'in', 'SDK', 'host');
 b('storage-forward', 'A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty', 'in', 'SDK', 'host', { note: 'Testable with a test bot: forward its message into another chat; the copy starts with empty storage.' });
 b('message-edit', 'A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage', 'in', 'SDK', 'host', { note: 'Testable with a test bot: edit the message with the same and with new HTML.' });
@@ -474,8 +474,8 @@ const PROFILE_1: Record<string, Partial<Feature>> = {
   "tw.open-telegram-link": {"status": "in", "decision": "D8"},
   "tw.haptic": {"status": "in", "decision": "D8"},
   "input.touch-events": {"status": "out", "decision": "D4", "neutralise": "the renderer never forwards touch events; use pointer events"},
-  "input.dblclick": {"status": "out", "decision": "D4", "neutralise": "the renderer never forwards dblclick: a double tap belongs to the bubble (the reaction)"},
-  "input.long-press": {"status": "out", "decision": "P1", "neutralise": "the renderer never forwards contextmenu and cancels the platform menu: a long press belongs to the bubble (the message menu)"},
+  "input.dblclick": {"status": "in", "decision": "G1"},
+  "input.long-press": {"status": "in", "decision": "G1"},
   "input.wheel-scroll": {"status": "out", "decision": "D3a", "neutralise": "the renderer never forwards wheel or scroll; no scrolling inside a widget"},
   "limit.nodes": {"status": "in", "decision": "P1"},
   "limit.timers": {"status": "in", "decision": "P1"},

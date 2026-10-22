@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference
  * SDK v1 (docs/sdk-v1.md §2–§4) through the real sandbox bundle in QuickJS: the glue's checks in
  * SandboxEngine (links and user activation, the haptic limit, storage preload and commits, theme
  * params and locale in the boot config), then WidgetHost end to end on the WebView renderer (a real
- * tap → onAction, onGestureClaim, onStorageCommit, the theme variables on the renderer's root).
+ * tap → onAction, onGesture and the deprecated onGestureClaim, onStorageCommit, the theme variables on the renderer's root).
  * `bridge-rejected` is covered by SdkPolicyTest: the shim only sends calls it has checked itself.
  */
 @RunWith(AndroidJUnit4::class)
@@ -193,7 +193,8 @@ class SdkTest {
             lateinit var host: WidgetHost
             val latest = AtomicReference(WidgetDiagnostics())
             val actions = Collections.synchronizedList(ArrayList<WidgetAction>())
-            val claims = Collections.synchronizedList(ArrayList<Pair<Boolean, Boolean>>())
+            val claims = Collections.synchronizedList(ArrayList<WidgetGestureClaim>())
+            val drags = Collections.synchronizedList(ArrayList<Pair<Boolean, Boolean>>())
             val commits = Collections.synchronizedList(ArrayList<Pair<String, Map<String, String>>>())
             val bridge = Collections.synchronizedList(ArrayList<String>())
             val offMain = Collections.synchronizedList(ArrayList<String>())
@@ -205,7 +206,9 @@ class SdkTest {
                 )
                 host.onChange = { latest.set(it) }
                 host.onAction = { onMain("action"); actions.add(it) }
-                host.onGestureClaim = { x, y -> onMain("claim"); claims.add(x to y) }
+                host.onGesture = { onMain("claim"); claims.add(it) }
+                @Suppress("DEPRECATION")
+                host.onGestureClaim = { x, y -> onMain("claim"); drags.add(x to y) }
                 host.onStorageCommit = { area, values -> onMain("storage"); commits.add(area to values) }
                 @Suppress("DEPRECATION")
                 host.onBridge = { method, _ -> bridge.add(method) }
@@ -230,11 +233,12 @@ class SdkTest {
             assertEquals("${latest.get().diags.mapValues { it.value.details }}", 1, latest.get().diags["activation-blocked"]?.count)
             assertEquals(listOf("local" to mapOf("taps" to "42")), commits.toList())
             assertEquals(listOf("openLink", "haptic"), bridge.toList())
-            assertEquals("a plain element claims no drag", listOf(false to false), claims.toList())
+            assertEquals("a plain element claims nothing", listOf(WidgetGestureClaim(x = false, y = false)), claims.toList())
 
             tap(host.view, 50f, 150f)
-            assertTrue("$claims", waitFor { claims.size >= 2 })
-            assertEquals("touch-action: none takes both drags", true to true, claims[1])
+            assertTrue("$claims", waitFor { claims.size >= 2 && drags.size >= 2 })
+            assertEquals("touch-action: none takes both drags and holds", WidgetGestureClaim(x = true, y = true, hold = true), claims[1])
+            assertEquals("the deprecated onGestureClaim gets the drags of each claim", listOf(false to false, true to true), drags.toList())
 
             instrumentation.runOnMainSync { host.setTheme(WidgetTheme("dark", mapOf("bg_color" to "#101010"), WidgetButtonTokens(radius = "10px", pressedOpacity = 0.7), WidgetTextTokens(fontSize = 17.0, padding = "4px 6px"))) }
             val dark = "#101010|#ffffff|dark|10px|0.7|17px|4px 6px|17px|0px"

@@ -283,6 +283,8 @@ export const PROFILE_EVENTS = [
  "pointerover",
  "pointerout",
  "pointercancel",
+ "dblclick",
+ "contextmenu",
  "mousedown",
  "mouseup",
  "mousemove",

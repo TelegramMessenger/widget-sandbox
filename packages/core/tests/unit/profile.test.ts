@@ -221,8 +221,9 @@ describe('widget profile: elements, attributes, events and methods in the valida
     const { ops } = run([{ op: 'el', id: 10, tag: 'div' }, { op: 'prop', id: 10, name: 'value', value: 'x' }, { op: 'prop', id: 10, name: 'checked', value: true }, { op: 'prop', id: 10, name: 'scrollTop', value: 3 }]);
     assert.deepEqual(ops.filter((o) => o.op === 'prop').map((o: any) => o.name), ['scrollTop']);
   });
-  it('the event list has no keyboard, focus, dblclick, contextmenu, touch, wheel or scroll', () => {
-    for (const e of ['keydown', 'keyup', 'keypress', 'input', 'change', 'submit', 'focus', 'blur', 'focusin', 'dblclick', 'contextmenu', 'touchstart', 'wheel', 'scroll']) assert.ok(!EVENT_TYPES.includes(e), e);
+  it('the event list has no keyboard, focus, touch, wheel or scroll; dblclick and contextmenu since v0.1.2 (the renderer sends its own, on touch-action: none)', () => {
+    for (const e of ['keydown', 'keyup', 'keypress', 'input', 'change', 'submit', 'focus', 'blur', 'focusin', 'touchstart', 'wheel', 'scroll']) assert.ok(!EVENT_TYPES.includes(e), e);
+    for (const e of ['dblclick', 'contextmenu']) assert.ok(EVENT_TYPES.includes(e), e);
     for (const e of ['click', 'pointerdown', 'pointermove', 'pointerenter', 'mouseenter', 'toggle', 'transitionend']) assert.ok(EVENT_TYPES.includes(e), e);
   });
   it('font families: the system font\'s vendor names become system-ui, named families go, ui-* get their fallback', () => {

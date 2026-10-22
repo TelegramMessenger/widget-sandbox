@@ -17,6 +17,7 @@
 import { EVENT_TYPES, type CanvasCmd, type HostToRenderer, type Query, type RenderOp, type RendererToHost, type WidgetEvent } from '../shared/protocol';
 import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
 import { THEME_VARIABLES, themeVariables } from '../shared/sdk-policy';
+import { GestureArbiter, claimOf, type GestureClaim, type GestureVerdict, type PointerKind } from '../shared/gesture-policy';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
 
 /** Where the core renders: a whole document (iframe, native WebViews) or a shadow root inside the host page. */
@@ -109,8 +110,12 @@ const matrixJson = (m: DOMMatrix | null) => (m ? { a: m.a, b: m.b, c: m.c, d: m.
 
 const ALWAYS_FORWARD = new Set(['click', 'load', 'error', 'toggle']);
 const THROTTLED = new Set(['pointermove', 'mousemove']);
-/** What the widget can get: the profile's events (no keyboard, focus, dblclick, contextmenu, touch, wheel or scroll). */
+/** What the widget can get: the profile's events (no keyboard, focus, touch, wheel or scroll; dblclick and contextmenu only the renderer's own). */
 const ALL_EVENTS = [...EVENT_TYPES];
+/** The engine's double click and context menu: never forwarded, the arbiter decides (gesture-policy.ts) and the renderer sends its own. */
+const ENGINE_GESTURES = new Set(['dblclick', 'contextmenu']);
+/** Compatibility mouse events: they carry no pointerId, so they follow the press the bubble took. */
+const MOUSE_COMPAT = new Set(['mousedown', 'mouseup', 'mousemove', 'click']);
 const ENTER_LEAVE = ['pointerenter', 'pointerleave', 'mouseenter', 'mouseleave'];
 const noop = () => {};
 /**
@@ -540,26 +545,140 @@ function serialize(e: Event, targetId: number): WidgetEvent {
 }
 
 /**
- * Which drags of the touch that starts on `el` the widget takes for itself
- * (docs/sdk-v1.md §5.5): `x` when an ancestor's computed `touch-action`
- * forbids horizontal panning (the chat's swipe-to-reply), `y` when one forbids
- * vertical panning (the list scroll); both when the sandbox has learned to
- * prevent pointerdown / touchstart on this target. The host tells the client
+ * What of the press that starts on `el` the widget claims (gesture-policy.ts
+ * `claimOf`, docs/sdk-v1.md §5.5): from the computed `touch-action` of `el` and
+ * its ancestors (`none` claims everything, a value without a horizontal or a
+ * vertical pan claims that axis) and a pointerdown / touchstart the sandbox has
+ * learned to prevent on this target (both axes). The host tells the client
  * (`onGestureClaim`); hosts whose WebView lives inside a scrolling container
  * that cannot see into it (Android) also act on `y` themselves.
  */
-function gestureClaim(el: Element | null, targetId: number): { x: boolean; y: boolean } {
-  if (preventKeys.has(`${targetId}:pointerdown`) || preventKeys.has(`${targetId}:touchstart`)) return { x: true, y: true };
-  let x = false, y = false;
-  for (let n: Element | null = el; n && n !== HTML; n = parentNodeOf(n) as Element | null) {
+function gestureClaim(el: Element | null, targetId: number): GestureClaim {
+  const values: string[] = [];
+  // Up to the widget's <html> itself: touch-action on an ancestor covers its descendants, as in CSS.
+  for (let n: Element | null = el ?? HTML; n; n = n === HTML ? null : (parentNodeOf(n) as Element | null)) {
     if (!(n instanceof Element)) break;
-    const ta = getComputedStyle(n).touchAction;
-    if (ta === 'auto' || ta === 'manipulation') continue;
-    if (ta === 'none') return { x: true, y: true };
-    if (!/\bpan-(x|left|right)\b/.test(ta)) x = true;
-    if (!/\bpan-(y|up|down)\b/.test(ta)) y = true;
+    values.push(getComputedStyle(n).touchAction);
   }
-  return { x, y };
+  return claimOf(values, preventKeys.has(`${targetId}:pointerdown`) || preventKeys.has(`${targetId}:touchstart`));
+}
+
+// ───────────────────────── presses: the widget or the bubble (gesture-policy.ts) ─────────────────────────
+
+const arbiter = new GestureArbiter();
+/** `arbitrate` from the host: null while the client's own recognizers take the bubble's presses (the native WebViews). */
+let bubbleMode: { touch: boolean; rtl: boolean } | null = null;
+let rtl = false;
+/** The primary pointer the arbiter follows, and its last event as the widget saw it (the base of what the renderer sends for it). */
+let pressPointer = -1;
+let pressEv: WidgetEvent | null = null;
+let holdTimer = 0;
+/** A pointer the bubble took: nothing more of it reaches the widget. */
+let takenPointer = -1;
+/** After a taken press's pointerup: its compatibility mouseup / click are not the widget's either. */
+let dropClick = false;
+/** A double tap the widget won: its `dblclick` follows the second tap's click. */
+let pendingDblclick: WidgetEvent | null = null;
+/** Reproducing a phone (`touch`), a mouse press is a finger's for the widget too: `pointerType` 'touch', also on its click. */
+let pressAsTouch = false;
+let clickAsTouch = false;
+
+function pressPoint(e: PointerEvent): { x: number; y: number; cx: number; cy: number } {
+  const o = env.origin();
+  const cx = e.clientX - (o?.x ?? 0), cy = e.clientY - (o?.y ?? 0);
+  return { x: rtl ? HTML.clientWidth - cx : cx, y: cy, cx, cy };
+}
+
+function clearHold() {
+  if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+}
+
+function scheduleHold() {
+  clearHold();
+  const at = arbiter.holdDeadline();
+  if (at === null) return;
+  // The arbiter's clock is the events' timeStamp, which shares performance.now()'s origin.
+  holdTimer = setTimeout(() => {
+    holdTimer = 0;
+    if (frozen) return;
+    const v = arbiter.tick(Math.max(performance.now(), at));
+    if (v && pressEv) settle(v, pressEv);
+  }, Math.max(0, at - performance.now()) + 1) as unknown as number;
+}
+
+/**
+ * Feeds a primary pointer's down / move / up / cancel to the arbiter (posting the claim at pointerdown) and answers
+ * its verdict, or null for an event the arbiter does not follow.
+ */
+function track(e: PointerEvent, targetEl: Element | null, targetId: number, ev: WidgetEvent): GestureVerdict | null {
+  const type = e.type;
+  if (type === 'pointerdown') {
+    if (!e.isPrimary) return null;
+    dropClick = false;
+    pendingDblclick = null;
+    const claim = gestureClaim(targetEl, targetId);
+    post({ type: 'gesture', wants: claim.y, x: claim.x, y: claim.y, hold: claim.hold });
+    // Reproducing a phone, the mouse's primary button is a finger; its secondary button stays the menu click.
+    const kind: PointerKind = bubbleMode?.touch && e.button !== 2 ? 'touch' : e.pointerType === 'mouse' ? 'mouse' : e.pointerType === 'pen' ? 'pen' : 'touch';
+    pressAsTouch = clickAsTouch = kind === 'touch' && e.pointerType === 'mouse';
+    if (pressAsTouch) ev.pointerType = 'touch';
+    const p = pressPoint(e);
+    pressPointer = e.pointerId;
+    pressEv = ev;
+    const v = arbiter.down(e.timeStamp, p.x, p.y, claim, kind, e.button);
+    scheduleHold();
+    return v;
+  }
+  if (e.pointerId !== pressPointer) return null;
+  const p = pressPoint(e);
+  if (pressAsTouch) ev.pointerType = 'touch';
+  pressEv = ev;
+  if (type === 'pointermove') return arbiter.move(e.timeStamp, p.x, p.y);
+  clearHold();
+  pressPointer = -1;
+  pressAsTouch = false;
+  if (type === 'pointerup') return arbiter.up(e.timeStamp, p.x, p.y);
+  arbiter.cancel();
+  return null;
+}
+
+/**
+ * Acts on a verdict once the event that produced it has gone to the widget: the widget's own `contextmenu` / `dblclick`
+ * for a hold / double tap it claims, and with the renderer playing the bubble, the end of a press the bubble takes.
+ */
+function settle(v: GestureVerdict, base: WidgetEvent) {
+  if (v.event === 'contextmenu') forward({ ...base, type: 'contextmenu' }, true);
+  else if (v.event === 'dblclick') pendingDblclick = { ...base, type: 'dblclick', detail: 2 };
+  if (!v.cancel || !bubbleMode || base.pointerId === undefined) return;
+  forward({ ...base, type: 'pointercancel', button: -1, buttons: 0 }, true);
+  takenPointer = base.pointerId;
+  clearHold();
+  pressPointer = -1;
+  pressAsTouch = clickAsTouch = false;
+  arbiter.cancel();
+  post({ type: 'bubble', action: v.action ?? 'menu', gesture: v.gesture, x: base.clientX ?? 0, y: base.clientY ?? 0, edge: v.edge === true });
+}
+
+/** Queues or posts one event for the widget, if it listens for that type (`ALWAYS_FORWARD` aside). */
+function forward(ev: WidgetEvent, trusted: boolean) {
+  if (!ALWAYS_FORWARD.has(ev.type) && !interest.has(ev.type)) return;
+  if (THROTTLED.has(ev.type)) {
+    pendingMoves.set(ev.type + ':' + (ev.pointerId ?? 0), ev);
+    if (!moveFrame) {
+      moveFrame = requestAnimationFrame(() => {
+        moveFrame = 0;
+        for (const m of pendingMoves.values()) post({ type: 'event', ev: m, trusted: false });
+        pendingMoves.clear();
+      });
+    }
+    return;
+  }
+  // Keep ordering: a queued move must not arrive after the up/click that followed it.
+  if (pendingMoves.size) {
+    for (const m of pendingMoves.values()) post({ type: 'event', ev: m, trusted: false });
+    pendingMoves.clear();
+  }
+  post({ type: 'event', ev, trusted });
 }
 
 function onEvent(e: Event) {
@@ -584,27 +703,39 @@ function onEvent(e: Event) {
   const targetId = target === root || target === null ? ids.get(HTML) ?? 0 : idOf(target);
   if (!targetId) return;
   if (preventKeys.size && e.cancelable && preventKeys.has(`${targetId}:${type}`)) e.preventDefault();
-  if (type === 'pointerdown' && (e as PointerEvent).isPrimary) { const c = gestureClaim(targetEl, targetId); post({ type: 'gesture', wants: c.y, x: c.x, y: c.y }); }
-  if (!ALWAYS_FORWARD.has(type) && !interest.has(type)) return;
-  // enter/leave do not bubble: with a capturing document listener they are seen once per entered element.
-  const ev = serialize(e, targetId);
-  if (THROTTLED.has(type)) {
-    pendingMoves.set(type + ':' + (ev.pointerId ?? 0), ev);
-    if (!moveFrame) {
-      moveFrame = requestAnimationFrame(() => {
-        moveFrame = 0;
-        for (const m of pendingMoves.values()) post({ type: 'event', ev: m, trusted: false });
-        pendingMoves.clear();
-      });
+  if (ENGINE_GESTURES.has(type)) return;
+  let verdict: GestureVerdict | null = null;
+  let ev: WidgetEvent | null = null;
+  if (e instanceof PointerEvent && (type === 'pointerdown' || type === 'pointermove' || type === 'pointerup' || type === 'pointercancel')) {
+    if (e.pointerId === takenPointer) {
+      // The bubble's press: nothing more of it, and not the click its release would make.
+      if (type === 'pointerup' || type === 'pointercancel') { takenPointer = -1; dropClick = type === 'pointerup'; }
+      return;
     }
-    return;
+    ev = serialize(e, targetId);
+    verdict = track(e, targetEl, targetId, ev);
+    // The bubble takes it at the release (a double tap's second tap): the widget gets pointercancel instead of pointerup.
+    if (verdict?.cancel && bubbleMode && type === 'pointerup') {
+      settle(verdict, ev);
+      takenPointer = -1;
+      dropClick = true;
+      return;
+    }
+    // A finger makes a click only for a tap: reproducing a phone with a mouse, a drag or a hold ends without one.
+    if (type === 'pointerup' && bubbleMode?.touch && verdict && (verdict.gesture === 'drag-x' || verdict.gesture === 'drag-y' || verdict.gesture === 'hold')) dropClick = true;
+  } else if (MOUSE_COMPAT.has(type) && (takenPointer !== -1 || (dropClick && type !== 'mousemove'))) return;
+  if (ev) forward(ev, e.isTrusted);
+  else if (ALWAYS_FORWARD.has(type) || interest.has(type)) {
+    const out = serialize(e, targetId);
+    if (type === 'click' && clickAsTouch && out.pointerType === 'mouse') { out.pointerType = 'touch'; clickAsTouch = false; }
+    forward(out, e.isTrusted);
   }
-  // Keep ordering: a queued move must not arrive after the up/click that followed it.
-  if (pendingMoves.size) {
-    for (const m of pendingMoves.values()) post({ type: 'event', ev: m, trusted: false });
-    pendingMoves.clear();
+  if (verdict && ev) settle(verdict, ev);
+  if (type === 'click' && pendingDblclick) {
+    const dbl = pendingDblclick;
+    pendingDblclick = null;
+    forward({ ...serialize(e, targetId), type: 'dblclick', detail: 2, pointerId: dbl.pointerId, pointerType: dbl.pointerType }, e.isTrusted);
   }
-  post({ type: 'event', ev, trusted: e.isTrusted });
 }
 
 // ───────────────────────── size reporting ─────────────────────────
@@ -660,6 +791,10 @@ function onMessage(msg: HostToRenderer) {
       break;
     case 'frozen':
       freeze(String(msg.reason), !!msg.fatal);
+      break;
+    case 'arbitrate':
+      rtl = msg.rtl === true;
+      bubbleMode = msg.bubble === true ? { touch: msg.touch === true, rtl } : null;
       break;
     case 'theme':
       themeVars = themeVariables(msg.theme);
@@ -803,6 +938,7 @@ function destroy() {
   resizeObserver.disconnect();
   if (frameReq) { cancelAnimationFrame(frameReq); frameReq = 0; }
   if (moveFrame) { cancelAnimationFrame(moveFrame); moveFrame = 0; }
+  clearHold();
   send = () => {};
 }
 

@@ -18,15 +18,16 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * A widget inside a scrolling container (the chat list): a vertical swipe
  * that starts on a plain widget scrolls the list, one that starts on an
- * element with `touch-action: none` stays with the widget (the renderer's
- * `gesture` message tells RendererWebView to keep the parent from intercepting).
+ * element with `touch-action: none` or `pan-x` stays with the widget (the renderer's
+ * `gesture` message tells RendererWebView to keep the parent from intercepting),
+ * and `onGesture` gets the claim: holds and double taps only with `none`.
  */
 @RunWith(AndroidJUnit4::class)
 class GestureTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
-    /** `claims`: what `onGestureClaim` got (x, y), one per primary pointerdown. */
-    private class Fixture(val host: WidgetHost, val scroll: ScrollView, val latest: AtomicReference<WidgetDiagnostics>, val claims: MutableList<Pair<Boolean, Boolean>>)
+    /** `claims`: what `onGesture` got, one per primary pointerdown. */
+    private class Fixture(val host: WidgetHost, val scroll: ScrollView, val latest: AtomicReference<WidgetDiagnostics>, val claims: MutableList<WidgetGestureClaim>)
 
     private fun mount(scenario: ActivityScenario<TestActivity>, html: String): Fixture {
         lateinit var f: Fixture
@@ -34,9 +35,9 @@ class GestureTest {
             val d = a.resources.displayMetrics.density
             val host = WidgetHost(a, html, WidgetTheme(), 360.0)
             val latest = AtomicReference(WidgetDiagnostics())
-            val claims = java.util.Collections.synchronizedList(ArrayList<Pair<Boolean, Boolean>>())
+            val claims = java.util.Collections.synchronizedList(ArrayList<WidgetGestureClaim>())
             host.onChange = { latest.set(it) }
-            host.onGestureClaim = { x, y -> claims.add(x to y) }
+            host.onGesture = { claims.add(it) }
             val column = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             column.addView(host.view, LinearLayout.LayoutParams((360 * d).toInt(), (300 * d).toInt()))
             column.addView(Space(a), LinearLayout.LayoutParams(1, (4000 * d).toInt()))
@@ -92,7 +93,7 @@ class GestureTest {
             val f = mount(scenario, "<div style='height:280px;background:#eee'>plain content</div>")
             swipeUp(f, 180f, 150f)
             assertTrue("list should have scrolled, scrollY=${scrollY(f)}", scrollY(f) > 0)
-            assertEquals("the client keeps both drags", listOf(false to false), f.claims.toList())
+            assertEquals("the client keeps both drags, holds and double taps", listOf(WidgetGestureClaim(x = false, y = false)), f.claims.toList())
             instrumentation.runOnMainSync { f.host.destroy() }
         }
     }
@@ -115,7 +116,31 @@ class GestureTest {
             assertEquals("list must not scroll, logs=$logs", 0, scrollY(f))
             assertTrue("widget should have seen the moves: $logs", logs.contains("moved5"))
             assertTrue("gesture must not be cancelled: $logs", !logs.contains("cancelled"))
-            assertEquals("onGestureClaim: the widget takes both drags", listOf(true to true), f.claims.toList())
+            assertEquals("onGesture: the widget takes both drags and holds", listOf(WidgetGestureClaim(x = true, y = true, hold = true)), f.claims.toList())
+            instrumentation.runOnMainSync { f.host.destroy() }
+        }
+    }
+
+    /** `pan-x`: the widget takes vertical drags (the list stays), not holds or double taps (the bubble's menu and reaction). */
+    @Test
+    fun touchActionPanXKeepsVerticalDragsButNotHolds() {
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            val f = mount(scenario, "<div style='height:280px;touch-action:pan-x;background:#ede'>pan-x</div>")
+            swipeUp(f, 180f, 150f)
+            assertEquals("list must not scroll", 0, scrollY(f))
+            assertEquals(listOf(WidgetGestureClaim(x = false, y = true)), f.claims.toList())
+            instrumentation.runOnMainSync { f.host.destroy() }
+        }
+    }
+
+    /** `touch-action` on a container covers its children, as in CSS: a plain element inside a `none` container claims everything. */
+    @Test
+    fun touchActionOnAContainerCoversItsChildren() {
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            val f = mount(scenario, "<div style='touch-action:none'><div style='height:280px;background:#dee'>child</div></div>")
+            swipeUp(f, 180f, 150f)
+            assertEquals("list must not scroll", 0, scrollY(f))
+            assertEquals(listOf(WidgetGestureClaim(x = true, y = true, hold = true)), f.claims.toList())
             instrumentation.runOnMainSync { f.host.destroy() }
         }
     }

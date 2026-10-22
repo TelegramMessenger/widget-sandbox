@@ -1,6 +1,6 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 255 features: 174 in (4 conditional on every renderer drawing them), 81 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 255 features: 176 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
@@ -13,10 +13,10 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | canvas | 21 | 13 | 8 | 0 | 21 |
 | js | 34 | 25 | 9 | 0 | 34 |
 | sdk | 10 | 9 | 1 | 0 | 10 |
-| input | 14 | 7 | 7 | 0 | 14 |
+| input | 14 | 9 | 5 | 0 | 14 |
 | limit | 11 | 11 | 0 | 0 | 7 |
 | behaviour | 11 | 11 | 0 | 0 | 11 |
-| **all** | 255 | 174 | 81 | 0 | 251 |
+| **all** | 255 | 176 | 79 | 0 | 251 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the pipeline of the tag does with it under `strict`: profile 1 enforced, SDK v1; legend below), **tests** (conformance widgets that judge it).
 
@@ -294,8 +294,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `input.touch-events` | touchstart / touchmove / touchend (touch clients only)<br><sub>Desktop clients have none; widgets should use pointer events.</sub> | out | D4 | stripped | the renderer never forwards touch events; use pointer events | auto/17-drag-hover |
 | `input.drag` | Drag: pointermove with buttons while pressed, setPointerCapture, movementX/Y<br><sub>v1 (not the PoC): drag with gesture arbitration.</sub> | in | D4 | kept |  | auto/17-drag-hover, visual/11-interaction, visual/sdk/12-drag-gestures |
 | `input.hover-events` | pointerover/enter/leave/out, mouseover/enter/leave (desktop pointer only) | in | D3 | kept |  | auto/17-drag-hover |
-| `input.dblclick` | dblclick / double tap | out | D4 | stripped | the renderer never forwards dblclick: a double tap belongs to the bubble (the reaction) | auto/16-sdk-taps-b, visual/sdk/12-drag-gestures |
-| `input.long-press` | contextmenu / long press | out | P1 | stripped | the renderer never forwards contextmenu and cancels the platform menu: a long press belongs to the bubble (the message menu) | auto/16-sdk-taps-b, visual/sdk/12-drag-gestures |
+| `input.dblclick` | dblclick / double tap: a double tap over the widget is always the widget's, on every element (the reaction stays outside the widget)<br><sub>v0.1.2: both clicks, then the renderer's own dblclick (gesture-policy.ts: 300 ms, 40 px); the engine's own never reaches the widget.</sub> | in | G1 | emulated |  | auto/16-sdk-taps-b, auto/23-gestures, visual/sdk/12-drag-gestures |
+| `input.long-press` | contextmenu / long press (or right click) claimed by touch-action: none on the element or an ancestor; on auto the hold is the bubble's message menu and the widget gets pointercancel<br><sub>v0.1.2: the renderer sends its own contextmenu at a 500 ms hold within 10 px or a right-button press; the platform menu stays cancelled.</sub> | in | G1 | emulated |  | auto/16-sdk-taps-b, auto/23-gestures, visual/sdk/12-drag-gestures |
 | `input.keyboard` | Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys | out | D4 | stripped | the renderer never forwards key events; the widget never owns keyboard focus | auto/16-sdk-taps-b, auto/21-no-keyboard |
 | `input.key-activation` | Enter / Space activate a focused button or link (a click from the keyboard) | out | D4 | stripped | keys do nothing in a widget: no synthetic click from Enter or Space | auto/21-no-keyboard |
 | `input.key-gesture` | A key press counts as a user gesture for privileged bridge calls | out | D4 | stripped | only taps (pointer presses) grant a gesture | auto/21-no-keyboard |
@@ -328,7 +328,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `behaviour.auto-height` | The bubble takes the widget height; above the cap it is clipped hard | in | D12a | host |  | auto/20-client-behaviour, visual/sdk/13-max-height, visual/sdk/17-size-hint |
 | `behaviour.no-selection` | Text is not selectable by default (a drag over text selects nothing); user-select: text enables it | in | D18 | kept |  | auto/17-drag-hover, visual/16-selection |
 | `behaviour.restart` | After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again<br><sub>The frozen frame and badge are the framework's; the restart count is the client's.</sub> | in | SDK | host |  | visual/sdk/11-crash-restart |
-| `behaviour.gesture-claim` | Drag inside a widget that claims the axis (touch-action / preventDefault on pointerdown) does not start swipe-to-reply or scroll the list; elsewhere the chat keeps its gestures<br><sub>onGestureClaim(x, y) per primary pointerdown (v1).</sub> | in | SDK | host |  | visual/sdk/12-drag-gestures |
+| `behaviour.gesture-claim` | touch-action is the claim: taps and double taps over the widget are always its own; on auto holds and swipes are the bubble's (the widget gets pointercancel); pan-y / pan-x give the widget drags on the other axis; none gives it everything; the leading 20 px and the bubble outside the widget never take a claim<br><sub>onGestureClaim (x, y, hold) per primary pointerdown; the client's recognizers follow the shared gesture policy (v0.1.2).</sub> | in | G1 | host |  | auto/23-gestures, visual/sdk/12-drag-gestures |
 | `behaviour.storage-persist` | localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message | in | SDK | host |  | visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart, visual/sdk/09-storage-delete |
 | `behaviour.storage-forward` | A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty<br><sub>Testable with a test bot: forward its message into another chat; the copy starts with empty storage.</sub> | in | SDK | host |  | visual/sdk/15-storage-forward |
 | `behaviour.message-edit` | A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage<br><sub>Testable with a test bot: edit the message with the same and with new HTML.</sub> | in | SDK | host |  | visual/sdk/16-bot-edit |
@@ -355,7 +355,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D5**: strict policy everywhere; webAnimations and morphUpdates from the profile
 - **D6**: 3D (__tw3d) cut from the release
 - **D8**: SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage
-- **SDK**: SDK v1 (docs/sdk-v1.md), with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble
+- **SDK**: SDK v1 (docs/sdk-v1.md), with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble (replaced by G1 in v0.1.2)
 - **D11**: One widget model: classic DOM in the sandbox
 - **D12a**: Above the cap: hard clip, no fullscreen
 - **D14**: Theme: themeParams + --tg-theme-*, theme change event
@@ -375,3 +375,4 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **P1-grid**: Grid is in on condition that the Swift renderer and TwidgetCore implement it before their releases (2026-10-17)
 - **P1-libs**: No bundled libraries in v1 (2026-10-17)
 - **P1-ua**: Clarified in v0.1.1 (2026-10-20): the renderer's user-agent layer (tables.uaStylesheet) also fixes the root and the text elements: the bubble's text colour (the bubble's own fill is the canvas behind a transparent renderer), the client's text tokens (--tg-text-font-size, --tg-text-line-height, --tg-text-padding as the body's margin) and explicit sizes and margins for headings, paragraphs, lists, tables, quotes and code, so a UA default in this profile means that layer, not an engine's own stylesheet
+- **G1**: Gestures, v0.1.2 (Artem, 2026-10-22): one shared policy with the same thresholds on every client and in the sandbox. A double tap over the widget is always the widget's (both clicks and dblclick, on every element; the reaction stays with the bubble outside the widget). For the rest touch-action is the claim, decided per element at pointerdown over the target and its ancestors (a container covers its children, as in CSS): auto: holds and swipes are the bubble's (the widget gets pointercancel); pan-y / pan-x: drags on the other axis are the widget's; none: everything is the widget's, holds (contextmenu) included. The leading 20 px of the widget and the bubble outside it never take a claim. Replaces "double tap and long press stay with the bubble" (SDK)

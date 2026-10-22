@@ -166,13 +166,20 @@ public enum WidgetAction: Equatable {
     }
 }
 
-/// On every primary pointerdown: whether the widget takes horizontal (`x`) and vertical (`y`) drags of this touch (docs/sdk-v1.md §5.5).
+/// On every primary pointerdown: what of this press the widget claims with CSS `touch-action` (docs/sdk-v1.md §5.5,
+/// GesturePolicy.swift): `none` claims all three, `pan-y` / `pan-x` the drags on the other axis, `auto` nothing.
+/// Taps and double taps over the widget are always its own. A client's recognizers feed it to a GestureArbiter.
 public struct WidgetGestureClaim: Equatable {
+    /// Horizontal drags (no swipe-to-reply or back).
     public var x: Bool
+    /// Vertical drags (no list scroll).
     public var y: Bool
+    /// Holds, and a right click with a mouse: no message menu; the widget gets `contextmenu`.
+    public var hold: Bool
 
-    public init(x: Bool, y: Bool) {
+    public init(x: Bool, y: Bool, hold: Bool = false) {
         self.x = x
         self.y = y
+        self.hold = hold
     }
 }

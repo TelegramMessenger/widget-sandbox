@@ -5,8 +5,8 @@ Three trust domains exchange plain JSON messages:
 ```
 sandbox (QuickJS, UNTRUSTED) ──ops / queries / listen / pd / raf / log / diag / bridge / storage──▶ host (trusted)
 sandbox ◀── events / timer & frame ticks / query results / viewport / theme / visibility ──── host
-host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / frozen──▶ renderer (trusted code, sandboxed iframe)
-host ◀── events / query results / size / resize / frame / media / gesture / violation ──── renderer
+host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
+host ◀── events / query results / size / resize / frame / media / gesture / bubble / violation ──── renderer
 ```
 
 Type definitions live in `packages/core/src/shared/protocol.ts`. Nothing from the sandbox is
@@ -268,10 +268,15 @@ it is in the profile's list (`tables.events`: taps, pointer and mouse events,
 `load`, `error`, `toggle`, the animation and transition events) and the
 sandbox declared interest in its type (`listen`) or it is one of
 `click load error toggle`. Move-type events are throttled to animation frames.
-Keys, focus, input, `dblclick`, `contextmenu`, touch, wheel and scroll events
-are never forwarded (profile 1): the renderer cancels the keys' and the context
-menu's default actions, never lets the focus into the widget and drops a
-trusted `click` without a press (`detail` 0).
+Keys, focus, input, touch, wheel and scroll events are never forwarded
+(profile 1): the renderer cancels the keys' and the context menu's default
+actions, never lets the focus into the widget and drops a trusted `click`
+without a press (`detail` 0). The engine's own `dblclick` and `contextmenu`
+are never forwarded either; since v0.1.2 the renderer sends its own, decided by
+the gesture policy (`src/shared/gesture-policy.ts`): `dblclick` after the second
+tap's `click`, for every double tap, and `contextmenu` at a hold (or a
+right-button press) only when the press's claim gives the widget the hold
+(`touch-action: none`).
 
 ```ts
 interface WidgetEvent {
@@ -315,6 +320,29 @@ vertically. Hosts whose renderer view sits inside a scrolling container that
 cannot see into it also act on `wants` themselves: the Android host denies the
 container's touch interception from `ACTION_DOWN` and releases it on
 `wants: false` (or after 150 ms without an answer).
+
+Since v0.1.2 the message is `{ type: 'gesture', wants, x, y, hold }`: the claim
+is `claimOf` of the gesture policy over the target's and its ancestors' computed
+`touch-action` (a learned `preventDefault` claims both axes), and `hold` is true
+only under `touch-action: none`; taps and double taps are always the widget's. The
+client drives its recognizers with the policy's `GestureArbiter` (docs/sdk-v1.md
+§5.5) and cancels the widget's touch the platform's way when the bubble takes
+the press.
+
+### The renderer as the bubble (`arbitrate`, v0.1.2)
+
+A host without recognizers over the widget (the web: `WidgetHost`
+`bubbleGestures`) sends `{ type: 'arbitrate', bubble: true, touch?, rtl? }`.
+The renderer then acts on the arbiter's verdicts itself: a press the bubble
+takes (a hold, a swipe or a scroll over an element that does not claim it, a
+right click) ends for the widget with a
+`pointercancel` built from the press's last event, nothing more of that pointer
+is forwarded (no `pointerup`, no compatibility `mouseup` / `click`), and the
+host gets `{ type: 'bubble', action, gesture, x, y, edge }`. `touch`: the
+mouse's primary button arbitrates as a finger, and the widget sees
+`pointerType: 'touch'` for the press and no click after a drag or a hold, as on
+a phone; `rtl`: the leading edge strip is the right one. `{ bubble: false }`
+(the default) leaves the presses to the client.
 
 ## Host ⇄ worker envelope
 

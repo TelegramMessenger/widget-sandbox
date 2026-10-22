@@ -489,11 +489,27 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
     } else if (type == "gesture") {
-        // docs/sdk-v1.md §5.5. The renderer core sends x and y (`wants` is y); a renderer that sends only
-        // `wants` (the Blitz and litehtml prototypes) claims vertical drags with it.
-        bool x = msg["x"].asBool();
-        bool y = msg["y"].isBool() ? msg["y"].asBool() : msg["wants"].asBool();
-        if (onGestureClaim) onGestureClaim(x, y);
+        // docs/sdk-v1.md §5.5, gesture_policy.h. The renderer core sends x, y and hold (`wants` is y); a
+        // renderer that sends only `wants` (the Blitz and litehtml prototypes) claims vertical drags with it. Anything
+        // missing or not a boolean is false.
+        WidgetGestureClaim claim;
+        claim.x = msg["x"].asBool();
+        claim.y = msg["y"].isBool() ? msg["y"].asBool() : msg["wants"].asBool();
+        claim.hold = msg["hold"].asBool();
+        if (onGesture) onGesture(claim);
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#else
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+        if (onGestureClaim) onGestureClaim(claim.x, claim.y);
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#else
+#pragma GCC diagnostic pop
+#endif
     }
 }
 
