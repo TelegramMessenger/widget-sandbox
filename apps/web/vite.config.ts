@@ -42,7 +42,7 @@ const groupDir = (group: string) => (group === 'conformance' ? conformanceDir : 
 
 function listCorpus(): string[] {
   const out: string[] = [];
-  for (const group of ['compat', 'attacks', 'generated', 'htmlbubbles-ported', 'common', 'showcase', 'defaults', 'conformance']) {
+  for (const group of ['compat', 'attacks', 'generated', 'htmlbubbles-ported', 'common', 'showcase', 'defaults', 'gestures', 'conformance']) {
     const base = groupDir(group);
     const walk = (dir: string) => {
       if (!fs.existsSync(dir)) return;

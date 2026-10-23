@@ -16,6 +16,7 @@
     "test:common": "CORPUS_GROUP=common playwright test tests/generated.spec.ts",
     "test:showcase": "CORPUS_GROUP=showcase playwright test tests/generated.spec.ts",
     "test:defaults": "CORPUS_GROUP=defaults playwright test tests/generated.spec.ts",
+    "test:gesture-corpus": "CORPUS_GROUP=gestures playwright test tests/generated.spec.ts",
     "test:lifecycle": "playwright test tests/lifecycle.spec.ts",
     "test:activation": "playwright test tests/activation.spec.ts",
     "test:sdk": "playwright test tests/sdk.spec.ts",

@@ -49,7 +49,7 @@ pnpm workspace). A framework change touches `packages/` only.
   Gradle build with `includeBuild("../../packages/android")`);
   `apps/renderer-blitz`, `apps/renderer-litehtml` — the native renderer prototypes.
 - Shared data at the root: `corpus/` (attacks, compat, generated, common,
-  showcase, defaults, htmlbubbles*), `tests/` (the Playwright suites, run against
+  showcase, defaults, gestures, htmlbubbles*), `tests/` (the Playwright suites, run against
   `apps/web`), `docs/`, `scripts/` (repo tooling: corpus generation, benches,
   profiling, `sync-demo-corpus.ts`).
 
@@ -182,6 +182,7 @@ TW_RENDERER=shadow corepack pnpm test:attacks   # the same suite on the Shadow D
 corepack pnpm tsx scripts/feed-bench.ts --counts 50,200 --mode ops,host --cv --pool 8,32 --out docs/feed-bench-web.md   # iframe vs shadow renderer in a feed of N bubbles (needs pnpm dev); ops = renderer only, host = full WidgetHost per bubble, --pool = also with a warmed worker pool
 corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://127.0.0.1:5173   # the feed's bench headless (6 renderer × pool cells × 5 passes × 60 bubbles, ~30 min; --combos iframe:on,blitz:off,…) → docs/feed-report-web.json + .md; needs pnpm dev and the two wasm builds
 corepack pnpm test:defaults           # 6 widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults, README there; the test group's Defaults topic) → docs/compat-report-defaults.md
+corepack pnpm test:gesture-corpus     # 10 widgets that claim drags on both axes (none), horizontal (pan-y) or vertical (pan-x) only, or nothing (auto): games, drawing pad, map, carousel, sliders, wheel picker (corpus/gestures, README there: what an "only horizontal" rule would change; the feed's corpus=gestures; the test group's Gestures topic, --topic gestures only) → docs/compat-report-gestures.md
 corepack pnpm test:showcase           # 21 interactive demos on the full web profile (corpus/showcase, README there; the web feed's content) → docs/compat-report-showcase.md; in the iOS/macOS demo: the showcase/<batch> sections, --autorun showcase, and the iOS chat feed's Widgets picker (showcase by default; --feed-set corpus=showcase from a shell)
 corepack pnpm test:common             # 32 widgets on the common WebView/Blitz/litehtml profile (corpus/common, README there) → docs/compat-report-common.md; the same files run on every renderer: --autorun common [--blitz|--litehtml] in the iOS/macOS demo, --es autorun common on Android, CORPUS=common scripts/android-bench.sh <renderer> 20
 corepack pnpm build:blitz-web         # Blitz renderer for the web dev app: cargo (wasm32, rustup) + wasm-bindgen-cli (version from apps/renderer-blitz/Cargo.lock) → apps/renderer-blitz/pkg-web (gitignored, served at /blitz/); then the Blitz toggle / ?blitz=1, apps/web/tests/unit/blitz-wasm.test.ts stops skipping

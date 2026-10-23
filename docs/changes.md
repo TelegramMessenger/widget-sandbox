@@ -9,6 +9,11 @@ nothing until the host lists them; "default" items apply to every host.
   widget behind a debug flag. Widgets come only as `messageMediaWidget`; testing goes through real
   layer-233 messages (`docs/tgw-format.md`, "Testing"). No code read `.tgw`; clients drop their own path.
 
+**Examples**: `corpus/gestures`, ten widgets that claim drags with `touch-action` (`none`, `pan-y`, `pan-x`, `auto`), among them one
+joystick game on `none` and on `pan-y`, to try whether vertical drags over a widget should always scroll the chat
+(`corpus/gestures/README.md`); `pnpm test:gesture-corpus`, the web feed's `corpus=gestures`, the test group's Gestures topic
+(`--topic gestures`, not in the default run). No framework change.
+
 ## v0.1.2 — release notes (2026-10-22)
 
 Who gets a press: double taps over the widget are the widget's, and for holds and drags CSS

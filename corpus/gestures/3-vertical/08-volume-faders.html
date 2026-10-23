@@ -1,0 +1,66 @@
+<!--
+  gestures: touch-action: pan-x on the faders, so they claim vertical drags only (corpus/gestures/README.md)
+  idea: a four-channel mixer with vertical volume faders on touch-action: pan-x. Grab a fader anywhere and slide it up or down, as in a phone's control centre; double-tap one to mute it. A drag that starts sideways is the chat's swipe-to-reply, a hold its menu. Under a rule that only horizontal drags may be claimed, these faders could not be dragged at all.
+-->
+<title>Mixer</title>
+<style>
+  .ta { margin: 0 0 8px; font-size: 13px; color: var(--tg-theme-hint-color) }
+  #mx { display: flex; gap: 8px; margin: 0 8px }
+  .ch { flex: 1; text-align: center; font-size: 13px }
+  .tr { position: relative; height: 190px; margin: 0 auto; width: 52px; border-radius: 14px; background: rgba(128, 128, 128, .18); overflow: hidden; touch-action: pan-x }
+  .lv { position: absolute; left: 0; right: 0; bottom: 0; background: var(--tg-theme-button-color); pointer-events: none }
+  .ch.mute .lv { background: var(--tg-theme-hint-color); opacity: .5 }
+  .v { margin: 6px 0 0; font-weight: 600; font-variant-numeric: tabular-nums }
+  .n { margin: 0; color: var(--tg-theme-hint-color) }
+  .st { margin: 10px 0 0; font-size: 13px }
+</style>
+<p class="ta"><code>touch-action: pan-x</code> · slide a fader up or down, double-tap to mute; sideways is the chat's swipe</p>
+<div id="mx"></div>
+<p class="st">Presses taken by the chat: <b id="tk">0</b></p>
+<script>
+var $ = function (id) { return document.getElementById(id); };
+var chans = [['Music', 70], ['Voice', 85], ['Effects', 40], ['Master', 60]];
+var press = null, took = 0;
+function hap() { try { TelegramWidget.HapticFeedback.selectionChanged(); } catch (_) {} }
+chans.forEach(function (c) {
+  var ch = document.createElement('div'), tr = document.createElement('div'), lv = document.createElement('div');
+  var v = document.createElement('p'), n = document.createElement('p');
+  ch.className = 'ch';
+  tr.className = 'tr';
+  lv.className = 'lv';
+  v.className = 'v';
+  n.className = 'n';
+  n.textContent = c[0];
+  tr.appendChild(lv);
+  ch.append(tr, v, n);
+  $('mx').appendChild(ch);
+  var s = { level: c[1], muted: false };
+  function draw() {
+    lv.style.height = s.level + '%';
+    ch.className = 'ch' + (s.muted ? ' mute' : '');
+    v.textContent = s.muted ? 'muted' : s.level + '%';
+  }
+  tr.addEventListener('pointerdown', function (e) {
+    press = { id: e.pointerId, sy: e.clientY, h: tr.clientHeight || 190, was: s.level, mute: s.muted };
+    try { tr.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  // the level follows the finger from where it pressed, in steps of 5 %
+  tr.addEventListener('pointermove', function (e) {
+    if (!press || e.pointerId !== press.id) return;
+    var l = Math.round(Math.max(0, Math.min(100, press.was + (press.sy - e.clientY) * 100 / press.h)) / 5) * 5;
+    if (l !== s.level) { s.level = l; s.muted = false; hap(); draw(); }
+  });
+  tr.addEventListener('pointerup', function () { press = null; });
+  tr.addEventListener('pointercancel', function () {
+    if (!press) return;
+    // the chat took the press: undo what its first few pixels moved
+    s.level = press.was;
+    s.muted = press.mute;
+    press = null;
+    draw();
+    $('tk').textContent = ++took;
+  });
+  tr.addEventListener('dblclick', function () { s.muted = !s.muted; draw(); });
+  draw();
+});
+</script>

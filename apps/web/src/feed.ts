@@ -2,7 +2,7 @@
 // in a native build). The web port of the idea behind ios/DemoApp/Sources/ChatFeed
 // (docs/chat-feed-ios.md): a vertical feed of 60–80 bubbles, each a WidgetHost
 // on corpus/showcase (the interactive, animated demos; `corpus=common` for the
-// renderer-comparison corpus), driven by the list's own lifecycle — a host is created when
+// renderer-comparison corpus, `corpus=gestures` for the drag claims), driven by the list's own lifecycle — a host is created when
 // a bubble comes near the viewport, hidden (`setVisible(false)`) when it leaves
 // it, and dropped when it is screens away (the height is remembered so the
 // layout does not jump; a host from the pool replaces it when it comes back).
@@ -38,12 +38,15 @@ import { bubbleGesturesOption, showBubbleGesture, type GestureMode } from './bub
 
 export type FeedRenderer = 'iframe' | 'shadow' | 'blitz' | 'litehtml';
 /** Which corpus fills the widget bubbles; `BATCH_ORDER` is the round-robin over its batches (light first). */
-export type FeedCorpus = 'showcase' | 'common';
+export type FeedCorpus = 'showcase' | 'common' | 'gestures';
 const CORPORA: { kind: FeedCorpus; title: string }[] = [
   { kind: 'showcase', title: 'corpus/showcase: 21 interactive, animated demos on the full web profile (boarding pass, ride tracking, smart home, kanban, live poll …)' },
   { kind: 'common', title: 'corpus/common: the 32 widgets on the profile every renderer shares, for like-for-like renderer timings' },
+  { kind: 'gestures', title: 'corpus/gestures: 10 widgets that claim drags on both axes, horizontal or vertical only, or nothing (games, a drawing pad, a carousel, sliders, a wheel picker), to feel the claims in a scrolling chat' },
 ];
-const BATCH_ORDER: Record<FeedCorpus, string[]> = { showcase: ['travel', 'commerce', 'life', 'work'], common: ['cards', 'interactive', 'live', 'heavy'] };
+const BATCH_ORDER: Record<FeedCorpus, string[]> = {
+  showcase: ['travel', 'commerce', 'life', 'work'], common: ['cards', 'interactive', 'live', 'heavy'], gestures: ['1-both-axes', '2-horizontal', '3-vertical', '4-control'],
+};
 const RENDERERS: { kind: FeedRenderer; label: string; title: string }[] = [
   { kind: 'iframe', label: 'iframe', title: 'sandboxed srcdoc iframe per bubble (product renderer)' },
   { kind: 'shadow', label: 'shadow', title: 'the same renderer core on a shadow root in this page, no iframe (prototype)' },
