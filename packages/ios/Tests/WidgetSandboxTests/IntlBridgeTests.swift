@@ -119,6 +119,48 @@ final class IntlBridgeTests: XCTestCase {
         XCTAssertEqual(got.last, "numeric,numeric,numeric,Asia/Tokyo")
     }
 
+    /// A locale tag with a Unicode extension: Locale(identifier:) misreads "ar-EG-u-nu-arab" as "ar_EG@numbers=yes",
+    /// whose formatters have nil patterns and symbols and trapped the host. Each request must answer, with the extension applied.
+    func testUnicodeExtensionTagsFormatInsteadOfTrapping() throws {
+        let requests: [[String: Any]] = [
+            ["kind": "dateMethod", "method": "toLocaleDateString", "locale": "ar-EG-u-nu-arab", "opts": ["dateStyle": "full"], "value": 0],
+            ["kind": "date", "locale": "hi-IN-u-nu-deva", "opts": ["hour": "numeric", "minute": "numeric"], "value": 0],
+            ["kind": "dateParts", "locale": "ar-EG-u-nu-arab", "opts": ["year": "numeric", "month": "long", "day": "numeric"], "value": 0],
+            ["kind": "dateMethod", "method": "toLocaleString", "locale": "en-u-nu-latn-ca-gregory", "opts": ["year": "numeric", "month": "numeric", "day": "numeric", "hour": "numeric", "minute": "numeric", "second": "numeric"], "value": 0],
+            ["kind": "numberParts", "locale": "ar-EG-u-nu-arab", "opts": ["style": "percent"], "value": 0.25],
+            ["kind": "relative", "locale": "fa-u-nu-arab", "opts": ["numeric": "auto"], "value": 1, "unit": "quarter"],
+            ["kind": "number", "locale": "ar-EG-u-nu-arab", "opts": ["style": "currency", "currency": "EGP"], "value": 1234.5],
+            ["kind": "number", "locale": "hi-u-nu-deva-x-y", "opts": [:], "value": 42],
+            ["kind": "number", "locale": "en-u-attr-nu-thai", "opts": [:], "value": 42],
+        ]
+        for request in requests {
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]), as: UTF8.self)
+            XCTAssertFalse(IntlBridge.format(requestJson: json).isEmpty, json)
+        }
+        let date = String(decoding: try JSONSerialization.data(withJSONObject: requests[0], options: [.sortedKeys]), as: UTF8.self)
+        let currency = String(decoding: try JSONSerialization.data(withJSONObject: requests[6], options: [.sortedKeys]), as: UTF8.self)
+        if #available(macOS 13, iOS 16, *) {
+            XCTAssertTrue(IntlBridge.format(requestJson: date).contains("١٩٧٠"), IntlBridge.format(requestJson: date))
+            XCTAssertNotEqual(IntlBridge.format(requestJson: currency), "1234.5")
+        }
+    }
+
+    func testUnicodeExtensionIsDroppedWhereComponentsAreUnavailable() {
+        XCTAssertEqual(IntlBridge.withoutUnicodeExtension("ar-EG-u-nu-arab"), "ar-EG")
+        XCTAssertEqual(IntlBridge.withoutUnicodeExtension("en-u-nu-latn-ca-gregory"), "en")
+        XCTAssertEqual(IntlBridge.withoutUnicodeExtension("hi-u-nu-deva-x-y"), "hi-x-y")
+        XCTAssertEqual(IntlBridge.withoutUnicodeExtension("de-t-en-u-co-phonebk"), "de-t-en")
+        XCTAssertEqual(IntlBridge.withoutUnicodeExtension("zh-Hant-TW"), "zh-Hant-TW")
+    }
+
+    func testResolvedLocaleKeepsTheTag() throws {
+        guard #available(macOS 13, iOS 16, *) else {
+            throw XCTSkip("Locale.Components needs macOS 13")
+        }
+        XCTAssertEqual(IntlBridge.bcp47Locale("ar-EG-u-nu-arab").identifier(.bcp47), "ar-EG-u-nu-arab")
+        XCTAssertEqual(IntlBridge.bcp47Locale("zh-Hant-TW").identifier(.bcp47), "zh-Hant-TW")
+    }
+
     /// The cases shared with intl.ts, IntlBridge.kt and intl.cpp: V8's answers (tests/fixtures/intl-cases.json,
     /// copied here by `pnpm build:ios`).
     func testSharedFixtureMatchesV8() throws {
