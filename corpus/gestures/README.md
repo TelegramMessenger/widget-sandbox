@@ -3,7 +3,7 @@
 Widgets for one question: **should vertical drags over a widget always scroll the chat, so
 that widgets can claim only horizontal drags?** The set has two sides:
 
-- **What breaks without vertical**: three games in pairs, the same widget on
+- **What breaks without vertical**: two games in pairs, the same widget on
   `touch-action: none` (`…-xy`, it claims both axes) and on `pan-y` (`…-x`, horizontal only,
   which is what the rule would leave it), and a wheel picker on `pan-x`, a vertical control.
   The two files of a pair differ in one CSS value and their first line.
@@ -40,17 +40,13 @@ Sizes as the server counts them (gzip -6, limit 4096 B); heights at a 320 px wid
 | **Breaks without vertical** | | | | | |
 | `1-pairs/01-joystick-xy.html` | `none` | Star catcher: fly a dot with a virtual stick, collect stars | start up or down, circle, rest your thumb on the stick | 1837 B | 435 px |
 | `1-pairs/02-joystick-x.html` | `pan-y` | the same game | the same; then start sideways and steer up | 1899 B | 435 px |
-| `1-pairs/03-maze-xy.html` | `none` | Ball maze: drag the ball to the flag, a wall sends it back; a timer and the best time | finish it | 2616 B | 383 px |
-| `1-pairs/04-maze-x.html` | `pan-y` | the same maze | try to leave the start | 2639 B | 383 px |
-| `1-pairs/05-2048-xy.html` | `none` | 2048: swipe in four directions, equal tiles merge; score, best and the game are kept | play a few moves | 2345 B | 406 px |
-| `1-pairs/06-2048-x.html` | `pan-y` | the same game | swipe up or down | 2354 B | 406 px |
-| `3-vertical/10-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2214 B | 294 px |
+| `1-pairs/03-2048-xy.html` | `none` | 2048: swipe in four directions, equal tiles merge; score, best and the game are kept | play a few moves | 2490 B | 404 px |
+| `1-pairs/04-2048-x.html` | `pan-y` | the same game | swipe up or down | 2502 B | 404 px |
+| `3-vertical/08-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2214 B | 294 px |
 | **Fine with horizontal only** | | | | | |
-| `2-horizontal/07-paddle-x.html` | `pan-y` | Brick breaker: slide anywhere to move the paddle, tap to serve | play it | 2085 B | 353 px |
-| `2-horizontal/08-card-carousel-x.html` | `pan-y` | trips on cards with peeking neighbours, flick, snap, dots | swipe and flick, tap a card, drag up over a card | 2075 B | 310 px |
-| `2-horizontal/09-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2021 B | 274 px |
-| **Diagnostic** | | | | | |
-| `probe-transform.html` | — | the transform probe (below) | open it on your client | 1563 B | 527 px |
+| `2-horizontal/05-paddle-x.html` | `pan-y` | Brick breaker: slide anywhere to move the paddle, tap to serve | play it | 2085 B | 353 px |
+| `2-horizontal/06-card-carousel-x.html` | `pan-y` | trips on cards with peeking neighbours, flick, snap, dots | swipe and flick, tap a card, drag up over a card | 2075 B | 310 px |
+| `2-horizontal/07-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2021 B | 274 px |
 
 ## What "only horizontal" would change
 
@@ -61,63 +57,39 @@ Sizes as the server counts them (gzip -6, limit 4096 B); heights at a 320 px wid
   the chat: a thumb resting on the stick for half a second opens the message menu. The rule as
   stated says nothing about holds, and CSS cannot express "horizontal plus holds", so 02 is the
   rule plus losing holds.
-- **Maze (03 → 04).** The start cell opens only downwards. On 04 a press that starts down
-  scrolls the chat, and one that starts sideways moves the ball into the wall first: a
-  corridor leaves the ball about 6 px either way, and a press must move more than 7 px
-  sideways before it counts as horizontal. The maze cannot be left from its start; anywhere
-  else, a press can only begin at a junction and must never be lifted in a vertical corridor.
-- **2048 (05 → 06).** Up and down swipes scroll the chat, so only left and right move the tiles
+- **2048 (03 → 04).** Up and down swipes scroll the chat, so only left and right move the tiles
   and the board fills up. The author would have to add buttons for up and down.
-- **Wheel picker (10).** A vertical control: under the rule it cannot be spun at all, every drag
+- **Wheel picker (08).** A vertical control: under the rule it cannot be spun at all, every drag
   scrolls the chat. The author would have to turn it on its side or replace it with buttons.
-- Drawing on a canvas and panning a map are 2D in the same way as the joystick and the maze.
+- Drawing on a canvas, panning a map and guiding a ball through a maze are 2D in the same way
+  as the joystick.
 
 Fine with horizontal only, unchanged by the rule:
 
-- **Paddle (07)**, **card carousel (08)** and **range slider (09)** move along one horizontal
+- **Paddle (05)**, **card carousel (06)** and **range slider (07)** move along one horizontal
   axis; a vertical drag over them is the chat's scroll, which is what a reader wants. (`pan-y`
   gives a resting thumb to the message menu; none of them needs holds.)
 
-## The transform probe
+## Renderer notes
 
-The card carousel (08) moves its track with
-`transform: translateX(calc(11% - i * (78% + 10px) + dx px))` and snaps to a card through a
-`transition` on `transform`. It does not move on the iOS and Android Telegram clients, while the
-paddle, also on `pan-y`, works there: the claim works, and the paddle moves with `left`.
-`probe-transform.html` shows a client team which forms of a transform its renderer draws. Every
-row moves a box onto its dashed outline 120 px in:
-
-- `left: 50%`, the control;
-- `transform: translateX()` in px, in %, with `calc(% + px)` and with the carousel's
-  `calc()` (a `*` and nested parentheses), and the `translate` property, all from the
-  stylesheet;
-- the same four `translateX()` forms set from script (`style.transform`);
-- the same four set from script after a class adds `transition: transform .3s`, the way the
-  carousel snapped.
-
-A box short of its outline is a form that renderer does not draw. The ✓ / ✗ after a row is
-where the renderer's own layout puts the box (`getBoundingClientRect`): a renderer may draw a
-transform and still report the box where it was, so judge by the picture.
-
-On the web renderers (dev app, 2026-10-23):
-
-| Renderer | stylesheet | from script | through a transition | layout (✓ / ✗) |
-|---|---|---|---|---|
-| iframe, shadow (Chromium) | all | all | all | 14 / 14 |
-| Blitz (wasm prototype) | all | all | **none**: the box stays at the start | only the control: Blitz's layout ignores transforms |
-| litehtml (wasm prototype) | **none** | **none** | **none** | only the control |
-
-So the carousel fails on a renderer without transforms (litehtml: the dot moves on, the track
-does not) and on one that does not apply a transform through a transition (Blitz: the track
-stays where the finger left it). Which one the Telegram clients have is for their teams to
-check with the probe. The conformance set covers the same forms since this change:
-`auto/09-transforms-effects-a` checks `translateX(%)`, `calc()` in `translateX()` (with `*` and
-nested parentheses too) and a transform set from script; `visual/05-transforms-effects-a` draws
-them for the reference picture.
-
-The other widgets here move things with `left` and `top` only, never with a transform, so they
-test gestures, not the renderer's transforms; the carousel keeps its transform as the real case
-for the probe.
+- **The card carousel** moves its track with
+  `transform: translateX(calc(11% - i * (78% + 10px) + dx px))` and snaps to a card through a
+  `transition` on `transform`. It does not move on the iOS and Android Telegram clients, while the
+  paddle, also on `pan-y`, works there: the claim works, and the paddle moves with `left`. On the
+  web prototypes, litehtml draws no transform (the dot moves on, the track does not) and Blitz
+  does not apply a transform set through a transition (the track stays where the finger left it).
+  The automatic conformance set checks these forms (`css.transform.2d`, `css.value.math` in
+  `auto/09-transforms-effects-a`; `anim.transition` in `auto/10-css-animations`), and
+  `visual/05-transforms-effects-a` draws them for its reference picture. The carousel keeps its
+  transform as the real case; the other widgets move things with `left` and `top` only.
+- **The 2048 board** was a 4-column grid whose height came from `aspect-ratio: 1`, with
+  content-sized rows: browsers share the free height unevenly between rows with and without a
+  number, and a renderer without `aspect-ratio` collapses the board to its numbers. It is now
+  sixteen cells placed in whole px from JS (the board measured once and again on resize with
+  `ResizeObserver`), which iframe, Shadow DOM, Blitz, litehtml and the reference draw alike.
+  Both features are in profile 1 and covered: `css.box.aspect-ratio` (`auto/03-layout-b`) and
+  `css.display.grid` (`auto/03-layout-a`: `repeat(4, 1fr)` tracks, `grid-template-rows: 20px 1fr`
+  on a definite height; `visual/04-layout`), so a client that cannot draw them has a renderer gap.
 
 ## Notes for authors
 
@@ -130,24 +102,24 @@ for the probe.
   re-centres, the carousel and the wheel snap back.
 - A mouse drag still ends with a `click` (a finger's never does): the carousel ignores a click
   after the pointer moved more than 6 px.
+- A game board: fixed sizes in px rather than a grid sized by `aspect-ratio`.
 
 ## How to try them
 
 - Dev app (`corepack pnpm dev`): the `gestures/` group in the corpus list, or
-  `?file=gestures/1-pairs/04-maze-x.html&width=320`. The **gestures** select is `phone` by
+  `?file=gestures/1-pairs/04-2048-x.html&width=320`. The **gestures** select is `phone` by
   default: the mouse plays a finger and the bubble shows what it took (`↕ list scroll`,
-  `↩ swipe: reply`, `⋯ message menu`). `&blitz=1` / `&litehtml=1` for the probe on the wasm
-  renderers (`pnpm build:blitz-web`, `pnpm build:litehtml-web`).
+  `↩ swipe: reply`, `⋯ message menu`). **compare all** (`&compare=1`) draws the widget on every
+  renderer side by side (Blitz and litehtml need `pnpm build:blitz-web`, `pnpm build:litehtml-web`).
 - Chat feed: `?feed=1&corpus=gestures`. On a touch device, or with touch emulation in Chrome's
   device toolbar, a drag the chat takes really scrolls the feed.
 - Node harness, the press report:
-  `corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/gestures/1-pairs/04-maze-x.html --width 360 --swipe 180,201,0,-60 --swipe 180,201,60,0 --hold 180,201`.
-- `corepack pnpm test:gesture-corpus` loads the ten widgets in the sandbox and in reference
+  `corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/gestures/1-pairs/02-joystick-x.html --width 360 --swipe 180,335,0,-60 --swipe 180,335,60,0 --hold 180,335`.
+- `corepack pnpm test:gesture-corpus` loads the eight widgets in the sandbox and in reference
   mode (no JS errors, pixels within 3 %) → `docs/compat-report-gestures.md`; with
-  `TW_RENDERER=shadow` on the Shadow DOM renderer. The probe is not in it: it measures itself.
+  `TW_RENDERER=shadow` on the Shadow DOM renderer.
 - The Telegram test group: the **Gestures** topic of `scripts/conformance/publish-channel.ts`,
-  not in the default run: `--topic gestures` (the ten widgets and the probe; each file's
-  `idea:` line is its description).
+  not in the default run: `--topic gestures` (each file's `idea:` line is its description).
 
 Rules: pointer events and `setPointerCapture`, no libraries, no form controls (out of profile
 1), theme variables where a colour has a theme counterpart, at most 3800 B of gzip and 560 px

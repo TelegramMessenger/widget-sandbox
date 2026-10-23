@@ -78,7 +78,7 @@ The steps are in this order:
 
 ## The test group
 
-`scripts/conformance/publish-channel.ts` fills a Telegram forum supergroup with the set through a test bot, in the order of `channel.json`. Each part gets its own topic: Visual, Client SDK and Auto, and Defaults for the example widgets of `corpus/defaults` (v0.1.1, no pictures; their description is the file's `idea:` line). The corpora that fit a mini-widget (`showcase`, `common`, `generated`, and `gestures`: what breaks if widgets cannot claim vertical drags, with the transform probe) are optional topics, posted only with `--topic`. A bot may send a widget only into its private chat with a user, so each post puts three things into its topic, in this order:
+`scripts/conformance/publish-channel.ts` fills a Telegram forum supergroup with the set through a test bot, in the order of `channel.json`. Each part gets its own topic: Visual, Client SDK and Auto, and Defaults for the example widgets of `corpus/defaults` (v0.1.1, no pictures; their description is the file's `idea:` line). The corpora that fit a mini-widget (`showcase`, `common`, `generated`, and `gestures`: what breaks if widgets cannot claim vertical drags) are optional topics, posted only with `--topic`. A bot may send a widget only into its private chat with a user, so each post puts three things into its topic, in this order:
 
 1. The description, from the caption.
 2. The widget, sent as an HTML document. A bot may send a widget only into its private chat with a user, so by default the widget goes to the tester's private chat and is forwarded from there. A copy would be a new send, which the server refuses in a group. A test bot allowed to post widgets into any chat (`TW_BOT_DIRECT=1`) sends it straight into the topic.

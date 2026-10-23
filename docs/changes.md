@@ -9,10 +9,9 @@ nothing until the host lists them; "default" items apply to every host.
   widget behind a debug flag. Widgets come only as `messageMediaWidget`; testing goes through real
   layer-233 messages (`docs/tgw-format.md`, "Testing"). No code read `.tgw`; clients drop their own path.
 
-**Examples**: `corpus/gestures`, what breaks if widgets cannot claim vertical drags: a joystick game, a ball maze and 2048,
-each on `touch-action: none` and on `pan-y`, a wheel picker (`pan-x`), what is fine with horizontal only (`pan-y`: a paddle game,
-a card carousel, a range slider), and `probe-transform.html`,
-which shows which forms of a transform a renderer draws (`corpus/gestures/README.md`); `pnpm test:gesture-corpus`, the web
+**Examples**: `corpus/gestures`, what breaks if widgets cannot claim vertical drags: a joystick game and 2048, each on
+`touch-action: none` and on `pan-y`, and a wheel picker (`pan-x`); what is fine with horizontal only (`pan-y`: a paddle game,
+a card carousel, a range slider) (`corpus/gestures/README.md`); `pnpm test:gesture-corpus`, the web
 feed's `corpus=gestures`, the test group's Gestures topic (`--topic gestures`, not in the default run). No framework change.
 
 **Conformance**: `auto/09-transforms-effects-a` checks `translateX(%)`, `calc()` inside `translateX()` (also with `*` and
