@@ -1,21 +1,21 @@
 <!--
-  gestures: touch-action: none on the stick pad, so every press there is the widget's (corpus/gestures/README.md); 04-joystick-game-x is the same game on pan-y
-  idea: Star catcher, a joystick mini-game on touch-action: none. Drag the stick in any direction to fly the dot and collect the stars: start up or down, circle, rest your thumb on it; the chat never scrolls, swipes or opens the menu from the pad. Compare with 04 (pan-y).
+  gestures: touch-action: pan-y on the stick pad, so it claims horizontal drags only (corpus/gestures/README.md); the same game as 01-joystick-xy, which is on none
+  idea: Star catcher on touch-action: pan-y, the 01 game with one CSS value changed. The first move of a press decides it: start sideways and the stick is yours for the whole press, up and down included; start up or down and the chat scrolls instead; rest your thumb still for half a second and the message menu opens. Compare with 01 (none).
 -->
 <title>Star catcher</title>
 <style>
   .ta { margin: 0 0 8px; font-size: 13px; color: var(--tg-theme-hint-color) }
   #ar { position: relative; height: 190px; margin: 0 8px; border-radius: 12px; background: var(--tg-theme-secondary-bg-color); overflow: hidden }
-  #sh, .s { position: absolute; transform: translate(-50%, -50%) }
-  #sh { width: 22px; height: 22px; border-radius: 50%; background: var(--tg-theme-button-color) }
-  .s { font-size: 18px; line-height: 1; color: #f5a700 }
-  #pad { position: relative; height: 130px; margin: 10px 8px 0; border-radius: 12px; border: 1px dashed var(--tg-theme-hint-color); touch-action: none }
-  #base, #knob { position: absolute; left: 50%; top: 50%; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%) }
-  #base { width: 92px; height: 92px; background: rgba(128, 128, 128, .15) }
-  #knob { width: 44px; height: 44px; background: var(--tg-theme-button-color) }
+  #sh, .s { position: absolute }
+  #sh { width: 22px; height: 22px; margin: -11px; border-radius: 50%; background: var(--tg-theme-button-color) }
+  .s { width: 18px; height: 18px; margin: -9px; text-align: center; font-size: 18px; line-height: 1; color: #f5a700 }
+  #pad { position: relative; height: 130px; margin: 10px 8px 0; border-radius: 12px; border: 1px dashed var(--tg-theme-hint-color); touch-action: pan-y }
+  #base, #knob { position: absolute; left: 50%; top: 50%; border-radius: 50%; pointer-events: none }
+  #base { width: 92px; height: 92px; margin: -46px; background: rgba(128, 128, 128, .15) }
+  #knob { width: 44px; height: 44px; margin: -22px; background: var(--tg-theme-button-color) }
   .st { margin: 8px 0 0; font-size: 13px }
 </style>
-<p class="ta"><code>touch-action: none</code> · drag the stick any way, start up or down, hold it still: the chat never takes it</p>
+<p class="ta"><code>touch-action: pan-y</code> · the x stick: start sideways, then steer anywhere; a first move up or down, or a still thumb, goes to the chat</p>
 <div id="ar"><div id="sh"></div></div>
 <div id="pad"><div id="base"></div><div id="knob"></div></div>
 <p class="st">★ <b id="sc">0</b> · presses taken by the chat: <b id="tk">0</b></p>

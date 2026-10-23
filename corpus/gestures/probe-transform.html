@@ -1,0 +1,64 @@
+<!--
+  probe: which forms of a 2D transform this renderer draws (corpus/gestures/README.md, "The transform probe")
+  idea: a probe for client teams: which ways of moving a box this renderer draws. Every row moves a blue box onto its dashed outline 120 px in: left: 50% as the control, translateX in px, in % and with calc() (the carousel's form among them), from the stylesheet, from script, and from script through a transition. A box left at the start of its row is a form this renderer does not draw; ✓ or ✗ is where the renderer's own layout puts the box.
+-->
+<title>Transform probe</title>
+<style>
+  /* literal colours: the probe checks transforms, not theme variables */
+  .ta { margin: 0 0 6px; font-size: 13px; color: var(--tg-theme-hint-color) }
+  .lb { margin: 0; font: 10.5px/12px ui-monospace, monospace; white-space: nowrap; overflow: hidden }
+  .row { position: relative; width: 240px; height: 14px; margin: 1px 0 4px; border-radius: 4px; background: rgba(128, 128, 128, .14) }
+  .row::after { content: ''; position: absolute; left: 120px; top: 0; width: 38px; height: 12px; border: 1px dashed #888; border-radius: 4px }
+  .b { position: absolute; left: 0; top: 0; width: 40px; height: 14px; border-radius: 4px; background: #3390ec }
+  .m { position: absolute; left: 248px; top: 0; font: 600 12px/14px system-ui, sans-serif; white-space: nowrap }
+  .t { transition: transform .3s ease-out }
+  .c0 { left: 50% }
+  .c1 { transform: translateX(120px) }
+  .c2 { transform: translateX(300%) }
+  .c3 { transform: translateX(calc(250% + 20px)) }
+  .c4 { transform: translateX(calc(50% - 1 * (100% + 10px) + 150px)) }
+  .c5 { translate: 120px }
+  .st { margin: 4px 0 0; font-size: 13px }
+</style>
+<p class="ta">A box short of its dashed outline: a form this renderer does not draw. ✓ ✗: where its layout puts it.</p>
+<div id="rows"></div>
+<p class="st" id="sum">Measuring…</p>
+<script>
+var forms = ['translateX(120px)', 'translateX(300%)', 'translateX(calc(250% + 20px))', 'translateX(calc(50% - 1 * (100% + 10px) + 150px))'];
+var rows = [['css left: 50% (the control)', 'c0'], ['css transform: ' + forms[0], 'c1'], ['css transform: ' + forms[1], 'c2'], ['css transform: ' + forms[2], 'c3'], ['css transform: ' + forms[3], 'c4'], ['css translate: 120px (the property)', 'c5']];
+forms.forEach(function (f) { rows.push(['js style.transform = ' + f, '', f]); });
+forms.forEach(function (f) { rows.push(['js, transition .3s: ' + f, '', f, true]); });
+var boxes = [], marks = [];
+rows.forEach(function (r) {
+  var lb = document.createElement('p'), row = document.createElement('div'), b = document.createElement('div'), m = document.createElement('span');
+  lb.className = 'lb';
+  lb.textContent = r[0];
+  row.className = 'row';
+  b.className = 'b ' + r[1];
+  m.className = 'm';
+  if (r[2] && !r[3]) b.style.transform = r[2];
+  row.append(b, m);
+  document.getElementById('rows').append(lb, row);
+  boxes.push(b);
+  marks.push(m);
+});
+// the transition rows move after the first frame, the way the carousel snapped to a card: a class, then the value
+setTimeout(function () {
+  rows.forEach(function (r, i) {
+    if (!r[3]) return;
+    boxes[i].className = 'b t';
+    boxes[i].style.transform = r[2];
+  });
+}, 300);
+setTimeout(function () {
+  var bad = [];
+  boxes.forEach(function (b, i) {
+    var x = Math.round(b.getBoundingClientRect().left - b.parentNode.getBoundingClientRect().left);
+    var ok = Math.abs(x - 120) <= 1;
+    marks[i].textContent = ok ? '✓' : '✗ ' + x;
+    marks[i].style.color = ok ? '#2e7d32' : '#e53935';
+    if (!ok) bad.push(i);
+  });
+  document.getElementById('sum').textContent = bad.length ? bad.length + ' of ' + rows.length + ' rows off the line (layout)' : 'All ' + rows.length + ' rows on the line (layout)';
+}, 1200);
+</script>

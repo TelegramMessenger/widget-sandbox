@@ -1,0 +1,121 @@
+<!--
+  gestures: touch-action: none on the maze, so every drag over it is the widget's (corpus/gestures/README.md); 04-maze-x is the same maze on pan-y
+  idea: Ball maze on touch-action: none. Drag the ball from the start to the flag without touching a wall (a touch sends it back), against the clock; your best time is kept. Up, down, sideways and every turn are yours. Compare with 04, the same maze on pan-y.
+-->
+<title>Ball maze</title>
+<style>
+  .ta { margin: 0 0 8px; font-size: 13px; color: var(--tg-theme-hint-color) }
+  #mz { position: relative; width: calc(100% - 16px); max-width: 300px; aspect-ratio: 1; margin: 0 auto; border-radius: 10px; background: var(--tg-theme-secondary-bg-color); touch-action: none }
+  #mz svg { position: absolute; left: 4%; top: 4%; width: 92%; height: 92% }
+  #wl { fill: none; stroke: var(--tg-theme-text-color); stroke-width: .12; stroke-linecap: square }
+  #bl, #fl { position: absolute; width: 5.75%; height: 5.75%; border-radius: 50%; pointer-events: none }
+  #bl { background: var(--tg-theme-button-color) }
+  #bl.hit { background: #e53935 }
+  #fl { font-size: 18px; line-height: 1; text-align: center }
+  .st { margin: 8px 0 0; font-size: 13px; font-variant-numeric: tabular-nums }
+</style>
+<p class="ta"><code>touch-action: none</code> · the xy maze: drag the ball to the flag in any direction, start down a corridor; walls send it back</p>
+<div id="mz"><svg viewBox="0 0 8 8"><path id="wl"/></svg><div id="fl">🏁</div><div id="bl"></div></div>
+<p class="st"><span id="tm">Time 0.0 s</span><span id="bs"></span> · presses taken by the chat: <b id="tk">0</b></p>
+<script>
+var $ = function (id) { return document.getElementById(id); };
+var N = 8, R = 0.25, W = 0.06, seed = 6862829;
+var mz = $('mz'), bl = $('bl'), took = 0, press = null, ball, t0 = 0, timer = 0, won = 0;
+var best = Number(localStorage.getItem('best')) || 0;
+function rnd() { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 4294967296; }
+// walls: H[y][x] on the top edge of cell (x, y), V[y][x] on its left edge; a depth-first maze knocks them out
+var H = [], V = [], seen = [];
+for (var y = 0; y <= N; y++) { H.push([]); V.push([]); seen.push([]); for (var x = 0; x <= N; x++) { H[y].push(x < N); V[y].push(y < N); } }
+(function carve() {
+  var stack = [[0, 0]];
+  seen[0][0] = true;
+  while (stack.length) {
+    var c = stack[stack.length - 1], next = [];
+    [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+      var nx = c[0] + d[0], ny = c[1] + d[1];
+      if (nx >= 0 && ny >= 0 && nx < N && ny < N && !seen[ny][nx]) next.push([nx, ny, d]);
+    });
+    if (!next.length) { stack.pop(); continue; }
+    var n = next[Math.floor(rnd() * next.length)], d = n[2];
+    if (d[0]) V[c[1]][Math.max(c[0], n[0])] = false;
+    else H[Math.max(c[1], n[1])][c[0]] = false;
+    seen[n[1]][n[0]] = true;
+    stack.push([n[0], n[1]]);
+  }
+})();
+V[N - 1][N] = false; // the exit
+var d = '';
+for (y = 0; y <= N; y++) for (x = 0; x <= N; x++) {
+  if (H[y][x]) d += 'M' + x + ' ' + y + 'h1';
+  if (V[y][x]) d += 'M' + x + ' ' + y + 'v1';
+}
+$('wl').setAttribute('d', d);
+// cell units (0..N) to % of the maze box: the walls sit in its middle 92 %
+function pc(v) { return 4 + v * 92 / N; }
+function place(el, x, y) { el.style.left = pc(x) - 2.875 + '%'; el.style.top = pc(y) - 2.875 + '%'; }
+place($('fl'), N - 0.5, N - 0.5);
+// the distance from the ball's centre to a wall from (ax, ay), one cell long on the given axis
+function near(px, py, ax, ay, horizontal) {
+  var u = horizontal ? px - ax : py - ay, w = horizontal ? py - ay : px - ax;
+  u = u < 0 ? -u : u > 1 ? u - 1 : 0;
+  return Math.sqrt(u * u + w * w) < R + W;
+}
+function hits(px, py) {
+  var cx = Math.floor(px), cy = Math.floor(py);
+  for (var y = cy - 1; y <= cy + 2; y++) for (var x = cx - 1; x <= cx + 2; x++) {
+    if (y < 0 || x < 0 || y > N || x > N) continue;
+    if (H[y][x] && near(px, py, x, y, true)) return true;
+    if (V[y][x] && near(px, py, x, y, false)) return true;
+  }
+  return false;
+}
+function show() {
+  var s = ((won || (t0 ? Date.now() - t0 : 0)) / 1000).toFixed(1);
+  $('tm').textContent = (won ? '🎉 ' : 'Time ') + s + ' s';
+  $('bs').textContent = best ? ' · best ' + (best / 1000).toFixed(1) + ' s' : '';
+}
+function reset(hit) {
+  ball = { x: 0.5, y: 0.5 };
+  place(bl, ball.x, ball.y);
+  bl.className = hit ? 'hit' : '';
+  clearInterval(timer);
+  t0 = 0;
+  won = 0;
+  show();
+}
+reset(false);
+mz.addEventListener('pointerdown', function (e) {
+  press = { id: e.pointerId, x: e.clientX, y: e.clientY, k: N / ((mz.clientWidth || 280) * 0.92) };
+  if (won) reset(false);
+  bl.className = '';
+  try { mz.setPointerCapture(e.pointerId); } catch (_) {}
+});
+mz.addEventListener('pointermove', function (e) {
+  if (!press || e.pointerId !== press.id) return;
+  var dx = (e.clientX - press.x) * press.k, dy = (e.clientY - press.y) * press.k;
+  press.x = e.clientX;
+  press.y = e.clientY;
+  if (!t0 && (dx || dy)) { t0 = Date.now(); timer = setInterval(show, 100); }
+  // small steps, so a fast finger cannot jump through a wall
+  var n = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.05);
+  for (var i = 0; i < n; i++) {
+    ball.x += dx / n;
+    ball.y += dy / n;
+    if (hits(ball.x, ball.y)) { press = null; reset(true); return; }
+  }
+  place(bl, ball.x, ball.y);
+  if (ball.x > N - 1 && ball.y > N - 1) {
+    press = null;
+    clearInterval(timer);
+    won = Date.now() - t0;
+    if (!best || won < best) { best = won; try { localStorage.setItem('best', String(won)); } catch (_) {} }
+    show();
+  }
+});
+mz.addEventListener('pointerup', function () { press = null; });
+mz.addEventListener('pointercancel', function () {
+  if (!press) return;
+  press = null;
+  $('tk').textContent = ++took;
+});
+</script>

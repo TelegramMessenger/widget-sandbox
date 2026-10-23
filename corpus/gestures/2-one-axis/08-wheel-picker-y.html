@@ -8,7 +8,8 @@
   #pk { position: relative; display: flex; justify-content: center; gap: 8px; height: 180px; margin: 0 8px; overflow: hidden }
   #band { position: absolute; left: 0; right: 0; top: 72px; height: 36px; border-radius: 10px; background: rgba(128, 128, 128, .16); pointer-events: none }
   .wh { position: relative; width: 84px; touch-action: pan-x }
-  .col.snap { transition: transform .25s ease-out }
+  .col { position: relative }
+  .col.snap { transition: top .25s ease-out }
   .it { height: 36px; line-height: 36px; text-align: center; font-size: 22px; font-variant-numeric: tabular-nums; opacity: .35 }
   .it.on { opacity: 1; font-weight: 600 }
   .sep { align-self: center; font-size: 22px; font-weight: 600 }
@@ -41,7 +42,7 @@ function wheel(values, start) {
   var w = { y: (2 - start) * IH, sel: start, press: null, v: 0, moved: false, raf: 0 };
   var minY = (2 - (values.length - 1)) * IH, maxY = 2 * IH;
   function draw() {
-    col.style.transform = 'translateY(' + w.y + 'px)';
+    col.style.top = w.y + 'px';
     var k = Math.max(0, Math.min(values.length - 1, Math.round(2 - w.y / IH)));
     if (k !== w.sel) { items[w.sel].className = 'it'; w.sel = k; hap(); out(); }
     items[k].className = 'it on';
