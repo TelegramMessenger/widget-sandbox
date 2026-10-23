@@ -3,6 +3,12 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+- **No `.tgw` development format**: the docs drop the gzipped-HTML document a client could show as a
+  widget behind a debug flag. Widgets come only as `messageMediaWidget`; testing goes through real
+  layer-233 messages (`docs/tgw-format.md`, "Testing"). No code read `.tgw`; clients drop their own path.
+
 ## v0.1.2 — release notes (2026-10-22)
 
 Who gets a press: double taps over the widget are the widget's, and for holds and drags CSS
@@ -279,9 +285,7 @@ and CLAUDE.md).
   / `messageMediaWidget width height payload` (`docs/tgw-format.md`): the server checks UTF-8,
   no NUL, 32 KB, gzips, checks 4 KB, puts the bytes in the message; bots only, private chats
   only, forwarding allowed anywhere; the caption is the preview text; clients below layer 233
-  get `messageMediaUnsupported`; no server flag, clients enable rendering themselves. `.tgw`
-  (gzip of the HTML as a file) is only an optional development format behind a client's
-  debug flag.
+  get `messageMediaUnsupported`; no server flag, clients enable rendering themselves.
 - **Widget profile 1** (frozen 2026-10-17), enforced on every client:
   `packages/core/profile.json` is the single source and `docs/profile-v1.md` the
   generated contract. The validator drops form controls, named fonts and every

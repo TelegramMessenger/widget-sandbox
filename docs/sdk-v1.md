@@ -14,8 +14,8 @@ What the framework did before v1 is noted where a client may meet it
 (**before v1**: the API of the profile-0 builds).
 
 Related documents, not repeated here: `docs/integration.md` (embedding the
-host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML, and the
-`.tgw` development format), `docs/protocol.md` (the full wire protocol), `docs/changes.md`
+host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
+`docs/protocol.md` (the full wire protocol), `docs/changes.md`
 (per-release notes).
 
 ## 1. Who does what
@@ -759,8 +759,7 @@ goes to the background, `setVisible(true)` when it is back.
   test channel (bots may send widgets only to private chats). Every
   conformance widget is sent that way as a layer-233 message, with its
   reference picture posted next to it (`packages/conformance/channel.json`,
-  `docs/integration.md`, "Testing"); `.tgw` is only the local development
-  format.
+  `docs/integration.md`, "Testing").
 
 ### 5.10 Text selection (v0.1.1)
 

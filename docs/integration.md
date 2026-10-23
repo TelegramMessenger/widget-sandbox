@@ -108,10 +108,7 @@ copy works like the original. That includes every conformance widget
 (`packages/conformance`: each one fits a mini-widget), with its reference
 picture posted as a photo next to it in the order of
 `packages/conformance/channel.json`, the corpus widgets that fit, forward-copy
-storage, bot edits and the size anchors from the bot. `.tgw` (gzip of the
-HTML, rendered under the client's debug flag) is only the local development
-format, for HTML from disk; it is never product delivery
-(`docs/tgw-format.md`).
+storage, bot edits and the size anchors from the bot (`docs/tgw-format.md`).
 
 ## Bubble sizing
 

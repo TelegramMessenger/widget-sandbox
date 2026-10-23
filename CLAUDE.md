@@ -276,7 +276,7 @@ out of memory) is a runtime state, so a Promise executor, thenable, async genera
 Same day: the conformance set moved from `corpus/conformance` to `packages/conformance` so it
 ships with the tag; `v0.1.0` release notes and known issues in `docs/changes.md`, the client
 integration guide `docs/integration.md`, the widget payload (mini-HTML as `messageMediaWidget`,
-layer 233; `.tgw` only as the development format) in `docs/tgw-format.md`.
+layer 233) in `docs/tgw-format.md`.
 2026-10-17: widget profile 1 frozen and enforced (`packages/core/profile.json`,
 `docs/profile-v1.md`, `docs/decisions.md` "Frozen as widget profile 1"): the validator,
 `NativeValidator`, the shim (`TelegramWidget.profile`, `isProfileAtLeast`, `CSS.supports`

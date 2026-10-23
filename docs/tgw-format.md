@@ -83,17 +83,11 @@ the conformance set keeps, and flag anything over a limit). A bot that gets
 How to write widgets that fit, and everything else an author needs:
 `docs/widget-runtime-profile.md`.
 
-## `.tgw`: the development format
+## Testing
 
-A `.tgw` file is gzip of a widget's HTML (MIME type `application/x-tgwidget`)
-as a document. It is **never product delivery**: product widgets come only as
-`messageMediaWidget`, and a `.tgw` or `.html` a user uploads as a document is
-a file, not a widget. A client supports `.tgw` behind its debug flag, through
-the same path as `messageMediaWidget` but from the gunzipped file, for local
-tests without a bot: any widget HTML from disk.
-
-Everything else goes through real layer-233 messages, the conformance set
-included. Every conformance widget fits a mini-widget (`packages/conformance`
+Widgets come only as `messageMediaWidget`: an `.html` a user uploads as a
+document is a file, not a widget. Testing goes through real layer-233
+messages, the conformance set included. Every conformance widget fits a mini-widget (`packages/conformance`
 builds each one under 3800 bytes of gzip at levels 6 and 9). A test bot sends
 it to a tester's private chat with its reference picture as a photo next to
 it, in the order of `packages/conformance/channel.json`, and the messages are
