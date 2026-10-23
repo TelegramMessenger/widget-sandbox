@@ -10,7 +10,8 @@ nothing until the host lists them; "default" items apply to every host.
   layer-233 messages (`docs/tgw-format.md`, "Testing"). No code read `.tgw`; clients drop their own path.
 
 **Examples**: `corpus/gestures`, what breaks if widgets cannot claim vertical drags: a joystick game, a ball maze and 2048,
-each on `touch-action: none` and on `pan-y`, a paddle game (`pan-y`) and a wheel picker (`pan-x`), and `probe-transform.html`,
+each on `touch-action: none` and on `pan-y`, a wheel picker (`pan-x`), what is fine with horizontal only (`pan-y`: a paddle game,
+a card carousel, a range slider), and `probe-transform.html`,
 which shows which forms of a transform a renderer draws (`corpus/gestures/README.md`); `pnpm test:gesture-corpus`, the web
 feed's `corpus=gestures`, the test group's Gestures topic (`--topic gestures`, not in the default run). No framework change.
 

@@ -1,11 +1,17 @@
 # gestures — what breaks if widgets cannot claim vertical drags
 
 Widgets for one question: **should vertical drags over a widget always scroll the chat, so
-that widgets can claim only horizontal drags?** The set shows what would break. Three games
-come in pairs: the same widget on `touch-action: none` (`…-xy`, it claims both axes) and on
-`pan-y` (`…-x`, horizontal only, which is what the rule would leave it). The two files of a
-pair differ in one CSS value and their first line. A widget can restrict itself with
-`touch-action` today, so the "only horizontal" side can be tried without a framework change.
+that widgets can claim only horizontal drags?** The set has two sides:
+
+- **What breaks without vertical**: three games in pairs, the same widget on
+  `touch-action: none` (`…-xy`, it claims both axes) and on `pan-y` (`…-x`, horizontal only,
+  which is what the rule would leave it), and a wheel picker on `pan-x`, a vertical control.
+  The two files of a pair differ in one CSS value and their first line.
+- **What is fine with horizontal only**: a paddle game, a card carousel and a range slider,
+  all on `pan-y`, the rule's behaviour already.
+
+A widget can restrict itself with `touch-action` today, so the "only horizontal" side can be
+tried without a framework change.
 
 ## The rule they run on (v0.1.2)
 
@@ -31,14 +37,19 @@ Sizes as the server counts them (gzip -6, limit 4096 B); heights at a 320 px wid
 
 | File | `touch-action` | What it is | Try | Size | Height |
 |---|---|---|---|---|---|
+| **Breaks without vertical** | | | | | |
 | `1-pairs/01-joystick-xy.html` | `none` | Star catcher: fly a dot with a virtual stick, collect stars | start up or down, circle, rest your thumb on the stick | 1837 B | 435 px |
 | `1-pairs/02-joystick-x.html` | `pan-y` | the same game | the same; then start sideways and steer up | 1899 B | 435 px |
 | `1-pairs/03-maze-xy.html` | `none` | Ball maze: drag the ball to the flag, a wall sends it back; a timer and the best time | finish it | 2616 B | 383 px |
 | `1-pairs/04-maze-x.html` | `pan-y` | the same maze | try to leave the start | 2639 B | 383 px |
 | `1-pairs/05-2048-xy.html` | `none` | 2048: swipe in four directions, equal tiles merge; score, best and the game are kept | play a few moves | 2345 B | 406 px |
 | `1-pairs/06-2048-x.html` | `pan-y` | the same game | swipe up or down | 2354 B | 406 px |
-| `2-one-axis/07-paddle-x.html` | `pan-y` | Brick breaker: slide anywhere to move the paddle, tap to serve | play it | 2085 B | 353 px |
-| `2-one-axis/08-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2214 B | 294 px |
+| `3-vertical/10-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2214 B | 294 px |
+| **Fine with horizontal only** | | | | | |
+| `2-horizontal/07-paddle-x.html` | `pan-y` | Brick breaker: slide anywhere to move the paddle, tap to serve | play it | 2085 B | 353 px |
+| `2-horizontal/08-card-carousel-x.html` | `pan-y` | trips on cards with peeking neighbours, flick, snap, dots | swipe and flick, tap a card, drag up over a card | 2075 B | 310 px |
+| `2-horizontal/09-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2021 B | 274 px |
+| **Diagnostic** | | | | | |
 | `probe-transform.html` | — | the transform probe (below) | open it on your client | 1563 B | 527 px |
 
 ## What "only horizontal" would change
@@ -57,18 +68,22 @@ Sizes as the server counts them (gzip -6, limit 4096 B); heights at a 320 px wid
   else, a press can only begin at a junction and must never be lifted in a vertical corridor.
 - **2048 (05 → 06).** Up and down swipes scroll the chat, so only left and right move the tiles
   and the board fills up. The author would have to add buttons for up and down.
-- **Paddle (07).** Horizontal only is all it needs: unchanged by the rule. (`pan-y` still
-  gives a resting thumb to the message menu.)
-- **Wheel picker (08).** A vertical control: under the rule it cannot be spun at all, every drag
+- **Wheel picker (10).** A vertical control: under the rule it cannot be spun at all, every drag
   scrolls the chat. The author would have to turn it on its side or replace it with buttons.
 - Drawing on a canvas and panning a map are 2D in the same way as the joystick and the maze.
 
+Fine with horizontal only, unchanged by the rule:
+
+- **Paddle (07)**, **card carousel (08)** and **range slider (09)** move along one horizontal
+  axis; a vertical drag over them is the chat's scroll, which is what a reader wants. (`pan-y`
+  gives a resting thumb to the message menu; none of them needs holds.)
+
 ## The transform probe
 
-The card carousel of an earlier version of this set (it moved its track with
-`transform: translateX(calc(11% - i * (78% + 10px) + dx px))` and snapped to a card through a
-`transition` on `transform`) did not move on the iOS and Android Telegram clients, while the
-paddle, also on `pan-y`, worked there: the claim works, and the paddle moves with `left`.
+The card carousel (08) moves its track with
+`transform: translateX(calc(11% - i * (78% + 10px) + dx px))` and snaps to a card through a
+`transition` on `transform`. It does not move on the iOS and Android Telegram clients, while the
+paddle, also on `pan-y`, works there: the claim works, and the paddle moves with `left`.
 `probe-transform.html` shows a client team which forms of a transform its renderer draws. Every
 row moves a box onto its dashed outline 120 px in:
 
@@ -100,16 +115,21 @@ check with the probe. The conformance set covers the same forms since this chang
 nested parentheses too) and a transform set from script; `visual/05-transforms-effects-a` draws
 them for the reference picture.
 
-The gesture widgets here move things with `left` and `top` only, never with a transform, so they
-test gestures, not the renderer's transforms.
+The other widgets here move things with `left` and `top` only, never with a transform, so they
+test gestures, not the renderer's transforms; the carousel keeps its transform as the real case
+for the probe.
 
 ## Notes for authors
 
 - A tap's `click` goes to the element with the pointer capture, not to the child that was
-  pressed: the wheel picker remembers the number pressed at `pointerdown`.
-- A control that reacts to the first pixels of a move changes before the policy has decided;
-  when the chat takes the press (`pointercancel`), put the value back or end the press cleanly:
-  the stick re-centres, the wheel snaps back.
+  pressed: the carousel and the wheel picker remember the card or the number pressed at
+  `pointerdown`.
+- A control that reacts at `pointerdown` or to the first pixels of a move changes before the
+  policy has decided; when the chat takes the press (`pointercancel`), put the value back or end
+  the press cleanly: the range slider undoes the jump of its nearest thumb, the stick
+  re-centres, the carousel and the wheel snap back.
+- A mouse drag still ends with a `click` (a finger's never does): the carousel ignores a click
+  after the pointer moved more than 6 px.
 
 ## How to try them
 
@@ -122,11 +142,11 @@ test gestures, not the renderer's transforms.
   device toolbar, a drag the chat takes really scrolls the feed.
 - Node harness, the press report:
   `corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/gestures/1-pairs/04-maze-x.html --width 360 --swipe 180,201,0,-60 --swipe 180,201,60,0 --hold 180,201`.
-- `corepack pnpm test:gesture-corpus` loads the eight widgets in the sandbox and in reference
+- `corepack pnpm test:gesture-corpus` loads the ten widgets in the sandbox and in reference
   mode (no JS errors, pixels within 3 %) → `docs/compat-report-gestures.md`; with
   `TW_RENDERER=shadow` on the Shadow DOM renderer. The probe is not in it: it measures itself.
 - The Telegram test group: the **Gestures** topic of `scripts/conformance/publish-channel.ts`,
-  not in the default run: `--topic gestures` (the eight widgets and the probe; each file's
+  not in the default run: `--topic gestures` (the ten widgets and the probe; each file's
   `idea:` line is its description).
 
 Rules: pointer events and `setPointerCapture`, no libraries, no form controls (out of profile

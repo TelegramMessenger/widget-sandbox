@@ -42,10 +42,10 @@ export type FeedCorpus = 'showcase' | 'common' | 'gestures';
 const CORPORA: { kind: FeedCorpus; title: string }[] = [
   { kind: 'showcase', title: 'corpus/showcase: 21 interactive, animated demos on the full web profile (boarding pass, ride tracking, smart home, kanban, live poll …)' },
   { kind: 'common', title: 'corpus/common: the 32 widgets on the profile every renderer shares, for like-for-like renderer timings' },
-  { kind: 'gestures', title: 'corpus/gestures: games on touch-action none and the same games on pan-y (joystick, maze, 2048), a paddle game and a wheel picker, to feel in a scrolling chat what breaks when only horizontal drags can be claimed' },
+  { kind: 'gestures', title: 'corpus/gestures: games on touch-action none and the same games on pan-y (joystick, maze, 2048), a wheel picker, and what is fine with horizontal only (paddle, card carousel, range slider), to feel in a scrolling chat what breaks when only horizontal drags can be claimed' },
 ];
 const BATCH_ORDER: Record<FeedCorpus, string[]> = {
-  showcase: ['travel', 'commerce', 'life', 'work'], common: ['cards', 'interactive', 'live', 'heavy'], gestures: ['1-pairs', '2-one-axis'],
+  showcase: ['travel', 'commerce', 'life', 'work'], common: ['cards', 'interactive', 'live', 'heavy'], gestures: ['1-pairs', '2-horizontal', '3-vertical'],
 };
 const RENDERERS: { kind: FeedRenderer; label: string; title: string }[] = [
   { kind: 'iframe', label: 'iframe', title: 'sandboxed srcdoc iframe per bubble (product renderer)' },
