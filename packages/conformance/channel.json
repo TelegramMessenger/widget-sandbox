@@ -60,7 +60,7 @@
    "photos": [
     "refs/visual/05-transforms-effects-a.png"
    ],
-   "gzip": 2078
+   "gzip": 2333
   },
   {
    "widget": "visual/05-transforms-effects-b.html",
@@ -548,7 +548,7 @@
    "height": 0,
    "caption": "auto/09-transforms-effects-a · 2D transforms, 3D transforms out, filter (blur, brightness, drop-shadow; others; url() out). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "gzip": 3285
+   "gzip": 3518
   },
   {
    "widget": "auto/09-transforms-effects-b.html",

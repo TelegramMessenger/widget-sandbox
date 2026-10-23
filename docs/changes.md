@@ -14,6 +14,11 @@ joystick game on `none` and on `pan-y`, to try whether vertical drags over a wid
 (`corpus/gestures/README.md`); `pnpm test:gesture-corpus`, the web feed's `corpus=gestures`, the test group's Gestures topic
 (`--topic gestures`, not in the default run). No framework change.
 
+**Conformance**: `auto/09-transforms-effects-a` checks `translateX(%)`, `calc()` inside `translateX()` (also with `*` and
+nested parentheses) and a transform set from script; `visual/05-transforms-effects-a` draws the same four for the reference
+picture. On the web prototypes: Blitz draws them but its layout ignores transforms, and it does not apply a transform set
+through a transition; litehtml draws no transform.
+
 ## v0.1.2 — release notes (2026-10-22)
 
 Who gets a press: double taps over the widget are the widget's, and for holds and drags CSS

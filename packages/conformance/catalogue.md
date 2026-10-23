@@ -149,7 +149,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.value.units` | Units px, em, rem, %, ch, ex; pt/cm/mm/in | in | D3a | kept |  | auto/04-values-units |
 | `css.value.vw` | vw / vmin / vmax / vi: the bubble width<br><sub>Container units (cqw) on the Shadow DOM renderer.</sub> | in | P1 | replaced |  | auto/04-values-units |
 | `css.value.vh` | vh / dvh / svh / vb: height-relative units<br><sub>The bubble height comes from the content, so vh is circular: the iframe uses its own height, the shadow renderer the container height.</sub> | out | P1 | stripped | the declaration is dropped | auto/04-values-units |
-| `css.value.math` | calc(), min(), max(), clamp()<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/04-values-units |
+| `css.value.math` | calc(), min(), max(), clamp()<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/04-values-units, auto/09-transforms-effects-a |
 | `css.value.custom-properties` | Custom properties and var() with fallbacks; inheritance | in | D3a | kept |  | auto/04-values-units |
 | `css.value.keywords` | inherit, initial, unset, revert; !important | in | D3a | kept |  | auto/04-values-units |
 | `css.value.content` | content in ::before/::after: strings, attr(data-*), counters<br><sub>Strict: attr() reads only budgeted attributes.</sub> | in | D3a | kept |  | auto/04-values-units |

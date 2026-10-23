@@ -3137,7 +3137,8 @@
     "css.filter.other",
     "css.filter.url",
     "css.transform.2d",
-    "css.transform.3d"
+    "css.transform.3d",
+    "css.value.math"
    ],
    "themes": [
     "light"
@@ -3183,6 +3184,34 @@
      "name": "rotateY(60deg) is dropped: the box keeps its width",
      "native": {
       "chromium": "fail"
+     }
+    },
+    {
+     "id": "css.transform.2d",
+     "name": "translateX(150%) is a share of the box's own width",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.math",
+     "name": "calc(% + px) inside translateX()",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.value.math",
+     "name": "calc() with * and nested parentheses inside translateX()",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.transform.2d",
+     "name": "a transform set from script (style.transform, calc())",
+     "native": {
+      "chromium": "pass"
      }
     },
     {
@@ -3337,9 +3366,9 @@
      "nativeVsTemplate": 0.3036
     }
    ],
-   "bytes": 8727,
-   "gzip": 3285,
-   "gzip6": 3284
+   "bytes": 9784,
+   "gzip": 3517,
+   "gzip6": 3518
   },
   {
    "id": "auto/09-transforms-effects-b",
@@ -7718,15 +7747,31 @@
      "refs": {
       "chromium": "refs/visual/05-transforms-effects-a/filters.chromium.png"
      }
+    },
+    {
+     "name": "transform-units",
+     "rect": null,
+     "size": [
+      150,
+      90
+     ],
+     "covers": [],
+     "themes": [
+      "light"
+     ],
+     "reftest": false,
+     "refs": {
+      "chromium": "refs/visual/05-transforms-effects-a/transform-units.chromium.png"
+     }
     }
    ],
-   "bytes": 4690,
-   "gzip": 2072,
-   "gzip6": 2078,
+   "bytes": 5655,
+   "gzip": 2329,
+   "gzip6": 2333,
    "refImages": {
     "light": "refs/visual/05-transforms-effects-a.png"
    },
-   "height": 352
+   "height": 470
   },
   {
    "id": "visual/05-transforms-effects-b",
@@ -7871,7 +7916,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/slide.chromium.png"
      },
-     "nativeVsTemplate": 0.6305
+     "nativeVsTemplate": 0.6449
     },
     {
      "name": "spin-pulse",
@@ -7888,7 +7933,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
      },
-     "nativeVsTemplate": 0.8422
+     "nativeVsTemplate": 0.8404
     },
     {
      "name": "steps",
@@ -7994,7 +8039,7 @@
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
      },
-     "nativeVsTemplate": 0
+     "nativeVsTemplate": 0.0249
     },
     {
      "name": "seek",
@@ -8393,7 +8438,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7173
+     "nativeVsTemplate": 0.7236
     }
    ],
    "bytes": 5218,
