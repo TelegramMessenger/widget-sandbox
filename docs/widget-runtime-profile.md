@@ -1,7 +1,7 @@
 # Writing widgets
 
 *The guide for widget authors and the models that write widgets for them
-(v0.1.2, widget profile 1, SDK v1). The exact contracts: the profile feature by
+(v0.1.3, widget profile 1, SDK v1). The exact contracts: the profile feature by
 feature in `docs/profile-v1.md` (generated from `packages/core/profile.json`),
 the `TelegramWidget` API in `docs/sdk-v1.md` §2, the payload in
 `docs/tgw-format.md`. A block for a model's system prompt is at the end, and

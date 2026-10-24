@@ -3,21 +3,97 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release
+## v0.1.3 — release notes (2026-10-24)
 
-- **No `.tgw` development format**: the docs drop the gzipped-HTML document a client could show as a
-  widget behind a debug flag. Widgets come only as `messageMediaWidget`; testing goes through real
-  layer-233 messages (`docs/tgw-format.md`, "Testing"). No code read `.tgw`; clients drop their own path.
+Vertical drags are always the chat's, and a widget chooses which edge of its bubble stays put
+when it grows. Profile, SDK and protocol versions stay 1: `setResizeAnchor` is an SDK v1 addition
+widgets detect with `typeof`.
 
-**Examples**: `corpus/gestures`, what breaks if widgets cannot claim vertical drags: a joystick game and 2048, each on
-`touch-action: none` and on `pan-y`, and a wheel picker (`pan-x`); what is fine with horizontal only (`pan-y`: a paddle game,
-a card carousel, a range slider) (`corpus/gestures/README.md`); `pnpm test:gesture-corpus`, the web
-feed's `corpus=gestures`, the test group's Gestures topic (`--topic gestures`, not in the default run). No framework change.
+**Vertical drags are the chat's** (default, every client; `docs/decisions.md` "Vertical drags are
+the chat's", decision G2; `docs/sdk-v1.md` §5.5). A widget can claim only horizontal drags: a
+vertical drag over a widget always scrolls the chat, whatever `touch-action` says, and the widget
+gets `pointercancel`. `auto` is unchanged; `pan-y` gives the widget horizontal drags (unchanged);
+`pan-x` claims nothing any more; `none` gives the widget horizontal drags, holds (`contextmenu`)
+and taps. The first move past the 10 px slop still decides for the whole press, also after a hold
+the widget won; double taps, the 20 px leading strip and the mouse are unchanged. What is lost:
+2D joysticks, drawing, map panning, vertical sliders and pickers, up/down swipes.
 
-**Conformance**: `auto/09-transforms-effects-a` checks `translateX(%)`, `calc()` inside `translateX()` (also with `*` and
-nested parentheses) and a transform set from script; `visual/05-transforms-effects-a` draws the same four for the reference
-picture. On the web prototypes: Blitz draws them but its layout ignores transforms, and it does not apply a transform set
-through a transition; litehtml draws no transform.
+- The policy, four copies and the fixture: `claimOf` never claims `y` (the field stays in
+  `GestureClaim` / `WidgetGestureClaim` on every platform, always false, so v0.1.2 code builds),
+  and `GestureArbiter` gives every vertical touch drag to the chat, even for a claim built by hand
+  with `y` (fixture: a `down` step may carry a `claimed` object). Every host reports `y` false
+  whatever the renderer sends; the Blitz and litehtml prototypes, which send only `wants`, claim
+  nothing.
+- The renderer core gives the engine every `touch-action` widened to allow vertical panning
+  (`none` → `pan-y`, `pan-x` → `pan-x pan-y`; `src/renderer/touch-action.ts`), so a browser on a
+  touch screen (the web client on a phone, the feed with touch emulation) scrolls the page over
+  any widget; the claim and the widget's `getComputedStyle` read the widget's own value (kept in
+  the custom property `--tw-touch-action`).
+- Android: `RendererWebView` keeps its parent from intercepting only for a hold claim, and only
+  until the press leaves the slop (vertically, the list takes it); a press in the leading strip
+  claims nothing there either.
+- The harness's hint for a vertical drag says "vertical drags always scroll the chat; a widget
+  cannot claim them"; its claim line no longer offers vertical drags. The dev app's and the feed's
+  bubble follow the policy; so do the iOS/macOS and Android demo bubbles.
+- `corpus/gestures` (the examples the decision was made with, 06d909f..6b93031 from the gesture
+  examples branch) now shows what the rule removed: the `-xy` games behave like their `-x` twins,
+  the wheel picker can no longer turn (`corpus/gestures/README.md`). `pnpm test:gesture-corpus`, the
+  feed's `corpus=gestures`, the test group's Gestures topic (`--topic gestures`, opt-in).
+- Conformance: `auto/23-gestures` adds vertical drags on `none` and `pan-x` (`pointercancel`);
+  `visual/sdk/12-drag-gestures` counts the presses the chat takes over blue.
+
+**`TelegramWidget.setResizeAnchor(edge)`** (`docs/sdk-v1.md` §2.12, §5.6; decision R1). `'top'`
+(the default): the bubble grows and shrinks downward, the content below moves; `'bottom'`: it grows
+upward, its bottom stays and the content above moves. Callable at any time, it applies to the height
+changes that follow; anything but exactly `'top'` / `'bottom'` throws `TypeError`; no tap needed.
+Detect it with `typeof TelegramWidget.setResizeAnchor === 'function'`.
+
+- A checked bridge call (`sdk-policy`, four copies and the fixture), not an action: the shim sends
+  only changes, the glue keeps the latest value, and nothing reaches `onAction` / `onBridge`. Every
+  host reports it with the height: web `onResize(height, anchor)` and `WidgetHost.resizeAnchor`;
+  Swift `WidgetDiagnostics.resizeAnchor` (`WidgetResizeAnchor`); Kotlin and C++
+  `WidgetDiagnostics.resizeAnchor` (`"top"` / `"bottom"`); the harness's `RunResult.resizeAnchor`
+  and a `resize anchor:` line. `checkBridgeCall` returns a bridge-call type that carries either an
+  action or the anchor (TS `BridgeCall`; Kotlin `BridgeCall`, which `WidgetAction` implements; C++
+  `sdk::BridgeCall`; Swift `SdkPolicy.Action`); `WidgetAction` itself is unchanged.
+- The client's part (`docs/integration.md`, "Bubble sizing"): when an auto height changes on screen,
+  the list keeps the anchored edge where it is, also from a cached height and after a re-creation;
+  a bubble off screen keeps the visible content in place; during a height animation the old pixels
+  stay aligned to the anchored edge. The web dev app (a bottom-anchored bubble sits at the stage's
+  bottom and grows upward; the stats panel shows the anchor) and the feed (its own scroll
+  compensation, browser scroll anchoring off, `corpus=resize`) do it, and so do the iOS demo (the
+  single-widget screen and the chat feed, which got a `custom` widget set) and the Android demo
+  list. Swift also reports the anchor on `WidgetBubble.resizeAnchor`, set before `onHeightChange`.
+- Examples: `corpus/resize` (README there): a delivery FAQ on the default anchor, a support thread
+  that grows upward (`'bottom'`, kept in `localStorage`), hotel results that grow downward (`'top'`,
+  said explicitly). `pnpm test:resize-corpus`, the dev app's `resize/` group, the test group's
+  Resize topic (`--topic resize`, opt-in).
+- Conformance: `auto/24-resize-anchor` (the method exists, takes `'top'` and `'bottom'`, throws
+  `TypeError` on anything else) and `visual/sdk/18-resize-anchor` (the tester sees which edge
+  stays). The profile lists `tw.resize-anchor` and `behaviour.resize-anchor` (257 features).
+
+**Conformance**: also `auto/09-transforms-effects-a` checks `translateX(%)`, `calc()` inside
+`translateX()` (also with `*` and nested parentheses) and a transform set from script;
+`visual/05-transforms-effects-a` draws the same four for the reference picture. On the web
+prototypes: Blitz draws them but its layout ignores transforms, and it does not apply a transform
+set through a transition; litehtml draws no transform.
+
+**Docs**: no `.tgw` development format (Arseny): the docs drop the gzipped-HTML document a client
+could show as a widget behind a debug flag. Widgets come only as `messageMediaWidget`; testing goes
+through real layer-233 messages (`docs/tgw-format.md`, "Testing"). No code read `.tgw`; clients
+drop their own path.
+
+**Known issues**
+
+- Native demos: the old pixels are not pinned to the anchored edge during a resize. On iOS the
+  bubble and the WebView resize together and WebKit may show its previous picture top-aligned for
+  a moment; the Android list applies the scroll correction after layout (one frame late, clamped
+  at the list's ends).
+- iOS demo: iOS 26's full-width back swipe takes horizontal drags over the widget (outside the
+  arbiter, as in v0.1.2).
+- `IntlBridgeTests.testPluralRulesMatchICU` fails on the iOS / macOS 27 simulators: the OS's
+  JavaScriptCore now gives es / bg ordinal `one` where the Swift plural rules say `other` (not from
+  this release; iOS 26.5 is not installed on the build Mac, the runs used iOS 27.0).
 
 ## v0.1.2 — release notes (2026-10-22)
 
