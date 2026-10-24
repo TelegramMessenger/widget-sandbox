@@ -407,6 +407,16 @@
    "gzip": 1514
   },
   {
+   "widget": "visual/sdk/18-resize-anchor.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/sdk/18-resize-anchor · The resize anchor: the edge the widget chose stays put when its height changes. Anchor bottom (the start): tap + line a few times: the buttons stay under your finger, the bubble grows upward and the messages above it move up; − line shrinks it back the same way. Tap the anchor button for top: now + line keeps the bubble's top still and pushes the buttons and the messages below down. Try both with the bubble near the top and near the bottom of the screen. The client must: With every height the host reports the widget's anchor (setResizeAnchor, v0.1.3); the chat list keeps that edge of the bubble in place on screen: bottom, the content above moves and the bubble's bottom edge does not; top (the default), the content below moves. No jump of the anchored edge while the height animates. A bubble off screen keeps what is on screen in place.",
+   "photos": [
+    "refs/visual/sdk/18-resize-anchor.png"
+   ],
+   "gzip": 2073
+  },
+  {
    "widget": "auto/01-html-elements-a.html",
    "width": 0,
    "height": 0,
@@ -725,6 +735,14 @@
    "caption": "auto/23-gestures · Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); a vertical drag is always the chat's, on none and pan-x too; the leading 20 px take no claim. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
    "gzip": 3393
+  },
+  {
+   "widget": "auto/24-resize-anchor.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/24-resize-anchor · TelegramWidget.setResizeAnchor (v0.1.3): the method exists, takes 'top' and 'bottom', throws TypeError on anything else; the widget grows and shrinks with either anchor. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "gzip": 2471
   }
  ]
 }

@@ -1,6 +1,6 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 255 features: 176 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 257 features: 178 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
@@ -12,11 +12,11 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | animation | 8 | 7 | 1 | 0 | 8 |
 | canvas | 21 | 13 | 8 | 0 | 21 |
 | js | 34 | 25 | 9 | 0 | 34 |
-| sdk | 10 | 9 | 1 | 0 | 10 |
+| sdk | 11 | 10 | 1 | 0 | 11 |
 | input | 14 | 9 | 5 | 0 | 14 |
 | limit | 11 | 11 | 0 | 0 | 7 |
-| behaviour | 11 | 11 | 0 | 0 | 11 |
-| **all** | 255 | 176 | 79 | 0 | 251 |
+| behaviour | 12 | 12 | 0 | 0 | 12 |
+| **all** | 257 | 178 | 79 | 0 | 253 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the pipeline of the tag does with it under `strict`: profile 1 enforced, SDK v1; legend below), **tests** (conformance widgets that judge it).
 
@@ -278,6 +278,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `tw.theme-params` | themeParams (every Mini Apps key, #rrggbb) and the --tg-theme-* / --tg-color-scheme variables on the root, updated in one task with themeChanged | in | D14 | kept |  | auto/16-sdk-taps-c, auto/20-client-behaviour, auto/22-ua-defaults, visual/12-theme, visual/14-unstyled-document, visual/sdk/14-theme-palette |
 | `tw.events` | onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type | in | SDK | kept |  | auto/16-sdk-taps-c, visual/sdk/14-theme-palette |
 | `tw.is-active` | TelegramWidget.isActive mirrors visibility (activated / deactivated) | in | SDK | kept |  | auto/16-sdk-taps-c, auto/20-client-behaviour |
+| `tw.resize-anchor` | TelegramWidget.setResizeAnchor('top' \| 'bottom'): the edge of the bubble that stays put when the widget's height changes<br><sub>v0.1.3: detect it with typeof TelegramWidget.setResizeAnchor === 'function'; anything but 'top' or 'bottom' throws TypeError; the host reports it with the height.</sub> | in | R1 | host |  | auto/24-resize-anchor, visual/sdk/18-resize-anchor |
 | `tw.open-link` | openLink(url): an absolute https URL of at most 256 characters, no user info, not a t.me host; one call per pointer press; the client confirms showing the full URL<br><sub>Invalid arguments throw TypeError; one call per tap reaches the client.</sub> | in | D8 | host |  | auto/16-sdk-taps-a, visual/11-interaction, visual/sdk/01-link-external, visual/sdk/03-link-rejected, visual/sdk/04-link-timer |
 | `tw.open-telegram-link` | openTelegramLink(url): any https://t.me/… (telegram.me, telegram.dog) path, at most 256 characters, opened inside the client; tg: URLs refused | in | D8 | host |  | auto/16-sdk-taps-c, visual/sdk/02-link-telegram, visual/sdk/03-link-rejected |
 | `tw.haptic` | HapticFeedback: impactOccurred(light\|medium\|heavy\|rigid\|soft), notificationOccurred(error\|success\|warning), selectionChanged(); no gesture needed, visible widgets only<br><sub>Desktop and web accept the calls and play nothing.</sub> | in | D8 | host |  | auto/16-sdk-taps-c, visual/sdk/05-haptics, visual/sdk/06-haptics-rate |
@@ -332,6 +333,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `behaviour.storage-persist` | localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message | in | SDK | host |  | visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart, visual/sdk/09-storage-delete |
 | `behaviour.storage-forward` | A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty<br><sub>Testable with a test bot: forward its message into another chat; the copy starts with empty storage.</sub> | in | SDK | host |  | visual/sdk/15-storage-forward |
 | `behaviour.message-edit` | A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage<br><sub>Testable with a test bot: edit the message with the same and with new HTML.</sub> | in | SDK | host |  | visual/sdk/16-bot-edit |
+| `behaviour.resize-anchor` | When an auto height changes, the client keeps the widget's anchored edge in place on screen: top (default), the content below moves; bottom, the content above moves; also from a cached height and after a re-creation<br><sub>v0.1.3: WidgetDiagnostics.resizeAnchor / web onResize(height, anchor); the old pixels stay aligned to the anchored edge during a height animation.</sub> | in | R1 | host |  | visual/sdk/18-resize-anchor |
 | `behaviour.size-hint` | Before load the bubble takes the bot's size anchors (width 0 = the bubble's width, W = a fixed width in [200, max]; height 0 = the placeholder, then the content height in [50, 600]; H = a fixed clamp(H, 50, 600)), cached per message<br><sub>Testable with a test bot sending inputMediaWidget with the anchors set; 200 / 50 / 600 are the shared v0.1.0 constants.</sub> | in | D12a | host |  | visual/sdk/17-size-hint |
 | `behaviour.policy-strict` | strict policy on every client (gesture gate, text caps, budgets) | in | D5 | kept |  | auto/19-limits |
 
@@ -377,3 +379,4 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **P1-ua**: Clarified in v0.1.1 (2026-10-20): the renderer's user-agent layer (tables.uaStylesheet) also fixes the root and the text elements: the bubble's text colour (the bubble's own fill is the canvas behind a transparent renderer), the client's text tokens (--tg-text-font-size, --tg-text-line-height, --tg-text-padding as the body's margin) and explicit sizes and margins for headings, paragraphs, lists, tables, quotes and code, so a UA default in this profile means that layer, not an engine's own stylesheet
 - **G1**: Gestures, v0.1.2 (Artem, 2026-10-22): one shared policy with the same thresholds on every client and in the sandbox. A double tap over the widget is always the widget's (both clicks and dblclick, on every element; the reaction stays with the bubble outside the widget). For the rest touch-action is the claim, decided per element at pointerdown over the target and its ancestors (a container covers its children, as in CSS): auto: holds and swipes are the bubble's (the widget gets pointercancel); pan-y / pan-x: drags on the other axis are the widget's; none: everything is the widget's, holds (contextmenu) included. The leading 20 px of the widget and the bubble outside it never take a claim. Replaces "double tap and long press stay with the bubble" (SDK)
 - **G2**: Vertical drags are the chat's, v0.1.3 (Artem, 2026-10-24): a widget claims only horizontal drags; a vertical drag over a widget always scrolls the chat, whatever touch-action says, and the widget gets pointercancel. auto: holds and drags are the bubble's; pan-y: horizontal drags are the widget's; pan-x claims nothing; none: horizontal drags and holds (contextmenu) are the widget's. The axis lock (the first move past the 10 px slop decides for the whole press), double taps and the leading 20 px are unchanged. The engine under the renderer always allows vertical panning. Replaces G1's pan-x and the vertical half of none
+- **R1**: Resize anchor, v0.1.3 (Artem, 2026-10-24): TelegramWidget.setResizeAnchor('top' | 'bottom') says which edge of the bubble stays put on screen when the widget's height changes (top by default: it grows downward; bottom: it grows upward and the content above moves). An SDK v1 addition inside profile 1: TelegramWidget.profile stays 1 and widgets detect the method with typeof. It goes through the bridge as a checked call (sdk-policy, four copies and the fixture), needs no gesture, and the host keeps the latest value and reports it with the height; the client's list compensates its scroll

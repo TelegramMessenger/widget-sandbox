@@ -1,5 +1,5 @@
 {
-  "_": "Shared fixture for src/shared/sdk-policy.ts, ios SdkPolicy.swift, android SdkPolicy.kt and desktop sdk_policy.cpp (copies made by scripts/build-native-bundles.ts). links: checkLink(method, url) → the URL opened or null. haptics: checkHaptic(args). bridge: checkBridgeCall(method, args) → the action or null. hapticGate: steps on one HapticGate, decide(at, visible) → play | drop | report. themeParams: checkThemeParams(input). locales: checkLocale(input). storage: checkStorageCommit(input) → the commit or null; strings in `repeat` are expanded (s repeated n times) before the check. utf8: utf8Length(s). No lone surrogates here: they cannot cross every platform's string type unchanged.",
+  "_": "Shared fixture for src/shared/sdk-policy.ts, ios SdkPolicy.swift, android SdkPolicy.kt and desktop sdk_policy.cpp (copies made by scripts/build-native-bundles.ts). links: checkLink(method, url) → the URL opened or null. haptics: checkHaptic(args). bridge: checkBridgeCall(method, args) → the action (or, for setResizeAnchor, the anchor the host keeps: {kind: \"setResizeAnchor\", edge}) or null. hapticGate: steps on one HapticGate, decide(at, visible) → play | drop | report. themeParams: checkThemeParams(input). locales: checkLocale(input). storage: checkStorageCommit(input) → the commit or null; strings in `repeat` are expanded (s repeated n times) before the check. utf8: utf8Length(s). No lone surrogates here: they cannot cross every platform's string type unchanged.",
   "links": [
     { "method": "openLink", "url": "https://example.com/", "expect": "https://example.com/" },
     { "method": "openLink", "url": "https://example.com", "expect": "https://example.com" },
@@ -365,7 +365,23 @@
       "method": 7,
       "args": [],
       "expect": null
-    }
+    },
+    { "method": "setResizeAnchor", "args": ["top"], "expect": { "kind": "setResizeAnchor", "edge": "top" } },
+    { "method": "setResizeAnchor", "args": ["bottom"], "expect": { "kind": "setResizeAnchor", "edge": "bottom" } },
+    { "method": "setResizeAnchor", "args": [], "expect": null },
+    { "method": "setResizeAnchor", "args": ["bottom", "top"], "expect": null },
+    { "method": "setResizeAnchor", "args": ["Bottom"], "expect": null },
+    { "method": "setResizeAnchor", "args": [" top"], "expect": null },
+    { "method": "setResizeAnchor", "args": ["left"], "expect": null },
+    { "method": "setResizeAnchor", "args": ["center"], "expect": null },
+    { "method": "setResizeAnchor", "args": [""], "expect": null },
+    { "method": "setResizeAnchor", "args": [1], "expect": null },
+    { "method": "setResizeAnchor", "args": [null], "expect": null },
+    { "method": "setResizeAnchor", "args": [true], "expect": null },
+    { "method": "setResizeAnchor", "args": [["top"]], "expect": null },
+    { "method": "setResizeAnchor", "args": [{ "edge": "top" }], "expect": null },
+    { "method": "setResizeAnchor", "args": "bottom", "expect": null },
+    { "method": "setresizeanchor", "args": ["top"], "expect": null }
   ],
   "hapticGate": [
     {

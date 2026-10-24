@@ -13,8 +13,8 @@ import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate } from './user-activation';
 import {
-  DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, toWidgetTheme,
-  type StorageCommit, type WidgetAction, type WidgetTheme,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, toWidgetTheme,
+  type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetTheme,
 } from '../shared/sdk-policy';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
@@ -86,7 +86,12 @@ export interface WidgetHostOptions {
   /** Badge text shown by the renderer over a dead widget (user-facing, no error details). */
   stoppedLabel?: string;
   onLoaded?: () => void;
-  onResize?: (height: number) => void;
+  /**
+   * The bubble's height (the content's, clamped to [50, 600]) on every size report, and the edge of the bubble that
+   * stays put on screen when it changes (`TelegramWidget.setResizeAnchor`, docs/sdk-v1.md §2.12 and §5.6): `top` (the
+   * default: the content below moves) or `bottom` (the content above moves).
+   */
+  onResize?: (height: number, anchor: ResizeAnchor) => void;
   /** The renderer; the sandboxed iframe when omitted. */
   rendererFactory?: RendererFactory;
   /** Take the sandbox worker from a pool of warmed ones (worker-pool.ts) instead of booting a fresh one. */
@@ -111,6 +116,8 @@ export class WidgetHost {
   readonly element: HTMLElement;
   /** The product renderer's frame; null for other renderers (Playwright suites look inside it). */
   get iframe(): HTMLIFrameElement | null { return this.element instanceof HTMLIFrameElement ? this.element : null; }
+  /** The edge of the bubble that stays put when the widget's height changes: the widget's latest `setResizeAnchor`, `top` until then. */
+  get resizeAnchor(): ResizeAnchor { return this.anchor; }
   private worker: Worker | null = null;
   private renderer: Renderer;
   private validator: Validator;
@@ -132,6 +139,7 @@ export class WidgetHost {
   private rejectedBridgeReported = 0;
   private rejectedStorageReported = 0;
   private haptics = new HapticGate();
+  private anchor: ResizeAnchor = DEFAULT_RESIZE_ANCHOR;
 
   constructor(container: HTMLElement, html: string, private opts: WidgetHostOptions) {
     const diag = (kind: string, detail: string) => opts.onDiag?.(kind, detail);
@@ -312,6 +320,11 @@ export class WidgetHost {
           }
           break;
         }
+        // Not an action: the host keeps the latest anchor and reports it with the height (no gesture, no callback of its own).
+        if (action.kind === 'setResizeAnchor') {
+          this.anchor = action.edge;
+          break;
+        }
         if (this.policy === 'strict' && PRIVILEGED_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
           if (this.blockedBridgeReported < 20) {
             this.blockedBridgeReported++;
@@ -392,7 +405,7 @@ export class WidgetHost {
         if (h === undefined || iw === undefined || ih === undefined || dpr === undefined) break;
         const height = Math.min(Math.max(h, MIN_HEIGHT), MAX_HEIGHT);
         this.element.style.height = height + 'px';
-        this.opts.onResize?.(height);
+        this.opts.onResize?.(height, this.anchor);
         const vp = { innerWidth: iw, innerHeight: ih, dpr };
         if (JSON.stringify(vp) !== JSON.stringify(this.viewport)) {
           this.viewport = vp;

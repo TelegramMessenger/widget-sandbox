@@ -92,6 +92,74 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(h.commits.first?.values.keys.sorted(), ["k"])
     }
 
+    // MARK: resize anchor (v0.1.3)
+
+    /// `setResizeAnchor` is state next to the height, not an action: no tap, any visibility, nothing in `actions` or
+    /// `bridge`, only the latest value kept (sdk.test.ts "SDK v1: setResizeAnchor").
+    func testSetResizeAnchorIsStateNotAnAction() {
+        var options = WidgetHost.Options()
+        options.visible = false
+        let h = Harness("<button id='b'>b</button><script>var errs=[];['left','Bottom',' top','',null,1].forEach(function(v){try{TelegramWidget.setResizeAnchor(v);}catch(e){errs.push(e.name);}});" +
+            "console.log('errs='+errs.join());TelegramWidget.setResizeAnchor('top');for(var i=0;i<1000;i++)TelegramWidget.setResizeAnchor('bottom');document.body.appendChild(document.createElement('p')).textContent='grown';" +
+            "document.getElementById('b').onclick=function(){TelegramWidget.setResizeAnchor('top');console.log('tapped');};</script>", options: options)
+        h.pump { h.host.diagnostics.resizeAnchor == .bottom }
+        h.settle(0.1)
+        XCTAssertEqual(h.host.diagnostics.resizeAnchor, .bottom, "a hidden widget sets it at boot, no tap")
+        XCTAssertTrue(h.logs.contains("errs=" + Array(repeating: "TypeError", count: 6).joined(separator: ",")), "\(h.logs)")
+        XCTAssertEqual(h.actions, [])
+        XCTAssertTrue(h.host.diagnostics.bridge.isEmpty)
+        XCTAssertEqual(h.count("bridge-rejected"), 0)
+        XCTAssertEqual(h.count("activation-blocked"), 0)
+        h.host.setVisible(true)
+        h.click(5)
+        h.pump { h.logs.contains("tapped") && h.host.diagnostics.resizeAnchor == .top }
+        XCTAssertEqual(h.host.diagnostics.resizeAnchor, .top)
+        XCTAssertEqual(h.actions, [])
+
+        let plain = Harness("<p>never anchored</p>")
+        plain.settle(0.1)
+        XCTAssertEqual(plain.host.diagnostics.resizeAnchor, .top)
+    }
+
+    /// The order bridge → ops → renderer → size: the anchor of a task is in the host's state before the size report
+    /// of that task's ops, here a renderer that reports the height synchronously while it receives the ops. An equal
+    /// value (the glue's own check, the shim sends only changes) changes nothing.
+    func testResizeAnchorComesBeforeTheHeightOfItsTask() throws {
+        let renderer = MarkerSizeRenderer()
+        let html = "<p id='p'>h100</p><script>TelegramWidget.setResizeAnchor('bottom');document.getElementById('p').textContent='h200';" +
+            "setTimeout(function(){TelegramWidget.setResizeAnchor('top');document.getElementById('p').textContent='h300';},100);</script>"
+        let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 300, rendererFactory: { _, _, _ in renderer })
+        defer { host.destroy() }
+        var states: [(height: CGFloat, anchor: WidgetResizeAnchor)] = []
+        let lock = NSLock()
+        host.onChangeOnExecutor = { d in lock.lock(); states.append((d.height, d.resizeAnchor)); lock.unlock() }
+        pump { host.diagnostics.height == 300 }
+        pump(0.2) { false }
+        lock.lock()
+        let seen = states
+        lock.unlock()
+        XCTAssertEqual(seen.first { $0.height == 200 }?.anchor, .bottom, "\(seen)")
+        XCTAssertEqual(seen.first { $0.height == 300 }?.anchor, .top, "\(seen)")
+        XCTAssertFalse(seen.contains { $0.height == 300 && $0.anchor == .bottom }, "the second task's anchor before its height: \(seen)")
+        XCTAssertEqual(host.diagnostics.resizeAnchor, .top)
+
+        let engine = try XCTUnwrap(Mirror(reflecting: host).children.first { $0.label == "engine" }?.value as? SandboxEngine)
+        // Once the host is quiet (the last task's stats arrive after its ops), an equal anchor publishes nothing.
+        let count = { () -> Int in lock.lock(); defer { lock.unlock() }; return states.count }
+        var quiet = count(), quietSince = Date()
+        let limit = Date().addingTimeInterval(5)
+        while Date() < limit, Date().timeIntervalSince(quietSince) < 0.5 {
+            pump(0.05) { false }
+            if count() != quiet { quiet = count(); quietSince = Date() }
+        }
+        host.engine(engine, resizeAnchor: .top)
+        pump(0.3) { false }
+        XCTAssertEqual(count(), quiet, "an equal anchor publishes nothing")
+        host.engine(engine, resizeAnchor: .bottom)
+        pump { host.diagnostics.resizeAnchor == .bottom }
+        XCTAssertEqual(host.diagnostics.resizeAnchor, .bottom)
+    }
+
     // MARK: theme, locale, gestures
 
     func testThemeParamsReachTheWidgetAndTheRenderer() throws {
@@ -258,4 +326,29 @@ final class SdkTests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
     }
+}
+
+/// Reports a size synchronously while it receives an ops batch: 100, 200 or 300 for the batch that carries the text
+/// `h100`, `h200` or `h300` (the latest marker in the batch), so a state's height names the task whose ops made it.
+final class MarkerSizeRenderer: Renderer {
+    let view = PlatformView(frame: CGRect(x: 0, y: 0, width: 300, height: 100))
+    var onMessage: ((String) -> Void)?
+    var onDiag: ((String, String) -> Void)?
+
+    func load() { onMessage?("{\"type\":\"ready\"}") }
+
+    func send(_ json: String) {
+        guard let message = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any], let type = message["type"] as? String else { return }
+        if type == "ops" {
+            if let height = [("h300", 300), ("h200", 200), ("h100", 100)].first(where: { json.contains($0.0) })?.1 {
+                onMessage?("{\"type\":\"size\",\"width\":300,\"height\":\(height)}")
+            }
+        } else if type == "query", let qid = message["qid"] as? Int {
+            DispatchQueue.main.async { [weak self] in self?.onMessage?("{\"type\":\"result\",\"qid\":\(qid),\"result\":null}") }
+        }
+    }
+
+    func setTheme(_ theme: String) {}
+    func evaluate(_ script: String, completion: @escaping (String?) -> Void) { completion(nil) }
+    func destroy() {}
 }

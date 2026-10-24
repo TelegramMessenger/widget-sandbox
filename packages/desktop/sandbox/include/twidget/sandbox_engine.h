@@ -7,7 +7,7 @@
 // Everything that comes out of the context is UNTRUSTED: the delegate must
 // pass it through TrustedValidator before it reaches any renderer. SDK v1
 // calls (docs/sdk-v1.md §3.2) are checked here with sdk_policy.h before the
-// delegate sees them: `onBridgeAction` and `onStorage` get only what passed.
+// delegate sees them: `onBridgeAction`, `onResizeAnchor` and `onStorage` get only what passed.
 #pragma once
 
 #include "twidget/cpu_budget.h"
@@ -100,6 +100,10 @@ public:
     virtual void onDiag(SandboxEngine& engine, const std::string& kind, const std::string& detail) = 0;
     /// A bridge call that passed every check (docs/sdk-v1.md §3.2: arguments, user activation, the haptic limit).
     virtual void onBridgeAction(SandboxEngine&, const WidgetAction&) {}
+    /// `TelegramWidget.setResizeAnchor(edge)` (docs/sdk-v1.md §2.12, since v0.1.3): "top" or "bottom", the edge of the
+    /// bubble that stays put when the widget's height changes. Not an action (never `onBridgeAction` / `onBridge`), no
+    /// gesture needed, at any visibility; the shim sends only changes, during the task and so before that task's `onOps`.
+    virtual void onResizeAnchor(SandboxEngine&, const std::string& /*edge*/) {}
     /// The new full content of a Web Storage area ("local" or "session") at the end of a task that changed it;
     /// once per area of a commit, local first. Checked against the quota; strings as in sdk_policy.h.
     virtual void onStorage(SandboxEngine&, const std::string& /*area*/, const StorageArea& /*values*/) {}

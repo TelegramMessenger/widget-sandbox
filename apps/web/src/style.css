@@ -45,6 +45,8 @@ h2, h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spa
 /* min-height: 0 — a flex child with overflow: auto only scrolls when it may shrink below its content (needed by tests/lifecycle.spec.ts, which scrolls the bubble away). */
 .stage { flex: 1; min-height: 0; display: flex; gap: 24px; justify-content: center; align-items: flex-start; padding: 24px; overflow: auto; background: var(--chat); }
 .chat { width: var(--chat-width, 420px); flex: none; }
+/* setResizeAnchor('bottom'): the bubble's bottom edge stays put, it grows upward from the stage's bottom (main.ts applyAnchor). */
+.stage #chat-sandbox.anchor-bottom { margin-top: auto; }
 .stage.free-width #chat-sandbox { resize: horizontal; overflow: hidden; min-width: 200px; max-width: 1200px; padding-right: 6px; }
 .chat.hidden { display: none; }
 /* compare mode: the extra columns sit in the stage's flex row; four bubbles need narrower columns */
@@ -87,7 +89,7 @@ section.grow { flex: 1; }
 .feed-bar label { display: inline-flex; gap: 3px; align-items: center; cursor: pointer; }
 .feed-bar input[type=number] { width: 56px; }
 .feed-main { flex: 1; min-height: 0; display: flex; }
-.feed-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; background: var(--chat); }
+.feed-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; background: var(--chat); overflow-anchor: none; /* the feed keeps the resize anchor itself (feed.ts) */ }
 /* The bench panel (src/feed-bench.ts): a column to the left of the feed, the two live tables, tabular numbers. */
 .feed-bench { width: 600px; max-width: 55%; min-height: 0; overflow: auto; padding: 10px 14px 24px; background: var(--panel); border-right: 1px solid var(--border); font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
 .feed-bench.hidden { display: none; }

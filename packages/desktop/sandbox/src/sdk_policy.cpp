@@ -159,21 +159,37 @@ std::optional<HapticCall> checkHaptic(const Json& args) {
     return std::nullopt;
 }
 
-std::optional<WidgetAction> checkBridgeCall(const Json& method, const Json& args) {
+std::optional<std::string> checkResizeAnchor(std::string_view edge) {
+    if (!contains(RESIZE_ANCHORS, edge)) return std::nullopt;
+    return std::string(edge);
+}
+
+std::optional<std::string> checkResizeAnchorValue(const Json& edge) {
+    return edge.isString() ? checkResizeAnchor(edge.asString()) : std::nullopt;
+}
+
+Json BridgeCall::toJson() const {
+    if (action) return action->toJson();
+    Json o = Json::object();
+    if (resizeAnchor) o.set("kind", "setResizeAnchor").set("edge", *resizeAnchor);
+    return o;
+}
+
+std::optional<BridgeCall> checkBridgeCall(const Json& method, const Json& args) {
     if (!args.isArray() || !method.isString()) return std::nullopt;
     const std::string& m = method.asString();
     WidgetAction action;
     if (m == "ready") {
         if (args.size() != 0) return std::nullopt;
         action.kind = WidgetAction::Ready;
-        return action;
+        return BridgeCall{action, std::nullopt};
     }
     if (m == "openLink" || m == "openTelegramLink") {
         std::optional<std::string> url = args.size() == 1 ? checkLinkValue(m, args[0]) : std::nullopt;
         if (!url) return std::nullopt;
         action.kind = m == "openLink" ? WidgetAction::OpenLink : WidgetAction::OpenTelegramLink;
         action.url = std::move(*url);
-        return action;
+        return BridgeCall{action, std::nullopt};
     }
     if (m == "haptic") {
         std::optional<HapticCall> h = checkHaptic(args);
@@ -181,7 +197,12 @@ std::optional<WidgetAction> checkBridgeCall(const Json& method, const Json& args
         action.kind = WidgetAction::Haptic;
         action.hapticKind = h->haptic;
         action.hapticValue = h->value.value_or("");
-        return action;
+        return BridgeCall{action, std::nullopt};
+    }
+    if (m == "setResizeAnchor") {
+        std::optional<std::string> edge = args.size() == 1 ? checkResizeAnchorValue(args[0]) : std::nullopt;
+        if (!edge) return std::nullopt;
+        return BridgeCall{std::nullopt, std::move(edge)};
     }
     return std::nullopt;
 }

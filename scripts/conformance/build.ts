@@ -409,6 +409,7 @@ async function main() {
     'behaviour.storage-persist': 'visual/sdk/07, 08, 09 (client behaviour)',
     'behaviour.storage-forward': 'visual/sdk/15-storage-forward (client behaviour)',
     'behaviour.message-edit': 'visual/sdk/16-bot-edit (client behaviour)',
+    'behaviour.resize-anchor': 'visual/sdk/18-resize-anchor (client behaviour)',
     'behaviour.size-hint': 'visual/sdk/17-size-hint (client behaviour)',
   };
   const needAuto = CATALOGUE.filter((f) => f.status !== 'out' && !auto.has(f.id) && !external[f.id]).map((f) => f.id);

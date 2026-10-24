@@ -1,4 +1,4 @@
-// SDK v1 checks (docs/sdk-v1.md §2.5, §2.6, §2.8, §2.9, §3): the C++ twin of
+// SDK v1 checks (docs/sdk-v1.md §2.5, §2.6, §2.8, §2.9, §2.12, §3): the C++ twin of
 // the checked part of packages/core/src/shared/sdk-policy.ts, next to
 // SdkPolicy.swift and SdkPolicy.kt. Pure and side-effect free; checked against
 // tests/fixtures/sdk-policy.json (copied from packages/core/tests/fixtures by
@@ -82,6 +82,12 @@ inline constexpr std::array<std::string_view, 3> HAPTIC_NOTIFICATION_TYPES = {"e
 inline constexpr std::array<std::string_view, 3> TELEGRAM_HOSTS = {"t.me", "telegram.me", "telegram.dog"};
 /// Methods that need the task's user gesture (docs/protocol.md, "User activation").
 inline constexpr std::array<std::string_view, 2> PRIVILEGED_METHODS = {"openLink", "openTelegramLink"};
+/// The edges of the bubble that can stay put on screen when the widget's height changes (`setResizeAnchor`,
+/// docs/sdk-v1.md §2.12): "top" (the bubble grows and shrinks downward, the content below moves) or "bottom" (it
+/// grows upward, its bottom stays, the content above moves).
+inline constexpr std::array<std::string_view, 2> RESIZE_ANCHORS = {"top", "bottom"};
+/// Until the widget calls `setResizeAnchor`: the bubble grows and shrinks downward.
+inline constexpr std::string_view DEFAULT_RESIZE_ANCHOR = "top";
 
 bool isPrivilegedMethod(std::string_view method);
 
@@ -111,8 +117,29 @@ struct HapticCall {
 /// The haptic of a `haptic` bridge call's args, or nullopt: `['impact', style]`, `['notification', type]`, `['selection']`.
 std::optional<HapticCall> checkHaptic(const Json& args);
 
-/// The action of a bridge call, or nullopt when the method is unknown or its arguments are wrong (`bridge-rejected`).
-std::optional<WidgetAction> checkBridgeCall(const Json& method, const Json& args);
+/// The resize anchor of a `setResizeAnchor` call's argument, or nullopt: exactly "top" or "bottom" (case-sensitive, no trimming).
+std::optional<std::string> checkResizeAnchor(std::string_view edge);
+/// The same for a JSON value: anything but a string is nullopt.
+std::optional<std::string> checkResizeAnchorValue(const Json& edge);
+
+/**
+ * A bridge call that passed its checks (the TS `BridgeCall`): an action for the client (`onAction`), or, for
+ * `setResizeAnchor`, the edge, which no action carries: the host keeps the latest one next to the height it reports
+ * (`WidgetDiagnostics::resizeAnchor`). Exactly one of the two is set. Since v0.1.3; `WidgetAction` is unchanged.
+ */
+struct BridgeCall {
+    std::optional<WidgetAction> action;
+    /// `setResizeAnchor`: "top" or "bottom".
+    std::optional<std::string> resizeAnchor;
+
+    bool operator==(const BridgeCall& o) const { return action == o.action && resizeAnchor == o.resizeAnchor; }
+    /// The TS `BridgeCall` shape: the action's (`WidgetAction::toJson`), or {kind:'setResizeAnchor', edge}.
+    Json toJson() const;
+};
+
+/// The checked call, or nullopt when the method is unknown or its arguments are wrong (`bridge-rejected`).
+/// Before v0.1.3 this returned `std::optional<WidgetAction>`; the action is now `->action`.
+std::optional<BridgeCall> checkBridgeCall(const Json& method, const Json& args);
 
 /**
  * Haptics need no gesture but a visible widget and room in the bucket (5 calls,

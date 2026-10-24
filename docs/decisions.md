@@ -1625,3 +1625,36 @@ client on a phone, scrolls the page over any widget; the claim and the
 widget's `getComputedStyle` read the widget's own value. On Android the
 WebView renderer keeps its parent from intercepting only for a hold claim, and
 only until the press leaves the slop vertically.
+
+## The resize anchor (v0.1.3, 2026-10-24)
+
+Artem's decision: a widget chooses which edge of its bubble stays put when its
+height changes, with `TelegramWidget.setResizeAnchor('top' | 'bottom')`
+(decision R1 in `profile.json`; `docs/sdk-v1.md` §2.12, §5.6).
+
+**Why.** A chat list keeps the top of a growing bubble still, which is right
+for an FAQ, "show more" or an order summary that opens below the line the
+reader tapped, and wrong for a widget that grows at its bottom, a chat log or
+a support thread: there the reader's finger is on the quick replies at the
+bottom, and every new message pushes them away. Only the widget knows which
+kind it is. `top` stays the default, so every widget written before keeps its
+behaviour.
+
+**The shape.** One call with two values, applied to the height changes that
+follow until it is called again, rather than an argument of each change (the
+renderer measures the height; the widget never reports it). It goes through
+the bridge as a checked call like the others (`sdk-policy`: four copies and
+the fixture; only `'top'` and `'bottom'`, case-sensitive; no gesture, no
+visibility gate), but it is not an action: the host keeps the latest value and
+reports it with the height (`WidgetDiagnostics.resizeAnchor`, web
+`onResize(height, anchor)`), and the shim sends only changes, so a widget that
+calls it in a loop costs the client nothing. It is an SDK v1 addition inside
+profile 1: `TelegramWidget.profile` stays 1 and widgets detect the method with
+`typeof`, as a client whose framework predates v0.1.3 lacks it.
+
+**The client's part.** The list compensates its scroll so the anchored edge of
+a bubble on screen stays in place, also when the bubble opens at its cached
+height and the first report differs and after it is re-created; a bubble off
+screen keeps the visible content in place; during a height animation the old
+pixels are aligned to the anchored edge. The web dev app and the feed do it
+(`corpus/resize` has one widget per anchor).

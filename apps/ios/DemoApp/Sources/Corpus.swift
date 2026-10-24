@@ -25,7 +25,11 @@ enum Corpus {
         return urls.map(\.lastPathComponent).sorted()
     }
 
+    /// The Custom HTML screen's draft (`CustomHtmlView`); the chat feed's `custom` corpus puts it in every bubble.
+    static let customHtmlKey = "demo.customHtml"
+
     static func html(group: String, file: String) -> String {
+        if group == "custom" { return UserDefaults.standard.string(forKey: customHtmlKey) ?? "<p>No custom HTML yet: write one on the Custom HTML screen.</p>" }
         let name = (file as NSString).deletingPathExtension
         guard let url = Bundle.main.url(forResource: name, withExtension: "html", subdirectory: "Corpus/\(group)") else { return "<p>missing \(file)</p>" }
         return (try? String(contentsOf: url, encoding: .utf8)) ?? "<p>unreadable</p>"

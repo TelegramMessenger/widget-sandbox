@@ -2,7 +2,8 @@
 // mirror of the checked part of src/shared/sdk-policy.ts (see the comments
 // there). The shim checks the same calls, but it is untrusted, so the glue
 // checks them again: link URLs, haptic arguments and the 5 + 10/s gate, theme
-// params, the locale, storage commits and preloads, bridge calls.
+// params, the locale, storage commits and preloads, bridge calls (the resize
+// anchor among them).
 //
 // Pure and side-effect free; checked against tests/fixtures/sdk-policy.json
 // (copied to Tests/WidgetSandboxTests/Fixtures by `pnpm build:ios`), shared
@@ -42,12 +43,18 @@ public enum SdkPolicy {
         public var value: String?
     }
 
-    /// A checked bridge call (the TS `WidgetAction`): the URL as the check gives it, a string.
+    /// Until the widget calls `setResizeAnchor`: the bubble grows and shrinks downward.
+    public static let defaultResizeAnchor = WidgetResizeAnchor.top
+
+    /// A checked bridge call (the TS `BridgeCall`): an action for the client (the TS `WidgetAction`; the URL as the
+    /// check gives it, a string), or the resize anchor, which no `WidgetAction` carries: the host keeps the latest one
+    /// next to the height it reports.
     public enum Action: Equatable {
         case ready
         case openLink(String)
         case openTelegramLink(String)
         case haptic(HapticCall)
+        case setResizeAnchor(WidgetResizeAnchor)
     }
 
     /// A checked storage commit (or preload): the areas present, each in full.
@@ -141,7 +148,14 @@ public enum SdkPolicy {
         return nil
     }
 
-    /// The action of a bridge call, or nil when the method is unknown or its arguments are wrong (`bridge-rejected`).
+    /// The resize anchor of a `setResizeAnchor` call's argument, or nil: exactly `"top"` or `"bottom"` (case-sensitive, no trimming).
+    public static func checkResizeAnchor(_ edge: Any?) -> WidgetResizeAnchor? {
+        guard let edge = edge as? String, edge == "top" || edge == "bottom" else { return nil }
+        return WidgetResizeAnchor(rawValue: edge)
+    }
+
+    /// The action of a bridge call (or, for `setResizeAnchor`, the anchor the host keeps), or nil when the method is
+    /// unknown or its arguments are wrong (`bridge-rejected`).
     public static func checkBridgeCall(_ method: Any?, _ args: Any?) -> Action? {
         guard let args = args as? [Any], let method = method as? String else { return nil }
         switch method {
@@ -152,6 +166,8 @@ public enum SdkPolicy {
             return method == "openLink" ? .openLink(url) : .openTelegramLink(url)
         case "haptic":
             return checkHaptic(args).map { .haptic($0) }
+        case "setResizeAnchor":
+            return args.count == 1 ? checkResizeAnchor(args[0]).map { .setResizeAnchor($0) } : nil
         default:
             return nil
         }

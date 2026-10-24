@@ -111,6 +111,12 @@ struct WidgetDiagnostics {
     std::optional<std::string> lastError;
     /// Document height in CSS px as the renderer reports it (clamped to [50, 600]).
     double height = 0;
+    /// The edge of the bubble that stays put on screen when `height` changes (`TelegramWidget.setResizeAnchor`,
+    /// docs/sdk-v1.md §2.12, since v0.1.3): "top" (the default: the bubble grows and shrinks downward, the content
+    /// below it moves) or "bottom" (it grows upward, its bottom stays, the content above it moves). The widget's latest
+    /// call; it is in the state before the size report that follows the same task's ops. No callback of its own: a
+    /// change goes through `onChange`, read it there with the height.
+    std::string resizeAnchor = std::string(sdk::DEFAULT_RESIZE_ANCHOR);
     /// Wall clock to the first `size` report that follows validated ops.
     std::optional<double> firstContentMs;
 
@@ -216,6 +222,7 @@ public:
     void onLog(SandboxEngine&, const std::string& level, const std::string& text) override;
     void onDiag(SandboxEngine&, const std::string& kind, const std::string& detail) override;
     void onBridgeAction(SandboxEngine&, const WidgetAction& action) override;
+    void onResizeAnchor(SandboxEngine&, const std::string& edge) override;
     void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override;
     void onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) override;
     void onLoaded(SandboxEngine&) override;

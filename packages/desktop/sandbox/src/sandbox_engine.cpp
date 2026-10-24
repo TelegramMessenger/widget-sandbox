@@ -372,15 +372,23 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         // links, the haptic limit; then the action. Lone surrogates stay WTF-8 so checkLink refuses them.
         auto call = Json::parse(arg, Json::Surrogates::Keep);
         const Json* method = call && call->isArray() && call->size() > 0 ? &call->arr()[0] : nullptr;
-        std::optional<WidgetAction> action = call && call->isArray() ? sdk::checkBridgeCall((*call)[0], (*call)[1]) : std::nullopt;
+        std::optional<sdk::BridgeCall> checked = call && call->isArray() ? sdk::checkBridgeCall((*call)[0], (*call)[1]) : std::nullopt;
         std::string name = !method ? "undefined" : method->isString() ? truncate(method->asString(), 64) : truncate(method->dump(), 64);
-        if (!action) {
+        if (!checked) {
             if (rejectedBridgeReported_ < sdk::MAX_REJECTION_REPORTS && delegate_) {
                 rejectedBridgeReported_++;
                 delegate_->onDiag(*this, "bridge-rejected", name + ": unknown method or malformed arguments");
             }
             return HostReturn::undefined();
         }
+        // setResizeAnchor is not an action (docs/sdk-v1.md §2.12): no gesture, any visibility, never onBridgeAction or
+        // onBridge; the host keeps the latest edge next to the height. The shim sends only changes, before the ops of
+        // the content change, and the delegate gets it now, in the task: ahead of that task's onOps.
+        if (checked->resizeAnchor) {
+            if (delegate_) delegate_->onResizeAnchor(*this, *checked->resizeAnchor);
+            return HostReturn::undefined();
+        }
+        const WidgetAction& action = *checked->action;
         if (isStrictPolicy(config_.policy) && sdk::isPrivilegedMethod(name)) {
             if (!(activeGesture_ > consumedGesture_ && visible_)) {
                 if (blockedBridgeReported_ < sdk::MAX_REJECTION_REPORTS && delegate_) {
@@ -392,14 +400,14 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
             consumedGesture_ = activeGesture_;
             activeGesture_ = 0;
         }
-        if (action->kind == WidgetAction::Haptic) {
+        if (action.kind == WidgetAction::Haptic) {
             sdk::HapticGate::Decision d = haptics_.decide(nowMs(), visible_);
             if (d == sdk::HapticGate::Decision::Report && delegate_)
                 delegate_->onDiag(*this, "haptic-limit", visible_ ? "haptics over 5 per burst or 10 per second are dropped" : "haptics of a hidden widget are dropped");
             if (d != sdk::HapticGate::Decision::Play) return HostReturn::undefined();
         }
         if (delegate_) {
-            delegate_->onBridgeAction(*this, *action);
+            delegate_->onBridgeAction(*this, action);
             delegate_->onBridge(*this, name, (*call)[1].dump());
         }
         return HostReturn::undefined();

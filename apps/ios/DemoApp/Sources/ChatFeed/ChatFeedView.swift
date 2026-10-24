@@ -36,6 +36,7 @@ struct ChatFeedSetupView: View {
                 Picker("Widgets", selection: $corpus) {
                     Text("showcase — interactive demos").tag("showcase")
                     Text("classic — compat, generated, Telegram demos").tag("classic")
+                    Text("custom — the Custom HTML draft in every bubble").tag("custom")
                 }
                 Stepper("\(count) widgets", value: $count, in: 5...400, step: 5)
                 Picker("Autorun scroll", selection: $scroll) {
@@ -121,6 +122,7 @@ struct FeedBar: View {
                     Picker("Widgets", selection: $switches.corpus) {
                         Text("showcase — interactive demos").tag("showcase")
                         Text("classic — compat, generated, Telegram").tag("classic")
+                        Text("custom — the Custom HTML draft").tag("custom")
                     }
                 } label: { Text(switches.corpus) }
                 Menu {

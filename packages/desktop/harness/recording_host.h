@@ -34,6 +34,8 @@ public:
     /// Raw bridge calls the glue let through (the deprecated onBridge), and the checked actions (onBridgeAction).
     std::vector<std::pair<std::string, std::string>> bridge;
     std::vector<WidgetAction> actions;
+    /// Each `setResizeAnchor` edge the glue accepted, in order (the shim sends only changes; `top` until the first).
+    std::vector<std::string> resizeAnchors;
     /// Storage commits the glue accepted, one entry per area, in order.
     std::vector<std::pair<std::string, StorageArea>> storageCommits;
     std::optional<std::string> died;
@@ -107,6 +109,11 @@ public:
         std::lock_guard<std::mutex> l(mutex_);
         actions.push_back(action);
         if (verbose_) fprintf(stderr, "[action] %s\n", action.toJson().dump().c_str());
+    }
+    void onResizeAnchor(SandboxEngine&, const std::string& edge) override {
+        std::lock_guard<std::mutex> l(mutex_);
+        resizeAnchors.push_back(edge);
+        if (verbose_) fprintf(stderr, "[resize-anchor] %s\n", edge.c_str());
     }
     void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override {
         std::lock_guard<std::mutex> l(mutex_);

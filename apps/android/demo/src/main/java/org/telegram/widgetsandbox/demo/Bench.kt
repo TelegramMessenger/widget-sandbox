@@ -255,7 +255,7 @@ fun BenchScreen(renderer: String, count: Int, prewarm: Boolean, holdSeconds: Int
     Scaffold(topBar = { TopAppBar(title = { Text("Renderer bench · $renderer", fontSize = 16.sp) }) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(scroll).padding(12.dp)) {
             Text(status, fontSize = 12.sp)
-            for (m in models) key(m) { Column(modifier = Modifier.padding(vertical = 6.dp)) { ChatBubble(m) } }
+            for (m in models) key(m) { Column(modifier = Modifier.padding(vertical = 6.dp)) { ChatBubble(m, scroll) } }
         }
     }
 }

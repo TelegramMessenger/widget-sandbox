@@ -201,7 +201,7 @@ struct WidgetScreen: View {
 
 /// Paste any HTML and render it like a corpus file (sandbox, and reference if the toggle is on).
 struct CustomHtmlView: View {
-    @AppStorage("demo.customHtml") private var text = "<p>Hello from a pasted widget</p>\n<script>document.querySelector('p').textContent += ' at ' + new Date().toLocaleTimeString();</script>"
+    @AppStorage(Corpus.customHtmlKey) private var text = "<p>Hello from a pasted widget</p>\n<script>document.querySelector('p').textContent += ' at ' + new Date().toLocaleTimeString();</script>"
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("The HTML goes through the same path as a corpus file; the draft is kept between launches.").font(.caption).foregroundStyle(.secondary)
@@ -245,7 +245,15 @@ struct ChatBubble: View {
     /// Called when the bubble enters or leaves the screen (the owner's side of the off-screen pause).
     var onScreenChange: (Bool) -> Void = { _ in }
     @StateObject private var gestures = BubbleGestures()
+    /// `setResizeAnchor('bottom')` (docs/sdk-v1.md §5.6): the bubble sits at the bottom of a stage as tall as the
+    /// tallest bubble (the 600 pt cap and the caption row) and grows upward, its bottom edge staying put, like the web
+    /// dev app's stage; `top` (the default) lays it out from the top, the content below moves.
+    private static let anchoredStageHeight: CGFloat = WidgetModel.defaultOptions.maximumHeight + 20
     var body: some View {
+        bubble.frame(minHeight: model.diagnostics.resizeAnchor == .bottom ? Self.anchoredStageHeight : nil, alignment: .bottomLeading)
+    }
+
+    private var bubble: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(DemoRenderer.label).font(.caption2).foregroundStyle(.secondary)
@@ -567,6 +575,8 @@ struct DiagnosticsPanel: View {
                 .font(.caption.bold()).foregroundStyle(d.dead != nil ? .red : d.loaded ? .green : .secondary)
             Text(String(format: "JS %.0f ms in %d tasks · %.1f MB · %d ops · %d nodes · %d sync queries (%.0f ms, %d cache hits) · missed %d",
                         d.stats.jsMs, d.stats.tasks, Double(d.stats.memoryBytes) / 1048576, d.stats.ops, d.nodes, d.stats.queries, d.stats.queryMs, d.stats.queryCacheHits, d.stats.missedMutations))
+                .font(.caption2).foregroundStyle(.secondary)
+            Text("bubble \(Int(d.height)) pt · resize anchor \(d.resizeAnchor.rawValue): " + (d.resizeAnchor == .bottom ? "grows and shrinks upward, its bottom stays" : "grows and shrinks downward, its top stays"))
                 .font(.caption2).foregroundStyle(.secondary)
             ForEach(d.diags.keys.sorted(), id: \.self) { k in
                 let e = d.diags[k]!

@@ -35,17 +35,20 @@ import { WidgetHost } from '@telegram/widget-sandbox/host/widget-host';
 import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import { bubbleGesturesOption, showBubbleGesture, type GestureMode } from './bubble-gestures';
+import { DEFAULT_RESIZE_ANCHOR, type ResizeAnchor } from '@telegram/widget-sandbox/shared/sdk-policy';
 
 export type FeedRenderer = 'iframe' | 'shadow' | 'blitz' | 'litehtml';
 /** Which corpus fills the widget bubbles; `BATCH_ORDER` is the round-robin over its batches (light first). */
-export type FeedCorpus = 'showcase' | 'common' | 'gestures';
+export type FeedCorpus = 'showcase' | 'common' | 'gestures' | 'resize';
 const CORPORA: { kind: FeedCorpus; title: string }[] = [
   { kind: 'showcase', title: 'corpus/showcase: 21 interactive, animated demos on the full web profile (boarding pass, ride tracking, smart home, kanban, live poll …)' },
   { kind: 'common', title: 'corpus/common: the 32 widgets on the profile every renderer shares, for like-for-like renderer timings' },
   { kind: 'gestures', title: 'corpus/gestures: what the horizontal-only rule removed (v0.1.3: games on touch-action none and the same games on pan-y, joystick and 2048, now alike; a wheel picker that no longer turns) and what is fine with horizontal only (paddle, card carousel, range slider)' },
+  { kind: 'resize', title: 'corpus/resize: one widget per resize anchor (setResizeAnchor, v0.1.3): an FAQ that grows downward (the default, top), a support thread that grows upward (bottom), results that grow downward (top)' },
 ];
 const BATCH_ORDER: Record<FeedCorpus, string[]> = {
   showcase: ['travel', 'commerce', 'life', 'work'], common: ['cards', 'interactive', 'live', 'heavy'], gestures: ['1-pairs', '2-horizontal', '3-vertical'],
+  resize: ['1-default', '2-grows-up', '3-grows-down'],
 };
 const RENDERERS: { kind: FeedRenderer; label: string; title: string }[] = [
   { kind: 'iframe', label: 'iframe', title: 'sandboxed srcdoc iframe per bubble (product renderer)' },
@@ -91,6 +94,10 @@ interface Bubble {
   visible: boolean;
   /** Remembered bubble height (px): the placeholder while parked or booting, so the layout holds still. */
   height: number;
+  /** The edge that stays put when the height changes (the widget's `setResizeAnchor`, from the last size report; kept with the height). */
+  anchor: ResizeAnchor;
+  /** The bubble's laid-out height (head and foot included) at the last anchoring pass. */
+  laidOut: number;
   /** When the current blank stretch started (visible, no content yet); 0 when not blank. */
   blankSince: number;
   createdAt: number;
@@ -401,6 +408,29 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     for (const b of bubbles) ioFar.observe(b.el);
   }
 
+  // ───────────── the resize anchor (docs/sdk-v1.md §5.6): the anchored edge stays put on screen ─────────────
+
+  // The list compensates its scroll itself (the browser's own scroll anchoring is off: .feed-scroll in style.css): a
+  // bubble on screen anchored at the bottom keeps its bottom edge, the content above it moves; anchored at the top it
+  // keeps its top edge, the content below moves; a bubble above the viewport never moves what is on screen. The same
+  // for every height change: a size report, the boot placeholder (the cached height) giving way, a re-created bubble.
+  const anchorObserver = new ResizeObserver((entries) => {
+    const view = scroller.getBoundingClientRect();
+    let shift = 0;
+    for (const e of entries) {
+      const b = byEl.get(e.target);
+      if (!b) continue;
+      const h = b.el.offsetHeight, delta = h - b.laidOut;
+      if (!b.laidOut || !delta) { b.laidOut = h; continue; }
+      b.laidOut = h;
+      const r = b.el.getBoundingClientRect();
+      const top = r.top, oldBottom = top + h - delta;
+      if (oldBottom <= view.top) shift += delta;
+      else if (top < view.bottom && b.anchor === 'bottom') shift += delta;
+    }
+    if (shift) scroller.scrollTop += shift;
+  });
+
   function enqueue(b: Bubble) {
     b.state = 'queued';
     queue.push(b);
@@ -489,9 +519,10 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
         if (b.sized && b.height > MIN_HEIGHT) content();
         renderHead(b);
       },
-      onResize: (h) => {
+      onResize: (h, anchor) => {
         if (gen !== generation) return;
         b.height = h;
+        b.anchor = anchor;
         b.sized = true;
         // The first size report of an empty document is exactly MIN_HEIGHT; content is anything taller, or any report after the scripts ran.
         if (!b.contentAt && (b.loadedAt || h > MIN_HEIGHT)) content();
@@ -633,7 +664,7 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     foot.className = 'feed-foot hidden';
     el.append(head, bubble, foot);
     const b: Bubble = {
-      idx, file, hostile: isHostile, el, head, wrap, foot, host: null, state: 'idle', near: false, visible: false, height: 0,
+      idx, file, hostile: isHostile, el, head, wrap, foot, host: null, state: 'idle', near: false, visible: false, height: 0, anchor: DEFAULT_RESIZE_ANCHOR, laidOut: 0,
       createdAt: 0, loadedAt: 0, contentAt: 0, shownAt: 0, shownSampled: false, sized: false, poolOn: false, renderer, boots: 0,
       blocked: 0, throttled: 0, timerLimit: false, heap: 0, deadReason: null, killed: false, lastError: null, rec: null, blankSince: 0,
     };
@@ -683,12 +714,12 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
       byEl.set(b.el, b);
     });
     column.replaceChildren(frag);
-    for (const b of bubbles) { ioNear.observe(b.el); ioVisible.observe(b.el); ioFar.observe(b.el); }
+    for (const b of bubbles) { ioNear.observe(b.el); ioVisible.observe(b.el); ioFar.observe(b.el); anchorObserver.observe(b.el); }
   }
 
   function teardown() {
     generation++;
-    ioNear.disconnect(); ioVisible.disconnect(); ioFar.disconnect();
+    ioNear.disconnect(); ioVisible.disconnect(); ioFar.disconnect(); anchorObserver.disconnect();
     for (const b of bubbles) { stopBlank(b); b.rec = null; b.host?.destroy(); }
     bubbles = [];
     byEl.clear();

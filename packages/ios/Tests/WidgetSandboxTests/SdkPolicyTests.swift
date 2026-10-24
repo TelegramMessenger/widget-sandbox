@@ -61,12 +61,30 @@ final class SdkPolicyTests: XCTestCase {
         case .openLink(let url): return ["kind": "openLink", "url": url]
         case .openTelegramLink(let url): return ["kind": "openTelegramLink", "url": url]
         case .haptic(let h): return hapticDict(h)!.merging(["kind": "haptic"]) { a, _ in a }
+        case .setResizeAnchor(let edge): return ["kind": "setResizeAnchor", "edge": edge.rawValue]
         }
     }
 
     func testBridgeCalls() throws {
+        var anchors = 0
         for c in try cases("bridge") {
-            XCTAssertEqual(actionDict(SdkPolicy.checkBridgeCall(value(c["method"]), value(c["args"]))), value(c["expect"]) as? [String: String], "\(short(c["method"])) \(short(c["args"]))")
+            let checked = SdkPolicy.checkBridgeCall(value(c["method"]), value(c["args"]))
+            XCTAssertEqual(actionDict(checked), value(c["expect"]) as? [String: String], "\(short(c["method"])) \(short(c["args"]))")
+            if case .setResizeAnchor = checked {
+                anchors += 1
+                XCTAssertNil(WidgetAction(checked!), "the anchor is never a WidgetAction")
+            }
+        }
+        XCTAssertEqual(anchors, 2, "the fixture's setResizeAnchor entries for top and bottom")
+    }
+
+    /// The single-argument check behind `setResizeAnchor` (the fixture covers it through `bridge`).
+    func testResizeAnchor() {
+        XCTAssertEqual(SdkPolicy.defaultResizeAnchor, .top)
+        XCTAssertEqual(SdkPolicy.checkResizeAnchor("top"), .top)
+        XCTAssertEqual(SdkPolicy.checkResizeAnchor("bottom"), .bottom)
+        for bad: Any? in [nil, NSNull(), "Top", "bottom ", "", "left", 1, true, ["top"], ["edge": "top"]] {
+            XCTAssertNil(SdkPolicy.checkResizeAnchor(bad), short(bad))
         }
     }
 

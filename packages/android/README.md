@@ -147,6 +147,12 @@ values)`, `onGesture(WidgetGestureClaim)`; all callbacks on the main thread. `Sa
 call with `SdkPolicy.kt` (the twin of `sdk-policy.ts`, `SdkPolicyTest` against the shared fixture):
 the call itself (`bridge-rejected`), one link per tap under `strict` (`activation-blocked`), the haptic
 limit (`haptic-limit`); storage commits and the preload against the 16 KB quota (`storage-rejected`).
+`TelegramWidget.setResizeAnchor('top' | 'bottom')` (v0.1.3) is no action: `SdkPolicy.checkBridgeCall`
+returns a `BridgeCall` (a `WidgetAction`, or `BridgeCall.SetResizeAnchor(edge)`), the engine hands the
+anchor to `SandboxEngine.Delegate.onResizeAnchor`, and `WidgetHost` keeps the latest one in
+`WidgetDiagnostics.resizeAnchor` ("top" until the widget calls it) next to `height`, set before the size
+report of the content its task changed; the client keeps that edge of the bubble in place when the height
+changes (the demo's lists: `WidgetView(scroll = …)`).
 The string-theme constructor, `setTheme(String)`, `onBridge` and `onGestureClaim(x, y)` remain as deprecated conveniences;
 `bridgeEvent` is gone.
 

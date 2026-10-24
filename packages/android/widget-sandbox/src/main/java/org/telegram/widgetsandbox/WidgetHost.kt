@@ -41,10 +41,17 @@ class WidgetDiagnostics(
     var prewarmed: String = "",
     /** What `onAction` got, in order (the first 1000). */
     val actions: ArrayList<WidgetAction> = ArrayList(),
+    /**
+     * The edge of the bubble that stays put on screen when `height` changes (`TelegramWidget.setResizeAnchor`,
+     * docs/sdk-v1.md §2.12 and §5.6, since v0.1.3): "top" (the default: the bubble grows and shrinks downward, the
+     * content below moves) or "bottom" (it grows and shrinks upward, its bottom stays, the content above moves). The
+     * widget's latest call; it reaches this state before the size report of the content its task changed.
+     */
+    var resizeAnchor: String = SdkPolicy.DEFAULT_RESIZE_ANCHOR,
 ) {
     fun copy() = WidgetDiagnostics(
         ArrayList(logs), LinkedHashMap(diags.mapValues { it.value.copy() }), ArrayList(bridge), stats.copy(), nodes, loaded, dead, height, lastError,
-        rendererReadyMs, firstContentMs, loadedMs, prewarmed, ArrayList(actions),
+        rendererReadyMs, firstContentMs, loadedMs, prewarmed, ArrayList(actions), resizeAnchor,
     )
 }
 
@@ -395,6 +402,18 @@ class WidgetHost(
     }
     override fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) {
         main.post { if (!destroyed) onStorageCommit?.invoke(area, values) }
+    }
+    /**
+     * The latest anchor goes into the state next to the height (no callback of its own: `onChange`, coalesced). Posted
+     * from the engine thread during the task, so it runs on main before that task's ops (posted at its end), hence
+     * before the renderer lays them out and before the `size` report that follows.
+     */
+    override fun onResizeAnchor(engine: SandboxEngine, edge: String) {
+        main.post {
+            if (destroyed || diagnostics.resizeAnchor == edge) return@post
+            diagnostics.resizeAnchor = edge
+            changed()
+        }
     }
     override fun onLoaded(engine: SandboxEngine) {
         val loadedMs = sinceCreatedMs()

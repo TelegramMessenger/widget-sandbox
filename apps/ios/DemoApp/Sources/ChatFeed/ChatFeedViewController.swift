@@ -290,12 +290,19 @@ final class ChatFeedViewController: UIViewController, UICollectionViewDataSource
         guard !deltas.isEmpty else { return }
         let context = UICollectionViewFlowLayoutInvalidationContext()
         context.invalidateFlowLayoutDelegateMetrics = true
-        // Bubbles above the reader's viewport grow or shrink without moving what they see.
+        // Bubbles above the reader's viewport grow or shrink without moving what they see. A bubble on screen keeps
+        // its anchored edge (the widget's setResizeAnchor, docs/sdk-v1.md §5.6): `bottom` keeps its bottom edge and the
+        // content above moves (the offset takes the delta), `top` keeps its top edge and the content below moves.
         var adjustment: CGFloat = 0
+        let viewport = collectionView.bounds
         for (id, delta) in deltas {
-            guard let item = model.messages.firstIndex(where: { $0.id == id }) else { continue }
-            if let frame = layout.layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame, frame.maxY <= collectionView.bounds.minY { adjustment += delta }
+            guard let item = model.messages.firstIndex(where: { $0.id == id }),
+                  let frame = layout.layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame else { continue }
+            if frame.maxY <= viewport.minY { adjustment += delta }
+            else if frame.minY < viewport.maxY, model.entry(id)?.anchor == .bottom { adjustment += delta }
         }
+        // Never past the top of the list (a bottom-anchored bubble that shrinks near it): the rest moves instead.
+        adjustment = max(adjustment, -collectionView.adjustedContentInset.top - collectionView.contentOffset.y)
         if adjustment != 0 { context.contentOffsetAdjustment = CGPoint(x: 0, y: adjustment) }
         MainWork.shared.measure("layout-invalidate") {
             UIView.performWithoutAnimation {
@@ -326,6 +333,7 @@ final class ChatFeedViewController: UIViewController, UICollectionViewDataSource
         if !e.prewarmed.isEmpty { s += " · pool: \(e.prewarmed)" }
         if e.recreated > 0 { s += " · recreated ×\(e.recreated)" }
         if e.heightJumps > 0 { s += " · jumps \(e.heightJumps)" }
+        if e.anchor == .bottom { s += " · anchored at the bottom" }
         return s
     }
 

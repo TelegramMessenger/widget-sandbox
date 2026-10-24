@@ -1,4 +1,4 @@
-// SDK v1 checks (docs/sdk-v1.md §2.5, §2.6, §2.8, §2.9, §3): a line-for-line
+// SDK v1 checks (docs/sdk-v1.md §2.5, §2.6, §2.8, §2.9, §2.12, §3): a line-for-line
 // twin of the checked part of src/shared/sdk-policy.ts (see the comments
 // there), SdkPolicy.swift and sdk_policy.cpp. The theme defaults and the
 // renderer's CSS variables are TS only: the renderer core builds them from the
@@ -19,8 +19,19 @@ import org.json.JSONObject
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * A bridge call that passed its checks (the TS `BridgeCall`, docs/sdk-v1.md §3.2): an action for the client
+ * ([WidgetAction], `onAction`), or the resize anchor ([SetResizeAnchor]), which no action carries: the host keeps
+ * the latest one next to the height it reports (WidgetDiagnostics.resizeAnchor). Since v0.1.3, the result of
+ * [SdkPolicy.checkBridgeCall]; [WidgetAction] and its cases are unchanged.
+ */
+sealed interface BridgeCall {
+    /** `TelegramWidget.setResizeAnchor(edge)`: [SdkPolicy.RESIZE_ANCHORS], "top" | "bottom". */
+    data class SetResizeAnchor(val edge: String) : BridgeCall
+}
+
 /** What the widget asked the client to do (docs/sdk-v1.md §3.2, §4.2), after the glue's checks. */
-sealed class WidgetAction {
+sealed class WidgetAction : BridgeCall {
     /** The widget has rendered its initial state. */
     data object Ready : WidgetAction()
     /** An external https: page; the client confirms with the full URL. Scheme and host lowercase, non-ASCII percent-encoded. */
@@ -71,6 +82,10 @@ object SdkPolicy {
     const val HAPTIC_REPORT_MS = 1000
     /** The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts; docs/profile-v1.md). */
     const val PROFILE_VERSION = 1
+    /** Until the widget calls `setResizeAnchor`: the bubble grows and shrinks downward (docs/sdk-v1.md §2.12). */
+    const val DEFAULT_RESIZE_ANCHOR = "top"
+    /** The edges of the bubble that can stay put on screen when the widget's height changes (`setResizeAnchor`). */
+    val RESIZE_ANCHORS = listOf("top", "bottom")
 
     val THEME_KEYS = listOf(
         "bg_color", "text_color", "hint_color", "link_color", "button_color", "button_text_color",
@@ -176,14 +191,21 @@ object SdkPolicy {
         return null
     }
 
-    /** The action of a bridge call, or null when the method is unknown or its arguments are wrong (`bridge-rejected`). */
-    fun checkBridgeCall(method: Any?, args: Any?): WidgetAction? {
+    /** The resize anchor of a `setResizeAnchor` call's argument, or null: exactly "top" or "bottom" (case-sensitive, no trimming). */
+    fun checkResizeAnchor(edge: Any?): String? = if (edge == "top" || edge == "bottom") edge as String else null
+
+    /**
+     * The action of a bridge call (or, for `setResizeAnchor`, the anchor the host keeps: [BridgeCall.SetResizeAnchor]),
+     * or null when the method is unknown or its arguments are wrong (`bridge-rejected`).
+     */
+    fun checkBridgeCall(method: Any?, args: Any?): BridgeCall? {
         val a = items(args) ?: return null
         return when (method) {
             "ready" -> if (a.isEmpty()) WidgetAction.Ready else null
             "openLink" -> (if (a.size == 1) checkLink("openLink", a[0]) else null)?.let { WidgetAction.OpenLink(it) }
             "openTelegramLink" -> (if (a.size == 1) checkLink("openTelegramLink", a[0]) else null)?.let { WidgetAction.OpenTelegramLink(it) }
             "haptic" -> checkHaptic(a)
+            "setResizeAnchor" -> (if (a.size == 1) checkResizeAnchor(a[0]) else null)?.let { BridgeCall.SetResizeAnchor(it) }
             else -> null
         }
     }

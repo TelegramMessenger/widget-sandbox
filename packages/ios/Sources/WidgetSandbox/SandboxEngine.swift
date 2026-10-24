@@ -82,6 +82,9 @@ public protocol SandboxEngineDelegate: AnyObject {
     func engine(_ engine: SandboxEngine, action: WidgetAction)
     /// The Web Storage areas a task changed, in full, within the quota (docs/sdk-v1.md §3.2); at least one area is set.
     func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit)
+    /// A checked `setResizeAnchor` call (docs/sdk-v1.md §2.12): no action, no gesture, not gated by visibility. The shim
+    /// sends only changes, in the task before that task's ops; the host keeps the latest next to the height.
+    func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor)
     func engineLoaded(_ engine: SandboxEngine)
     func engine(_ engine: SandboxEngine, stats: SandboxStats)
     func engine(_ engine: SandboxEngine, died reason: String)
@@ -92,6 +95,7 @@ public extension SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, anim json: String) {}
     func engine(_ engine: SandboxEngine, action: WidgetAction) {}
     func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {}
+    func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) {}
 
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
         self.engine(engine, ops: canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
@@ -618,11 +622,17 @@ public final class SandboxEngine {
     }
 
     /// docs/sdk-v1.md §3.2, in this order: the method and its arguments, user activation for the links (strict),
-    /// the haptic gate; then the action and, deprecated, the raw call to the delegate.
+    /// the haptic gate; then the action and, deprecated, the raw call to the delegate. `setResizeAnchor` is no action:
+    /// once checked it goes to the delegate's `resizeAnchor` and nowhere else (no gesture, any visibility).
     private func bridgeCall(_ arg: String) {
         let call = Self.parse(arg) as? [Any]
         let name = String(((call?.first).map { $0 as? String ?? "\($0)" } ?? "undefined").prefix(64))
-        guard let call, let checked = SdkPolicy.checkBridgeCall(call.first, call.count > 1 ? call[1] : nil), let action = WidgetAction(checked) else {
+        let checked = call.flatMap { SdkPolicy.checkBridgeCall($0.first, $0.count > 1 ? $0[1] : nil) }
+        if case .setResizeAnchor(let edge) = checked {
+            delegate?.engine(self, resizeAnchor: edge)
+            return
+        }
+        guard let call, let checked, let action = WidgetAction(checked) else {
             if rejectedBridgeReported < 20 {
                 rejectedBridgeReported += 1
                 delegate?.engine(self, diag: "bridge-rejected", detail: "\(name): unknown method or malformed arguments")

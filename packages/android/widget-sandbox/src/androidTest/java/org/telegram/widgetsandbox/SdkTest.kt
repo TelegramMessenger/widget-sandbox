@@ -9,6 +9,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -147,6 +148,22 @@ class SdkTest {
         engine2.terminate()
     }
 
+    /** `setResizeAnchor` (v0.1.3): the shim sends only changes, the glue takes them with no gesture and hidden, never as an action. */
+    @Test
+    fun resizeAnchorIsNoAction() {
+        val html = "<script>TelegramWidget.setResizeAnchor('top'); TelegramWidget.setResizeAnchor('bottom');" +
+            "for (var i = 0; i < 1000; i++) TelegramWidget.setResizeAnchor('bottom');" +
+            "TelegramWidget.setResizeAnchor('top'); TelegramWidget.setResizeAnchor('bottom');" +
+            "[undefined, 'left', 'Bottom', ' top', 1].forEach(function (v) { try { TelegramWidget.setResizeAnchor(v); } catch (e) { console.log(e.name); } });</script>"
+        val (d, engine) = run(html) { it.visible = false }
+        assertEquals(listOf("bottom", "top", "bottom"), d.resizeAnchors.toList())
+        assertEquals(emptyList<WidgetAction>(), d.actions.toList())
+        assertEquals(emptyList<Pair<String, String>>(), d.bridge.toList())
+        assertEquals(List(5) { "TypeError" }, d.logged())
+        assertEquals("${d.diags}", 0, d.count("activation-blocked") + d.count("bridge-rejected"))
+        engine.terminate()
+    }
+
     // ── WidgetHost end to end ──
 
     /** A tap (down, up) at a point of the widget in dp, dispatched into the WebView like a finger. */
@@ -247,6 +264,80 @@ class SdkTest {
             assertEquals("callbacks run on the main thread", emptyList<String>(), offMain.toList())
             assertNull(latest.get().dead)
             instrumentation.runOnMainSync { host.destroy() }
+        }
+    }
+
+    /** The renderer with a look at each `size` report just before WidgetHost handles it. */
+    private class SizeProbe(private val inner: Renderer, private val onSize: (JSONObject) -> Unit) : Renderer by inner {
+        override var onMessage: ((String) -> Unit)? = null
+            set(value) {
+                field = value
+                inner.onMessage = { json ->
+                    if (json.contains("\"size\"")) runCatching { JSONObject(json) }.getOrNull()?.takeIf { it.optString("type") == "size" }?.let(onSize)
+                    value?.invoke(json)
+                }
+            }
+    }
+
+    /**
+     * `setResizeAnchor` through WidgetHost on the WebView renderer (v0.1.3): the latest anchor is in the diagnostics next to
+     * the height, never in `actions` / `bridge`, and it is there before the size report of the content its task changed
+     * (bridge → ops → renderer → size: the engine posts the anchor during the task, the ops at its end).
+     */
+    @Test
+    fun hostKeepsTheResizeAnchorNextToTheHeight() {
+        val html = """
+            <style>body { margin: 0 }</style>
+            <script>TelegramWidget.setResizeAnchor('bottom');</script>
+            <div id="box" style="height:100px;background:#ccc">tap</div>
+            <script>
+              document.getElementById('box').addEventListener('click', function () {
+                TelegramWidget.setResizeAnchor('top');
+                document.getElementById('box').style.height = '220px';
+              });
+            </script>
+        """.trimIndent()
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            lateinit var host: WidgetHost
+            lateinit var plain: WidgetHost
+            val latest = AtomicReference(WidgetDiagnostics())
+            val plainLatest = AtomicReference(WidgetDiagnostics())
+            /** Each size report the renderer sent: (its height, the host's anchor when the host got it). */
+            val atSize = Collections.synchronizedList(ArrayList<Pair<Double, String>>())
+            val actions = Collections.synchronizedList(ArrayList<WidgetAction>())
+            scenario.onActivity { activity ->
+                val probe = RendererFactory { context, res, theme, _ ->
+                    SizeProbe(RendererWebView(context, res.rendererBundle, theme)) { atSize.add(it.optDouble("height") to host.diagnostics.resizeAnchor) }
+                }
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0, rendererFactory = probe)
+                host.onChange = { latest.set(it) }
+                host.onAction = { actions.add(it) }
+                activity.show(host.view)
+            }
+            assertTrue("widget never loaded", waitFor(15) { latest.get().loaded && latest.get().height >= 100 })
+            Thread.sleep(300)
+            assertEquals("bottom", latest.get().resizeAnchor)
+            assertEquals("the first size report of the content finds the anchor its task set: $atSize", "bottom", atSize.first { it.first >= 100 }.second)
+
+            tap(host.view, 50f, 50f)
+            assertTrue("$atSize", waitFor { latest.get().height >= 220 })
+            Thread.sleep(200)
+            assertEquals("top", latest.get().resizeAnchor)
+            assertEquals("the grown height's size report finds the anchor of the tap that grew it: $atSize", "top", atSize.first { it.first >= 220 }.second)
+            assertEquals(emptyList<WidgetAction>(), actions.toList())
+            assertEquals(emptyList<WidgetAction>(), latest.get().actions)
+            assertEquals(emptyList<Pair<String, String>>(), latest.get().bridge)
+            assertNull("${latest.get().diags.keys}", latest.get().diags["bridge-rejected"])
+
+            // A widget that never calls it: top.
+            scenario.onActivity { activity ->
+                plain = WidgetHost(activity, "<p>plain</p>", WidgetTheme(), 360.0)
+                plain.onChange = { plainLatest.set(it) }
+                activity.show(plain.view)
+            }
+            assertTrue("plain widget never loaded", waitFor(15) { plainLatest.get().loaded })
+            assertEquals("top", plainLatest.get().resizeAnchor)
+            instrumentation.runOnMainSync { host.destroy(); plain.destroy() }
         }
     }
 }

@@ -132,7 +132,7 @@ stylesheets, fonts and images are never loaded. The full list, generated
 from the profile:
 
 <!-- profile:summary -->
-*Generated from `packages/core/profile.json` (profile 1): 255 features, 176 in, 79 out; each one with how it is removed in `docs/profile-v1.md`.*
+*Generated from `packages/core/profile.json` (profile 1): 257 features, 178 in, 79 out; each one with how it is removed in `docs/profile-v1.md`.*
 
 - **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> · Form controls: form, input · progress, meter · dialog · audio, video, source, track · script · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
@@ -142,10 +142,10 @@ from the profile:
 - **Animation** (7 in, 1 out): Magic move
 - **Canvas 2D** (13 in, 8 out): createConicGradient · createPattern from a canvas or image · globalCompositeOperation · shadowBlur, shadowColor, shadowOffsetX/Y · ctx.filter · getImageData / putImageData / createImageData · toDataURL, toBlob, captureStream · WebGL, OffscreenCanvas, bitmaprenderer contexts
 - **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
-- **TelegramWidget (SDK v1)** (9 in, 1 out): TelegramWidget.sendMessage
+- **TelegramWidget (SDK v1)** (10 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
 - **Limits** (11 in, 0 out)
-- **Client behaviour** (11 in, 0 out)
+- **Client behaviour** (12 in, 0 out)
 <!-- /profile:summary -->
 
 ## `TelegramWidget` in brief
@@ -160,6 +160,7 @@ TelegramWidget.openTelegramLink('https://t.me/…');
 TelegramWidget.HapticFeedback.impactOccurred('light'); // notificationOccurred, selectionChanged
 TelegramWidget.ready();                      // optional: first state drawn
 ```
+TelegramWidget.setResizeAnchor('bottom');    // v0.1.3: grow upward ('top', the default: downward)
 
 - **Links:** `https:` only, at most 256 characters, one call per tap, only in
   the handler of a real tap (not from a timer or a promise); a bad URL throws
@@ -173,6 +174,15 @@ TelegramWidget.ready();                      // optional: first state drawn
 - **Haptics:** no tap needed, only while visible, 5 in a burst then 10 per
   second; desktop and web play nothing.
 - **Gone:** `sendMessage` (nothing is sent to the chat or the bot), `alert` /
+- **Resize anchor** (v0.1.3): when your height changes, the client keeps one
+  edge of the bubble still on screen. `'top'` (the default) grows and shrinks
+  downward: answers that expand, "show more", a summary that opens.
+  `'bottom'` keeps the bottom still and grows upward: a chat log or thread where
+  new lines appear at the bottom and older ones move up. Call it before the
+  change, at the start of the script if the widget always grows one way; it
+  applies until you call it again. Only `'top'` and `'bottom'` (anything else
+  throws `TypeError`); older clients lack it:
+  `if (typeof TelegramWidget.setResizeAnchor === 'function') …`.
   `confirm` / `prompt` (no dialog), clipboard, share, fullscreen.
 - Outside Telegram (a plain browser) `window.TelegramWidget` is undefined:
   check for it.
@@ -248,6 +258,9 @@ JS, shown inside a chat bubble.
   per tap; HapticFeedback.impactOccurred('light'); themeParams; colorScheme;
   onEvent('themeChanged', fn). No sendMessage, no alert/confirm/prompt.
 - State: localStorage, 16 KB, per message; catch QuotaExceededError. The widget
+- Height changes grow the bubble downward; for a log or thread that grows at
+  the bottom call TelegramWidget.setResizeAnchor('bottom') first (if typeof
+  TelegramWidget.setResizeAnchor === 'function'): the bubble then grows upward.
   may be recreated at any time; restore state on load.
 - Limits: 300 ms CPU per second, 500 ms per task, 64 MB, 256 timers. Render the
   first state synchronously; animate with requestAnimationFrame.

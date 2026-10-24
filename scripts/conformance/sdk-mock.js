@@ -36,5 +36,6 @@
     onEvent: function () {}, offEvent: function () {}, onTheme: function (cb) { if (typeof cb === 'function') cb(scheme); }, ready: function () {},
     openLink: function (u) { url(u, false); }, openTelegramLink: function (u) { url(u, true); },
     HapticFeedback: H,
+    setResizeAnchor: function (e) { if (e !== 'top' && e !== 'bottom') throw new TypeError("setResizeAnchor: edge must be 'top' or 'bottom'"); },
   };
 })();

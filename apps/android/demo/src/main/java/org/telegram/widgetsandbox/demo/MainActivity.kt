@@ -139,6 +139,8 @@ fun WidgetScreen(group: String, file: String) {
         if (showReference && referenceAllowed) ReferenceModel(context, html, if (dark) "dark" else "light") else null
     }
     DisposableEffect(reference) { onDispose { reference?.destroy() } }
+    // The list's scroll: ChatBubble keeps the widget's resize anchor in it.
+    val scroll = rememberScrollState()
     MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
         Scaffold(
             topBar = {
@@ -156,11 +158,11 @@ fun WidgetScreen(group: String, file: String) {
             },
         ) { padding ->
             Column(
-                modifier = Modifier.fillMaxSize().background(if (dark) Color.Black else MaterialTheme.colorScheme.surfaceVariant).padding(padding).verticalScroll(rememberScrollState()).padding(12.dp),
+                modifier = Modifier.fillMaxSize().background(if (dark) Color.Black else MaterialTheme.colorScheme.surfaceVariant).padding(padding).verticalScroll(scroll).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 RendererPicker(renderer) { renderer = it; prefs.edit().putString(DemoRenderer.PREF, it.name).apply() }
-                ChatBubble(model)
+                ChatBubble(model, scroll)
                 DiagnosticsPanel(model)
                 if (reference != null) ReferenceBubble(reference)
             }

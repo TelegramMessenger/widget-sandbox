@@ -29,7 +29,7 @@ host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
 | haptics | validates, rate-limits, drops calls from hidden widgets | plays them (or ignores them on desktop and web) |
 | storage | preload at start, per-task commits, the quota | persists per message, deletes with the message, chat, account, "Clear cache" |
 | gestures | reports per press what the widget claims with `touch-action` (horizontal drags, holds); the shared policy (thresholds, who wins); `dblclick` for every double tap, `contextmenu` for claimed holds; on the web, plays the bubble itself | drives its recognizers from the policy: menu and swipe-to-reply unless the widget claims the press, and then cancels the widget's touch; the list scroll always; no double-tap reaction over the widget (v0.1.2; vertical drags the chat's since v0.1.3, §5.5) |
-| size | reports the content height | sizes the bubble from the bot's hint before load, caps it, clips |
+| size | reports the content height and the widget's resize anchor (`setResizeAnchor`, v0.1.3) | sizes the bubble from the bot's hint before load, caps it, clips; keeps the anchored edge in place when the height changes (§5.6) |
 | failures | freezes the last frame with a badge and reports `dead` | rebuilds it after a crash; after 2 crashes in a row leaves it stopped |
 
 ## 2. Widget-facing API
@@ -57,6 +57,7 @@ laid over the same calls later (D19).
 | `HapticFeedback.notificationOccurred(type)` | `type`: `'error' \| 'success' \| 'warning'` | |
 | `HapticFeedback.selectionChanged()` | `() => HapticFeedback` | |
 | `ready()` | `() => void` | |
+| `setResizeAnchor(edge)` | `(edge: 'top' \| 'bottom') => void` | v0.1.3 (§2.12); detect it with `typeof TelegramWidget.setResizeAnchor === 'function'` |
 | `theme`, `onTheme(cb)` | aliases of `colorScheme` and `onEvent('themeChanged')` (the callback gets the colour scheme, at once and on every change) | deprecated |
 | `sendMessage` | `typeof TelegramWidget.sendMessage === 'undefined'` | removed |
 
@@ -350,6 +351,7 @@ missing or malformed locale is `en-US` (before v1: always `en-US`).
 | `isProfileAtLeast` | `false` | — | — |
 | `onEvent`, `offEvent` | ignored (unknown type or non-function) | — | 16 handlers per type; further ones are ignored |
 | `ready` | — | — | — |
+| `setResizeAnchor` | `TypeError` (anything but exactly `'top'` or `'bottom'`) | — | only a change reaches the host |
 
 Diagnostics go to the host's diagnostics (`onDiag` / `WidgetDiagnostics`),
 never to the widget.
@@ -359,6 +361,29 @@ host sees in `died` / `onDead`: `CPU limit exceeded` (more than the task's slice
 of continuous JS), `Layout query limit exceeded` (its synchronous layout queries
 blocked the renderer for more than max(slice, 100 ms) in one task; the queries
 also count toward the CPU quota) and `Memory limit exceeded (64 MB)`.
+
+### 2.12 Resize anchor (v0.1.3)
+
+`TelegramWidget.setResizeAnchor(edge)` says which edge of the bubble stays put
+on screen when the widget's height changes:
+
+- `'top'` (the default, also before any call): the bubble grows and shrinks
+  downward; the content below it moves. An FAQ whose answers expand, "show
+  more" results, an order summary that opens.
+- `'bottom'`: the bubble grows and shrinks upward; its bottom stays and the
+  content above it moves. A chat log or a support thread where new messages
+  appear at the bottom and the older ones move up.
+
+It may be called at any time and applies to the height changes that follow,
+until it is called again; call it before the change it should anchor, at the
+start of the script for a widget that always grows one way (the anchor of a
+re-created widget is what its new run sets). It needs no tap and works while
+hidden. Anything but exactly `'top'` or `'bottom'` throws `TypeError`. A client
+whose framework predates v0.1.3 has no such method: check
+`typeof TelegramWidget.setResizeAnchor === 'function'` (the profile number does
+not tell: it stays 1). The anchor is a request: a client keeps it for a bubble
+on screen; for a bubble off screen it keeps what is on screen in place
+(§5.6). The widget is not told which edge moved.
 
 ## 3. Protocol
 
@@ -396,13 +421,17 @@ dropped whole with the diagnostic `storage-rejected` (the widget starts empty).
 | `openLink` | `[url]` | URL rules of §2.5; privileged: needs the task's gesture, consumes it | `openLink(url)` |
 | `openTelegramLink` | `[url]` | URL rules of §2.5; privileged | `openTelegramLink(url)` |
 | `haptic` | `['impact', style]`, `['notification', type]`, `['selection']` | enum values; visible; rate limit | `haptic(...)` |
+| `setResizeAnchor` | `[edge]` | exactly `'top'` or `'bottom'` (v0.1.3); no gesture, no visibility gate | not an action: the host keeps the latest value and reports it with the height (§4) |
 
 The glue checks in this order: the method and its arguments
 (`checkBridgeCall`; any other method or a malformed call is dropped with
 `bridge-rejected`, at most 20 reported); user activation for the two link
 methods (`activation-blocked`); for `haptic` the gate of §2.6 (`haptic-limit`).
 A call that passes goes to the client as a `WidgetAction` with the normalised
-URL (and, deprecated, to `onBridge` with the raw method and arguments). The
+URL (and, deprecated, to `onBridge` with the raw method and arguments), except
+`setResizeAnchor`, which only sets the host's anchor: the shim sends it only
+when the value changes, and the host keeps one value, so a widget that calls it
+in a loop costs the client nothing. The
 method names `sendMessage`, `alert` and `clipboard` are gone from the wire.
 
 Gesture tagging: on native hosts the engine runs a trusted event's task
@@ -476,10 +505,11 @@ public enum WidgetStorageArea: String { case local, session }
 public enum WidgetHaptic { case impact(String), notification(String), selection }
 public enum WidgetAction { case ready, openLink(URL), openTelegramLink(URL), haptic(WidgetHaptic) }
 public struct WidgetGestureClaim { var x: Bool; var y: Bool; var hold: Bool }   // hold: v0.1.2; y: always false since v0.1.3
+public enum WidgetResizeAnchor: String { case top, bottom }   // v0.1.3: WidgetDiagnostics.resizeAnchor, next to height
 
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
 // Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
-var onChange: ((WidgetDiagnostics) -> Void)?           // height, loaded, rendered, dead, diags, actions
+var onChange: ((WidgetDiagnostics) -> Void)?           // height, resizeAnchor (v0.1.3), loaded, rendered, dead, diags, actions
 var onError: ((String) -> Void)?
 var onAction: ((WidgetAction) -> Void)?
 var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?   // local before session
@@ -506,7 +536,7 @@ sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(
 
 WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
 // Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload)
-var onChange: ((WidgetDiagnostics) -> Unit)?               // … and actions
+var onChange: ((WidgetDiagnostics) -> Unit)?               // … height, resizeAnchor ("top" | "bottom", v0.1.3), actions
 var onError: ((String) -> Unit)?
 var onAction: ((WidgetAction) -> Unit)?
 var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   // "local" | "session"
@@ -531,7 +561,7 @@ struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } ki
 
 WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
 // WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload)
-std::function<void(const WidgetDiagnostics&)> onChange;           // … actions, storageCommits (first 1000)
+std::function<void(const WidgetDiagnostics&)> onChange;           // … height, resizeAnchor ("top" | "bottom", v0.1.3), actions, storageCommits (first 1000)
 std::function<void(const std::string&)> onError;
 std::function<void(const WidgetAction&)> onAction;
 std::function<void(const std::string& area, const std::map<std::string, std::string>&)> onStorageCommit;
@@ -559,8 +589,10 @@ new WidgetHost(container, html, {
   locale, storage: { local, session },     // the client's language and Web Storage preload
   onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y, hold }),
   bubbleGestures, onBubbleGesture({ action, gesture, x, y, edge }),   // v0.1.2: the renderer plays the bubble (§5.5)
-  policy, visible, onDead, onError, onLoaded, onResize, onDiag, rendererFactory, workerPool, features, …
+  onResize(height, anchor),                // anchor: 'top' | 'bottom', the widget's setResizeAnchor (v0.1.3)
+  policy, visible, onDead, onError, onLoaded, onDiag, rendererFactory, workerPool, features, …
 })
+host.resizeAnchor;                         // v0.1.3: the latest anchor, 'top' until the widget sets one
 host.setTheme(theme); host.setVisible(visible); host.setBubbleGestures(mode); host.destroy();
 // @telegram/widget-sandbox/shared/gesture-policy: GestureArbiter, claimOf and the thresholds, for a client's own recognizers
 ```
@@ -573,8 +605,10 @@ only Telegram's endpoints, `form-action 'none'`, no third-party
 
 For tests and tooling, not for clients. `RunOptions` takes `theme`, `locale`,
 `themeParams`, `button`, `text`, `storage` and `script` steps `{ theme, themeParams }`;
-`RunResult` has `actions` (what `onAction` would get), `storageCommits` and
-`theme` (the renderer's `theme` message, which `--ops-file` writes before the ops).
+`RunResult` has `actions` (what `onAction` would get), `storageCommits`,
+`resizeAnchor` and `resizeAnchors` (the latest anchor and each one the glue
+accepted, v0.1.3; the CLI prints a `resize anchor:` line) and `theme` (the
+renderer's `theme` message, which `--ops-file` writes before the ops).
 Gestures are injected per event (`gesture: n`). Since v0.1.2 `width` (the bubble's,
 default 400) and `gestures` (`tap`, `hold`, `double-tap`, `swipe`, `right-click`) run the
 widget on the real renderer core in headless Chromium after load: `RunResult.gestures`
@@ -750,6 +784,23 @@ over any widget, while the claim reads the widget's own value.
   paints reaches the rounded edges.
 - Text is not selectable unless the widget enables it with `user-select: text`
   (D18 since v0.1.1; §2.4, §5.10).
+- **The resize anchor** (v0.1.3, §2.12): with every height the host reports the
+  edge that stays put (`WidgetDiagnostics.resizeAnchor` next to `height`; web
+  `onResize(height, anchor)`), `top` until the widget sets one. When an auto
+  height changes, the list keeps that edge where it is on screen: for `top` the
+  content below the bubble moves; for `bottom` the content above moves (in a
+  list laid out from the top, add the height difference to the scroll offset;
+  in an inverted chat list that grows from the bottom it is the natural
+  behaviour). The same holds when the bubble opens at its cached height and the
+  first report differs, and after the bubble is re-created (the anchor is the
+  one the new run reports with its height). A bubble off screen keeps the
+  visible content in place, as for any item that changes height. Keep the
+  anchor with the cached height per message.
+- During an animated height change, align the old pixels to the anchored
+  edge: the widget view (or its snapshot) is pinned to the bubble's bottom for
+  `bottom` and to its top for `top`, so the edge that stays put does not move
+  while the bubble's other edge animates. A fixed height (`H > 0`) never
+  changes, whatever the anchor.
 
 ### 5.7 Failures and restarts (D22)
 

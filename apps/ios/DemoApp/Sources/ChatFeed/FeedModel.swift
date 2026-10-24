@@ -42,6 +42,8 @@ final class FeedWidgetEntry {
     var heightJumps = 0
     var cachedHeight: CGFloat?
     var height: CGFloat
+    /// The edge that stays put on screen when `height` changes (the widget's `setResizeAnchor`), from the same diagnostics.
+    var anchor = WidgetResizeAnchor.top
     var recreated = 0
     var snapshot: UIImage?
     var snapshotData: Data?
@@ -136,12 +138,16 @@ final class FeedModel {
     }
 
     /// `showcase`: exactly the web feed's order — each batch shuffled with its seed (travel 7, commerce 8, life 9, work 10), then one of each batch in turn,
-    /// the web's text bubble before every other widget; `classic`: compat → generated → Telegram demos, every widget announced by a numbered text bubble.
+    /// the web's text bubble before every other widget; `classic`: compat → generated → Telegram demos, every widget announced by a numbered text bubble;
+    /// `custom`: the Custom HTML draft in every bubble, announced like `classic`.
     /// Cycled when `count` exceeds the corpus. `hostile` (an attacks/ file) takes the third widget bubble, on the first screen, like the web feed.
     private static func makeMessages(count: Int, corpus: String, hostile: String) -> [FeedMessage] {
         var files: [(String, String)] = []
         let showcase = corpus == "showcase"
-        if showcase {
+        if corpus == "custom" {
+            // The Custom HTML screen's draft in every bubble (Corpus.html): a widget under test in a real list.
+            files = [("custom", "custom.html")]
+        } else if showcase {
             let batches = showcaseOrder.enumerated().map { i, g in shuffled(Corpus.files(in: "showcase/\(g)").map { ("showcase/\(g)", $0) }, seed: UInt32(7 + i)) }
             for i in 0..<(batches.map(\.count).max() ?? 0) { for b in batches where i < b.count { files.append(b[i]) } }
         } else {
@@ -229,6 +235,7 @@ final class FeedModel {
             let entry = "t=\(Int((now - startedAt) * 1000)):\(Int(d.height))\(flags)"
             if e.heightTrace.last != entry { e.heightTrace.append(entry) }
         }
+        e.anchor = d.resizeAnchor
         if d.height > 0, d.firstContentMs != nil, settled, d.height != e.height {
             let old = e.height
             e.height = d.height

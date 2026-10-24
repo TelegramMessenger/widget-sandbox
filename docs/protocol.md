@@ -428,7 +428,9 @@ glue gates in the engine (`activationEvent(json, gesture)`). See decisions.md,
 
 `__host('bridge', JSON [method, args])`: `ready []`, `openLink [url]`,
 `openTelegramLink [url]`, `haptic ['impact', style] | ['notification', type] |
-['selection']`. Every glue checks, in order: the method and its arguments
+['selection']`, `setResizeAnchor ['top' | 'bottom']` (v0.1.3: not privileged,
+not an action; the host keeps the latest edge and reports it with the height,
+and the shim sends only changes). Every glue checks, in order: the method and its arguments
 (`checkBridgeCall`: anything else is dropped with `bridge-rejected`, at most 20),
 user activation for the two link methods (above), the haptic gate for `haptic`
 (visible, a bucket of 5 refilled at 10 per second; `haptic-limit` at most once

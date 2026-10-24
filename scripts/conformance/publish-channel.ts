@@ -76,6 +76,8 @@ const TOPICS: TopicSpec[] = [
   { name: 'Defaults', corpus: 'corpus/defaults', default: true, color: 0xcb86db },
   // What the horizontal-only rule removed and what it keeps (corpus/gestures/README.md); --topic gestures.
   { name: 'Gestures', corpus: 'corpus/gestures', default: false, color: 0x6fb9f0 },
+  // One widget per resize anchor: the default, growing up, growing down (corpus/resize/README.md); --topic resize.
+  { name: 'Resize', corpus: 'corpus/resize', default: false, color: 0x8eee98 },
   { name: 'Showcase', corpus: 'corpus/showcase', default: false, color: 0xcb86db },
   { name: 'Common', corpus: 'corpus/common', default: false, color: 0xff93b2 },
   { name: 'Generated', corpus: 'corpus/generated/with-profile', default: false, color: 0xfb6f5f },

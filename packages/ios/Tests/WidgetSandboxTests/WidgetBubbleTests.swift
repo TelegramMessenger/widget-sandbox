@@ -45,6 +45,25 @@ final class WidgetBubbleTests: XCTestCase {
         withExtendedLifetime(queued) {}
     }
 
+    /// The bubble reports the widget's resize anchor with the height it comes with (`setResizeAnchor`, v0.1.3).
+    func testResizeAnchorComesWithTheHeight() {
+        let feed = WidgetFeed()
+        feed.schedule = { _ in }
+        feed.delay = { _, _ in }
+        // MarkerSizeRenderer (SdkTests.swift): 100 for the markup's batch, 200 for the script's.
+        let html = "<p id='p'>h100</p><script>TelegramWidget.setResizeAnchor('bottom');document.getElementById('p').textContent='h200';</script>"
+        let bubble = WidgetBubble(html: html, theme: WidgetTheme(), width: 300, feed: feed, rendererFactory: { _, _, _ in MarkerSizeRenderer() })
+        var changes: [(height: CGFloat, anchor: WidgetResizeAnchor)] = []
+        bubble.onHeightChange = { changes.append((bubble.height, bubble.resizeAnchor)) }
+        XCTAssertEqual(bubble.resizeAnchor, .top)
+        XCTAssertNotNil(bubble.ensureHost())
+        wait { bubble.hasContent && bubble.height == 200 }
+        XCTAssertEqual(bubble.resizeAnchor, .bottom)
+        XCTAssertEqual(changes.last?.height, 200, "\(changes)")
+        XCTAssertEqual(changes.last?.anchor, .bottom, "\(changes)")
+        XCTAssertFalse(changes.contains { $0.height == 100 && $0.anchor == .bottom }, "\(changes)")
+    }
+
     func testAsyncSnapshotCannotReplaceSnapshotFromNewHost() {
         let feed = WidgetFeed()
         feed.schedule = { _ in }

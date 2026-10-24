@@ -40,8 +40,10 @@ class SdkPolicyTest {
 
     private fun strings(o: JSONObject): Map<String, String> = o.keys().asSequence().associateWith { o.getString(it) }
 
-    private fun action(o: JSONObject?): WidgetAction? = when (o?.getString("kind")) {
+    /** A fixture `expect` of the bridge section: an action, or `{kind: "setResizeAnchor", edge}` (since v0.1.3). */
+    private fun action(o: JSONObject?): BridgeCall? = when (o?.getString("kind")) {
         null -> null
+        "setResizeAnchor" -> BridgeCall.SetResizeAnchor(o.getString("edge"))
         "ready" -> WidgetAction.Ready
         "openLink" -> WidgetAction.OpenLink(o.getString("url"))
         "openTelegramLink" -> WidgetAction.OpenTelegramLink(o.getString("url"))
@@ -117,6 +119,10 @@ class SdkPolicyTest {
     @Test
     fun kotlinCollectionsAndLoneSurrogates() {
         assertEquals(WidgetAction.Haptic("impact", "soft"), SdkPolicy.checkBridgeCall("haptic", listOf("impact", "soft")))
+        assertEquals(BridgeCall.SetResizeAnchor("bottom"), SdkPolicy.checkBridgeCall("setResizeAnchor", listOf("bottom")))
+        assertNull(SdkPolicy.checkBridgeCall("setResizeAnchor", listOf(StringBuilder("top"))))
+        assertEquals(listOf("top", "bottom", null, null), listOf("top", "bottom", "TOP", "top ").map(SdkPolicy::checkResizeAnchor))
+        assertEquals("top", SdkPolicy.DEFAULT_RESIZE_ANCHOR)
         assertEquals(StorageCommit(local = mapOf("a" to "1")), SdkPolicy.checkStorageCommit(mapOf("local" to mapOf("a" to "1"))))
         assertNull(SdkPolicy.checkStorageCommit(mapOf("local" to mapOf("a" to 1))))
         assertEquals(mapOf("bg_color" to "#abcdef"), SdkPolicy.checkThemeParams(mapOf("bg_color" to "#ABCDEF", "text_color" to "red", "x" to "#000000")))

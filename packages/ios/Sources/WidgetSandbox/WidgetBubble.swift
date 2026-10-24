@@ -9,6 +9,9 @@ public final class WidgetBubble {
     public private(set) var theme: WidgetTheme
     public private(set) var host: WidgetHost?
     public private(set) var height: CGFloat = 0
+    /// The edge that stays put when `height` changes (the widget's `setResizeAnchor`, `WidgetDiagnostics.resizeAnchor`),
+    /// set before `onHeightChange` for the height it comes with.
+    public private(set) var resizeAnchor = SdkPolicy.defaultResizeAnchor
     public private(set) var hasContent = false
     public private(set) var generation = 0
     public private(set) var isAwaitingRender = false
@@ -327,6 +330,7 @@ public final class WidgetBubble {
             }
             isAwaitingRender = false
         }
+        resizeAnchor = diagnostics.resizeAnchor
         let newHeight = diagnostics.height > 0 ? max(diagnostics.height, heightFloor) : 0
         if newHeight > 0 && abs(newHeight - height) > 0.5 {
             height = newHeight

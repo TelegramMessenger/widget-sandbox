@@ -135,6 +135,14 @@ public enum WidgetHaptic: Equatable {
     case selection
 }
 
+/// The edge of the bubble that stays put on screen when the widget's height changes (`TelegramWidget.setResizeAnchor`,
+/// docs/sdk-v1.md §2.12 and §5.6): `top` (the default: the bubble grows and shrinks downward, the content below moves)
+/// or `bottom` (it grows and shrinks upward, its bottom stays, the content above moves). Not an action: the host keeps
+/// the widget's latest one next to the height (`WidgetDiagnostics.resizeAnchor`).
+public enum WidgetResizeAnchor: String, Equatable {
+    case top, bottom
+}
+
 /// What the widget asked the client to do, checked: the URL rules, user activation for the links, the haptic rate limit.
 public enum WidgetAction: Equatable {
     case ready
@@ -162,6 +170,9 @@ public enum WidgetAction: Equatable {
             case "notification": self = .haptic(.notification(h.value ?? ""))
             default: self = .haptic(.selection)
             }
+        case .setResizeAnchor:
+            // Not an action: the host keeps it in its state (WidgetDiagnostics.resizeAnchor).
+            return nil
         }
     }
 }

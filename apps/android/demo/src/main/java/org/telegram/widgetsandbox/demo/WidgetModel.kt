@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Toast
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -145,17 +147,36 @@ fun RendererPicker(selected: DemoRenderer, onSelect: (DemoRenderer) -> Unit) {
 /** One note per press the bubble took (a new instance each time: ChatBubble's timer restarts). */
 class BubbleNote(val text: String)
 
-/** The widget at chat-bubble width; its height follows the renderer's size reports. `bubble`: inside the bubble's recognizers (ChatBubble). */
+/**
+ * The widget at chat-bubble width; its height follows the renderer's size reports. `bubble`: inside the bubble's
+ * recognizers (ChatBubble). `scroll`: the top-down list the bubble sits in, which keeps the widget's resize anchor
+ * (`TelegramWidget.setResizeAnchor`, WidgetDiagnostics.resizeAnchor; docs/sdk-v1.md §5.6): when the height of a bubble
+ * on screen changes with `bottom`, the scroll offset takes the delta, so the bubble's bottom stays put and the content
+ * above moves; with `top` (the default) nothing changes, the content below moves. The offset follows the layout that
+ * changed the height (a frame later: onGloballyPositioned), and it is clamped by the list's ends.
+ */
 @Composable
-fun WidgetView(model: WidgetModel, widthDp: Int = 360, bubble: Boolean = false) {
+fun WidgetView(model: WidgetModel, widthDp: Int = 360, bubble: Boolean = false, scroll: ScrollState? = null) {
+    // The bubble's height in px at its last layout (-1 before the first).
+    val laidOut = remember(model) { IntArray(1) { -1 } }
     // key: a new model (Restart) must get a new AndroidView, or the factory is never re-run and the
     // destroyed host's view stays on screen.
     key(model) {
         AndroidView(
             factory = { if (bubble) model.bubbleView else model.host.view },
             modifier = Modifier.width(widthDp.dp).height(maxOf(model.diagnostics.height, 24.0).dp)
-                // boundsInWindow is clipped by the scrolling parents: empty means scrolled out of view.
-                .onGloballyPositioned { val b = it.boundsInWindow(); model.setOnScreen(b.width > 0f && b.height > 0f) },
+                .onGloballyPositioned {
+                    // boundsInWindow is clipped by the scrolling parents: empty means scrolled out of view.
+                    val b = it.boundsInWindow()
+                    val onScreen = b.width > 0f && b.height > 0f
+                    model.setOnScreen(onScreen)
+                    val before = laidOut[0]
+                    val after = it.size.height
+                    laidOut[0] = after
+                    if (scroll != null && before >= 0 && after != before && onScreen && model.diagnostics.resizeAnchor == "bottom") {
+                        scroll.dispatchRawDelta((after - before).toFloat())
+                    }
+                },
         )
     }
     @Suppress("DEPRECATION")
@@ -173,15 +194,16 @@ fun WidgetView(model: WidgetModel, widthDp: Int = 360, bubble: Boolean = false) 
     }
 }
 
+/** The widget in a chat bubble; `scroll`: the list it sits in, for the resize anchor (WidgetView). */
 @Composable
-fun ChatBubble(model: WidgetModel) {
+fun ChatBubble(model: WidgetModel, scroll: ScrollState? = null) {
     Column {
         Text(model.renderer.label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
         Column(
             // The bubble is the widget's canvas, as on a client: no padding of its own (the widget's body margin is the inset),
             // the colour demoTheme passes as bg_color, the radius clips what the widget paints.
             modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface),
-        ) { WidgetView(model, bubble = true) }
+        ) { WidgetView(model, bubble = true, scroll = scroll) }
         // What a product shows under the bubble: the widget stays on screen (frozen) with a one-line reason.
         val d = model.diagnostics
         val line = d.dead?.let { "Widget stopped: " + it.lineSequence().first() } ?: d.lastError?.lineSequence()?.first()
@@ -208,7 +230,8 @@ fun DiagnosticsPanel(model: WidgetModel) {
     Column(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp),
     ) {
-        val status = d.dead?.let { "✖ terminated: $it" } ?: if (d.loaded) "● loaded" else "… loading"
+        val status = (d.dead?.let { "✖ terminated: $it" } ?: if (d.loaded) "● loaded" else "… loading") +
+            if (d.resizeAnchor != "top") " · resize anchor: ${d.resizeAnchor}" else ""
         Text(status, fontSize = 12.sp, color = if (d.dead != null) Color.Red else if (d.loaded) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             String.format(

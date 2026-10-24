@@ -146,6 +146,31 @@ widget.
 ## Input
 
 - **Text selection is the widget's choice** (since v0.1.1, `docs/sdk-v1.md`
+**Which edge stays put** (v0.1.3, `docs/sdk-v1.md` §2.12, §5.6). The widget
+chooses it with `TelegramWidget.setResizeAnchor('top' | 'bottom')`, and the
+host reports it with every height: Swift `WidgetDiagnostics.resizeAnchor`
+(`WidgetResizeAnchor`), Kotlin and C++ `WidgetDiagnostics.resizeAnchor`
+(`"top"` / `"bottom"`), web `onResize(height, anchor)` and
+`WidgetHost.resizeAnchor`; `top` until the widget sets one. When an auto height
+changes on screen, compensate the list's scroll so that edge does not move:
+
+| anchor | the bubble | what moves | in a list laid out from the top |
+|---|---|---|---|
+| `top` (default) | grows and shrinks downward | the content below it | nothing to do |
+| `bottom` | grows and shrinks upward, its bottom stays | the content above it | add the height difference to the scroll offset |
+
+In a chat list that is laid out from the bottom (inverted), `bottom` is what the
+list does anyway and `top` needs the compensation instead. Apply it to every
+height change of the bubble: a size report, the cached height giving way to the
+first report, a re-created bubble (the new run reports its own anchor with its
+height). A bubble off screen keeps what is on screen in place, as any list item
+does. Keep the anchor next to the cached height per message. If your list
+animates height changes, pin the widget view (or the snapshot you show during
+the animation) to the anchored edge of the bubble, so the old pixels stay
+aligned with the edge that stays put. The web dev app and the feed demo do all
+of this (`apps/web/src/main.ts`, `feed.ts`); `corpus/resize` has one widget per
+anchor to try it.
+
   §2.4, §5.10). Text is not selectable by default; text the widget marks
   `user-select: text` is. A long press over text is the bubble's (below), so
   on touch a selection inside a widget starts the way your client

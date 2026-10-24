@@ -7,8 +7,8 @@ import { diag, host, invalidateLayout, query, unsupported } from './host';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import { cssSupports } from '../shared/css-supports';
 import {
-  DEFAULT_LOCALE, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, STORAGE_QUOTA_BYTES,
-  checkLink, checkLocale, completeThemeParams, utf8Length, type ThemeParams,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, STORAGE_QUOTA_BYTES,
+  checkLink, checkLocale, checkResizeAnchor, completeThemeParams, utf8Length, type ResizeAnchor, type ThemeParams,
 } from '../shared/sdk-policy';
 
 const G: any = globalThis;
@@ -488,6 +488,16 @@ const HapticFeedback = Object.freeze({
   selectionChanged: () => haptic('selection'),
 });
 
+/** The anchor the glue has: only a change goes over the bridge, before the ops of the change it anchors. */
+let resizeAnchor: ResizeAnchor = DEFAULT_RESIZE_ANCHOR;
+function setResizeAnchor(edge: unknown) {
+  const checked = checkResizeAnchor(edge);
+  if (checked === null) throw new TypeError("setResizeAnchor: edge must be 'top' or 'bottom'");
+  if (checked === resizeAnchor) return;
+  resizeAnchor = checked;
+  bridge('setResizeAnchor', checked);
+}
+
 function installBridge() {
   const widget = {
     /** The widget profile this client enforces (docs/profile-v1.md); a later profile only adds features. */
@@ -514,6 +524,11 @@ function installBridge() {
     HapticFeedback,
     /** Signal that the widget has rendered its initial state. */
     ready() { bridge('ready'); },
+    /**
+     * The edge of the bubble that stays put on screen when the widget's height changes, from now on: `'top'` (the
+     * default: the bubble grows and shrinks downward) or `'bottom'` (it grows upward, its bottom stays).
+     */
+    setResizeAnchor(edge: unknown) { setResizeAnchor(edge); },
     /** Deprecated alias of `colorScheme`. */
     get theme() { return colorScheme; },
     /** Deprecated: `onEvent('themeChanged', …)`; called at once with the colour scheme and on every change. */

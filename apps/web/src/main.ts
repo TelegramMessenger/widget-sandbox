@@ -12,7 +12,7 @@ import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import { GESTURE_MODES, bubbleGestureLabel, bubbleGesturesOption, claimLabel, gestureMode, showBubbleGesture, type GestureMode } from './bubble-gestures';
 import type { FeedApi } from './feed';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
-import { DEFAULT_THEME_PARAMS, themeVariables, type StorageCommit, type WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, themeVariables, type ResizeAnchor, type StorageCommit, type WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
 import { sizeVerdict, type WidgetSize } from '@telegram/widget-sandbox/shared/widget-size';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -43,13 +43,15 @@ export interface TwState {
   bubbleGestures: BubbleGesture[];
   stats: (Stats & { nodes: number }) | null;
   height: number;
+  /** The edge of the bubble that stays put when the height changes (`setResizeAnchor`, reported with the height). */
+  resizeAnchor: ResizeAnchor;
   /** Last uncaught widget error, shown under the bubble until a later task completes without one. */
   lastError: string | null;
   /** The HTML's size as the server counts it (gzip level 6, UTF-8 bytes; widget-size.ts): null until measured. */
   size: WidgetSize | null;
 }
 
-const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null, size: null };
+const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, resizeAnchor: DEFAULT_RESIZE_ANCHOR, lastError: null, size: null };
 /** The bubble's own presses (docs/sdk-v1.md §5.5): `?gestures=phone` (default), `desktop` or `off`. */
 let gestures: GestureMode = gestureMode(new URLSearchParams(location.search).get('gestures'));
 /** Bubble widths a client lays out (CSS px); 0 = the default column, -1 = free (drag the column's corner). */
@@ -154,7 +156,7 @@ function renderStats() {
     ['sync queries', `${s.queries} (${s.queryMs.toFixed(0)} ms, avg ${s.queries ? (s.queryMs / s.queries).toFixed(2) : '0'} ms), cache hits ${s.queryCacheHits}`],
     ['missed mutations', String(s.missedMutations)],
     ['CPU quota', `${s.cpuWindowMs.toFixed(0)} ms used in the current window, ${s.throttledTasks} tasks deferred`],
-    ['bubble height', `${state.height} px`],
+    ['bubble height', `${state.height} px, anchor ${state.resizeAnchor}: ${state.resizeAnchor === 'bottom' ? 'grows and shrinks upward, its bottom stays' : 'grows and shrinks downward, its top stays'}`],
   ];
   el.stats.replaceChildren(...size, ...rows.map(([k, v]) => {
     const tr = document.createElement('tr');
@@ -202,9 +204,25 @@ function renderConsole() {
 function load(html: string, name: string | null) {
   host?.destroy();
   host = null;
-  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, lastError: null, size: null });
+  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, resizeAnchor: DEFAULT_RESIZE_ANCHOR, lastError: null, size: null });
+  applyAnchor();
   void measureSize(html).then((size) => { if (state.html === html) { state.size = size; coalesce(renderStats); } });
   tasksAtError = 0;
+// ───────────── the resize anchor (docs/sdk-v1.md §5.6) ─────────────
+
+// The bubble's anchored edge stays put on the stage, as in a chat: anchored at the bottom, the bubble sits at the
+// stage's bottom and grows upward (style.css `.anchor-bottom`); once the stage scrolls, its scroll keeps the bottom edge.
+// The anchor comes with the size reports, so a widget that sets it at start is laid out at the bottom from the first one.
+let anchoredHeight = 0;
+function applyAnchor() {
+  el.chatSandbox.classList.toggle('anchor-bottom', state.resizeAnchor === 'bottom' && !FEED_MODE);
+}
+new ResizeObserver(() => {
+  const h = el.chatSandbox.offsetHeight, delta = h - anchoredHeight;
+  anchoredHeight = h;
+  if (delta && state.resizeAnchor === 'bottom' && el.stage.scrollHeight > el.stage.clientHeight) el.stage.scrollTop += delta;
+}).observe(el.chatSandbox);
+
   el.title.textContent = name ?? 'dropped file';
   el.sandboxWrap.replaceChildren();
   renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole(); renderGestures();
@@ -240,7 +258,7 @@ function load(html: string, name: string | null) {
     onBubbleGesture: (g) => { if (state.bubbleGestures.length < 1000) state.bubbleGestures.push(g); showBubbleGesture(el.bubble, g); coalesce(renderGestures); },
     onDead: (reason) => { state.dead = reason; renderStatus(); settle(); },
     onLoaded: () => { state.loaded = true; renderStatus(); settle(); },
-    onResize: (h) => { state.height = h; coalesce(renderStats); },
+    onResize: (h, anchor) => { state.height = h; state.resizeAnchor = anchor; applyAnchor(); coalesce(renderStats); },
   });
   visibilityObserver.disconnect();
   intersecting = true;

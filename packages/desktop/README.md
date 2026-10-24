@@ -43,12 +43,12 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 50 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
+./build/twidget-tests                             # 53 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
-    --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …` and `storage …`; "gesture" makes a trusted press
+    --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
-./build/twidget-run --attacks                     # 98 files: nothing but data:/#fragment may reach the validated ops
+./build/twidget-run --attacks                     # 99 files: nothing but data:/#fragment may reach the validated ops
 ```
 
 Status (2026-10-17, macOS arm64): tests 45/45; compat 12/12 and
@@ -89,7 +89,7 @@ and `data:` images.
 
 ```bash
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build   # first cargo build: 1–2 min, ≈ 39 MB static library
-./build/twidget-tests                                                            # 48 tests: + layout answers from the document, hit-tested clicks, frozen fallback
+./build/twidget-tests                                                            # 56 tests: + layout answers from the document, hit-tested clicks, frozen fallback
 ./build/twidget-run ../corpus/compat/tabs.html --blitz --dpr 2 --png /tmp/tabs.png [--click X,Y]...
 ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + height / paint / loaded columns, one PNG per widget
 ./build/twidget-run --attacks --blitz                                            # a fetch attempt from the Rust document counts as a leak too
@@ -105,7 +105,7 @@ is `blitz_renderer.h` with `twl_*` for `twb_*`. `docs/litehtml-renderer.md`.
 
 ```bash
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build
-./build/twidget-tests                                                           # 51 tests: + 3 litehtml twins of the Blitz ones
+./build/twidget-tests                                                           # 59 tests: + 3 litehtml twins of the Blitz ones
 ./build/twidget-run ../corpus/compat/tabs.html --litehtml --dpr 2 --png /tmp/tabs.png [--click X,Y]...
 ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # 12/12, paint 0.3–6 ms at 800 px
 ./build/twidget-run --attacks --litehtml                                         # 98 attacks, 0 leaks, 0 fetch attempts
@@ -166,7 +166,13 @@ What it is on this platform:
   to a `GestureArbiter` (`gesture_policy.h`) in your recognizers over the
   widget and act on its verdicts: on `cancel` end the press for the widget,
   then do the bubble's `action` (message menu, swipe-to-reply or back, list
-  scroll).
+  scroll). `diagnostics().resizeAnchor` (since v0.1.3, `"top"` until the
+  widget calls `TelegramWidget.setResizeAnchor`) is the edge of the bubble that
+  stays put on screen when `height` changes: for `"bottom"` the bubble grows
+  upward and the content above it moves (in a top-down list, add the height
+  delta to the scroll offset while the bubble is on screen, and pin the widget
+  to the bubble's bottom during the transition). A change reaches `onChange`
+  before the height it anchors; it is not an action.
   Strings are UTF-8; a widget's lone surrogate arrives in its 3-byte WTF-8
   form. The string-theme constructor, `setTheme(std::string)`, `onBridgeCall`
   and `onGestureClaim(x, y)` are deprecated forwards; the host → widget

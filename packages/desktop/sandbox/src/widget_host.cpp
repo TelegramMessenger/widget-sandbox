@@ -320,6 +320,22 @@ void WidgetHost::onBridgeAction(SandboxEngine&, const WidgetAction& action) {
     });
 }
 
+void WidgetHost::onResizeAnchor(SandboxEngine&, const std::string& edge) {
+    // Not an action: the host keeps the latest edge next to the height (docs/sdk-v1.md §2.12). The engine calls this
+    // during the task, before that task's onOps, and both hop to the host thread in order; the renderer's size report
+    // for those ops comes after them, so the anchor is in the state before the height it anchors. An equal value
+    // changes nothing (no onChange).
+    host([this, edge] {
+        if (destroyed_) return;
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            if (diagnostics_.resizeAnchor == edge) return;
+            diagnostics_.resizeAnchor = edge;
+        }
+        changed();
+    });
+}
+
 void WidgetHost::onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) {
     host([this, area, values] {
         if (callbacksClosed_) return;

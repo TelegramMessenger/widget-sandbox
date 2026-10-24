@@ -37,6 +37,11 @@ public struct WidgetDiagnostics {
     /// Last uncaught widget error (non-fatal), cleared once a later task completes without one.
     public var lastError: String?
     public var height: CGFloat = 0
+    /// The edge of the bubble that stays put on screen when `height` changes: the widget's latest
+    /// `TelegramWidget.setResizeAnchor`, `.top` until then (docs/sdk-v1.md §2.12, §5.6). A list keeps `.bottom`
+    /// bubbles' bottom edge in place (the content above moves) and `.top` ones' top edge (the content below moves).
+    /// It is set before the size report of the ops that follow it in the widget's task.
+    public var resizeAnchor = SdkPolicy.defaultResizeAnchor
     /// Wall clock to the first `size` report that follows validated ops (the widget's first content on screen).
     public var firstContentMs: Double?
     /// Which parts came prewarmed from the pools ("renderer+engine+validator"), empty when none.
@@ -558,6 +563,16 @@ public final class WidgetHost: SandboxEngineDelegate {
             self.state.actions.append(action)
             self.changed()
             self.onMain { self.onAction?(action) }
+        }
+    }
+    /// Not an action: the latest anchor goes into the state next to the height, through the same ordered pipeline
+    /// as the ops (validate, then deliver), so it is there before the renderer gets the ops of the same task and
+    /// before their size report; an equal value changes nothing, and nothing is called per call.
+    public func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) {
+        inOrder {
+            guard self.state.resizeAnchor != resizeAnchor else { return }
+            self.state.resizeAnchor = resizeAnchor
+            self.changed()
         }
     }
     public func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {

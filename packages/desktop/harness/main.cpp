@@ -3,7 +3,8 @@
 //   twidget-run <widget.html> [--verbose] [--ops] [--events '<json>']... [--wait-ms N] [--probe EXPR]... [--theme dark]
 //               [--theme-params '{"bg_color":"#212121",…}'] [--locale ru] [--storage '{"local":{…},"session":{…}}']
 //                                 SDK v1 (docs/sdk-v1.md §3.1): the client's palette, UI language and Web Storage
-//                                 preload; the run prints the actions (`onAction`) and the storage commits
+//                                 preload; the run prints the actions (`onAction`), the storage commits and the
+//                                 resize anchor when the widget called `setResizeAnchor`
 //   twidget-run --attacks [DIR]   every attack file: nothing but data:/#fragment URLs may reach the validated ops
 //   twidget-run --corpus DIR      smoke run of a corpus directory: loaded, alive, no uncaught errors
 //   … --blitz [--png out.png | --png-dir DIR] [--click X,Y]... [--dpr N]
@@ -81,6 +82,9 @@ struct RunOutcome {
     std::vector<std::pair<std::string, std::string>> logs;
     std::vector<WidgetAction> actions;
     std::vector<std::pair<std::string, StorageArea>> storageCommits;
+    /// The widget's latest `setResizeAnchor` ("top" until then) and, without a native renderer, each change in order.
+    std::string resizeAnchor = std::string(sdk::DEFAULT_RESIZE_ANCHOR);
+    std::vector<std::string> resizeAnchors;
     std::vector<std::string> probeResults;
     std::string renderOpsJson;
     SandboxStats stats;
@@ -208,6 +212,7 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
     for (const auto& lg : d.logs) if (lg.first == "error") out.errors++;
     out.logs = d.logs;
     out.actions = d.actions;
+    out.resizeAnchor = d.resizeAnchor;
     out.stats = d.stats;
     out.height = d.height;
     out.loadedMs = d.loadedMs.value_or(0);
@@ -265,6 +270,8 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     out.logs = host.logs;
     out.actions = host.actions;
     out.storageCommits = host.storageCommits;
+    out.resizeAnchors = host.resizeAnchors;
+    if (!host.resizeAnchors.empty()) out.resizeAnchor = host.resizeAnchors.back();
     out.stats = host.stats;
     return out;
 }
@@ -427,6 +434,12 @@ int main(int argc, char** argv) {
     for (const auto& [k, n] : r.diagCounts) printf("diag  %s ×%d\n", k.c_str(), n);
     for (const auto& lg : r.logs) printf("[%s] %s\n", lg.first.c_str(), lg.second.c_str());
     for (const auto& a : r.actions) printf("action %s\n", a.toJson().dump().c_str());
+    if (!r.resizeAnchors.empty() || r.resizeAnchor != sdk::DEFAULT_RESIZE_ANCHOR) {
+        std::string calls;
+        for (const auto& e : r.resizeAnchors) calls += (calls.empty() ? "" : " → ") + e;
+        printf("resize anchor: %s%s: the %s edge of the bubble stays put when the height changes\n", r.resizeAnchor.c_str(),
+               calls.empty() ? "" : (" (setResizeAnchor: " + calls + ")").c_str(), r.resizeAnchor.c_str());
+    }
     for (const auto& [area, values] : r.storageCommits) {
         Json v = Json::object();
         for (const auto& [k, x] : values) v.set(k, x);

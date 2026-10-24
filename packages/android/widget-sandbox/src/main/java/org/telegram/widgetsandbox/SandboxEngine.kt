@@ -107,6 +107,12 @@ class SandboxEngine(
         fun onBridge(engine: SandboxEngine, method: String, argsJson: String) {}
         /** The new full content of a Web Storage area ("local" | "session"), within the quota, at the end of each task that changed it. */
         fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) {}
+        /**
+         * `TelegramWidget.setResizeAnchor(edge)` (docs/sdk-v1.md §2.12, since v0.1.3): "top" or "bottom", the edge of the
+         * bubble that stays put when the height changes. Not an action (no `onAction` / `onBridge`), no user gesture needed,
+         * not gated by visibility; the shim sends only changes, during the task and before that task's ops.
+         */
+        fun onResizeAnchor(engine: SandboxEngine, edge: String) {}
         fun onLoaded(engine: SandboxEngine)
         fun onStats(engine: SandboxEngine, stats: SandboxStats)
         fun onDied(engine: SandboxEngine, reason: String)
@@ -446,19 +452,27 @@ class SandboxEngine(
      * `__host('bridge', JSON [method, args])` (docs/sdk-v1.md §3.2), checked in this order:
      * the method and its arguments (`bridge-rejected`), user activation for the link calls
      * under the strict policy (`activation-blocked`), the haptic limit (`haptic-limit`).
+     * `setResizeAnchor` is no action: it goes to `onResizeAnchor` once its argument passed.
      */
     private fun bridgeCall(arg: String) {
         val call = (try { JSONTokener(arg).nextValue() } catch (e: Exception) { null }) as? JSONArray
         val method = call?.opt(0)
         val args = call?.opt(1)
         val name = (method?.toString() ?: "undefined").take(64)
-        val action = if (call == null) null else SdkPolicy.checkBridgeCall(method, args)
-        if (action == null) {
-            if (rejectedBridgeReported < MAX_REJECTED_REPORTS) {
-                rejectedBridgeReported += 1
-                delegate?.onDiag(this, "bridge-rejected", "$name: unknown method or malformed arguments")
+        val action = when (val checked = if (call == null) null else SdkPolicy.checkBridgeCall(method, args)) {
+            null -> {
+                if (rejectedBridgeReported < MAX_REJECTED_REPORTS) {
+                    rejectedBridgeReported += 1
+                    delegate?.onDiag(this, "bridge-rejected", "$name: unknown method or malformed arguments")
+                }
+                return
             }
-            return
+            // Not an action: the host keeps the latest anchor next to the height (no gesture, no visibility gate).
+            is BridgeCall.SetResizeAnchor -> {
+                delegate?.onResizeAnchor(this, checked.edge)
+                return
+            }
+            is WidgetAction -> checked
         }
         if (isStrictPolicy(config.policy) && name in SdkPolicy.PRIVILEGED_METHODS && !activation.consume(visible)) {
             if (blockedBridgeReported < MAX_REJECTED_REPORTS) {

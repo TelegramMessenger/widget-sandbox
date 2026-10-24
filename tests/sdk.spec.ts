@@ -188,6 +188,35 @@ for (const shadow of [false, true]) {
     expect(gestures).toEqual([c(true, true), c(true), c(false), c(false), c(false), c(true)]);
   });
 
+  test(`${renderer}: setResizeAnchor reaches the host with the height, and the dev app keeps the anchored edge`, async ({ page }) => {
+    // Taller than the 50 px minimum from the start: the anchor reaches the client with a size report (the height's).
+    const root = await load(page, `<style>body{margin:0}#g div{height:40px}</style><button id="b">grow</button><button id="t">top</button><div id="g"><div></div></div><script>
+      TelegramWidget.setResizeAnchor('bottom');
+      document.getElementById('b').addEventListener('click', function () { document.getElementById('g').appendChild(document.createElement('div')); });
+      document.getElementById('t').addEventListener('click', function () { TelegramWidget.setResizeAnchor('top'); });
+    </script>`, { shadow });
+    const bubble = () => page.locator('#chat-sandbox .bubble').evaluate((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; });
+    await expect.poll(async () => (await tw(page)).resizeAnchor).toBe('bottom');
+    const before = await bubble(), h0 = (await tw(page)).height;
+    await root.locator('#b').click();
+    await expect.poll(async () => (await tw(page)).height).toBe(h0 + 40);
+    const after = await bubble();
+    // Anchored at the bottom: the bottom edge stays, the bubble grows upward.
+    expect(after.bottom).toBe(before.bottom);
+    expect(after.top).toBe(before.top - 40);
+    expect((await tw(page)).bridge.map((b: { method: string }) => b.method)).not.toContain('setResizeAnchor');
+    expect((await tw(page)).actions).toEqual([]);
+    await root.locator('#t').click();
+    await root.locator('#b').click();
+    await expect.poll(async () => (await tw(page)).height).toBe(h0 + 80);
+    expect((await tw(page)).resizeAnchor).toBe('top');
+  });
+
+  test(`${renderer}: a widget that never calls setResizeAnchor grows downward (top)`, async ({ page }) => {
+    await load(page, '<p>x</p>', { shadow });
+    expect((await tw(page)).resizeAnchor).toBe('top');
+  });
+
   test(`${renderer}: a tap opens one link and plays haptics; the actions reach the client`, async ({ page }) => {
     const root = await load(page, `<button id="b">go</button><a id="t" href="https://t.me/durov">t</a><script>
       document.getElementById('b').addEventListener('click', function () {

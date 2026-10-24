@@ -267,12 +267,18 @@ TEST(sdk_policy_shared_fixture) {
         if (h) { got = Json::object(); got.set("haptic", h->haptic); if (h->value) got.set("value", *h->value); }
         CHECK_MSG(jsonEqual(got, c["expect"]), c["args"].dump() + " → " + got.dump());
     }
+    int anchors = 0;
     for (const auto& c : (*root)["bridge"].arr()) {
         cases++;
         auto a = sdk::checkBridgeCall(c["method"], c["args"]);
         Json got = a ? a->toJson() : Json();
         CHECK_MSG(jsonEqual(got, c["expect"]), c["method"].dump() + " " + c["args"].dump() + " → " + got.dump());
+        // setResizeAnchor carries the edge and no action; every other call an action and no edge.
+        if (a) CHECK_MSG(a->action.has_value() != a->resizeAnchor.has_value(), c["method"].dump());
+        if (c["method"].isString() && c["method"].asString() == "setResizeAnchor") anchors++;
     }
+    // v0.1.3's fixture or later: a stale copy without the setResizeAnchor entries fails here.
+    CHECK_MSG(anchors >= 15, std::to_string(anchors) + " setResizeAnchor entries");
     for (const auto& c : (*root)["hapticGate"].arr()) {
         cases++;
         sdk::HapticGate gate;
@@ -1126,6 +1132,115 @@ TEST(sdk_deprecated_host_api_forwards) {
 #else
 #pragma GCC diagnostic pop
 #endif
+}
+
+/// TelegramWidget.setResizeAnchor (docs/sdk-v1.md §2.12, v0.1.3) through the real engine: anything but exactly 'top' or
+/// 'bottom' throws TypeError and sends nothing; only a change reaches the delegate (`onResizeAnchor`), with no gesture
+/// and on a hidden widget, and never as an action or a raw bridge call.
+TEST(sdk_resize_anchor_reaches_the_delegate) {
+    {
+        Run r("<script>var errs = [];"
+              "[undefined, null, 'left', 'Bottom', ' top', '', 1, ['top'], { edge: 'top' }].forEach(function (v) {"
+              "  try { TelegramWidget.setResizeAnchor(v); errs.push('ok'); } catch (e) { errs.push(e instanceof TypeError ? 'TypeError' : String(e)); } });</script>");
+        CHECK(r.engine.probe("typeof TelegramWidget.setResizeAnchor") == "function");
+        CHECK_MSG(r.engine.probe("errs.join()") == "TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,TypeError", r.engine.probe("errs.join()"));
+        CHECK(r.engine.probe("String(TelegramWidget.setResizeAnchor('top'))") == "undefined");
+        r.barrier();
+        auto l = r.host.lock();
+        CHECK(r.host.resizeAnchors.empty() && r.host.bridge.empty() && r.host.actions.empty());
+        CHECK_MSG(!r.host.hasDiag("bridge-rejected"), r.diagsText());
+    }
+    SandboxConfig hidden = testConfig();
+    hidden.visible = false;
+    Run r("<script>TelegramWidget.setResizeAnchor('top'); TelegramWidget.setResizeAnchor('bottom');"
+          "for (var i = 0; i < 1000; i++) TelegramWidget.setResizeAnchor('bottom');"
+          "TelegramWidget.setResizeAnchor('top'); TelegramWidget.setResizeAnchor('bottom');</script>", hidden);
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG((r.host.resizeAnchors == std::vector<std::string>{"bottom", "top", "bottom"}), std::to_string(r.host.resizeAnchors.size()));
+    CHECK_MSG(r.host.actions.empty() && r.host.bridge.empty(), actionsText(r.host.actions));
+    CHECK_MSG(!r.host.hasDiag("activation-blocked") && !r.host.hasDiag("bridge-rejected"), r.diagsText());
+}
+
+/// A renderer that answers every ops batch with a size report 40 px taller than the last, as a document growing by a row.
+struct GrowingRenderer final : Renderer {
+    void load() override { onMessage("{\"type\":\"ready\"}"); }
+    void send(const std::string& json) override {
+        auto m = Json::parse(json);
+        const std::string type = m ? (*m)["type"].asString() : "";
+        if (type == "query") onMessage("{\"type\":\"result\",\"qid\":" + std::to_string((*m)["qid"].asInt()) + ",\"result\":null}");
+        if (type == "ops") {
+            height += 40;
+            onMessage("{\"type\":\"size\",\"height\":" + std::to_string(height) + ",\"innerWidth\":300,\"innerHeight\":300,\"dpr\":1}");
+        }
+    }
+    void setTheme(const std::string&) override {}
+    void setWidth(double) override {}
+    void destroy() override {}
+    int height = 60;
+};
+
+/// WidgetHost keeps the widget's latest resize anchor in its diagnostics, next to the height: `top` until the widget calls
+/// setResizeAnchor; a tap that sets `bottom` and adds a row shows the new height with `bottom` already in place (the
+/// bridge call reaches the host state before the size report of the same task's ops); `top` again goes back; no action,
+/// no raw bridge call, no gesture needed, on a hidden widget too. An equal value changes nothing.
+TEST(sdk_resize_anchor_is_host_state_next_to_the_height) {
+    std::mutex m;
+    std::vector<std::pair<double, std::string>> heights; // each new height with the anchor of that moment
+    int anchorChanges = 0;
+    std::string lastAnchor = "top";
+    double lastHeight = 0;
+    WidgetHost host("<button>grow</button><script>var n = 0; document.querySelector('button').onclick = function () {"
+                    "  n++; TelegramWidget.setResizeAnchor(n % 2 ? 'bottom' : 'top');"
+                    "  var p = document.createElement('p'); p.textContent = 'row ' + n; document.body.appendChild(p); };</script>",
+                    WidgetTheme{}, 300, WidgetHostOptions(), RES,
+                    [](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> { return std::make_unique<GrowingRenderer>(); });
+    host.onChange = [&](const WidgetDiagnostics& d) {
+        std::lock_guard<std::mutex> l(m);
+        if (d.height != lastHeight) heights.emplace_back(lastHeight = d.height, d.resizeAnchor);
+        if (d.resizeAnchor != lastAnchor) { lastAnchor = d.resizeAnchor; anchorChanges++; }
+    };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK(host.waitRendered(5));
+    const double base = host.diagnostics().height; // after the boot's batches
+    CHECK(base >= 100 && host.diagnostics().resizeAnchor == "top");
+    // Untrusted clicks: no gesture. The third one on a hidden widget.
+    auto tap = [&] { host.renderer().onMessage("{\"type\":\"event\",\"ev\":{\"type\":\"click\",\"targetId\":5,\"detail\":1}}"); };
+    tap();
+    CHECK(host.waitUntil([&](const WidgetDiagnostics& d) { return d.height >= base + 40; }, 5));
+    CHECK(host.diagnostics().resizeAnchor == "bottom");
+    tap();
+    CHECK(host.waitUntil([&](const WidgetDiagnostics& d) { return d.height >= base + 80; }, 5));
+    CHECK(host.diagnostics().resizeAnchor == "top");
+    host.setVisible(false);
+    tap();
+    CHECK(host.waitUntil([&](const WidgetDiagnostics& d) { return d.height >= base + 120; }, 5));
+    WidgetDiagnostics d = host.diagnostics();
+    CHECK(d.resizeAnchor == "bottom");
+    CHECK_MSG(d.actions.empty() && d.bridge.empty(), actionsText(d.actions));
+    CHECK(d.countDiag("bridge-rejected") == 0 && d.countDiag("activation-blocked") == 0);
+    // The host's own guard (the shim already sends only changes): an equal value is no change.
+    SandboxEngine unused("", testConfig(), RES);
+    host.onResizeAnchor(unused, "bottom");
+    host.onHostThread([] {});
+    {
+        std::lock_guard<std::mutex> l(m);
+        // The boot's heights with `top`, then one per tap, each with its tap's anchor already in place.
+        std::vector<std::pair<double, std::string>> taps(heights.end() - std::min<size_t>(heights.size(), 3), heights.end());
+        CHECK_MSG(heights.size() >= 4 && heights[heights.size() - 4] == std::make_pair(base, std::string("top")) &&
+                      (taps == std::vector<std::pair<double, std::string>>{{base + 40, "bottom"}, {base + 80, "top"}, {base + 120, "bottom"}}),
+                  [&] { std::string s; for (auto& [h, a] : heights) s += std::to_string(int(h)) + ":" + a + " "; return s; }());
+        CHECK_MSG(anchorChanges == 3, std::to_string(anchorChanges));
+    }
+    host.destroy();
+    // A widget that never calls it: top.
+    WidgetHost plain("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), RES,
+                     [](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> { return std::make_unique<GrowingRenderer>(); });
+    plain.start();
+    CHECK(plain.waitLoaded(20));
+    CHECK(plain.waitRendered(5));
+    CHECK(plain.diagnostics().resizeAnchor == "top" && plain.diagnostics().height > 0);
 }
 
 TEST(widget_code_cannot_reach_host_globals) {

@@ -29,6 +29,12 @@ export const HAPTIC_IMPACT_STYLES = ['light', 'medium', 'heavy', 'rigid', 'soft'
 export const HAPTIC_NOTIFICATION_TYPES = ['error', 'success', 'warning'];
 export const TELEGRAM_HOSTS = ['t.me', 'telegram.me', 'telegram.dog'];
 
+/** The edge of the bubble that stays put on screen when the widget's height changes (`setResizeAnchor`, docs/sdk-v1.md §2.12). */
+export type ResizeAnchor = 'top' | 'bottom';
+export const RESIZE_ANCHORS: readonly ResizeAnchor[] = ['top', 'bottom'];
+/** Until the widget calls `setResizeAnchor`: the bubble grows and shrinks downward. */
+export const DEFAULT_RESIZE_ANCHOR: ResizeAnchor = 'top';
+
 export type LinkMethod = 'openLink' | 'openTelegramLink';
 export type HapticCall = { haptic: 'impact' | 'notification' | 'selection'; value?: string };
 export type WidgetAction =
@@ -36,6 +42,11 @@ export type WidgetAction =
   | { kind: 'openLink'; url: string }
   | { kind: 'openTelegramLink'; url: string }
   | ({ kind: 'haptic' } & HapticCall);
+/**
+ * A bridge call that passed its checks: an action for the client (`onAction`), or the resize anchor, which no
+ * action carries: the host keeps the latest one next to the height it reports.
+ */
+export type BridgeCall = WidgetAction | { kind: 'setResizeAnchor'; edge: ResizeAnchor };
 
 /** Methods that need the task's user gesture (docs/protocol.md, "User activation"). */
 export const PRIVILEGED_METHODS = new Set(['openLink', 'openTelegramLink']);
@@ -118,8 +129,13 @@ export function checkHaptic(args: unknown): HapticCall | null {
   return null;
 }
 
+/** The resize anchor of a `setResizeAnchor` call's argument, or null: exactly `'top'` or `'bottom'`. */
+export function checkResizeAnchor(edge: unknown): ResizeAnchor | null {
+  return edge === 'top' || edge === 'bottom' ? edge : null;
+}
+
 /** The action of a bridge call, or null when the method is unknown or its arguments are wrong (`bridge-rejected`). */
-export function checkBridgeCall(method: unknown, args: unknown): WidgetAction | null {
+export function checkBridgeCall(method: unknown, args: unknown): BridgeCall | null {
   if (!Array.isArray(args)) return null;
   switch (method) {
     case 'ready': return args.length === 0 ? { kind: 'ready' } : null;
@@ -131,6 +147,10 @@ export function checkBridgeCall(method: unknown, args: unknown): WidgetAction | 
     case 'haptic': {
       const h = checkHaptic(args);
       return h === null ? null : { kind: 'haptic', ...h };
+    }
+    case 'setResizeAnchor': {
+      const edge = args.length === 1 ? checkResizeAnchor(args[0]) : null;
+      return edge === null ? null : { kind: 'setResizeAnchor', edge };
     }
     default: return null;
   }

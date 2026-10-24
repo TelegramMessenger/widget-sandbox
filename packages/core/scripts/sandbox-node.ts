@@ -21,8 +21,8 @@ import type { GestureClaim } from '../src/shared/gesture-policy.ts';
 import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
 import { sizeLine, sizeVerdict, type WidgetSize } from '../src/shared/widget-size.ts';
 import {
-  DEFAULT_LOCALE, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams, toWidgetTheme,
-  type ButtonTokens, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetTheme,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams, toWidgetTheme,
+  type ButtonTokens, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
 import { formatIntl } from '../src/shared/intl.ts';
@@ -49,6 +49,10 @@ export interface RunResult {
   actions: WidgetAction[];
   /** Storage commits the glue accepted, in order (`onStorageCommit` gets one call per area of each). */
   storageCommits: StorageCommit[];
+  /** The edge of the bubble that stays put when the height changes: the widget's latest `setResizeAnchor`, `top` until then (docs/sdk-v1.md §2.12). */
+  resizeAnchor: ResizeAnchor;
+  /** Each anchor the glue accepted, in order (the shim sends only changes). */
+  resizeAnchors: ResizeAnchor[];
   timers: number;
   probes: string[];
   /** Tasks the CPU quota deferred (the harness drops them instead of retrying). */
@@ -214,7 +218,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
   const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
   if (opts.storage !== undefined) {
     const preload = checkStorageCommit(opts.storage);
@@ -283,6 +287,13 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         const method = Array.isArray(call) ? call[0] : undefined;
         const action = Array.isArray(call) ? checkBridgeCall(method, call[1]) : null;
         if (!action) { res.diags.push({ kind: 'bridge-rejected', detail: `${String(method).slice(0, 64)}: unknown method or malformed arguments` }); return vm.undefined; }
+        // Not an action: the host keeps the latest anchor next to the height.
+        if (action.kind === 'setResizeAnchor') {
+          res.resizeAnchor = action.edge;
+          res.resizeAnchors.push(action.edge);
+          log('[bridge]', arg);
+          return vm.undefined;
+        }
         if (policy === 'strict' && PRIVILEGED_METHODS.has(String(method))) {
           if (!visible || !(activeGesture > consumedGesture)) {
             res.diags.push({ kind: 'activation-blocked', detail: `${method} ignored outside a tap on the visible widget` });
@@ -657,6 +668,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
   if (size.message) console.log(size.message);
   console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
+  if (r.resizeAnchors.length) console.log(`resize anchor: ${r.resizeAnchor} (setResizeAnchor: ${r.resizeAnchors.join(' → ')}): the ${r.resizeAnchor} edge of the bubble stays put when the height changes`);
   console.log(`listens for: ${r.listens.length ? r.listens.join(', ') : '(no listeners)'}; click, load, error and toggle are always delivered`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);
   for (const l of r.logs) console.log(`[${l.level}]`, l.text);

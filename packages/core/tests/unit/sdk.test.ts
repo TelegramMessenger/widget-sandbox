@@ -158,6 +158,36 @@ describe('SDK v1: storage', () => {
   });
 });
 
+describe('SDK v1: setResizeAnchor (v0.1.3)', () => {
+  it('top or bottom; anything else throws TypeError and sends nothing', async () => {
+    const r = await runWidget(`<script>
+      var errs = [];
+      [undefined, null, 'left', 'Bottom', ' top', '', 1, ['top'], { edge: 'top' }].forEach(function (v) {
+        try { TelegramWidget.setResizeAnchor(v); errs.push('ok'); } catch (e) { errs.push(e instanceof TypeError ? 'TypeError' : String(e)); }
+      });
+    </script>`, { probes: ['typeof TelegramWidget.setResizeAnchor', 'errs.join()', 'String(TelegramWidget.setResizeAnchor("top"))'] });
+    assert.deepEqual(r.probes, ['function', Array(9).fill('TypeError').join(), 'undefined']);
+    assert.equal(r.resizeAnchor, 'top');
+    assert.deepEqual(r.resizeAnchors, []);
+    assert.deepEqual(diags(r, 'bridge-rejected'), []);
+  });
+
+  it('only a change goes to the host, which keeps the latest; no tap needed, never an action', async () => {
+    const r = await runWidget(`<script>
+      TelegramWidget.setResizeAnchor('top');
+      TelegramWidget.setResizeAnchor('bottom');
+      for (var i = 0; i < 1000; i++) TelegramWidget.setResizeAnchor('bottom');
+      TelegramWidget.setResizeAnchor('top');
+      TelegramWidget.setResizeAnchor('bottom');
+    </script>`, { visible: false });
+    assert.deepEqual(r.resizeAnchors, ['bottom', 'top', 'bottom']);
+    assert.equal(r.resizeAnchor, 'bottom');
+    assert.deepEqual(r.actions, []);
+    assert.deepEqual(r.bridge, []);
+    assert.deepEqual(diags(r, 'activation-blocked'), []);
+  });
+});
+
 describe('SDK v1: locale and inert APIs', () => {
   it('navigator.language and the Intl default follow the client locale', async () => {
     const r = await runWidget('<p>x</p>', { locale: 'ru', probes: ['navigator.language', 'navigator.languages.join()', 'new Intl.NumberFormat().resolvedOptions().locale', '(1234.5).toLocaleString()', 'new Intl.NumberFormat("en-US").format(1234.5)'] });

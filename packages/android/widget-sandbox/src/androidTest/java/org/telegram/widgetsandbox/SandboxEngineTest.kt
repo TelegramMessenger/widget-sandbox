@@ -23,6 +23,7 @@ class RecordingDelegate : SandboxEngine.Delegate {
     val bridge: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())
     val actions: MutableList<WidgetAction> = Collections.synchronizedList(ArrayList())
     val storage: MutableList<Pair<String, Map<String, String>>> = Collections.synchronizedList(ArrayList())
+    val resizeAnchors: MutableList<String> = Collections.synchronizedList(ArrayList())
     @Volatile var died: String? = null
     @Volatile var frameRequests = 0
 
@@ -41,6 +42,7 @@ class RecordingDelegate : SandboxEngine.Delegate {
     override fun onBridge(engine: SandboxEngine, method: String, argsJson: String) { bridge.add(method to argsJson) }
     override fun onAction(engine: SandboxEngine, action: WidgetAction) { actions.add(action) }
     override fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) { storage.add(area to values) }
+    override fun onResizeAnchor(engine: SandboxEngine, edge: String) { resizeAnchors.add(edge) }
     override fun onLoaded(engine: SandboxEngine) { loaded.countDown() }
     override fun onStats(engine: SandboxEngine, stats: SandboxStats) {}
     override fun onDied(engine: SandboxEngine, reason: String) { died = reason; loaded.countDown() }
