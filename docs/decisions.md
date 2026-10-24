@@ -1240,7 +1240,7 @@ when profile 2 can add them. Freeze now, with these defaults.
   `<script src>` to a CDN is an external script like any other and never runs.
   Kept dev-only it would still have been a code path in five glue copies and
   an API (`provide`) clients could build on; v1 starts with mini-widgets of
-  4 KB gzip that cannot carry a library's worth of code anyway, the profile
+  4 KB compressed that cannot carry a library's worth of code anyway, the profile
   cannot describe a library's own rendering, and git keeps the code for a
   profile that wants it back. The compat widgets built on them moved to
   `corpus/out-of-profile/`; the generated ones stay (with the profile prompt

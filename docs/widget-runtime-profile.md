@@ -20,10 +20,11 @@ nothing scrolls inside a widget.
 
 ## Size: mini-HTML
 
-- At most **32 768 bytes of HTML** and **4096 bytes after gzip**. The server
-  gzips at the default level (6) and refuses anything larger with
+- At most **32 768 bytes of HTML** and **4096 bytes compressed**. The server
+  compresses with zlib at level 9 and refuses anything larger with
   `INPUT_MEDIA_WIDGET_TOO_LARGE`. Keep a margin: aim for 3800 B.
-- Measure: `gzip -6 -n < widget.html | wc -c`, or let the harness print it
+- Measure: `python3 -c 'import sys,zlib; print(len(zlib.compress(sys.stdin.buffer.read(), 9)))' < widget.html`
+  (`gzip -9 -n` counts about 12 bytes more), or let the harness print it
   (`sandbox-node.ts widget.html`, the line `size:`), or read the dev app's
   stats panel.
 - What costs bytes: `data:` images barely compress; repeated inline styles and
@@ -226,8 +227,8 @@ For a model's system prompt (also `sandbox-node.ts --guide`):
 ```text
 You write Telegram widgets: one self-contained HTML document with inline CSS and
 JS, shown inside a chat bubble.
-- Size: at most 4096 bytes after gzip (level 6) and 32768 bytes of HTML. Aim for
-  3800 B gzip. data: images barely compress.
+- Size: at most 4096 bytes after zlib (level 9) and 32768 bytes of HTML. Aim for
+  3800 B compressed. data: images barely compress.
 - Offline: no network (fetch, XHR, WebSocket throw), no external scripts,
   stylesheets, fonts or images, no libraries. Images only as data: PNG/JPEG/GIF/
   WebP or inline SVG. Draw charts with SVG or canvas.

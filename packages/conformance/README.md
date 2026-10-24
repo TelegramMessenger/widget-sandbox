@@ -26,7 +26,7 @@ Coverage: the automatic set covers 245 of the 255 catalogue IDs. The other ten a
 
 ## How a widget reports
 
-Every widget is one self-contained HTML file: no external resources, `data:` images only. Every widget is a mini-widget, like a product widget (at most 4 KB after gzip and 32 KB uncompressed, `docs/tgw-format.md`): the build keeps each one under 3800 bytes of gzip at levels 6 and 9, since the server's level is unknown, and fails otherwise. A test bot sends every widget as a layer-233 message with its reference picture posted next to it, in the order of `channel.json`.
+Every widget is one self-contained HTML file: no external resources, `data:` images only. Every widget is a mini-widget, like a product widget (at most 4 KB compressed and 32 KB uncompressed, `docs/tgw-format.md`): the build keeps each one under 3800 bytes of gzip at levels 6 and 9, since the server's level is unknown, and fails otherwise. A test bot sends every widget as a layer-233 message with its reference picture posted next to it, in the order of `channel.json`.
 
 The harness writes the result as JSON into the `data-conformance` attribute of `<html>`. Any host reads it from its own validated ops: it is the `attr` op on the element that the `el` op adopted as `html`.
 
@@ -124,7 +124,7 @@ The script sends at most 20 messages a minute into the group, so the full set ta
   | `T.target(name, el)` | Publishes a tap or drag target. |
   | `T.run({awaitInput, deadline})` | Starts the widget. |
 
-  Options: `opts.xfail: 'reason'` for known gaps, `opts.sandboxOnly` for what a plain browser cannot do. Also `T.rect`, `T.cs`, `T.color`, `T.stage`, `T.skip`, `T.sandbox`, `T.mode`. The build inlines only the functions a widget calls, minified, so the harness costs about 0.9 KB of gzip in a visual widget and 1.3–1.6 KB in an automatic one.
+  Options: `opts.xfail: 'reason'` for known gaps, `opts.sandboxOnly` for what a plain browser cannot do. Also `T.rect`, `T.cs`, `T.color`, `T.stage`, `T.skip`, `T.sandbox`, `T.mode`. The build inlines only the functions a widget calls, minified, so the harness costs about 0.9 KB compressed in a visual widget and 1.3–1.6 KB in an automatic one.
 - Pixel stages are `<div data-stage="name" data-covers="ids" [data-themes] [data-max-diff] [data-colors] [data-xfail]>` with fixed colours on the white stage:
   - auto set: an 80×60 grid at the top;
   - visual set: 150×90, in flow.

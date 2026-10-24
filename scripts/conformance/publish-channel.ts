@@ -83,9 +83,9 @@ const TOPICS: TopicSpec[] = [
   { name: 'Generated', corpus: 'corpus/generated/with-profile', default: false, color: 0xfb6f5f },
 ];
 
-/** The mini-widget gate of packages/conformance (build.ts): raw and gzip at levels 6 and 9. */
+/** The mini-widget gate of packages/conformance (build.ts): raw and zlib at level 9, as the server counts it. */
 const MAX_RAW = 32 * 1024;
-const MAX_GZIP = 3800;
+const MAX_ZLIB = 3800;
 /** sendPhoto: at most 10 MB, width + height at most 10000, ratio at most 20; the server keeps at most 2560 px on the long side. */
 const PHOTO = { bytes: 10 * 1024 * 1024, sum: 10000, ratio: 20, side: 2560 };
 const TEXT_MAX = 4096;
@@ -217,7 +217,7 @@ interface Post {
   width: number;
   height: number;
   html: Buffer;
-  gzip: number;
+  zlib: number;
   /** The description message, HTML parse mode. */
   text: string;
   photos: Photo[];
@@ -230,7 +230,7 @@ const sha = (...parts: (string | Buffer)[]) => {
   return h.digest('hex').slice(0, 16);
 };
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const gzipSize = (b: Buffer) => Math.max(zlib.gzipSync(b, { level: 6 }).length, zlib.gzipSync(b, { level: 9 }).length);
+const zlibSize = (b: Buffer) => zlib.deflateSync(b, { level: 9 }).length;
 /** The widget's message caption: its key, which the forwarded copy keeps. */
 const docCaption = (p: Post) => p.key.replace('@', ' · ');
 const baseKey = (key: string) => key.replace(/@.*/, '');
@@ -276,7 +276,7 @@ function channelPosts(): Post[] {
     const html = fs.readFileSync(file);
     const body = p.caption.startsWith(`${id} · `) ? p.caption.slice(id.length + 3) : p.caption;
     out.push({
-      key: p.width || p.height ? `${id}@${p.width}x${p.height}` : id, topic: topic.name, file, width: p.width, height: p.height, html, gzip: gzipSize(html),
+      key: p.width || p.height ? `${id}@${p.width}x${p.height}` : id, topic: topic.name, file, width: p.width, height: p.height, html, zlib: zlibSize(html),
       text: body, photos: p.photos.map((f) => photo(path.join(CONF, f), id)), hash: { widget: '', description: '', photos: '' },
     });
   }
@@ -296,14 +296,14 @@ function corpusPosts(t: TopicSpec, skipped: string[]): Post[] {
   for (const file of walk(dir).filter((f) => f.endsWith('.html'))) {
     const key = path.relative(path.join(ROOT, 'corpus'), file).replace(/\.html$/, '').replace('generated/with-profile/', 'generated/');
     const html = fs.readFileSync(file);
-    const gzip = gzipSize(html);
-    if (html.length > MAX_RAW || gzip > MAX_GZIP) {
-      skipped.push(`${key} (${(html.length / 1024).toFixed(1)} KB, ${gzip} B gzip)`);
+    const packed = zlibSize(html);
+    if (html.length > MAX_RAW || packed > MAX_ZLIB) {
+      skipped.push(`${key} (${(html.length / 1024).toFixed(1)} KB, ${packed} B zlib)`);
       continue;
     }
     const src = html.toString('utf8');
     const idea = /^\s*idea:\s*(.+)$/m.exec(src)?.[1] ?? /<title>([^<]*)<\/title>/i.exec(src)?.[1] ?? '';
-    out.push({ key, topic: t.name, file, width: 0, height: 0, html, gzip, text: idea.trim(), photos: [], hash: { widget: '', description: '', photos: '' } });
+    out.push({ key, topic: t.name, file, width: 0, height: 0, html, zlib: packed, text: idea.trim(), photos: [], hash: { widget: '', description: '', photos: '' } });
   }
   return out;
 }
@@ -552,7 +552,7 @@ async function check() {
 
 function describeSend(p: Post) {
   const pics = p.photos.map((f) => `${f.w}×${f.h}${f.asDocument ? ` as a document: ${f.asDocument}` : ''}`);
-  return `widget ${p.gzip} B gzip${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
+  return `widget ${p.zlib} B zlib${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
 }
 
 async function main() {

@@ -17,8 +17,8 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 
 ## b. PoC on real messages (layer 233) from a test bot
 
-- [ ] Render `messageMediaWidget`: gunzip `payload`, no size limit of your own
-      ([tgw-format.md](tgw-format.md), [integration.md, "The widget payload"](integration.md#the-widget-payload)).
+- [ ] Render `messageMediaWidget`: inflate `payload` as **zlib (RFC 1950), not gzip**, no size limit
+      of your own ([tgw-format.md, "Inflating the payload"](tgw-format.md#inflating-the-payload), [integration.md, "The widget payload"](integration.md#the-widget-payload)).
 - [ ] Enable rendering with your own platform/version flag; without it, and on
       old layers, the message shows as unsupported media with its caption.
 - [ ] Bubble sizing from the anchors: width 0 = the bubble's width, W = a fixed width in
@@ -33,7 +33,7 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 - [ ] A killed widget keeps its last frame with the "Widget stopped" badge; the
       bubble does not collapse ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
 - [ ] Caption as the preview text; the localized "Widget" stub without one.
-- [ ] A test bot sends widgets (≤ 4 KB gzip, every conformance widget included) to a
+- [ ] A test bot sends widgets (≤ 4 KB compressed, every conformance widget included) to a
       tester's private chat; forward them into the shared test channel (bots may send
       widgets only to private chats).
 

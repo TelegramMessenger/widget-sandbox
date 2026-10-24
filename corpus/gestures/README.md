@@ -37,20 +37,20 @@ first lines still describe the question as it was asked.
 
 ## The widgets
 
-Sizes as the server counts them (gzip -6, limit 4096 B); heights at a 320 px wide bubble.
+Sizes as the server counts them (zlib -9, limit 4096 B); heights at a 320 px wide bubble.
 
 | File | `touch-action` | What it is | Try | Size | Height |
 |---|---|---|---|---|---|
 | **What the rule removed** (the `-xy` files now behave like `-x`; 08 cannot turn) | | | | | |
-| `1-pairs/01-joystick-xy.html` | `none` | Star catcher: fly a dot with a virtual stick, collect stars | start up or down, circle, rest your thumb on the stick | 1837 B | 435 px |
-| `1-pairs/02-joystick-x.html` | `pan-y` | the same game | the same; then start sideways and steer up | 1899 B | 435 px |
-| `1-pairs/03-2048-xy.html` | `none` | 2048: swipe in four directions, equal tiles merge; score, best and the game are kept | play a few moves | 2490 B | 404 px |
-| `1-pairs/04-2048-x.html` | `pan-y` | the same game | swipe up or down | 2502 B | 404 px |
-| `3-vertical/08-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2214 B | 294 px |
+| `1-pairs/01-joystick-xy.html` | `none` | Star catcher: fly a dot with a virtual stick, collect stars | start up or down, circle, rest your thumb on the stick | 1825 B | 435 px |
+| `1-pairs/02-joystick-x.html` | `pan-y` | the same game | the same; then start sideways and steer up | 1887 B | 435 px |
+| `1-pairs/03-2048-xy.html` | `none` | 2048: swipe in four directions, equal tiles merge; score, best and the game are kept | play a few moves | 2478 B | 404 px |
+| `1-pairs/04-2048-x.html` | `pan-y` | the same game | swipe up or down | 2490 B | 404 px |
+| `3-vertical/08-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2202 B | 294 px |
 | **Fine with horizontal only** | | | | | |
-| `2-horizontal/05-paddle-x.html` | `pan-y` | Brick breaker: slide anywhere to move the paddle, tap to serve | play it | 2085 B | 353 px |
-| `2-horizontal/06-card-carousel-x.html` | `pan-y` | trips on cards with peeking neighbours, flick, snap, dots | swipe and flick, tap a card, drag up over a card | 2075 B | 310 px |
-| `2-horizontal/07-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2021 B | 274 px |
+| `2-horizontal/05-paddle-x.html` | `pan-y` | Brick breaker: slide anywhere to move the paddle, tap to serve | play it | 2073 B | 353 px |
+| `2-horizontal/06-card-carousel-x.html` | `pan-y` | trips on cards with peeking neighbours, flick, snap, dots | swipe and flick, tap a card, drag up over a card | 2063 B | 310 px |
+| `2-horizontal/07-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2009 B | 274 px |
 
 ## What the rule changed
 
@@ -127,5 +127,5 @@ Fine with horizontal only, unchanged by the rule:
   not in the default run: `--topic gestures` (each file's `idea:` line is its description).
 
 Rules: pointer events and `setPointerCapture`, no libraries, no form controls (out of profile
-1), theme variables where a colour has a theme counterpart, at most 3800 B of gzip and 560 px
+1), theme variables where a colour has a theme counterpart, at most 3800 B compressed and 560 px
 of height at a 320 px wide bubble.

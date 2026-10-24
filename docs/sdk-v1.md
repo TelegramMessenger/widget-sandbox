@@ -817,8 +817,8 @@ goes to the background, `setVisible(true)` when it is back.
 
 ### 5.9 The message: media, caption, flag
 
-- The widget is `messageMediaWidget` (layer 233): gunzip `payload`, no size
-  limit of your own, hand the HTML to the host (`docs/tgw-format.md`,
+- The widget is `messageMediaWidget` (layer 233): inflate `payload` (zlib,
+  RFC 1950, not gzip), no size limit of your own, hand the HTML to the host (`docs/tgw-format.md`,
   `docs/integration.md`). An edit replaces the payload: new host, same storage.
 - Rendering is enabled by the client's own platform/version flag; off, or
   below layer 233 (`messageMediaUnsupported`), the message shows as

@@ -13,9 +13,9 @@ Each widget says in its first line which anchor it uses and what to try.
 
 | File | Anchor | What it is | Try | Size | Height at 320 px |
 |---|---|---|---|---|---|
-| `1-default/01-faq.html` | `top`, no call | a delivery FAQ: one answer open at a time | open and close the answers: the question you tapped stays where it was | 1545 B | 356–439 px |
-| `2-grows-up/02-support-thread.html` | `bottom` | a courier support thread with quick replies; the thread is kept in `localStorage`, older messages fold into a line above it | tap quick replies: the new messages appear at the bottom and the replies stay under your finger; Start over shrinks it from the top | 2208 B | 318–521 px |
-| `3-grows-down/03-show-more.html` | `top`, said explicitly | hotel search results, two more per Show more, then Show fewer | open all, fold them back: the results you were reading stay put | 1614 B | 336–520 px |
+| `1-default/01-faq.html` | `top`, no call | a delivery FAQ: one answer open at a time | open and close the answers: the question you tapped stays where it was | 1533 B | 356–439 px |
+| `2-grows-up/02-support-thread.html` | `bottom` | a courier support thread with quick replies; the thread is kept in `localStorage`, older messages fold into a line above it | tap quick replies: the new messages appear at the bottom and the replies stay under your finger; Start over shrinks it from the top | 2196 B | 318–521 px |
+| `3-grows-down/03-show-more.html` | `top`, said explicitly | hotel search results, two more per Show more, then Show fewer | open all, fold them back: the results you were reading stay put | 1602 B | 336–520 px |
 
 Sizes as the harness counts them (its `size:` line, limit 4096 B); heights
 from the smallest to the largest state at a 320 px wide bubble, in the dev app.

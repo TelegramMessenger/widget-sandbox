@@ -1,7 +1,7 @@
 // Conformance harness. scripts/conformance/build.ts bundles, per widget, only
 // the exports the widget uses (T.ok, T.run, …), minifies them and inlines the
 // result as `var T` between the conformance:harness markers, so that every
-// widget fits a v1 mini-widget (4 KB gzipped). It runs in QuickJS (sandbox),
+// widget fits a v1 mini-widget (4 KB compressed). It runs in QuickJS (sandbox),
 // a browser (native reference) and any renderer's host. The result is JSON in
 // the `data-conformance` attribute of <html> (run.schema.json), which every
 // host reads from its validated ops:

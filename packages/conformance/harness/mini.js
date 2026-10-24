@@ -1,6 +1,6 @@
 // Mini harness for the client-SDK group (visual/sdk): the same data-conformance
-// result as harness.js in ~0.5 KB gzipped, so a widget fits a v1 mini-widget
-// (4 KB gzip). S.check(id, name, ok, detail) records a check and prints a line in
+// result as harness.js in ~0.5 KB compressed, so a widget fits a v1 mini-widget
+// (4 KB compressed). S.check(id, name, ok, detail) records a check and prints a line in
 // #log; S.log(text) prints a note; S.target(name, elementId) publishes a tap
 // target; S.done() / S.start() set the status (done / awaiting input).
 var S = (function () {

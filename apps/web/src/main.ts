@@ -47,7 +47,7 @@ export interface TwState {
   resizeAnchor: ResizeAnchor;
   /** Last uncaught widget error, shown under the bubble until a later task completes without one. */
   lastError: string | null;
-  /** The HTML's size as the server counts it (gzip level 6, UTF-8 bytes; widget-size.ts): null until measured. */
+  /** The HTML's size as the server counts it (zlib, UTF-8 bytes; widget-size.ts): null until measured. */
   size: WidgetSize | null;
 }
 
@@ -123,23 +123,23 @@ function renderStatus() {
   el.widgetError.textContent = line;
   el.widgetError.classList.toggle('hidden', !line);
 }
-/** Bytes after gzip as the server counts them (CompressionStream: zlib's default level 6, a 10-byte header) and of the HTML. */
+/** Bytes after zlib compression (CompressionStream 'deflate' is RFC 1950, at zlib's default level 6: a few bytes over the server's level 9) and of the HTML. */
 async function measureSize(html: string): Promise<WidgetSize> {
   const raw = new TextEncoder().encode(html);
-  const gz = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
-  return { gzip: gz.byteLength, raw: raw.length };
+  const z = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer();
+  return { zlib: z.byteLength, raw: raw.length };
 }
 
-/** The size row: green under 3800 B of gzip, a warning up to the 4096 B limit, an error past it or past 32 KB of HTML. */
+/** The size row: green under 3800 B compressed, a warning up to the 4096 B limit, an error past it or past 32 KB of HTML. */
 function sizeRow(size: WidgetSize): HTMLTableRowElement {
   const v = sizeVerdict(size);
   const tr = document.createElement('tr');
   tr.className = 'size size-' + v.level;
   const th = document.createElement('th'); th.textContent = 'size (server)';
   const td = document.createElement('td');
-  td.textContent = `${size.gzip} B gzip / ${(size.raw / 1024).toFixed(1)} KB raw (limit 4096 / 32768)`;
+  td.textContent = `${size.zlib} B zlib / ${(size.raw / 1024).toFixed(1)} KB raw (limit 4096 / 32768)`;
   if (v.message) { const d = document.createElement('div'); d.textContent = v.message; td.appendChild(d); }
-  tr.title = 'gzip at level 6, as the server counts it (docs/tgw-format.md); past either limit it answers INPUT_MEDIA_WIDGET_TOO_LARGE';
+  tr.title = 'zlib, as the server counts it (level 9 there, 6 here; docs/tgw-format.md); past either limit it answers INPUT_MEDIA_WIDGET_TOO_LARGE';
   tr.append(th, td);
   return tr;
 }

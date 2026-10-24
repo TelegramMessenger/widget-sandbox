@@ -20,7 +20,7 @@ You need three things: the framework tag, your own host and renderer, and Node â
 | `tools/report.mjs` | Turns run files into the report. |
 | `tools/diff.mjs` | The pixel rule, if you prefer to judge stages yourself. |
 
-The widgets are ordinary widget HTML: one file, `data:` images only, no network, each a mini-widget (under 4 KB of gzip). Load them exactly as you load a widget from a message.
+The widgets are ordinary widget HTML: one file, `data:` images only, no network, each a mini-widget (under 4 KB compressed). Load them exactly as you load a widget from a message.
 
 ## What a widget tells you
 
@@ -171,7 +171,7 @@ Seventeen small widgets test what **your client** implements on its side of SDK 
 
 Three of them need a test bot (layer 233): storage of a forwarded copy (forward the message into another chat), a bot editing the message, and the bubble size anchors (`inputMediaWidget` with `width` / `height`: 0 = auto, W = a fixed width in [200, max], H = a fixed height in [50, 600]; auto heights are clamped to [50, 600] and cached per message).
 
-Each widget is a v1 mini-widget (at most 4 KB gzipped). It carries a one-line instruction for the tester. Its expected client behaviour, contract section and reference picture are in [`visual/sdk/README.md`](visual/sdk/README.md), the post list for the test channel. Post the picture (`refs/visual/sdk/<name>.png`, plus `.dark.png` for the palette) as a separate image next to the widget.
+Each widget is a v1 mini-widget (at most 4 KB compressed). It carries a one-line instruction for the tester. Its expected client behaviour, contract section and reference picture are in [`visual/sdk/README.md`](visual/sdk/README.md), the post list for the test channel. Post the picture (`refs/visual/sdk/<name>.png`, plus `.dark.png` for the palette) as a separate image next to the widget.
 
 The automatic set checks the framework side of the same contract. In `auto/16`, `auto/15` and `auto/20` that covers:
 - argument checks and `TypeError`;

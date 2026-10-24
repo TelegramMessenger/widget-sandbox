@@ -13,7 +13,7 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 import variant from '@telegram/widget-sandbox-quickjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { CpuBudget, queryBudgetMs } from '../src/host/cpu-budget.ts';
 import { GestureCounter } from '../src/host/user-activation.ts';
@@ -76,14 +76,14 @@ export interface RunResult {
   gestures?: GestureReport[];
   /** Event types the widget listens for (the shim's `listen`, validated). */
   listens: string[];
-  /** The HTML's size as the server counts it: gzip at level 6 and UTF-8 bytes (widget-size.ts has the limits). */
+  /** The HTML's size as the server counts it: zlib at level 9 and UTF-8 bytes (widget-size.ts has the limits). */
   size: WidgetSize;
 }
 
-/** Bytes after gzip at level 6 (the server's: PHP gzencode's default) and of the HTML as UTF-8. */
+/** Bytes after zlib at level 9 (the server's: PHP gzcompress($html, 9)) and of the HTML as UTF-8. */
 export function widgetSize(html: string): WidgetSize {
   const raw = Buffer.from(html, 'utf8');
-  return { gzip: gzipSync(raw, { level: 6 }).length, raw: raw.length };
+  return { zlib: deflateSync(raw, { level: 9 }).length, raw: raw.length };
 }
 
 /** The JSON command arrays a canvas word payload stands for (docs/protocol.md, "Canvas words"). */

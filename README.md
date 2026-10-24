@@ -1,7 +1,7 @@
 # widget-sandbox — no-network sandbox for HTML widgets in Telegram messages
 
 A **widget is mini-HTML**: one self-contained HTML document with inline CSS and
-JS, at most 4 KB after gzip and 32 KB uncompressed, delivered right in the
+JS, at most 4 KB compressed and 32 KB uncompressed, delivered right in the
 message. This repository is the framework every Telegram client runs it with,
 released as tags (`v0.1.0` is the first).
 

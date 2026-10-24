@@ -3,7 +3,7 @@
 > **Background, October 2026.** This is the record of the problem and the options
 > considered before the framework existed. The current state is in `README.md`,
 > `docs/integration.md`, `docs/profile-v1.md` and `docs/sdk-v1.md`: v1 is mini-HTML
-> widgets (at most 4 KB after gzip, 32 KB uncompressed, delivered in the message),
+> widgets (at most 4 KB compressed, 32 KB uncompressed, delivered in the message),
 > no bundled libraries, Shadow DOM as the web renderer, QuickJS everywhere.
 
 Overview of the discussion: requirements, architecture options, widget formats in the ecosystem, the "bot + Claude API" scenario and the risks.

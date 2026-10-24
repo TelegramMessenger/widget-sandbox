@@ -353,7 +353,7 @@ lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (163
 lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'kept');
 lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'kept');
 lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)', 'in', 'SDK', 'kept');
-lim('html-size', 'HTML up to 32 KB uncompressed and 4 KB after gzip (server-side)', 'in', 'D20', 'host', { note: 'Checked by the server, not the client. Every conformance widget stays under it (build.ts keeps each one under 3800 bytes of gzip at levels 6 and 9) and reaches a client from a test bot.' });
+lim('html-size', 'HTML up to 32 KB uncompressed and 4 KB after zlib compression (server-side)', 'in', 'D20', 'host', { note: 'Checked by the server, not the client. Every conformance widget stays under it (build.ts keeps each one under 3800 bytes after zlib at level 9, as the server compresses) and reaches a client from a test bot.' });
 
 // ───────────── Client behaviour ─────────────
 const b = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('behaviour', 'behaviour.' + id, title, st, d, t, x);
@@ -506,7 +506,7 @@ export const DECISIONS: Record<string, string> = {
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',
   D17: 'State: localStorage per (account, bot, message_id), 16 KB, QuotaExceededError; sessionStorage in memory',
   D18: 'Text is not selectable by default; user-select: text enables it (2026-10-20)',
-  D20: 'Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB after gzip and 32 KB uncompressed, delivered in the message; the server gzips the HTML from the bot and enforces both limits',
+  D20: 'Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits',
   D21: 'No accessibility in v1',
   D23: 'Runtime profile detection: TelegramWidget.profile / isProfileAtLeast, CSS.supports and @supports from the profile',
   brief: 'Named as a candidate in the conformance brief (decided by measurement)',

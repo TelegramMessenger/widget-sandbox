@@ -76,11 +76,15 @@ iOS/macOS and only after measuring. A feature the renderer behind your
 ## The widget payload
 
 A **widget is mini-HTML**: one self-contained HTML document of at most 4 KB
-after gzip and 32 KB uncompressed. Since API layer 233 it is message media of
+compressed and 32 KB uncompressed. Since API layer 233 it is message media of
 its own: `messageMediaWidget width:int height:int payload:bytes`
 (`docs/tgw-format.md` has the TL, the server's checks and the errors). The
-server gzips the bot's plain HTML and enforces both limits. The client takes
-`payload`, `gunzip`s it and passes the text to `WidgetHost`. Do not add size
+server compresses the bot's plain HTML with zlib (level 9) and enforces both
+limits. The client takes `payload`, a **zlib stream (RFC 1950), not gzip**,
+inflates it and passes the text to `WidgetHost`; what inflates it on each
+platform, and the decoders that look right but are not (Apple's `COMPRESSION_ZLIB`
+is raw deflate, `qUncompress` wants a length prefix): `docs/tgw-format.md`,
+"Inflating the payload". Do not add size
 checks of your own: the server enforces them and they can move without a
 client update; the sandbox is the security boundary.
 
@@ -410,5 +414,5 @@ every framework update; `catalogue.json` `version` is the profile version.
   you each storage commit, the app stores it; each widget is a fresh runtime
   with its own limits.
 - Load fonts, media or remote images: `data:` images only (`docs/decisions.md`).
-- Check the payload's size or origin: the server gzips it and enforces the
+- Check the payload's size or origin: the server compresses it and enforces the
   limits, the client trusts it and sandboxes the content.

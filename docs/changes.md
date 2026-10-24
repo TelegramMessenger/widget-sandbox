@@ -5,9 +5,21 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## v0.1.3 — release notes (2026-10-24)
 
-Vertical drags are always the chat's, and a widget chooses which edge of its bubble stays put
-when it grows. Profile, SDK and protocol versions stay 1: `setResizeAnchor` is an SDK v1 addition
+Vertical drags are always the chat's, a widget chooses which edge of its bubble stays put when it
+grows, and the payload is zlib, not gzip. Profile, SDK and protocol versions stay 1: `setResizeAnchor` is an SDK v1 addition
 widgets detect with `typeof`.
+
+**The payload is zlib, not gzip** (server change, 2026-10-24; every client must follow): the server
+compresses the bot's HTML with PHP `gzcompress($html, 9)`, so `messageMediaWidget.payload` is a zlib
+stream (RFC 1950: `78 DA`, raw deflate, Adler-32) instead of gzip. Clients inflate it instead of
+gunzipping: `DecompressionStream('deflate')`, `java.util.zip.Inflater()`, zlib's `uncompress`; Apple's
+`COMPRESSION_ZLIB` is raw deflate and Qt's `qUncompress` wants a length prefix (`docs/tgw-format.md`,
+"Inflating the payload"). The limits stay 4 KB compressed and 32 KB of HTML; the same widget counts
+about 12 bytes less (the shorter framing) and level 9 saves a few more. The size counter follows:
+`WidgetSize` and `MINI_HTML` say `zlib` instead of `gzip` (`src/shared/widget-size.ts`), the harness
+counts zlib at level 9 (`size: 2134 B zlib / …`), the dev app `CompressionStream('deflate')` (level 6, a
+few bytes over), the conformance gate and the test-group publisher zlib at level 9 (`zlib` in
+`manifest.json` and `channel.json` replaces `gzip` / `gzip6`).
 
 **Vertical drags are the chat's** (default, every client; `docs/decisions.md` "Vertical drags are
 the chat's", decision G2; `docs/sdk-v1.md` §5.5). A widget can claim only horizontal drags: a
