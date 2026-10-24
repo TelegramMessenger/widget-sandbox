@@ -45,4 +45,19 @@ describe('harness gestures', () => {
     assert.ok(r.height! > 100 && r.height! < 200, String(r.height));
     assert.deepEqual(r.listens.sort(), ['contextmenu', 'dblclick', 'pointercancel', 'pointerdown', 'pointerup']);
   });
+
+  it('a vertical drag is the chat\'s even on touch-action: none, with the hint; a horizontal one there is the widget\'s (v0.1.3)', async () => {
+    const r = await runWidget(WIDGET, {
+      width: 360,
+      gestures: [{ kind: 'swipe', x: 270, y: 60, dx: 0, dy: -80 }, { kind: 'swipe', x: 270, y: 60, dx: 80, dy: 10 }],
+      probes: ['s.textContent'],
+    });
+    const [up, side] = r.gestures!;
+    assert.deepEqual(up.claim, { x: true, y: false, hold: true });
+    assert.deepEqual(up.outcome, { owner: 'bubble', gesture: 'drag-y', cancel: true, action: 'scroll' });
+    assert.deepEqual(up.received, ['pointerdown button#fire', 'pointercancel button#fire']);
+    assert.match(up.hint!, /^vertical drags always scroll the chat; a widget cannot claim them/);
+    assert.deepEqual(side.outcome, { owner: 'widget', gesture: 'drag-x', cancel: false });
+    assert.equal(side.hint, null);
+  });
 });

@@ -356,7 +356,8 @@ static Json verdictJson(const std::optional<GestureVerdict>& v) {
 }
 
 /// gesture_policy against the fixture shared with gesture-policy.ts, GesturePolicy.swift and GesturePolicy.kt: every
-/// section. A `down` step's claim is claimOf([claim]) (default "auto"), as gesture-policy.test.ts reads it.
+/// section. A `down` step's claim is the `claimed` object {x, y, hold} as given (a claim a client builds by hand),
+/// else claimOf([claim]) (default "auto"), as gesture-policy.test.ts reads it.
 TEST(gesture_policy_shared_fixture) {
     auto root = Json::parse(readFile(std::string(TW_FIXTURES) + "/gesture-policy.json"));
     CHECK_MSG(root.has_value(), "fixture missing — run pnpm build:desktop");
@@ -377,7 +378,7 @@ TEST(gesture_policy_shared_fixture) {
         Json got = claimJson(gesture::claimOf(touchActions, c["prevented"].asBool()));
         CHECK_MSG(jsonEqual(got, c["expect"]), c["touchActions"].dump() + " prevented " + c["prevented"].dump() + " → " + got.dump());
     }
-    int cases = 0, steps = 0;
+    int cases = 0, steps = 0, claimed = 0;
     for (const auto& c : (*root)["cases"].arr()) {
         cases++;
         GestureArbiter a;
@@ -391,7 +392,14 @@ TEST(gesture_policy_shared_fixture) {
                 std::optional<PointerKind> kind;
                 for (PointerKind k : {PointerKind::Touch, PointerKind::Pen, PointerKind::Mouse}) if (gesture::name(k) == pointer) kind = k;
                 CHECK_MSG(kind.has_value(), where + ": unknown pointer");
-                WidgetGestureClaim claim = gesture::claimOf({s["claim"].isString() ? s["claim"].asString() : "auto"});
+                WidgetGestureClaim claim;
+                if (const Json* given = s.find("claimed")) {
+                    claimed++;
+                    CHECK_MSG(given->isObject() && (*given)["x"].isBool() && (*given)["y"].isBool() && (*given)["hold"].isBool(), where + ": claimed is not {x, y, hold}");
+                    claim = {(*given)["x"].asBool(), (*given)["y"].asBool(), (*given)["hold"].asBool()};
+                } else {
+                    claim = gesture::claimOf({s["claim"].isString() ? s["claim"].asString() : "auto"});
+                }
                 got = a.down((*p)[0].asNumber(), (*p)[1].asNumber(), (*p)[2].asNumber(), claim, kind.value_or(PointerKind::Touch), s["button"].asInt(0));
             } else if (const Json* p = s.find("move")) {
                 got = a.move((*p)[0].asNumber(), (*p)[1].asNumber(), (*p)[2].asNumber());
@@ -415,8 +423,9 @@ TEST(gesture_policy_shared_fixture) {
             CHECK_MSG(s.find("expect") && jsonEqual(gj, s["expect"]), where + " → " + gj.dump());
         }
     }
-    printf("    %d claims, %d cases, %d steps\n", claims, cases, steps);
-    CHECK(claims >= 15 && cases >= 25 && steps >= 140);
+    printf("    %d claims, %d cases, %d steps (%d with a claim given as is)\n", claims, cases, steps, claimed);
+    // v0.1.3's fixture (vertical drags are the chat's) or later: a stale copy fails here.
+    CHECK(claims >= 21 && cases >= 28 && steps >= 174 && claimed >= 3);
     // A verdict and NO_CLAIM are values: a caller may keep one, and nothing changes the other.
     GestureArbiter a;
     GestureVerdict v = a.down(0, 100, 50, gesture::claimOf({"auto"}));
@@ -1015,7 +1024,8 @@ TEST(sdk_locale_reaches_the_widget) {
 
 /// WidgetHost: the renderer's first message is the theme (scheme, checked params, button and text tokens as given),
 /// and every setTheme sends another; the widget gets the scheme, the palette and the locale; the renderer's
-/// gesture report becomes onGesture with all four claims (missing or not a boolean: false; only `wants`: `y`).
+/// gesture report becomes onGesture with its x and hold (missing or not a boolean: false); `y` is false whatever the
+/// renderer sends (v0.1.3: vertical drags are the chat's), and a report with only `wants` claims nothing.
 TEST(sdk_widget_host_theme_locale_and_gestures) {
     ScriptedRenderer* renderer = nullptr;
     WidgetTheme theme;
@@ -1056,9 +1066,12 @@ TEST(sdk_widget_host_theme_locale_and_gestures) {
         std::lock_guard<std::mutex> l(renderer->mutex);
         CHECK(renderer->themes == std::vector<std::string>({"light"}));
     }
-    // What the renderer core reports for a press on `touch-action: none`, on `auto`, on `pan-x` and on `pan-y`.
-    renderer->onMessage("{\"type\":\"gesture\",\"wants\":true,\"x\":true,\"y\":true,\"hold\":true}");
+    // What the renderer core reports for a press on `touch-action: none`, on `auto` (and `pan-x`) and on `pan-y`.
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":true,\"y\":false,\"hold\":true}");
     renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":false,\"y\":false,\"hold\":false}");
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":true,\"y\":false,\"hold\":false}");
+    // What a v0.1.2 renderer core reported for `none` and for `pan-x`: `y` no longer reaches the client.
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":true,\"x\":true,\"y\":true,\"hold\":true}");
     renderer->onMessage("{\"type\":\"gesture\",\"wants\":true,\"x\":false,\"y\":true,\"hold\":false}");
     renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":true,\"y\":false}"); // a renderer before hold
     renderer->onMessage("{\"type\":\"gesture\",\"wants\":true}"); // a renderer that only knows `wants` (the native prototypes)
@@ -1068,7 +1081,7 @@ TEST(sdk_widget_host_theme_locale_and_gestures) {
     host.destroy();
     std::lock_guard<std::mutex> l(m);
     CHECK((claims == std::vector<WidgetGestureClaim>{
-               {true, true, true}, {false, false, false}, {false, true, false}, {true, false, false}, {false, true, false}, {}}));
+               {true, false, true}, {false, false, false}, {true, false, false}, {true, false, true}, {}, {true, false, false}, {}, {}}));
     CHECK(commits.size() == 1 && commits[0].first == "local" && commits[0].second == StorageArea({{"k", "w"}}));
 }
 
@@ -1100,11 +1113,13 @@ TEST(sdk_deprecated_host_api_forwards) {
     host.onHostThread([] {});
     CHECK(host.probe("TelegramWidget.colorScheme") == "light");
     renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":true,\"y\":false,\"hold\":true}");
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":true,\"x\":true,\"y\":true,\"hold\":false}");
     renderer->onMessage("{\"type\":\"gesture\",\"wants\":true}");
     host.onHostThread([] {});
     std::lock_guard<std::mutex> l(m);
     CHECK_MSG((raw == std::vector<std::pair<std::string, std::string>>{{"ready", "[]"}, {"haptic", "[\"impact\",\"soft\"]"}}), std::to_string(raw.size()));
-    CHECK((gestures == std::vector<std::string>{"onGesture 101", "onGestureClaim 10", "onGesture 010", "onGestureClaim 01"}));
+    // `y` is always false since v0.1.3, for the deprecated callback too.
+    CHECK((gestures == std::vector<std::string>{"onGesture 101", "onGestureClaim 10", "onGesture 100", "onGestureClaim 10", "onGesture 000", "onGestureClaim 00"}));
     CHECK(host.diagnostics().actions.size() == 2);
 #if defined(_MSC_VER)
 #pragma warning(pop)

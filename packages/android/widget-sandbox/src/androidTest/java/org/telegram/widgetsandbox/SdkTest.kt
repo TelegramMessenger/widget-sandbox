@@ -237,8 +237,8 @@ class SdkTest {
 
             tap(host.view, 50f, 150f)
             assertTrue("$claims", waitFor { claims.size >= 2 && drags.size >= 2 })
-            assertEquals("touch-action: none takes both drags and holds", WidgetGestureClaim(x = true, y = true, hold = true), claims[1])
-            assertEquals("the deprecated onGestureClaim gets the drags of each claim", listOf(false to false, true to true), drags.toList())
+            assertEquals("touch-action: none takes horizontal drags and holds, never vertical ones (v0.1.3)", WidgetGestureClaim(x = true, y = false, hold = true), claims[1])
+            assertEquals("the deprecated onGestureClaim gets the drags of each claim", listOf(false to false, true to false), drags.toList())
 
             instrumentation.runOnMainSync { host.setTheme(WidgetTheme("dark", mapOf("bg_color" to "#101010"), WidgetButtonTokens(radius = "10px", pressedOpacity = 0.7), WidgetTextTokens(fontSize = 17.0, padding = "4px 6px"))) }
             val dark = "#101010|#ffffff|dark|10px|0.7|17px|4px 6px|17px|0px"

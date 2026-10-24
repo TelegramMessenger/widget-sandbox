@@ -104,8 +104,10 @@ public final class WidgetHost: SandboxEngineDelegate {
     public var onAction: ((WidgetAction) -> Void)?
     /// The new full content of a Web Storage area, at the end of each task that changed it; `local` first (docs/sdk-v1.md §5.4). Main thread.
     public var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?
-    /// On every primary pointerdown: what of this press the widget claims, drags, holds and double taps (docs/sdk-v1.md §5.5);
-    /// the client's recognizers decide with it (GestureArbiter). Main thread, a few ms after the touch began.
+    /// On every primary pointerdown: what of this press the widget claims with `touch-action`, horizontal drags (`x`) and
+    /// holds (`hold`, no message menu) (docs/sdk-v1.md §5.5); taps and double taps are always its own, vertical drags
+    /// always the chat's (`y` is always false since v0.1.3). The client's recognizers decide with it (GestureArbiter).
+    /// Main thread, a few ms after the touch began.
     public var onGestureClaim: ((WidgetGestureClaim) -> Void)?
     /// The raw method and arguments JSON of each call `onAction` gets.
     @available(*, deprecated, message: "use onAction (SDK v1)")
@@ -670,10 +672,10 @@ public final class WidgetHost: SandboxEngineDelegate {
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
             engine.theme(scheme, params: theme.params)
         case "gesture":
-            // The renderer core sends x, y and hold (`wants` is y); a renderer that sends only `wants`
-            // (the Blitz and litehtml prototypes) claims vertical drags with it and nothing else.
-            let y = msg["y"] == nil ? Self.isTrue(msg["wants"]) : Self.isTrue(msg["y"])
-            let claim = WidgetGestureClaim(x: Self.isTrue(msg["x"]), y: y, hold: Self.isTrue(msg["hold"]))
+            // The renderer core sends x, y and hold (`wants` is y, always false since v0.1.3). Vertical drags are the
+            // chat's: the claim the client gets has `y` false whatever the renderer says. A renderer that sends only
+            // `wants` (the Blitz and litehtml prototypes) claims nothing.
+            let claim = WidgetGestureClaim(x: Self.isTrue(msg["x"]), y: false, hold: Self.isTrue(msg["hold"]))
             onMain { self.onGestureClaim?(claim) }
         case "violation":
             diag("renderer-violation", msg["detail"] as? String ?? "")

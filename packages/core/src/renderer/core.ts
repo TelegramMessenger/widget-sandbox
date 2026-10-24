@@ -19,6 +19,7 @@ import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
 import { THEME_VARIABLES, themeVariables } from '../shared/sdk-policy';
 import { GestureArbiter, claimOf, type GestureClaim, type GestureVerdict, type PointerKind } from '../shared/gesture-policy';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
+import { TOUCH_ACTION_CLAIM, engineTouchAction } from './touch-action';
 
 /** Where the core renders: a whole document (iframe, native WebViews) or a shadow root inside the host page. */
 export interface RendererEnv {
@@ -92,6 +93,7 @@ const setCharData = setter(CharacterData.prototype, 'data');
 const htmlStyleOf = getter(HTMLElement.prototype, 'style');
 const svgStyleOf = getter(SVGElement.prototype, 'style');
 const styleOf = (el: Element): CSSStyleDeclaration => (el instanceof SVGElement ? svgStyleOf(el) : htmlStyleOf(el));
+const sheetOf = getter(HTMLStyleElement.prototype, 'sheet');
 
 /** Defense in depth: the validator never emits these, but the renderer refuses them regardless. */
 const FORBIDDEN_TAGS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'link', 'meta', 'base', 'portal', 'noscript', 'set', 'template', 'audio', 'video', 'source', 'track',
@@ -192,6 +194,44 @@ function applyAttr(el: Element, name: string, value: string) {
   // canvas command stream ('r') is authoritative for resets.
   if (el instanceof HTMLCanvasElement && (lower === 'width' || lower === 'height') && getAttribute(el, lower) === value) return;
   setAttribute(el, name, value);
+  if (lower === 'style') widenTouchAction(styleOf(el));
+}
+
+// ───────────────────────── touch-action: the engine always pans vertically (touch-action.ts) ─────────────────────────
+
+/** One declaration block: the engine gets the widened `touch-action`, the claim keeps the widget's own (same priority). */
+function widenTouchAction(style: CSSStyleDeclaration) {
+  const value = style.getPropertyValue('touch-action');
+  if (!value) return;
+  const priority = style.getPropertyPriority('touch-action');
+  style.setProperty(TOUCH_ACTION_CLAIM, value, priority);
+  const engine = engineTouchAction(value);
+  if (engine !== value) style.setProperty('touch-action', engine, priority);
+}
+
+/**
+ * The element's own touch-action as the widget declared it: the claim property when the engine's value is that
+ * value widened (the element declares it), else the engine's (`auto`: the claim property inherited from an ancestor).
+ */
+function ownTouchAction(cs: CSSStyleDeclaration): string {
+  const own = cs.getPropertyValue(TOUCH_ACTION_CLAIM).trim();
+  const words = (v: string) => v.trim().toLowerCase().split(/\s+/).sort().join(' ');
+  return own && words(cs.touchAction) === words(engineTouchAction(own)) ? own : cs.touchAction;
+}
+
+/** Every rule of a `<style>` element's sheet (none until it is connected), nested rules included. */
+function widenSheet(el: Node) {
+  if (!(el instanceof HTMLStyleElement)) return;
+  const sheet = sheetOf(el) as CSSStyleSheet | null;
+  if (!sheet) return;
+  const walk = (rules: CSSRuleList) => {
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i] as CSSRule & { style?: CSSStyleDeclaration; cssRules?: CSSRuleList };
+      if (r.style) widenTouchAction(r.style);
+      if (r.cssRules) walk(r.cssRules);
+    }
+  };
+  walk(sheet.cssRules);
 }
 
 function applyOp(op: RenderOp) {
@@ -240,6 +280,8 @@ function applyOp(op: RenderOp) {
       if (!parent) return;
       const ref = op.before === null ? null : nodes.get(op.before) ?? null;
       insertBefore(parent, node, ref && parentNodeOf(ref) === parent ? ref : null);
+      // A <style> gets its sheet once connected.
+      widenSheet(node);
       return;
     }
     case 'rm': {
@@ -253,13 +295,15 @@ function applyOp(op: RenderOp) {
       // The host's theme variables on the root are not the widget's to change (it can shadow them on its own elements).
       if (node === HTML && THEME_VARIABLES.includes(op.name)) return;
       const style = styleOf(node as Element);
+      if (op.name === 'touch-action') style.removeProperty(TOUCH_ACTION_CLAIM);
       if (op.value === '') style.removeProperty(op.name);
       else style.setProperty(op.name, op.value, op.important ? 'important' : '');
+      if (op.name === 'touch-action') widenTouchAction(style);
       return;
     }
     case 'css':
       // Sanitized stylesheet text for a <style> element.
-      if (localNameOf(node) === 'style') setTextContent(node, op.text);
+      if (localNameOf(node) === 'style') { setTextContent(node, op.text); widenSheet(node); }
       return;
     case 'prop':
       return applyProp(node as any, op.name, op.value);
@@ -413,9 +457,12 @@ function answer(q: Query): { result: unknown; binary?: ArrayBuffer } {
     }
     case 'cs': {
       const cs = getComputedStyle(el, q.pseudo ?? null);
-      if (q.prop) return { result: cs.getPropertyValue(q.prop) };
+      // The widget sees its own touch-action, not the engine's widened one.
+      const touchAction = () => ownTouchAction(cs);
+      if (q.prop) return { result: q.prop === 'touch-action' ? touchAction() : cs.getPropertyValue(q.prop) };
       const out: Record<string, string> = {};
-      for (let i = 0; i < cs.length; i++) out[cs[i]] = cs.getPropertyValue(cs[i]);
+      for (let i = 0; i < cs.length; i++) if (cs[i] !== TOUCH_ACTION_CLAIM) out[cs[i]] = cs.getPropertyValue(cs[i]);
+      out['touch-action'] = touchAction();
       return { result: out };
     }
     case 'svg': {
@@ -546,19 +593,20 @@ function serialize(e: Event, targetId: number): WidgetEvent {
 
 /**
  * What of the press that starts on `el` the widget claims (gesture-policy.ts
- * `claimOf`, docs/sdk-v1.md §5.5): from the computed `touch-action` of `el` and
- * its ancestors (`none` claims everything, a value without a horizontal or a
- * vertical pan claims that axis) and a pointerdown / touchstart the sandbox has
- * learned to prevent on this target (both axes). The host tells the client
- * (`onGestureClaim`); hosts whose WebView lives inside a scrolling container
- * that cannot see into it (Android) also act on `y` themselves.
+ * `claimOf`, docs/sdk-v1.md §5.5): from the `touch-action` the widget gave `el`
+ * and its ancestors (`none` claims horizontal drags and holds, a value without a
+ * horizontal pan claims horizontal drags; vertical drags are never claimed) and
+ * a pointerdown / touchstart the sandbox has learned to prevent on this target
+ * (horizontal drags). The host tells the client (`onGestureClaim`).
  */
 function gestureClaim(el: Element | null, targetId: number): GestureClaim {
   const values: string[] = [];
-  // Up to the widget's <html> itself: touch-action on an ancestor covers its descendants, as in CSS.
+  // Up to the widget's <html> itself: touch-action on an ancestor covers its descendants, as in CSS. The widget's own
+  // values (TOUCH_ACTION_CLAIM inherits, so an element repeats its nearest declaring ancestor's: the same claim).
   for (let n: Element | null = el ?? HTML; n; n = n === HTML ? null : (parentNodeOf(n) as Element | null)) {
     if (!(n instanceof Element)) break;
-    values.push(getComputedStyle(n).touchAction);
+    const cs = getComputedStyle(n);
+    values.push(cs.getPropertyValue(TOUCH_ACTION_CLAIM).trim() || cs.touchAction);
   }
   return claimOf(values, preventKeys.has(`${targetId}:pointerdown`) || preventKeys.has(`${targetId}:touchstart`));
 }

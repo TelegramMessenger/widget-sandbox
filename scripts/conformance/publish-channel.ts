@@ -74,7 +74,7 @@ const TOPICS: TopicSpec[] = [
   { name: 'Auto', channel: 'auto/', default: true, color: 0x8eee98 },
   // Widgets with little or no CSS, drawn by the renderer's UA layer (v0.1.1, corpus/defaults/README.md).
   { name: 'Defaults', corpus: 'corpus/defaults', default: true, color: 0xcb86db },
-  // Widgets that claim drags on both axes, horizontal or vertical only, or nothing (corpus/gestures/README.md); --topic gestures.
+  // What the horizontal-only rule removed and what it keeps (corpus/gestures/README.md); --topic gestures.
   { name: 'Gestures', corpus: 'corpus/gestures', default: false, color: 0x6fb9f0 },
   { name: 'Showcase', corpus: 'corpus/showcase', default: false, color: 0xcb86db },
   { name: 'Common', corpus: 'corpus/common', default: false, color: 0xff93b2 },

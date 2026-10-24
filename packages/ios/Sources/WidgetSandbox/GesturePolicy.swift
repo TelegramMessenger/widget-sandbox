@@ -1,14 +1,19 @@
 // Who gets a press over a widget, the widget or the bubble: a line-for-line
 // mirror of src/shared/gesture-policy.ts (see the comments there; docs/sdk-v1.md
-// §5.5, docs/decisions.md "Gestures: touch-action is the claim"). Taps and double
-// taps over the widget are always the widget's (the reaction stays with the bubble
-// outside the widget). For the rest the widget claims per element with CSS
-// `touch-action`, read by the renderer at pointerdown and reported as
-// `WidgetHost.onGestureClaim`: `auto` leaves the press to the bubble (a hold opens
-// the message menu, a horizontal swipe is reply or back, a vertical one scrolls the
-// list); `pan-y` / `pan-x` give the widget drags on the other axis; `none` gives it
-// everything, holds included. The leading `edgeStripPx` of the widget never take a
-// claim (the system back gesture).
+// §5.5, docs/decisions.md "Gestures: touch-action is the claim" and "Vertical drags
+// are the chat's"). Taps and double taps over the widget are always the widget's
+// (a double tap with `dblclick`; the reaction stays with the bubble outside the
+// widget), and a vertical drag is always the chat's: the list scrolls over every
+// widget, whatever its touch-action says (v0.1.3). For the rest the widget claims
+// per element with CSS `touch-action`, read by the renderer at pointerdown on the
+// target and its ancestors and reported as `WidgetHost.onGestureClaim`: `auto`
+// leaves the press to the bubble (a hold opens the message menu, a horizontal
+// swipe is reply or back); `pan-y` gives the widget horizontal drags; `none` gives
+// it horizontal drags and holds; `pan-x` claims nothing more than `auto`.
+// Touch-action on a container covers its children, as in CSS. The first move past
+// the slop locks the axis for the whole press, a hold the widget won included (a
+// vertical one still goes to the chat). The leading `edgeStripPx` of the widget
+// never take a claim (the system back gesture).
 //
 // A client's own recognizers over the widget feed a GestureArbiter the press
 // and act on its verdicts: with `cancel`, take the touch from the renderer view
@@ -41,29 +46,28 @@ public enum GesturePolicy {
         case touch, pen, mouse
     }
 
-    /// The claim of a press from the computed `touch-action` of the target and of each ancestor up to (not
-    /// up to the root (the widget's `<html>`) included, target first, and whether the widget prevented pointerdown on the target before.
-    /// `none` anywhere claims everything; a value without a horizontal pan (`pan-x`, `pan-left`, `pan-right`)
-    /// claims `x`, one without a vertical pan (`pan-y`, `pan-up`, `pan-down`) claims `y`; `auto` and
-    /// `manipulation` claim nothing. A prevented pointerdown claims both axes, never holds: only
-    /// `touch-action: none` does. Taps and double taps are always the widget's: no claim needed. The renderer computes this itself; clients get the result as the claim.
+    /// The claim of a press from the computed `touch-action` of the target and of each ancestor up to the root (the
+    /// widget's `<html>`) included, target first, and whether the widget prevented pointerdown on the target before.
+    /// `none` anywhere claims horizontal drags and holds; a value without a horizontal pan (`pan-x`, `pan-left`,
+    /// `pan-right`) claims `x`; `auto` and `manipulation` claim nothing, and so does a value with a horizontal pan
+    /// (`pan-x`: vertical drags cannot be claimed). A prevented pointerdown claims `x`, never holds: only
+    /// `touch-action: none` does. `y` is always false. Taps and double taps are always the widget's: no claim needed.
+    /// The renderer computes this itself; clients get the result as the claim.
     public static func claimOf(_ touchActions: [String], prevented: Bool = false) -> WidgetGestureClaim {
-        var x = prevented, y = prevented
+        var x = prevented
         for raw in touchActions {
             let ta = asciiLower(raw.trimmingCharacters(in: jsWhitespace))
             let value = String(decoding: ta, as: UTF16.self)
             if value.isEmpty || value == "auto" || value == "manipulation" { continue }
-            if value == "none" { return WidgetGestureClaim(x: true, y: true, hold: true) }
+            if value == "none" { return WidgetGestureClaim(x: true, y: false, hold: true) }
             if !containsWord(ta, horizontalPans) { x = true }
-            if !containsWord(ta, verticalPans) { y = true }
         }
-        return WidgetGestureClaim(x: x, y: y)
+        return WidgetGestureClaim(x: x, y: false)
     }
 
     /// What `String.prototype.trim` removes: Unicode spaces and line breaks and U+FEFF, not U+0085.
     private static let jsWhitespace = CharacterSet.whitespacesAndNewlines.subtracting(CharacterSet(charactersIn: "\u{85}")).union(CharacterSet(charactersIn: "\u{FEFF}"))
     private static let horizontalPans = ["pan-x", "pan-left", "pan-right"].map { Array($0.utf16) }
-    private static let verticalPans = ["pan-y", "pan-up", "pan-down"].map { Array($0.utf16) }
 
     /// Lowercases A–Z only (the computed value is ASCII; a Unicode mapping must not make a keyword out of something else).
     private static func asciiLower(_ s: String) -> [UInt16] {
@@ -143,6 +147,8 @@ public struct GestureArbiter {
         var pointer: GesturePolicy.PointerKind
         var edge: Bool
         var second: Bool
+        /// The first move past the slop has happened: the press's axis is decided.
+        var locked = false
         var owner = GestureVerdict.Owner.pending
         var gesture = GestureVerdict.Gesture.press
         var action: GestureVerdict.BubbleAction?
@@ -172,13 +178,17 @@ public struct GestureArbiter {
         guard var p = press else { return nil }
         defer { press = p }
         if let held = Self.holdFirst(&p, t) { return held }
-        if p.owner != .pending { return Self.verdict(p) }
         let dx = x - p.x0, dy = y - p.y0
-        if hypot(dx, dy) <= GesturePolicy.touchSlopPx { return Self.verdict(p) }
+        if p.locked || hypot(dx, dy) <= GesturePolicy.touchSlopPx { return Self.verdict(p) }
+        p.locked = true
         let horizontal = abs(dx) > abs(dy)
+        // A hold the widget won still has its axis decided by the first move past the slop: a vertical one is the chat's.
+        if p.owner == .widget && p.gesture == .hold { return horizontal ? Self.verdict(p) : Self.decide(&p, .bubble, .dragY, action: .scroll) }
+        if p.owner != .pending { return Self.verdict(p) }
         let gesture: GestureVerdict.Gesture = horizontal ? .dragX : .dragY
-        // A mouse drag never pans the chat; a touch drag is the widget's only on an axis it claims.
-        if p.pointer == .mouse || (horizontal ? p.claim.x : p.claim.y) { return Self.decide(&p, .widget, gesture) }
+        // A mouse drag never pans the chat; a touch drag is the widget's only when it is horizontal and claimed:
+        // a vertical one always scrolls the chat, whatever the claim says (the arbiter never reads `y`).
+        if p.pointer == .mouse || (horizontal && p.claim.x) { return Self.decide(&p, .widget, gesture) }
         return Self.decide(&p, .bubble, gesture, action: horizontal ? (p.edge ? .back : .swipe) : .scroll)
     }
 

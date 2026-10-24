@@ -161,12 +161,14 @@ class WidgetHost(
     var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)? = null
     /**
      * On every primary pointerdown: what of this press the widget claims with CSS `touch-action` (docs/sdk-v1.md §5.5,
-     * GesturePolicy.kt): horizontal (`x`) and vertical (`y`) drags and holds (`hold`: no message menu); taps and double
-     * taps are always the widget's. A client's recognizers feed it to a GestureArbiter with the press; it comes a few ms
-     * after the touch starts. The WebView renderer already keeps its parent from intercepting when `y` or `hold`.
+     * GesturePolicy.kt): horizontal drags (`x`) and holds (`hold`: no message menu); taps and double taps are always the
+     * widget's, vertical drags always the chat's (`y` is always false since v0.1.3). A client's recognizers feed it to a
+     * GestureArbiter with the press; it comes a few ms after the touch starts. The WebView renderer keeps its parent from
+     * intercepting while a `hold` press stays within the slop and after it leaves it horizontally; a vertical drag is
+     * always left to the list (RendererWebView.gestureDecision).
      */
     var onGesture: ((WidgetGestureClaim) -> Unit)? = null
-    /** The claim's drags, right after `onGesture`. */
+    /** The claim's drags, right after `onGesture` (`y` always false since v0.1.3). */
     @Deprecated("Since v0.1.2: onGesture, whose claim also carries hold")
     var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)? = null
     /** The raw method and arguments JSON of each call `onAction` gets, right after it. */
@@ -437,9 +439,10 @@ class WidgetHost(
                 if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
             }
             "gesture" -> {
-                // `wants` is `y`; a renderer that sends only `wants` (the native prototypes) claims no horizontal drags, holds or double taps.
-                val wants = msg.optBoolean("wants", false)
-                val claim = WidgetGestureClaim(msg.optBoolean("x", false), msg.optBoolean("y", wants), msg.optBoolean("hold", false))
+                // Vertical drags are the chat's (v0.1.3): the claim's `y` is false whatever the renderer sends. The renderer
+                // core still sends `wants` / `y` (always false now); the Blitz and litehtml prototypes send only `wants` (their
+                // old vertical claim), so they now claim nothing.
+                val claim = WidgetGestureClaim(msg.optBoolean("x", false), y = false, hold = msg.optBoolean("hold", false))
                 renderer.gestureDecision(claim)
                 onGesture?.invoke(claim)
                 @Suppress("DEPRECATION")

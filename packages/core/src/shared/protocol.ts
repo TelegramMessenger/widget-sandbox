@@ -177,13 +177,12 @@ export type RendererToHost =
   | { type: 'media' }
   /**
    * Sent on every primary pointerdown: what of this press the widget claims
-   * (gesture-policy.ts `claimOf`: the computed `touch-action` of the target and
-   * its ancestors, and a pointerdown the sandbox has prevented there before).
-   * `x` / `y`: horizontal / vertical drags; `hold`: a hold or right click (no
-   * message menu). Taps and double taps are always the widget's. The host's
-   * `onGestureClaim`, docs/sdk-v1.md §5.5. Hosts whose renderer sits inside a
-   * scrolling container that cannot see into the WebView (Android) use `y` to
-   * stop the container from intercepting; `wants` is `y` (the field before v1).
+   * (gesture-policy.ts `claimOf`: the `touch-action` the widget gave the target
+   * and its ancestors, and a pointerdown the sandbox has prevented there before).
+   * `x`: horizontal drags; `hold`: a hold or right click (no message menu). Taps
+   * and double taps are always the widget's, vertical drags always the chat's:
+   * `y` and `wants` (`y`, the field before v1) are always false since v0.1.3.
+   * The host's `onGestureClaim`, docs/sdk-v1.md §5.5.
    */
   | { type: 'gesture'; wants: boolean; x: boolean; y: boolean; hold: boolean }
   /** With `arbitrate` `bubble` on: the bubble took a press (`action`); (x, y): the pointer then, in widget coordinates. */

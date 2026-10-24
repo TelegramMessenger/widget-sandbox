@@ -63,6 +63,12 @@ kotlin {
     }
 }
 
+// The JVM fixture tests read src/androidTest/assets from disk: declared as an input, a fixture change alone reruns
+// them instead of restoring the last result from the build cache.
+tasks.withType<Test>().configureEach {
+    inputs.dir("src/androidTest/assets").withPropertyName("fixtures").withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.annotation)

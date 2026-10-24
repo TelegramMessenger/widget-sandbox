@@ -36,16 +36,14 @@ bool hasPan(const std::string& ta, const std::string_view (&words)[3]) {
 
 WidgetGestureClaim claimOf(const std::vector<std::string>& touchActions, bool prevented) {
     static constexpr std::string_view horizontal[3] = {"x", "left", "right"};
-    static constexpr std::string_view vertical[3] = {"y", "up", "down"};
-    bool x = prevented, y = prevented;
+    bool x = prevented;
     for (const std::string& raw : touchActions) {
         std::string ta = trimLower(raw);
         if (ta.empty() || ta == "auto" || ta == "manipulation") continue;
-        if (ta == "none") return {true, true, true};
+        if (ta == "none") return {true, false, true};
         if (!hasPan(ta, horizontal)) x = true;
-        if (!hasPan(ta, vertical)) y = true;
     }
-    return {x, y, false};
+    return {x, false, false};
 }
 
 std::string_view name(PointerKind pointer) {
@@ -106,7 +104,7 @@ GestureVerdict GestureArbiter::down(double t, double x, double y, const WidgetGe
     std::optional<Tap> last = lastTap_;
     lastTap_.reset();
     bool second = last && t - last->t <= DOUBLE_TAP_MS && std::hypot(x - last->x, y - last->y) <= DOUBLE_TAP_SLOP_PX;
-    press_ = Press{t, x, y, edge ? NO_CLAIM : claim, pointer, edge, second, GestureOwner::Pending, Gesture::Press, std::nullopt};
+    press_ = Press{t, x, y, edge ? NO_CLAIM : claim, pointer, edge, second, false, GestureOwner::Pending, Gesture::Press, std::nullopt};
     Press& p = *press_;
     if (pointer == PointerKind::Mouse && button == 2) {
         return p.claim.hold ? decide(p, GestureOwner::Widget, Gesture::MenuClick, std::nullopt, GestureEvent::ContextMenu)
@@ -119,13 +117,18 @@ std::optional<GestureVerdict> GestureArbiter::move(double t, double x, double y)
     if (!press_) return std::nullopt;
     Press& p = *press_;
     if (auto held = holdFirst(p, t)) return held;
-    if (p.owner != GestureOwner::Pending) return verdict(p);
     double dx = x - p.x0, dy = y - p.y0;
-    if (std::hypot(dx, dy) <= TOUCH_SLOP_PX) return verdict(p);
+    if (p.locked || std::hypot(dx, dy) <= TOUCH_SLOP_PX) return verdict(p);
+    p.locked = true;
     bool horizontal = std::fabs(dx) > std::fabs(dy);
+    // A hold the widget won still has its axis decided by the first move past the slop: a vertical one is the chat's.
+    if (p.owner == GestureOwner::Widget && p.gesture == Gesture::Hold)
+        return horizontal ? verdict(p) : decide(p, GestureOwner::Bubble, Gesture::DragY, BubbleAction::Scroll);
+    if (p.owner != GestureOwner::Pending) return verdict(p);
     Gesture gesture = horizontal ? Gesture::DragX : Gesture::DragY;
-    // A mouse drag never pans the chat; a touch drag is the widget's only on an axis it claims.
-    if (p.pointer == PointerKind::Mouse || (horizontal ? p.claim.x : p.claim.y)) return decide(p, GestureOwner::Widget, gesture);
+    // A mouse drag never pans the chat; a touch drag is the widget's only when it is horizontal and claimed:
+    // a vertical one always scrolls the chat, whatever the claim says (`y` is never read).
+    if (p.pointer == PointerKind::Mouse || (horizontal && p.claim.x)) return decide(p, GestureOwner::Widget, gesture);
     return decide(p, GestureOwner::Bubble, gesture, horizontal ? (p.edge ? BubbleAction::Back : BubbleAction::Swipe) : BubbleAction::Scroll);
 }
 

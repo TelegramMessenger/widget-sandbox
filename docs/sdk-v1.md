@@ -28,7 +28,7 @@ host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
 | links | validates the URL, lets one call through per pointer press | shows the confirmation with the full URL, opens it |
 | haptics | validates, rate-limits, drops calls from hidden widgets | plays them (or ignores them on desktop and web) |
 | storage | preload at start, per-task commits, the quota | persists per message, deletes with the message, chat, account, "Clear cache" |
-| gestures | reports per press what the widget claims with `touch-action` (drag axes, holds); the shared policy (thresholds, who wins); `dblclick` for every double tap, `contextmenu` for claimed holds; on the web, plays the bubble itself | drives its recognizers from the policy: menu, swipe-to-reply and list scroll unless the widget claims the press, and then cancels the widget's touch; no double-tap reaction over the widget (v0.1.2, §5.5) |
+| gestures | reports per press what the widget claims with `touch-action` (horizontal drags, holds); the shared policy (thresholds, who wins); `dblclick` for every double tap, `contextmenu` for claimed holds; on the web, plays the bubble itself | drives its recognizers from the policy: menu and swipe-to-reply unless the widget claims the press, and then cancels the widget's touch; the list scroll always; no double-tap reaction over the widget (v0.1.2; vertical drags the chat's since v0.1.3, §5.5) |
 | size | reports the content height | sizes the bubble from the bot's hint before load, caps it, clips |
 | failures | freezes the last frame with a badge and reports `dead` | rebuilds it after a crash; after 2 crashes in a row leaves it stopped |
 
@@ -337,7 +337,8 @@ missing or malformed locale is `en-US` (before v1: always `en-US`).
 | `fetch`, `XMLHttpRequest`, `WebSocket`, … | throw `NetworkDisabledError` (invariant 5) |
 | keyboard | no key events, no keyboard focus (D4; the renderers and glue drop key events in profile v1) |
 | double tap | always the widget's, on every element: both clicks, then the renderer's own `dblclick` (since v0.1.2; before, never delivered) |
-| long press | the bubble's over `touch-action: auto` and `pan-*` (§5.5): the touch the client takes ends for the widget with `pointercancel` and no `click`; over `touch-action: none` the widget's, with the renderer's own `contextmenu` (since v0.1.2). The engine's own `dblclick` and `contextmenu` never reach the widget |
+| long press | the bubble's over `touch-action: auto` and `pan-*` (§5.5): the touch the client takes ends for the widget with `pointercancel` and no `click`; over `touch-action: none` the widget's, with the renderer's own `contextmenu` (since v0.1.2), unless the press first leaves the slop vertically: then it is the list's scroll (since v0.1.3). The engine's own `dblclick` and `contextmenu` never reach the widget |
+| vertical drag | always the chat's (the list scrolls), on every element and whatever `touch-action` says; the widget gets `pointercancel` (since v0.1.3; before, `pan-x` and `none` claimed it) |
 
 ### 2.11 Errors and limits
 
@@ -450,7 +451,7 @@ generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3)
 
 | message | payload |
 |---|---|
-| `gesture` | `{ wants, x, y, hold }` (booleans) on every primary `pointerdown`: what of this press the widget claims (`claimOf` of the gesture policy): horizontal (`x`) and vertical (`y`) drags, from the computed `touch-action` of the target and its ancestors and the widget's `preventDefault` on `pointerdown`/`touchstart`; `hold` only from `touch-action: none` (v0.1.2). Taps and double taps are always the widget's. `wants` equals `y` (the field before v1) |
+| `gesture` | `{ wants, x, y, hold }` (booleans) on every primary `pointerdown`: what of this press the widget claims (`claimOf` of the gesture policy): horizontal drags (`x`), from the `touch-action` the widget gave the target and its ancestors and its `preventDefault` on `pointerdown`/`touchstart`; `hold` only from `touch-action: none` (v0.1.2). Taps and double taps are always the widget's, vertical drags always the chat's: `y` and `wants` (the field before v1, equal to `y`) are always false since v0.1.3, and hosts report `y` false whatever a renderer sends |
 | `bubble` | `{ action, gesture, x, y, edge }` with `arbitrate` `bubble` on (v0.1.2): the bubble took a press: `action` `menu` \| `swipe` \| `scroll` \| `back`; (x, y) where the pointer was, widget coordinates; `edge`: it started in the leading edge strip |
 | `size` | the content height |
 | `event` | `trusted: true` only for real input |
@@ -474,7 +475,7 @@ public struct WidgetStorage { var local: [String: String]; var session: [String:
 public enum WidgetStorageArea: String { case local, session }
 public enum WidgetHaptic { case impact(String), notification(String), selection }
 public enum WidgetAction { case ready, openLink(URL), openTelegramLink(URL), haptic(WidgetHaptic) }
-public struct WidgetGestureClaim { var x: Bool; var y: Bool; var hold: Bool }   // hold: v0.1.2
+public struct WidgetGestureClaim { var x: Bool; var y: Bool; var hold: Bool }   // hold: v0.1.2; y: always false since v0.1.3
 
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
 // Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
@@ -509,14 +510,15 @@ var onChange: ((WidgetDiagnostics) -> Unit)?               // … and actions
 var onError: ((String) -> Unit)?
 var onAction: ((WidgetAction) -> Unit)?
 var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   // "local" | "session"
-var onGesture: ((WidgetGestureClaim) -> Unit)?             // v0.1.2: x, y, hold; drive the bubble's recognizers with GestureArbiter (§5.5)
+var onGesture: ((WidgetGestureClaim) -> Unit)?             // v0.1.2: x, y, hold (y always false since v0.1.3); drive the bubble's recognizers with GestureArbiter (§5.5)
 var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)?    // deprecated since v0.1.2: called right after onGesture
 fun setTheme(theme: WidgetTheme); fun setVisible(visible: Boolean); fun destroy()
 ```
 
-The WebView renderer still applies `y` to its parent itself
-(`requestDisallowInterceptTouchEvent`). The Blitz and litehtml prototypes send
-only `wants`: the host reports it as `y`, with `x` false.
+The WebView renderer keeps its parent from intercepting a press only while the
+widget may still take it as a hold (a `hold` claim, until the press leaves the
+slop vertically: `requestDisallowInterceptTouchEvent`). The Blitz and litehtml
+prototypes send only `wants`, always false now: they claim nothing.
 
 ### 4.3 C++ (desktop core): `twidget::WidgetHost`
 
@@ -533,7 +535,7 @@ std::function<void(const WidgetDiagnostics&)> onChange;           // … actions
 std::function<void(const std::string&)> onError;
 std::function<void(const WidgetAction&)> onAction;
 std::function<void(const std::string& area, const std::map<std::string, std::string>&)> onStorageCommit;
-std::function<void(const WidgetGestureClaim&)> onGesture;          // v0.1.2: x, y, hold (twidget/gesture_policy.h, GestureArbiter)
+std::function<void(const WidgetGestureClaim&)> onGesture;          // v0.1.2: x, y, hold (y always false since v0.1.3; twidget/gesture_policy.h, GestureArbiter)
 std::function<void(bool x, bool y)> onGestureClaim;                 // deprecated since v0.1.2: called right after onGesture
 void start(); void setTheme(const WidgetTheme&); void setVisible(bool); void destroy();
 ```
@@ -638,17 +640,27 @@ ignore them.
 
 Who gets a press is decided by one shared policy, so every client and the sandbox
 behave the same (v0.1.2, `docs/decisions.md` "Gestures: `touch-action` is the
-claim"). Taps and **double taps over the widget are always the widget's**, on
-every element: a double tap reaches it as both clicks and then `dblclick`, and
-the client's double-tap reaction stays on the bubble outside the widget. The
-rest is claimed per element at `pointerdown` by CSS `touch-action`:
+claim" and, v0.1.3, "Vertical drags are the chat's"). Taps and **double taps
+over the widget are always the widget's**, on every element: a double tap
+reaches it as both clicks and then `dblclick`, and the client's double-tap
+reaction stays on the bubble outside the widget. **Vertical drags are always
+the chat's**: the list scrolls over every widget, whatever `touch-action` says,
+and the widget gets `pointercancel`. Horizontal drags and holds are claimed per
+element at `pointerdown` by CSS `touch-action`:
 
 | over an element with | hold | horizontal drag | vertical drag |
 |---|---|---|---|
-| `touch-action: auto` (default), `manipulation` | bubble: message menu | bubble: swipe-to-reply / back | bubble: list scroll |
-| `pan-y` | bubble | widget | bubble |
-| `pan-x` | bubble | bubble | widget |
-| `none` | widget (`contextmenu`) | widget | widget |
+| `touch-action: auto` (default), `manipulation` | bubble: message menu | bubble: swipe-to-reply / back | list scroll |
+| `pan-y` | bubble | widget | list scroll |
+| `pan-x` (claims nothing since v0.1.3) | bubble | bubble | list scroll |
+| `none` | widget (`contextmenu`) | widget | list scroll (since v0.1.3) |
+
+The first move past the slop locks the press's axis: a press that starts
+horizontally on a claimed element is the widget's on both axes until the
+finger lifts; one that starts vertically is the list's. A hold the widget has
+won (on `none`) is locked the same way at its first move past the slop:
+sideways it stays the widget's, up or down the list takes it and the widget
+gets `pointercancel` after its `contextmenu`.
 
 `touch-action` on a container covers its children, as in CSS (the ancestor
 chain runs up to the widget's `<html>`). The leading 20 px of the widget (the
@@ -673,7 +685,8 @@ every platform against `packages/core/tests/fixtures/gesture-policy.json`:
 What the client does:
 
 1. On every primary `pointerdown` the host reports `onGestureClaim` (Kotlin and
-   C++: `onGesture`): `x` and `y` (the drag axes) and `hold`. It arrives a few
+   C++: `onGesture`): `x` (horizontal drags) and `hold`; `y` is always false
+   since v0.1.3 (the arbiter ignores it). It arrives a few
    milliseconds after the touch starts; hold the bubble's recognizers until it
    does (or 150 ms pass, then treat it as no claim).
 2. Feed the touch over the widget to a `GestureArbiter`: `down(t, x, y, claim,
@@ -688,7 +701,9 @@ What the client does:
    or back by its direction), `scroll` (the list), `back` (the system's or the
    chat's back gesture).
 4. On a verdict for the widget: stand back for the rest of the press (no menu,
-   no swipe, no list scroll from it). The double-tap reaction recognizer must not
+   no swipe, no list scroll from it: the axis is locked). Until then the list's
+   own scroll must still be able to start on a vertical move: never keep the
+   list from scrolling because of a claim. The double-tap reaction recognizer must not
    act over the widget at all. The renderer sends the widget its own `dblclick`
    / `contextmenu`; the client sends nothing.
 5. No keyboard: the client never routes key events to the widget, and the
@@ -700,13 +715,17 @@ reads touches through its own recognizers); disabling and re-enabling the web
 view's enabled gesture recognizers once, when the bubble takes the press, makes
 WebKit send `pointercancel` (public API; the iOS demo's `BubbleGestures`). On
 Android, intercept in the parent and send the child an `ACTION_CANCEL` (the
-Android demo's `BubbleGestureLayout`). The Android WebView renderer already keeps
-its parent from intercepting a touch the widget claims on `y` or `hold`. The
-Blitz and litehtml prototypes report only
-`wants` (`y`). On the web there are no recognizers over the widget: `WidgetHost`
-with `bubbleGestures` lets the renderer play the bubble with the same policy
-and reports what it took (`onBubbleGesture`); the dev app and the feed demo do
-that by default (`gestures`: phone, desktop or off).
+Android demo's `BubbleGestureLayout`). The Android WebView renderer keeps its
+parent from intercepting only while a `hold` claim may still win (until the
+press leaves the slop: vertically, the list takes it). The Blitz and litehtml
+prototypes report only `wants`, always false: they claim nothing. On the web
+there are no recognizers over the widget: `WidgetHost` with `bubbleGestures`
+lets the renderer play the bubble with the same policy and reports what it took
+(`onBubbleGesture`); the dev app and the feed demo do that by default
+(`gestures`: phone, desktop or off). The browser's own panning is the list
+scroll there: the renderer gives the engine every `touch-action` widened to
+allow vertical panning (`none` → `pan-y`), so a touch screen scrolls the page
+over any widget, while the claim reads the widget's own value.
 
 ### 5.6 Bubble size
 

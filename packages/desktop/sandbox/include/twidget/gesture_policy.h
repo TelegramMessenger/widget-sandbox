@@ -1,13 +1,16 @@
 // Who gets a press over a widget: the widget or the bubble (docs/sdk-v1.md §5.5,
-// docs/decisions.md "Gestures: touch-action is the claim"). The C++ twin of
-// packages/core/src/shared/gesture-policy.ts, next to GesturePolicy.swift and
-// GesturePolicy.kt. Taps and double taps over the widget are always the widget's
-// (the reaction stays with the bubble outside the widget). For the rest the widget
-// claims per element with CSS `touch-action`, read by the renderer at pointerdown
-// on the target and its ancestors: `auto` leaves the press to the bubble (a hold
-// opens the message menu, a horizontal swipe is reply or back, a vertical one
-// scrolls the list); `pan-y` / `pan-x` give the widget drags on the other axis;
-// `none` gives it everything, holds included. The leading EDGE_STRIP_PX of the
+// docs/decisions.md "Gestures: touch-action is the claim" and "Vertical drags are
+// the chat's"). The C++ twin of packages/core/src/shared/gesture-policy.ts, next to
+// GesturePolicy.swift and GesturePolicy.kt. Taps and double taps over the widget are
+// always the widget's (the reaction stays with the bubble outside the widget), and a
+// vertical drag is always the chat's: the list scrolls over every widget, whatever
+// its touch-action says (v0.1.3). For the rest the widget claims per element with CSS
+// `touch-action`, read by the renderer at pointerdown on the target and its
+// ancestors: `auto` leaves the press to the bubble (a hold opens the message menu, a
+// horizontal swipe is reply or back); `pan-y` gives the widget horizontal drags;
+// `none` gives it horizontal drags and holds; `pan-x` claims nothing more than
+// `auto`. Touch-action on a container covers its children, as in CSS. The first move
+// past the slop locks the axis for the whole press. The leading EDGE_STRIP_PX of the
 // widget never take a claim (the system back gesture).
 //
 // Public API: the client's own recognizers over the widget feed a GestureArbiter
@@ -31,7 +34,8 @@ namespace twidget {
 struct WidgetGestureClaim {
     /// Horizontal drags (no swipe-to-reply or back).
     bool x = false;
-    /// Vertical drags (no list scroll).
+    /// Always false since v0.1.3: vertical drags are the chat's (the list scrolls), and the
+    /// arbiter ignores it. Kept so that code written for v0.1.2 still builds.
     bool y = false;
     /// Holds, and a right click with a mouse: no message menu; the widget gets `contextmenu`.
     bool hold = false;
@@ -99,11 +103,12 @@ inline constexpr WidgetGestureClaim NO_CLAIM{};
 /**
  * The claim of a press from the computed `touch-action` of the target and of each
  * ancestor up to the root (the widget's `<html>`) included, target first, and whether the widget
- * prevented pointerdown on the target before. `none` anywhere claims everything; a
- * value without a horizontal pan (`pan-x`, `pan-left`, `pan-right`) claims `x`, one
- * without a vertical pan (`pan-y`, `pan-up`, `pan-down`) claims `y`; `auto` and
- * `manipulation` claim nothing. A prevented pointerdown claims both axes, never
- * holds: only `touch-action: none` does. Values are trimmed of ASCII
+ * prevented pointerdown on the target before. `none` anywhere claims horizontal
+ * drags and holds; a value without a horizontal pan (`pan-x`, `pan-left`,
+ * `pan-right`) claims `x`; `auto` and `manipulation` claim nothing, and so does a
+ * value with a horizontal pan (`pan-x`: vertical drags cannot be claimed). A
+ * prevented pointerdown claims `x`, never holds: only `touch-action: none` does.
+ * `y` is always false. Values are trimmed of ASCII
  * whitespace and lowercased A–Z only (computed `touch-action` is ASCII keywords).
  */
 WidgetGestureClaim claimOf(const std::vector<std::string>& touchActions, bool prevented = false);
@@ -147,6 +152,8 @@ private:
         PointerKind pointer;
         bool edge;
         bool second;
+        /// The first move past the slop has happened: the press's axis is decided.
+        bool locked = false;
         GestureOwner owner = GestureOwner::Pending;
         Gesture gesture = Gesture::Press;
         std::optional<BubbleAction> action;

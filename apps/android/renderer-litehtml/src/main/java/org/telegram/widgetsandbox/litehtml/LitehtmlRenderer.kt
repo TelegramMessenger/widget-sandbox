@@ -88,6 +88,10 @@ class LitehtmlRenderer(context: Context, theme: String, widthDp: Double) : Rende
         callback?.invoke(null)
     }
 
+    /**
+     * The host's answer to this renderer's `gesture` message (`wants` alone, the old vertical claim): always false since
+     * v0.1.3, as vertical drags are the chat's, so the list may intercept as soon as it arrives (this prototype claims nothing).
+     */
     override fun gestureDecision(wants: Boolean) = litehtmlView.decide(wants)
 
     override fun destroy() {

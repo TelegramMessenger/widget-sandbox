@@ -319,11 +319,11 @@
    "widget": "visual/sdk/12-drag-gestures.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/sdk/12-drag-gestures · Who gets a press: double taps always, holds and drags by touch-action, and the edge strip. Blue (touch-action: none): drag the knob, hold “Hold me” (it counts the time); no swipe-to-reply, no menu, the counters move. Striped (auto): long press = the message menu, swipe = reply; “cancelled” counts each one. Double-tap anywhere in the widget: no reaction, the widget counts the double taps. Bottom pad: a drag from the red strip is the back gesture, from the rest it moves the green mark. The client must: A double tap over the widget is always the widget's: both clicks and dblclick, on every element, and the client's reaction stays on the bubble outside the widget. touch-action: none gives the widget drags on both axes and holds (it gets contextmenu, no message menu); on auto the bubble takes holds and swipes and the widget gets pointercancel; a press in the leading 20 px of the widget is never the widget's (system back). The client follows the shared gesture policy (gesture-policy.ts: 500 ms hold, 300 ms / 40 px double tap, 10 px slop, 20 px edge strip).",
+   "caption": "visual/sdk/12-drag-gestures · Who gets a press: double taps always, holds and horizontal drags by touch-action, vertical drags never, and the edge strip. Blue (touch-action: none): drag the knob sideways, hold “Hold me” (it counts the time); no swipe-to-reply, no menu, the counters move. Drag up or down over blue: the chat scrolls, “to the chat” counts it. Striped (auto): long press = the message menu, swipe = reply; “cancelled” counts each one. Double-tap anywhere in the widget: no reaction, the widget counts the double taps. Bottom pad: a drag from the red strip is the back gesture, from the rest it moves the green mark. The client must: A double tap over the widget is always the widget's: both clicks and dblclick, on every element, and the client's reaction stays on the bubble outside the widget. A vertical drag is always the chat's: the list scrolls and the widget gets pointercancel, on touch-action: none too (v0.1.3). touch-action: none gives the widget horizontal drags (on both axes once a drag started sideways) and holds (it gets contextmenu, no message menu); on auto the bubble takes holds and swipes and the widget gets pointercancel; a press in the leading 20 px of the widget is never the widget's (system back). The client follows the shared gesture policy (gesture-policy.ts: 500 ms hold, 300 ms / 40 px double tap, 10 px slop, 20 px edge strip).",
    "photos": [
     "refs/visual/sdk/12-drag-gestures.png"
    ],
-   "gzip": 2659
+   "gzip": 2838
   },
   {
    "widget": "visual/sdk/13-max-height.html",
@@ -722,9 +722,9 @@
    "widget": "auto/23-gestures.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/23-gestures · Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); the leading 20 px take no claim. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/23-gestures · Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); a vertical drag is always the chat's, on none and pan-x too; the leading 20 px take no claim. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "gzip": 3185
+   "gzip": 3393
   }
  ]
 }

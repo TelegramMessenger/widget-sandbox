@@ -1931,7 +1931,7 @@
      "refs": {
       "chromium": "refs/auto/05-colour-backgrounds-b/clip-text.chromium.png"
      },
-     "nativeVsTemplate": 0.5998
+     "nativeVsTemplate": 0.5997
     },
     {
      "name": "linear",
@@ -7014,8 +7014,8 @@
    "id": "auto/23-gestures",
    "set": "auto",
    "file": "auto/23-gestures.html",
-   "title": "Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); the leading 20 px take no claim",
-   "hint": "Hold “none” and “auto” for a second each, double-tap “none ×2” and “auto ×2”, drag the pad to the right from its red strip and then from its green mark, tap Finish.",
+   "title": "Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); a vertical drag is always the chat's, on none and pan-x too; the leading 20 px take no claim",
+   "hint": "Hold “none” and “auto” for a second each, double-tap “none ×2” and “auto ×2”, drag “none ↕” and “pan-x ↕” down (the chat scrolls), drag the pad to the right from its red strip and then from its green mark, tap Finish.",
    "kind": [
     "self",
     "interactive"
@@ -7058,6 +7058,30 @@
      "dblclick": "autodbl",
      "ids": [
       "input.dblclick"
+     ]
+    },
+    {
+     "drag": "vnone",
+     "to": [
+      0,
+      60
+     ],
+     "by": true,
+     "steps": 10,
+     "ids": [
+      "behaviour.gesture-claim"
+     ]
+    },
+    {
+     "drag": "vpanx",
+     "to": [
+      0,
+      60
+     ],
+     "by": true,
+     "steps": 10,
+     "ids": [
+      "behaviour.gesture-claim"
      ]
     },
     {
@@ -7120,6 +7144,20 @@
     },
     {
      "id": "behaviour.gesture-claim",
+     "name": "a vertical drag on touch-action: none is the chat's scroll: pointercancel (a mouse drag stays the widget's)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "behaviour.gesture-claim",
+     "name": "a vertical drag on touch-action: pan-x is the chat's scroll too: pointercancel",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "behaviour.gesture-claim",
      "name": "a drag from the leading 20 px of a touch-action: none pad is the back gesture: pointercancel (a mouse drag stays the widget's)",
      "native": {
       "chromium": "skip"
@@ -7134,9 +7172,9 @@
     }
    ],
    "stages": [],
-   "bytes": 7763,
-   "gzip": 3183,
-   "gzip6": 3185
+   "bytes": 8817,
+   "gzip": 3391,
+   "gzip6": 3393
   },
   {
    "id": "visual/01-boxes",
@@ -7508,7 +7546,7 @@
      "refs": {
       "chromium": "refs/visual/03-text-b/ellipsis.chromium.png"
      },
-     "nativeVsTemplate": 0.2213
+     "nativeVsTemplate": 0.2212
     },
     {
      "name": "scripts",
@@ -7541,7 +7579,7 @@
      "refs": {
       "chromium": "refs/visual/03-text-b/text-shadow.chromium.png"
      },
-     "nativeVsTemplate": 0.3384
+     "nativeVsTemplate": 0.3382
     }
    ],
    "bytes": 5297,
@@ -7662,7 +7700,7 @@
      "refs": {
       "chromium": "refs/visual/04-layout/float-columns.chromium.png"
      },
-     "nativeVsTemplate": 0.1241
+     "nativeVsTemplate": 0.1246
     }
    ],
    "bytes": 6322,
@@ -7916,7 +7954,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/slide.chromium.png"
      },
-     "nativeVsTemplate": 0.6449
+     "nativeVsTemplate": 0.6305
     },
     {
      "name": "spin-pulse",
@@ -7933,7 +7971,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
      },
-     "nativeVsTemplate": 0.8404
+     "nativeVsTemplate": 0.8422
     },
     {
      "name": "steps",
@@ -8039,7 +8077,7 @@
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
      },
-     "nativeVsTemplate": 0.0249
+     "nativeVsTemplate": 0
     },
     {
      "name": "seek",
@@ -8438,7 +8476,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7236
+     "nativeVsTemplate": 0.7207
     }
    ],
    "bytes": 5218,
@@ -8744,7 +8782,7 @@
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/forms.chromium.png"
      },
-     "nativeVsTemplate": 0.6194
+     "nativeVsTemplate": 0.6196
     },
     {
      "name": "scroll-sticky",
@@ -8778,7 +8816,7 @@
      "refs": {
       "chromium": "refs/visual/13-out-of-profile/fonts.chromium.png"
      },
-     "nativeVsTemplate": 0.3812
+     "nativeVsTemplate": 0.3802
     },
     {
      "name": "three-d",
@@ -9387,8 +9425,8 @@
    "id": "visual/sdk/12-drag-gestures",
    "set": "visual",
    "file": "visual/sdk/12-drag-gestures.html",
-   "title": "Who gets a press: double taps always, holds and drags by touch-action, and the edge strip",
-   "hint": "Blue (touch-action: none): drag the knob, hold “Hold me” (it counts the time); no swipe-to-reply, no menu, the counters move. Striped (auto): long press = the message menu, swipe = reply; “cancelled” counts each one. Double-tap anywhere in the widget: no reaction, the widget counts the double taps. Bottom pad: a drag from the red strip is the back gesture, from the rest it moves the green mark.",
+   "title": "Who gets a press: double taps always, holds and horizontal drags by touch-action, vertical drags never, and the edge strip",
+   "hint": "Blue (touch-action: none): drag the knob sideways, hold “Hold me” (it counts the time); no swipe-to-reply, no menu, the counters move. Drag up or down over blue: the chat scrolls, “to the chat” counts it. Striped (auto): long press = the message menu, swipe = reply; “cancelled” counts each one. Double-tap anywhere in the widget: no reaction, the widget counts the double taps. Bottom pad: a drag from the red strip is the back gesture, from the rest it moves the green mark.",
    "kind": [],
    "covers": [
     "behaviour.gesture-claim",
@@ -9408,15 +9446,15 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 6588,
-   "gzip": 2651,
-   "gzip6": 2659,
+   "bytes": 7181,
+   "gzip": 2831,
+   "gzip6": 2838,
    "refImages": {
     "light": "refs/visual/sdk/12-drag-gestures.png"
    },
-   "height": 434,
+   "height": 452,
    "group": "sdk",
-   "expect": "A double tap over the widget is always the widget's: both clicks and dblclick, on every element, and the client's reaction stays on the bubble outside the widget. touch-action: none gives the widget drags on both axes and holds (it gets contextmenu, no message menu); on auto the bubble takes holds and swipes and the widget gets pointercancel; a press in the leading 20 px of the widget is never the widget's (system back). The client follows the shared gesture policy (gesture-policy.ts: 500 ms hold, 300 ms / 40 px double tap, 10 px slop, 20 px edge strip).",
+   "expect": "A double tap over the widget is always the widget's: both clicks and dblclick, on every element, and the client's reaction stays on the bubble outside the widget. A vertical drag is always the chat's: the list scrolls and the widget gets pointercancel, on touch-action: none too (v0.1.3). touch-action: none gives the widget horizontal drags (on both axes once a drag started sideways) and holds (it gets contextmenu, no message menu); on auto the bubble takes holds and swipes and the widget gets pointercancel; a press in the leading 20 px of the widget is never the widget's (system back). The client follows the shared gesture policy (gesture-policy.ts: 500 ms hold, 300 ms / 40 px double tap, 10 px slop, 20 px edge strip).",
    "contract": "docs/sdk-v1.md §3.5, §5.5"
   },
   {

@@ -163,25 +163,31 @@ widget.
   tap or click the renderer saw (`trusted`), one call per press; no key press
   counts. A renderer behind your own `Renderer` implementation must mark its
   real input `trusted: true` or the widget never gets a gesture.
-- **Who gets a press: `touch-action` is the claim** (v0.1.2, `docs/sdk-v1.md`
-  §5.5). On every primary pointer press the host reports the widget's claim
-  (`onGestureClaim` in Swift and on the web, `onGesture` in Kotlin and C++):
-  horizontal (`x`) and vertical (`y`) drags and `hold` (only from
-  `touch-action: none`). Taps and double taps over the widget are always the
-  widget's: your double-tap reaction must not act over the widget (it stays on
-  the bubble outside it), and the renderer gives the widget its own `dblclick`.
-  Drive your bubble's recognizers from the shared `GestureArbiter` (every
-  package ships it with its thresholds: 10 px slop, 500 ms hold, 300 ms / 40 px
-  double tap, 20 px leading edge strip): over an element that does not claim
-  the press, a hold opens the message menu, a horizontal swipe is reply or back
-  and a vertical one scrolls the list, and you cancel the widget's touch the
-  platform's way (it gets `pointercancel`, no `click`); over one that does, you
-  stand back and the renderer gives the widget its own `contextmenu`. The
-  bubble outside the widget stays yours. With a mouse, a right click follows
-  the same claim; clicks, double clicks, holds and drags are the widget's. On Android `RendererWebView` already applies `y` to its parent. On
-  the web pass `bubbleGestures` and the renderer plays the bubble itself
-  (`onBubbleGesture` says what it took). The conformance widgets
-  `auto/23-gestures` and `visual/sdk/12-drag-gestures` check your client.
+- **Who gets a press: `touch-action` is the claim, and vertical drags are
+  always the chat's** (v0.1.2 and v0.1.3, `docs/sdk-v1.md` §5.5). On every
+  primary pointer press the host reports the widget's claim (`onGestureClaim`
+  in Swift and on the web, `onGesture` in Kotlin and C++): horizontal drags
+  (`x`: from `pan-y` or `none`) and `hold` (only from `touch-action: none`);
+  `y` is always false since v0.1.3. Taps and double taps over the widget are
+  always the widget's: your double-tap reaction must not act over the widget
+  (it stays on the bubble outside it), and the renderer gives the widget its
+  own `dblclick`. Drive your bubble's recognizers from the shared
+  `GestureArbiter` (every package ships it with its thresholds: 10 px slop,
+  500 ms hold, 300 ms / 40 px double tap, 20 px leading edge strip): a
+  vertical drag always scrolls the list, over every element; over an element
+  that does not claim the press, a hold opens the message menu and a
+  horizontal swipe is reply or back; in each case you cancel the widget's
+  touch the platform's way (it gets `pointercancel`, no `click`). Over one
+  that claims it, you stand back for that gesture and the renderer gives the
+  widget its own `contextmenu`. Never stop your list from scrolling because of
+  a claim. The bubble outside the widget stays yours. With a mouse, a right
+  click follows the same claim; clicks, double clicks, holds and drags are the
+  widget's. On Android `RendererWebView` keeps its parent from intercepting
+  only while a hold claim may still win. On the web pass `bubbleGestures` and
+  the renderer plays the bubble itself (`onBubbleGesture` says what it took);
+  the browser's vertical pan stays allowed over every widget. The conformance
+  widgets `auto/23-gestures` and `visual/sdk/12-drag-gestures` check your
+  client.
 - **What the widget asks for** arrives as `onAction`, checked: `openLink(url)`
   (show a confirmation with the full URL, then the browser),
   `openTelegramLink(url)` (your own t.me handling), `haptic(…)` (play it or

@@ -80,7 +80,9 @@ final class GesturePolicyTests: XCTestCase {
                 let note = "\(name): step \(i)"
                 if let down = step["down"] {
                     let p = try point(down, note)
-                    let claim = GesturePolicy.claimOf([step["claim"] as? String ?? "auto"])
+                    // `claimed`: a claim object as given (what a client may build by hand), else claimOf([claim]).
+                    XCTAssertFalse(step["claimed"] != nil && step["claim"] != nil, "\(note): claim or claimed")
+                    let claim = try step["claimed"].map { try self.claim($0, note) } ?? GesturePolicy.claimOf([step["claim"] as? String ?? "auto"])
                     let pointer = try XCTUnwrap(GesturePolicy.PointerKind(rawValue: step["pointer"] as? String ?? "touch"), note)
                     let button = (step["button"] as? NSNumber)?.intValue ?? 0
                     XCTAssertEqual(a.down(at: p.t, x: p.x, y: p.y, claim: claim, pointer: pointer, button: button), try verdict(step["expect"], note), note)

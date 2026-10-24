@@ -1446,7 +1446,9 @@ and a widget that is a drawing stays one.
 
 Artem's decisions, after a client developer (Android) showed the sandbox and a
 client disagreeing. Replaces "double tap and long press always stay with the
-bubble" (SDK v1, decided 2026-10-17, `docs/sdk-v1.md` §6 item 5).
+bubble" (SDK v1, decided 2026-10-17, `docs/sdk-v1.md` §6 item 5). Since v0.1.3
+vertical drags are always the chat's ("Vertical drags are the chat's" below):
+`pan-x` claims nothing and `none` no longer takes vertical drags.
 
 **What went wrong.** In the web dev app a widget's "hold a button" worked
 (`pointerdown` … `pointerup`, the game controls of a wolf3d port), and a
@@ -1563,3 +1565,63 @@ the rule is simple and testable as it is, and the conformance and corpus
 widgets claim small areas (buttons, knobs, canvases). If widgets start
 claiming everything, the policy can take an area budget per widget and fall
 back to `auto` beyond it.
+
+## Vertical drags are the chat's (v0.1.3, 2026-10-24)
+
+Artem's decision, after trying the widgets of `corpus/gestures` in the Telegram
+test group: a widget can claim only horizontal drags. A vertical drag over a
+widget always scrolls the chat, whatever `touch-action` says; the widget gets
+`pointercancel`. Replaces the vertical half of G1 (decision G2 in
+`profile.json`).
+
+| `touch-action` | hold | horizontal drag | vertical drag |
+|---|---|---|---|
+| `auto`, `manipulation` | bubble: message menu | bubble: swipe / back | chat |
+| `pan-y` | bubble | widget | chat |
+| `pan-x` | bubble | bubble (it claimed vertical drags until v0.1.3) | chat |
+| `none` | widget (`contextmenu`) | widget | chat (the widget's until v0.1.3) |
+
+Unchanged: taps and double taps are the widget's on every element, the axis
+lock (the first move past the 10 px slop decides for the whole press: a
+horizontal-first drag stays the widget's on both axes until the finger lifts,
+a vertical-first one is the chat's; a hold the widget won on `none` is locked
+the same way at its first move past the slop), the 20 px leading strip, and the
+mouse (a drag on any axis is the widget's: desktop scrolls with the wheel).
+The hold's lock was first meant to keep the press for the widget whatever
+moved next; the Android port showed that a WebView, whose engine now always
+allows vertical panning, cancels such a press itself, so the policy says what
+every engine does.
+
+**Why.** The chat never gets stuck under a widget: a reader scrolling through
+a chat cannot know which bubble claims vertical drags, and a widget that does
+(a full-surface canvas, a game on `none`) stops the scroll exactly where the
+finger is. With vertical always the chat's, scrolling works the same over
+every bubble, and what a widget can take is one predictable thing: horizontal
+drags (and holds on `none`), where the chat's own gesture, swipe-to-reply, is
+rarer and already gives way per element.
+
+**What is lost.** Everything whose input is vertical or two-dimensional:
+two-axis joysticks and game pads, drawing and signature pads, map and image
+panning, vertical sliders, faders and wheel pickers, swipe-up/down in games
+(2048). Authors turn such controls horizontal, use taps (buttons for up and
+down, a tap-to-place board), or both.
+
+**How it was decided.** `corpus/gestures` (v0.1.3, `corpus/gestures/README.md`)
+put the cost side by side before the change: a joystick game and 2048, each on
+`touch-action: none` (both axes) and on `pan-y` (what the rule leaves them),
+and a wheel picker on `pan-x`, against what is fine with horizontal only (a
+paddle game, a card carousel, a range slider on `pan-y`). Artem tried them in
+the Telegram test group (2026-10-23); the pairs now show what the rule
+removed, and the `-xy` variants behave like their `-x` twins.
+
+**Where it is enforced.** In the policy, four copies and the fixture:
+`claimOf` never claims `y` (the field stays in the claim types, always false,
+so code written for v0.1.2 builds), and `GestureArbiter` gives a vertical touch
+drag to the chat even for a claim built by hand with `y`. In the renderer: the
+engine under it (Chromium, WebKit) gets each `touch-action` value widened to
+allow vertical panning (`none` → `pan-y`, `pan-x` → `pan-x pan-y`,
+`src/renderer/touch-action.ts`), so a browser on a touch screen, the web
+client on a phone, scrolls the page over any widget; the claim and the
+widget's `getComputedStyle` read the widget's own value. On Android the
+WebView renderer keeps its parent from intercepting only for a hold claim, and
+only until the press leaves the slop vertically.

@@ -6,7 +6,7 @@ import type { BubbleGesture, GestureClaim } from '@telegram/widget-sandbox/host/
 /** `?gestures=`: `phone` (default) arbitrates the mouse as a finger, `desktop` as a mouse, `off` gives the widget every press. */
 export type GestureMode = 'phone' | 'desktop' | 'off';
 export const GESTURE_MODES: { mode: GestureMode; title: string }[] = [
-  { mode: 'phone', title: 'the bubble of a phone client: a hold is the message menu, a horizontal drag swipe-to-reply, a vertical one the list scroll — unless touch-action claims it (the mouse arbitrates as a finger); taps and double taps are the widget\'s' },
+  { mode: 'phone', title: 'the bubble of a phone client: a vertical drag is always the list scroll; a hold is the message menu and a horizontal drag swipe-to-reply unless touch-action claims them (the mouse arbitrates as a finger); taps and double taps are the widget\'s' },
   { mode: 'desktop', title: 'the bubble of a desktop client: a right click is the message menu unless touch-action: none claims it; clicks, double clicks and drags are the widget\'s' },
   { mode: 'off', title: 'no bubble: the widget gets every press (what no client does; for comparison only)' },
 ];
@@ -22,12 +22,10 @@ const LABELS: Record<BubbleGesture['action'], string> = {
 
 export const bubbleGestureLabel = (g: BubbleGesture) => LABELS[g.action] + (g.edge ? ' (edge strip)' : '');
 
-/** `auto`, `none`, `pan-y`, …: the claim as the touch-action that makes it. */
+/** `auto`, `none`, `pan-y`: the claim as the touch-action that makes it (no claim has vertical drags since v0.1.3). */
 export function claimLabel(c: GestureClaim): string {
-  if (c.hold) return 'none';
-  if (c.x && c.y) return 'both axes';
+  if (c.hold) return 'none (x + hold)';
   if (c.x) return 'pan-y (x)';
-  if (c.y) return 'pan-x (y)';
   return 'auto';
 }
 

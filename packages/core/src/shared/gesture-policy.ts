@@ -1,14 +1,16 @@
 // Who gets a press over a widget: the widget or the bubble (docs/sdk-v1.md §5.5,
-// docs/decisions.md "Gestures: touch-action is the claim"). Taps and double taps
-// over the widget are always the widget's (a double tap with `dblclick`; the
-// reaction stays with the bubble outside the widget). For the rest the widget
-// claims per element with CSS `touch-action`, read at pointerdown on the target and
-// its ancestors: `auto` leaves the press to the bubble (a hold opens the message
-// menu, a horizontal swipe is reply or back, a vertical one scrolls the list);
-// `pan-y` / `pan-x` give the widget drags on the other axis; `none` gives it
-// everything, holds included; touch-action on a container covers its children, as
-// in CSS. The leading EDGE_STRIP_PX of the widget never take a claim (the system
-// back gesture).
+// docs/decisions.md "Gestures: touch-action is the claim" and "Vertical drags are
+// the chat's"). Taps and double taps over the widget are always the widget's (a
+// double tap with `dblclick`; the reaction stays with the bubble outside the
+// widget), and a vertical drag is always the chat's: the list scrolls over every
+// widget, whatever its touch-action says (v0.1.3). For the rest the widget claims
+// per element with CSS `touch-action`, read at pointerdown on the target and its
+// ancestors: `auto` leaves the press to the bubble (a hold opens the message menu,
+// a horizontal swipe is reply or back); `pan-y` gives the widget horizontal drags;
+// `none` gives it horizontal drags and holds; `pan-x` claims nothing more than
+// `auto`. Touch-action on a container covers its children, as in CSS. The first
+// move past the slop locks the axis for the whole press. The leading EDGE_STRIP_PX
+// of the widget never take a claim (the system back gesture).
 //
 // Pure and side-effect free: the renderer core (its dblclick / contextmenu and the
 // web hosts' bubble), the Node harness and every client's own recognizers feed a
@@ -32,7 +34,10 @@ export const EDGE_STRIP_PX = 20;
 export interface GestureClaim {
   /** Horizontal drags (no swipe-to-reply or back). */
   x: boolean;
-  /** Vertical drags (no list scroll). */
+  /**
+   * Always false since v0.1.3: vertical drags are the chat's (the list scrolls), and
+   * the arbiter ignores it. Kept so that code written for v0.1.2 still builds.
+   */
   y: boolean;
   /** Holds, and a right click with a mouse: no message menu; the widget gets `contextmenu`. */
   hold: boolean;
@@ -43,22 +48,22 @@ export const NO_CLAIM: GestureClaim = Object.freeze({ x: false, y: false, hold: 
 /**
  * The claim of a press from the computed `touch-action` of the target and of each
  * ancestor up to the root (the widget's `<html>`) included, target first, and whether the widget
- * prevented pointerdown on the target before. `none` anywhere claims everything; a
- * value without a horizontal pan (`pan-x`, `pan-left`, `pan-right`) claims `x`, one
- * without a vertical pan (`pan-y`, `pan-up`, `pan-down`) claims `y`; `auto` and
- * `manipulation` claim nothing. A prevented pointerdown claims both axes, never
- * holds: only `touch-action: none` does.
+ * prevented pointerdown on the target before. `none` anywhere claims horizontal
+ * drags and holds; a value without a horizontal pan (`pan-x`, `pan-left`,
+ * `pan-right`) claims `x`; `auto` and `manipulation` claim nothing, and so does a
+ * value with a horizontal pan (`pan-x`: vertical drags cannot be claimed). A
+ * prevented pointerdown claims `x`, never holds: only `touch-action: none` does.
+ * `y` is always false.
  */
 export function claimOf(touchActions: readonly string[], prevented = false): GestureClaim {
-  let x = prevented, y = prevented;
+  let x = prevented;
   for (const raw of touchActions) {
     const ta = raw.trim().toLowerCase();
     if (ta === '' || ta === 'auto' || ta === 'manipulation') continue;
-    if (ta === 'none') return { x: true, y: true, hold: true };
+    if (ta === 'none') return { x: true, y: false, hold: true };
     if (!/\bpan-(x|left|right)\b/.test(ta)) x = true;
-    if (!/\bpan-(y|up|down)\b/.test(ta)) y = true;
   }
-  return { x, y, hold: false };
+  return { x, y: false, hold: false };
 }
 
 /** `mouse` has no holds, no swipes and no edge strip; `touch` and `pen` have all of them. */
@@ -99,6 +104,8 @@ interface Press {
   pointer: PointerKind;
   edge: boolean;
   second: boolean;
+  /** The first move past the slop has happened: the press's axis is decided. */
+  locked: boolean;
   owner: GestureVerdict['owner'];
   gesture: Gesture;
   action?: BubbleAction;
@@ -121,7 +128,7 @@ export class GestureArbiter {
     const last = this.lastTap;
     this.lastTap = null;
     const second = last !== null && t - last.t <= DOUBLE_TAP_MS && Math.hypot(x - last.x, y - last.y) <= DOUBLE_TAP_SLOP_PX;
-    const p: Press = { t0: t, x0: x, y0: y, claim: edge ? NO_CLAIM : claim, pointer, edge, second, owner: 'pending', gesture: 'press' };
+    const p: Press = { t0: t, x0: x, y0: y, claim: edge ? NO_CLAIM : claim, pointer, edge, second, locked: false, owner: 'pending', gesture: 'press' };
     this.press = p;
     if (pointer === 'mouse' && button === 2) {
       return p.claim.hold ? this.decide(p, 'widget', 'menu-click', undefined, 'contextmenu') : this.decide(p, 'bubble', 'menu-click', 'menu');
@@ -135,13 +142,17 @@ export class GestureArbiter {
     if (!p) return null;
     const held = this.holdFirst(p, t);
     if (held) return held;
-    if (p.owner !== 'pending') return this.verdict(p);
     const dx = x - p.x0, dy = y - p.y0;
-    if (Math.hypot(dx, dy) <= TOUCH_SLOP_PX) return this.verdict(p);
+    if (p.locked || Math.hypot(dx, dy) <= TOUCH_SLOP_PX) return this.verdict(p);
+    p.locked = true;
     const horizontal = Math.abs(dx) > Math.abs(dy);
+    // A hold the widget won still has its axis decided by the first move past the slop: a vertical one is the chat's.
+    if (p.owner === 'widget' && p.gesture === 'hold') return horizontal ? this.verdict(p) : this.decide(p, 'bubble', 'drag-y', 'scroll');
+    if (p.owner !== 'pending') return this.verdict(p);
     const gesture: Gesture = horizontal ? 'drag-x' : 'drag-y';
-    // A mouse drag never pans the chat; a touch drag is the widget's only on an axis it claims.
-    if (p.pointer === 'mouse' || (horizontal ? p.claim.x : p.claim.y)) return this.decide(p, 'widget', gesture);
+    // A mouse drag never pans the chat; a touch drag is the widget's only when it is horizontal and claimed:
+    // a vertical one always scrolls the chat, whatever the claim says.
+    if (p.pointer === 'mouse' || (horizontal && p.claim.x)) return this.decide(p, 'widget', gesture);
     return this.decide(p, 'bubble', gesture, horizontal ? (p.edge ? 'back' : 'swipe') : 'scroll');
   }
 

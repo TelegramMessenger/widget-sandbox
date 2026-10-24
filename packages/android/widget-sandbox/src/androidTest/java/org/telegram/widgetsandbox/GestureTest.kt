@@ -16,11 +16,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * A widget inside a scrolling container (the chat list): a vertical swipe
- * that starts on a plain widget scrolls the list, one that starts on an
- * element with `touch-action: none` or `pan-x` stays with the widget (the renderer's
- * `gesture` message tells RendererWebView to keep the parent from intercepting),
- * and `onGesture` gets the claim: holds and double taps only with `none`.
+ * A widget inside a scrolling container (the chat list). A vertical swipe always
+ * scrolls the list (v0.1.3: vertical drags are the chat's), whatever `touch-action`
+ * says; on `none` the widget gets `pointercancel`. A press on `none` that first
+ * leaves the slop horizontally stays the widget's: RendererWebView keeps the parent
+ * from intercepting for the rest of it (the `gesture` message's `hold`), except in
+ * the leading edge strip. `onGesture` gets the claim: holds only with `none`, `y`
+ * never.
  */
 @RunWith(AndroidJUnit4::class)
 class GestureTest {
@@ -55,31 +57,41 @@ class GestureTest {
     }
 
     /**
-     * Vertical swipe, 200 px up over ~160 ms, starting at the given point inside the
-     * widget (dp, widget coordinates). Dispatched straight into the view hierarchy
-     * from the ScrollView down, which is exactly the interception path under test
-     * (system-level injection is refused on a device when another app's window
-     * overlaps).
+     * One press at (xDp, yDp) inside the widget (dp, widget coordinates): held
+     * `holdMs` first, then moved by each (dx, dy) in dp, one step every 16 ms, and
+     * lifted. Dispatched straight into the view hierarchy from the ScrollView down,
+     * which is exactly the interception path under test (system-level injection is
+     * refused on a device when another app's window overlaps).
      */
-    private fun swipeUp(f: Fixture, xDp: Float, yDp: Float) {
+    private fun press(f: Fixture, xDp: Float, yDp: Float, steps: List<Pair<Float, Float>>, holdMs: Long = 0) {
         val d = f.host.view.resources.displayMetrics.density
-        val x = xDp * d
-        val y0 = yDp * d
+        var x = xDp * d
+        var y = yDp * d
         val t0 = SystemClock.uptimeMillis()
-        fun send(action: Int, y: Float, dt: Long) {
-            val e = MotionEvent.obtain(t0, t0 + dt, action, x, y, 0)
+        fun send(action: Int) {
+            val e = MotionEvent.obtain(t0, SystemClock.uptimeMillis(), action, x, y, 0)
             e.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
             instrumentation.runOnMainSync { f.scroll.dispatchTouchEvent(e) }
             e.recycle()
         }
-        send(MotionEvent.ACTION_DOWN, y0, 0)
-        for (i in 1..10) {
+        send(MotionEvent.ACTION_DOWN)
+        if (holdMs > 0) Thread.sleep(holdMs)
+        for ((dx, dy) in steps) {
             Thread.sleep(16)
-            send(MotionEvent.ACTION_MOVE, y0 - i * 20f, i * 16L)
+            x += dx * d
+            y += dy * d
+            send(MotionEvent.ACTION_MOVE)
         }
-        send(MotionEvent.ACTION_UP, y0 - 200f, 176)
+        Thread.sleep(16)
+        send(MotionEvent.ACTION_UP)
         Thread.sleep(400)
     }
+
+    /** Vertical swipe, ~76 dp up over ~176 ms. */
+    private fun swipeUp(f: Fixture, xDp: Float, yDp: Float) = press(f, xDp, yDp, List(10) { 0f to -7.6f })
+
+    /** Sideways first (24 dp, past the slop), then ~76 dp up: the axis is locked horizontal. */
+    private fun sidewaysThenUp(f: Fixture, xDp: Float, yDp: Float) = press(f, xDp, yDp, List(3) { 8f to 0f } + List(10) { 0f to -7.6f })
 
     private fun scrollY(f: Fixture): Int {
         var y = 0
@@ -98,49 +110,101 @@ class GestureTest {
         }
     }
 
+    /** A `none` area that logs what the widget gets of a press: `down`, the fifth `pointermove` (`moved5`), `cancelled`. */
+    private val noneArea = """
+        <div id="area" style="height:280px;touch-action:none;background:#dde"><div id="box">drag</div></div>
+        <script>
+          var n = 0;
+          document.getElementById('area').addEventListener('pointerdown', function (e) { n = 0; e.preventDefault(); console.log('down'); });
+          document.getElementById('area').addEventListener('pointermove', function (e) { if (++n === 5) console.log('moved5'); });
+          document.getElementById('area').addEventListener('pointercancel', function () { console.log('cancelled'); });
+        </script>
+    """.trimIndent()
+
+    private fun logs(f: Fixture) = f.latest.get().logs.map { it.second }
+
+    /** v0.1.3: a vertical drag over `none` is the chat's: the list scrolls and the widget's press ends with `pointercancel`. */
     @Test
-    fun touchActionNoneKeepsTheGestureInTheWidget() {
-        val html = """
-            <div id="area" style="height:280px;touch-action:none;background:#dde"><div id="box">drag</div></div>
-            <script>
-              var n = 0;
-              document.getElementById('area').addEventListener('pointerdown', function (e) { e.preventDefault(); console.log('down'); });
-              document.getElementById('area').addEventListener('pointermove', function (e) { if (++n === 5) console.log('moved5'); });
-              document.getElementById('area').addEventListener('pointercancel', function () { console.log('cancelled'); });
-            </script>
-        """.trimIndent()
+    fun touchActionNoneLetsAVerticalDragScrollTheList() {
         ActivityScenario.launch(TestActivity::class.java).use { scenario ->
-            val f = mount(scenario, html)
+            val f = mount(scenario, noneArea)
             swipeUp(f, 180f, 150f)
-            val logs = f.latest.get().logs.map { it.second }
-            assertEquals("list must not scroll, logs=$logs", 0, scrollY(f))
-            assertTrue("widget should have seen the moves: $logs", logs.contains("moved5"))
-            assertTrue("gesture must not be cancelled: $logs", !logs.contains("cancelled"))
-            assertEquals("onGesture: the widget takes both drags and holds", listOf(WidgetGestureClaim(x = true, y = true, hold = true)), f.claims.toList())
+            assertTrue("list should have scrolled, scrollY=${scrollY(f)} logs=${logs(f)}", scrollY(f) > 0)
+            assertTrue("the widget's press is cancelled: ${logs(f)}", logs(f).contains("cancelled"))
+            assertEquals("onGesture: horizontal drags and holds, never vertical ones", listOf(WidgetGestureClaim(x = true, y = false, hold = true)), f.claims.toList())
             instrumentation.runOnMainSync { f.host.destroy() }
         }
     }
 
-    /** `pan-x`: the widget takes vertical drags (the list stays), not holds or double taps (the bubble's menu and reaction). */
+    /** On `none`, a press that leaves the slop horizontally is the widget's to the end: moving up afterwards scrolls nothing. */
     @Test
-    fun touchActionPanXKeepsVerticalDragsButNotHolds() {
+    fun touchActionNoneKeepsAPressLockedHorizontally() {
         ActivityScenario.launch(TestActivity::class.java).use { scenario ->
-            val f = mount(scenario, "<div style='height:280px;touch-action:pan-x;background:#ede'>pan-x</div>")
-            swipeUp(f, 180f, 150f)
-            assertEquals("list must not scroll", 0, scrollY(f))
-            assertEquals(listOf(WidgetGestureClaim(x = false, y = true)), f.claims.toList())
+            val f = mount(scenario, noneArea)
+            sidewaysThenUp(f, 180f, 150f)
+            assertEquals("list must not scroll, logs=${logs(f)}", 0, scrollY(f))
+            assertTrue("widget should have seen the moves: ${logs(f)}", logs(f).contains("moved5"))
+            assertTrue("the press must not be cancelled: ${logs(f)}", !logs(f).contains("cancelled"))
             instrumentation.runOnMainSync { f.host.destroy() }
         }
     }
 
-    /** `touch-action` on a container covers its children, as in CSS: a plain element inside a `none` container claims everything. */
+    /**
+     * On `none` a hold is the widget's (no message menu), and its first move past the slop still locks the axis, as
+     * GestureArbiter says (v0.1.3 addendum): sideways it stays the widget's; up, the list scrolls and the widget gets
+     * `pointercancel` (from Chromium too: the engine's touch-action pans vertically, touch-action.ts).
+     */
+    @Test
+    fun touchActionNoneAfterAHold() {
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            val f = mount(scenario, noneArea)
+            val hold = GesturePolicy.HOLD_MS.toLong() + 150
+            press(f, 180f, 150f, List(3) { 8f to 0f } + List(10) { 0f to -7.6f }, holdMs = hold)
+            assertEquals("sideways after the hold: list must not scroll, logs=${logs(f)}", 0, scrollY(f))
+            assertTrue("widget should have seen the moves: ${logs(f)}", logs(f).contains("moved5"))
+            assertTrue("the press must not be cancelled: ${logs(f)}", !logs(f).contains("cancelled"))
+            press(f, 180f, 150f, List(10) { 0f to -7.6f }, holdMs = hold)
+            assertTrue("up after the hold: list should have scrolled, scrollY=${scrollY(f)} logs=${logs(f)}", scrollY(f) > 0)
+            assertTrue("the widget's press is cancelled: ${logs(f)}", logs(f).contains("cancelled"))
+            instrumentation.runOnMainSync { f.host.destroy() }
+        }
+    }
+
+    /** The leading edge strip takes no claim (the system back gesture): there even a press locked horizontally on `none` leaves the parent free. */
+    @Test
+    fun theLeadingEdgeStripTakesNoClaim() {
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            val f = mount(scenario, noneArea)
+            sidewaysThenUp(f, (GesturePolicy.EDGE_STRIP_PX / 2).toFloat(), 150f)
+            assertTrue("list should have scrolled, scrollY=${scrollY(f)} logs=${logs(f)}", scrollY(f) > 0)
+            instrumentation.runOnMainSync { f.host.destroy() }
+        }
+    }
+
+    /** `pan-x` claims nothing since v0.1.3 (it used to take vertical drags), `pan-y` horizontal drags: the list scrolls over both. */
+    @Test
+    fun panXAndPanYLeaveVerticalDragsToTheList() {
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            for ((ta, claim) in listOf("pan-x" to GesturePolicy.NO_CLAIM, "pan-y" to WidgetGestureClaim(x = true, y = false))) {
+                val f = mount(scenario, "<div style='height:280px;touch-action:$ta;background:#ede'>$ta</div>")
+                swipeUp(f, 180f, 150f)
+                assertTrue("$ta: list should have scrolled, scrollY=${scrollY(f)}", scrollY(f) > 0)
+                assertEquals(ta, listOf(claim), f.claims.toList())
+                instrumentation.runOnMainSync { f.host.destroy() }
+            }
+        }
+    }
+
+    /** `touch-action` on a container covers its children, as in CSS: a plain element inside a `none` container claims horizontal drags and holds. */
     @Test
     fun touchActionOnAContainerCoversItsChildren() {
         ActivityScenario.launch(TestActivity::class.java).use { scenario ->
             val f = mount(scenario, "<div style='touch-action:none'><div style='height:280px;background:#dee'>child</div></div>")
+            sidewaysThenUp(f, 180f, 150f)
+            assertEquals("locked horizontally on the child: list must not scroll", 0, scrollY(f))
             swipeUp(f, 180f, 150f)
-            assertEquals("list must not scroll", 0, scrollY(f))
-            assertEquals(listOf(WidgetGestureClaim(x = true, y = true, hold = true)), f.claims.toList())
+            assertTrue("a vertical drag scrolls the list, scrollY=${scrollY(f)}", scrollY(f) > 0)
+            assertEquals(List(2) { WidgetGestureClaim(x = true, y = false, hold = true) }, f.claims.toList())
             instrumentation.runOnMainSync { f.host.destroy() }
         }
     }

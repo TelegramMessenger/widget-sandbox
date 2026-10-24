@@ -16,11 +16,13 @@ import org.telegram.widgetsandbox.WidgetGestureClaim
 /**
  * The demo bubble's recognizers over the widget (docs/sdk-v1.md §5.5): what a client does with
  * WidgetHost.onGesture and a GestureArbiter, the bubble's own actions reduced to `onBubble`. It sees
- * every event of a press before the renderer's view (dispatchTouchEvent: the renderer keeps its
- * parents from intercepting); a press the bubble takes (the message menu on a hold or a right click,
- * swipe-to-reply or back; a double tap over the widget is always the widget's) ends for the widget with ACTION_CANCEL, its
- * `pointercancel`, and the rest of it is swallowed. A vertical drag stays the list's own scroll. The
- * claim comes a few ms after the touch: the press waits for it, at most [CLAIM_WAIT_MS], then it is no claim.
+ * every event of a press before the renderer's view (dispatchTouchEvent; the renderer's view keeps the
+ * list from intercepting until the claim arrives, and on a `hold` claim until the press leaves the slop);
+ * a press the bubble takes (the message menu on a hold or a right click, swipe-to-reply or back; a double
+ * tap over the widget is always the widget's) ends for the widget with ACTION_CANCEL, its `pointercancel`,
+ * and the rest of it is swallowed. A vertical drag is always the list's own scroll, over `touch-action: none`
+ * too (v0.1.3): the list intercepts it and the widget gets ACTION_CANCEL. The claim comes a few ms after the
+ * touch: the press waits for it, at most [CLAIM_WAIT_MS], then it is no claim.
  */
 @SuppressLint("ViewConstructor")
 class BubbleGestureLayout(context: Context, widget: View, private val onBubble: (BubbleAction) -> Unit) : FrameLayout(context) {
@@ -111,7 +113,8 @@ class BubbleGestureLayout(context: Context, widget: View, private val onBubble: 
     private fun act(v: GestureVerdict?) {
         if (arbiter.holdDeadline() == null) removeCallbacks(hold)
         val action = v?.action
-        // A vertical drag is the list's own: the renderer's view already lets it intercept (a claim without `y`).
+        // A vertical drag is the list's own whatever the claim (v0.1.3): the renderer's view lets it intercept
+        // (RendererWebView.gestureDecision), which cancels the widget's press; the bubble does nothing more.
         if (v == null || !v.cancel || action == null || action == BubbleAction.SCROLL || taken) return
         taken = true
         val cancel = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_CANCEL, 0f, 0f, 0)

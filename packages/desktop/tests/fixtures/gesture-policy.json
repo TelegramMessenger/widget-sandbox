@@ -1,5 +1,5 @@
 {
-  "_": "Shared fixture for src/shared/gesture-policy.ts, ios GesturePolicy.swift, android GesturePolicy.kt and desktop gesture_policy.cpp (copies made by scripts/build-native-bundles.ts). constants: the thresholds every copy exports. claims: claimOf(touchActions, prevented) -> claim (touchActions: the target first, up to the widget's <html>). cases: steps on one GestureArbiter, in order: down [t, x, y] with claim = claimOf([claim]) (default \"auto\"), pointer (default \"touch\"), button (default 0); move / up [t, x, y]; tick t; cancel (no expectation); holdDeadline -> number or null. expect is the verdict (owner, gesture, cancel always; action, event, edge only when set) or null. x from the widget's leading edge, CSS px; t in ms.",
+  "_": "Shared fixture for src/shared/gesture-policy.ts, ios GesturePolicy.swift, android GesturePolicy.kt and desktop gesture_policy.cpp (copies made by scripts/build-native-bundles.ts). constants: the thresholds every copy exports. claims: claimOf(touchActions, prevented) -> claim (touchActions: the target first, up to the widget's <html>). cases: steps on one GestureArbiter, in order: down [t, x, y] with claim = claimOf([claim]) (default \"auto\"), or the claim object `claimed` {x, y, hold} as given (what a client may build by hand), pointer (default \"touch\"), button (default 0); move / up [t, x, y]; tick t; cancel (no expectation); holdDeadline -> number or null. expect is the verdict (owner, gesture, cancel always; action, event, edge only when set) or null. x from the widget's leading edge, CSS px; t in ms.",
   "constants": {
     "TOUCH_SLOP_PX": 10,
     "HOLD_MS": 500,
@@ -11,19 +11,24 @@
     { "touchActions": [], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
     { "touchActions": ["auto", "auto"], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
     { "touchActions": ["manipulation"], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
-    { "touchActions": ["none"], "prevented": false, "expect": { "x": true, "y": true, "hold": true } },
-    { "touchActions": ["auto", "none", "auto"], "prevented": false, "expect": { "x": true, "y": true, "hold": true } },
-    { "touchActions": ["auto", "auto", "none"], "prevented": false, "expect": { "x": true, "y": true, "hold": true } },
+    { "touchActions": ["none"], "prevented": false, "expect": { "x": true, "y": false, "hold": true } },
+    { "touchActions": ["auto", "none", "auto"], "prevented": false, "expect": { "x": true, "y": false, "hold": true } },
+    { "touchActions": ["auto", "auto", "none"], "prevented": false, "expect": { "x": true, "y": false, "hold": true } },
     { "touchActions": ["pan-y"], "prevented": false, "expect": { "x": true, "y": false, "hold": false } },
-    { "touchActions": ["pan-x"], "prevented": false, "expect": { "x": false, "y": true, "hold": false } },
+    { "touchActions": ["pan-x"], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
+    { "touchActions": ["pan-up"], "prevented": false, "expect": { "x": true, "y": false, "hold": false } },
+    { "touchActions": ["pan-right"], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
     { "touchActions": ["pan-y pinch-zoom"], "prevented": false, "expect": { "x": true, "y": false, "hold": false } },
     { "touchActions": ["pan-left pan-down"], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
     { "touchActions": ["pan-x pan-y"], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
-    { "touchActions": ["pinch-zoom"], "prevented": false, "expect": { "x": true, "y": true, "hold": false } },
-    { "touchActions": ["pan-x", "pan-y"], "prevented": false, "expect": { "x": true, "y": true, "hold": false } },
+    { "touchActions": ["pinch-zoom"], "prevented": false, "expect": { "x": true, "y": false, "hold": false } },
+    { "touchActions": ["pan-x", "pan-y"], "prevented": false, "expect": { "x": true, "y": false, "hold": false } },
+    { "touchActions": ["pan-y", "pan-x"], "prevented": false, "expect": { "x": true, "y": false, "hold": false } },
+    { "touchActions": ["pan-x", "auto"], "prevented": false, "expect": { "x": false, "y": false, "hold": false } },
     { "touchActions": [" PAN-Y "], "prevented": false, "expect": { "x": true, "y": false, "hold": false } },
-    { "touchActions": ["auto"], "prevented": true, "expect": { "x": true, "y": true, "hold": false } },
-    { "touchActions": ["none"], "prevented": true, "expect": { "x": true, "y": true, "hold": true } }
+    { "touchActions": ["auto"], "prevented": true, "expect": { "x": true, "y": false, "hold": false } },
+    { "touchActions": ["pan-x"], "prevented": true, "expect": { "x": true, "y": false, "hold": false } },
+    { "touchActions": ["none"], "prevented": true, "expect": { "x": true, "y": false, "hold": true } }
   ],
   "cases": [
     {
@@ -182,22 +187,65 @@
       ]
     },
     {
-      "name": "pan-x: vertical drags are the widget's, horizontal ones swipe",
+      "name": "pan-x claims nothing: a vertical drag scrolls the chat, a horizontal one swipes",
       "steps": [
         { "down": [0, 100, 50], "claim": "pan-x", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
-        { "move": [20, 100, 30], "expect": { "owner": "widget", "gesture": "drag-y", "cancel": false } },
+        { "move": [20, 100, 30], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": true, "action": "scroll" } },
         { "down": [1000, 100, 50], "claim": "pan-x", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
         { "move": [1020, 80, 50], "expect": { "owner": "bubble", "gesture": "drag-x", "cancel": true, "action": "swipe" } }
       ]
     },
     {
-      "name": "none: drags on both axes are the widget's",
+      "name": "none: a horizontal drag is the widget's, on both axes once locked; a vertical one scrolls the chat",
       "steps": [
         { "down": [0, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
         { "move": [20, 130, 50], "expect": { "owner": "widget", "gesture": "drag-x", "cancel": false } },
-        { "up": [40, 130, 50], "expect": { "owner": "widget", "gesture": "drag-x", "cancel": false } },
+        { "move": [60, 135, 140], "expect": { "owner": "widget", "gesture": "drag-x", "cancel": false } },
+        { "up": [80, 135, 140], "expect": { "owner": "widget", "gesture": "drag-x", "cancel": false } },
         { "down": [1000, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
-        { "move": [1020, 100, 20], "expect": { "owner": "widget", "gesture": "drag-y", "cancel": false } }
+        { "move": [1020, 100, 20], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": true, "action": "scroll" } },
+        { "move": [1040, 160, 20], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": false, "action": "scroll" } },
+        { "up": [1060, 160, 20], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": false, "action": "scroll" } }
+      ]
+    },
+    {
+      "name": "none: a diagonal locks by its dominant axis; a tie is vertical, the chat's",
+      "steps": [
+        { "down": [0, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "move": [20, 109, 56], "expect": { "owner": "widget", "gesture": "drag-x", "cancel": false } },
+        { "down": [1000, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "move": [1020, 106, 59], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": true, "action": "scroll" } },
+        { "down": [2000, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "move": [2020, 108, 58], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": true, "action": "scroll" } }
+      ]
+    },
+    {
+      "name": "none: a hold is the widget's, and the first move past the slop still locks the axis: vertical goes to the chat",
+      "steps": [
+        { "down": [0, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "tick": 500, "expect": { "owner": "widget", "gesture": "hold", "cancel": false, "event": "contextmenu" } },
+        { "move": [600, 106, 57], "expect": { "owner": "widget", "gesture": "hold", "cancel": false } },
+        { "move": [700, 104, 70], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": true, "action": "scroll" } },
+        { "move": [750, 160, 70], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": false, "action": "scroll" } },
+        { "up": [800, 160, 70], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": false, "action": "scroll" } },
+        { "down": [2000, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "tick": 2500, "expect": { "owner": "widget", "gesture": "hold", "cancel": false, "event": "contextmenu" } },
+        { "move": [2600, 125, 55], "expect": { "owner": "widget", "gesture": "hold", "cancel": false } },
+        { "move": [2700, 125, 150], "expect": { "owner": "widget", "gesture": "hold", "cancel": false } },
+        { "up": [2800, 125, 150], "expect": { "owner": "widget", "gesture": "hold", "cancel": false } },
+        { "down": [4000, 100, 50], "claim": "none", "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "up": [4700, 100, 90], "expect": { "owner": "widget", "gesture": "hold", "cancel": false, "event": "contextmenu" } }
+      ]
+    },
+    {
+      "name": "a claim built by hand with y: a vertical touch drag still scrolls the chat",
+      "steps": [
+        { "down": [0, 100, 50], "claimed": { "x": true, "y": true, "hold": true }, "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "move": [20, 100, 80], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": true, "action": "scroll" } },
+        { "down": [1000, 100, 50], "claimed": { "x": false, "y": true, "hold": false }, "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "move": [1020, 100, 20], "expect": { "owner": "bubble", "gesture": "drag-y", "cancel": true, "action": "scroll" } },
+        { "down": [2000, 100, 50], "claimed": { "x": true, "y": true, "hold": false }, "expect": { "owner": "pending", "gesture": "press", "cancel": false } },
+        { "move": [2020, 125, 50], "expect": { "owner": "widget", "gesture": "drag-x", "cancel": false } }
       ]
     },
     {

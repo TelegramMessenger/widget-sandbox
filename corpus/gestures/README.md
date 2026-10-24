@@ -1,35 +1,39 @@
-# gestures — what breaks if widgets cannot claim vertical drags
+# gestures — what the horizontal-only rule removed
 
-Widgets for one question: **should vertical drags over a widget always scroll the chat, so
-that widgets can claim only horizontal drags?** The set has two sides:
+Widgets made for one question: **should vertical drags over a widget always scroll the
+chat, so that widgets can claim only horizontal drags?** Artem tried them in the Telegram
+test group and decided yes (v0.1.3, `docs/decisions.md` "Vertical drags are the chat's").
+They stay as the record of that decision:
 
-- **What breaks without vertical**: two games in pairs, the same widget on
-  `touch-action: none` (`…-xy`, it claims both axes) and on `pan-y` (`…-x`, horizontal only,
-  which is what the rule would leave it), and a wheel picker on `pan-x`, a vertical control.
-  The two files of a pair differ in one CSS value and their first line.
+- **What the rule removed**: two games in pairs, the same widget on `touch-action: none`
+  (`…-xy`, written to claim both axes) and on `pan-y` (`…-x`, horizontal only), and a
+  wheel picker on `pan-x`, a vertical control. The two files of a pair differ in one CSS
+  value and their first line. Since v0.1.3 **the `-xy` variants behave like their `-x`
+  twins** (a vertical drag scrolls the chat on `none` too; `none` still takes holds), and
+  **the wheel picker can no longer turn**: `pan-x` claims nothing, every drag over it is
+  the chat's.
 - **What is fine with horizontal only**: a paddle game, a card carousel and a range slider,
-  all on `pan-y`, the rule's behaviour already.
+  all on `pan-y`, unchanged by the rule.
 
-A widget can restrict itself with `touch-action` today, so the "only horizontal" side can be
-tried without a framework change.
-
-## The rule they run on (v0.1.2)
+## The rule they run on (v0.1.3)
 
 A press is undecided while it stays within 10 px. Past that, the dominant axis decides
-**once, for the whole press**: either the widget gets the drag (every move until the finger
-lifts, on both axes), or the chat takes it (list scroll, swipe-to-reply) and the widget gets
-`pointercancel`. A press held 500 ms within the slop is a hold (`docs/sdk-v1.md` §5.5,
+**once, for the whole press**: a vertical-first drag is always the chat's (list scroll) and
+the widget gets `pointercancel`; a horizontal-first one is the widget's where it claims
+horizontal drags (every move until the finger lifts, on both axes), else the chat's
+swipe-to-reply. A press held 500 ms within the slop is a hold (`docs/sdk-v1.md` §5.5,
 `packages/core/src/shared/gesture-policy.ts`).
 
 | `touch-action` | vertical-first drag | horizontal-first drag | hold | double tap |
 |---|---|---|---|---|
-| `none` (`…-xy`) | widget | widget | widget (`contextmenu`) | widget |
+| `none` (`…-xy`) | chat: scroll (the widget's until v0.1.3) | widget | widget (`contextmenu`) | widget |
 | `pan-y` (`…-x`) | chat: scroll | widget | chat: message menu | widget |
-| `pan-x` (`…-y`) | widget | chat: swipe-to-reply | chat: message menu | widget |
+| `pan-x` (`…-y`) | chat: scroll (the widget's until v0.1.3) | chat: swipe-to-reply | chat: message menu | widget |
 
 The leading 20 px of a widget never take a claim (the system back gesture), so every claimed
 surface starts at least 20 px in. Every widget says in its first line which `touch-action` it
-uses and what to try, and counts **presses taken by the chat** (its `pointercancel`s).
+uses and what to try, and counts **presses taken by the chat** (its `pointercancel`s); the
+first lines still describe the question as it was asked.
 
 ## The widgets
 
@@ -37,7 +41,7 @@ Sizes as the server counts them (gzip -6, limit 4096 B); heights at a 320 px wid
 
 | File | `touch-action` | What it is | Try | Size | Height |
 |---|---|---|---|---|---|
-| **Breaks without vertical** | | | | | |
+| **What the rule removed** (the `-xy` files now behave like `-x`; 08 cannot turn) | | | | | |
 | `1-pairs/01-joystick-xy.html` | `none` | Star catcher: fly a dot with a virtual stick, collect stars | start up or down, circle, rest your thumb on the stick | 1837 B | 435 px |
 | `1-pairs/02-joystick-x.html` | `pan-y` | the same game | the same; then start sideways and steer up | 1899 B | 435 px |
 | `1-pairs/03-2048-xy.html` | `none` | 2048: swipe in four directions, equal tiles merge; score, best and the game are kept | play a few moves | 2490 B | 404 px |
@@ -48,21 +52,21 @@ Sizes as the server counts them (gzip -6, limit 4096 B); heights at a 320 px wid
 | `2-horizontal/06-card-carousel-x.html` | `pan-y` | trips on cards with peeking neighbours, flick, snap, dots | swipe and flick, tap a card, drag up over a card | 2075 B | 310 px |
 | `2-horizontal/07-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2021 B | 274 px |
 
-## What "only horizontal" would change
+## What the rule changed
 
 - **Joystick (01 → 02).** The first move decides. A thumb on a stick rarely starts sideways on
-  purpose: aiming up loses the press to the chat (the stick snaps back, the chat scrolls);
-  a diagonal works only when its horizontal part is the larger. Once a press is the widget's,
-  up and down drift reaches it: nothing is taken away mid-press. `pan-y` also gives holds to
-  the chat: a thumb resting on the stick for half a second opens the message menu. The rule as
-  stated says nothing about holds, and CSS cannot express "horizontal plus holds", so 02 is the
-  rule plus losing holds.
+  purpose: aiming up or down loses the press to the chat (the stick snaps back, the chat
+  scrolls); a diagonal works only when its horizontal part is the larger. Once a press is the
+  widget's, up and down drift reaches it: nothing is taken away mid-press. 01 on `none` now
+  plays exactly like 02 for drags; it keeps holds (a resting thumb does not open the message
+  menu), which `pan-y` in 02 gives to the chat.
 - **2048 (03 → 04).** Up and down swipes scroll the chat, so only left and right move the tiles
-  and the board fills up. The author would have to add buttons for up and down.
-- **Wheel picker (08).** A vertical control: under the rule it cannot be spun at all, every drag
-  scrolls the chat. The author would have to turn it on its side or replace it with buttons.
+  and the board fills up, on both files now. An author adds buttons for up and down.
+- **Wheel picker (08).** A vertical control: it cannot be spun at all, every drag scrolls the
+  chat (on `pan-x` it never claimed horizontal drags either). An author turns it on its side
+  or replaces it with buttons.
 - Drawing on a canvas, panning a map and guiding a ball through a maze are 2D in the same way
-  as the joystick.
+  as the joystick, and lose the same.
 
 Fine with horizontal only, unchanged by the rule:
 
@@ -117,7 +121,8 @@ Fine with horizontal only, unchanged by the rule:
   `corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/gestures/1-pairs/02-joystick-x.html --width 360 --swipe 180,335,0,-60 --swipe 180,335,60,0 --hold 180,335`.
 - `corepack pnpm test:gesture-corpus` loads the eight widgets in the sandbox and in reference
   mode (no JS errors, pixels within 3 %) → `docs/compat-report-gestures.md`; with
-  `TW_RENDERER=shadow` on the Shadow DOM renderer.
+  `TW_RENDERER=shadow` on the Shadow DOM renderer. It checks that they load and draw, not
+  who gets a press (`tests/gestures.spec.ts` and the conformance set do).
 - The Telegram test group: the **Gestures** topic of `scripts/conformance/publish-channel.ts`,
   not in the default run: `--topic gestures` (each file's `idea:` line is its description).
 

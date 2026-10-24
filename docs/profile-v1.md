@@ -44,6 +44,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | P1-ua | Clarified in v0.1.1 (2026-10-20): the renderer's user-agent layer (tables.uaStylesheet) also fixes the root and the text elements: the bubble's text colour (the bubble's own fill is the canvas behind a transparent renderer), the client's text tokens (--tg-text-font-size, --tg-text-line-height, --tg-text-padding as the body's margin) and explicit sizes and margins for headings, paragraphs, lists, tables, quotes and code, so a UA default in this profile means that layer, not an engine's own stylesheet |
 | SDK | SDK v1 (docs/sdk-v1.md), with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble (replaced by G1 in v0.1.2) |
 | G1 | Gestures, v0.1.2 (Artem, 2026-10-22): one shared policy with the same thresholds on every client and in the sandbox. A double tap over the widget is always the widget's (both clicks and dblclick, on every element; the reaction stays with the bubble outside the widget). For the rest touch-action is the claim, decided per element at pointerdown over the target and its ancestors (a container covers its children, as in CSS): auto: holds and swipes are the bubble's (the widget gets pointercancel); pan-y / pan-x: drags on the other axis are the widget's; none: everything is the widget's, holds (contextmenu) included. The leading 20 px of the widget and the bubble outside it never take a claim. Replaces "double tap and long press stay with the bubble" (SDK) |
+| G2 | Vertical drags are the chat's, v0.1.3 (Artem, 2026-10-24): a widget claims only horizontal drags; a vertical drag over a widget always scrolls the chat, whatever touch-action says, and the widget gets pointercancel. auto: holds and drags are the bubble's; pan-y: horizontal drags are the widget's; pan-x claims nothing; none: horizontal drags and holds (contextmenu) are the widget's. The axis lock (the first move past the 10 px slop decides for the whole press), double taps and the leading 20 px are unchanged. The engine under the renderer always allows vertical panning. Replaces G1's pan-x and the vertical half of none |
 
 ## HTML elements and attributes
 
@@ -169,7 +170,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | `css.clip-path` | clip-path: inset(), circle(), ellipse(), polygon() | **out** | the declaration is dropped | P1 |
 | `css.mask` | mask / -webkit-mask with gradients or data: images | **out** | the declaration is dropped | P1 |
 | `css.pointer-events` | pointer-events: none / auto (hit testing passes through) | in |  | P1 |
-| `css.touch-action` | touch-action: none / pan-x / pan-y (the widget claims a swipe from the chat) | in |  | P1 |
+| `css.touch-action` | touch-action: none / pan-y (the widget claims horizontal drags from the chat; vertical drags are always the chat's) | in |  | P1 |
 | `css.cursor` | cursor (desktop only) | in |  | D3 |
 | `css.value.units` | Units px, em, rem, %, ch, ex; pt/cm/mm/in | in |  | D3a |
 | `css.value.vw` | vw / vmin / vmax / vi: the bubble width | in |  | P1 |
@@ -354,7 +355,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | `behaviour.no-selection` | Text is not selectable by default (a drag over text selects nothing); user-select: text enables it | in |  | D18 |
 | `behaviour.policy-strict` | strict policy on every client (gesture gate, text caps, budgets) | in |  | D5 |
 | `behaviour.restart` | After 2 consecutive crashes the widget stays stopped on its last frame with the "Widget stopped" badge; before that the client rebuilds it when shown again | in |  | SDK |
-| `behaviour.gesture-claim` | touch-action is the claim: taps and double taps over the widget are always its own; auto leaves holds and swipes to the bubble (the widget gets pointercancel); pan-y / pan-x give the widget drags on the other axis; none gives it everything; the leading 20 px and the bubble outside the widget never take a claim | in |  | G1 |
+| `behaviour.gesture-claim` | touch-action is the claim: taps and double taps over the widget are always its own, vertical drags always the chat's; auto leaves holds and horizontal swipes to the bubble (the widget gets pointercancel); pan-y gives the widget horizontal drags; none gives it horizontal drags and holds; pan-x claims nothing; the leading 20 px and the bubble outside the widget never take a claim | in |  | G2 |
 | `behaviour.storage-persist` | localStorage survives the widget being dropped and re-created, and an app restart; sessionStorage survives re-creation but not a restart; both are deleted with the message | in |  | SDK |
 | `behaviour.storage-forward` | A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty | in |  | SDK |
 | `behaviour.message-edit` | A bot edit with the same HTML keeps the running widget; with new HTML the widget restarts on the same storage | in |  | SDK |

@@ -329,6 +329,16 @@ client drives its recognizers with the policy's `GestureArbiter` (docs/sdk-v1.md
 §5.5) and cancels the widget's touch the platform's way when the bubble takes
 the press.
 
+Since v0.1.3 vertical drags are always the chat's: `y` and `wants` are always
+false, `none` claims `x` and `hold`, `pan-x` claims nothing, a learned
+`preventDefault` claims `x`, and every host reports `y` false whatever a
+renderer sends (the Blitz and litehtml prototypes, which send only `wants`, now
+claim nothing). The claim reads the widget's own `touch-action`: the renderer
+core gives the engine each value widened to allow vertical panning (`none` →
+`pan-y`, `pan-x` → `pan-x pan-y`, `src/renderer/touch-action.ts`) and keeps the
+widget's in the inherited custom property `--tw-touch-action`; its `cs` query
+answers `touch-action` with the widget's value.
+
 ### The renderer as the bubble (`arbitrate`, v0.1.2)
 
 A host without recognizers over the widget (the web: `WidgetHost`

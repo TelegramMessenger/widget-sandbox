@@ -6,10 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import * as policy from '../../src/shared/gesture-policy.ts';
-import { GestureArbiter, claimOf, type PointerKind } from '../../src/shared/gesture-policy.ts';
+import { GestureArbiter, claimOf, type GestureClaim, type PointerKind } from '../../src/shared/gesture-policy.ts';
 
 type Point = [number, number, number];
-interface Step { down?: Point; move?: Point; up?: Point; tick?: number; cancel?: boolean; holdDeadline?: number | null; claim?: string; pointer?: PointerKind; button?: number; expect?: unknown }
+interface Step { down?: Point; move?: Point; up?: Point; tick?: number; cancel?: boolean; holdDeadline?: number | null; claim?: string; claimed?: GestureClaim; pointer?: PointerKind; button?: number; expect?: unknown }
 const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'fixtures', 'gesture-policy.json'), 'utf8')) as {
   constants: Record<string, number>;
   claims: { touchActions: string[]; prevented: boolean; expect: unknown }[];
@@ -28,7 +28,7 @@ describe('gesture-policy fixture', () => {
       const a = new GestureArbiter();
       c.steps.forEach((s, i) => {
         const where = `step ${i} ${JSON.stringify(s).slice(0, 80)}`;
-        if (s.down) assert.deepEqual(a.down(...s.down, claimOf([s.claim ?? 'auto']), s.pointer ?? 'touch', s.button ?? 0), s.expect, where);
+        if (s.down) assert.deepEqual(a.down(...s.down, s.claimed ?? claimOf([s.claim ?? 'auto']), s.pointer ?? 'touch', s.button ?? 0), s.expect, where);
         else if (s.move) assert.deepEqual(a.move(...s.move), s.expect, where);
         else if (s.up) assert.deepEqual(a.up(...s.up), s.expect, where);
         else if (s.tick !== undefined) assert.deepEqual(a.tick(s.tick), s.expect, where);

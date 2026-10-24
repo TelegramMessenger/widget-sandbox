@@ -116,8 +116,12 @@ export async function openRenderer(width: number, onMessage: (msg: any) => void)
       const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
       let ta = 'auto';
       for (let n: Element | null = el; n && n !== document.documentElement; n = n.parentElement) {
-        const v = getComputedStyle(n).touchAction;
-        if (v !== 'auto') { ta = n === el ? v : `${v} (from ${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''})`; break; }
+        // The engine's value is widened (pan-y always allowed, src/renderer/touch-action.ts); the widget's own is the claim property.
+        const cs = getComputedStyle(n);
+        if (cs.touchAction === 'auto') continue;
+        const v = cs.getPropertyValue('--tw-touch-action').trim() || cs.touchAction;
+        ta = n === el ? v : `${v} (from ${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''})`;
+        break;
       }
       return { target: el.tagName.toLowerCase() + id + cls, touchAction: ta };
     }, [x, y] as const),
@@ -161,8 +165,8 @@ export function hint(r: GestureReport, listens: ReadonlySet<string>): string | n
       case 'menu': return (v.gesture === 'menu-click'
         ? `the right click opened the message menu: to handle it in the widget (contextmenu), set touch-action: none on ${t}.`
         : `the hold went to the message menu and the widget got pointercancel: set touch-action: none on ${t} if it is held (a game button, a joystick, a canvas).`) + edge;
-      case 'swipe': return `the horizontal drag became swipe-to-reply and the widget got pointercancel: set touch-action: pan-y on ${t} for a horizontal slider or carousel (the chat still scrolls over it), or none for both axes.${edge}`;
-      case 'scroll': return `the vertical drag scrolled the chat and the widget got pointercancel: set touch-action: pan-x on ${t} for a vertical slider, or none for both axes.${edge}`;
+      case 'swipe': return `the horizontal drag became swipe-to-reply and the widget got pointercancel: set touch-action: pan-y on ${t} for a horizontal slider or carousel (the chat still scrolls over it), or none to take holds too.${edge}`;
+      case 'scroll': return `vertical drags always scroll the chat; a widget cannot claim them (the widget got pointercancel): lay the control out sideways (touch-action: pan-y or none on it) or use taps, for example buttons for up and down.${edge}`;
     }
   }
   if (v.owner === 'widget') {
@@ -174,9 +178,10 @@ export function hint(r: GestureReport, listens: ReadonlySet<string>): string | n
 
 function claimText(c: GestureClaim | null): string {
   if (!c) return '— (no press reached the widget)';
-  if (c.hold && c.x && c.y) return 'everything: drags on both axes and holds (touch-action: none); taps and double taps are always the widget\'s';
-  const axes = c.x && c.y ? 'drags on both axes' : c.x ? 'horizontal drags (touch-action: pan-y)' : c.y ? 'vertical drags (touch-action: pan-x)' : '';
-  return axes ? `${axes}; holds stay with the bubble` : 'taps and double taps only: holds and drags are the bubble\'s (touch-action: auto)';
+  // Vertical drags are always the chat's (v0.1.3): a claim never has `y`.
+  if (c.hold && c.x) return 'horizontal drags and holds (touch-action: none); taps and double taps are always the widget\'s, vertical drags the chat\'s';
+  if (c.x) return 'horizontal drags (touch-action: pan-y); holds stay with the bubble, vertical drags scroll the chat';
+  return 'taps and double taps only: holds and drags are the bubble\'s (touch-action: auto; pan-x claims nothing either)';
 }
 
 const ACTIONS: Record<string, string> = { menu: 'message menu', swipe: 'swipe-to-reply', scroll: 'list scroll', back: 'system back' };

@@ -159,8 +159,10 @@ What it is on this platform:
   `Ready`); `onStorageCommit(area, values)` the full new content of an area at
   the end of each task that changed it, within the 16 KB quota (persist
   `local`, keep `session` in memory); `onGesture(WidgetGestureClaim)` on every
-  primary press: what of it the widget claims with `touch-action` (`x`, `y`
-  drags, `hold`; taps and double taps are always the widget's). Feed the claim
+  primary press: what of it the widget claims with `touch-action` (`x`:
+  horizontal drags, `hold`; taps and double taps are always the widget's, and
+  since v0.1.3 a vertical drag is always the chat's: `y` is always false and
+  the arbiter scrolls the list over any widget). Feed the claim
   to a `GestureArbiter` (`gesture_policy.h`) in your recognizers over the
   widget and act on its verdicts: on `cancel` end the press for the widget,
   then do the bubble's `action` (message menu, swipe-to-reply or back, list

@@ -152,16 +152,19 @@ The string-theme constructor, `setTheme(String)`, `onBridge` and `onGestureClaim
 
 Touch gestures: a `WebView` inside a scrolling container loses the touch to
 the container as soon as the finger moves past the slop — Android cannot see
-`touch-action` inside the page, so a drag with any vertical component used
-to stop after a few px. `RendererWebView` denies the parent's interception
-from `ACTION_DOWN` and releases it when the renderer's `gesture` message
-(sent on every primary `pointerdown`, see `docs/protocol.md`) says the
-widget does not want the gesture, or after 150 ms of silence. A vertical
-swipe on a plain widget therefore still scrolls the list (`GestureTest`).
-The same message carries the whole claim (`WidgetHost.onGesture`): drags on
-either axis and holds (`touch-action: none`), and the parent stays out for `y`
-or `hold`; taps and double taps over the widget are always the widget's. The
-bubble's own recognizers (the message menu on a hold, swipe-to-reply) are the
+`touch-action` inside the page. Since v0.1.3 a vertical drag is always the
+chat's: the list scrolls over every widget, `touch-action: none` included, and
+the widget gets `pointercancel`. `RendererWebView` denies the parent's
+interception from `ACTION_DOWN` until the renderer's `gesture` message (sent
+on every primary `pointerdown`, see `docs/protocol.md`) arrives, or for 150 ms;
+then only a `hold` claim (`touch-action: none`) keeps the parent out, and only
+until the press first leaves the slop: vertically (a tie is vertical) the list
+may intercept, horizontally the press stays the widget's to its end. Without a
+hold claim, or in the leading 20 px edge strip, the list may intercept at once
+(`GestureTest`). The same message carries the whole claim
+(`WidgetHost.onGesture`): horizontal drags (`pan-y`, `none`) and holds
+(`none`); `y` is always false; taps and double taps over the widget are always
+the widget's. The bubble's own recognizers (the message menu on a hold, swipe-to-reply) are the
 client's: `GesturePolicy.kt` (the twin of `gesture-policy.ts`,
 `GesturePolicyTest` against the shared fixture) gives them a `GestureArbiter`
 to feed the press and the claim, and a verdict with `cancel` is the moment to

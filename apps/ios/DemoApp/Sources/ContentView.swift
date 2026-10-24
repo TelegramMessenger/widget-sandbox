@@ -277,7 +277,9 @@ struct ChatBubble: View {
 /// The demo bubble's own recognizers over the widget, as a client has them: every press goes to a GestureArbiter
 /// with the claim the renderer reports for it (`onGestureClaim`, a few ms after the touch began: the press waits for
 /// it up to 150 ms, then counts as claiming nothing). A press the bubble takes is taken from the WebView (the
-/// widget gets pointercancel) and named in the caption; vertical drags stay the list's own scrolling.
+/// widget gets pointercancel) and named in the caption. A vertical drag is always the list's (v0.1.3), whatever the
+/// widget's touch-action: the arbiter gives it to the bubble, the widget gets pointercancel and the list scrolls on
+/// with its own recognizer (nothing here holds it back; the renderer lets WebKit pan vertically over every element).
 final class BubbleGestures: ObservableObject {
     /// What the bubble did with the last press it took, for a moment.
     @Published private(set) var toast: String?

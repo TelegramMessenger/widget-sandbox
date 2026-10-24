@@ -167,12 +167,14 @@ public enum WidgetAction: Equatable {
 }
 
 /// On every primary pointerdown: what of this press the widget claims with CSS `touch-action` (docs/sdk-v1.md §5.5,
-/// GesturePolicy.swift): `none` claims all three, `pan-y` / `pan-x` the drags on the other axis, `auto` nothing.
-/// Taps and double taps over the widget are always its own. A client's recognizers feed it to a GestureArbiter.
+/// GesturePolicy.swift): `none` claims horizontal drags and holds, `pan-y` horizontal drags, `auto` and `pan-x`
+/// nothing. Taps and double taps over the widget are always its own, vertical drags always the chat's (v0.1.3).
+/// A client's recognizers feed it to a GestureArbiter.
 public struct WidgetGestureClaim: Equatable {
     /// Horizontal drags (no swipe-to-reply or back).
     public var x: Bool
-    /// Vertical drags (no list scroll).
+    /// Always false since v0.1.3: vertical drags are the chat's (the list scrolls), and the arbiter ignores it.
+    /// Kept so that code written for v0.1.2 still builds.
     public var y: Bool
     /// Holds, and a right click with a mouse: no message menu; the widget gets `contextmenu`.
     public var hold: Bool

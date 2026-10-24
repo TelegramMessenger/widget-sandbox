@@ -80,7 +80,8 @@ abstract class GesturePolicyFixtureTest {
                 when {
                     s.has("down") -> {
                         val (t, x, y) = point("down")
-                        val claim = GesturePolicy.claimOf(listOf(s.optString("claim", "auto")))
+                        // `claimed`: a claim object as given (what a client may build by hand, `y` included), else claimOf([claim]).
+                        val claim = s.optJSONObject("claimed")?.let(::claim) ?: GesturePolicy.claimOf(listOf(s.optString("claim", "auto")))
                         val pointer = PointerKind.entries.single { it.value == s.optString("pointer", "touch") }
                         assertEquals(where, verdict(s.get("expect")), a.down(t, x, y, claim, pointer, s.optInt("button", 0)))
                     }
@@ -96,20 +97,26 @@ abstract class GesturePolicyFixtureTest {
     }
 
     /**
-     * Inputs the fixture does not carry, with V8's answers: `trim` is String.prototype.trim (U+FEFF and U+00A0
-     * go, U+001C stays) and `\b` is JavaScript's ASCII word boundary (`é` is not a word character).
+     * Inputs the fixture does not carry, with V8's answers: `trim` is String.prototype.trim (U+FEFF, U+00A0 and
+     * U+2028 go, U+001C stays) and `\b` is JavaScript's ASCII word boundary (`é` is not a word character). `y` is
+     * always false since v0.1.3, so the cases tell the rules apart by `x` and `hold`.
      */
     @Test
     fun javaScriptStringRules() {
-        val all = WidgetGestureClaim(x = true, y = true, hold = true)
-        assertEquals(all, GesturePolicy.claimOf(listOf("﻿none ")))
-        assertEquals(WidgetGestureClaim(x = true, y = false), GesturePolicy.claimOf(listOf("\u001cpan-y")))
-        assertEquals(WidgetGestureClaim(x = true, y = false), GesturePolicy.claimOf(listOf("pan-y ")))
-        assertEquals(WidgetGestureClaim(x = false, y = true), GesturePolicy.claimOf(listOf("pan-xé")))
-        assertEquals(WidgetGestureClaim(x = false, y = true), GesturePolicy.claimOf(listOf("pan-left-x")))
-        assertEquals(WidgetGestureClaim(x = true, y = true), GesturePolicy.claimOf(listOf("pan-xy")))
-        assertEquals(WidgetGestureClaim(x = true, y = true), GesturePolicy.claimOf(listOf("xpan-y")))
-        assertEquals(WidgetGestureClaim(x = true, y = true), GesturePolicy.claimOf(listOf("pan-y_")))
-        assertEquals(WidgetGestureClaim(x = true, y = true), GesturePolicy.claimOf(listOf("pan-İ")))
+        val xHold = WidgetGestureClaim(x = true, y = false, hold = true)
+        val x = WidgetGestureClaim(x = true, y = false)
+        val nothing = GesturePolicy.NO_CLAIM
+        assertEquals(xHold, GesturePolicy.claimOf(listOf("\uFEFFnone\u00A0")))
+        assertEquals(xHold, GesturePolicy.claimOf(listOf("none\u2028")))
+        assertEquals("U+001C is no JavaScript whitespace: not `none`", x, GesturePolicy.claimOf(listOf("\u001Cnone")))
+        assertEquals(x, GesturePolicy.claimOf(listOf("\u001Cpan-y")))
+        assertEquals(nothing, GesturePolicy.claimOf(listOf("\u00A0pan-x\u2028")))
+        assertEquals(nothing, GesturePolicy.claimOf(listOf("pan-xé")))
+        assertEquals(nothing, GesturePolicy.claimOf(listOf("pan-left-x")))
+        assertEquals(x, GesturePolicy.claimOf(listOf("pan-xy")))
+        assertEquals(x, GesturePolicy.claimOf(listOf("xpan-x")))
+        assertEquals(x, GesturePolicy.claimOf(listOf("pan-x_")))
+        assertEquals(x, GesturePolicy.claimOf(listOf("pan-İ")))
+        assertEquals(x, GesturePolicy.claimOf(listOf("pan-y_")))
     }
 }

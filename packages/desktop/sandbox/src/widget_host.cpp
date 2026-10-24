@@ -489,12 +489,13 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
     } else if (type == "gesture") {
-        // docs/sdk-v1.md §5.5, gesture_policy.h. The renderer core sends x, y and hold (`wants` is y); a
-        // renderer that sends only `wants` (the Blitz and litehtml prototypes) claims vertical drags with it. Anything
-        // missing or not a boolean is false.
+        // docs/sdk-v1.md §5.5, gesture_policy.h. The renderer core sends x and hold (and `y` / `wants`, always false
+        // since v0.1.3); vertical drags are the chat's, so the claim's `y` is false whatever a renderer sends. A
+        // renderer that sends only `wants` (the Blitz and litehtml prototypes) claims nothing. Anything missing or
+        // not a boolean is false.
         WidgetGestureClaim claim;
         claim.x = msg["x"].asBool();
-        claim.y = msg["y"].isBool() ? msg["y"].asBool() : msg["wants"].asBool();
+        claim.y = false;
         claim.hold = msg["hold"].asBool();
         if (onGesture) onGesture(claim);
 #if defined(_MSC_VER)

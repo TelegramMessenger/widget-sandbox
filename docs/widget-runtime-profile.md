@@ -64,29 +64,36 @@ Taps (`click`) and pointer events (`pointerdown`/`move`/`up`/`cancel`,
 enter/leave/over/out, `setPointerCapture`) reach the widget, with the mouse
 compatibility events. **Taps and double taps are always the widget's**, on every
 element: a double tap arrives as both clicks and then `dblclick` (the chat's
-reaction stays on the bubble outside the widget). Holds and drags are claimed
-**per element with CSS `touch-action`**, decided when the finger goes down:
+reaction stays on the bubble outside the widget). **Vertical drags are always
+the chat's**: the chat scrolls over every widget, whatever `touch-action` says.
+Holds and horizontal drags are claimed **per element with CSS `touch-action`**,
+decided when the finger goes down:
 
 | over an element with | hold | horizontal drag | vertical drag |
 |---|---|---|---|
 | `auto` (the default) | the chat's message menu | swipe-to-reply | the chat scrolls |
 | `pan-y` | menu | **the widget's** | the chat scrolls |
-| `pan-x` | menu | swipe-to-reply | **the widget's** |
-| `none` | **the widget's** (+ `contextmenu`) | **the widget's** | **the widget's** |
+| `none` | **the widget's** (+ `contextmenu`) | **the widget's** | the chat scrolls |
 
-When the chat takes a press, the widget gets `pointercancel` and no `click`.
-The leading 20 px of the widget never take a claim (the system back
+`pan-x` claims nothing (it is `auto` here). The first move past 10 px decides
+for the whole press, also after a hold: a drag that starts sideways on a
+claimed element is the widget's on both axes until the finger lifts; one that
+starts up or down is the chat's. When the chat takes a press, the widget gets
+`pointercancel` and no `click`. The leading 20 px of the widget never take a claim (the system back
 gesture), and the bubble outside the widget stays the chat's. With a mouse, a
 right click follows the same claim; clicks, double clicks, holds and drags are
 the widget's. Thresholds: a hold is 500 ms within 10 px, a double tap 300 ms and
 40 px apart.
 
-**Rule of thumb: a button you hold, a joystick, a canvas you draw on →
-`touch-action: none` on it; a horizontal slider or carousel → `pan-y`; a
-vertical slider → `pan-x`; everything else stays `auto`**, so people keep the
-chat's menu, reply and scrolling over the rest of the widget. `touch-action` on
-a container covers its children, as in CSS. Keep controls at least 20 px from
-the widget's leading edge.
+**Rule of thumb: a button you hold, a game control, a canvas → `touch-action:
+none` on it; a horizontal slider, carousel or paddle → `pan-y`; everything else
+stays `auto`**, so people keep the chat's menu and reply over the rest of the
+widget. Nothing vertical can be dragged: no vertical sliders, faders or wheel
+pickers, no up/down swipes, no 2D joysticks, drawing or map panning. Lay such
+controls out sideways or use taps (buttons for up and down). When the chat takes
+a press, undo what `pointerdown` started (put the value back, re-centre the
+stick). `touch-action` on a container covers its children, as in CSS. Keep
+controls at least 20 px from the widget's leading edge.
 
 No keyboard and no focus at all: no key events, no text input, `focus()` does
 nothing. No touch events (use pointer events), no wheel or scroll events.
@@ -192,7 +199,8 @@ TelegramWidget.ready();                      // optional: first state drawn
   `--double-tap x,y`, `--swipe x,y,dx,dy`, `--right-click x,y` (`--desktop`
   for a mouse client). Each press reports the element, its claim, who got it,
   what the widget received and a hint, for example
-  `hint: the hold went to the message menu and the widget got pointercancel: set touch-action: none on button#fire …`.
+  `hint: the hold went to the message menu and the widget got pointercancel: set touch-action: none on button#fire …`
+  or `hint: vertical drags always scroll the chat; a widget cannot claim them …`.
   `--json` gives the whole result.
 - **The dev app** (`corepack pnpm dev`): drop the file, pick a width (200–600 or
   free), toggle dark, and use the mouse as a finger (`gestures: phone`, the
@@ -225,13 +233,15 @@ JS, shown inside a chat bubble.
   3D transforms, :has(), @container, @layer, CSS nesting, clip-path, masks,
   blend modes, text-shadow, getImageData, keyboard input and focus.
 - Input: taps and pointer events; double taps are always yours (two clicks,
-  then dblclick). touch-action decides holds and drags: on auto (default) a hold
-  is the chat's menu and a swipe its reply or scroll, and the widget gets
-  pointercancel. Put touch-action: none on anything held or dragged (game
-  buttons, joysticks, canvases): then the widget also gets contextmenu. Use
-  touch-action: pan-y on horizontal sliders, pan-x on vertical ones; it covers
-  an element's children too. Keep controls 20 px from the leading edge. No
-  keyboard, no text input.
+  then dblclick). Vertical drags always scroll the chat: nothing can be dragged
+  up or down (no vertical sliders, pickers, up/down swipes, 2D joysticks or
+  drawing); use horizontal controls or buttons. touch-action decides holds and
+  horizontal drags: on auto (default) a hold is the chat's menu and a sideways
+  swipe its reply, and the widget gets pointercancel (undo what pointerdown
+  started). touch-action: pan-y gives the widget horizontal drags (sliders,
+  carousels); none gives it horizontal drags and holds, plus contextmenu (game
+  buttons, held controls). It covers an element's children too. Keep controls
+  20 px from the leading edge. No keyboard, no text input.
 - Text is not selectable unless you set user-select: text.
 - API: window.TelegramWidget (check it exists): openLink(https URL, max 256
   chars) and openTelegramLink(https://t.me/...) only inside a click handler, one

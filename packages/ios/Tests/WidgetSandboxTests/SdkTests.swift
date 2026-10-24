@@ -132,6 +132,7 @@ final class SdkTests: XCTestCase {
         XCTAssertTrue(malformed.logs.contains("l=en-US"), "\(malformed.logs)")
     }
 
+    /// Vertical drags are the chat's (v0.1.3): the claim the client gets has `y` false whatever the renderer sends.
     func testGestureClaimsReachTheClient() {
         let h = Harness("<p>x</p>")
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":true,\"x\":false,\"y\":true}")
@@ -139,21 +140,26 @@ final class SdkTests: XCTestCase {
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":1,\"x\":1,\"y\":\"yes\"}")
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":true,\"x\":true,\"y\":true,\"hold\":true}")
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":false,\"x\":false,\"y\":false,\"hold\":1}")
-        // A renderer that sends only `wants` (the Blitz and litehtml prototypes): it is `y`.
+        h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":false,\"x\":true,\"y\":false,\"hold\":true}")
+        // A renderer that sends only `wants` (the Blitz and litehtml prototypes) claims nothing.
         h.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":true}")
-        h.pump { h.claims.count >= 6 }
+        h.pump { h.claims.count >= 7 }
         XCTAssertEqual(h.claims, [
-            WidgetGestureClaim(x: false, y: true), WidgetGestureClaim(x: true, y: true), WidgetGestureClaim(x: false, y: false),
-            WidgetGestureClaim(x: true, y: true, hold: true), WidgetGestureClaim(x: false, y: false),
-            WidgetGestureClaim(x: false, y: true),
+            WidgetGestureClaim(x: false, y: false), WidgetGestureClaim(x: true, y: false), WidgetGestureClaim(x: false, y: false),
+            WidgetGestureClaim(x: true, y: false, hold: true), WidgetGestureClaim(x: false, y: false),
+            WidgetGestureClaim(x: true, y: false, hold: true),
+            WidgetGestureClaim(x: false, y: false),
         ])
     }
 
     /// The claim the WebView renderer computes from `touch-action` at a pointerdown (gesture-policy.ts `claimOf`) reaches
-    /// `onGestureClaim` whole: `none` on an ancestor claims holds too, `pan-y` horizontal drags, `auto` nothing.
+    /// `onGestureClaim` whole: `none` on an ancestor claims horizontal drags and holds, `pan-y` horizontal drags, `auto`
+    /// and `pan-x` nothing; no claim has `y` (v0.1.3). WebKit itself gets the widened value (renderer/touch-action.ts:
+    /// vertical pans always allowed, so the list scrolls over the widget) and the widget's script still reads its own.
     @MainActor
     func testTouchActionClaimsFromTheWebViewRenderer() async throws {
-        let html = "<div id='free'>auto</div><div style='touch-action:none'><p id='own'>none</p></div><div id='pan' style='touch-action:pan-y'>pan-y</div>"
+        let html = "<div id='free'>auto</div><div id='box' style='touch-action:none'><p id='own'>none</p></div><div id='pan' style='touch-action:pan-y'>pan-y</div><div id='px' style='touch-action:pan-x'>pan-x</div>" +
+            "<script>setTimeout(function(){console.log('own='+getComputedStyle(document.getElementById('box')).touchAction+'|'+getComputedStyle(document.getElementById('px')).touchAction);},50);</script>"
         let host = try WidgetHost(html: html, theme: WidgetTheme(), width: 300)
         defer { host.destroy() }
         var claims: [WidgetGestureClaim] = []
@@ -165,7 +171,7 @@ final class SdkTests: XCTestCase {
         var deadline = Date().addingTimeInterval(15)
         while Date() < deadline, !latest.rendered { try await Task.sleep(nanoseconds: 50_000_000) }
         XCTAssertTrue(latest.rendered, "\(latest.diags)")
-        for (n, id) in ["free", "own", "pan"].enumerated() {
+        for (n, id) in ["free", "own", "pan", "px"].enumerated() {
             // A synthetic press: the renderer computes the claim at any primary pointerdown (only trusted input activates).
             let script = "var t=document.getElementById('\(id)'),o={bubbles:true,cancelable:true,isPrimary:true,pointerId:\(n + 1),pointerType:'touch',clientX:60,clientY:5};" +
                 "t.dispatchEvent(new PointerEvent('pointerdown',o));t.dispatchEvent(new PointerEvent('pointerup',o));'ok'"
@@ -176,9 +182,17 @@ final class SdkTests: XCTestCase {
         }
         XCTAssertEqual(claims, [
             WidgetGestureClaim(x: false, y: false, hold: false),
-            WidgetGestureClaim(x: true, y: true, hold: true),
+            WidgetGestureClaim(x: true, y: false, hold: true),
             WidgetGestureClaim(x: true, y: false, hold: false),
+            WidgetGestureClaim(x: false, y: false, hold: false),
         ])
+        let engine = await withCheckedContinuation { c in
+            host.evaluateInRenderer("getComputedStyle(document.getElementById('own').parentNode).touchAction+'|'+getComputedStyle(document.getElementById('px')).touchAction") { c.resume(returning: $0) }
+        }
+        XCTAssertEqual(engine, "pan-y|pan-x pan-y", "WebKit always pans vertically")
+        deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, !latest.logs.contains(where: { $0.text.hasPrefix("own=") }) { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(latest.logs.first { $0.text.hasPrefix("own=") }?.text, "own=none|pan-x", "the widget reads its own touch-action")
     }
 
     // MARK: the API before v1

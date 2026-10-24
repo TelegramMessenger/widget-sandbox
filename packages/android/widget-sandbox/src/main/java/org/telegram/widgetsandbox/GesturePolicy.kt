@@ -1,14 +1,18 @@
 // Who gets a press over a widget: the widget or the bubble (docs/sdk-v1.md §5.5,
-// docs/decisions.md "Gestures: touch-action is the claim"). A line-for-line twin
-// of src/shared/gesture-policy.ts (see the comments there), GesturePolicy.swift
-// and gesture_policy.cpp. Taps and double taps over the widget are always the
-// widget's (the reaction stays with the bubble outside the widget). For the rest
-// the widget claims per element with CSS `touch-action`, read by the renderer at
-// pointerdown (WidgetHost.onGesture): `auto` leaves the press to the bubble (a hold
-// opens the message menu, a horizontal swipe is reply or back, a vertical one
-// scrolls the list); `pan-y` / `pan-x` give the widget drags on the other axis;
-// `none` gives it everything, holds included. The leading EDGE_STRIP_PX of the
-// widget never take a claim (the system back gesture).
+// docs/decisions.md "Gestures: touch-action is the claim" and "Vertical drags are
+// the chat's"). A line-for-line twin of src/shared/gesture-policy.ts (see the
+// comments there), GesturePolicy.swift and gesture_policy.cpp. Taps and double taps
+// over the widget are always the widget's (a double tap with `dblclick`; the
+// reaction stays with the bubble outside the widget), and a vertical drag is always
+// the chat's: the list scrolls over every widget, whatever its touch-action says
+// (v0.1.3). For the rest the widget claims per element with CSS `touch-action`,
+// read by the renderer at pointerdown (WidgetHost.onGesture): `auto` leaves the
+// press to the bubble (a hold opens the message menu, a horizontal swipe is reply
+// or back); `pan-y` gives the widget horizontal drags; `none` gives it horizontal
+// drags and holds; `pan-x` claims nothing more than `auto`. Touch-action on a
+// container covers its children, as in CSS. The first move past the slop locks the
+// axis for the whole press. The leading EDGE_STRIP_PX of the widget never take a
+// claim (the system back gesture).
 //
 // Public API: a client's own recognizers over the widget feed a GestureArbiter the
 // press and the claim and act on its verdicts (the demo's BubbleGestureLayout).
@@ -23,14 +27,17 @@ import kotlin.math.hypot
 
 /**
  * On every primary pointerdown: what of this press the widget claims with CSS `touch-action`
- * (WidgetHost.onGesture, GesturePolicy.claimOf): `none` claims all three, `pan-y` / `pan-x` the drags
- * on the other axis, `auto` nothing. Taps and double taps over the widget are always its own. A client's
- * recognizers feed it to a GestureArbiter with the press.
+ * (WidgetHost.onGesture, GesturePolicy.claimOf): `none` claims horizontal drags and holds, `pan-y`
+ * horizontal drags, `auto` and `pan-x` nothing. Taps and double taps over the widget are always its own,
+ * vertical drags always the chat's. A client's recognizers feed it to a GestureArbiter with the press.
  */
 data class WidgetGestureClaim(
     /** Horizontal drags (no swipe-to-reply or back). */
     val x: Boolean,
-    /** Vertical drags (no list scroll). */
+    /**
+     * Always false since v0.1.3: vertical drags are the chat's (the list scrolls), and
+     * the arbiter ignores it. Kept so that code written for v0.1.2 still builds.
+     */
     val y: Boolean,
     /** Holds, and a right click with a mouse: no message menu; the widget gets `contextmenu`. */
     val hold: Boolean = false,
@@ -88,28 +95,26 @@ object GesturePolicy {
     val NO_CLAIM = WidgetGestureClaim(x = false, y = false)
 
     private val HORIZONTAL_PANS = listOf("pan-x", "pan-left", "pan-right")
-    private val VERTICAL_PANS = listOf("pan-y", "pan-up", "pan-down")
 
     /**
      * The claim of a press from the computed `touch-action` of the target and of each
      * ancestor up to the root (the widget's `<html>`) included, target first, and whether the widget
-     * prevented pointerdown on the target before. `none` anywhere claims everything; a
-     * value without a horizontal pan (`pan-x`, `pan-left`, `pan-right`) claims `x`, one
-     * without a vertical pan (`pan-y`, `pan-up`, `pan-down`) claims `y`; `auto` and
-     * `manipulation` claim nothing. A prevented pointerdown claims both axes, never
-     * holds: only `touch-action: none` does.
+     * prevented pointerdown on the target before. `none` anywhere claims horizontal
+     * drags and holds; a value without a horizontal pan (`pan-x`, `pan-left`,
+     * `pan-right`) claims `x`; `auto` and `manipulation` claim nothing, and so does a
+     * value with a horizontal pan (`pan-x`: vertical drags cannot be claimed). A
+     * prevented pointerdown claims `x`, never holds: only `touch-action: none` does.
+     * `y` is always false.
      */
     fun claimOf(touchActions: List<String>, prevented: Boolean = false): WidgetGestureClaim {
         var x = prevented
-        var y = prevented
         for (raw in touchActions) {
             val ta = asciiLower(raw.trim { isJsSpace(it) })
             if (ta == "" || ta == "auto" || ta == "manipulation") continue
-            if (ta == "none") return WidgetGestureClaim(x = true, y = true, hold = true)
+            if (ta == "none") return WidgetGestureClaim(x = true, y = false, hold = true)
             if (!hasWord(ta, HORIZONTAL_PANS)) x = true
-            if (!hasWord(ta, VERTICAL_PANS)) y = true
         }
-        return WidgetGestureClaim(x, y)
+        return WidgetGestureClaim(x, y = false)
     }
 
     /** What String.prototype.trim removes: ECMAScript's WhiteSpace and LineTerminator. */
@@ -149,6 +154,8 @@ object GesturePolicy {
  */
 class GestureArbiter {
     private class Press(val t0: Double, val x0: Double, val y0: Double, val claim: WidgetGestureClaim, val pointer: PointerKind, val edge: Boolean, val second: Boolean) {
+        /** The press has left the slop once: its axis is decided. */
+        var locked = false
         var owner = GestureOwner.PENDING
         var gesture = Gesture.PRESS
         var action: BubbleAction? = null
@@ -178,14 +185,20 @@ class GestureArbiter {
     fun move(t: Double, x: Double, y: Double): GestureVerdict? {
         val p = press ?: return null
         holdFirst(p, t)?.let { return it }
-        if (p.owner != GestureOwner.PENDING) return verdict(p)
         val dx = x - p.x0
         val dy = y - p.y0
-        if (hypot(dx, dy) <= GesturePolicy.TOUCH_SLOP_PX) return verdict(p)
+        if (p.locked || hypot(dx, dy) <= GesturePolicy.TOUCH_SLOP_PX) return verdict(p)
+        p.locked = true
         val horizontal = abs(dx) > abs(dy)
+        // A hold the widget won still has its axis decided by the first move past the slop: a vertical one is the chat's.
+        if (p.owner == GestureOwner.WIDGET && p.gesture == Gesture.HOLD) {
+            return if (horizontal) verdict(p) else decide(p, GestureOwner.BUBBLE, Gesture.DRAG_Y, BubbleAction.SCROLL)
+        }
+        if (p.owner != GestureOwner.PENDING) return verdict(p)
         val gesture = if (horizontal) Gesture.DRAG_X else Gesture.DRAG_Y
-        // A mouse drag never pans the chat; a touch drag is the widget's only on an axis it claims.
-        if (p.pointer == PointerKind.MOUSE || (if (horizontal) p.claim.x else p.claim.y)) return decide(p, GestureOwner.WIDGET, gesture)
+        // A mouse drag never pans the chat; a touch drag is the widget's only when it is horizontal and claimed:
+        // a vertical one always scrolls the chat, whatever the claim says.
+        if (p.pointer == PointerKind.MOUSE || (horizontal && p.claim.x)) return decide(p, GestureOwner.WIDGET, gesture)
         return decide(p, GestureOwner.BUBBLE, gesture, if (horizontal) (if (p.edge) BubbleAction.BACK else BubbleAction.SWIPE) else BubbleAction.SCROLL)
     }
 

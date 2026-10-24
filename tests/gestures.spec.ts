@@ -1,8 +1,9 @@
 // Who gets a press (docs/sdk-v1.md §5.5, packages/core/src/shared/gesture-policy.ts): the dev app's bubble plays a
 // phone client by default (a mouse arbitrates as a finger), so a hold on an `auto` element ends for the widget with
 // pointercancel (the message menu) and a horizontal drag is swipe-to-reply, while `touch-action: none` gives the widget
-// holds (`contextmenu`); a double tap is always the widget's (`dblclick`, on every element); the leading 20 px take
-// no claim. `?gestures=desktop` plays a desktop client, `off` no bubble. Iframe and Shadow DOM renderer.
+// holds (`contextmenu`) and horizontal drags; a vertical drag is always the chat's (v0.1.3); a double tap is always the
+// widget's (`dblclick`, on every element); the leading 20 px take no claim. `?gestures=desktop` plays a desktop
+// client, `off` no bubble. Iframe and Shadow DOM renderer.
 // Also the dev app's other agent tooling: the bubble-width control and the size row (gzip as the server counts it).
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -11,10 +12,12 @@ const WIDGET = `<style>body{margin:0}.t{height:40px;margin:0 0 6px 40px;backgrou
 <div class="t" id="auto">auto</div>
 <div class="t" id="none" style="touch-action:none">none</div>
 <div class="t" id="pany" style="touch-action:pan-y">pan-y</div>
+<div class="t" id="panx" style="touch-action:pan-x">pan-x</div>
 <div class="t" id="edge" style="touch-action:none;margin-left:0">none from the edge</div>
-<p id="log"></p>
+<p id="log"></p><p id="cs"></p>
 <script>
 var log = [];
+document.getElementById('cs').textContent = ['auto', 'none', 'pany', 'panx'].map(function (id) { return getComputedStyle(document.getElementById(id)).touchAction; }).join(',');
 ['pointerdown', 'pointerup', 'pointercancel', 'click', 'dblclick', 'contextmenu'].forEach(function (t) {
   document.addEventListener(t, function (e) { log.push(e.target.id + ':' + t); document.getElementById('log').textContent = log.join(' '); });
 });
@@ -72,9 +75,40 @@ for (const shadow of [false, true]) {
     await expect.poll(async () => (await claims(page)).length).toBe(3);
     expect(await claims(page)).toEqual([
       { x: false, y: false, hold: false },
-      { x: true, y: true, hold: true },
+      { x: true, y: false, hold: true },
       { x: true, y: false, hold: false },
     ]);
+  });
+
+  test(`${r}: a vertical drag is the chat's on none and pan-x too; a drag that starts sideways on none is the widget's on both axes`, async ({ page }) => {
+    const root = await load(page, shadow);
+    await drag(page, await at(root, 'none', 20), 2, 30);
+    expect(await events(root, 0)).toEqual(['none:pointerdown', 'none:pointercancel']);
+    await drag(page, await at(root, 'panx', 20), 2, 30);
+    expect(await events(root, 2)).toEqual(['panx:pointerdown', 'panx:pointercancel']);
+    // pan-x claims nothing: a horizontal drag there is swipe-to-reply.
+    await drag(page, await at(root, 'panx', 20), 120, 4);
+    expect(await events(root, 4)).toEqual(['panx:pointerdown', 'panx:pointercancel']);
+    // The axis locks at the first move past the slop: sideways first, then down, stays the widget's.
+    const [x, y] = await at(root, 'none', 20);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 30, y, { steps: 4 });
+    await page.mouse.move(x + 40, y + 16, { steps: 6 });
+    await page.mouse.up();
+    expect(await events(root, 6)).toEqual(['none:pointerdown', 'none:pointerup']);
+    expect(await bubble(page)).toEqual(['scroll', 'scroll', 'swipe']);
+    expect(await claims(page)).toContainEqual({ x: false, y: false, hold: false });
+  });
+
+  test(`${r}: the engine always allows vertical panning (none → pan-y), the widget and the claim see its own touch-action`, async ({ page }) => {
+    const root = await load(page, shadow);
+    const engine = await root.locator('#none').evaluate((el) => {
+      const r = el.getRootNode() as Document | ShadowRoot;
+      return ['auto', 'none', 'pany', 'panx'].map((id) => getComputedStyle(r.getElementById(id)!).touchAction).join(',');
+    });
+    expect(engine).toBe('auto,pan-y,pan-y,pan-x pan-y');
+    await expect(root.locator('#cs')).toHaveText('auto,none,pan-y,pan-x');
   });
 
   test(`${r}: a hold on auto is the message menu: the widget gets pointercancel, no pointerup, no click`, async ({ page }) => {
@@ -171,7 +205,7 @@ for (const shadow of [false, true]) {
     // #t says nothing itself: its container's touch-action: none claims the hold.
     await root.locator('#t').click();
     await expect.poll(async () => (await claims(page)).length).toBe(1);
-    expect(await claims(page)).toEqual([{ x: true, y: true, hold: true }]);
+    expect(await claims(page)).toEqual([{ x: true, y: false, hold: true }]);
     await page.waitForTimeout(400);
     await hold(page, await at(root, 't'));
     await expect(root.locator('#log')).toHaveText('pointerdown pointerup pointerdown contextmenu pointerup');

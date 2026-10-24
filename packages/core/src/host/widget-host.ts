@@ -64,7 +64,8 @@ export interface WidgetHostOptions {
   onStorageCommit?: (area: 'local' | 'session', values: Record<string, string>) => void;
   /**
    * On every primary pointerdown: what of this press the widget claims with `touch-action` (gesture-policy.ts):
-   * horizontal (`x`) and vertical (`y`) drags and holds (`hold`, no message menu). Taps and double taps are always its own.
+   * horizontal drags (`x`) and holds (`hold`, no message menu). Taps and double taps are always its own, vertical
+   * drags always the chat's (`y` is always false since v0.1.3).
    */
   onGestureClaim?: (claim: GestureClaim) => void;
   /**
@@ -408,7 +409,8 @@ export class WidgetHost {
         break;
       }
       case 'gesture':
-        this.opts.onGestureClaim?.({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true });
+        // Vertical drags are the chat's (v0.1.3): `y` is false whatever a renderer sends.
+        this.opts.onGestureClaim?.({ x: msg.x === true, y: false, hold: msg.hold === true });
         break;
       case 'bubble': {
         const x = finiteNumber(msg.x), y = finiteNumber(msg.y);

@@ -49,6 +49,8 @@ import androidx.webkit.WebViewFeature
 import java.io.ByteArrayInputStream
 import java.security.SecureRandom
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.hypot
 
 @SuppressLint("SetJavaScriptEnabled")
 class RendererWebView(context: Context, rendererBundle: String, theme: String) : Renderer {
@@ -217,52 +219,92 @@ class RendererWebView(context: Context, rendererBundle: String, theme: String) :
     }
 
     /**
-     * Renderer's answer to the last primary pointerdown (`gesture` message): the
-     * widget wants the touch gesture (touch-action forbids vertical panning, or
-     * it prevents pointerdown there). Until the answer arrives the parent is
-     * not allowed to intercept; a `false` (or 150 ms of silence) hands the
-     * gesture back to the scrolling container. Main thread.
+     * Renderer's answer to the last primary pointerdown (`gesture` message), its
+     * `wants` (= `y`): since v0.1.3 a vertical drag is always the list's, so this
+     * is no claim (the parent may intercept at once). Main thread.
      */
-    override fun gestureDecision(wants: Boolean) = gestureDecision(WidgetGestureClaim(x = false, y = wants))
+    override fun gestureDecision(wants: Boolean) = gestureDecision(GesturePolicy.NO_CLAIM)
 
     /**
-     * The whole claim: the parent stays out of the press when the widget claims
-     * vertical drags (the list must not scroll) or holds (a parent's long-press
-     * recognizer that intercepts must stand back too).
-     * Horizontal drags are the client's own recognizers' (WidgetHost.onGesture).
+     * The whole claim (GesturePolicy.kt). Until it arrives (or for 150 ms) the
+     * parent may not intercept the press. Then only a `hold` claim keeps it out
+     * (a parent's long-press recognizer stands back), and only until the press
+     * first leaves the slop: vertically (a tie is vertical), the parent may
+     * intercept (the list scrolls, the widget gets `pointercancel`), after a hold
+     * the widget won too (GestureArbiter's `drag-y` / `scroll`; Chromium cancels
+     * the pointer itself, the engine's touch-action pans vertically,
+     * touch-action.ts); horizontally, the press stays the widget's to its end
+     * (a held one too). No hold claim, or a press in the leading edge strip:
+     * the parent may intercept at once. Horizontal drags are the client's own
+     * recognizers' (WidgetHost.onGesture).
      */
     override fun gestureDecision(claim: WidgetGestureClaim) {
-        (webView as GestureWebView).decide(claim.y || claim.hold)
+        (webView as GestureWebView).decide(claim.hold)
     }
 
     /**
      * A WebView inside a scrolling container (chat list) loses the touch to the
      * container as soon as the finger moves past the slop: Android cannot see
      * `touch-action` inside the page. Deny interception from ACTION_DOWN and
-     * release it only when the renderer says the widget does not want the gesture.
+     * release it by the renderer's claim and the press's first move past the
+     * slop (the rule above, in step with GestureArbiter: a vertical drag is the
+     * chat's, a horizontal one on `none` the widget's).
      */
     private class GestureWebView(context: Context) : WebView(context) {
+        /** The claim of this press arrived (or the wait timed out). */
         private var decided = false
-        private val timeout = Runnable { if (!decided) release() }
+        /** The parent may intercept again, for the rest of this press. */
+        private var released = false
+        /** The claim takes holds (and the press did not start in the edge strip). */
+        private var hold = false
+        /** How the press first left the slop. */
+        private var exit = Exit.NONE
+        private var downX = 0f
+        private var downY = 0f
+        private val density get() = resources.displayMetrics.density
+        private val timeout = Runnable { decide(false) }
 
-        private fun release() {
-            decided = true
-            parent?.requestDisallowInterceptTouchEvent(false)
-        }
+        private enum class Exit { NONE, HORIZONTAL, VERTICAL }
 
-        fun decide(wants: Boolean) {
+        fun decide(holdClaim: Boolean) {
             removeCallbacks(timeout)
             if (decided) return
-            if (wants) decided = true else release()
+            decided = true
+            // The leading edge strip takes no claim (GestureArbiter.down): the system back gesture starts there.
+            val fromLeading = if (layoutDirection == LAYOUT_DIRECTION_RTL) width - downX else downX
+            hold = holdClaim && fromLeading / density >= GesturePolicy.EDGE_STRIP_PX
+            update()
+        }
+
+        private fun update() {
+            if (released || !decided) return
+            if (!hold || exit == Exit.VERTICAL) {
+                released = true
+                parent?.requestDisallowInterceptTouchEvent(false)
+            }
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     decided = false
+                    released = false
+                    hold = false
+                    exit = Exit.NONE
+                    downX = event.x
+                    downY = event.y
                     parent?.requestDisallowInterceptTouchEvent(true)
                     removeCallbacks(timeout)
                     postDelayed(timeout, GESTURE_DECISION_TIMEOUT_MS)
+                }
+                MotionEvent.ACTION_MOVE -> if (exit == Exit.NONE) {
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    // The first move past the slop locks the axis for the whole press (a tie is vertical).
+                    if (hypot(dx, dy) > GesturePolicy.TOUCH_SLOP_PX * density) {
+                        exit = if (abs(dx) > abs(dy)) Exit.HORIZONTAL else Exit.VERTICAL
+                        update()
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> removeCallbacks(timeout)
             }
