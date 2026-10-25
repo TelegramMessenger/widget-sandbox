@@ -30,6 +30,11 @@ public protocol Renderer: AnyObject {
     func destroy()
 }
 
+public protocol TaskRenderer: AnyObject {
+    func beginTask()
+    func endTask()
+}
+
 public extension Renderer {
     func snapshot(completion: @escaping (PlatformImage?) -> Void) { completion(nil) }
     var acceptsTypedOps: Bool { false }

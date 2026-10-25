@@ -63,6 +63,8 @@ public struct SandboxStats {
 /// All delegate calls happen on the engine's queue, never on the main thread.
 /// `query` is synchronous: it may block the engine queue (and must not block the main thread).
 public protocol SandboxEngineDelegate: AnyObject {
+    func engineTaskStarted(_ engine: SandboxEngine)
+    func engineTaskCompleted(_ engine: SandboxEngine)
     func engine(_ engine: SandboxEngine, ops json: String)
     /// An ops batch whose `{"op":"canvas","id":N,"bin":K}` placeholders stand for `canvas[K]` (canvas words).
     /// The default splices them back into JSON and calls `engine(_:ops:)`.
@@ -92,6 +94,8 @@ public protocol SandboxEngineDelegate: AnyObject {
 }
 
 public extension SandboxEngineDelegate {
+    func engineTaskStarted(_ engine: SandboxEngine) {}
+    func engineTaskCompleted(_ engine: SandboxEngine) {}
     func engine(_ engine: SandboxEngine, anim json: String) {}
     func engine(_ engine: SandboxEngine, action: WidgetAction) {}
     func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {}
@@ -820,6 +824,8 @@ public final class SandboxEngine {
     /// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
     private func task(_ kind: String, sliceMs: Double, _ body: () -> Void) {
         if dead { return }
+        delegate?.engineTaskStarted(self)
+        defer { delegate?.engineTaskCompleted(self) }
         currentKind = kind
         currentSliceMs = sliceMs
         excludeMs = 0

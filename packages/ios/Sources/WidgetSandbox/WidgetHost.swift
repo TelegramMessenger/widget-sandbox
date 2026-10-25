@@ -141,6 +141,8 @@ public final class WidgetHost: SandboxEngineDelegate {
     private enum Outgoing {
         case json(String)
         case ops([WidgetOp])
+        case beginTask
+        case endTask
     }
     private var pendingToRenderer: [Outgoing] = []
     private let typedOps: Bool
@@ -424,6 +426,16 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private func inOrder(_ block: @escaping () -> Void) {
         validate { [self] in deliver(block) }
+    }
+
+    public func engineTaskStarted(_ engine: SandboxEngine) {
+        guard renderer is TaskRenderer else { return }
+        inOrder { self.toRenderer(.beginTask) }
+    }
+
+    public func engineTaskCompleted(_ engine: SandboxEngine) {
+        guard renderer is TaskRenderer else { return }
+        inOrder { self.toRenderer(.endTask) }
     }
 
     public func engine(_ engine: SandboxEngine, ops json: String) {
@@ -712,6 +724,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         switch message {
         case .json(let json): renderer.send(json)
         case .ops(let ops): renderer.send(ops: ops)
+        case .beginTask: (renderer as? TaskRenderer)?.beginTask()
+        case .endTask: (renderer as? TaskRenderer)?.endTask()
         }
     }
 
