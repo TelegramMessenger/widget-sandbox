@@ -22,14 +22,14 @@
   button.primary { background-color: var(--blue); color: #fff; } button.primary:hover { background-color: var(--blue-h); }
   button:active { background-color: rgba(127,127,127,0.40); } button.primary:active { background-color: var(--blue-h); }
 
-  .sw { width: 300px; max-width: 100%; }
+  .sw { width: 100%; box-sizing: border-box; }
   .sw .ring { width: 128px; height: 128px; border-radius: 75px; margin: 12px auto 10px auto; padding: 11px; background-color: rgba(127,127,127,0.18); }
   .sw .face { width: 128px; height: 128px; border-radius: 64px; background-color: light-dark(#ffffff, #1c1c1e); text-align: center; }
   .sw .big { font-size: 28px; font-weight: 700; font-family: ui-monospace, monospace; padding-top: 30px; line-height: 32px; }
   .sw .cs { font-size: 15px; color: #8e8e93; font-family: ui-monospace, monospace; }
   .sw .now { font-size: 11px; font-family: ui-monospace, monospace; margin-top: 3px; }
-  .sw .btns { text-align: center; }
-  .sw .btns button { margin: 0 4px; width: 76px; }
+  .sw .btns { display: flex; justify-content: center; gap: 8px; }
+  .sw .btns button { flex: 1; min-width: 0; max-width: 104px; padding: 5px 10px; white-space: nowrap; }
   .sw .tabs { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
   .sw .tab { display: inline-block; padding: 2px 9px; margin-right: 3px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; }
   .sw .tab:hover { background-color: rgba(127,127,127,0.16); }
@@ -42,7 +42,7 @@
   .sw .bars { margin-top: 6px; }
   .sw .br { display: flex; align-items: center; height: 18px; font-size: 11px; font-family: ui-monospace, monospace; }
   .sw .br .n { width: 30px; } .sw .br .v { width: 64px; text-align: right; }
-  .sw .br .track { width: 178px; height: 10px; }
+  .sw .br .track { flex: 1; min-width: 0; height: 10px; }
   .sw .br .fill { height: 10px; border-radius: 3px; width: 2px; transition: width 400ms cubic-bezier(.33,1,.68,1); }
 
   /* bubble transitions (transition('slide-up' | 'slide-left' | 'slide-right' | 'fade') in the original) */
@@ -144,10 +144,10 @@ function paintLaps(fresh) {
     const offset = laps.length - shown.length;
     list.innerHTML = `<div class="bars">${shown.map((l, k) => {
       const i = offset + k, c = i === best ? '#34c759' : i === worst ? '#ff3b30' : '#ff9500';
-      return `<div class="br"><span class="n muted">L${i + 1}</span><div class="track"><div class="fill" data-w="${Math.max(2, 178 * l.t / max).toFixed(1)}" style="background-color: ${c}; transition-delay: ${k * 35}ms"></div></div><span class="v">${full(l.t)}</span></div>`;
+      return `<div class="br"><span class="n muted">L${i + 1}</span><div class="track"><div class="fill" data-w="${Math.max(2, 100 * l.t / max).toFixed(1)}" style="background-color: ${c}; transition-delay: ${k * 35}ms"></div></div><span class="v">${full(l.t)}</span></div>`;
     }).join('')}</div>`;
     // Bars grow from 2px to their width, staggered (grow.k tween in the original).
-    requestAnimationFrame(() => { for (const f of list.querySelectorAll('.fill')) f.style.width = f.dataset.w + 'px'; });
+    requestAnimationFrame(() => { for (const f of list.querySelectorAll('.fill')) f.style.width = f.dataset.w + '%'; });
   }
 }
 
