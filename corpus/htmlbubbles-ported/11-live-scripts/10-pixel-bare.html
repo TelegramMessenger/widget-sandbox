@@ -45,15 +45,6 @@
   .sw .br .track { flex: 1; min-width: 0; height: 10px; }
   .sw .br .fill { height: 10px; border-radius: 3px; width: 2px; transition: width 400ms cubic-bezier(.33,1,.68,1); }
 
-  /* bubble transitions (transition('slide-up' | 'slide-left' | 'slide-right' | 'fade') in the original) */
-  .fx-fade { animation: tw-fade 220ms ease-out; }
-  .fx-slide-up { animation: tw-slide-up 260ms cubic-bezier(.33,1,.68,1); }
-  .fx-slide-left { animation: tw-slide-left 260ms cubic-bezier(.33,1,.68,1); }
-  .fx-slide-right { animation: tw-slide-right 260ms cubic-bezier(.33,1,.68,1); }
-  @keyframes tw-fade { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes tw-slide-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
-  @keyframes tw-slide-left { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
-  @keyframes tw-slide-right { from { transform: translateX(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
 </style>
 <div class="card pad sw" id="root">
   <div class="row between"><b>⏱ Stopwatch</b><span class="badge" id="badge">ready</span></div>
@@ -87,11 +78,13 @@ function animate(duration, onFrame, easing) {
   const step = () => { const t = Math.min(1, (performance.now() - start) / Math.max(1, duration)); onFrame(easing(t), t); if (t < 1) requestAnimationFrame(step); };
   step();
 }
-function transition(kind) {
-  root.classList.remove('fx-fade', 'fx-slide-up', 'fx-slide-left', 'fx-slide-right');
-  requestAnimationFrame(() => root.classList.add('fx-' + kind));
+let panelAnimation = null;
+function transition(kind, target = list) {
+  if (panelAnimation) panelAnimation.cancel();
+  const from = kind === 'slide-left' ? 'translateX(6px)' : kind === 'slide-right' ? 'translateX(-6px)' : kind === 'slide-up' ? 'translateY(4px)' : kind === 'pop' ? 'scale(0.985)' : 'none';
+  if (from === 'none') return;
+  panelAnimation = target.animate([{ transform: from }, { transform: 'none' }], { duration: 140, easing: 'cubic-bezier(.2,.8,.2,1)' });
 }
-root.addEventListener('animationend', e => { if (e.target === root) root.classList.remove('fx-fade', 'fx-slide-up', 'fx-slide-left', 'fx-slide-right'); });
 
 function bestWorst() {
   let best = -1, worst = -1;
