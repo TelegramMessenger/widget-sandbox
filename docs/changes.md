@@ -3,6 +3,19 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+**Element members stay their element's** (default, every client; `packages/core/src/sandbox/forms.ts`). linkedom
+has no class of its own for `form`, `dialog`, `output`, `fieldset`, `label`, `progress`, `meter` and some others:
+they share HTMLElement's prototype, so the shim's members for one of them were on every element. An inline
+handler (`with (element)`) then found them first: `<button onclick="reset()">` called the button's form
+`reset` instead of the widget's `reset()` (and `show()`, `showModal()`, `submit()`, `value`, `length`, `form`
+likewise); output's `value` also overwrote progress' and meter's (`progress.value` read `""`). On the shared
+prototype such a member is now looked up by the element's local name, and the members of other elements are
+unscopable in an inline handler's scope. `'reset' in button` is still true (the prototype is shared), its value
+`undefined`. Unit test: `packages/core/tests/unit/element-members.test.ts`. Found with a widget sent through
+Telegram Android, where the Reset button did nothing.
+
 ## v0.1.3 — release notes (2026-10-24)
 
 Vertical drags are always the chat's, a widget chooses which edge of its bubble stays put when it
