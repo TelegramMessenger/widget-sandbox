@@ -4166,6 +4166,15 @@
       "note": "The host drops the preview's input, every bridge call but ready and setResizeAnchor, and its storage commits; chatType and viewer are null."
     },
     {
+      "id": "behaviour.network-marker",
+      "area": "behaviour",
+      "title": "The network marker: the client marks a widget whose tap may send data to the bot's server exactly where the message has can_query (a UI contract of the server's spec)",
+      "status": "in",
+      "decision": "I1",
+      "today": "host",
+      "note": "Never without allow_queries, never on a forward of a widget without fwd_allow_queries, never on a preview; the client's own UI from context.canQuery (docs/integration.md)."
+    },
+    {
       "id": "behaviour.size-hint",
       "area": "behaviour",
       "title": "Before load the bubble takes the bot's size anchors (width 0 = the bubble's width, W = a fixed width in [200, max]; height 0 = the placeholder, then the content height in [50, 600]; H = a fixed clamp(H, 50, 600)), cached per message",

@@ -25,6 +25,7 @@
     if (!m || /@/.test(u.split(/[/?#]/)[2] || '')) throw new TypeError('URL must be an absolute https URL without user info');
     if (TG.test(m[1]) !== telegram) throw new TypeError(telegram ? 'openTelegramLink takes t.me links' : 'openLink does not take t.me links');
   }
+  var M = window.__conformanceMessage || {};
   var H = {};
   var check = function (v, list) { if (list.indexOf(v) < 0) throw new TypeError('unknown haptic ' + v); return H; };
   H.impactOccurred = function (s) { return check(s, ['light', 'medium', 'heavy', 'rigid', 'soft']); };
@@ -37,5 +38,17 @@
     openLink: function (u) { url(u, false); }, openTelegramLink: function (u) { url(u, true); },
     HapticFeedback: H,
     setResizeAnchor: function (e) { if (e !== 'top' && e !== 'bottom') throw new TypeError("setResizeAnchor: edge must be 'top' or 'bottom'"); },
+    // The widget's state and the message context, from the header's first message spec (build.ts sets
+    // __conformanceMessage): the original as the tester first sees it, a viewer when the message may ask.
+    chatData: M.forward ? null : M.chat_data !== undefined ? M.chat_data : null,
+    publicData: M.public_data !== undefined ? M.public_data : null,
+    isForward: !!M.forward,
+    isPreview: !!M.inline,
+    chatType: M.forward || M.inline ? null : M.chat === 'group' ? 'supergroup' : 'private',
+    viewer: M.allow_queries && !M.inline ? Object.freeze({ id: 1001, first_name: 'Ann', last_name: 'Lee', username: 'ann_lee' }) : null,
+    // Checked as the contract says; a request never settles here, so the pictures show the state before any answer.
+    request: function (d) { if (typeof d !== 'string' || !d || unescape(encodeURIComponent(d)).length > 64) throw new TypeError('request: data must be 1-64 bytes of text'); return new Promise(function () {}); },
+    copyText: function (t) { if (typeof t !== 'string' || !t || t.length > 256) throw new TypeError('copyText: text must be 1-256 characters'); },
+    watchPublicData: function () {}, unwatchPublicData: function () {},
   };
 })();

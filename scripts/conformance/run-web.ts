@@ -68,7 +68,7 @@ async function setup(page: Page, renderer: string, theme: string) {
 
 /** Load the widget into the dev app and tap the renderer's ops for the result attribute. */
 async function load(page: Page, w: Widget, width: number) {
-  await page.evaluate(({ html, name, width }) => {
+  await page.evaluate(({ html, name, width, message }) => {
     const wrap = document.querySelector('#sandbox-wrap') as HTMLElement;
     const chat = wrap.closest('.chat') as HTMLElement;
     const bubble = wrap.closest('.bubble') as HTMLElement;
@@ -88,6 +88,10 @@ async function load(page: Page, w: Widget, width: number) {
     chatInput.focus();
     const tw = (window as any).__tw;
     const conf: any = ((window as any).__conf = { html: null as number | null, attr: null as string | null, ops: 0 });
+    // The message context of the header's first message spec (lib.ts MessageSpec) as the mock bot's: the kind (and so
+    // the server's flags) and the state the test bot sends with; the private chat with no state otherwise.
+    Object.assign(tw.bot.context, { message: message?.kind ?? 'private', chatType: null, viewer: 1001 });
+    tw.bot.edit(name, { chatData: message?.chat_data ?? null, publicData: message?.public_data ?? null });
     tw.load(html, name);
     tw.host.element.setAttribute('data-conf-el', '');
     const r = tw.host.renderer;
@@ -104,7 +108,7 @@ async function load(page: Page, w: Widget, width: number) {
       }
       return send(m);
     };
-  }, { html: w.html, name: `conformance/${w.id}.html`, width });
+  }, { html: w.html, name: `conformance/${w.id}.html`, width, message: w.meta.message?.[0] ?? null });
 }
 
 async function published(page: Page): Promise<Published | null> {

@@ -35,14 +35,15 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
-  framework tag: `catalogue.json` (265 profile features, statuses synced from `profile.json`), `auto/`
-  (41 self-checking widgets), `visual/` (20 widgets for people + `visual/sdk`, 18 client-SDK cases),
+  framework tag: `catalogue.json` (267 profile features, statuses synced from `profile.json`), `auto/`
+  (49 self-checking widgets; `auto/26-context-*` per message context), `visual/` (20 widgets for people + `visual/sdk`, 25 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B after zlib at level 9) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
   for the visual set, `heights.ts` through the sandbox for all). `CLIENTS.md` tells a client team how to
   run it on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`;
-  `publish-channel.ts` fills the Telegram test group through a test bot.
+  `publish-channel.ts` fills the Telegram test group through a test bot; `test-bot.ts` is the reference bot for the cases
+  that talk to it (sends them with their layer-233 fields, answers their requests, edits their state; `--self-test`).
 - `apps/web` — the dev app, chat feed demo, bench pages and the Playwright
   harness page (`src/main.ts` exposes `window.__tw`); `apps/ios/DemoApp`,
   `apps/macos/DemoApp`, `apps/android` (demo + the renderer modules, a second

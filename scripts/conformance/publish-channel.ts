@@ -264,11 +264,19 @@ function photo(file: string, key: string): Photo {
 
 function channelPosts(): Post[] {
   const channel = JSON.parse(fs.readFileSync(path.join(CONF, 'channel.json'), 'utf8')) as {
-    posts: { widget: string; width: number; height: number; caption: string; photos: string[] }[];
+    posts: { widget: string; width: number; height: number; caption: string; photos: string[]; variant?: string; message?: Record<string, unknown> }[];
   };
   const prefixes = TOPICS.filter((t) => t.channel).sort((a, b) => b.channel!.length - a.channel!.length);
   const out: Post[] = [];
+  const special: string[] = [];
   for (const p of channel.posts) {
+    // A post that needs more than a plain widget in the private chat (the flags, the state, the group, the inline
+    // results: layer 233) cannot go out as a document: scripts/conformance/test-bot.ts --post sends it.
+    const m = p.message ?? {};
+    if (Object.keys(m).some((k) => !['kind', 'view', 'forward'].includes(k)) || (m.kind && m.kind !== 'private' && m.kind !== 'copy')) {
+      special.push(`${p.widget.replace(/\.html$/, '')}${p.variant ? ` --variant ${p.variant}` : ''}`);
+      continue;
+    }
     const topic = prefixes.find((t) => p.widget.startsWith(t.channel!));
     if (!topic) die(`channel.json: no topic for ${p.widget}`);
     const id = p.widget.replace(/\.html$/, '');
@@ -276,10 +284,11 @@ function channelPosts(): Post[] {
     const html = fs.readFileSync(file);
     const body = p.caption.startsWith(`${id} · `) ? p.caption.slice(id.length + 3) : p.caption;
     out.push({
-      key: p.width || p.height ? `${id}@${p.width}x${p.height}` : id, topic: topic.name, file, width: p.width, height: p.height, html, zlib: zlibSize(html),
+      key: (p.width || p.height ? `${id}@${p.width}x${p.height}` : id) + (p.variant ? `@${p.variant}` : ''), topic: topic.name, file, width: p.width, height: p.height, html, zlib: zlibSize(html),
       text: body, photos: p.photos.map((f) => photo(path.join(CONF, f), id)), hash: { widget: '', description: '', photos: '' },
     });
   }
+  if (special.length) console.log(`${special.length} posts need layer-233 fields (flags, state, a group, inline results) and are left to the test bot: corepack pnpm tsx scripts/conformance/test-bot.ts --post <id> [--variant <kind>]\n  ${special.join('\n  ')}`);
   return out;
 }
 
