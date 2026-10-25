@@ -16,7 +16,9 @@ library is bundled. It is drawn the same way on iOS, Android, macOS, desktop and
 the web because every client removes what is outside the profile before it
 reaches the renderer. The bubble is **200–600 px wide** (phones lay it out at
 about 320–430) and at most 600 px tall; what does not fit is clipped, and
-nothing scrolls inside a widget.
+nothing scrolls inside a widget. A widget is fixed code plus changeable state:
+the HTML never changes after sending, its state does, and only the bot writes
+it.
 
 ## Size: mini-HTML
 
@@ -161,8 +163,8 @@ TelegramWidget.openTelegramLink('https://t.me/…');
 TelegramWidget.HapticFeedback.impactOccurred('light'); // notificationOccurred, selectionChanged
 TelegramWidget.ready();                      // optional: first state drawn
 TelegramWidget.setResizeAnchor('bottom');    // v0.1.3: grow upward ('top', the default: downward)
-TelegramWidget.chatData;                     // the bot's string for this message, or null; publicData: forwards too
-TelegramWidget.onEvent('chatDataChanged', fn); // and 'publicDataChanged': the bot changed one: redraw from it
+TelegramWidget.chatData;                     // the chat state (this message, this chat), or null; publicData: the shared state
+TelegramWidget.onEvent('chatDataChanged', fn); // and 'publicDataChanged': the bot changed the state: redraw from it
 TelegramWidget.request('vote:2').then((a) => a.result, (e) => e.code); // ask the bot, in a tap handler
 TelegramWidget.copyText('PROMO-2026');       // in a tap handler; the client shows what it copied
 TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a forward? who looks ({ id, first_name, username, … }, only if you may ask the bot), where
@@ -176,40 +178,45 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   from the first line of script, 16 KB per area (`QuotaExceededError` past
   it: catch it); `sessionStorage` until the app restarts. A forwarded copy
   starts empty. Your HTML never changes after the bot sends it: the bot changes
-  only its data (below).
+  only the widget's state (below).
 - **Haptics:** no tap needed, only while visible, 5 in a burst then 10 per
   second; desktop and web play nothing.
-- **The bot's data**: `chatData` (this message: in a group every member sees
-  the same; a forward never gets it) and `publicData` (forwards get it too: as it
-  was then, or a value the bot keeps changing for all of them), text of at most
-  1024 bytes the bot writes and you only read, `null` when there is none. Keep
-  the shared state there (votes, a board, a score) and draw it per
-  `viewer.id`; when the bot changes one you get `chatDataChanged` /
-  `publicDataChanged`: redraw, nothing restarts.
-- **Live shared data**: call `TelegramWidget.watchPublicData()` if the widget
-  shows data the bot shares and keeps changing (a ticker, a poll others vote
-  in): only then does the client poll it while the widget is on screen, at the
-  server's period (5–3600 s, 30 s by default). Without it you get
-  `publicData` with the message and the bot's edits of this message only.
+- **The widget's state**: only the bot writes it; you read it and cannot
+  change it, only ask the bot (`request`, below). `chatData` is the **chat
+  state**: this message in its chat (in a group every member sees the same; a
+  forward never gets it), for a game in progress or whose turn it is.
+  `publicData` is the **shared state**: wherever the widget is shown (a forward
+  gets it as it was then, or, in a shared widget, the one state the bot keeps
+  changing for all of them), for poll results or a price. Each is a text of up
+  to 1024 bytes (UTF-8), `null` when there is none. Keep what everyone sees there
+  (votes, a board, a score) and draw it per `viewer.id`; when the bot changes it
+  you get `chatDataChanged` / `publicDataChanged`: redraw, nothing restarts.
+- **Live shared state**: call `TelegramWidget.watchPublicData()` if the bot
+  sent the widget as a shared one and keeps changing its shared state (a ticker,
+  a poll others vote in): only then does the client poll it while the widget is
+  on screen, at the server's period (5–3600 s, 30 s by default). Without it you
+  get the shared state with the message and the bot's edits of this message
+  only.
 - **Requests**: `request(data)` is a callback button inside the widget: `data`
   1–64 bytes; the promise resolves with `{ result }` (the bot's answer for you,
   up to 1024 bytes, or `null`) or rejects with `error.code`: `NOT_ALLOWED` (no
   tap, a widget the bot did not allow to ask, a forward that may not ask), `BUSY` (one at a time), `RATE_LIMITED`,
   `TIMEOUT` (the bot did not answer), `FAILED`, `INVALID_ANSWER`. Call it in a
   tap handler (one call per tap, shared with links and `copyText`). The answer
-  carries no data: the bot's edits arrive as the events; if you need the new
-  state at once, have the bot put it in `result`. In the private chat with the
-  bot it may also run without a tap, while visible: once when the widget appears
-  on screen, then once per 5 s (poll a score); elsewhere (groups, via the bot,
-  forwards) only on a tap. Show "sending…" and handle every code.
-- **A forward** (`isForward`) has no `chatData` and no `chatType` (a copy is told
-  nothing about its chat). It can ask on a tap only if the bot let forwards
-  ask; otherwise it has no `viewer` either and every request is `NOT_ALLOWED`: show `publicData` and point to the bot
+  does not change the state: the bot's edits arrive as the events; if you need
+  the new state at once, have the bot put it in `result`. In the private chat
+  with the bot it may also run without a tap, while visible: once when the
+  widget appears on screen, then once per 5 s (poll a score); elsewhere (groups,
+  via the bot, forwards) only on a tap. Show "sending…" and handle every code.
+- **A forward** (`isForward`) has no chat state (`chatData` is `null`) and no
+  `chatType` (a copy is told nothing about its chat). It can ask on a tap only
+  if the bot let forwards ask; otherwise it has no `viewer` either and every
+  request is `NOT_ALLOWED`: show the shared state and point to the bot
   (`openTelegramLink('https://t.me/<bot>?start=…')`).
 - **copyText**: `copyText(text)`, 1–256 characters, in a tap handler; the
   client copies and shows the text it copied.
 - **A preview** (`isPreview`): sent via the bot's inline mode, the widget is
-  first shown in the list of results. There it has its data but gets no taps,
+  first shown in the list of results. There it has its state but gets no taps,
   cannot ask, link or copy, knows no viewer and keeps nothing in Web Storage:
   draw the state the user is about to send.
 - **Resize anchor** (v0.1.3): when your height changes, the client keeps one
@@ -231,8 +238,9 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
 
 - Off screen: `document.hidden`, no animation frames, timers at most once per
   second. The widget can be destroyed and recreated at any time; only Web
-  Storage and the bot's data survive: keep the user's choices in
-  `localStorage`, the shared state in the bot's `chatData`.
+  Storage and the widget's state survive: keep the user's own choices in
+  `localStorage`; what the whole chat sees (a board, the votes) belongs in the
+  chat state, which the bot writes.
 - CPU: a budget of 300 ms per second (timers and frames wait beyond it). The
   first run may take up to 500 ms; every later task runs within what is left of
   the second's 300 ms (an event gets at least 50 ms), and one that runs past
@@ -257,17 +265,17 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   `--json` gives the whole result. The bot: `--message private|group|via-bot|no-queries|live-copy|copy|preview`
   sets where the widget is (what it may ask), `--viewer id,first,last,username,premium`, `--chat-data`,
   `--public-data` the rest, `--answer '{"result":"ok"}'` (or `--answer-error
-  TIMEOUT`) answers every request, `--set-data '{…}'` is a bot's edit; a `request`
+  TIMEOUT`) answers every request, `--set-data '{…}'` is the bot's edit of the state; a `request`
   line per request says whether it went out and what came back.
 - **The dev app** (`corepack pnpm dev`): drop the file, pick a width (200–600 or
   free), toggle dark, and use the mouse as a finger (`gestures: phone`, the
   default): the bubble takes holds and swipes as a phone does and says so over
   the bubble. The **Bot (mock)** panel plays the bot: where the message is (the
   private chat, a group, via the bot, sent without requests, a live or plain
-  forward, a preview), the chat type,
-  the viewer, the two strings and their edit, how it answers (a built-in bot,
-  manual, or a failure); `corpus/interactive` has a poll, tic-tac-toe, a live
-  ticker and a promo code that use it.
+  forward, a preview), the chat type, the viewer, the chat state, the shared
+  state and the bot's edit of them, how it answers (a built-in bot, manual, or a
+  failure); `corpus/interactive` has a poll, tic-tac-toe, a live ticker and a
+  promo code that use it.
 - **On clients:** a test bot sends the widget to your private chat.
 
 ## Agent block
@@ -309,12 +317,13 @@ JS, shown inside a chat bubble.
   chars) and openTelegramLink(https://t.me/...) only inside a click handler, one
   per tap; HapticFeedback.impactOccurred('light'); themeParams; colorScheme;
   onEvent('themeChanged', fn). No sendMessage or alert/confirm/prompt.
-- State: localStorage, 16 KB, per message; catch QuotaExceededError. The widget
-  may be recreated at any time; restore state on load.
-- The bot: chatData, publicData are its strings (null if none); redraw on
-  onEvent('chatDataChanged'/'publicDataChanged'); live shared data:
-  watchPublicData(). request(data, max 64 bytes)
-  in a click handler, one at a time: {result} or e.code. copyText(text) on a tap.
+- Storage: localStorage, 16 KB, per message; catch QuotaExceededError. The
+  widget may be recreated at any time; restore state on load.
+- Bot-written state: chatData (chat state), publicData (shared state; live:
+  watchPublicData()), null if none; redraw on
+  onEvent('chatDataChanged'/'publicDataChanged'). In a click handler:
+  request(data, max 64 bytes) asks the bot, one at a time, {result} or e.code;
+  copyText(text).
 - A log growing at the bottom: TelegramWidget.setResizeAnchor?.('bottom').
 - Limits: 300 ms CPU per second (500 ms at boot), 64 MB, 256 timers. Render the
   first state synchronously; animate with requestAnimationFrame.

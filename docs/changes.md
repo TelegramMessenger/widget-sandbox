@@ -3,6 +3,19 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+- **A widget is fixed code plus changeable state** (docs only): the HTML is set when the bot sends the widget and
+  never changes; the state changes, and only the bot writes it. `chatData` is the widget's **chat state** (one
+  message, seen only in its chat, never forwarded) and `publicData` its **shared state** (wherever the widget is
+  shown: a copy as of the forward, or one for all the messages and forwards of a shared widget); the widget reads
+  them, learns of changes from `chatDataChanged` / `publicDataChanged` and asks the bot with `request`. The docs no
+  longer call them "the bot's data" or "the bot's two strings". Renamed sections (formerly "The bot's data …"):
+  `docs/sdk-v1.md` §2.13 "The widget's state and where it is" and §5.11 "The widget's state, requests and copies";
+  "The widget's state and requests" in `docs/tgw-format.md`, `docs/integration.md` and `docs/client-checklist.md`
+  §d. Also reworded: `docs/decisions.md`, the authors' guide and its agent block, the I1, `tw.*` and `behaviour.*`
+  texts in `profile.json` (`docs/profile-v1.md` regenerated). API and wire names, behaviour and limits are unchanged.
+
 ## v0.2.0 — release notes (2026-10-26)
 
 A widget is now fixed code plus changeable state, and it can ask the bot. This is layer 233 at the launch of

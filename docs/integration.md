@@ -91,10 +91,11 @@ client update; the sandbox is the security boundary.
 There is **no file download and no loading state for a file**: the bytes are
 already in the message. The only thing to show before the first frame is the
 bubble at the size the bot asked for (below) while the sandbox boots, which
-takes tens of milliseconds warm and a few hundred cold. The HTML never changes
-after sending: the bot edits only its data (and the caption), which goes to the live
-host with `setData`, never through a new host ("The bot's data and requests",
-below). A forwarded message carries a copy of the bytes.
+takes tens of milliseconds warm and a few hundred cold. A widget is fixed code
+plus changeable state: the HTML never changes after sending, and the bot edits
+only the widget's state (and the caption), which goes to the live host with
+`setData`, never through a new host ("The widget's state and requests", below).
+A forwarded message carries a copy of the bytes.
 
 **Enabling.** The server has no flag for widgets. Each client turns rendering
 on with its own platform/version flag (a debug or rollout flag, not app
@@ -115,7 +116,8 @@ copy works like the original. That includes every conformance widget
 (`packages/conformance`: each one fits a mini-widget), with its reference
 picture posted as a photo next to it in the order of
 `packages/conformance/channel.json`, the corpus widgets that fit, forward-copy
-storage, bot edits and the size anchors from the bot (`docs/tgw-format.md`).
+storage, the bot's edits of the state and the size anchors from the bot
+(`docs/tgw-format.md`).
 
 ## Bubble sizing
 
@@ -224,28 +226,32 @@ anchor to try it.
   (show a confirmation with the full URL, then the browser),
   `openTelegramLink(url)` (your own t.me handling), `haptic(…)` (play it or
   ignore it on desktop and web), `ready`. `docs/sdk-v1.md` §5 is the client's
-  side of each. The bot's data and requests add two callbacks of their own:
+  side of each. The widget's state and requests add two callbacks of their own:
   `onRequest` and `onCopyText` (below).
 
-## The bot's data and requests
+## The widget's state and requests
 
-The widget's HTML is fixed; the bot keeps two strings with the message,
-`chat_data` (this message only) and `public_data` (forwards carry it: a
-snapshot, or a value shared with the original), and a widget can send the bot a
-request, a callback button inside the widget (`docs/sdk-v1.md` §2.13–§2.15 and
-§5.11; the server's side, `docs/tgw-format.md` "The bot's data and requests").
-The host interface is the same on every platform (`docs/sdk-v1.md` §4 has the
-exact types):
+A widget is fixed code plus changeable state. The HTML is set when the bot
+sends the widget and never changes; the state changes, and only the bot writes
+it: the **chat state**, `chat_data` (tied to this message, seen only in its
+chat, never forwarded), and the **shared state**, `public_data` (seen wherever
+the widget is shown: a forward gets a copy as of the forward, or, in a shared
+widget, the one shared state of all its messages and forwards). The widget reads
+its state and cannot change it itself; it can send the bot a request, a callback
+button inside the widget (`docs/sdk-v1.md` §2.13–§2.15 and §5.11; the server's
+side, `docs/tgw-format.md` "The widget's state and requests"). The host
+interface is the same on every platform (`docs/sdk-v1.md` §4 has the exact
+types):
 
 | the client passes or implements | what it is |
 |---|---|
-| `data` (at creation) | `{ chatData, publicData }`: the message's two strings as the client has them now; none = null |
+| `data` (at creation) | `{ chatData, publicData }`: the message's chat state and shared state as the client has them now; none = null |
 | `context` (at creation, fixed) | the server's flags from `messageMediaWidget`, read, not derived: `isCopy` (`is_copy`), `canQuery` (`can_query`: requests on a tap; never set for a widget the bot sent without `allow_queries`), `backgroundQuery` (`background_query`: requests without a tap too, one when the widget appears on screen, then one per 5 s while it is visible); `chatType` (the kind of chat: `private`, `group`, `supergroup`), `viewer` (the account's own: its user id, first and last name, username and Premium flag, as the bot gets them in `from`). Pass them for every message: the framework gives no copy the chat type, and no message without `canQuery` the viewer (the widget knows who views it only where it may send requests). No flags: no requests |
-| `setData(data)` | the bot's data changed: the full new state of both strings; the widget gets `chatDataChanged` / `publicDataChanged`, nothing restarts. Call it on `updateMessageWidgetData` (apply both strings it carries) and when polling brings a new shared `public_data` (below) |
-| `onRequest(request, complete)` | `{ data }`: call `messages.getBotWidgetQueryAnswer` (the peer, the message id, `data` as UTF-8 bytes) and complete with its `{ result }`, or a failure: `timeout` for `WIDGET_RESPONSE_TIMEOUT`, `rateLimited` for `FLOOD_WAIT`, `failed` for anything else; complete every request exactly once. The answer carries no data and no toast, alert or link: show nothing for it, and do not re-fetch the data after it |
+| `setData(data)` | the state changed: the full new state (the chat state and the shared state); the widget gets `chatDataChanged` / `publicDataChanged`, nothing restarts. Call it on `updateMessageWidgetData` (apply the chat state and the shared state it carries) and when polling brings a new shared state (below) |
+| `onRequest(request, complete)` | `{ data }`: call `messages.getBotWidgetQueryAnswer` (the peer, the message id, `data` as UTF-8 bytes) and complete with its `{ result }`, or a failure: `timeout` for `WIDGET_RESPONSE_TIMEOUT`, `rateLimited` for `FLOOD_WAIT`, `failed` for anything else; complete every request exactly once. The answer carries no state and no toast, alert or link: show nothing for it, and do not re-fetch the state after it |
 | `onCopyText(text)` | copy it and show the client's toast with the copied text |
-| `onWatchPublicData(on)` / `watchesPublicData` | the widget asks for live shared data (`watchPublicData()`) or stops: poll its `public_data` only while it watches, is on screen and has a `widget_id` (below); called on a change, the field has the latest (web `WidgetHost.watchesPublicData`, native `WidgetDiagnostics.watchesPublicData`) |
-| `context.preview` | a widget in a list of inline results, before it is sent (`botInlineMessageWidget` with its `public_data` and `chat_data`, and a `widget_id` for a result by reference, which takes them from its object; a result has no flags): no input (a tap on it selects the result: route no touches to the view), no requests or actions, no viewer, no storage, no network marker. Create a new host for the message once it is sent |
+| `onWatchPublicData(on)` / `watchesPublicData` | the widget asks to follow its shared state live (`watchPublicData()`) or stops: poll its `public_data` only while it watches, is on screen and has a `widget_id` (below); called on a change, the field has the latest (web `WidgetHost.watchesPublicData`, native `WidgetDiagnostics.watchesPublicData`) |
+| `context.preview` | a widget in a list of inline results, before it is sent (`botInlineMessageWidget` with its state, `public_data` and `chat_data`, and a `widget_id` for a result by reference, which takes the shared state from its object; a result has no flags): no input (a tap on it selects the result: route no touches to the view), no requests or actions, no viewer, no storage, no network marker. Create a new host for the message once it is sent |
 
 **The network marker** (a UI contract of the server's spec). When the message
 has `can_query` (`context.canQuery`), mark the widget as network-capable: "a
@@ -258,49 +264,50 @@ delivers no request and shows no marker either. The dev app draws one in its
 bubble's header (`?message=private`: shown; `no-queries`, `copy`, `preview`:
 none).
 
-**Applying the bot's edits.** `updateMessageWidgetData` carries the new
-`chat_data` and/or `public_data` of one message (a field not in it is
-unchanged, an empty string clears it). In private chats and basic groups it
-comes in the account's pts sequence, as `updateEditMessage` does; in a
-supergroup the post is updated through the usual edit of channel posts, with the
-channel's pts (`updateEditChannelMessage` and the like). Apply it by the rules
-of that sequence, store the strings with the message and pass the full new
-state to the live host with `setData`.
+**Applying the bot's edits of the state.** `updateMessageWidgetData` carries
+the new chat state (`chat_data`) and/or shared state (`public_data`) of one
+message (a field not in it is unchanged, an empty string clears it). In private
+chats and basic groups it comes in the account's pts sequence, as
+`updateEditMessage` does; in a supergroup the post is updated through the usual
+edit of channel posts, with the channel's pts (`updateEditChannelMessage` and
+the like). Apply it by the rules of that sequence, store the state with the
+message and pass the full new state to the live host with `setData`.
 
-**Polling a shared widget's `public_data`.** When the media has a `widget_id`,
-the widget is a shared object: its payload, size anchors and `public_data` are
-the same in the original, every forward and every other message the bot sent
-by that id, and the bot changes `public_data` for all of them at once. Only
-**widgets that watch** are polled: a widget asks for live shared data with
-`TelegramWidget.watchPublicData()` and stops with `unwatchPublicData()`, and the
-host reports the latest (web `onWatchPublicData(on)` and
+**Polling a shared widget's shared state.** When the media has a `widget_id`,
+the widget is a shared object: its payload, size anchors and shared state
+(`public_data`) are the same in the original, every forward and every other
+message the bot sent by that id, and the bot changes the shared state for all
+of them at once. Only **widgets that watch** are polled: a widget asks to follow
+its shared state live with `TelegramWidget.watchPublicData()` and stops with
+`unwatchPublicData()`, and the host reports the latest (web `onWatchPublicData(on)` and
 `WidgetHost.watchesPublicData`; Swift, Kotlin and C++ `onWatchPublicData` and
-`WidgetDiagnostics.watchesPublicData`). Every other widget gets `public_data`
-with the message only; a widget that watches without a `widget_id` changes
+`WidgetDiagnostics.watchesPublicData`). Every other widget gets its shared
+state with the message only; a widget that watches without a `widget_id` changes
 nothing (there is no object to poll), and a preview never watches. While
 widgets with an id are on screen and watch, the messenger (never the sandbox)
 polls **one visible carrier per `widget_id`** with
 `messages.getWidgetPublicData`,
-one message per call, with the hash of the value it has (`0` at first):
+one message per call, with the hash of the shared state it has (`0` at first):
 `widgetPublicDataNotModified` changes nothing, `widgetPublicData` brings the new
-value, which the client applies with `setData` to **every** widget on screen
-with that id (and stores with each message). Every answer carries the object's
+shared state, which the client applies with `setData` to **every** widget on
+screen with that id (and stores with each message). Every answer carries the object's
 `period`, the recommended cadence: poll that object again after it (the
 server's period: 5–3600 s, 30 s by default, which also applies before the
 first answer). An edit is visible at once to any read, so a message loaded
-later is current anyway. A widget without a `widget_id` keeps the value its
-message has (a forward's snapshot never changes); `chat_data` is never polled:
-the server pushes it.
+later is current anyway. A widget without a `widget_id` keeps the shared state
+its message has (a forward's copy never changes); the chat state (`chat_data`)
+is never polled: the server pushes it.
 
 Optional: widgets with the same `widget_id` are one widget, so a client may
-cache the checked payload (the inflated HTML) and the current `public_data` per
+cache the checked payload (the inflated HTML) and the current shared state per
 `widget_id` and share them between the messages that show it; the host still
-gets the HTML and the data per message, as above.
+gets the HTML and the state per message, as above.
 
-The framework checks everything coming out of the sandbox (the data's limits,
-the flags, one tap per request or the background rules, one request in flight,
-the `copyText` tap) and everything going in (`chatData` / `publicData` and
-`result` text of at most 1024 bytes without a NUL, a copy without `chatData`):
+The framework checks everything coming out of the sandbox (the limits of a
+request's `data`, the flags, one tap per request or the background rules, one
+request in flight, the `copyText` tap) and everything going in (the chat state,
+the shared state and `result`, each a text of up to 1024 bytes (UTF-8) without a
+NUL; a copy without chat state):
 the client only delivers. A client that sets no `onRequest` gets every request
 refused in the widget (`NOT_ALLOWED`). Requests are never sent over the
 widget's own channels: the sandbox has no network (invariant 5); the client's
@@ -311,9 +318,9 @@ MTProto connection carries them.
 A widget message may be forwarded to any chat, groups and channels included.
 The copy runs the same HTML (isolated, no network) with the copy's own flags
 (`is_copy`; `can_query` only when the bot sent the widget with
-`fwd_allow_queries`, and then on a tap only) and its own `public_data`: a snapshot of the forward, or the
-shared object's value, which changes and is polled as above. It never has
-`chat_data`, and it is told nothing about the chat it is in (no chat type: the
+`fwd_allow_queries`, and then on a tap only) and a shared state: its own, frozen as of the forward, or the
+shared widget's one shared state, which changes and is polled as above. It never has
+a chat state, and it is told nothing about the chat it is in (no chat type: the
 bot must not learn where its widget was forwarded, and the server sends the bot
 neither the chat nor its type with a request from a copy); the viewer only with
 `can_query`. It is a different message, so **each copy has its own storage**: keep Web Storage per (account, chat, message id), pass it as the
@@ -359,7 +366,7 @@ var options = WidgetHost.Options()                  // policy .strict, features 
 options.features = ["webAnimations"]
 options.locale = "ru"
 options.storage = WidgetStorage(local: savedLocal, session: savedSession)   // this message's Web Storage
-options.data = WidgetData(chatData: media.chatData, publicData: media.publicData)                    // the bot's two strings
+options.data = WidgetData(chatData: media.chatData, publicData: media.publicData)                    // the chat state and the shared state
 options.context = WidgetContext(isCopy: media.isCopy, canQuery: media.canQuery, backgroundQuery: media.backgroundQuery,
                                 chatType: .private, viewer: WidgetViewer(id: me.id, firstName: me.firstName, lastName: me.lastName,
                                                                          username: me.username, isPremium: me.isPremium))   // the server's flags; the account
@@ -373,7 +380,7 @@ host.onStorageCommit = { area, values in /* keep values as the new content of th
 host.onGestureClaim = { claim in /* x, y, hold: feed your bubble's GestureArbiter (docs/sdk-v1.md §5.5) */ }
 host.onRequest = { request, complete in /* getBotWidgetQueryAnswer(request.data); complete(.success(WidgetRequestAnswer(result: answer.result))) or .failure(.timeout) */ }
 host.onCopyText = { text in /* copy it, show "Copied: \(text)" */ }
-// updateMessageWidgetData, or a polled shared public_data: host.setData(WidgetData(chatData: …, publicData: …))
+// updateMessageWidgetData, or a polled shared state: host.setData(WidgetData(chatData: …, publicData: …))
 bubble.addSubview(host.view)          // UIView on iOS, NSView on macOS; its height follows the widget
 // later:
 host.setVisible(false)                // off screen
@@ -415,7 +422,7 @@ host.onStorageCommit = { area, values -> /* "local" | "session": keep values */ 
 host.onGesture = { claim -> /* x, y, hold: feed your bubble's GestureArbiter (docs/sdk-v1.md §5.5) */ }
 host.onRequest = { request, complete -> /* getBotWidgetQueryAnswer(request.data); complete(Result.success(WidgetRequestAnswer(answer.result))) or Result.failure(WidgetRequestException(WidgetRequestFailure.TIMEOUT)) */ }
 host.onCopyText = { text -> /* copy it, show the text */ }
-// updateMessageWidgetData, or a polled shared public_data: host.setData(WidgetData(…, …))
+// updateMessageWidgetData, or a polled shared state: host.setData(WidgetData(…, …))
 bubble.addView(host.view)             // a View whose height follows the widget (minHeightDp / maxHeightDp in Options)
 host.setVisible(false); host.setTheme(darkTheme); host.destroy()
 ```
@@ -454,7 +461,7 @@ const host = new WidgetHost(bubbleElement, html, {
   theme: { colorScheme: 'light', params: { bg_color: '#ffffff' /* … every key, this bubble's */ }, button: { radius: '10px' }, text: { fontSize: 16, padding: '6px 10px' } },
   locale: 'ru',
   storage: { local: savedLocal, session: savedSession },   // this message's Web Storage
-  data: { chatData, publicData },  // the bot's two strings
+  data: { chatData, publicData },  // the chat state and the shared state
   context: { isCopy, canQuery, backgroundQuery, chatType: 'private', viewer: { id: me.id, firstName: me.firstName, lastName: me.lastName, username: me.username, isPremium: me.isPremium } },   // the server's flags; the account
   onRequest: async ({ data }) => ({ result }),   // getBotWidgetQueryAnswer; or throw 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'
   onCopyText: (text) => {},        // copy it, show the text
@@ -469,7 +476,7 @@ const host = new WidgetHost(bubbleElement, html, {
   onDead: (reason) => {},
 });
 host.setVisible(false); host.setTheme(darkTheme); host.destroy();
-host.setData({ chatData, publicData });   // updateMessageWidgetData, or a polled shared public_data
+host.setData({ chatData, publicData });   // updateMessageWidgetData, or a polled shared state
 ```
 
 `workerPool` (a `WorkerPool` of warmed workers) is the option for a feed of
@@ -501,7 +508,7 @@ host.onGesture = [](const twidget::WidgetGestureClaim& c) { /* feed your bubble'
 host.onRequest = [](const twidget::WidgetRequest& r, std::function<void(const twidget::WidgetRequestOutcome&)> respond) { /* send r.data; respond({.answer = {.result = …}}) or respond({.failure = twidget::WidgetRequestFailure::Timeout}) */ };
 host.onCopyText = [](const std::string& text) { /* copy it, show the text */ };
 host.start();
-// a bot's edit arrived: host.setData({newChatData, newPublicData});
+// the bot edited the state: host.setData({newChatData, newPublicData});
 // host.setVisible(false); host.setTheme(darkTheme); host.destroy();
 ```
 
@@ -523,7 +530,7 @@ every framework update; `catalogue.json` `version` is the profile version.
   asking, already checked; the app confirms and does it (or ignores it). The
   widget is never told the outcome.
 - Talk to the bot by itself: a request reaches the bot only through the app's
-  `onRequest`, and the bot's data only through `data` and `setData`; the
+  `onRequest`, and the widget's state only through `data` and `setData`; the
   sandbox has no network.
 - Persist anything, or share anything between widgets: the framework hands
   you each storage commit, the app stores it; each widget is a fresh runtime

@@ -13,15 +13,18 @@ D4, D7a, D8, D9, D12, D14, D17, D18, D19, D22, D23, and the decisions of
 What the framework did before v1 is noted where a client may meet it
 (**before v1**: the API of the profile-0 builds).
 
-**The bot's data and requests** (2026-10-25, widget interactivity, decision I1
+**The widget's state and requests** (2026-10-25, widget interactivity, decision I1
 in `docs/decisions.md`, "The bot's data and requests"; the server's side in
-`docs/tgw-format.md`, "The bot's data and requests"): the widget's HTML never
-changes after sending, only data does. Two strings the bot writes travel with
-the HTML: `chatData` (this message only, never forwarded) and `publicData`
-(forwards carry it: a snapshot, or a value shared with the original); a widget
-can send the bot a request, a callback button inside the widget, and gets the
-bot's `result`; the server's flags on the message say where it may ask (on a
-tap, or in the background too); `copyText` copies a text on a tap (§2.13–§2.15).
+`docs/tgw-format.md`, "The widget's state and requests"): a widget is fixed code
+plus changeable state. The code, its HTML, is set when the bot sends the widget
+and never changes; the state changes, and only the bot writes it: the **chat
+state** (`chatData`: this message in its chat, never forwarded) and the **shared
+state** (`publicData`: wherever the widget is shown; a forward gets a copy, or
+shares it with the original). The widget reads its state and cannot change it
+itself: it can send the bot a request, a callback button inside the widget, and
+gets the bot's `result`; the server's flags on the message say where it may ask
+(on a tap, or in the background too); `copyText` copies a text on a tap
+(§2.13–§2.15).
 They are part of SDK v1 and of layer 233 from the launch. A widget in an
 inline-results list, before it is sent, runs as a preview (§2.16).
 
@@ -43,9 +46,9 @@ host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
 | gestures | reports per press what the widget claims with `touch-action` (horizontal drags, holds); the shared policy (thresholds, who wins); `dblclick` for every double tap, `contextmenu` for claimed holds; on the web, plays the bubble itself | drives its recognizers from the policy: menu and swipe-to-reply unless the widget claims the press, and then cancels the widget's touch; the list scroll always; no double-tap reaction over the widget (v0.1.2; vertical drags the chat's since v0.1.3, §5.5) |
 | size | reports the content height and the widget's resize anchor (`setResizeAnchor`, v0.1.3) | sizes the bubble from the bot's hint before load, caps it, clips; keeps the anchored edge in place when the height changes (§5.6) |
 | failures | freezes the last frame with a badge and reports `dead` | rebuilds it after a crash; after 2 crashes in a row leaves it stopped |
-| the bot's data | `chatData`, `publicData`, `chatDataChanged`, `publicDataChanged` in the widget; the limits; a copy without `chatData` | passes the message's two strings at creation and the full state again on every change (`setData`): the server's update, and the shared `public_data` it polls (§5.11) |
+| the widget's state | `chatData` (the chat state), `publicData` (the shared state), `chatDataChanged`, `publicDataChanged` in the widget; the limits; a copy without chat state | passes the message's state at creation and the full state again on every change (`setData`): the server's update, and the shared state it polls (§5.11) |
 | where the widget is | `isForward`, `chatType`, `viewer` in the widget; a copy is told nothing about the chat it is in (no `chatType`); the widget knows its `viewer` only where it may send requests | passes the server's flags (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer at creation (`context`) |
-| requests | the data's limits, the server's flags, one tap per request or the background rules, one in flight, the answer's limits | sends each request like a callback button's press, hands back the bot's `result` or the failure (§5.11) |
+| requests | the limits of `data`, the server's flags, one tap per request or the background rules, one in flight, the answer's limits | sends each request like a callback button's press, hands back the bot's `result` or the failure (§5.11) |
 | copyText | the text's limits, one tap per call | copies the text and shows a toast that says what was copied |
 
 ## 2. Widget-facing API
@@ -74,8 +77,8 @@ laid over the same calls later (D19).
 | `HapticFeedback.selectionChanged()` | `() => HapticFeedback` | |
 | `ready()` | `() => void` | |
 | `setResizeAnchor(edge)` | `(edge: 'top' \| 'bottom') => void` | v0.1.3 (§2.12); detect it with `typeof TelegramWidget.setResizeAnchor === 'function'` |
-| `watchPublicData()`, `unwatchPublicData()` | `() => void` | §2.13: ask for live shared `publicData` (the client polls it only for widgets that watch) and stop; no tap needed |
-| `chatData`, `publicData` | `string \| null`, read-only | §2.13: the bot's two strings; `chatData` is null in a copy |
+| `watchPublicData()`, `unwatchPublicData()` | `() => void` | §2.13: follow the shared state live (the client polls it only for widgets that watch) and stop; no tap needed |
+| `chatData`, `publicData` | `string \| null`, read-only | §2.13: the widget's chat state and shared state, which only the bot writes; `chatData` is null in a copy |
 | `isForward` | `boolean`, read-only | §2.13: this message is a forwarded copy |
 | `chatType` | `'private' \| 'group' \| 'supergroup' \| 'channel' \| null`, read-only | §2.13: null in a copy (it is told nothing about the chat it is in) and in a preview, or when the client does not say |
 | `viewer` | `{ id, first_name?, last_name?, username?, is_premium? } \| null` (Mini Apps' `WebAppUser`), read-only, frozen | §2.13: the user looking at the widget; null wherever the widget may not send requests (no `canQuery`), a preview included |
@@ -317,9 +320,10 @@ Why local storage, and why per message: the state belongs to the message
 (a client already keeps a record per message, the cached bubble height); the
 bot cannot hold state for the widget because v1 has no messages or callbacks
 to the bot (D8); and the server checks only the payload's size (D15), so any
-cloud synchronisation would be new server work. (Since 2026-10-25 the bot has
-its own two strings and requests, §2.13: the state the bot keeps and shares.
-Web Storage stays the widget's own state on this device.) Local Web Storage keyed by
+cloud synchronisation would be new server work. (Since 2026-10-25 a widget also
+has a state that only the bot writes, the chat state and the shared state, and
+can ask the bot to change it, §2.13–§2.14. Web Storage stays what the widget
+keeps for itself on this device.) Local Web Storage keyed by
 the message is what fits all three; a cloud or per-bot `DeviceStorage` is
 out of v1 (§6).
 
@@ -345,11 +349,11 @@ out of v1 (§6).
   the client.
 - No `storage` event: a message is shown in one place at a time; if it ever is
   in two, the last commit wins.
-- The HTML of a sent widget never changes: no edit replaces it (only the
-  caption can be edited, as for any media). The bot changes only its two
-  strings (§2.13), and they reach the running widget as `chatDataChanged` /
-  `publicDataChanged`; nothing restarts. A bot that wants a new widget sends a
-  new message.
+- The code of a sent widget, its HTML, never changes: no edit replaces it (only
+  the caption can be edited, as for any media). The bot changes only the
+  widget's state (§2.13), and the changes reach the running widget as
+  `chatDataChanged` / `publicDataChanged`; nothing restarts. A bot that wants a
+  new widget sends a new message.
 
 ### 2.9 Locale
 
@@ -387,9 +391,9 @@ missing or malformed locale is `en-US` (before v1: always `en-US`).
 | `copyText` | `TypeError` (not a string of 1–256 UTF-16 code units, or a lone surrogate) | dropped, `activation-blocked` | one per tap |
 
 Diagnostics go to the host's diagnostics (`onDiag` / `WidgetDiagnostics`),
-never to the widget. The bot's data and requests add `request-blocked` (a refused
+never to the widget. The widget's state and requests add `request-blocked` (a refused
 request, at most 20 per widget), `answer-rejected` (an answer whose `result`
-broke the limits) and `data-rejected` (a `chatData` or `publicData` the client
+broke the limits) and `data-rejected` (a chat state or shared state the client
 passed that is over 1024 bytes or not text).
 
 A widget is killed, and its last frame kept (§5.7), for one of three reasons the
@@ -421,45 +425,48 @@ not tell: it stays 1). The anchor is a request: a client keeps it for a bubble
 on screen; for a bubble off screen it keeps what is on screen in place
 (§5.6). The widget is not told which edge moved.
 
-### 2.13 The bot's data and where the widget is
+### 2.13 The widget's state and where it is
 
-The widget's HTML is fixed when the bot sends it; what changes is data. Besides
-its own Web Storage (§2.8) a widget gets:
+A widget is fixed code plus changeable state. The code, its HTML, is set when
+the bot sends the widget and never changes (§2.8). The state changes, and only
+the bot writes it. Besides what it keeps for itself in Web Storage (§2.8), a
+widget gets:
 
 | member | what it is | in a forwarded copy |
 |---|---|---|
-| `chatData` | a string the bot wrote for this message, at most 1024 bytes of UTF-8 text, or `null`. In the private chat it is the user's; in a group every member sees the same one; a forward never carries it | `null`, always |
-| `publicData` | a string the bot wrote for everyone, at most 1024 bytes, or `null`. A forward carries it: either a snapshot taken at the forward, which never changes again, or the value of an object the bot shares between the original and all its forwards, which changes for all of them at once (a ticker, a live score) | the snapshot, or the shared value |
+| `chatData` | the **chat state**: tied to this message and seen only in its chat; in the private chat it is the user's, in a group every member sees the same one; a forward never carries it. A text of up to 1024 bytes (UTF-8), or `null`. For example a game in progress, whose turn it is | `null`, always |
+| `publicData` | the **shared state**: seen wherever the widget is shown. A static widget keeps it in the message, and a forward gets a copy as of the forward, which never changes again; a shared widget (the server's object by `widget_id`, like a poll) has one shared state for all its messages and forwards, which changes for all of them at once. A text of up to 1024 bytes (UTF-8), or `null`. For example poll results, a price | the copy taken at the forward, or the shared widget's shared state |
 | `isForward` | the message is a forwarded copy | `true` |
 | `chatType` | `'private'`, `'group'`, `'supergroup'` or `'channel'`: the kind of chat the message is in (Bot API `Chat.type`; `'channel'` is not used yet); `null` when the client does not say | `null`, always: a copy is told nothing about the chat it is in (below) |
 | `viewer` | the account looking at the widget, shaped like Mini Apps' `WebAppUser`: `id` (the Telegram user id, the same the bot gets with a request), `first_name`, `last_name`, `username` and `is_premium` (only when true); a field the client does not have is absent (frozen); **only where the widget may send requests** (the message's `can_query`), else `null`, in an original too | the viewer if the copy may send requests (below), else `null` |
 
-- Only the bot writes `chatData` and `publicData`: when it sends the widget and
-  by separate edits. The widget reads them; it cannot write them. A request's
-  answer carries no data (§2.14).
-- When they change, the widget gets `chatDataChanged` and `publicDataChanged`
-  (`onEvent`), with the new values already in place: it redraws itself, nothing
-  restarts and the page keeps its state. One change that touches both fires
-  both, `chatDataChanged` first, in the same task; a change that leaves a value
-  as it was fires nothing for it. `chatDataChanged` never fires in a copy.
-- The empty string is how the bot clears a field: the widget sees `null`, never
-  `''`.
-- **Live shared data: `watchPublicData()`.** A widget whose `publicData` is
-  shared (the bot sent it as a shared widget: a ticker, the counts of a poll
-  others vote in) calls `TelegramWidget.watchPublicData()` to ask for live
-  values: while it is on screen the client polls the shared value at the
-  server's period (5–3600 s, 30 s by default) and `publicDataChanged`
-  brings each new one. `unwatchPublicData()` stops it. Synchronous, no tap
-  needed, calling it again changes nothing. A widget that does not watch gets
-  `publicData` with the message, and the bot's edits of this message, but no
-  polled values: most widgets need nothing more. In a widget that is not
-  shared, and in a preview, it does nothing.
+- Only the bot writes the state: when it sends the widget and by separate
+  edits. The widget reads it and cannot change it itself; it can only ask the
+  bot (`request`, §2.14). A request's answer does not change the state.
+- When the state changes, the widget gets `chatDataChanged` for the chat state
+  and `publicDataChanged` for the shared state (`onEvent`), with the new values
+  already in place: it redraws itself, nothing restarts and the page keeps its
+  DOM and variables. One change that touches both fires both,
+  `chatDataChanged` first, in the same task; a change that leaves a value as it
+  was fires nothing for it. `chatDataChanged` never fires in a copy.
+- The empty string is how the bot clears the chat state or the shared state:
+  the widget sees `null`, never `''`.
+- **Live shared state: `watchPublicData()`.** A shared widget (the bot sent it
+  as one: a ticker, the counts of a poll others vote in) calls
+  `TelegramWidget.watchPublicData()` to follow its shared state live: while it
+  is on screen the client polls the shared state at the server's period
+  (5–3600 s, 30 s by default) and `publicDataChanged` brings each change.
+  `unwatchPublicData()` stops it. Synchronous, no tap needed, calling it again
+  changes nothing. A widget that does not watch gets its shared state with the
+  message, and the bot's edits of this message, but nothing polled: most
+  widgets need nothing more. In a static widget, and in a preview, it does
+  nothing.
 - Where a widget lives: the private chat with the bot that sent it (it may
   also ask in the background, §2.14); a group or supergroup the bot is a member
-  of (`chatType` `'group'` / `'supergroup'`: requests on a tap only, and
-  `chatData` is one string shared by everyone in the group: no secrets there,
-  draw it per `viewer.id`); any chat through the bot's inline mode (a message
-  "via the bot": requests on a tap only); and forwards of any of these.
+  of (`chatType` `'group'` / `'supergroup'`: requests on a tap only, and the
+  chat state is one for everyone in the group: no secrets there, draw it per
+  `viewer.id`); any chat through the bot's inline mode (a message "via the
+  bot": requests on a tap only); and forwards of any of these.
 - `viewer` is what the bot gets as `from` with a tap: `{ id: 42, first_name:
   'Ann', last_name: 'Lee', username: 'ann_lee', is_premium: true }`. The names
   are 1–64 characters (UTF-16 code units), the username 5–32 characters of
@@ -470,13 +477,13 @@ its own Web Storage (§2.8) a widget gets:
   a copy that may not ask and a preview have `viewer` `null`. A widget that may
   not talk to the bot does not know who views it, so it cannot pass the id out
   through a link either, and the rule matches the network marker (§5.11). A
-  bot that wants the user's id in its private chat puts it into `chatData`
+  bot that wants the user's id in its private chat puts it into the chat state
   itself.
 - **A copy is told nothing about the chat it is in**: `chatType` is `null` in
   every forward, with requests or without. The bot must not learn where its
   widget was forwarded, and whatever the widget knows it could put into a
   request's `data`.
-- A forward has no `chatData`. It may send requests (on a tap only) when the bot
+- A forward has no chat state. It may send requests (on a tap only) when the bot
   sent the widget with forwards allowed to ask (the server's
   `fwd_allow_queries`): then it also knows the viewer, whom the bot learns with
   a tap anyway (who pressed); the bot gets no message, chat or chat type with a
@@ -485,15 +492,16 @@ its own Web Storage (§2.8) a widget gets:
   `openTelegramLink('https://t.me/<bot>?start=…')`: the bot learns who it is only
   when they press Start. A forward has its own Web Storage (§2.8).
 - One state for all, drawn per viewer: chess for two is one widget and one
-  `chatData`, drawn from `viewer.id`.
+  chat state, drawn from `viewer.id`.
 
 ### 2.14 Requests to the bot
 
-`TelegramWidget.request(data)` is a callback button inside the widget: the bot
-gets what an inline button's press gives it (who pressed, the message with its
-`chatData` and `publicData`, `chat_instance`, the chat type; from a copy only who
-pressed and the shared object's id) plus `data`, and answers with a `result` for
-this widget. Only a widget the bot sent with requests allowed (the server's
+`TelegramWidget.request(data)` is how a widget asks the bot, the only writer of
+its state; it is a callback button inside the widget: the bot gets what an
+inline button's press gives it (who pressed, the message with its chat state and
+shared state, `chat_instance`, the chat type; from a copy only who pressed and
+the shared object's id) plus `data`, and answers with a `result` for this
+widget. Only a widget the bot sent with requests allowed (the server's
 `allow_queries`) may ask at all; the client marks such a widget as one whose tap
 may send data to the bot (§5.11).
 
@@ -509,9 +517,10 @@ TelegramWidget.request('vote:2').then(
 - The promise resolves with `{ result }`: the bot's answer for this widget,
   text of at most 1024 bytes (empty allowed), or `null` when the bot answered
   with nothing. Only the widget that asked gets it.
-- **The answer carries no data.** A bot that changes `chatData` or `publicData`
-  does it with separate calls, and the new values reach the widget the usual
-  way (`chatDataChanged` / `publicDataChanged`), before or after the answer. A
+- **The answer does not change the state.** A bot that changes the chat state
+  or the shared state does it with separate calls, and the change reaches the
+  widget the usual way (`chatDataChanged` / `publicDataChanged`), before or
+  after the answer. A
   widget that needs the new state at once gets it from the bot in `result`
   (for example the user's own vote, or the new score as JSON).
 - **Where a widget may ask** is the server's decision, per message, and the
@@ -555,7 +564,7 @@ TelegramWidget.request('vote:2').then(
   in Web Storage); in the private chat background requests also tell the bot
   when the user has the chat open. Bot-side handling, the server's checks and
   the update the bot gets (`widget_query`, `answerWidgetQuery`) are the server's
-  contract (`docs/tgw-format.md`, "The bot's data and requests").
+  contract (`docs/tgw-format.md`, "The widget's state and requests").
 
 ### 2.15 `copyText`
 
@@ -571,7 +580,7 @@ another unnoticed. The widget is not told that it was copied. A copy may copy.
 
 A bot's inline result can be a widget; in the list of results, before the user
 sends one, the client shows the widget as a **preview**: `isPreview` is `true`.
-A preview has the bot's data (`chatData`, `publicData`) and runs as usual
+A preview has its state (`chatData`, `publicData`) and runs as usual
 (timers, animations, the theme, the visibility and CPU rules of any bubble), but
 it is not a message yet and is not the user's:
 
@@ -608,7 +617,7 @@ one policy with a shared JSON fixture, as `cpu-budget` does:
 | `profile` | integer | glue (its own constant; `VERSION.json` once it exists) | the shim reports `profile-mismatch` when it differs from the bundle's |
 | `storage` | `{ local: Record<string, string>, session: Record<string, string> }` | client (the preload), glue checks the quota | |
 | `policy` | `'strict'` | glue default | |
-| `chatData`, `publicData` | `string \| null` | client (`data`), glue checks: text of 1–1024 bytes without a NUL, else `null` (`data-rejected`); a copy's `chatData` is dropped | |
+| `chatData`, `publicData` | `string \| null` | client (`data`: the chat state and the shared state), glue checks: text of 1–1024 bytes without a NUL, else `null` (`data-rejected`); a copy's `chatData` is dropped | |
 | `isCopy` | `boolean` | client (`context.isCopy`, the server's `is_copy`); the widget's `isForward` | |
 | `canQuery` | `boolean` | client (`context.canQuery`, the server's `can_query`); the shim refuses a request at once without it; `false` in a preview | |
 | `isPreview` | `boolean` | client (`context.preview`): an inline result before it is sent (§2.16) | |
@@ -697,7 +706,7 @@ in order.
 
 The `bridge` message of the profile-0 builds (host → widget events such as a
 bot's answer to `sendMessage`) went with `sendMessage` in v1; the name is back
-for the bot's data and the answers to `request`.
+for the widget's state and the answers to `request`.
 
 ### 3.4 Host → renderer
 
@@ -745,7 +754,7 @@ public enum WidgetResizeAnchor: String { case top, bottom }   // v0.1.3: WidgetD
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
 // Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
 var onChange: ((WidgetDiagnostics) -> Void)?           // height, resizeAnchor (v0.1.3), watchesPublicData, loaded, rendered, dead, diags, actions
-var onWatchPublicData: ((Bool) -> Void)?                // the widget started or stopped watching its shared publicData (§5.11): on a change
+var onWatchPublicData: ((Bool) -> Void)?                // the widget started or stopped watching its shared state (§5.11): on a change
 var onError: ((String) -> Void)?
 var onAction: ((WidgetAction) -> Void)?
 var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?   // local before session
@@ -754,10 +763,10 @@ func setTheme(_ theme: WidgetTheme)
 func setVisible(_ visible: Bool); func snapshot(completion:); func destroy()
 ```
 
-The bot's data and requests (§2.13–§2.15, §5.11):
+The widget's state and requests (§2.13–§2.15, §5.11):
 
 ```swift
-public struct WidgetData { var chatData: String?; var publicData: String? }          // the full state of the bot's two strings
+public struct WidgetData { var chatData: String?; var publicData: String? }          // the full state: the chat state and the shared state
 public enum WidgetChatType: String { case `private`, group, supergroup, channel }
 public struct WidgetViewer { var id: Int64; var firstName: String?; var lastName: String?; var username: String?; var isPremium = false }  // the account's own
 public struct WidgetContext { var isCopy = false; var canQuery = false; var backgroundQuery = false; var chatType: WidgetChatType?; var viewer: WidgetViewer?; var preview = false }  // the server's flags; preview: §2.16
@@ -789,7 +798,7 @@ sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(
 WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
 // Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload)
 var onChange: ((WidgetDiagnostics) -> Unit)?               // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions
-var onWatchPublicData: ((Boolean) -> Unit)?                 // the widget started or stopped watching its shared publicData (§5.11): on a change
+var onWatchPublicData: ((Boolean) -> Unit)?                 // the widget started or stopped watching its shared state (§5.11): on a change
 var onError: ((String) -> Unit)?
 var onAction: ((WidgetAction) -> Unit)?
 var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   // "local" | "session"
@@ -798,7 +807,7 @@ var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)?    // deprecated since v
 fun setTheme(theme: WidgetTheme); fun setVisible(visible: Boolean); fun destroy()
 ```
 
-The bot's data and requests:
+The widget's state and requests:
 
 ```kotlin
 data class WidgetData(val chatData: String? = null, val publicData: String? = null)
@@ -832,7 +841,7 @@ struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } ki
 WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
 // WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload)
 std::function<void(const WidgetDiagnostics&)> onChange;           // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions, storageCommits (first 1000)
-std::function<void(bool)> onWatchPublicData;                      // the widget started or stopped watching its shared publicData (§5.11): on a change
+std::function<void(bool)> onWatchPublicData;                      // the widget started or stopped watching its shared state (§5.11): on a change
 std::function<void(const std::string&)> onError;
 std::function<void(const WidgetAction&)> onAction;
 std::function<void(const std::string& area, const std::map<std::string, std::string>&)> onStorageCommit;
@@ -841,7 +850,7 @@ std::function<void(bool x, bool y)> onGestureClaim;                 // deprecate
 void start(); void setTheme(const WidgetTheme&); void setVisible(bool); void destroy();
 ```
 
-The bot's data and requests:
+The widget's state and requests:
 
 ```cpp
 struct WidgetData { std::optional<std::string> chatData, publicData; };
@@ -877,8 +886,8 @@ new WidgetHost(container, html, {
   onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y, hold }),
   bubbleGestures, onBubbleGesture({ action, gesture, x, y, edge }),   // v0.1.2: the renderer plays the bubble (§5.5)
   onResize(height, anchor),                // anchor: 'top' | 'bottom', the widget's setResizeAnchor (v0.1.3)
-  onWatchPublicData(on),                   // the widget started or stopped watching its shared publicData (§5.11): on a change
-  data: { chatData, publicData },          // the bot's two strings as the message has them now
+  onWatchPublicData(on),                   // the widget started or stopped watching its shared state (§5.11): on a change
+  data: { chatData, publicData },          // the chat state and the shared state as the message has them now
   context: { isCopy, canQuery, backgroundQuery, chatType, viewer: { id, firstName, lastName, username, isPremium }, preview },   // the server's flags (preview: §2.16); fixed for the host's life
   onRequest({ data }),                     // resolve with the server's answer { result } or reject 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'
   onCopyText(text),
@@ -887,7 +896,7 @@ new WidgetHost(container, html, {
 host.resizeAnchor;                         // v0.1.3: the latest anchor, 'top' until the widget sets one
 host.watchesPublicData;                    // the widget's latest watchPublicData / unwatchPublicData, false until then
 host.setTheme(theme); host.setVisible(visible); host.setBubbleGestures(mode); host.destroy();
-host.setData({ chatData, publicData });    // a change of the bot's data (the server's update, the polled shared value): the full state
+host.setData({ chatData, publicData });    // the state changed (the server's update, the polled shared state): the full state
 // @telegram/widget-sandbox/shared/gesture-policy: GestureArbiter, claimOf and the thresholds, for a client's own recognizers
 ```
 
@@ -912,7 +921,7 @@ the widget received and a hint; `height` is the laid-out content height. From a 
 `sandbox-node.ts widget.html --width 360 --hold 120,40 --double-tap 120,40 --swipe 60,80,120,0`
 (`--desktop` for a desktop client's bubble, `--json` for the full result).
 
-The bot's data and requests: `data`, `context` (`WIDGET_MESSAGE_KINDS` in
+The widget's state and requests: `data`, `context` (`WIDGET_MESSAGE_KINDS` in
 `sdk-policy.ts` has the server's flags per kind of message) and `onRequest`
 (sync or a promise; its answers go into the widget at the next step of the
 run), `script` steps `{ data }` (the client's `setData`) and `{ visible }` (a
@@ -1129,8 +1138,8 @@ goes to the background, `setVisible(true)` when it is back.
 - The widget is `messageMediaWidget` (layer 233): inflate `payload` (zlib,
   RFC 1950, not gzip), no size limit of your own, hand the HTML to the host (`docs/tgw-format.md`,
   `docs/integration.md`). The HTML never changes after sending: a change of the
-  bot's data goes to the live host with `setData` (§5.11); there is no new host
-  for it.
+  widget's state goes to the live host with `setData` (§5.11); there is no new
+  host for it.
 - Rendering is enabled by the client's own platform/version flag; off, or
   below layer 233 (`messageMediaUnsupported`), the message shows as
   unsupported media with its caption. Keep that fallback.
@@ -1159,46 +1168,49 @@ Text a widget marked `user-select: text` is selectable; everything else is not
   `user-select: text` to be conformant; until it does, the text stays
   unselectable and the widget still works.
 
-### 5.11 The bot's data, requests and copies
+### 5.11 The widget's state, requests and copies
 
-The server's side is `docs/tgw-format.md`, "The bot's data and requests" (the
-TL names there are the server's).
+The server's side is `docs/tgw-format.md`, "The widget's state and requests"
+(the TL names there are the server's). The widget's HTML never changes; its
+state does, and only the bot writes it: the chat state (`chat_data`) and the
+shared state (`public_data`).
 
-- **Create** the host with `data` = the message's `chat_data` / `public_data`
-  as the client has them now (absent = none), and `context` from the message,
-  read, not derived: `isCopy` = `is_copy`, `canQuery` = `can_query`,
+- **Create** the host with `data` = the message's state, `chat_data` and
+  `public_data`, as the client has it now (absent = none), and `context` from
+  the message, read, not derived: `isCopy` = `is_copy`, `canQuery` = `can_query`,
   `backgroundQuery` = `background_query` (the server computes them per
   message), `chatType` = the kind of chat the message is in, `viewer` = the
   account's user id. Pass them for every message; the framework drops the chat
-  type and the `chat_data` of any copy (a copy is told nothing about the chat it
+  type and the chat state of any copy (a copy is told nothing about the chat it
   is in) and the viewer of any message without `canQuery`. A client that passes no flags gets no requests.
-- **The bot's data changes** reach the client two ways; pass the full new state
+- **Changes of the state** reach the client two ways; pass the full new state
   to the live host each time (`setData`), no new host, no restart:
   - `updateMessageWidgetData` (the bot edited `chat_data` and/or
     `public_data`; in a supergroup it comes with the channel's pts, through the
-    usual edit of channel posts): apply both strings it carries;
-  - a shared widget's `public_data` (the media has a `widget_id`) changes for
-    every carrier at once, and the client polls it **for widgets that watch**
-    (`onWatchPublicData` / `watchesPublicData`, §2.13): while such widgets are on
-    screen, call `messages.getWidgetPublicData` for one visible carrier per id,
-    one message per call with its `hash` (the last one, 0 at first), again after
-    the `period` each answer carries (the server's: 5–3600 s, 30 s by
-    default, also before the first answer), and apply a new value to every widget
-    on screen with that id. A widget that does not watch is never polled; one
+    usual edit of channel posts): apply the chat state and the shared state it
+    carries;
+  - a shared widget's shared state (`public_data`; the media has a `widget_id`)
+    changes for every carrier at once, and the client polls it **for widgets
+    that watch** (`onWatchPublicData` / `watchesPublicData`, §2.13): while such
+    widgets are on screen, call `messages.getWidgetPublicData` for one visible
+    carrier per id, one message per call with its `hash` (the last one, 0 at
+    first), again after the `period` each answer carries (the server's:
+    5–3600 s, 30 s by default, also before the first answer), and apply a new
+    shared state to every widget on screen with that id. A widget that does not watch is never polled; one
     without a `widget_id` has nothing to poll. This includes
-    forwarded copies: on a copy `setData` changes `publicData` only.
-  Keep the values with the message, so a host created later gets them.
+    forwarded copies: on a copy `setData` changes only the shared state.
+  Keep the state with the message, so a host created later gets it.
 - **Requests.** On `onRequest`, call `messages.getBotWidgetQueryAnswer` (the peer,
   the message id in the user's own coordinates, `data` as UTF-8 bytes) and
   complete with the answer's `result` (absent: `{ result: null }`). Map the
   errors: `WIDGET_RESPONSE_TIMEOUT` → `timeout`, `FLOOD_WAIT` → `rateLimited`,
   anything else (`WIDGET_QUERY_NOT_ALLOWED`, `MESSAGE_ID_INVALID`, the network)
   → `failed`. Complete every request exactly once: the widget can send its next
-  request only after it. Do not re-fetch the data after an answer: the bot's
+  request only after it. Do not re-fetch the state after an answer: the bot's
   edits arrive the usual ways above, and a widget that needs them at once gets
   them in `result`. Whether a request came from a tap is not passed on: the
-  server and the bot cannot tell either. The framework has already checked the
-  data, the flags, the tap or the background rules and the one-in-flight rule:
+  server and the bot cannot tell either. The framework has already checked
+  `data`, the flags, the tap or the background rules and the one-in-flight rule:
   the client only delivers. Show nothing of its own for a request: the answer
   has no toast, alert or link; the bot's `result` is the widget's to show.
 - **copyText.** On `onCopyText`, copy the text and show the client's toast
@@ -1209,7 +1221,7 @@ TL names there are the server's).
   no marker: the server refuses every request from that message
   (`docs/integration.md`, "The network marker").
 - **Previews.** In a list of inline results, show a widget result
-  (`botInlineMessageWidget`: its data, no flags) as a preview: create the host
+  (`botInlineMessageWidget`: its state, no flags) as a preview: create the host
   with `context.preview` and the result's `chat_data` / `public_data` as
   `data`, no viewer, no storage, no `onRequest` needed, no network marker; a tap
   on it is yours (it selects the result: route no touches to the widget view).
@@ -1222,7 +1234,7 @@ TL names there are the server's).
 ## 6. Out of v1 and the decisions of 2026-10-17
 
 Out of v1: sending messages on the user's behalf (requests to the bot and the
-bot's data came in on 2026-10-25, §2.13–§2.14); sharing; payments; the viewer's
+widget's state came in on 2026-10-25, §2.13–§2.14); sharing; payments; the viewer's
 identity beyond the id (§2.13); popups; `MainButton`; per-bot
 `DeviceStorage` and cloud storage; keyboard input; form controls other than
 `<button>`; `TelegramWidget.platform`;
@@ -1259,13 +1271,13 @@ widgets that called `sendMessage` keep their state in `localStorage` or link
 out with `openLink`, and the corpus READMEs say so; the attack files keep
 calling it to check that it is gone.
 
-The bot's data and requests (§2.13–§2.15, §5.11) are implemented in the
+The widget's state and requests (§2.13–§2.15, §5.11) are implemented in the
 framework on `claude/widget-queries-25a3d2` (2026-10-25, for the next release):
 the shim, all five glue copies and the Node harness, the policy's new sections
 in `sdk-policy.json` on every platform, `packages/core/tests/unit/sdk.test.ts`,
 `tests/sdk.spec.ts` and the `request-*` attacks (`tests/attacks.spec.ts`,
 "requests to the bot") through the dev app's mock bot
 (`apps/web/src/mock-bot.ts`), and the Swift, Kotlin and C++ host tests through
-the real engine. The server side (`docs/tgw-format.md`, "The bot's data and
+the real engine. The server side (`docs/tgw-format.md`, "The widget's state and
 requests") is being built in parallel; clients wire `onRequest`, `setData` and
 the polling to it once it ships.

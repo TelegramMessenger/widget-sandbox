@@ -4,11 +4,12 @@ A **widget is mini-HTML**: one self-contained HTML document, inline CSS and
 JS, `data:` images only, no external resources, of at most **4 KB compressed**
 and **32 KB uncompressed**. It travels as message media of its own since API
 layer 233 (shipped together with widget-sandbox v0.1.0): the payload is in the
-media, also when the widget is a shared object ("The bot's data and requests",
-below). The server never runs, parses or renders the HTML: it checks the
-bytes and packs them. With it travel the bot's data and the flags that say
-where the widget may ask the bot ("The bot's data and requests", below), all in
-layer 233 from the launch.
+media, also when the widget is a shared object ("The widget's state and
+requests", below). The server never runs, parses or renders the HTML: it checks
+the bytes and packs them. A widget is fixed code plus changeable state: the HTML
+never changes after sending, and with it travel the widget's state, which only
+the bot writes, and the flags that say where the widget may ask the bot ("The
+widget's state and requests", below), all in layer 233 from the launch.
 
 The layer's widget TL, as the server's final spec of 2026-10-26 has it
 (verbatim; the sections below refer to it):
@@ -69,10 +70,11 @@ messages.getWidgetPublicData peer:InputPeer msg_id:int hash:long = messages.Widg
   are the security boundary, not the size.
 - The HTML never changes after sending, in a message or in a shared object: no
   edit replaces it (an edit may change the caption, as for any media); a new
-  layout is a new widget, and old messages keep the old one. What changes is data: the bot's
-  `chat_data` and `public_data` ("The bot's data and requests"). The widget's
-  own state lives in the message's storage on the device and is deleted with
-  the message (`docs/sdk-v1.md` §2.8).
+  layout is a new widget, and old messages keep the old one. What changes is the
+  widget's state, `chat_data` and `public_data`, which only the bot writes ("The
+  widget's state and requests"). What the widget keeps for itself lives in the
+  message's storage on the device and is deleted with the message
+  (`docs/sdk-v1.md` §2.8).
 
 | Error | Cause |
 |---|---|
@@ -104,16 +106,16 @@ message: show the unsupported-media fallback.
   allowed chat types are server config; channels are not among them yet.
 - **Via the bot** (inline mode): a bot's inline result may be a widget, in the
   same two forms as a direct send: `inputBotInlineMessageWidget` (the HTML, the
-  size anchors, the data, `allow_queries` / `fwd_allow_queries` /
-  `shared_widget`, `reply_markup`; the server checks the HTML and the strings
+  size anchors, the state, `allow_queries` / `fwd_allow_queries` /
+  `shared_widget`, `reply_markup`; the server checks the HTML and the state
   once and packs them when it saves the results) or
   `inputBotInlineMessageWidgetId` (a `widget_id`, its own `chat_data`,
   `reply_markup`). The results a client lists are `botInlineMessageWidget`: the
   payload, the size anchors, `reply_markup`, `public_data`, `chat_data` and
-  `widget_id` (a result by reference takes the payload, the anchors and the data
-  from its object and shows its id). A result is not a message, so it has no
-  `is_copy` / `can_query` / `background_query`: the client shows it as a
-  preview, the widget with its data, no input, no requests, nothing about the
+  `widget_id` (a result by reference takes the payload, the anchors and the
+  shared state from its object and shows its id). A result is not a message, so
+  it has no `is_copy` / `can_query` / `background_query`: the client shows it as a
+  preview, the widget with its state, no input, no requests, nothing about the
   user (`docs/sdk-v1.md` §2.16, `context.preview`). Each send
   (`messages.sendInlineBotResult`) becomes an ordinary message with `via_bot_id`
   and its own `messageMediaWidget` and `chat_data`; a result with
@@ -123,46 +125,57 @@ message: show the unsupported-media fallback.
   do not get them; a stale result id is `INLINE_RESULT_EXPIRED`.
 - **Forwarding is allowed to any chat**, groups and channels included. A
   forward is a copy (`is_copy`): it runs the same HTML (isolated, no network)
-  with no `chat_data`, its own `public_data` (below) and its own storage on the
-  device, which starts empty. A widget is never forwarded without its author:
-  the server keeps the forward header even when the user asks to hide the
-  sender, so a widget always shows which bot it is from (directly or via).
+  with no chat state (`chat_data`), its own shared state (`public_data`, below)
+  and its own storage on the device, which starts empty. A widget is never
+  forwarded without its author: the server keeps the forward header even when
+  the user asks to hide the sender, so a widget always shows which bot it is
+  from (directly or via).
 - `copyMessage` by the bot sends a new widget by the same rules: a shared
-  widget stays bound to its `widget_id`, a static one gets the HTML and
-  `public_data` by value, and `chat_data` is never copied.
+  widget stays bound to its `widget_id`, a static one gets the HTML and the
+  shared state (`public_data`) by value, and the chat state (`chat_data`) is
+  never copied.
 
-## The bot's data and requests
+## The widget's state and requests
 
 Part of layer 233, as the server's final spec of 2026-10-26 describes it. The
 widget-facing side is `docs/sdk-v1.md` §2.13–§2.16, the client's
-`docs/sdk-v1.md` §5.11 and `docs/integration.md` "The bot's data and
+`docs/sdk-v1.md` §5.11 and `docs/integration.md` "The widget's state and
 requests"; the framework does not depend on the TL names: it has its own host
 interface.
 
-**Two kinds of widget.** A **static** widget keeps its HTML and data in the
-message; a forward copies them, frozen. A **shared widget** is a server object,
-like a poll: the HTML (payload), the size anchors, `public_data`, its refresh
-`period` and its request flags, in one object that any number of messages refer
-to by `widget_id`. The media shows `widget_id` to everyone, the bot that owns
-it included; like a poll, the object outlives every message that refers to it.
+**Fixed code, changeable state.** The widget's code, its HTML, is set when the
+bot sends it and never changes. Its state changes, and only the bot writes it.
+The widget reads its state and learns of changes; it cannot change it itself,
+only ask the bot (a request, below).
+
+**Two kinds of widget.** A **static** widget keeps its HTML and its state in
+the message; a forward copies the HTML and the shared state, frozen. A **shared
+widget** is a server object, like a poll: the HTML (payload), the size anchors,
+the shared state (`public_data`), its refresh `period` and its request flags, in
+one object that any number of messages refer to by `widget_id`. The media shows
+`widget_id` to everyone, the bot that owns it included; like a poll, the object
+outlives every message that refers to it.
 One object is one behaviour and one network marker in every carrier: its
 flags, layout and size do not differ between messages.
 
-**Two strings.** `chat_data` and `public_data`, each optional, at most **1024
-bytes of UTF-8 text without NUL bytes** (the server checks it; otherwise
-`*_DATA_TOO_LARGE` / `*_DATA_INVALID`), written only by the bot: when the
-widget is made and with the edit methods below, never in an answer to a
-request. In an edit a field not passed is unchanged and an empty string clears
-it.
+**Two kinds of state.** The chat state, `chat_data`, and the shared state,
+`public_data`: each optional, **a text of up to 1024 bytes (UTF-8)** without NUL
+bytes (the server checks it; otherwise `*_DATA_TOO_LARGE` / `*_DATA_INVALID`),
+written only by the bot: when the widget is made and with the edit methods
+below, never in an answer to a request. In an edit a field not passed is
+unchanged and an empty string clears it.
 
-- `chat_data` belongs to one original message (in the private chat, in a
-  group: shared by all its members, or a via-bot message), is set with each send
-  separately and is **never copied** by a forward.
-- `public_data` is in the original and in every forward: in a static widget it
-  lives in the message (a forward gets a frozen snapshot; an edit changes only
-  the original); in a shared widget it is the object's value, one for every
-  carrier: every read of any carrier gives its current value, and an edit
-  changes it for all of them.
+- The **chat state** (`chat_data`) is tied to one original message and seen
+  only in its chat (the private chat; a group, where all its members share it;
+  or the chat of a via-bot message); it is set with each send separately and is
+  **never copied** by a forward. For example a game in progress, whose turn it
+  is.
+- The **shared state** (`public_data`) is seen wherever the widget is shown,
+  in the original and in every forward: a static widget keeps it in the message
+  (a forward gets a frozen copy as of the forward; an edit changes only the
+  original); a shared widget has one shared state, the object's, for all its
+  messages and forwards: every read of any carrier gives its current value, and
+  an edit changes it for all of them. For example poll results, a price.
 
 **Sending, in two forms** (`inputMediaWidget` / `inputMediaWidgetId` directly,
 `inputBotInlineMessageWidget` / `inputBotInlineMessageWidgetId` in inline
@@ -180,17 +193,18 @@ results; the TL above):
      (`INPUT_MEDIA_WIDGET_FWD_ALLOW_QUERIES_NOT_ALLOWED`).
   3. `shared_widget`: make the widget a shared object, whatever the requests (a
      ticker without requests is `shared_widget` without `allow_queries`:
-     forwards get the new values but cannot ask).
+     forwards follow its shared state but cannot ask).
 
   With `shared_widget` or `fwd_allow_queries` the HTML, the size anchors and
-  `public_data` go into the new object (the anchors are fixed, `public_data` is
-  its first value); without them the widget is static. `chat_data` stays the
-  message's.
+  the shared state (`public_data`) go into the new object (the anchors are
+  fixed, `public_data` is its first shared state); without them the widget is
+  static. The chat state (`chat_data`) stays the message's.
 - **With `widget_id`**: a reference to an existing object of the same bot, with
-  only the message's own `chat_data` (and `reply_markup` in an inline result).
-  The HTML, the anchors, the data and the flags come from the object; the
-  constructor has no fields for them, and the send does not change the object's
-  `public_data`. An unknown or another bot's id is `WIDGET_ID_INVALID`.
+  only the message's own chat state (`chat_data`; and `reply_markup` in an
+  inline result). The HTML, the anchors, the shared state and the flags come
+  from the object; the constructor has no fields for them, and the send does not
+  change the object's shared state. An unknown or another bot's id is
+  `WIDGET_ID_INVALID`.
 
 There is no method to make an object: the first send makes it. A bot that
 needs a `widget_id` in advance (for a mailing, for inline results) sends the
@@ -198,11 +212,11 @@ widget with `shared_widget` or `fwd_allow_queries` to any chat and reads the id
 from the sent media. An object's `period` starts at the server's 30 s and changes
 only with `editWidgetData` (below).
 
-| sent with | the case | `public_data` | forwards may ask the bot | edited |
+| sent with | the case | the shared state (`public_data`) | forwards may ask the bot | edited |
 |---|---|---|---|---|
-| `html`, no flags | a static widget with data | in the message; forwards get a snapshot | – | by the original's coordinates; only the original changes |
+| `html`, no flags | a static widget with state | in the message; forwards get a copy as of the forward | – | by the original's coordinates; only the original changes |
 | `html` + `fwd_allow_queries` | live forwards (a poll) | an object the server makes; `widget_id` in the media | ✓, on a tap | by id or by coordinates |
-| `html` + `shared_widget` | a ticker, shared data | an object; `widget_id` in the media | –; forwards follow its value | by id or by coordinates |
+| `html` + `shared_widget` | a ticker, one shared state for all | an object; `widget_id` in the media | –; forwards follow its shared state | by id or by coordinates |
 | `html` + both | a live ticker | an object | ✓, on a tap | both |
 | `widget_id` | a mailing, one object reused | the object's, unchanged by the send | as the object's flags say | by id |
 
@@ -223,13 +237,13 @@ widget's message, a shared widget's object; copies: also
 The framework's policy from these flags: a request on a tap whenever
 `can_query`; without a tap only with `background_query`: one when the widget
 appears on screen, then at most one per 5 s while it stays visible; a copy
-never has `chat_data` and is told nothing about its chat (no chat type, no
+never has a chat state and is told nothing about its chat (no chat type, no
 chat instance); the sandbox never goes to the network itself. **The network
 marker:** where `can_query` is set, the client marks the widget as one whose
 tap may send data to the bot's server; without it there is no marker, and the
 server guarantees no request can go out (`docs/integration.md`, "The network
 marker"). Widgets with the same `widget_id` on screen are one widget: a client
-may cache the checked payload and `public_data` per `widget_id`.
+may cache the checked payload and the shared state per `widget_id`.
 
 **A request** is a callback button inside the widget:
 `messages.getBotWidgetQueryAnswer` (the client's call, not the Bot API's) with
@@ -248,7 +262,7 @@ filled per kind:
 
 | update (MTProto) | tapped in | the bot gets |
 |---|---|---|
-| `updateBotWidgetQuery` | an original (the private chat with the bot, a group it is in) | `from`, the message in the bot's coordinates with its current data, `chat_instance`, the chat type, `data`, `widget_id` when the widget is shared |
+| `updateBotWidgetQuery` | an original (the private chat with the bot, a group it is in) | `from`, the message in the bot's coordinates with its current state, `chat_instance`, the chat type, `data`, `widget_id` when the widget is shared |
 | `updateInlineBotWidgetQuery` | a via-bot message | `from`, `inline_message_id`, `chat_instance`, the chat type, `data`, `widget_id` when shared |
 | `updateBotWidgetCopyQuery` | any forward | **only** `from`, `data` and `widget_id`: no message, no `chat_instance`, no chat type: the bot learns nothing about where it was forwarded |
 
@@ -260,14 +274,15 @@ tapped message, so it cannot be forged: the bot counts "one vote" by
 `messages.setBotWidgetQueryAnswer`), also after the original is deleted:
 `result` at most 1024 bytes of text (`WIDGET_RESULT_TOO_LARGE`,
 `WIDGET_DATA_INVALID`), only for the client that asked; none is an empty
-answer. **An answer carries no data, no toast, alert, URL or `cache_time`.**
+answer. **An answer carries no state, no toast, alert, URL or `cache_time`.**
 
-**The bot's edits**, all silent (no "edited" mark, no notification):
+**The bot's edits of the state**, all silent (no "edited" mark, no
+notification):
 
 - `editMessageWidgetData` (`messages.editMessageWidgetData`): by the
   original's coordinates as the bot knows them, only the bot that sent it and
   only the original; `public_data` and/or `chat_data` (a `public_data` edit of
-  a shared widget writes its object). A message's data edits go through the
+  a shared widget writes its object). A message's state edits go through the
   flood control of `sendMessage`, each counted as one message.
 - The same with `inline_message_id` for a via-bot message
   (`messages.editInlineBotMessageWidgetData`): `chat_data` is allowed there, a
@@ -277,38 +292,39 @@ answer. **An answer carries no data, no toast, alert, URL or `cache_time`.**
   its optional `cache_time` is the only way to set the object's `period` (0 sets
   it back to 30 s). At most one edit per second per object.
 
-A change of `chat_data` reaches every holder of the message as a light update
-without the HTML (`updateMessageWidgetData`). In private chats and basic groups
-it comes in the owner's pts sequence, as `updateEditMessage` does; in a
-supergroup the post goes through the usual edit of channel posts, with the
-channel's pts (`updateEditChannelMessage` and the like). The client applies it
-by the rules of that pts sequence.
+A change of the chat state (`chat_data`) reaches every holder of the message as
+a light update without the HTML (`updateMessageWidgetData`). In private chats
+and basic groups it comes in the owner's pts sequence, as `updateEditMessage`
+does; in a supergroup the post goes through the usual edit of channel posts,
+with the channel's pts (`updateEditChannelMessage` and the like). The client
+applies it by the rules of that pts sequence.
 
-A shared widget's `public_data` reaches its carriers by polling, **only for
-widgets that ask for live data**: the messenger (never the sandbox) polls a
-widget on screen that called `TelegramWidget.watchPublicData()` (the host
-reports it: `docs/integration.md`); every other widget gets `public_data` with
-the message (and a static widget's edits by the update above). A bot may make a
+A shared widget's shared state (`public_data`) reaches its carriers by
+polling, **only for widgets that ask to follow it live**: the messenger (never
+the sandbox) polls a widget on screen that called
+`TelegramWidget.watchPublicData()` (the host reports it: `docs/integration.md`);
+every other widget gets its shared state with the message (and a static
+widget's edits by the update above). A bot may make a
 widget shared only to send it by `widget_id`, and polling every such card would
 ask the server for nothing (the proposal to the server of 2026-10-26, agreed
 with Artem; the protocol does not change, the client's policy does). The
 messenger calls `messages.getWidgetPublicData` for **one** message at a time,
-with the hash of the value it has (0 at first), and applies a new value to
-every widget on screen with the same `widget_id` (the value is the object's, so
-one visible carrier per object is enough):
+with the hash of the shared state it has (0 at first), and applies a new one to
+every widget on screen with the same `widget_id` (the shared state is the
+object's, so one visible carrier per object is enough):
 
 - `widgetPublicDataNotModified { period }`: the message has no object (a
   static widget always answers so; `period` is then the server's 30 s) or
   the hash matched (the object's `period`);
-- `widgetPublicData { hash, data, period }`: the object's current value.
+- `widgetPublicData { hash, data, period }`: the object's current shared state.
 
 `period` is the recommended cadence of the poll, not a delay: an edit is
 visible at once to every read (history, the update, the poll). It is the
 server's: the bot's `cache_time` clamped to 5–3600 s, 30 s without one (the
 server's numbers of 2026-10-26, after the final spec's 2–3600 s and 5 s); the
 next poll is planned by it (30 s before the first answer). The client
-does not poll after an answer: a bot that wants the widget to have new data at
-once returns it in `result`.
+does not poll after an answer: a bot that wants the widget to have the new
+state at once returns it in `result`.
 
 | Error | Cause |
 |---|---|
@@ -324,7 +340,7 @@ once returns it in `result`.
 | `MESSAGE_ID_INVALID` | no such widget message, or not in this chat, or not this bot's, or the original is gone |
 | `QUERY_ID_INVALID` | the `widget_query_id` is unknown, expired (15 s) or of another kind |
 | `INLINE_RESULT_EXPIRED` | a widget result sent by an invalid or expired id (as for any inline result) |
-| `FLOOD_WAIT_<N>` | more than 5 requests per 5 s per user and bot; a message's data edits over the `sendMessage` flood control; more than one object edit per second |
+| `FLOOD_WAIT_<N>` | more than 5 requests per 5 s per user and bot; a message's state edits over the `sendMessage` flood control; more than one object edit per second |
 
 **Old clients.** Below layer 233: `messageMediaUnsupported` with the caption,
 as for any widget, and no widget results in inline lists.
@@ -380,9 +396,9 @@ it, in the order of `packages/conformance/channel.json`, and the messages are
 forwarded into the shared test channel. That also covers the corpus widgets
 that fit, forward-copy storage and the size anchors. The channel holds
 forwards, so there every widget is a copy (`is_copy`; requests only for a
-widget sent with `fwd_allow_queries`): requests in the background and `chat_data` are
-tested in the tester's private chat with the bot, and a group's in a test group
-the bot is a member of.
+widget sent with `fwd_allow_queries`): requests in the background and the chat
+state are tested in the tester's private chat with the bot, and a group's in a
+test group the bot is a member of.
 
 ## Profile and versions
 
