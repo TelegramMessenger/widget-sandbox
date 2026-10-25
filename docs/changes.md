@@ -3,9 +3,76 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release
+## Next release — the bot's data and requests (widget interactivity)
 
-**Element members stay their element's** (default, every client; `packages/core/src/sandbox/forms.ts`). linkedom
+The widget's HTML never changes after sending; only data changes (`docs/decisions.md` "The bot's data and
+requests", decision I1; `docs/sdk-v1.md` §2.13–§2.15, §5.11; the server's spec in `docs/tgw-format.md`, "The bot's
+data and requests"). Part of SDK v1 at the launch, no version of its own: profile 1 stays, a widget written without it
+is part of layer 233 from the launch; a client that passes no flags gets widgets whose requests are refused. Until
+the server ships, the dev app's mock bot and the harness play the bot.
+
+**For widgets** (default, every client):
+- `TelegramWidget.chatData` and `publicData`: the bot's two strings (text of at most 1024 bytes each, read-only,
+  `null` for none); `onEvent('chatDataChanged')` and `onEvent('publicDataChanged')` when they change (both, chat
+  first, when one change touches both), no restart. `chatData` belongs to one original message (in a group every
+  member sees the same) and never reaches a forward; `publicData` does: a snapshot, or a value shared with the
+  original that keeps changing.
+- `isForward`, `chatType` (`private` | `group` | `supergroup` | `channel`) and `viewer` (Mini Apps' `WebAppUser`: `{ id, first_name, last_name?, username?, is_premium? }`, the client passes the account's own; a field that breaks its rule is left out, `data-rejected`); a forward
+  is told nothing about the chat it is in (`chatType` null in every copy: the bot must not learn where its widget was
+  forwarded); the widget knows its viewer only where it may send requests (`can_query`), originals included.
+- `TelegramWidget.request(data)` (1–64 bytes): a callback button inside the widget; resolves `{ result }` (text of at
+  most 1024 bytes), rejects with `error.code` (`NOT_ALLOWED`, `BUSY`, `RATE_LIMITED`, `TIMEOUT`, `FAILED`,
+  `INVALID_ANSWER`). Where it may ask is the server's per message, for a widget the bot sent with `allow_queries`: on
+  a tap in originals (private chat, groups, via the bot) and in forwards of widgets sent with `fwd_allow_queries`;
+  without a tap only in the original in the private chat with the bot, while visible: one when the widget appears on screen, then one per 5 s. One tap, one
+  call, shared with `openLink`, `openTelegramLink` and `copyText`; one request in flight. The answer carries no
+  data: the bot's edits arrive as the events, and a widget that needs them at once gets them in `result`.
+- `TelegramWidget.copyText(text)` (1–256 UTF-16 code units) on a tap; the client shows what it copied.
+- `TelegramWidget.watchPublicData()` / `unwatchPublicData()`: the widget asks for live shared data (no tap, idempotent);
+  the client polls a shared widget's `public_data` only while it watches and is on screen, at the server's period
+  (5–3600 s, 30 s by default; `cache_time` 0 sets it back to 30 s); every other widget gets `public_data` with the message. Hosts report it like the
+  resize anchor: web `onWatchPublicData(on)` and `WidgetHost.watchesPublicData`, Swift, Kotlin and C++
+  `onWatchPublicData` and `WidgetDiagnostics.watchesPublicData`; the bridge call `watchPublicData [on]` is checked in
+  `sdk-policy` and its twins (fixture `bridge`, `previewMethods`). The dev app's mock bot polls only a watching widget
+  (`edit by id`, `shared`, the poll period in its panel); `corpus/interactive/01-poll` watches its counts.
+- `TelegramWidget.isPreview`: an inline result in the list, before it is sent, runs as a preview: its data, no input,
+  no requests or other actions (only `ready` and `setResizeAnchor`), no chat type or viewer, Web Storage that is never
+  kept.
+- The HTML of a sent widget is fixed: `behaviour.message-edit` now says so.
+
+**For clients** (every host: web `WidgetHost`, Swift, Kotlin, C++, the Node harness; `docs/integration.md` "The
+bot's data and requests", `docs/client-checklist.md` §d):
+- New options `data` (`{ chatData, publicData }`) and `context`: the server's flags from `messageMediaWidget`
+  (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and `viewer`; no flags, no requests. `setData(data)` (the
+  full state) on `updateMessageWidgetData` (in a supergroup with the channel's pts) and when polling
+  `getWidgetPublicData` (one visible carrier per `widget_id`, one message per call, at the object's `period`)
+  brings a new shared value, forwards included. The client shows a network marker ("a tap may send data
+  to the bot's server") exactly where the message has `can_query` (`docs/integration.md`). `onRequest({ data },
+  complete)`: `getBotWidgetQueryAnswer`, complete once with `{ result }` or `timeout` / `rateLimited` / `failed`.
+  `onCopyText(text)`: copy and show the text. `context.preview` for an inline result before it is sent (the host
+  drops its input and every bridge call but `ready` / `setResizeAnchor`, and its storage commits). New types per
+  platform in `docs/sdk-v1.md` §4. Without `onRequest`
+  every request is refused in the widget.
+- New diagnostics: `request-blocked`, `answer-rejected`, `data-rejected` (also for a NUL: the strings are the
+  server's text fields).
+- The checks are in `sdk-policy` and its three twins on `tests/fixtures/sdk-policy.json` (sections `widgetData`,
+  `viewer`, `chatType`, `answers`, `requestGate`, `requestRefusals`; `request` and `copyText` in `bridge`; the
+  gate reads `canQuery` / `backgroundQuery` and resets its interval with `show()` when the widget appears);
+  `copyText` joins `PRIVILEGED_METHODS`. The host → sandbox `bridge` dispatch is back (the bot's data and the
+  answers), deferred under the CPU quota like `theme`.
+
+**Dev tooling:** the dev app's **Bot (mock)** panel (`apps/web/src/mock-bot.ts`): the kind of message and so its
+flags (private, group, via-bot, no-queries, live-copy, copy, preview: `WIDGET_MESSAGE_KINDS` in `sdk-policy.ts`) with
+the network marker in the bubble's header where it has `canQuery`, the chat type, the viewer (`?message=…&chat=…&viewer=…&botmode=…`), the two strings and the bot's edit, built-in bots chosen by the
+widget's `<meta name="tw-bot">` (echo, poll, tic-tac-toe, ticker, promo), manual answers and failures, a "Copied: …"
+toast; `window.__tw.bot`, `__tw.setContext`. `corpus/interactive`: a poll, tic-tac-toe against the bot, a live ticker
+on background requests, a promo code with `copyText`. The harness: `data`, `context`, `onRequest`, `{ data }` script
+steps, `RunResult.requests` / `copiedTexts`; from a shell `--message` (preview too), `--copy`, `--can-query`, `--background-query`,
+`--chat-type`, `--viewer id[,first,last,username,premium]`, `--chat-data`, `--public-data`, `--answer`, `--answer-error`, `--set-data`;
+`twidget-run` takes the same flags. `corpus/attacks` has five `request-*` files (no request without a tap, a forged
+wire, a background flood, two in flight, a copy).
+
+**Also in this release** (Arseny, 6ca5360): **Element members stay their element's** (default, every client; `packages/core/src/sandbox/forms.ts`). linkedom
 has no class of its own for `form`, `dialog`, `output`, `fieldset`, `label`, `progress`, `meter` and some others:
 they share HTMLElement's prototype, so the shim's members for one of them were on every element. An inline
 handler (`with (element)`) then found them first: `<button onclick="reset()">` called the button's form
@@ -15,6 +82,10 @@ prototype such a member is now looked up by the element's local name, and the me
 unscopable in an inline handler's scope. `'reset' in button` is still true (the prototype is shared), its value
 `undefined`. Unit test: `packages/core/tests/unit/element-members.test.ts`. Found with a widget sent through
 Telegram Android, where the Reset button did nothing.
+
+**Known issues:** `packages/conformance` has no case for the bot's data and requests yet, and
+`visual/sdk/16-bot-edit` still tests an HTML edit, which the server no longer allows (to be replaced by a data-edit
+case once the server ships). The iOS/macOS and Android demo apps do not show requests (no mock bot there).
 
 ## v0.1.3 — release notes (2026-10-24)
 

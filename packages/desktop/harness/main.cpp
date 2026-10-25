@@ -5,6 +5,20 @@
 //                                 SDK v1 (docs/sdk-v1.md §3.1): the client's palette, UI language and Web Storage
 //                                 preload; the run prints the actions (`onAction`), the storage commits and the
 //                                 resize anchor when the widget called `setResizeAnchor`
+//               [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query]
+//               [--chat-type T] [--viewer ID[,FIRST,LAST,USERNAME,PREMIUM]] [--chat-data S] [--public-data S]
+//               [--answer JSON | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data JSON]
+//                                 the bot (docs/sdk-v1.md §2.13–§2.16), as scripts/sandbox-node.ts: --message sets the
+//                                 server's flags for a kind of message (WIDGET_MESSAGE_KINDS in sdk-policy.ts: private
+//                                 taps and background requests; group, via-bot taps only; no-queries, an original sent
+//                                 without allow_queries, no requests; live-copy, a forward of a widget sent with
+//                                 fwd_allow_queries, taps only; copy no requests; preview an inline result not
+//                                 sent yet: no input, no requests, only ready and setResizeAnchor, no storage); --copy, --can-query,
+//                                 --background-query, --chat-type set them one by one on top (none given: no
+//                                 requests); every request that passes the glue gets --answer (the server's answer,
+//                                 {"result":"…"}, default {"result":null}) or fails with --answer-error; --set-data is
+//                                 the bot's data (the full state) after the events and their answers (--wait-ms); the
+//                                 run prints `request …` and `copyText …`
 //   twidget-run --attacks [DIR]   every attack file: nothing but data:/#fragment URLs may reach the validated ops
 //   twidget-run --corpus DIR      smoke run of a corpus directory: loaded, alive, no uncaught errors
 //   … --blitz [--png out.png | --png-dir DIR] [--click X,Y]... [--dpr N]
@@ -58,6 +72,11 @@ struct Options {
     std::map<std::string, std::string> themeParams;
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
     WidgetStorage storage;
+    // The client's side of the bot (the harness handles every request, as the Node harness's CLI does).
+    WidgetData data;
+    WidgetContext context;
+    WidgetRequestOutcome answer;
+    std::optional<WidgetData> setData;
     double width = 400;
     int waitMs = 1500;
     bool verbose = false;
@@ -85,6 +104,12 @@ struct RunOutcome {
     /// The widget's latest `setResizeAnchor` ("top" until then) and, without a native renderer, each change in order.
     std::string resizeAnchor = std::string(sdk::DEFAULT_RESIZE_ANCHOR);
     std::vector<std::string> resizeAnchors;
+    /// Whether the widget watches its shared public_data at the end (round 7) and each change in order.
+    bool watchesPublicData = false;
+    std::vector<bool> publicDataWatches;
+    /// The requests that passed the glue (the gate's refusals are `request-blocked` diagnostics) and the texts copied.
+    std::vector<WidgetRequest> requests;
+    std::vector<std::string> copiedTexts;
     std::vector<std::string> probeResults;
     std::string renderOpsJson;
     SandboxStats stats;
@@ -163,6 +188,8 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
     ho.devicePixelRatio = opts.dpr;
     ho.locale = opts.locale;
     ho.storage = opts.storage;
+    ho.data = opts.data;
+    ho.context = opts.context;
     NativeRenderer* blitz = nullptr;
     WidgetTheme theme{opts.theme, opts.themeParams, {}};
     WidgetHost host(html, theme, opts.width, ho, res, [&](std::shared_ptr<SandboxResources>, const std::string& scheme, double width) -> std::unique_ptr<Renderer> {
@@ -176,12 +203,19 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
     };
     // On the host thread; read after destroy(), when the host thread has drained.
     host.onStorageCommit = [&](const std::string& area, const StorageArea& values) { out.storageCommits.emplace_back(area, values); };
+    host.onRequest = [&](const WidgetRequest& request, std::function<void(const WidgetRequestOutcome&)> respond) {
+        out.requests.push_back(request);
+        respond(opts.answer);
+    };
+    host.onCopyText = [&](const std::string& text) { out.copiedTexts.push_back(text); };
+    host.onWatchPublicData = [&](bool on) { out.publicDataWatches.push_back(on); };
     host.start();
     host.waitLoaded(30);
     host.waitRendered(5);
     for (const auto& ev : opts.events) host.event(ev);
     for (const auto& [x, y] : opts.clicks) blitz->click(x, y);
     std::this_thread::sleep_for(std::chrono::milliseconds(opts.waitMs));
+    if (opts.setData) host.setData(*opts.setData); // after the presses' answers; before the probes, which wait for it
     for (const auto& p : opts.probes) out.probeResults.push_back(host.probe(p));
     typename NativeRenderer::Frame frame = blitz->paint();
     out.initMs = blitz->initMs();
@@ -213,6 +247,7 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
     out.logs = d.logs;
     out.actions = d.actions;
     out.resizeAnchor = d.resizeAnchor;
+    out.watchesPublicData = d.watchesPublicData;
     out.stats = d.stats;
     out.height = d.height;
     out.loadedMs = d.loadedMs.value_or(0);
@@ -234,6 +269,7 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
 #endif
     RunOutcome out;
     RecordingHost host(opts.theme, res, opts.verbose);
+    host.onRequest = [&](const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond) { respond(opts.answer); };
     {
         SandboxEngine engine(html, config, res);
         engine.setDelegate(&host);
@@ -246,6 +282,7 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
             else engine.event(ev);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(opts.waitMs));
+        if (opts.setData) engine.setData(*opts.setData); // after the presses' answers; before the probes, which wait for it
         for (const auto& p : opts.probes) out.probeResults.push_back(engine.probe(p));
         engine.terminate();
     }
@@ -272,8 +309,81 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     out.storageCommits = host.storageCommits;
     out.resizeAnchors = host.resizeAnchors;
     if (!host.resizeAnchors.empty()) out.resizeAnchor = host.resizeAnchors.back();
+    out.requests = host.requests;
+    out.copiedTexts = host.copiedTexts;
+    out.publicDataWatches = host.publicDataWatches;
+    if (!host.publicDataWatches.empty()) out.watchesPublicData = host.publicDataWatches.back();
     out.stats = host.stats;
     return out;
+}
+
+/// `--set-data`, the full state: {"chatData": "…" | null, "publicData": "…" | null}; a missing field is none.
+static bool widgetData(const Json& v, WidgetData& out) {
+    if (!v.isObject()) return false;
+    for (const char* field : {"chatData", "publicData"}) {
+        const Json& x = v[field];
+        if (!x.isString() && !x.isNull()) return false;
+        (std::string(field) == "chatData" ? out.chatData : out.publicData) = x.isString() ? std::optional<std::string>(x.asString()) : std::nullopt;
+    }
+    return true;
+}
+
+/// The answer as the client hands it over; what breaks the limits is the glue's to refuse (`answer-rejected`).
+static std::string outcomeText(const WidgetRequestOutcome& o) {
+    if (o.failure != WidgetRequestFailure::None) return std::string(sdk::requestFailureCode(o.failure));
+    Json a = Json::object();
+    a.set("result", o.answer.result ? Json(*o.answer.result) : Json());
+    return a.dump();
+}
+
+/// `--viewer id,first,last,username,premium` (the TS `viewerFromList`): parts trimmed, empty parts absent, premium any of
+/// `1`, `true`, `premium`; no positive id → no viewer. Unchecked: the engine checks it (`data-rejected` per field).
+static std::optional<WidgetViewer> viewerFromList(const std::string& list) {
+    std::vector<std::string> parts;
+    for (size_t start = 0;;) {
+        size_t comma = list.find(',', start);
+        std::string part = list.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        size_t a = part.find_first_not_of(" \t"), b = part.find_last_not_of(" \t");
+        parts.push_back(a == std::string::npos ? std::string() : part.substr(a, b - a + 1));
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    parts.resize(std::max<size_t>(parts.size(), 5));
+    char* end = nullptr;
+    double id = std::strtod(parts[0].c_str(), &end);
+    if (parts[0].empty() || !end || *end != '\0' || !(id > 0)) return std::nullopt;
+    WidgetViewer v;
+    v.id = int64_t(id);
+    if (!parts[1].empty()) v.firstName = parts[1];
+    if (!parts[2].empty()) v.lastName = parts[2];
+    if (!parts[3].empty()) v.username = parts[3];
+    v.isPremium = parts[4] == "1" || parts[4] == "true" || parts[4] == "premium";
+    return v;
+}
+
+/// `--message`: the server's flags for a kind of message and the chat type it comes with (WIDGET_MESSAGE_KINDS in
+/// sdk-policy.ts); false for an unknown kind.
+static bool messageKind(const std::string& kind, WidgetContext& out) {
+    struct Kind { const char* name; bool isCopy, canQuery, backgroundQuery; const char* chatType; bool preview; };
+    static const Kind kinds[] = {
+        {"private", false, true, true, "private", false},     // the original in the private chat with the bot that sent it
+        {"group", false, true, false, "group", false},        // an original the bot sent to a group it is a member of
+        {"via-bot", false, true, false, "private", false},    // an original sent via the bot (inline mode), in a private chat between two users
+        {"no-queries", false, false, false, "private", false}, // an original the bot sent without allow_queries
+        {"live-copy", true, true, false, "private", false},   // a forwarded copy of a widget the bot sent with fwd_allow_queries
+        {"copy", true, false, false, "private", false},       // a forwarded copy of a widget sent without fwd_allow_queries
+        {"preview", false, false, false, "private", true},    // an inline result not sent yet (docs/sdk-v1.md §2.16)
+    };
+    for (const Kind& k : kinds) {
+        if (kind != k.name) continue;
+        out.isCopy = k.isCopy;
+        out.canQuery = k.canQuery;
+        out.backgroundQuery = k.backgroundQuery;
+        out.chatType = k.chatType;
+        out.preview = k.preview;
+        return true;
+    }
+    return false;
 }
 
 /// `--theme-params` / `--storage`: a JSON object of strings (the engine checks keys, colours and the quota).
@@ -314,6 +424,9 @@ int main(int argc, char** argv) {
     Options opts;
     std::string file, attacksDir, corpusDir;
     bool attacks = false;
+    // The message's flags: --message's kind first, then --copy / --can-query / --background-query / --chat-type on top, in any order.
+    std::optional<std::string> message, chatType;
+    bool copy = false, canQuery = false, backgroundQuery = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -335,6 +448,31 @@ int main(int argc, char** argv) {
                 ok = ok && (area == "local" || area == "session") && stringMap(values, area == "local" ? opts.storage.local : opts.storage.session);
             if (!ok) { fprintf(stderr, "--storage wants {\"local\": {…}, \"session\": {…}} with string values\n"); return 2; }
         }
+        else if (a == "--chat-data") opts.data.chatData = next();
+        else if (a == "--public-data") opts.data.publicData = next();
+        else if (a == "--message") message = next();
+        else if (a == "--copy") copy = true;
+        else if (a == "--can-query") canQuery = true;
+        else if (a == "--background-query") backgroundQuery = true;
+        else if (a == "--chat-type") chatType = next();
+        else if (a == "--viewer") opts.context.viewer = viewerFromList(next());
+        else if (a == "--answer") {
+            // The server's answer is only the result (the bot changes its data with edits: --set-data).
+            auto v = Json::parse(next());
+            bool ok = v && v->isObject() && ((*v)["result"].isString() || (*v)["result"].isNull());
+            for (const auto& [key, _] : ok ? v->obj() : Json::Object{}) ok = ok && key == "result";
+            if (ok && (*v)["result"].isString()) opts.answer.answer.result = (*v)["result"].asString();
+            if (!ok) { fprintf(stderr, "--answer wants {\"result\": \"…\" | null}\n"); return 2; }
+        }
+        else if (a == "--answer-error") {
+            std::string code = next();
+            opts.answer.failure = code == "TIMEOUT" ? WidgetRequestFailure::Timeout : code == "RATE_LIMITED" ? WidgetRequestFailure::RateLimited : WidgetRequestFailure::Failed;
+            if (code != "TIMEOUT" && code != "RATE_LIMITED" && code != "FAILED") { fprintf(stderr, "--answer-error wants TIMEOUT, RATE_LIMITED or FAILED\n"); return 2; }
+        }
+        else if (a == "--set-data") {
+            auto v = Json::parse(next());
+            if (!v || !widgetData(*v, opts.setData.emplace())) { fprintf(stderr, "--set-data wants {\"chatData\": \"…\" | null, \"publicData\": \"…\" | null}\n"); return 2; }
+        }
         else if (a == "--width") opts.width = std::atof(next().c_str());
         else if (a == "--js-dir") opts.jsDir = next();
         else if (a == "--blitz") opts.blitz = true;
@@ -348,9 +486,17 @@ int main(int argc, char** argv) {
         else if (!a.empty() && a[0] == '-') { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
         else file = a;
     }
+    if (message && !messageKind(*message, opts.context)) { fprintf(stderr, "--message takes private, group, via-bot, no-queries, live-copy, copy or preview\n"); return 2; }
+    if (copy) opts.context.isCopy = true;
+    if (canQuery) opts.context.canQuery = true;
+    if (backgroundQuery) opts.context.backgroundQuery = true;
+    if (chatType) opts.context.chatType = *chatType;
     if (file.empty() && !attacks && corpusDir.empty()) {
         fprintf(stderr, "usage: twidget-run <widget.html> [--verbose] [--ops] [--events JSON] [--wait-ms N] [--probe EXPR]\n"
                         "                   [--theme dark] [--theme-params JSON] [--locale TAG] [--storage JSON]   (an event with \"gesture\": n is a trusted press)\n"
+                        "                   [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query]\n"
+                        "                   [--chat-type T] [--viewer ID[,FIRST,LAST,USERNAME,PREMIUM]] [--chat-data S] [--public-data S]\n"
+                        "                   [--answer '{\"result\":…}' | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data JSON]   (the bot)\n"
                         "       twidget-run --attacks [DIR] | --corpus DIR\n"
                         "       … --blitz | --litehtml [--png FILE | --png-dir DIR] [--click X,Y] [--dpr N]   (built with -DTW_BLITZ=ON / -DTW_LITEHTML=ON)\n");
         return 2;
@@ -370,6 +516,8 @@ int main(int argc, char** argv) {
     config.themeParams = opts.themeParams;
     config.locale = opts.locale;
     config.storage = opts.storage;
+    config.data = opts.data;
+    config.context = opts.context;
 
     if (attacks) {
         fs::path dir = attacksDir.empty() ? fs::path(TW_CORPUS) / "attacks" : fs::path(attacksDir);
@@ -440,6 +588,15 @@ int main(int argc, char** argv) {
         printf("resize anchor: %s%s: the %s edge of the bubble stays put when the height changes\n", r.resizeAnchor.c_str(),
                calls.empty() ? "" : (" (setResizeAnchor: " + calls + ")").c_str(), r.resizeAnchor.c_str());
     }
+    if (!r.publicDataWatches.empty()) {
+        std::string calls;
+        for (bool on : r.publicDataWatches) calls += std::string(calls.empty() ? "" : " → ") + (on ? "true" : "false");
+        printf("public data: %s (watchPublicData: %s): a client polls a shared widget's public_data only while it watches\n",
+               r.watchesPublicData ? "watched" : "not watched", calls.c_str());
+    }
+    for (const auto& q : r.requests)
+        printf("request %s → %s\n", Json::quote(q.data).c_str(), outcomeText(opts.answer).c_str());
+    for (const auto& t : r.copiedTexts) printf("copyText %s\n", Json::quote(t).c_str());
     for (const auto& [area, values] : r.storageCommits) {
         Json v = Json::object();
         for (const auto& [k, x] : values) v.set(k, x);

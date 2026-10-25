@@ -7,6 +7,17 @@ Dev tooling for `packages/core`; nothing here is a product path.
   for comparison — never for `corpus/attacks`), renderer toggles (Shadow DOM,
   Blitz, litehtml wasm, compare all), stats / diagnostics / bridge / console
   panels. Exposes `window.__tw` — the Playwright suites in `tests/` drive it.
+- `src/mock-bot.ts` — the **Bot (mock)** panel (the bot's data and requests):
+  the widget's `chatData` / `publicData` per file as a server would keep them,
+  the bot's edits (`setData`; `edit by id` changes a shared widget's `publicData` without a push, and the dev
+  app polls it only while the widget watches, `watchPublicData()`, at the panel's period), built-in bots that answer requests (a widget
+  picks one with `<meta name="tw-bot" content="poll">`; echo, poll, tictactoe,
+  ticker, promo), manual answers and client failures, and the context a client
+  passes: the kind of message and so the server's flags (private, group,
+  via-bot, no-queries, live-copy, copy, preview; the bubble's header shows the network
+  marker where the message has `canQuery`), the chat type, the viewer
+  (`?message=group&chat=supergroup&viewer=42&botmode=TIMEOUT`). `__tw.bot`,
+  `__tw.setContext`; `corpus/interactive` uses it.
 - `src/feed.ts` + `src/feed-bench.ts` — the chat feed (`?feed=1`): 72 bubbles
   with the list's own lifecycle, the worker pool on/off, a live renderer
   switch, one hostile bubble, a metrics overlay and the bench panel

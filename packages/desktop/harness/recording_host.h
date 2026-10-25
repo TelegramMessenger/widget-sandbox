@@ -36,8 +36,17 @@ public:
     std::vector<WidgetAction> actions;
     /// Each `setResizeAnchor` edge the glue accepted, in order (the shim sends only changes; `top` until the first).
     std::vector<std::string> resizeAnchors;
+    /// Each `watchPublicData` value the glue accepted, in order (the shim sends only changes; false until the first).
+    std::vector<bool> publicDataWatches;
     /// Storage commits the glue accepted, one entry per area, in order.
     std::vector<std::pair<std::string, StorageArea>> storageCommits;
+    /// The bot's requests: those that passed the glue's checks and gate (`onBridgeRequest`), and the texts `copyText` let
+    /// through (`onBridgeCopyText`), in order.
+    std::vector<WidgetRequest> requests;
+    std::vector<std::string> copiedTexts;
+    /// The client's side of a request, on the engine thread, outside the lock: answer through `respond` now or keep it
+    /// for later. Unset (the default): the client handles no requests, every one is refused (`unsupported`).
+    std::function<void(const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)>)> onRequest;
     std::optional<std::string> died;
     int frameRequests = 0;
     bool loaded = false;
@@ -115,10 +124,29 @@ public:
         resizeAnchors.push_back(edge);
         if (verbose_) fprintf(stderr, "[resize-anchor] %s\n", edge.c_str());
     }
+    void onPublicDataWatch(SandboxEngine&, bool on) override {
+        std::lock_guard<std::mutex> l(mutex_);
+        publicDataWatches.push_back(on);
+        if (verbose_) fprintf(stderr, "[watch-public-data] %s\n", on ? "true" : "false");
+    }
     void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override {
         std::lock_guard<std::mutex> l(mutex_);
         storageCommits.emplace_back(area, values);
         if (verbose_) fprintf(stderr, "[storage] %s, %zu keys, %zu bytes\n", area.c_str(), values.size(), sdk::storageBytes(values));
+    }
+    void onBridgeRequest(SandboxEngine&, const WidgetRequest& request, WidgetRequestResponder respond) override {
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            requests.push_back(request);
+            if (verbose_) fprintf(stderr, "[request] %s\n", Json::quote(request.data).c_str());
+        }
+        if (onRequest) onRequest(request, respond);
+        else respond.unsupported();
+    }
+    void onBridgeCopyText(SandboxEngine&, const std::string& text) override {
+        std::lock_guard<std::mutex> l(mutex_);
+        copiedTexts.push_back(text);
+        if (verbose_) fprintf(stderr, "[copyText] %s\n", Json::quote(text).c_str());
     }
     void onLoaded(SandboxEngine&) override { { std::lock_guard<std::mutex> l(mutex_); loaded = true; } cv_.notify_all(); }
     void onStats(SandboxEngine&, const SandboxStats& s) override { std::lock_guard<std::mutex> l(mutex_); stats = s; }

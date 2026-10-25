@@ -2,7 +2,7 @@
 // Types only (plus a few constants): no code here runs with any privilege.
 
 import { PROFILE_EVENTS } from './profile-tables';
-import type { StorageCommit, ThemeParams, WidgetTheme } from './sdk-policy';
+import type { ChatType, RequestError, StorageCommit, ThemeParams, WidgetTheme, WidgetUser } from './sdk-policy';
 import type { BubbleAction, Gesture } from './gesture-policy';
 
 export type NodeId = number;
@@ -215,6 +215,19 @@ export interface SandboxConfig {
   /** The client's preload of Web Storage (docs/sdk-v1.md §2.8), checked by the glue (`checkStorageCommit`). */
   storage?: StorageCommit;
   /**
+   * The bot's two strings and where the widget is (docs/sdk-v1.md §2.13), checked by the glue: null for none; a
+   * forwarded copy (`isCopy`) gets no `chatData` and no `chatType`, and no `viewer` unless it may request (`canQuery`).
+   */
+  chatData?: string | null;
+  publicData?: string | null;
+  isCopy?: boolean;
+  /** The server's `can_query`: the shim refuses a request at once without it (the glue refuses it anyway). */
+  canQuery?: boolean;
+  /** An inline result before it is sent (`WidgetContext.preview`): `TelegramWidget.isPreview`; requests refused at once. */
+  isPreview?: boolean;
+  chatType?: ChatType | null;
+  viewer?: WidgetUser | null;
+  /**
    * Optional wire forms this host understands, opt-in per host (docs/protocol.md,
    * "Features"). Absent or empty: plain JSON only, which every host and renderer speaks.
    * `canvasWords`: canvas commands as a word stream through `__hostCanvas`.
@@ -268,7 +281,21 @@ export type HostToWorker =
   | { type: 'viewport'; viewport: SandboxConfig['viewport'] }
   | { type: 'resize'; entries: { id: NodeId; width: number; height: number }[] }
   | { type: 'theme'; theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> }
-  | { type: 'visibility'; visible: boolean };
+  | { type: 'visibility'; visible: boolean }
+  /** Into the widget (the shim's `bridge` dispatch): the bot's data changed, or the answer to a request. */
+  | { type: 'bridge'; event: BridgeEvent };
+
+/** The bot's two strings as the widget sees them (checked: null for none, at most 1024 bytes each). */
+export interface WidgetDataState { chatData: string | null; publicData: string | null }
+
+/**
+ * Host → sandbox bridge events (docs/sdk-v1.md §3.3): `data` sets both strings (the shim fires `chatDataChanged`
+ * and then `publicDataChanged` for the one that differs); `answer` settles request `id` with `result` or a refusal /
+ * failure `error` (`reason`: the request gate's verdict, or `unsupported`, for the error's message).
+ */
+export type BridgeEvent =
+  | ({ type: 'data' } & WidgetDataState)
+  | { type: 'answer'; id: number; result?: string | null; error?: RequestError; reason?: string };
 
 export interface Stats {
   jsMs: number;

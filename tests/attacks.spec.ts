@@ -178,6 +178,98 @@ test.describe('memory limit', () => {
   });
 });
 
+// ───────────── requests to the bot (docs/sdk-v1.md §2.14) ─────────────
+
+test.describe('requests to the bot', () => {
+  const bot = (page: Page) => page.evaluate(() => {
+    const tw = (window as any).__tw;
+    return { requests: tw.bot.requests.map((r: any) => r.data as string), pending: tw.bot.pendingRequests.length, copied: tw.state.copiedTexts as string[], actions: tw.state.actions as unknown[] };
+  });
+  const diagCount = async (page: Page, kind: string) => (await twState(page)).diags[kind]?.count ?? 0;
+
+  test('no request and no copyText without a real tap; the tap sends exactly one', async ({ page }) => {
+    await resetCanary();
+    const f = await openAttack(page, 'request-no-activation.html', '&message=group');
+    await page.waitForTimeout(800);
+    expect((await bot(page)).requests).toEqual([]);
+    expect((await bot(page)).copied).toEqual([]);
+    expect(await diagCount(page, 'request-blocked')).toBeGreaterThanOrEqual(4);
+    await f.locator('#go').click();
+    await expect.poll(async () => (await bot(page)).requests).toEqual(['http://127.0.0.1:9999/hit/request-tap']);
+    await page.waitForTimeout(500);
+    const b = await bot(page);
+    expect(b.requests).toHaveLength(1);
+    expect(b.copied).toEqual([]); // the request took the tap
+    await expect(f.locator('#log')).toContainText('tap:sent');
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('a widget that rewrites the wire gets nothing over the limits through: the glue re-checks every call', async ({ page }) => {
+    const f = await openAttack(page, 'request-forged-wire.html', '&message=group');
+    await f.locator('#go').click();
+    await expect.poll(() => diagCount(page, 'bridge-rejected')).toBe(2);
+    await page.waitForTimeout(300);
+    const b = await bot(page);
+    expect(b.requests).toEqual([]);
+    expect(b.copied).toEqual([]);
+    expect(b.actions).toEqual([]);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('background requests: none where they are not allowed; where they are, one at a time and one per 5 s', async ({ page }) => {
+    await openAttack(page, 'request-background-flood.html', '&message=group');
+    await page.waitForTimeout(1500);
+    expect((await bot(page)).requests).toEqual([]);
+    await openAttack(page, 'request-background-flood.html');
+    await page.waitForTimeout(6500);
+    const b = await bot(page);
+    expect(b.requests.length).toBeGreaterThanOrEqual(1);
+    expect(b.requests.length).toBeLessThanOrEqual(2);
+    expect((await twState(page)).dead).toBeNull();
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('one request in flight: a second one in the same tap, from a timer or forged on the wire never reaches the client', async ({ page }) => {
+    const f = await openAttack(page, 'request-in-flight.html', '&message=group&botmode=manual');
+    await f.locator('#go').click();
+    await expect.poll(async () => (await bot(page)).pending).toBe(1);
+    await page.waitForTimeout(500);
+    const b = await bot(page);
+    expect(b.requests).toEqual(['first']);
+    await expect(f.locator('#log')).toContainText('second:BUSY');
+    await expect(f.locator('#log')).toContainText('timer:BUSY');
+    expect(await diagCount(page, 'request-blocked')).toBeGreaterThanOrEqual(1); // the forged one: busy in the glue
+  });
+
+  test('an answer over the limits never reaches the widget: INVALID_ANSWER', async ({ page }) => {
+    const f = await openAttack(page, 'request-in-flight.html', '&message=group');
+    await page.evaluate(() => { (window as any).__tw.bot.request = () => Promise.resolve({ result: 'x'.repeat(1025) }); });
+    await f.locator('#go').click();
+    await expect(f.locator('#log')).toContainText('first:INVALID_ANSWER');
+    expect(await diagCount(page, 'answer-rejected')).toBe(1);
+  });
+
+  test('a forwarded copy without fwd_allow_queries reads no chatData, chat or viewer and sends nothing, tap or not', async ({ page }) => {
+    const f = await openAttack(page, 'request-copy.html', '&message=copy');
+    await expect(f.locator('#seen')).toHaveText('true||||');
+    await f.locator('#go').click();
+    await page.waitForTimeout(800);
+    expect((await bot(page)).requests).toEqual([]);
+    await expect(f.locator('#log')).toContainText('tap:NOT_ALLOWED');
+  });
+
+  test('a live copy (fwd_allow_queries) reads no chatData or chat and asks only on a tap, never in the background', async ({ page }) => {
+    const f = await openAttack(page, 'request-copy.html', '&message=live-copy');
+    await expect(f.locator('#seen')).toHaveText(/^true\|\|\|\[object Object\]\|/);
+    await page.waitForTimeout(800);
+    expect((await bot(page)).requests).toEqual([]);
+    await f.locator('#go').click();
+    await expect.poll(async () => (await bot(page)).requests).toEqual(['copy-tap']);
+    await page.waitForTimeout(800);
+    expect((await bot(page)).requests).toEqual(['copy-tap']);
+  });
+});
+
 test.describe('cpu quota', () => {
   test('a forced-layout loop is killed by the layout-query budget, the host stays responsive', async ({ page }) => {
     await resetCanary();

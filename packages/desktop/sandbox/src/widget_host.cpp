@@ -64,6 +64,8 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
     c.themeParams = theme.params;
     c.locale = o.locale;
     c.storage = o.storage;
+    c.data = o.data;
+    c.context = o.context;
     c.policy = o.policy;
     c.features = o.features;
     return c;
@@ -166,6 +168,7 @@ void WidgetHost::setTheme(const WidgetTheme& theme) {
 }
 
 void WidgetHost::setVisible(bool visible) { engine_.setVisible(visible); }
+void WidgetHost::setData(const WidgetData& data) { engine_.setData(data); }
 void WidgetHost::event(const std::string& json) { engine_.event(json); }
 std::string WidgetHost::probe(const std::string& code) { return engine_.probe(code); }
 
@@ -336,6 +339,20 @@ void WidgetHost::onResizeAnchor(SandboxEngine&, const std::string& edge) {
     });
 }
 
+void WidgetHost::onPublicDataWatch(SandboxEngine&, bool on) {
+    // Like the resize anchor: host state, reported on a change only (the shim already sends only changes).
+    host([this, on] {
+        if (destroyed_) return;
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            if (diagnostics_.watchesPublicData == on) return;
+            diagnostics_.watchesPublicData = on;
+        }
+        if (onWatchPublicData) onWatchPublicData(on);
+        changed();
+    });
+}
+
 void WidgetHost::onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) {
     host([this, area, values] {
         if (callbacksClosed_) return;
@@ -345,6 +362,23 @@ void WidgetHost::onStorage(SandboxEngine&, const std::string& area, const Storag
         }
         if (onStorageCommit) onStorageCommit(area, values);
         changed();
+    });
+}
+
+void WidgetHost::onBridgeRequest(SandboxEngine&, const WidgetRequest& request, WidgetRequestResponder respond) {
+    // The client side is decided here, at delivery, on the host thread where `onRequest` lives.
+    host([this, request, respond = std::move(respond)] {
+        if (destroyed_) return; // the engine is going away: nothing waits for the answer
+        if (!onRequest) return respond.unsupported();
+        // `respond` is the engine's: from any thread, once, ignored once the engine is dead or destroyed.
+        onRequest(request, respond);
+    });
+}
+
+void WidgetHost::onBridgeCopyText(SandboxEngine&, const std::string& text) {
+    host([this, text] {
+        if (destroyed_) return; // no toast for a widget that is going away
+        if (onCopyText) onCopyText(text);
     });
 }
 
@@ -444,6 +478,8 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
             engine_.start();
         }
     } else if (type == "event") {
+        // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing (§2.16).
+        if (options_.context.preview) return;
         if (const Json* ev = msg.find("ev")) {
             // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
             if (int gesture = msg["trusted"].asBool() ? gestures_.gestureFor(*ev) : 0) engine_.activationEvent(ev->dump(), gesture);
@@ -505,6 +541,7 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
     } else if (type == "gesture") {
+        if (options_.context.preview) return; // no input, so nothing to claim: the press is the client's
         // docs/sdk-v1.md §5.5, gesture_policy.h. The renderer core sends x and hold (and `y` / `wants`, always false
         // since v0.1.3); vertical drags are the chat's, so the claim's `y` is false whatever a renderer sends. A
         // renderer that sends only `wants` (the Blitz and litehtml prototypes) claims nothing. Anything missing or

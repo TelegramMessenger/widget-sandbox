@@ -1,7 +1,8 @@
 // SDK v1 on the web host (docs/sdk-v1.md): the theme variables on the
 // renderer root, gesture claims, Web Storage across a restart, the client
-// locale and the actions a tap produces, on the iframe and the Shadow DOM
-// renderer. The widget-facing API itself is unit-tested through QuickJS
+// locale and the actions a tap produces, and the bot's data and requests (the bot's data,
+// requests through the dev app's mock bot, copyText), on the iframe and the
+// Shadow DOM renderer. The widget-facing API itself is unit-tested through QuickJS
 // (packages/core/tests/unit/sdk.test.ts).
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -234,7 +235,198 @@ for (const shadow of [false, true]) {
     ]);
     expect((await tw(page)).diags['activation-blocked']?.count).toBe(1);
   });
+
+  // ───────────── the bot's data, requests, copyText (docs/sdk-v1.md §2.13–§2.15; the dev app's mock bot) ─────────────
+
+  const REQUEST_WIDGET = `<button id="b">ask</button><p id="out"></p><p id="data"></p><script>
+    var T = TelegramWidget, out = document.getElementById('out');
+    function show() { document.getElementById('data').textContent = [T.chatData, T.publicData, T.isForward, T.chatType, T.viewer && T.viewer.id].join('|'); }
+    T.onEvent('chatDataChanged', show);
+    T.onEvent('publicDataChanged', show);
+    show();
+    document.getElementById('b').addEventListener('click', function () {
+      T.request('hello').then(function (a) { out.textContent = 'ok ' + a.result; }, function (e) { out.textContent = 'err ' + e.code; });
+      T.copyText('never: the request took the tap');
+    });
+    setTimeout(function () { T.request('timer').catch(function (e) { out.textContent = 'timer ' + e.code; }); }, 30);
+  </script>`;
+  const withContext = async (page: Page, patch: Record<string, unknown>) => {
+    await page.goto('/' + (shadow ? '?shadow=1' : ''));
+    await page.evaluate((p) => { const tw = (window as any).__tw; Object.assign(tw.bot.context, p); tw.bot.bot = 'echo'; tw.bot.delayMs = 50; }, patch);
+  };
+  const open = async (page: Page, html: string, name: string) => {
+    await page.evaluate(([h, n]) => (window as any).__tw.load(h, n), [html, name] as const);
+    await page.waitForFunction(() => (window as any).__tw.state.loaded);
+    return shadow ? page.locator('#sandbox-wrap .widget-shadow') : page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  };
+
+  test(`${renderer}: a tap sends one request to the bot and gets its result; a timer cannot (a group); the bot's edit fires the data events`, async ({ page }) => {
+    await withContext(page, { message: 'group', chatType: 'supergroup', viewer: 1001 });
+    const root = await open(page, REQUEST_WIDGET, 'sdk/request.html');
+    await expect(page.locator('#net-marker')).toBeVisible();
+    await expect(root.locator('#data')).toHaveText('||false|supergroup|1001');
+    await expect(root.locator('#out')).toHaveText('timer NOT_ALLOWED');
+    await root.locator('#b').click();
+    await expect(root.locator('#out')).toHaveText('ok hello');
+    const state = await tw(page);
+    expect(state.requests.map((r: any) => [r.data, r.answer?.result])).toEqual([['hello', 'hello']]);
+    expect(state.copiedTexts).toEqual([]);
+    expect(state.diags['request-blocked']?.count).toBe(1);
+    expect(state.diags['activation-blocked']?.count).toBe(1);
+    await page.evaluate(() => (window as any).__tw.bot.edit('sdk/request.html', { chatData: '{"turn":2}', publicData: 'score 1:0' }));
+    await expect(root.locator('#data')).toHaveText('{"turn":2}|score 1:0|false|supergroup|1001');
+  });
+
+  test(`${renderer}: a forwarded copy without fwd_allow_queries knows only publicData and cannot request, even with a tap; its publicData can change`, async ({ page }) => {
+    await withContext(page, { message: 'copy', chatType: null, viewer: 1001 });
+    await page.evaluate(() => (window as any).__tw.bot.edit('sdk/copy.html', { chatData: 'secret', publicData: 'snapshot' }));
+    const root = await open(page, REQUEST_WIDGET, 'sdk/copy.html');
+    await expect(page.locator('#net-marker')).toBeHidden();
+    await expect(root.locator('#data')).toHaveText('|snapshot|true||');
+    await root.locator('#b').click();
+    await expect(root.locator('#out')).toHaveText('err NOT_ALLOWED');
+    expect((await tw(page)).requests).toEqual([]);
+    await page.evaluate(() => (window as any).__tw.bot.edit('sdk/copy.html', { chatData: 'secret 2', publicData: 'shared value' }));
+    await expect(root.locator('#data')).toHaveText('|shared value|true||');
+  });
+
+  test(`${renderer}: the client polls a shared widget's publicData only while it watches (watchPublicData); otherwise it comes with the message`, async ({ page }) => {
+    await withContext(page, { message: 'private', chatType: null, viewer: 1001 });
+    await page.evaluate(() => Object.assign((window as any).__tw.bot, { pollMs: 100, shared: true }));
+    const html = (watch: boolean) => `<p id="p"></p><script>${watch ? 'TelegramWidget.watchPublicData();' : ''}
+      function show() { document.getElementById('p').textContent = String(TelegramWidget.publicData); }
+      TelegramWidget.onEvent('publicDataChanged', show); show();</script>`;
+    let root = await open(page, html(true), 'sdk/watch.html');
+    await expect(root.locator('#p')).toHaveText('null');
+    await page.evaluate(() => (window as any).__tw.bot.editShared('sdk/watch.html', 'v2'));
+    await expect(root.locator('#p')).toHaveText('v2');
+    expect(await page.evaluate(() => (window as any).__tw.bot.watching)).toBe(true);
+    root = await open(page, html(false), 'sdk/still.html');
+    await page.evaluate(() => (window as any).__tw.bot.editShared('sdk/still.html', 'v2'));
+    await page.waitForTimeout(500);
+    await expect(root.locator('#p')).toHaveText('null');
+    expect(await page.evaluate(() => (window as any).__tw.bot.watching)).toBe(false);
+    root = await open(page, html(false), 'sdk/still.html');
+    await expect(root.locator('#p')).toHaveText('v2');
+  });
+
+  test(`${renderer}: the viewer is a WebAppUser (id, names, username, Premium) where the widget may ask; a broken field is left out`, async ({ page }) => {
+    await withContext(page, { message: 'private', chatType: null, viewer: 1001, profile: 'Ann,Lee,ann_lee,premium' });
+    const html = '<p id="v"></p><script>document.getElementById("v").textContent = JSON.stringify(TelegramWidget.viewer) + "|" + Object.isFrozen(TelegramWidget.viewer);</script>';
+    let root = await open(page, html, 'sdk/viewer.html');
+    await expect(root.locator('#v')).toHaveText('{"id":1001,"first_name":"Ann","last_name":"Lee","username":"ann_lee","is_premium":true}|true');
+    await page.evaluate(() => Object.assign((window as any).__tw.bot.context, { message: 'group', profile: 'Ann,,a-b' }));
+    root = await open(page, html, 'sdk/viewer.html');
+    await expect(root.locator('#v')).toHaveText('{"id":1001,"first_name":"Ann"}|true');
+    expect((await tw(page)).diags['data-rejected']?.details).toEqual(['viewer.username: not 5–32 characters of A–Z, a–z, 0–9 and _; the widget does not see it']);
+  });
+
+  test(`${renderer}: an original sent without allow_queries has its data and the chat but no viewer, cannot request, tap or not, and shows no network marker`, async ({ page }) => {
+    await withContext(page, { message: 'no-queries', chatType: null, viewer: 1001 });
+    await page.evaluate(() => (window as any).__tw.bot.edit('sdk/no-queries.html', { chatData: 'mine', publicData: 'p' }));
+    const root = await open(page, REQUEST_WIDGET, 'sdk/no-queries.html');
+    await expect(page.locator('#net-marker')).toBeHidden();
+    await expect(root.locator('#data')).toHaveText('mine|p|false|private|');
+    await expect(root.locator('#out')).toHaveText('timer NOT_ALLOWED');
+    await root.locator('#b').click();
+    await expect(root.locator('#out')).toHaveText('err NOT_ALLOWED');
+    expect((await tw(page)).requests).toEqual([]);
+  });
+
+  test(`${renderer}: a live copy (fwd_allow_queries) asks on a tap and knows the viewer, never the chat or chatData`, async ({ page }) => {
+    await withContext(page, { message: 'live-copy', chatType: null, viewer: 1001 });
+    await page.evaluate(() => (window as any).__tw.bot.edit('sdk/live-copy.html', { chatData: 'secret', publicData: 'live' }));
+    const root = await open(page, REQUEST_WIDGET, 'sdk/live-copy.html');
+    await expect(page.locator('#net-marker')).toBeVisible();
+    await expect(root.locator('#data')).toHaveText('|live|true||1001');
+    await expect(root.locator('#out')).toHaveText('timer NOT_ALLOWED');
+    await root.locator('#b').click();
+    await expect(root.locator('#out')).toHaveText('ok hello');
+    expect((await tw(page)).requests.map((r: any) => r.data)).toEqual(['hello']);
+  });
+
+  test(`${renderer}: a preview (an inline result not sent yet) has its data but gets no tap, asks nothing and knows no viewer`, async ({ page }) => {
+    await withContext(page, { message: 'preview', chatType: null, viewer: 1001 });
+    await page.evaluate(() => (window as any).__tw.bot.edit('sdk/preview.html', { chatData: 'c', publicData: 'p' }));
+    const root = await open(page, `<button id="b" style="width:200px;height:60px">tap</button><p id="out"></p><p id="data"></p><script>
+      var T = TelegramWidget, taps = 0;
+      document.getElementById('data').textContent = [T.isPreview, T.chatData, T.publicData, T.chatType, T.viewer].join('|');
+      document.getElementById('b').addEventListener('click', function () { taps++; document.getElementById('out').textContent = 'tapped ' + taps; T.copyText('x'); });
+      T.request('boot').catch(function (e) { document.getElementById('out').textContent = 'boot ' + e.code; });
+    </script>`, 'sdk/preview.html');
+    await expect(root.locator('#data')).toHaveText('true|c|p||');
+    await expect(page.locator('#net-marker')).toBeHidden();
+    await expect(root.locator('#out')).toHaveText('boot NOT_ALLOWED');
+    await root.locator('#b').click();
+    await page.waitForTimeout(400);
+    await expect(root.locator('#out')).toHaveText('boot NOT_ALLOWED');
+    const state = await tw(page);
+    expect(state.requests).toEqual([]);
+    expect(state.copiedTexts).toEqual([]);
+    expect(state.gestures).toEqual([]);
+  });
+
+  test(`${renderer}: a failed request rejects with the client's code; copyText reaches the client with a toast`, async ({ page }) => {
+    await withContext(page, { message: 'group' });
+    await page.evaluate(() => { (window as any).__tw.bot.mode = 'TIMEOUT'; });
+    let root = await open(page, REQUEST_WIDGET, 'sdk/fail.html');
+    await root.locator('#b').click();
+    await expect(root.locator('#out')).toHaveText('err TIMEOUT');
+    root = await open(page, `<button id="c">copy</button><script>document.getElementById('c').onclick = function () { TelegramWidget.copyText('PROMO-2026'); TelegramWidget.copyText('second'); };</script>`, 'sdk/copy-text.html');
+    await root.locator('#c').click();
+    await expect.poll(async () => (await tw(page)).copiedTexts).toEqual(['PROMO-2026']);
+    await expect(page.locator('#chat-sandbox .bubble-copied')).toHaveText('Copied: PROMO-2026');
+  });
 }
+
+test('the poll demo: a tap votes through the mock bot, the widget redraws from the edited chatData', async ({ page }) => {
+  await page.goto('/?file=interactive/01-poll.html');
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  await expect(root.locator('#hint')).toHaveText(/^9 votes/);
+  await root.locator('.opt').nth(2).click();
+  await expect(root.locator('.opt').nth(2)).toHaveClass(/mine/);
+  await expect(root.locator('#hint')).toHaveText(/^10 votes/);
+  const data = await page.evaluate(() => (window as any).__tw.bot.dataFor('interactive/01-poll.html'));
+  expect(JSON.parse(data.chatData).u['1001']).toBe(2);
+  expect(data.publicData).toBe('{"v":[3,5,2]}');
+});
+
+test('background requests: allowed in the private chat with the bot (backgroundQuery) while visible, one at once, then one per 5 s', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => { const tw = (window as any).__tw; Object.assign(tw.bot.context, { message: 'private' }); tw.bot.bot = 'echo'; tw.bot.delayMs = 0; });
+  await page.evaluate((h) => (window as any).__tw.load(h, 'sdk/background.html'), `<p id="log"></p><script>
+    var log = [];
+    function ask() { TelegramWidget.request('bg').then(function () { log.push('ok'); next(); }, function (e) { log.push(e.code); next(); }); }
+    function next() { document.getElementById('log').textContent = log.join(' '); if (log.length < 8) setTimeout(ask, 800); }
+    ask();
+  </script>`);
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  await expect(root.locator('#log')).toHaveText(/^ok( RATE_LIMITED){5,6} ok/, { timeout: 15_000 });
+  expect((await tw(page)).requests).toHaveLength(2);
+});
+
+test('background requests: the widget appearing on screen again may ask at once, before the 5 s are up', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => { const tw = (window as any).__tw; Object.assign(tw.bot.context, { message: 'private' }); tw.bot.bot = 'echo'; tw.bot.delayMs = 0; });
+  await page.evaluate((h) => (window as any).__tw.load(h, 'sdk/background-show.html'), `<p id="log"></p><script>
+    var log = [];
+    function ask() { TelegramWidget.request('bg').then(function () { log.push('ok'); next(); }, function (e) { log.push(e.code); next(); }); }
+    function next() { document.getElementById('log').textContent = log.join(' '); if (log.length < 40) setTimeout(ask, 300); }
+    ask();
+  </script>`);
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  const t0 = Date.now();
+  const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  await expect(root.locator('#log')).toHaveText(/^ok RATE_LIMITED/);
+  await page.evaluate(() => (window as any).__tw.setVisible(false));
+  await expect(root.locator('#log')).toHaveText(/NOT_ALLOWED/, { timeout: 5000 });
+  await page.evaluate(() => (window as any).__tw.setVisible(true));
+  await expect.poll(async () => (await tw(page)).requests.length, { timeout: 3000 }).toBe(2);
+  expect(Date.now() - t0).toBeLessThan(5000);
+  await page.evaluate(() => (window as any).__tw.setVisible(null));
+});
 
 test('Web Storage: the client keeps what the widget commits and preloads it after a restart and a reload', async ({ page }) => {
   const widget = `<button id="b">+1</button><p id="n"></p><script>

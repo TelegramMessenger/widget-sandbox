@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { runWidget } from '../../scripts/sandbox-node.ts';
-import { THEME_KEYS } from '../../src/shared/sdk-policy.ts';
+import { THEME_KEYS, WIDGET_MESSAGE_KINDS } from '../../src/shared/sdk-policy.ts';
 
 const idOf = async (html: string, tag: string) => ((await runWidget(html)).renderOps.find((o: any) => o.op === 'el' && o.tag === tag) as any).id as number;
 const diags = (r: { diags: { kind: string; detail: string }[] }, kind: string) => r.diags.filter((d) => d.kind === kind);
@@ -209,5 +209,252 @@ describe('SDK v1: locale and inert APIs', () => {
     </script>`, { events: [{ type: 'click', targetId: 5, gesture: 1 }], probes: ['JSON.stringify(out)'] });
     assert.deepEqual(r.bridge, []);
     assert.equal(r.probes[0], JSON.stringify([null, false, null, 'NotAllowedError', 'NotAllowedError']));
+  });
+});
+
+describe("SDK v1: the bot's data, where the widget is, requests, copyText", () => {
+  const show = 'JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.isForward, TelegramWidget.chatType, TelegramWidget.viewer])';
+  const K = WIDGET_MESSAGE_KINDS;
+
+  it('watchPublicData / unwatchPublicData: no tap needed, only changes reach the host, which keeps the latest; a preview never watches', async () => {
+    const r = await runWidget('<script>TelegramWidget.watchPublicData(); TelegramWidget.watchPublicData(); setTimeout(function () { TelegramWidget.unwatchPublicData(); TelegramWidget.watchPublicData(); }, 10);</script>',
+      { context: K['live-copy'] });
+    assert.deepEqual(r.publicDataWatches, [true, false, true]);
+    assert.equal(r.watchesPublicData, true);
+    assert.deepEqual(diags(r, 'bridge-rejected'), []);
+    const none = await runWidget('<p>x</p>', { context: K.private });
+    assert.equal(none.watchesPublicData, false);
+    assert.deepEqual(none.publicDataWatches, []);
+    const preview = await runWidget('<script>TelegramWidget.watchPublicData();</script>', { context: K.preview });
+    assert.equal(preview.watchesPublicData, false);
+    assert.equal(diags(preview, 'preview-blocked').length, 1);
+  });
+
+  it('the viewer is shaped like WebAppUser: its names, username and Premium when the client has them; a field that breaks its rule is left out and reported', async () => {
+    const user = 'JSON.stringify(TelegramWidget.viewer)';
+    const full = await runWidget('<p>x</p>', {
+      context: { ...K.private, viewer: { id: 42, firstName: 'Ann', lastName: 'Lee', username: 'ann_lee', isPremium: true } },
+      probes: [user, 'Object.isFrozen(TelegramWidget.viewer)'],
+    });
+    assert.deepEqual(full.probes, [JSON.stringify({ id: 42, first_name: 'Ann', last_name: 'Lee', username: 'ann_lee', is_premium: true }), 'true']);
+    assert.deepEqual(diags(full, 'data-rejected'), []);
+    const some = await runWidget('<p>x</p>', { context: { ...K.group, viewer: { id: 42, firstName: 'Ann', username: 'a-b', isPremium: false } }, probes: [user] });
+    assert.deepEqual(some.probes, [JSON.stringify({ id: 42, first_name: 'Ann' })]);
+    assert.deepEqual(diags(some, 'data-rejected').map((d) => d.detail), ['viewer.username: not 5–32 characters of A–Z, a–z, 0–9 and _; the widget does not see it']);
+    // Only with canQuery, as before: the names never reach a widget that may not ask.
+    const quiet = await runWidget('<p>x</p>', { context: { ...K['no-queries'], viewer: { id: 42, firstName: 'Ann' } }, probes: [user] });
+    assert.deepEqual(quiet.probes, ['null']);
+  });
+
+  it('chatData, publicData, chatType and viewer come from the client, checked; a copy has no chatData or chat, and only a widget that may request knows its viewer', async () => {
+    const original = await runWidget('<p>x</p>', {
+      data: { chatData: '{"turn":1}', publicData: 'score 3:1' }, context: { ...K.private, viewer: { id: 42 } },
+      probes: [show, 'Object.isFrozen(TelegramWidget.viewer)', 'TelegramWidget.viewer === TelegramWidget.viewer', 'typeof TelegramWidget.request', 'typeof TelegramWidget.copyText'],
+    });
+    assert.deepEqual(original.probes, [JSON.stringify(['{"turn":1}', 'score 3:1', false, 'private', { id: 42 }]), 'true', 'true', 'function', 'function']);
+    const copy = await runWidget('<p>x</p>', { data: { chatData: 'secret', publicData: 'score 3:1' }, context: { ...K.copy, viewer: { id: 42 } }, probes: [show] });
+    assert.deepEqual(copy.probes, [JSON.stringify([null, 'score 3:1', true, null, null])]);
+    // A copy is told nothing about the chat it is in, even one that may ask: the bot must not learn where its widget went.
+    const live = await runWidget('<p>x</p>', { data: { chatData: 'secret', publicData: 'score 3:1' }, context: { ...K['live-copy'], chatType: 'supergroup', viewer: { id: 42 } }, probes: [show] });
+    assert.deepEqual(live.probes, [JSON.stringify([null, 'score 3:1', true, null, { id: 42 }])]);
+    // An original the bot sent without allow_queries has its data and chat, but no viewer: it may not talk to the bot.
+    const quiet = await runWidget('<p>x</p>', { data: { chatData: 'mine', publicData: 'p' }, context: { ...K['no-queries'], viewer: { id: 42 } }, probes: [show] });
+    assert.deepEqual(quiet.probes, [JSON.stringify(['mine', 'p', false, 'private', null])]);
+    const none = await runWidget('<p>x</p>', { data: { chatData: '', publicData: 'x'.repeat(1025) }, context: { chatType: 'sender' as any, viewer: { id: 0 } }, probes: [show] });
+    assert.deepEqual(none.probes, [JSON.stringify([null, null, false, null, null])]);
+    assert.equal(diags(none, 'data-rejected').length, 1);
+    const nul = await runWidget('<p>x</p>', { data: { chatData: 'a\0b', publicData: 'p' }, probes: [show] });
+    assert.deepEqual(nul.probes, [JSON.stringify([null, 'p', false, null, null])]);
+    assert.equal(diags(nul, 'data-rejected').length, 1);
+  });
+
+  it('the members are read-only', async () => {
+    const r = await runWidget('<script>"use strict"; var e = []; ["chatData", "viewer", "isForward"].forEach(function (k) { try { TelegramWidget[k] = "x"; } catch (x) { e.push(x.name); } });</script>', {
+      data: { chatData: 'c' }, probes: ['e.join()', 'TelegramWidget.chatData'],
+    });
+    assert.deepEqual(r.probes, ['TypeError,TypeError,TypeError', 'c']);
+  });
+
+  const events = '<script>var log = []; ["chatDataChanged", "publicDataChanged", "dataChanged"].forEach(function (t) { TelegramWidget.onEvent(t, function () { log.push(t + ":" + TelegramWidget.chatData + "|" + TelegramWidget.publicData + ":" + (this === TelegramWidget)); }); });</script>';
+
+  it("the client's setData: chatDataChanged, then publicDataChanged, each only when its value changed, in one task", async () => {
+    const r = await runWidget(events, {
+      data: { chatData: 'a', publicData: 'p' }, context: K.private,
+      script: [
+        { data: { chatData: 'a', publicData: 'p' } }, { probe: 'log.length' },
+        { data: { chatData: 'b', publicData: 'p' } }, { probe: 'log.splice(0).join(" ")' },
+        { data: { chatData: 'c', publicData: 'q' } }, { probe: 'log.splice(0).join(" ")' },
+        { data: { publicData: 'q' } }, { probe: 'log.splice(0).join(" ")' },
+        { data: { chatData: 'x'.repeat(1025), publicData: 'q' } }, { probe: 'log.splice(0).join(" ")' },
+      ],
+    });
+    assert.deepEqual(r.probes, [
+      '0',
+      'chatDataChanged:b|p:true',
+      'chatDataChanged:c|q:true publicDataChanged:c|q:true',
+      'chatDataChanged:null|q:true',
+      '',
+    ]);
+    assert.equal(diags(r, 'data-rejected').length, 1);
+  });
+
+  it('a copy: only publicData changes (a shared object polled by the client); chatDataChanged never fires', async () => {
+    const r = await runWidget(events, {
+      data: { publicData: 'p' }, context: K.copy, script: [{ data: { chatData: 'c', publicData: 'p' } }, { data: { chatData: 'c', publicData: 'p2' } }, { probe: 'log.join(" ")' }],
+    });
+    assert.deepEqual(r.probes, ['publicDataChanged:null|p2:true']);
+  });
+
+  const requester = `<button id="b">go</button><script>
+    var log = [];
+    function ask(d) { TelegramWidget.request(d).then(function (a) { log.push('ok:' + d + ':' + JSON.stringify(a) + ':' + Object.isFrozen(a)); }, function (e) { log.push('err:' + d + ':' + e.name + ':' + e.code); }); }
+    document.getElementById('b').addEventListener('click', function () { ask('tap'); ask('tap2'); });
+  </script>`;
+  const tap = async (n = 1) => { const id = await idOf(requester, 'button'); return Array.from({ length: n }, (_, i) => ({ type: 'click', targetId: id, gesture: i + 1 })); };
+
+  it('a tap sends one request with its data only; the answer is { result }; a second call is BUSY', async () => {
+    const asked: unknown[] = [];
+    const r = await runWidget(requester, {
+      events: await tap(), context: K.group,
+      onRequest: (q) => { asked.push(q); return { result: 'thanks', chatData: 'ignored' } as any; },
+      probes: ['log.join(" ")'],
+    });
+    assert.deepEqual(asked, [{ data: 'tap' }]);
+    assert.equal(r.probes[0], 'err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true');
+    assert.deepEqual(r.requests.map((q) => [q.data, q.verdict, q.background]), [['tap', 'foreground', false]]);
+  });
+
+  it("a bot's data edit reaches the widget through setData, not with the answer", async () => {
+    const html = '<button>b</button><script>var log = []; TelegramWidget.onEvent("chatDataChanged", function () { log.push("changed:" + TelegramWidget.chatData); }); document.querySelector("button").onclick = function () { TelegramWidget.request("vote").then(function (a) { log.push("ok:" + a.result + ":" + TelegramWidget.chatData); }); };</script>';
+    const r = await runWidget(html, {
+      data: { chatData: 'v1' }, context: K.private, events: [{ type: 'click', targetId: await idOf(html, 'button'), gesture: 1 }],
+      onRequest: () => ({ result: '{"votes":2}' }), script: [{ data: { chatData: 'v2' } }, { probe: 'log.join(" ")' }],
+    });
+    assert.equal(r.probes[0], 'ok:{"votes":2}:v1 changed:v2');
+  });
+
+  it('without canQuery nothing is asked, tap or not; without a tap, and without the client handling requests, NOT_ALLOWED', async () => {
+    const timer = '<script>var log = []; setTimeout(function () { TelegramWidget.request("t").catch(function (e) { log.push(e.code + ":" + /tap/.test(e.message)); }); }, 0);</script>';
+    const r = await runWidget(timer, { context: K.group, onRequest: () => ({ result: 'never' }), probes: ['log.join()'] });
+    assert.equal(r.probes[0], 'NOT_ALLOWED:true');
+    assert.deepEqual(r.requests.map((q) => q.verdict), ['no-activation']);
+    const unsupported = await runWidget(requester, { events: await tap(), context: K.private, probes: ['log[1]'] });
+    assert.equal(unsupported.probes[0], 'err:tap:WidgetRequestError:NOT_ALLOWED');
+    assert.deepEqual(unsupported.requests.map((q) => q.verdict), ['unsupported']);
+    for (const context of [K.copy, {}]) {
+      const off = await runWidget(requester, { events: await tap(), context, onRequest: () => ({ result: 'x' }), probes: ['log.join(" ")'] });
+      assert.equal(off.probes[0], 'err:tap:WidgetRequestError:NOT_ALLOWED err:tap2:WidgetRequestError:NOT_ALLOWED');
+      assert.deepEqual(off.requests, []); // the shim refuses at once: canQuery is false
+    }
+  });
+
+  it('a live copy (fwd_allow_queries) asks on a tap, never in the background', async () => {
+    const asked: unknown[] = [];
+    const r = await runWidget(requester + '<script>setTimeout(function () { TelegramWidget.request("bg").catch(function (e) { log.push("bg:" + e.code); }); }, 0);</script>', {
+      events: await tap(), context: { ...K['live-copy'], backgroundQuery: false }, onRequest: (q) => { asked.push(q); return { result: 'ok' }; }, probes: ['log.join(" ")'],
+    });
+    assert.deepEqual(asked, [{ data: 'tap' }]);
+    assert.match(r.probes[0], /ok:tap:\{"result":"ok"\}/);
+    assert.match(r.probes[0], /bg:NOT_ALLOWED/);
+  });
+
+  it('a request takes the tap: an openLink or copyText after it in the same tap is blocked', async () => {
+    const html = '<button>x</button><script>document.querySelector("button").onclick = function () { TelegramWidget.request("r"); TelegramWidget.copyText("c"); TelegramWidget.openLink("https://example.com/"); };</script>';
+    const r = await runWidget(html, { events: [{ type: 'click', targetId: await idOf(html, 'button'), gesture: 1 }], context: K.private, onRequest: () => ({}) });
+    assert.deepEqual(r.copiedTexts, []);
+    assert.deepEqual(r.actions, []);
+    assert.equal(diags(r, 'activation-blocked').length, 2);
+  });
+
+  it('backgroundQuery: while visible, one per 5 s', async () => {
+    const html = '<script>var log = []; function ask() { TelegramWidget.request("bg").then(function (a) { log.push("ok"); }, function (e) { log.push(e.code); }); } ask(); setTimeout(ask, 10); setTimeout(ask, 20);</script>';
+    const asked: unknown[] = [];
+    const r = await runWidget(html, {
+      context: K.private, now: () => 0, onRequest: (q) => { asked.push(q); return {}; },
+      script: [{ visible: false }, { probe: '(ask(), 1)' }, { visible: true }], timerRounds: 2, probes: ['log.join()'],
+    });
+    assert.deepEqual(asked, [{ data: 'bg' }]);
+    assert.deepEqual(r.requests.map((q) => q.background), [true, false, false]);
+    // The refusal of the 10 ms call comes back as a task of its own: the 20 ms call, in the same timer round, finds it still in flight.
+    assert.equal(r.probes[1], 'ok,BUSY,RATE_LIMITED,NOT_ALLOWED');
+    assert.deepEqual(r.requests.map((q) => q.verdict), ['background', 'rate-limited', 'hidden']);
+    let now = 0;
+    const spaced = await runWidget('<script>var log = []; function ask() { TelegramWidget.request("a").then(function () { log.push("a"); if (log.length < 3) setTimeout(ask, 0); }); } setTimeout(ask, 0);</script>', {
+      context: K.private, now: () => (now += 5000), onRequest: () => ({}), timerRounds: 3, probes: ['log.join()'],
+    });
+    assert.equal(spaced.probes[0], 'a,a,a');
+    const tapOnly = await runWidget(html, { context: K['via-bot'], onRequest: () => ({}), probes: ['log.join()'] });
+    assert.equal(tapOnly.probes[0], 'NOT_ALLOWED,BUSY,NOT_ALLOWED');
+  });
+
+  it('backgroundQuery: one at once when the widget appears on screen again, then one per 5 s', async () => {
+    const html = '<script>var log = []; function ask(tag) { TelegramWidget.request("bg").then(function () { log.push(tag + ":ok"); }, function (e) { log.push(tag + ":" + e.code); }); } ask("boot");</script>';
+    const r = await runWidget(html, {
+      context: K.private, now: () => 1000, onRequest: () => ({}),
+      script: [{ probe: '(ask("soon"), 1)' }, { visible: false }, { visible: true }, { probe: '(ask("shown"), 1)' }, { probe: '(ask("again"), 1)' }],
+      probes: ['log.join()'],
+    });
+    assert.equal(r.probes.at(-1), 'boot:ok,soon:RATE_LIMITED,shown:ok,again:RATE_LIMITED');
+  });
+
+  it('data of 1–64 bytes, a string: anything else throws TypeError and sends nothing', async () => {
+    const r = await runWidget('<script>var e = []; [undefined, "", "x".repeat(65), "ж".repeat(33), 5, {}].forEach(function (d) { try { TelegramWidget.request(d); } catch (x) { e.push(x.name); } }); try { TelegramWidget.copyText(""); } catch (x) { e.push("copy:" + x.name); } try { TelegramWidget.copyText("x".repeat(257)); } catch (x) { e.push("copy:" + x.name); }</script>', {
+      context: K.private, onRequest: () => ({}), probes: ['e.join()'],
+    });
+    assert.equal(r.probes[0], 'TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,copy:TypeError,copy:TypeError');
+    assert.deepEqual(r.requests, []);
+  });
+
+  it('a result over 1024 bytes or with a NUL is INVALID_ANSWER; a failure becomes its code', async () => {
+    for (const result of ['x'.repeat(1025), 'a\0b']) {
+      const r = await runWidget(requester, { events: await tap(), context: K.private, onRequest: () => ({ result }), probes: ['log.join(" ")'] });
+      assert.equal(r.probes[0], 'err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:INVALID_ANSWER');
+      assert.equal(diags(r, 'answer-rejected').length, 1);
+    }
+    for (const [reason, code] of [['TIMEOUT', 'TIMEOUT'], [{ code: 'RATE_LIMITED' }, 'RATE_LIMITED'], [new Error('offline'), 'FAILED']] as const) {
+      const f = await runWidget(requester, { events: await tap(), context: K.private, onRequest: () => Promise.reject(reason), probes: ['log[1]'] });
+      assert.equal(f.probes[0], `err:tap:WidgetRequestError:${code}`);
+    }
+  });
+
+  it('after an answer the next tap can request again', async () => {
+    let n = 0;
+    const r = await runWidget(requester, { events: await tap(2), context: K.group, onRequest: () => ({ result: String(++n) }), probes: ['log.filter(function (l) { return l.indexOf("ok:") === 0; }).length'] });
+    assert.equal(r.probes[0], '2');
+  });
+
+  it('a preview: the data, no input, no requests or actions, nothing about the user, no storage commits', async () => {
+    const html = `<button id="b">b</button><script>
+      var log = [], taps = 0;
+      document.getElementById('b').addEventListener('click', function () { taps++; });
+      log.push(JSON.stringify([TelegramWidget.isPreview, TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.chatType, TelegramWidget.viewer, localStorage.getItem('k')]));
+      localStorage.setItem('k', 'v');
+      TelegramWidget.request('x').catch(function (e) { log.push(e.code + ':' + /preview/.test(e.message)); });
+      try { TelegramWidget.openLink('https://example.com/'); TelegramWidget.copyText('c'); TelegramWidget.HapticFeedback.impactOccurred('light'); } catch (e) { log.push(e.name); }
+      TelegramWidget.ready(); TelegramWidget.setResizeAnchor('bottom');
+      setTimeout(function () { log.push('timer'); }, 0);
+    </script>`;
+    const r = await runWidget(html, {
+      data: { chatData: 'c', publicData: 'p' }, storage: { local: { k: 'stored' } },
+      context: { ...K.private, viewer: { id: 42 }, preview: true },
+      events: [{ type: 'click', targetId: await idOf(html, 'button'), gesture: 1 }], onRequest: () => ({ result: 'never' }),
+      probes: ['log.join(" ")', 'taps', 'TelegramWidget.isPreview'],
+    });
+    assert.deepEqual(r.probes, [`${JSON.stringify([true, 'c', 'p', null, null, null])} NOT_ALLOWED:true timer`, '0', 'true']);
+    assert.deepEqual(r.requests, []);
+    assert.deepEqual(r.actions, [{ kind: 'ready' }]);
+    assert.deepEqual(r.copiedTexts, []);
+    assert.deepEqual(r.storageCommits, []);
+    assert.equal(r.resizeAnchor, 'bottom');
+    assert.equal(diags(r, 'preview-blocked').length, 3);
+    const normal = await runWidget('<p>x</p>', { probes: ['TelegramWidget.isPreview'] });
+    assert.deepEqual(normal.probes, ['false']);
+  });
+
+  it('copyText: one per tap, to the client as given; never without a tap', async () => {
+    const html = '<button>c</button><script>setTimeout(function () { TelegramWidget.copyText("timer"); }, 0); document.querySelector("button").onclick = function () { TelegramWidget.copyText("PROMO-2026 ✓"); TelegramWidget.copyText("second"); };</script>';
+    const r = await runWidget(html, { events: [{ type: 'click', targetId: await idOf(html, 'button'), gesture: 1 }] });
+    assert.deepEqual(r.copiedTexts, ['PROMO-2026 ✓']);
+    assert.equal(diags(r, 'activation-blocked').length, 2);
   });
 });

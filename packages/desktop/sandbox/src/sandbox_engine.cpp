@@ -3,6 +3,7 @@
 #include "twidget/json.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -66,9 +67,19 @@ static std::string truncate(const std::string& s, size_t n) { return s.size() <=
 SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
     : thread_("widget.sandbox"), html_(std::move(html)), config_(config), resources_(std::move(resources)),
       intl_(intl ? std::move(intl) : std::make_shared<BasicIntl>()), visible_(config.visible),
-      budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs) {}
+      budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs) {
+    liveness_->engine = this;
+    // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16). Fixed from
+    // here on, so other threads may read config_ without a lock.
+    if (config_.context.preview) config_.context.isCopy = config_.context.canQuery = config_.context.backgroundQuery = false;
+}
 
 SandboxEngine::~SandboxEngine() {
+    {
+        // A request's `respond` called from now on is ignored; one that holds the lock has posted its task, which runs before the thread stops.
+        std::lock_guard<std::mutex> l(liveness_->mutex);
+        liveness_->engine = nullptr;
+    }
     thread_.join();
     // The thread is gone: nothing else touches the context, so it can be freed here.
     js_.reset();
@@ -140,11 +151,29 @@ void SandboxEngine::boot() {
         config.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(config_.themeParams)));
         config.set("locale", sdk::checkLocale(config_.locale).value_or(std::string(sdk::DEFAULT_LOCALE)));
         config.set("profile", sdk::PROFILE_VERSION);
+        // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
         bool preloadAccepted = true;
-        config.set("storage", sdk::storagePreloadJson(config_.storage, &preloadAccepted));
+        config.set("storage", config_.context.preview ? Json::object() : sdk::storagePreloadJson(config_.storage, &preloadAccepted));
         if (!preloadAccepted && delegate_)
             delegate_->onDiag(*this, "storage-rejected", "the preload is not { local, session } objects of strings within " + std::to_string(sdk::STORAGE_QUOTA_BYTES) +
                                                              " bytes each; the widget starts with empty storage");
+        // docs/sdk-v1.md §2.13, §2.16, §4.4: the bot's data and the message's flags. A copy gets no chatData
+        // and no chat type: the bot learns nothing about where its widget was forwarded (whatever the widget knows can
+        // go to the bot in a request). The viewer only where the widget may send requests (canQuery, never in a
+        // preview), as the network marker: on a tap the bot gets `from` anyway.
+        const WidgetContext& context = config_.context;
+        const bool revealsViewer = !context.preview && context.canQuery;
+        putData(config, sdk::checkWidgetData(config_.data, context.isCopy));
+        config.set("isCopy", context.isCopy);
+        config.set("canQuery", context.canQuery);
+        config.set("isPreview", context.preview);
+        std::optional<std::string> chatType = context.preview || context.isCopy ? std::nullopt : sdk::checkChatType(context.chatType);
+        config.set("chatType", chatType ? Json(*chatType) : Json());
+        // The viewer in the widget's field names (Mini Apps' WebAppUser); a field that breaks its rule is left out and reported.
+        sdk::CheckedViewer viewer = revealsViewer ? sdk::checkViewer(context.viewer) : sdk::CheckedViewer{};
+        config.set("viewer", viewer.viewer ? sdk::viewerJson(*viewer.viewer) : Json());
+        for (const std::string& field : viewer.rejected)
+            if (delegate_) delegate_->onDiag(*this, "data-rejected", "viewer." + field + ": " + std::string(sdk::viewerFieldRule(field)) + "; the widget does not see it");
         Json features = Json::array();
         // Only what this runtime implements (Swift runtimeFeatures, WEB_FEATURES in worker.ts):
         // canvasWords, binaryOps and morphUpdates need host functions the C++ glue does not have.
@@ -166,8 +195,13 @@ void SandboxEngine::boot() {
 
 // MARK: inputs from the host (all asynchronous)
 
-void SandboxEngine::event(const std::string& json) { enqueue("event", json); }
-void SandboxEngine::activationEvent(const std::string& json, int gesture) { enqueue(kActivationPrefix + std::to_string(gesture), json); }
+// A preview takes no input (a tap on it selects the result, the client's); WidgetHost drops the renderer's events first.
+void SandboxEngine::event(const std::string& json) {
+    if (!config_.context.preview) enqueue("event", json);
+}
+void SandboxEngine::activationEvent(const std::string& json, int gesture) {
+    if (!config_.context.preview) enqueue(kActivationPrefix + std::to_string(gesture), json);
+}
 /// Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets.
 static double coarseNowMs(double ms) { return std::floor(ms / 0.1) * 0.1; }
 
@@ -187,10 +221,36 @@ void SandboxEngine::theme(const std::string& colorScheme, const std::map<std::st
     enqueue("theme", t.dump());
 }
 
+void SandboxEngine::setData(const WidgetData& data) {
+    sdk::CheckedWidgetData checked = sdk::checkWidgetData(data, config_.context.isCopy);
+    thread_.async([this, checked] {
+        if (dead_) return;
+        Json event = Json::object();
+        event.set("type", "data");
+        putData(event, checked);
+        input("bridge", event.dump());
+    });
+}
+
+/// "chatData and publicData": the fields of a `data-rejected` detail.
+static std::string joinFields(const std::vector<std::string>& fields) {
+    std::string out;
+    for (const std::string& f : fields) out += (out.empty() ? "" : " and ") + f;
+    return out;
+}
+
+void SandboxEngine::putData(Json& event, const sdk::CheckedWidgetData& checked) {
+    event.set("chatData", checked.chatData ? Json(*checked.chatData) : Json());
+    event.set("publicData", checked.publicData ? Json(*checked.publicData) : Json());
+    if (checked.rejected.empty() || !delegate_) return;
+    delegate_->onDiag(*this, "data-rejected", joinFields(checked.rejected) + ": not text of at most " + std::to_string(sdk::MAX_WIDGET_DATA_BYTES) + " bytes (UTF-8, no NUL); the widget sees null");
+}
+
 void SandboxEngine::setVisible(bool v) {
     thread_.async([this, v] {
         if (dead_ || visible_ == v) return;
         visible_ = v;
+        if (v) requests_.show(); // the widget appeared on screen, its next background request may go out at once
         if (!js_) return; // boot reads `visible_` for the shim
         dispatch("visibility", std::string("{\"visible\":") + (v ? "true" : "false") + "}");
         if (v) {
@@ -213,13 +273,15 @@ std::string SandboxEngine::probe(const std::string& code) {
 }
 
 void SandboxEngine::enqueue(const std::string& kind, const std::string& arg) {
-    thread_.async([this, kind, arg] {
-        if (dead_) return;
-        if (!js_) { pendingBeforeBoot_.emplace_back(kind, arg); return; }
-        // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
-        if (kind == "frame" && !visible_) { frameWanted_ = true; return; }
-        dispatch(kind, arg);
-    });
+    thread_.async([this, kind, arg] { input(kind, arg); });
+}
+
+void SandboxEngine::input(const std::string& kind, const std::string& arg) {
+    if (dead_) return;
+    if (!js_) { pendingBeforeBoot_.emplace_back(kind, arg); return; }
+    // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
+    if (kind == "frame" && !visible_) { frameWanted_ = true; return; }
+    dispatch(kind, arg);
 }
 
 /// Runs one task for an input (event, timer, frame, …) if the CPU quota
@@ -308,6 +370,14 @@ void SandboxEngine::onTimerFired(int id) {
     dispatch("timer", std::to_string(id));
 }
 
+/// `{"type":"answer","id":…}`: the start of a `bridge` answer event (a refused request's, or an answer).
+static Json answerEvent(int64_t id) {
+    Json event = Json::object();
+    event.set("type", "answer");
+    event.set("id", id);
+    return event;
+}
+
 // MARK: the single capability
 
 HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& arg) {
@@ -369,7 +439,8 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
     if (kind == "anim") { if (delegate_) delegate_->onAnim(*this, arg); return HostReturn::undefined(); }
     if (kind == "bridge") {
         // docs/sdk-v1.md §3.2, in this order: the method and its arguments, user activation for the
-        // links, the haptic limit; then the action. Lone surrogates stay WTF-8 so checkLink refuses them.
+        // links and copyText, the haptic limit; then the action. A request has its own gate. Lone surrogates
+        // stay WTF-8 so checkLink and the string checks of the bot's data and requests refuse them.
         auto call = Json::parse(arg, Json::Surrogates::Keep);
         const Json* method = call && call->isArray() && call->size() > 0 ? &call->arr()[0] : nullptr;
         std::optional<sdk::BridgeCall> checked = call && call->isArray() ? sdk::checkBridgeCall((*call)[0], (*call)[1]) : std::nullopt;
@@ -381,6 +452,20 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
             }
             return HostReturn::undefined();
         }
+        // A preview may only say it is ready and set its anchor: no request, link, copy or haptic (docs/sdk-v1.md §2.16).
+        if (config_.context.preview && !sdk::allowedInPreview(name)) {
+            if (previewBlockedReported_ < sdk::MAX_REJECTION_REPORTS && delegate_) {
+                previewBlockedReported_++;
+                delegate_->onDiag(*this, "preview-blocked", name + " ignored: a preview (an inline result not sent yet) takes no actions");
+            }
+            if (checked->request) {
+                Json event = answerEvent(checked->request->id);
+                event.set("error", "NOT_ALLOWED");
+                event.set("reason", "preview");
+                enqueue("bridge", event.dump());
+            }
+            return HostReturn::undefined();
+        }
         // setResizeAnchor is not an action (docs/sdk-v1.md §2.12): no gesture, any visibility, never onBridgeAction or
         // onBridge; the host keeps the latest edge next to the height. The shim sends only changes, before the ops of
         // the content change, and the delegate gets it now, in the task: ahead of that task's onOps.
@@ -388,7 +473,16 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
             if (delegate_) delegate_->onResizeAnchor(*this, *checked->resizeAnchor);
             return HostReturn::undefined();
         }
-        const WidgetAction& action = *checked->action;
+        // Not an action either: the host keeps whether the widget watches its public_data (the client polls only then).
+        if (checked->watchPublicData) {
+            if (delegate_) delegate_->onPublicDataWatch(*this, *checked->watchPublicData);
+            return HostReturn::undefined();
+        }
+        // A request has its own gate (a press or the background rules; one in flight) and goes to onBridgeRequest, not onBridgeAction.
+        if (checked->request) {
+            request(checked->request->id, checked->request->data);
+            return HostReturn::undefined();
+        }
         if (isStrictPolicy(config_.policy) && sdk::isPrivilegedMethod(name)) {
             if (!(activeGesture_ > consumedGesture_ && visible_)) {
                 if (blockedBridgeReported_ < sdk::MAX_REJECTION_REPORTS && delegate_) {
@@ -400,6 +494,12 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
             consumedGesture_ = activeGesture_;
             activeGesture_ = 0;
         }
+        // copyText goes to the client's clipboard (onBridgeCopyText): not an action, not a raw bridge call.
+        if (checked->copyText) {
+            if (delegate_) delegate_->onBridgeCopyText(*this, *checked->copyText);
+            return HostReturn::undefined();
+        }
+        const WidgetAction& action = *checked->action;
         if (action.kind == WidgetAction::Haptic) {
             sdk::HapticGate::Decision d = haptics_.decide(nowMs(), visible_);
             if (d == sdk::HapticGate::Decision::Report && delegate_)
@@ -413,6 +513,8 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         return HostReturn::undefined();
     }
     if (kind == "storage") {
+        // A preview's Web Storage lives in this run only: there is no message to keep it for.
+        if (config_.context.preview) return HostReturn::undefined();
         // The full areas a task changed, at most once per task after its ops (docs/sdk-v1.md §3.2).
         if (arg.size() > sdk::MAX_STORAGE_COMMIT_BYTES) {
             rejectStorage("a commit of " + std::to_string(arg.size()) + " bytes cannot be within the quota");
@@ -454,6 +556,81 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         return HostReturn::undefined();
     }
     return HostReturn::undefined();
+}
+
+// MARK: requests (docs/sdk-v1.md §2.14)
+
+namespace {
+
+/// Why a request was refused, for the `request-blocked` detail (REQUEST_REFUSED in widget-host.ts).
+const char* refusalText(sdk::RequestVerdict verdict) {
+    switch (verdict) {
+    case sdk::RequestVerdict::Disabled: return "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)";
+    case sdk::RequestVerdict::Busy: return "a request is already in flight";
+    case sdk::RequestVerdict::NoActivation: return "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)";
+    case sdk::RequestVerdict::Hidden: return "a background request from a widget off screen";
+    case sdk::RequestVerdict::RateLimited: return "background requests at most once per 5 s";
+    default: return "";
+    }
+}
+
+} // namespace
+
+std::string SandboxEngine::refusal(int64_t id, std::string_view error, std::string_view reason, const std::string& detail) {
+    if (blockedRequestsReported_ < sdk::MAX_REJECTION_REPORTS && delegate_) {
+        blockedRequestsReported_++;
+        delegate_->onDiag(*this, "request-blocked", detail);
+    }
+    // The shim's promise rejects with the code and a message for the reason (the gate's verdict, or `unsupported`).
+    Json event = answerEvent(id);
+    event.set("error", error);
+    event.set("reason", reason);
+    return event.dump();
+}
+
+void SandboxEngine::request(int64_t id, const std::string& data) {
+    // 1. A press this task has not used yet, peeked: it is consumed only when the request goes out as the press's.
+    bool strict = isStrictPolicy(config_.policy);
+    bool pressed = !strict || (activeGesture_ > consumedGesture_ && visible_);
+    // 2. The gate. A refusal goes back as a `bridge` task of its own, after this one.
+    sdk::RequestVerdict verdict = requests_.decide(nowMs(), {pressed, visible_, config_.context.canQuery, config_.context.backgroundQuery});
+    if (std::optional<std::string_view> error = sdk::requestRefusal(verdict)) {
+        std::string name(sdk::requestVerdictName(verdict));
+        return enqueue("bridge", refusal(id, *error, name, "request refused (" + name + "): " + refusalText(verdict)));
+    }
+    if (verdict == sdk::RequestVerdict::Foreground && strict) {
+        consumedGesture_ = activeGesture_;
+        activeGesture_ = 0;
+    }
+    // 3. The client, which decides at delivery whether it handles requests at all. `respond` may come from any thread,
+    // once; it reaches this engine only while it lives (the liveness record), and the answer task does nothing once the
+    // runtime is dead. Background or not stays here: the bot cannot tell, and neither does the client.
+    auto once = std::make_shared<std::atomic<bool>>(false);
+    WidgetRequestResponder respond([life = liveness_, once, id](const std::optional<WidgetRequestOutcome>& outcome) {
+        if (once->exchange(true)) return;
+        std::lock_guard<std::mutex> l(life->mutex);
+        if (SandboxEngine* engine = life->engine) engine->thread_.async([engine, id, outcome] { engine->answerRequest(id, outcome); });
+    });
+    if (delegate_) delegate_->onBridgeRequest(*this, WidgetRequest{data}, std::move(respond));
+    else respond.unsupported();
+}
+
+void SandboxEngine::answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome) {
+    if (dead_) return;
+    requests_.finish();
+    if (!outcome) return input("bridge", refusal(id, "NOT_ALLOWED", "unsupported", "request refused: the client handles no requests (onRequest)"));
+    Json event = answerEvent(id);
+    if (outcome->failure != WidgetRequestFailure::None) {
+        event.set("error", sdk::requestFailureCode(outcome->failure));
+    } else if (std::optional<sdk::CheckedAnswer> checked = sdk::checkRequestAnswer(outcome->answer)) {
+        event.set("result", checked->result ? Json(*checked->result) : Json()); // only the result: the bot changes its data with setData
+    } else {
+        if (delegate_)
+            delegate_->onDiag(*this, "answer-rejected", "the answer's result is not text of at most " + std::to_string(sdk::MAX_REQUEST_RESULT_BYTES) +
+                                                            " bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER");
+        event.set("error", "INVALID_ANSWER");
+    }
+    input("bridge", event.dump());
 }
 
 void SandboxEngine::rejectStorage(const std::string& detail) {

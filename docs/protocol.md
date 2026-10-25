@@ -358,8 +358,10 @@ a phone; `rtl`: the leading edge strip is the right one. `{ bubble: false }`
 
 Host → worker: `init {html, sab, config, sandboxBundle}`, `event {ev}`,
 `frame {time}`, `viewport`, `resize {entries}`, `theme {theme, themeParams}`,
-`visibility {visible}`. (The `bridge {event, data}` message, host → widget
-events, is gone with `sendMessage`.)
+`visibility {visible}`, `bridge {event}` (the bot's data, a request's answer;
+see "Bridge calls and storage commits" below). (The profile-0
+`bridge {event, data}` message, host → widget events for `sendMessage`, went
+with v1.)
 
 Host → renderer, besides ops and queries: `listen {types}`, `preventDefault
 {keys}`, `requestFrame`, `anim {now, anims}` (`webAnimations`), `theme {theme:
@@ -402,10 +404,14 @@ a Metal backend past the validator. It is compiled out of release builds
 ### User activation for privileged bridge calls
 
 The `bridge` methods `openLink` and `openTelegramLink` (also what the shim
-makes of `<a href>` taps and `window.open`) are privileged (`PRIVILEGED_METHODS`
-in `sdk-policy.ts`; `ready` and `haptic` are not): the glue forwards one only while
-the task of a trusted user gesture runs on a visible widget, and one gesture
-unlocks one call. A gesture is one physical pointer press (`pointerdown`,
+makes of `<a href>` taps and `window.open`) and `copyText` are
+privileged (`PRIVILEGED_METHODS` in `sdk-policy.ts`; `ready` and `haptic` are
+not): the glue forwards one only while the task of a trusted user gesture runs
+on a visible widget, and one gesture unlocks one call. A `request` shares the
+same gesture through its own gate: it looks at the task's gesture without
+consuming it, and consumes it only when the request goes out as the tap's
+(`foreground`); without a gesture it may go out as a background request where
+the server's flags allow them (below). A gesture is one physical pointer press (`pointerdown`,
 `mousedown`, `pointerup`, `mouseup`, `click`, `dblclick` of the same press).
 Keys are never gestures: widgets get no keyboard. A `click` or `dblclick`
 starts a gesture only with a click count (`detail` ≥ 1); the click that Enter
@@ -430,13 +436,50 @@ glue gates in the engine (`activationEvent(json, gesture)`). See decisions.md,
 `openTelegramLink [url]`, `haptic ['impact', style] | ['notification', type] |
 ['selection']`, `setResizeAnchor ['top' | 'bottom']` (v0.1.3: not privileged,
 not an action; the host keeps the latest edge and reports it with the height,
-and the shim sends only changes). Every glue checks, in order: the method and its arguments
-(`checkBridgeCall`: anything else is dropped with `bridge-rejected`, at most 20),
-user activation for the two link methods (above), the haptic gate for `haptic`
-(visible, a bucket of 5 refilled at 10 per second; `haptic-limit` at most once
-per second). What passes reaches the client as a `WidgetAction` (`onAction`)
-with the URL normalised; the deprecated `onBridge` still gets the raw method and
-arguments.
+and the shim sends only changes), `watchPublicData [on]` (one boolean; not
+privileged, not an action, refused in a preview: the host keeps the latest value
+and reports a change, the shim sends only changes), `request [id, data]` and
+`copyText [text]` (the bot's data and requests). Every glue checks, in order: the method and its arguments
+(`checkBridgeCall`: anything else is dropped with `bridge-rejected`, at most 20;
+`request` takes an integer id 1–2147483647 and 1–64 bytes of UTF-8, `copyText`
+1–256 UTF-16 code units, neither a lone surrogate), the request gate for
+`request` (below), user activation for the two link methods and `copyText`
+(above), the haptic gate for `haptic` (visible, a bucket of 5 refilled at 10 per
+second; `haptic-limit` at most once per second). What passes reaches the client
+as a `WidgetAction` (`onAction`) with the URL normalised; the deprecated
+`onBridge` still gets the raw method and arguments. `copyText` goes to
+`onCopyText(text)` and `request` to `onRequest({data, background})`, neither to
+`onAction` / `onBridge`.
+
+**Requests and the bot's data (docs/sdk-v1.md §2.13–§2.14).** The request gate
+(`RequestGate`) reads only the server's flags the host passes in its context:
+no `canQuery` → `disabled`; one in flight → `busy`; an unconsumed gesture on a
+visible widget → `foreground` (consumed; `compat` counts every call as
+pressed); no `backgroundQuery` → `no-activation`; hidden → `hidden`; under 5 s
+since the last background request → `rate-limited`; else `background`; the host
+calls the gate's `show` when the widget becomes visible (its next background
+request may go out at once). Refusals are reported as `request-blocked` (at
+most 20) and go back at once. An accepted request goes to the client as
+`{data}`; a client without `onRequest` then refuses it (`unsupported`). The host
+→ sandbox `bridge` dispatch (a task of kind `bridge`, deferred under the CPU
+quota like `theme`, order kept) carries:
+
+- `{type: 'data', chatData, publicData}`: the full state after a change (the
+  client's `setData`: the server's update, or a polled shared `public_data`);
+  the shim fires `chatDataChanged`, then `publicDataChanged`, for each that
+  differs, in that task;
+- `{type: 'answer', id, result}`: the bot's result (an answer carries no data);
+- `{type: 'answer', id, error, reason?}`: `error` one of `NOT_ALLOWED`, `BUSY`,
+  `RATE_LIMITED` (refusals; `reason` = the gate's verdict or `unsupported`, for
+  the error's message), `TIMEOUT`, `RATE_LIMITED`, `FAILED` (the client's
+  failures) and `INVALID_ANSWER` (the answer's `result` over 1024 bytes or not
+  text: `answer-rejected`).
+
+Every string coming in is checked again in the glue, as the server checks its
+text fields: `chatData`, `publicData` and `result` are UTF-8 text without a NUL
+of at most 1024 bytes; a data field that fails is `null` (`data-rejected`), a
+copy's `chatData` is dropped. Request ids are the shim's; an answer to an id the
+shim is not waiting for is ignored.
 
 `__host('storage', JSON {local?, session?})`: the full areas of Web Storage a
 task changed, sent once at the end of that task. The glue checks the commit
@@ -467,6 +510,11 @@ client's duties are in docs/sdk-v1.md.
 | `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
 | `profile` | 1 | the widget profile the glue enforces; the shim reports `profile-mismatch` when its bundle's differs |
 | `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (16384 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
+| `chatData`, `publicData` | `null` | the bot's two strings, checked by the glue (text of 1–1024 bytes of UTF-8 without a NUL, else `null` and `data-rejected`); a copy's `chatData` is `null` |
+| `isCopy` | `false` | a forwarded copy (the server's `is_copy`; the widget's `isForward`) |
+| `canQuery` | `false` | the server's `can_query`: the shim refuses a request at once without it |
+| `chatType` | `null` | `private`, `group`, `supergroup` or `channel`; `null` in every copy (`isCopy`) and in a preview |
+| `viewer` | `null` | `{id, first_name?, last_name?, username?, is_premium?}` (`WebAppUser`): an id of 1 to 2^53 − 1, names of 1–64 UTF-16 code units, a username of 5–32 of `[A-Za-z0-9_]`, `is_premium` only when true; `null` without `canQuery` (and so in a preview) |
 
 The policy that counts and decides lives in trusted glue only:
 `packages/core/src/host/cpu-budget.ts`, `ios/.../CpuBudget.swift`, `android/.../CpuBudget.kt`

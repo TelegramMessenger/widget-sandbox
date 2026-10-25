@@ -153,6 +153,15 @@ anchor to `SandboxEngine.Delegate.onResizeAnchor`, and `WidgetHost` keeps the la
 `WidgetDiagnostics.resizeAnchor` ("top" until the widget calls it) next to `height`, set before the size
 report of the content its task changed; the client keeps that edge of the bubble in place when the height
 changes (the demo's lists: `WidgetView(scroll = …)`).
+The bot's data and requests (`docs/sdk-v1.md` §2.13–§2.15, §4.2): `Options(data = WidgetData(chatData, publicData),
+context = WidgetContext(isCopy, canQuery, backgroundQuery, chatType, viewer))` (the server's flags), `setData(WidgetData)`
+(the full state on every change),
+`onRequest(WidgetRequest(data), complete)` (complete once, from any thread, with `Result.success(WidgetRequestAnswer(result))`,
+the server's answer, or `Result.failure(WidgetRequestException(WidgetRequestFailure.…))`),
+`onCopyText(text)`. `SandboxEngine` runs
+the request gate of `SdkPolicy.kt` (`RequestGate`: from the server's flags, one press per request, background only with `backgroundQuery`,
+one when the widget appears on screen, then one per 5 s; one in flight; `request-blocked`) and checks the answers
+(`answer-rejected`, `data-rejected`).
 The string-theme constructor, `setTheme(String)`, `onBridge` and `onGestureClaim(x, y)` remain as deprecated conveniences;
 `bridgeEvent` is gone.
 

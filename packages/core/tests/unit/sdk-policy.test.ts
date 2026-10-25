@@ -7,8 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import {
-  HapticGate, THEME_KEYS, THEME_VARIABLES, checkBridgeCall, checkHaptic, checkLink, checkLocale, checkStorageCommit, checkThemeParams,
-  DEFAULT_TEXT_TOKENS, completeThemeParams, themeVariables, utf8Length, type LinkMethod,
+  HapticGate, RequestGate, THEME_KEYS, allowedInPreview, THEME_VARIABLES, checkBridgeCall, checkChatType, checkCopyText, checkHaptic, checkLink, checkLocale, checkRequestAnswer,
+  checkRequestData, checkStorageCommit, checkThemeParams, checkViewer, checkWidgetData, DEFAULT_TEXT_TOKENS, completeThemeParams, requestFailure, requestRefusal, viewerFromList, viewerUser,
+  themeVariables, utf8Length, type LinkMethod, type RequestVerdict,
 } from '../../src/shared/sdk-policy.ts';
 import { PROFILE_UA_STYLESHEET } from '../../src/shared/profile-tables.ts';
 
@@ -52,6 +53,69 @@ describe('sdk-policy fixture', () => {
   });
   it('utf8', () => {
     for (const c of fixture.utf8) assert.equal(utf8Length(c.s), c.bytes, c.s);
+  });
+  it('widget data', () => {
+    for (const c of fixture.widgetData) assert.deepEqual(checkWidgetData(expand(c.input), c.copy), expand(c.expect), c.note ?? JSON.stringify(c.input).slice(0, 80));
+  });
+  it('viewer', () => {
+    for (const c of fixture.viewer) assert.deepEqual(checkViewer(expand(c.input)), expand(c.expect), c.note ?? JSON.stringify(c.input).slice(0, 80));
+  });
+  it('chat type', () => {
+    for (const c of fixture.chatType) assert.equal(checkChatType(c.input), c.expect, String(c.input));
+  });
+  it('answers', () => {
+    for (const c of fixture.answers) assert.deepEqual(checkRequestAnswer(expand(c.input)), expand(c.expect), c.note ?? JSON.stringify(c.input).slice(0, 80));
+  });
+  it('request gate', () => {
+    for (const c of fixture.requestGate) {
+      const gate = new RequestGate();
+      c.steps.forEach((s: { op: string; at: number; gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean; expect: string }, i: number) => {
+        if (s.op === 'finish') return gate.finish();
+        if (s.op === 'show') return gate.show();
+        assert.equal(gate.decide(s.at, s), s.expect, `${c.name}, step ${i}`);
+      });
+    }
+  });
+  it('preview methods', () => {
+    for (const c of fixture.previewMethods) assert.equal(allowedInPreview(c.method), c.allowed, c.method);
+  });
+  it('request refusals', () => {
+    for (const c of fixture.requestRefusals) assert.equal(requestRefusal(c.verdict as RequestVerdict), c.expect, c.verdict);
+  });
+});
+
+describe('sdk-policy: bot data and requests (TS only)', () => {
+  it('lone surrogates are refused everywhere a string leaves the widget or enters it', () => {
+    assert.equal(checkRequestData('a\ud800'), null);
+    assert.equal(checkRequestData('\udc00b'), null);
+    assert.equal(checkCopyText('x\ud83d'), null);
+    assert.deepEqual(checkWidgetData({ chatData: '\ud800', publicData: 'ok' }, false), { chatData: null, publicData: 'ok', rejected: ['chatData'] });
+    assert.equal(checkRequestAnswer({ result: '\udfff' }), null);
+    assert.equal(checkRequestData('\ud83d\ude00'), '\ud83d\ude00');
+  });
+  it('wrong JS types: no data, no viewer, no answer', () => {
+    assert.equal(checkRequestData(42), null);
+    assert.equal(checkCopyText({ toString: () => 'x' }), null);
+    assert.deepEqual(checkWidgetData({ chatData: 5, publicData: ['x'] }, false), { chatData: null, publicData: null, rejected: ['chatData', 'publicData'] });
+    assert.deepEqual(checkWidgetData('chat', false), { chatData: null, publicData: null, rejected: [] });
+    assert.deepEqual(checkViewer({ id: '1' }), { viewer: null, rejected: [] });
+    assert.deepEqual(checkViewer({ id: 1.5 }), { viewer: null, rejected: [] });
+    assert.deepEqual(checkViewer({ id: 7, first_name: 5, last_name: ['L'], username: 12345, is_premium: 'yes' }),
+      { viewer: { id: 7 }, rejected: ['first_name', 'last_name', 'username', 'is_premium'] });
+    assert.deepEqual(checkViewer({ id: 7, first_name: 'A\ud800', last_name: '\udc00B' }), { viewer: { id: 7 }, rejected: ['first_name', 'last_name'] });
+    assert.deepEqual(checkViewer({ id: 7, first_name: 'Ann', extra: 'x', is_bot: true }), { viewer: { id: 7, first_name: 'Ann' }, rejected: [] });
+    assert.deepEqual(viewerUser({ id: 7, firstName: 'Ann', isPremium: false }), { id: 7, first_name: 'Ann', last_name: undefined, username: undefined, is_premium: false });
+    assert.deepEqual(viewerFromList('42,Ann,,ann_lee,premium'), { id: 42, firstName: 'Ann', username: 'ann_lee', isPremium: true });
+    assert.equal(viewerFromList('x,Ann'), null);
+    assert.equal(checkRequestAnswer({ result: 5 }), null);
+    assert.deepEqual(checkRequestAnswer(undefined), { result: null });
+    assert.deepEqual(checkRequestAnswer({ result: 'r', chatData: 'c', data: { chatData: 'c' } }), { result: 'r' }); // an answer carries no data
+  });
+  it("a client's failure becomes TIMEOUT, RATE_LIMITED or FAILED", () => {
+    assert.equal(requestFailure('TIMEOUT'), 'TIMEOUT');
+    assert.equal(requestFailure({ code: 'RATE_LIMITED' }), 'RATE_LIMITED');
+    assert.equal(requestFailure(new Error('network')), 'FAILED');
+    assert.equal(requestFailure('NOT_ALLOWED'), 'FAILED');
   });
 });
 

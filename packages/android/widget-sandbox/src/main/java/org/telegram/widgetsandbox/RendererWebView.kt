@@ -242,6 +242,11 @@ class RendererWebView(context: Context, rendererBundle: String, theme: String) :
         (webView as GestureWebView).decide(claim.hold)
     }
 
+    /** A preview: the WebView never keeps a press from its parent (the inline-results list takes the tap); no claim is awaited. */
+    override fun setPreview(preview: Boolean) {
+        (webView as GestureWebView).preview = preview
+    }
+
     /**
      * A WebView inside a scrolling container (chat list) loses the touch to the
      * container as soon as the finger moves past the slop: Android cannot see
@@ -251,6 +256,8 @@ class RendererWebView(context: Context, rendererBundle: String, theme: String) :
      * chat's, a horizontal one on `none` the widget's).
      */
     private class GestureWebView(context: Context) : WebView(context) {
+        /** A preview: every press is the parent's from the start (no interception denied, no claim awaited). */
+        var preview = false
         /** The claim of this press arrived (or the wait timed out). */
         private var decided = false
         /** The parent may intercept again, for the rest of this press. */
@@ -285,6 +292,7 @@ class RendererWebView(context: Context, rendererBundle: String, theme: String) :
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (preview) return super.onTouchEvent(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     decided = false

@@ -54,6 +54,9 @@ h2, h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spa
 .stage.compare .chat { width: var(--chat-width, 340px); }
 .chat .compare-status { font-size: 11px; color: var(--muted); margin: 4px 0 0 8px; white-space: pre-wrap; }
 .bubble-head { font-size: 11px; color: var(--muted); margin: 0 0 4px 8px; }
+/* The network marker (docs/integration.md): a tap may send data to the bot's server (the message has can_query). */
+.net-marker { margin-left: 6px; padding: 0 6px; border-radius: 8px; color: var(--accent); border: 1px solid currentColor; white-space: nowrap; }
+.net-marker.hidden { display: none; }
 /* The bubble is the widget's canvas, as on a client (docs/sdk-v1.md §2.4, docs/integration.md): no padding of its own (the
    widget's body margin is the inset), the background in exactly the bg_color the dev app passes (main.ts sets --bubble from
    the same palette), and the radius clips what the widget paints. Text bubbles of the feed keep their padding (below). */
@@ -74,6 +77,16 @@ section.grow { flex: 1; }
 #diags li b { color: var(--warn); }
 #diags li.diag-url-blocked b, #diags li.diag-network-blocked b, #diags li.diag-navigation-blocked b, #diags li.diag-protocol-violation b, #diags li.diag-renderer-violation b { color: var(--bad); }
 #diags li.diag-library b, #diags li.diag-boot b { color: var(--ok); }
+/* the mock bot (mock-bot.ts) */
+#bot-panel { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+#bot-panel .bot-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+#bot-panel label { display: inline-flex; gap: 3px; align-items: center; }
+#bot-panel input[type=number] { width: 64px; }
+#bot-panel textarea { width: 100%; resize: vertical; font: 11px/1.4 ui-monospace, Menlo, monospace; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+#bot-panel .bot-title { font-size: 11px; }
+#bot-requests { list-style: none; margin: 0; padding: 0; font: 11px/1.4 ui-monospace, Menlo, monospace; }
+#bot-requests li { padding: 2px 0; border-bottom: 1px solid var(--border); word-break: break-word; }
+.bubble-copied { top: auto; bottom: 6px; max-width: calc(100% - 12px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation-duration: 2s; }
 #console { flex: 1; min-height: 120px; margin: 0; overflow: auto; font: 11px/1.4 ui-monospace, Menlo, monospace; background: var(--bg); border-radius: 6px; padding: 6px; white-space: pre-wrap; word-break: break-word; }
 .log-error { color: var(--bad); }
 .log-warn { color: var(--warn); }

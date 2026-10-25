@@ -13,8 +13,10 @@ import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate } from './user-activation';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, toWidgetTheme,
-  type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetTheme,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, allowedInPreview, checkBridgeCall, checkChatType, checkLocale, checkRequestAnswer,
+  checkStorageCommit, checkViewer, checkWidgetData, requestFailure, requestRefusal, toWidgetTheme, viewerUser, VIEWER_FIELD_RULES,
+  type RequestVerdict, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
+  type WidgetUser, type WidgetViewer,
 } from '../shared/sdk-policy';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
@@ -23,10 +25,10 @@ import type { PooledWorker, WorkerPool } from './worker-pool';
 import { Validator } from './validator';
 import {
   LIMIT_DEFAULTS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_SIZE, SAB_STATE,
-  type HostToRenderer, type HostToWorker, type RendererToHost, type SandboxConfig, type SandboxPolicy, type Stats, type WorkerToHost, resolvePolicy,
+  type BridgeEvent, type HostToRenderer, type HostToWorker, type RendererToHost, type SandboxConfig, type SandboxPolicy, type Stats, type WorkerToHost, resolvePolicy,
 } from '../shared/protocol';
 
-export type { WidgetAction, WidgetTheme } from '../shared/sdk-policy';
+export type { ChatType, RequestFailure, WidgetAction, WidgetContext, WidgetData, WidgetRequest, WidgetRequestAnswer, WidgetTheme, WidgetUser, WidgetViewer } from '../shared/sdk-policy';
 export type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
 
 /** A press the bubble took (`bubbleGestures`): what the bubble does with it, and where the pointer was, in widget coordinates. */
@@ -46,6 +48,22 @@ export interface WidgetHostOptions {
   locale?: string;
   /** Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`). */
   storage?: StorageCommit;
+  /** The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`. */
+  data?: WidgetData;
+  /**
+   * The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer
+   * (docs/sdk-v1.md §4.4); fixed for the host's life. Without `canQuery` every request is refused.
+   */
+  context?: WidgetContext;
+  /**
+   * A request the widget sends to the bot (`TelegramWidget.request`, checked: the data, the server's flags, the press
+   * or the background rules, one in flight). The client sends `data` like a callback button's press and resolves
+   * with the server's answer, `{ result }`, or rejects with `'TIMEOUT'`, `'RATE_LIMITED'` or `'FAILED'`. Without it
+   * every request is refused (`NOT_ALLOWED`).
+   */
+  onRequest?: (request: WidgetRequest) => Promise<WidgetRequestAnswer> | WidgetRequestAnswer;
+  /** Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked, one per press). */
+  onCopyText?: (text: string) => void;
   memoryLimitBytes?: number;
   cpuLimitMs?: number;
   cpuQuotaMs?: number;
@@ -92,6 +110,13 @@ export interface WidgetHostOptions {
    * default: the content below moves) or `bottom` (the content above moves).
    */
   onResize?: (height: number, anchor: ResizeAnchor) => void;
+  /**
+   * The widget started (`true`) or stopped (`false`) watching its shared `public_data`
+   * (`TelegramWidget.watchPublicData`, docs/sdk-v1.md §2.13): poll `getWidgetPublicData` for it only while it watches
+   * and is on screen, and only when the message has a `widget_id`. Called on a change only; `watchesPublicData` has
+   * the latest.
+   */
+  onWatchPublicData?: (on: boolean) => void;
   /** The renderer; the sandboxed iframe when omitted. */
   rendererFactory?: RendererFactory;
   /** Take the sandbox worker from a pool of warmed ones (worker-pool.ts) instead of booting a fresh one. */
@@ -109,6 +134,13 @@ const MIN_HEIGHT = 50;
 const MAX_HEIGHT = 600;
 const encoder = new TextEncoder();
 const BUBBLE_ACTIONS = new Set<unknown>(['menu', 'swipe', 'scroll', 'back']);
+const REQUEST_REFUSED: Record<string, string> = {
+  disabled: 'the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)',
+  busy: 'a request is already in flight',
+  'no-activation': 'it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)',
+  hidden: 'a background request from a widget off screen',
+  'rate-limited': 'background requests at most once per 5 s',
+};
 const GESTURES = new Set<unknown>(['press', 'tap', 'double-tap', 'hold', 'drag-x', 'drag-y', 'menu-click']);
 
 export class WidgetHost {
@@ -118,6 +150,8 @@ export class WidgetHost {
   get iframe(): HTMLIFrameElement | null { return this.element instanceof HTMLIFrameElement ? this.element : null; }
   /** The edge of the bubble that stays put when the widget's height changes: the widget's latest `setResizeAnchor`, `top` until then. */
   get resizeAnchor(): ResizeAnchor { return this.anchor; }
+  /** Whether the widget watches its shared `public_data` (its latest `watchPublicData` / `unwatchPublicData`), false until then. */
+  get watchesPublicData(): boolean { return this.watching; }
   private worker: Worker | null = null;
   private renderer: Renderer;
   private validator: Validator;
@@ -140,12 +174,20 @@ export class WidgetHost {
   private rejectedStorageReported = 0;
   private haptics = new HapticGate();
   private anchor: ResizeAnchor = DEFAULT_RESIZE_ANCHOR;
+  private watching = false;
+  private context: { isCopy: boolean; canQuery: boolean; backgroundQuery: boolean; preview: boolean };
+  private previewBlockedReported = 0;
+  private requests = new RequestGate();
+  private blockedRequestsReported = 0;
 
   constructor(container: HTMLElement, html: string, private opts: WidgetHostOptions) {
     const diag = (kind: string, detail: string) => opts.onDiag?.(kind, detail);
     this.widgetTheme = toWidgetTheme(opts.theme);
     this.theme = this.widgetTheme.colorScheme;
     this.visible = opts.visible ?? true;
+    // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16).
+    const preview = opts.context?.preview === true;
+    this.context = { isCopy: opts.context?.isCopy === true && !preview, canQuery: opts.context?.canQuery === true && !preview, backgroundQuery: opts.context?.backgroundQuery === true && !preview, preview };
     // ── renderer ──
     this.renderer = (opts.rendererFactory ?? IframeRenderer.factory)(container, this.theme);
     this.element = this.renderer.element;
@@ -156,7 +198,7 @@ export class WidgetHost {
     this.renderer.onDiag = diag;
     this.renderer.load();
     this.toRenderer({ type: 'theme', theme: this.widgetTheme });
-    if (opts.bubbleGestures) this.setBubbleGestures(opts.bubbleGestures);
+    if (opts.bubbleGestures && !preview) this.setBubbleGestures(opts.bubbleGestures);
 
     // ── sandbox ──
     // The worker boots in parallel with the renderer: a renderer that is not ready yet queues what it gets.
@@ -177,7 +219,17 @@ export class WidgetHost {
       themeParams: this.widgetTheme.params,
       locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE,
       profile: PROFILE_VERSION,
-      storage: this.preload(opts.storage),
+      // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
+      storage: preview ? {} : this.preload(opts.storage),
+      ...this.checkData(opts.data),
+      isCopy: this.context.isCopy,
+      canQuery: this.context.canQuery,
+      isPreview: preview,
+      // A copy is told nothing about the chat it is in (the bot must not learn where its widget was forwarded). The
+      // widget knows its viewer only where it may send requests (canQuery, never in a preview): a widget that may not
+      // talk to the bot cannot pass the id out through a link either, and the rule matches the network marker.
+      chatType: preview || this.context.isCopy ? null : checkChatType(opts.context?.chatType),
+      viewer: this.context.canQuery ? this.checkViewer(opts.context?.viewer) : null,
     };
     let pooled: PooledWorker | null = null;
     if (opts.workerPool) {
@@ -213,10 +265,70 @@ export class WidgetHost {
     this.toWorker({ type: 'theme', theme: this.theme, themeParams: this.widgetTheme.params });
   }
 
-  /** Turns the renderer's bubble on or off (`WidgetHostOptions.bubbleGestures`). */
+  /** Turns the renderer's bubble on or off (`WidgetHostOptions.bubbleGestures`); a preview takes no input at all. */
   setBubbleGestures(mode: boolean | { touch?: boolean; rtl?: boolean }) {
+    if (this.context.preview) return;
     const o = typeof mode === 'object' ? mode : {};
     this.toRenderer({ type: 'arbitrate', bubble: mode !== false, touch: o.touch === true, rtl: o.rtl === true });
+  }
+
+  /**
+   * The bot's data changed (`updateMessageWidgetData`, or a new `public_data` from polling the shared object): the
+   * full state of both strings. The widget gets `chatDataChanged` / `publicDataChanged` for each that differs; a copy
+   * keeps no `chatData`, only its `publicData` changes.
+   */
+  setData(data: WidgetData) {
+    this.toWorker({ type: 'bridge', event: { type: 'data', ...this.checkData(data) } });
+  }
+
+  /** The viewer as the widget sees it; a field that breaks its rule is left out and reported (`data-rejected`). */
+  private checkViewer(viewer: WidgetViewer | undefined): WidgetUser | null {
+    const v = checkViewer(viewerUser(viewer));
+    for (const field of v.rejected) this.opts.onDiag?.('data-rejected', `viewer.${field}: ${VIEWER_FIELD_RULES[field]}; the widget does not see it`);
+    return v.viewer;
+  }
+
+  private checkData(data: unknown): { chatData: string | null; publicData: string | null } {
+    const d = checkWidgetData(data, this.context.isCopy);
+    if (d.rejected.length) this.opts.onDiag?.('data-rejected', `${d.rejected.join(' and ')}: not text of at most 1024 bytes (UTF-8, no NUL); the widget sees null`);
+    return { chatData: d.chatData, publicData: d.publicData };
+  }
+
+  /**
+   * docs/sdk-v1.md §2.14: a press unlocks one request, background ones only where the context allows them; one in
+   * flight. The gate decides first; a client without `onRequest` refuses at delivery, as the native hosts do.
+   */
+  private request(id: number, data: string, gesture: unknown) {
+    const answer = (event: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'>) => this.toWorker({ type: 'bridge', event: { type: 'answer', id, ...event } });
+    const refuse = (reason: RequestVerdict | 'unsupported', detail: string) => {
+      if (this.blockedRequestsReported < 20) {
+        this.blockedRequestsReported++;
+        this.opts.onDiag?.('request-blocked', detail);
+      }
+      answer({ error: (reason === 'unsupported' ? null : requestRefusal(reason)) ?? 'NOT_ALLOWED', reason });
+    };
+    const now = performance.now();
+    const pressed = this.policy === 'compat' || this.activation.available(gesture, now, this.visible);
+    const verdict = this.requests.decide(now, { gesture: pressed, visible: this.visible, canQuery: this.context.canQuery, backgroundQuery: this.context.backgroundQuery });
+    if (requestRefusal(verdict)) return refuse(verdict, `request refused (${verdict}): ${REQUEST_REFUSED[verdict] ?? verdict}`);
+    if (verdict === 'foreground' && this.policy === 'strict') this.activation.accept(gesture, now, this.visible);
+    const onRequest = this.opts.onRequest;
+    if (!onRequest) {
+      this.requests.finish();
+      return refuse('unsupported', 'request refused: the client handles no requests (WidgetHostOptions.onRequest)');
+    }
+    new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data }))).then((a) => {
+      this.requests.finish();
+      const checked = checkRequestAnswer(a);
+      if (!checked) {
+        this.opts.onDiag?.('answer-rejected', 'the answer\'s result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER');
+        return answer({ error: 'INVALID_ANSWER' });
+      }
+      answer({ result: checked.result });
+    }, (reason) => {
+      this.requests.finish();
+      answer({ error: requestFailure(reason) });
+    });
   }
 
   private preload(storage: unknown): StorageCommit {
@@ -235,6 +347,8 @@ export class WidgetHost {
   setVisible(visible: boolean) {
     if (this.visible === visible) return;
     this.visible = visible;
+    // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
+    if (visible) this.requests.show();
     this.toWorker({ type: 'visibility', visible });
   }
 
@@ -320,9 +434,31 @@ export class WidgetHost {
           }
           break;
         }
+        // A preview may only say it is ready and set its anchor: no request, link, copy or haptic (docs/sdk-v1.md §2.16).
+        if (this.context.preview && !allowedInPreview(method)) {
+          if (this.previewBlockedReported < 20) {
+            this.previewBlockedReported++;
+            this.opts.onDiag?.('preview-blocked', `${method} ignored: a preview (an inline result not sent yet) takes no actions`);
+          }
+          if (action.kind === 'request') this.toWorker({ type: 'bridge', event: { type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' } });
+          break;
+        }
         // Not an action: the host keeps the latest anchor and reports it with the height (no gesture, no callback of its own).
         if (action.kind === 'setResizeAnchor') {
           this.anchor = action.edge;
+          break;
+        }
+        // Not an action either: the host keeps whether the widget watches its public_data and tells the client on a change.
+        if (action.kind === 'watchPublicData') {
+          if (action.on !== this.watching) {
+            this.watching = action.on;
+            this.opts.onWatchPublicData?.(action.on);
+          }
+          break;
+        }
+        // A request has its own gate (a press or the background rules) and goes to `onRequest`, not `onAction`.
+        if (action.kind === 'request') {
+          this.request(action.id, action.data, msg.gesture);
           break;
         }
         if (this.policy === 'strict' && PRIVILEGED_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {
@@ -337,11 +473,17 @@ export class WidgetHost {
           if (d === 'report') this.opts.onDiag?.('haptic-limit', this.visible ? 'haptics over 5 per burst or 10 per second are dropped' : 'haptics of a hidden widget are dropped');
           if (d !== 'play') break;
         }
+        if (action.kind === 'copyText') {
+          this.opts.onCopyText?.(action.text);
+          break;
+        }
         this.opts.onAction?.(action);
         this.opts.onBridge?.(method, msg.args as unknown[]);
         break;
       }
       case 'storage': {
+        // A preview's Web Storage lives in this run only: there is no message to keep it for.
+        if (this.context.preview) break;
         const commit = checkStorageCommit(msg.commit);
         if (!commit || (!commit.local && !commit.session)) {
           if (this.rejectedStorageReported < 20) {
@@ -392,6 +534,8 @@ export class WidgetHost {
   private onRenderer(msg: RendererToHost) {
     switch (msg.type) {
       case 'event': {
+        // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
+        if (this.context.preview) break;
         const gesture = msg.trusted === true ? this.gestures.gestureFor(msg.ev) : 0;
         if (gesture) this.activation.issue(gesture, performance.now());
         this.toWorker(gesture ? { type: 'event', ev: msg.ev, gesture } : { type: 'event', ev: msg.ev });
@@ -422,10 +566,12 @@ export class WidgetHost {
         break;
       }
       case 'gesture':
+        if (this.context.preview) break;
         // Vertical drags are the chat's (v0.1.3): `y` is false whatever a renderer sends.
         this.opts.onGestureClaim?.({ x: msg.x === true, y: false, hold: msg.hold === true });
         break;
       case 'bubble': {
+        if (this.context.preview) break;
         const x = finiteNumber(msg.x), y = finiteNumber(msg.y);
         if (!BUBBLE_ACTIONS.has(msg.action) || !GESTURES.has(msg.gesture) || x === undefined || y === undefined) break;
         this.opts.onBubbleGesture?.({ action: msg.action, gesture: msg.gesture, x, y, edge: msg.edge === true });

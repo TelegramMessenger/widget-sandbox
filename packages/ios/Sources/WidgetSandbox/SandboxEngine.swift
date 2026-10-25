@@ -10,8 +10,9 @@ import Foundation
 import WidgetSandboxProtocol
 import QuartzCore
 
-/// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): the link calls
-/// (`SdkPolicy.privilegedMethods`) need a user gesture, text values are capped at 64 KB and visible text is budgeted.
+/// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): the link calls and copyText
+/// (`SdkPolicy.privilegedMethods`) need a user gesture, a request one unless the context allows background requests;
+/// text values are capped at 64 KB and visible text is budgeted.
 /// `compat`: the behaviour before that hardening, for tests and tooling.
 public enum SandboxPolicy: String {
     case compat
@@ -45,6 +46,14 @@ public struct SandboxConfig {
     public var locale = SdkPolicy.defaultLocale
     /// The client's Web Storage preload (docs/sdk-v1.md §2.8); over the quota it is dropped whole at boot (`storage-rejected`).
     public var storage = WidgetStorage()
+    /// The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13), checked at boot (`SdkPolicy.checkWidgetData`):
+    /// a field over 1024 bytes or with a NUL is null for the widget (`data-rejected`), a copy gets no `chatData`; later
+    /// edits go through `setData`.
+    public var data = WidgetData()
+    /// The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type, the viewer and
+    /// whether this is a preview (docs/sdk-v1.md §4.4); fixed for the engine's life. Without `canQuery` every request
+    /// is refused; a preview takes no actions and commits no storage.
+    public var context = WidgetContext()
 
     public init(innerWidth: Double, innerHeight: Double, devicePixelRatio: Double, theme: String) {
         self.innerWidth = innerWidth
@@ -85,6 +94,16 @@ public protocol SandboxEngineDelegate: AnyObject {
     /// A checked `setResizeAnchor` call (docs/sdk-v1.md §2.12): no action, no gesture, not gated by visibility. The shim
     /// sends only changes, in the task before that task's ops; the host keeps the latest next to the height.
     func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor)
+    /// A checked `watchPublicData` call (docs/sdk-v1.md §2.13): whether the widget watches its shared `public_data`.
+    /// No action, no gesture; the shim sends only changes; the host keeps the latest and tells the client on a change.
+    func engine(_ engine: SandboxEngine, watchesPublicData: Bool)
+    /// A request to the bot that passed the request gate (docs/sdk-v1.md §2.14): the client sends it and calls
+    /// `respond` once, from any thread, with the bot's answer or a failure; the engine checks the answer and passes it
+    /// into the widget. Later calls, and calls after the engine died, are ignored. A delegate without a client side
+    /// for requests leaves the default, which refuses it (`NOT_ALLOWED`, reason `unsupported`).
+    func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion)
+    /// A checked `copyText` call (docs/sdk-v1.md §2.15): one per press (strict), like the link calls; not an action.
+    func engine(_ engine: SandboxEngine, copyText: String)
     func engineLoaded(_ engine: SandboxEngine)
     func engine(_ engine: SandboxEngine, stats: SandboxStats)
     func engine(_ engine: SandboxEngine, died reason: String)
@@ -96,6 +115,9 @@ public extension SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, action: WidgetAction) {}
     func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {}
     func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) {}
+    func engine(_ engine: SandboxEngine, watchesPublicData: Bool) {}
+    func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) { respond.unsupported() }
+    func engine(_ engine: SandboxEngine, copyText: String) {}
 
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
         self.engine(engine, ops: canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
@@ -187,6 +209,18 @@ public final class SandboxEngine {
     private var rejectedBridgeReported = 0
     private var rejectedStorageReported = 0
     private var haptics = SdkPolicy.HapticGate()
+    /// The server's flags, one request to the bot in flight, a press or the background rules (docs/sdk-v1.md §2.14); JS thread only.
+    private var requests = SdkPolicy.RequestGate()
+    private var blockedRequestsReported = 0
+    private var previewBlockedReported = 0
+    /// The texts of `request-blocked` per refusal (REQUEST_REFUSED in widget-host.ts).
+    private static let requestRefused: [SdkPolicy.RequestVerdict: String] = [
+        .disabled: "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)",
+        .busy: "a request is already in flight",
+        .noActivation: "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
+        .hidden: "a background request from a widget off screen",
+        .rateLimited: "background requests at most once per 5 s",
+    ]
     private static let activationPrefix = "activation:"
     /// Two full areas of the quota at 12 JSON characters per byte (`\uXXXX` escapes plus the quotes, colon and comma of
     /// tiny pairs): a longer commit cannot be within it (`MAX_STORAGE_COMMIT_CHARS` in worker.ts).
@@ -359,21 +393,21 @@ public final class SandboxEngine {
             delegate?.engine(self, diag: "boot", detail: String(format: "sandbox bundle eval %.0f ms (%@%@)", bundleEval.ms, bundleEval.how, wasPrewarmed ? ", prewarmed" : ""))
         }
         task("boot", sliceMs: config.cpuLimitMs) {
-            let bootArg = Self.json([
-                "html": self.html,
-                "config": [
-                    "memoryLimitBytes": self.config.memoryLimitBytes, "cpuLimitMs": self.config.cpuLimitMs,
-                    "cpuQuotaMs": self.config.cpuQuotaMs, "cpuQuotaWindowMs": self.config.cpuQuotaWindowMs, "cpuKillAfterMs": self.config.cpuKillAfterMs,
-                    "maxTimers": self.config.maxTimers, "visible": self.visible,
-                    "viewport": ["innerWidth": self.config.innerWidth, "innerHeight": self.config.innerHeight, "dpr": self.config.devicePixelRatio],
-                    "theme": self.config.theme,
-                    "themeParams": SdkPolicy.checkThemeParams(self.config.themeParams),
-                    "locale": SdkPolicy.checkLocale(self.config.locale) ?? SdkPolicy.defaultLocale,
-                    "profile": SdkPolicy.profileVersion,
-                    "storage": self.preload(),
-                    "features": Array(self.config.features.intersection(self.runtimeFeatures)).sorted(),
-                ],
-            ])
+            var bootConfig: [String: Any] = [
+                "memoryLimitBytes": self.config.memoryLimitBytes, "cpuLimitMs": self.config.cpuLimitMs,
+                "cpuQuotaMs": self.config.cpuQuotaMs, "cpuQuotaWindowMs": self.config.cpuQuotaWindowMs, "cpuKillAfterMs": self.config.cpuKillAfterMs,
+                "maxTimers": self.config.maxTimers, "visible": self.visible,
+                "viewport": ["innerWidth": self.config.innerWidth, "innerHeight": self.config.innerHeight, "dpr": self.config.devicePixelRatio],
+                "theme": self.config.theme,
+                "themeParams": SdkPolicy.checkThemeParams(self.config.themeParams),
+                "locale": SdkPolicy.checkLocale(self.config.locale) ?? SdkPolicy.defaultLocale,
+                "profile": SdkPolicy.profileVersion,
+                // A preview has no message yet: no storage of its own (it lives in the sandbox for this run only).
+                "storage": self.config.context.preview ? [String: Any]() : self.preload(),
+                "features": Array(self.config.features.intersection(self.runtimeFeatures)).sorted(),
+            ]
+            bootConfig.merge(self.widgetContext()) { $1 }
+            let bootArg = Self.json(["html": self.html, "config": bootConfig])
             self.callTw("boot", bootArg)
             if !self.dead, let afterBoot = self.afterBoot {
                 afterBoot(self.js)
@@ -400,6 +434,44 @@ public final class SandboxEngine {
         return out
     }
 
+    /// The bot's data, the server's flags and where the widget is, checked for the shim's boot (docs/sdk-v1.md §3.1):
+    /// JSON null for none; a forwarded copy gets no `chatData` and no `chatType` (the bot learns nothing about where its
+    /// widget was forwarded), and no `viewer` unless it may request; a preview gets its data but no flags, chat type or
+    /// viewer.
+    private func widgetContext() -> [String: Any] {
+        let context = config.context.effective
+        var out = dataFields(SdkPolicy.checkWidgetData(config.data, copy: context.isCopy))
+        out["isCopy"] = context.isCopy
+        out["canQuery"] = context.canQuery
+        out["isPreview"] = context.preview
+        // Whatever the widget knows can reach the bot in a request: no copy tells where it was forwarded, and the
+        // widget knows its viewer only where it may send requests (canQuery, never in a preview), as the network marker.
+        let noChatType = context.preview || context.isCopy
+        let noViewer = context.preview || !context.canQuery
+        out["chatType"] = Self.orNull(noChatType ? nil : SdkPolicy.checkChatType(context.chatType)?.rawValue)
+        out["viewer"] = noViewer ? NSNull() : checkedViewer(context.viewer)
+        return out
+    }
+
+    /// The viewer in the widget's field names (`WebAppUser`), JSON null for none; each field the client passed that
+    /// breaks its rule is left out and reported (`data-rejected`).
+    private func checkedViewer(_ viewer: WidgetViewer?) -> Any {
+        let checked = SdkPolicy.checkViewer(viewer)
+        for field in checked.rejected {
+            delegate?.engine(self, diag: "data-rejected", detail: "viewer.\(field): \(SdkPolicy.viewerFieldRules[field] ?? "breaks its rule"); the widget does not see it")
+        }
+        return Self.orNull(checked.viewer?.json)
+    }
+
+    /// The full state of `chatData` and `publicData` as the widget gets it (JSON null for none); the fields the client
+    /// passed over the limit are reported (`data-rejected`).
+    private func dataFields(_ checked: SdkPolicy.CheckedWidgetData) -> [String: Any] {
+        if !checked.rejected.isEmpty {
+            delegate?.engine(self, diag: "data-rejected", detail: "\(checked.rejected.joined(separator: " and ")): not text of at most \(SdkPolicy.maxWidgetDataBytes) bytes (UTF-8, no NUL); the widget sees null")
+        }
+        return ["chatData": Self.orNull(checked.chatData), "publicData": Self.orNull(checked.publicData)]
+    }
+
     // MARK: inputs from the host (all asynchronous)
 
     public func event(json: String) { enqueue("event", json) }
@@ -420,6 +492,20 @@ public final class SandboxEngine {
     /// The chat's theme changed: the colour scheme and the palette (checked here), in one task (docs/sdk-v1.md §3.3).
     public func theme(_ theme: String, params: [String: String] = [:]) {
         enqueue("theme", Self.json(["theme": theme, "themeParams": SdkPolicy.checkThemeParams(params)]))
+    }
+
+    /// The bot's data changed (docs/sdk-v1.md §2.13): the full state of both strings, checked against this engine's
+    /// context (a copy keeps no `chatData`, only its `publicData` changes); the widget gets `chatDataChanged` and then
+    /// `publicDataChanged` for each that differs. Before `start` it only replaces `config.data` (a host that starts the
+    /// engine with its own config passes the latest data there).
+    public func setData(_ data: WidgetData) {
+        queue.async {
+            if self.dead { return }
+            guard self.started else { self.config.data = data; return }
+            var event = self.dataFields(SdkPolicy.checkWidgetData(data, copy: self.config.context.effective.isCopy))
+            event["type"] = "data"
+            self.enqueueNow("bridge", Self.json(event))
+        }
     }
 
     /// In-place document update (`morphUpdates`): the shim patches the live DOM to `html`, keeping node identity,
@@ -444,6 +530,8 @@ public final class SandboxEngine {
         queue.async {
             if self.dead || self.visible == v { return }
             self.visible = v
+            // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
+            if v { self.requests.show() }
             guard self.js != nil else { return } // boot reads `visible` for the shim
             self.dispatch("visibility", "{\"visible\":\(v)}")
             if !v, !self.dead { self.js.collectGarbage() }
@@ -455,13 +543,16 @@ public final class SandboxEngine {
     }
 
     private func enqueue(_ kind: String, _ arg: String) {
-        queue.async {
-            if self.dead { return }
-            guard self.js != nil else { self.pendingBeforeBoot.append((kind, arg)); return }
-            // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
-            if kind == "frame", !self.visible { self.frameWanted = true; return }
-            self.dispatch(kind, arg)
-        }
+        queue.async { self.enqueueNow(kind, arg) }
+    }
+
+    /// `enqueue` from a block already on the engine's thread (never from inside a task): in the order of that block.
+    private func enqueueNow(_ kind: String, _ arg: String) {
+        if dead { return }
+        guard js != nil else { pendingBeforeBoot.append((kind, arg)); return }
+        // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
+        if kind == "frame", !visible { frameWanted = true; return }
+        dispatch(kind, arg)
     }
 
     /// Runs one task for an input (event, timer, frame, …) if the CPU quota
@@ -621,15 +712,40 @@ public final class SandboxEngine {
         }
     }
 
-    /// docs/sdk-v1.md §3.2, in this order: the method and its arguments, user activation for the links (strict),
-    /// the haptic gate; then the action and, deprecated, the raw call to the delegate. `setResizeAnchor` is no action:
-    /// once checked it goes to the delegate's `resizeAnchor` and nowhere else (no gesture, any visibility).
+    /// docs/sdk-v1.md §3.2, in this order: the method and its arguments, user activation for the privileged calls
+    /// (strict: the links and copyText), the haptic gate; then the action and, deprecated, the raw call to the
+    /// delegate. `setResizeAnchor` and `watchPublicData` are no actions: once checked they go to the delegate's
+    /// `resizeAnchor` / `watchesPublicData` and nowhere else (no gesture, any visibility). A request has its own gate (`request(id:data:)`); copyText goes to the delegate's
+    /// `copyText`, not to `action` or `bridge`.
     private func bridgeCall(_ arg: String) {
         let call = Self.parse(arg) as? [Any]
         let name = String(((call?.first).map { $0 as? String ?? "\($0)" } ?? "undefined").prefix(64))
         let checked = call.flatMap { SdkPolicy.checkBridgeCall($0.first, $0.count > 1 ? $0[1] : nil) }
+        // A preview may only say it is ready and set its anchor: no request, link, copy or haptic (docs/sdk-v1.md §2.16).
+        if let checked, config.context.preview, !SdkPolicy.allowedInPreview(name) {
+            if previewBlockedReported < 20 {
+                previewBlockedReported += 1
+                delegate?.engine(self, diag: "preview-blocked", detail: "\(name) ignored: a preview (an inline result not sent yet) takes no actions")
+            }
+            if case .request(let id, _) = checked {
+                enqueue("bridge", Self.json(["type": "answer", "id": id, "error": SdkPolicy.RequestError.notAllowed.rawValue, "reason": "preview"]))
+            }
+            return
+        }
         if case .setResizeAnchor(let edge) = checked {
             delegate?.engine(self, resizeAnchor: edge)
+            return
+        }
+        if case .watchPublicData(let on) = checked {
+            delegate?.engine(self, watchesPublicData: on)
+            return
+        }
+        if case .request(let id, let data) = checked {
+            request(id: id, data: data)
+            return
+        }
+        if case .copyText(let text) = checked {
+            if acceptActivation(name) { delegate?.engine(self, copyText: text) }
             return
         }
         guard let call, let checked, let action = WidgetAction(checked) else {
@@ -639,17 +755,7 @@ public final class SandboxEngine {
             }
             return
         }
-        if config.policy == .strict, SdkPolicy.privilegedMethods.contains(name) {
-            guard activeGesture > consumedGesture, visible else {
-                if blockedBridgeReported < 20 {
-                    blockedBridgeReported += 1
-                    delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a tap on the visible widget and runs in that tap's handler, one call per tap (called from the \(currentKind) task)")
-                }
-                return
-            }
-            consumedGesture = activeGesture
-            activeGesture = 0
-        }
+        guard acceptActivation(name) else { return }
         if case .haptic = checked {
             switch haptics.decide(nowMs: Self.nowMs(), visible: visible) {
             case .play:
@@ -666,8 +772,86 @@ public final class SandboxEngine {
         delegate?.engine(self, bridge: name, argsJson: argsJson)
     }
 
+    /// Strict: a privileged call (`SdkPolicy.privilegedMethods`) needs the task's unconsumed gesture on the visible
+    /// widget and consumes it, one call per press; false (and `activation-blocked`) without one. Other calls pass.
+    private func acceptActivation(_ name: String) -> Bool {
+        guard config.policy == .strict, SdkPolicy.privilegedMethods.contains(name) else { return true }
+        guard activeGesture > consumedGesture, visible else {
+            if blockedBridgeReported < 20 {
+                blockedBridgeReported += 1
+                delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored: it needs a tap on the visible widget and runs in that tap's handler, one call per tap (called from the \(currentKind) task)")
+            }
+            return false
+        }
+        consumedGesture = activeGesture
+        activeGesture = 0
+        return true
+    }
+
+    /// docs/sdk-v1.md §2.14 (WidgetHost.request in widget-host.ts): the request gate on the server's flags: none
+    /// without `canQuery`; a press unlocks one request (peeked here, consumed only when the request goes out as that
+    /// press's, under `strict`); background ones only with `backgroundQuery`; one in flight. Whether the client has a side for requests is decided where it
+    /// is delivered, by the delegate (WidgetHost: `onRequest` on the main thread, so a client that sets it right after
+    /// creating the host gets a request the widget made before that). Every outcome goes back into the widget as a
+    /// `bridge` task of its own, never inside the calling task.
+    private func request(id: Int, data: String) {
+        let pressed = config.policy == .compat || (activeGesture > consumedGesture && visible)
+        let verdict = requests.decide(nowMs: Self.nowMs(), gesture: pressed, visible: visible, canQuery: config.context.effective.canQuery, backgroundQuery: config.context.effective.backgroundQuery)
+        if let error = SdkPolicy.requestRefusal(verdict) {
+            let event = refusal(id, reason: verdict.rawValue, error: error, detail: "request refused (\(verdict.rawValue)): \(Self.requestRefused[verdict] ?? verdict.rawValue)")
+            return enqueue("bridge", event)
+        }
+        if verdict == .foreground, config.policy == .strict {
+            consumedGesture = activeGesture
+            activeGesture = 0
+        }
+        // The client answers once, from any thread; the gate and the widget are touched on this thread only.
+        let once = RequestOnce()
+        let respond = WidgetRequestCompletion { [weak self] outcome in
+            guard once.claim(), let self else { return }
+            self.queue.async { [weak self] in self?.settleRequest(id, outcome) }
+        }
+        guard let delegate else { return respond.unsupported() }
+        delegate.engine(self, request: WidgetRequest(data: data), respond: respond)
+    }
+
+    /// A refused request `id` (`request-blocked`, at most 20 per widget): the answer event with its error and reason.
+    private func refusal(_ id: Int, reason: String, error: SdkPolicy.RequestError, detail: String) -> String {
+        if blockedRequestsReported < 20 {
+            blockedRequestsReported += 1
+            delegate?.engine(self, diag: "request-blocked", detail: detail)
+        }
+        return Self.json(["type": "answer", "id": id, "error": error.rawValue, "reason": reason])
+    }
+
+    /// The client's outcome for request `id`, on the engine's thread: the gate is free again; no client side is a
+    /// refusal (`unsupported`); the answer's `result` is checked (`answer-rejected` → `INVALID_ANSWER`) and settles the
+    /// widget's promise (an answer carries no data); a failure becomes its code.
+    private func settleRequest(_ id: Int, _ outcome: WidgetRequestCompletion.Outcome) {
+        if dead { return }
+        requests.finish()
+        guard case .answer(let result) = outcome else {
+            return enqueueNow("bridge", refusal(id, reason: "unsupported", error: .notAllowed, detail: "request refused: the client handles no requests (WidgetHost.onRequest)"))
+        }
+        var event: [String: Any] = ["type": "answer", "id": id]
+        switch result {
+        case .failure(let failure):
+            event["error"] = failure.code.rawValue
+        case .success(let answer):
+            if let checked = SdkPolicy.checkRequestAnswer(answer) {
+                event["result"] = Self.orNull(checked.result)
+            } else {
+                delegate?.engine(self, diag: "answer-rejected", detail: "the answer's result is not text of at most \(SdkPolicy.maxRequestResultBytes) bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER")
+                event["error"] = SdkPolicy.RequestError.invalidAnswer.rawValue
+            }
+        }
+        enqueueNow("bridge", Self.json(event))
+    }
+
     /// The areas of Web Storage a task changed, in full (`__host('storage', …)`, at most once per task, after its ops).
     private func storageCommit(_ arg: String) {
+        // A preview's Web Storage lives in this run only: there is no message to keep it for.
+        if config.context.preview { return }
         let length = arg.utf16.count
         let commit = length > Self.maxStorageCommitChars ? nil : SdkPolicy.checkStorageCommit(Self.parse(arg))
         guard let commit, !commit.isEmpty else {
@@ -872,6 +1056,8 @@ public final class SandboxEngine {
     static func parse(_ json: String) -> Any? {
         try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [.fragmentsAllowed])
     }
+    /// A value for `json`: JSON null for none.
+    static func orNull(_ value: Any?) -> Any { value ?? NSNull() }
     private static func splitPrefix(_ s: String) -> (String, String) {
         guard let i = s.firstIndex(of: ":") else { return (s, "") }
         return (String(s[..<i]), String(s[s.index(after: i)...]))
@@ -884,6 +1070,42 @@ public final class SandboxEngine {
             range = r.upperBound..<text.endIndex
         }
         return count
+    }
+}
+
+/// How a delegate completes a request (`engine(_:request:respond:)`): `respond(.success(answer))` or
+/// `respond(.failure(.timeout))`, once, from any thread; later calls are ignored.
+public struct WidgetRequestCompletion {
+    /// What reaches the engine: the client's answer or failure, or no client side for requests (WidgetHost without
+    /// `onRequest` when the request is delivered), which the widget gets as `NOT_ALLOWED`, reason `unsupported`.
+    enum Outcome {
+        case answer(Result<WidgetRequestAnswer, WidgetRequestFailure>)
+        case unsupported
+    }
+
+    let settle: (Outcome) -> Void
+
+    public func callAsFunction(_ result: Result<WidgetRequestAnswer, WidgetRequestFailure>) {
+        settle(.answer(result))
+    }
+
+    /// The client handles no requests.
+    func unsupported() {
+        settle(.unsupported)
+    }
+}
+
+/// The first call of a request's completion wins; the client may call it from any thread, any number of times.
+private final class RequestOnce {
+    private let lock = NSLock()
+    private var done = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
     }
 }
 

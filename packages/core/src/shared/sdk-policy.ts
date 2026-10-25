@@ -35,6 +35,35 @@ export const RESIZE_ANCHORS: readonly ResizeAnchor[] = ['top', 'bottom'];
 /** Until the widget calls `setResizeAnchor`: the bubble grows and shrinks downward. */
 export const DEFAULT_RESIZE_ANCHOR: ResizeAnchor = 'top';
 
+// ── the bot's data and requests (docs/sdk-v1.md §2.13–§2.15) ──
+
+/** UTF-8 bytes of `chatData` and of `publicData` each (the server's limit, `chat_data` / `public_data`). */
+export const MAX_WIDGET_DATA_BYTES = 1024;
+/** UTF-8 bytes of a request's `data` (as `callback_data`). */
+export const MAX_REQUEST_DATA_BYTES = 64;
+/** UTF-8 bytes of an answer's `result`. */
+export const MAX_REQUEST_RESULT_BYTES = 1024;
+/** UTF-16 code units of a `copyText` text (as the `copy_text` button's). */
+export const MAX_COPY_TEXT_LENGTH = 256;
+/** A background request (not from a press): one when the widget appears on screen, then at most one per this long while it stays visible. */
+export const BACKGROUND_REQUEST_INTERVAL_MS = 5000;
+/** The request ids the shim numbers its calls with. */
+export const MAX_REQUEST_ID = 2147483647;
+/** A Telegram user id fits in 53 bits: a JS number holds it exactly. */
+export const MAX_VIEWER_ID = 9007199254740991;
+/** UTF-16 code units of the viewer's first and last name (each 1 to this). */
+export const MAX_VIEWER_NAME_LENGTH = 64;
+/** The viewer's username: 5–32 characters of A–Z, a–z, 0–9 and _. */
+export const VIEWER_USERNAME = /^[A-Za-z0-9_]{5,32}$/;
+/** The chat kinds a host may report (`Chat.type` of the Bot API); a value outside them is no chat type (null). */
+export const CHAT_TYPES = ['private', 'group', 'supergroup', 'channel'] as const;
+export type ChatType = (typeof CHAT_TYPES)[number];
+/** What a refused or failed request rejects with in the widget (`error.code`). */
+export const REQUEST_ERRORS = ['NOT_ALLOWED', 'BUSY', 'RATE_LIMITED', 'TIMEOUT', 'FAILED', 'INVALID_ANSWER'] as const;
+export type RequestError = (typeof REQUEST_ERRORS)[number];
+/** What a client reports for a request it could not complete: the bot did not answer in time, flood wait, anything else. */
+export type RequestFailure = 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED';
+
 export type LinkMethod = 'openLink' | 'openTelegramLink';
 export type HapticCall = { haptic: 'impact' | 'notification' | 'selection'; value?: string };
 export type WidgetAction =
@@ -43,13 +72,30 @@ export type WidgetAction =
   | { kind: 'openTelegramLink'; url: string }
   | ({ kind: 'haptic' } & HapticCall);
 /**
- * A bridge call that passed its checks: an action for the client (`onAction`), or the resize anchor, which no
- * action carries: the host keeps the latest one next to the height it reports.
+ * A bridge call that passed its checks: an action for the client (`onAction`); the resize anchor, which no action
+ * carries (the host keeps the latest one next to the height it reports); whether the widget watches its shared
+ * `public_data` (the host keeps the latest, the client polls only for widgets that watch); a request to the bot (the
+ * request gate, then the client's `onRequest`); a text to copy (`onCopyText`).
  */
-export type BridgeCall = WidgetAction | { kind: 'setResizeAnchor'; edge: ResizeAnchor };
+export type BridgeCall =
+  | WidgetAction
+  | { kind: 'setResizeAnchor'; edge: ResizeAnchor }
+  | { kind: 'watchPublicData'; on: boolean }
+  | { kind: 'request'; id: number; data: string }
+  | { kind: 'copyText'; text: string };
 
-/** Methods that need the task's user gesture (docs/protocol.md, "User activation"). */
-export const PRIVILEGED_METHODS = new Set(['openLink', 'openTelegramLink']);
+/** Methods that need the task's user gesture (docs/protocol.md, "User activation"); one press unlocks one of them. `request` has its own gate (`RequestGate`). */
+export const PRIVILEGED_METHODS = new Set(['openLink', 'openTelegramLink', 'copyText']);
+
+/**
+ * The bridge methods a preview (an inline result before it is sent: `WidgetContext.preview`) may call; everything
+ * else is refused there: no request, link, copy or haptic. A preview gets no input either (its host drops the
+ * renderer's events and gesture claims).
+ */
+export const PREVIEW_METHODS: ReadonlySet<string> = new Set(['ready', 'setResizeAnchor']);
+export function allowedInPreview(method: unknown): boolean {
+  return typeof method === 'string' && PREVIEW_METHODS.has(method);
+}
 
 /** UTF-8 length of a JS string; a lone surrogate counts 3 bytes (what U+FFFD takes). */
 export function utf8Length(s: string): number {
@@ -152,7 +198,252 @@ export function checkBridgeCall(method: unknown, args: unknown): BridgeCall | nu
       const edge = args.length === 1 ? checkResizeAnchor(args[0]) : null;
       return edge === null ? null : { kind: 'setResizeAnchor', edge };
     }
+    case 'watchPublicData':
+      return args.length === 1 && typeof args[0] === 'boolean' ? { kind: 'watchPublicData', on: args[0] } : null;
+    case 'request': {
+      const id = args[0];
+      const data = args.length === 2 ? checkRequestData(args[1]) : null;
+      return data !== null && typeof id === 'number' && Number.isInteger(id) && id >= 1 && id <= MAX_REQUEST_ID ? { kind: 'request', id, data } : null;
+    }
+    case 'copyText': {
+      const text = args.length === 1 ? checkCopyText(args[0]) : null;
+      return text === null ? null : { kind: 'copyText', text };
+    }
     default: return null;
+  }
+}
+
+/** No lone surrogate: the string has a UTF-8 form (what the server and the clipboard take). */
+function wellFormed(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0xd800 || c > 0xdfff) continue;
+    if (c > 0xdbff || i + 1 >= s.length || (s.charCodeAt(i + 1) & 0xfc00) !== 0xdc00) return false;
+    i++;
+  }
+  return true;
+}
+
+/** A request's `data`, or null: a well-formed string of 1–64 UTF-8 bytes. */
+export function checkRequestData(data: unknown): string | null {
+  if (typeof data !== 'string' || !wellFormed(data)) return null;
+  const n = utf8Length(data);
+  return n >= 1 && n <= MAX_REQUEST_DATA_BYTES ? data : null;
+}
+
+/** A `copyText` text, or null: a well-formed string of 1–256 UTF-16 code units. */
+export function checkCopyText(text: unknown): string | null {
+  return typeof text === 'string' && text.length >= 1 && text.length <= MAX_COPY_TEXT_LENGTH && wellFormed(text) ? text : null;
+}
+
+/**
+ * One of `chatData` / `publicData`: a well-formed string of 1–1024 UTF-8 bytes without a NUL (the server's rule for
+ * its text fields); null for none (null, absent, the empty string the bot clears it with) and for anything else.
+ */
+export function checkWidgetDataValue(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 && wellFormed(value) && !value.includes('\0') && utf8Length(value) <= MAX_WIDGET_DATA_BYTES ? value : null;
+}
+
+/** The bot's data as the widget sees it, and the fields the client passed that broke the rules (the glue reports `data-rejected`). */
+export interface CheckedWidgetData {
+  chatData: string | null;
+  publicData: string | null;
+  rejected: ('chatData' | 'publicData')[];
+}
+
+/**
+ * The full state of the bot's two strings, as the client passes it at creation and in `setData`. A forwarded copy
+ * has no `chatData` (the server never copies it): the glue drops what the client passed, silently.
+ */
+export function checkWidgetData(data: unknown, copy: boolean): CheckedWidgetData {
+  const d = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+  const out: CheckedWidgetData = { chatData: null, publicData: null, rejected: [] };
+  for (const field of ['chatData', 'publicData'] as const) {
+    const v = d[field];
+    if (field === 'chatData' && copy) continue;
+    out[field] = checkWidgetDataValue(v);
+    if (out[field] === null && v !== undefined && v !== null && v !== '') out.rejected.push(field);
+  }
+  return out;
+}
+
+/**
+ * Who looks at the widget, as the widget sees it (Mini Apps' `WebAppUser`): `id`, `first_name`, `last_name`,
+ * `username`, `is_premium`. The input has the same field names. No viewer (null) without a positive integer id of at
+ * most 53 bits; a field that breaks its rule is left out and listed in `rejected` (in this order): a name 1–64 UTF-16
+ * code units without a lone surrogate, a username 5–32 characters of A–Z, a–z, 0–9 and _, `is_premium` a boolean,
+ * kept only when true. Absent (undefined or null) fields are left out without a word.
+ */
+export function checkViewer(viewer: unknown): { viewer: WidgetUser | null; rejected: string[] } {
+  const v = (typeof viewer === 'object' && viewer !== null ? viewer : {}) as Record<string, unknown>;
+  const id = v.id;
+  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > MAX_VIEWER_ID) return { viewer: null, rejected: [] };
+  const out: WidgetUser = { id };
+  const rejected: string[] = [];
+  const name = (s: unknown) => typeof s === 'string' && s.length >= 1 && s.length <= MAX_VIEWER_NAME_LENGTH && wellFormed(s);
+  for (const field of ['first_name', 'last_name'] as const) {
+    const s = v[field];
+    if (s === undefined || s === null) continue;
+    if (name(s)) out[field] = s as string;
+    else rejected.push(field);
+  }
+  if (v.username !== undefined && v.username !== null) {
+    if (typeof v.username === 'string' && VIEWER_USERNAME.test(v.username)) out.username = v.username;
+    else rejected.push('username');
+  }
+  if (v.is_premium !== undefined && v.is_premium !== null) {
+    if (v.is_premium === true) out.is_premium = true;
+    else if (v.is_premium !== false) rejected.push('is_premium');
+  }
+  return { viewer: out, rejected };
+}
+
+/** Why a viewer field was left out (`data-rejected`: `viewer.<field>: <why>; the widget does not see it`). */
+export const VIEWER_FIELD_RULES: Record<string, string> = {
+  first_name: 'not text of 1–64 UTF-16 code units',
+  last_name: 'not text of 1–64 UTF-16 code units',
+  username: 'not 5–32 characters of A–Z, a–z, 0–9 and _',
+  is_premium: 'not a boolean',
+};
+
+/** The account that looks at the widget, as the client passes it (docs/sdk-v1.md §4): its id and, when it has them, its names, username and Premium. */
+export interface WidgetViewer {
+  id: number;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+  isPremium?: boolean;
+}
+
+/** The viewer as the widget sees it (`TelegramWidget.viewer`, the shape of Mini Apps' `WebAppUser`); `is_premium` only when true. */
+export interface WidgetUser {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  is_premium?: true;
+}
+
+/** A client's `WidgetViewer` in the widget's field names, for `checkViewer`. */
+export function viewerUser(viewer: WidgetViewer | null | undefined): Record<string, unknown> | null {
+  if (typeof viewer !== 'object' || viewer === null) return null;
+  return { id: viewer.id, first_name: viewer.firstName, last_name: viewer.lastName, username: viewer.username, is_premium: viewer.isPremium };
+}
+
+export function checkChatType(chatType: unknown): ChatType | null {
+  return (CHAT_TYPES as readonly unknown[]).includes(chatType) ? (chatType as ChatType) : null;
+}
+
+/**
+ * The bot's answer to a request as the widget gets it: `result`, a well-formed string of at most 1024 UTF-8 bytes
+ * without a NUL (empty allowed), or none. Null when it breaks the rules (the widget gets `INVALID_ANSWER`). An
+ * answer carries no data: the bot edits its data with separate calls, which reach the host as `setData`.
+ */
+export function checkRequestAnswer(answer: unknown): { result: string | null } | null {
+  const r = typeof answer === 'object' && answer !== null ? (answer as Record<string, unknown>).result : undefined;
+  if (r === undefined || r === null) return { result: null };
+  return typeof r === 'string' && wellFormed(r) && !r.includes('\0') && utf8Length(r) <= MAX_REQUEST_RESULT_BYTES ? { result: r } : null;
+}
+
+/** The bot's two strings as the client has them for this message (absent = none); the full state each time. */
+export interface WidgetData {
+  chatData?: string | null;
+  publicData?: string | null;
+}
+
+/**
+ * Where the widget is and what it may do, from the message (`messageMediaWidget`'s flags) and the chat; fixed for the
+ * host's life. The server computes the flags; the framework derives nothing itself (docs/sdk-v1.md §2.14).
+ */
+export interface WidgetContext {
+  /** `is_copy`: the message is a forwarded copy: never any chatData. */
+  isCopy?: boolean;
+  /** `can_query`: requests are allowed, on a tap. */
+  canQuery?: boolean;
+  /** `background_query`: requests without a tap too (the original in the private chat with the bot): one when the widget appears on screen, then one per 5 s. */
+  backgroundQuery?: boolean;
+  /** The kind of chat the message is in. A copy gets none (null in the widget): the bot must not learn where its widget was forwarded. */
+  chatType?: ChatType;
+  /** The account that looks at the widget. Only a widget with `canQuery` gets it (null elsewhere, previews included). */
+  viewer?: WidgetViewer;
+  /**
+   * An inline result shown before it is sent (no message yet): the widget gets its data and runs as usual, but no
+   * input, no requests or other bridge calls but `ready` / `setResizeAnchor`, no chat type or viewer, and Web
+   * Storage that is never committed. The request flags are ignored.
+   */
+  preview?: boolean;
+}
+
+/** What the client sends to the bot: `data` (1–64 bytes). Whether it came from a tap stays in the framework: the server and the bot cannot tell. */
+export interface WidgetRequest {
+  data: string;
+}
+
+/** The bot's answer as the client hands it to the host: the server's `result` (at most 1024 bytes; absent: an empty answer). */
+export interface WidgetRequestAnswer {
+  result?: string | null;
+}
+
+/** What a client's failed request becomes in the widget: `'TIMEOUT'`, `'RATE_LIMITED'`, `'FAILED'`, or `{ code }` with one of them; anything else is `FAILED`. */
+export function requestFailure(reason: unknown): RequestFailure {
+  const code = typeof reason === 'object' && reason !== null ? (reason as Record<string, unknown>).code : reason;
+  return code === 'TIMEOUT' || code === 'RATE_LIMITED' ? code : 'FAILED';
+}
+
+/**
+ * The verdict on a request (docs/sdk-v1.md §2.14): `foreground` (it consumes the task's press) and `background`
+ * go to the client; the rest are refused: `disabled` (no `canQuery`: a widget sent without `allow_queries`, or a
+ * forwarded copy of one sent without `fwd_allow_queries`), `busy` (one request in flight per widget), `no-activation` (no press, and no `backgroundQuery`),
+ * `hidden` (a background request from a widget off screen), `rate-limited` (a background request sooner than 5 s
+ * after the last one, unless the widget appeared on screen since).
+ */
+export type RequestVerdict = 'foreground' | 'background' | 'disabled' | 'busy' | 'no-activation' | 'hidden' | 'rate-limited';
+
+/** What the widget's promise rejects with for a refused request. */
+export function requestRefusal(verdict: RequestVerdict): RequestError | null {
+  switch (verdict) {
+    case 'foreground': case 'background': return null;
+    case 'busy': return 'BUSY';
+    case 'rate-limited': return 'RATE_LIMITED';
+    default: return 'NOT_ALLOWED';
+  }
+}
+
+/**
+ * The client's sandbox policy for requests, from the server's flags only: on a tap whenever `canQuery`; without one
+ * only with `backgroundQuery`, only while visible: one when the widget appears on screen (`show`, and at creation),
+ * then at most one per 5 s counted from the start of the last background request; one request in flight.
+ * `gesture`: the task has a press no privileged call consumed yet (the glue consumes it on `foreground`). `finish`
+ * when the answer or the failure has gone into the widget.
+ */
+export class RequestGate {
+  private inFlight = false;
+  private lastBackground: number | null = null;
+
+  get busy(): boolean { return this.inFlight; }
+
+  decide(now: number, s: { gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean }): RequestVerdict {
+    if (!s.canQuery) return 'disabled';
+    if (this.inFlight) return 'busy';
+    if (s.gesture && s.visible) {
+      this.inFlight = true;
+      return 'foreground';
+    }
+    if (!s.backgroundQuery) return 'no-activation';
+    if (!s.visible) return 'hidden';
+    if (this.lastBackground !== null && now - this.lastBackground < BACKGROUND_REQUEST_INTERVAL_MS) return 'rate-limited';
+    this.lastBackground = now;
+    this.inFlight = true;
+    return 'background';
+  }
+
+  finish(): void {
+    this.inFlight = false;
+  }
+
+  /** The widget appeared on screen (it was hidden): its next background request may go out at once. */
+  show(): void {
+    this.lastBackground = null;
   }
 }
 
@@ -229,6 +520,44 @@ export function checkStorageCommit(commit: unknown): StorageCommit | null {
     out[k] = area;
   }
   return out;
+}
+
+// ── dev tooling (TS only: the dev app's mock bot and the harness) ──
+
+/**
+ * The server's flags for each kind of widget message (the server's matrix, docs/tgw-format.md "Who may request"; the
+ * originals and live copies of a widget sent with `allow_queries`): what a client passes as `WidgetContext` for it. Dev tooling only: a client reads the flags from the message.
+ */
+export const WIDGET_MESSAGE_KINDS = {
+  /** The original in the private chat with the bot that sent it. */
+  private: { isCopy: false, canQuery: true, backgroundQuery: true, chatType: 'private' },
+  /** An original the bot sent to a group (or a supergroup) it is a member of. */
+  group: { isCopy: false, canQuery: true, backgroundQuery: false, chatType: 'group' },
+  /** An original sent via the bot (inline mode), here in a private chat between two users. */
+  'via-bot': { isCopy: false, canQuery: true, backgroundQuery: false, chatType: 'private' },
+  /** An original the bot sent without `allow_queries` (here in its private chat): no requests anywhere, no network marker. */
+  'no-queries': { isCopy: false, canQuery: false, backgroundQuery: false, chatType: 'private' },
+  /** A forwarded copy of a widget the bot sent with `fwd_allow_queries` (and so `allow_queries`). */
+  'live-copy': { isCopy: true, canQuery: true, backgroundQuery: false, chatType: 'private' },
+  /** A forwarded copy of a widget sent without `fwd_allow_queries`. */
+  copy: { isCopy: true, canQuery: false, backgroundQuery: false, chatType: 'private' },
+  /** An inline result in the list, before it is sent: data, no input, nothing about the user. */
+  preview: { isCopy: false, canQuery: false, backgroundQuery: false, chatType: 'private', preview: true },
+} as const satisfies Record<string, Required<Omit<WidgetContext, 'viewer' | 'preview'>> & { preview?: boolean }>;
+export type WidgetMessageKind = keyof typeof WIDGET_MESSAGE_KINDS;
+
+/**
+ * A viewer written as `id,first,last,username,premium` (the harness's `--viewer`, the dev app's `?viewer=`): empty
+ * parts are absent, `premium` is any of `1`, `true`, `premium`; no positive id → null. Unchecked: the host checks it.
+ */
+export function viewerFromList(list: string): WidgetViewer | null {
+  const [id, firstName, lastName, username, premium] = list.split(',').map((s) => s.trim());
+  if (!id || !(Number(id) > 0)) return null;
+  return {
+    id: Number(id),
+    ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}), ...(username ? { username } : {}),
+    ...(premium ? { isPremium: ['1', 'true', 'premium'].includes(premium) } : {}),
+  };
 }
 
 // ── theme defaults and renderer variables (TS only: the shim and the renderer core) ──
