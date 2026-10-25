@@ -7,9 +7,9 @@ Dev tooling for `packages/core`; nothing here is a product path.
   for comparison — never for `corpus/attacks`), renderer toggles (Shadow DOM,
   Blitz, litehtml wasm, compare all), stats / diagnostics / bridge / console
   panels. Exposes `window.__tw` — the Playwright suites in `tests/` drive it.
-- `src/mock-bot.ts` — the **Bot (mock)** panel (the bot's data and requests):
-  the widget's `chatData` / `publicData` per file as a server would keep them,
-  the bot's edits (`setData`; `edit by id` changes a shared widget's `publicData` without a push, and the dev
+- `src/mock-bot.ts` — the **Bot (mock)** panel (the widget's state and requests):
+  the widget's chat state (`chatData`) and shared state (`publicData`) per file as a server would
+  keep them, the bot's edits of them (`setData`; `edit by id` changes a shared widget's shared state without a push, and the dev
   app polls it only while the widget watches, `watchPublicData()`, at the panel's period), built-in bots that answer requests (a widget
   picks one with `<meta name="tw-bot" content="poll">`; echo, poll, tictactoe,
   ticker, promo), manual answers and client failures, and the context a client

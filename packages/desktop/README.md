@@ -19,7 +19,7 @@ packages/desktop/
     renderer.h               Renderer seam + RendererFactory (= Renderer.swift / .kt)
     cpu_budget.h             CpuBudget (fixture: packages/core/tests/fixtures/cpu-budget.json)
     sdk_policy.h             SDK v1 checks: links, haptics + HapticGate, theme params, locale, storage, bridge calls;
-                             the bot's data, viewer, chat type, request answers + RequestGate, previews
+                             the widget's state, viewer, chat type, request answers + RequestGate, previews
                              (= SdkPolicy.swift / .kt; fixture: packages/core/tests/fixtures/sdk-policy.json)
     gesture_policy.h         the widget or the bubble: claimOf + GestureArbiter for the client's recognizers
                              (= GesturePolicy.swift / .kt; fixture: packages/core/tests/fixtures/gesture-policy.json)
@@ -180,22 +180,23 @@ What it is on this platform:
   form. The string-theme constructor, `setTheme(std::string)`, `onBridgeCall`
   and `onGestureClaim(x, y)` are deprecated forwards; the host → widget
   `bridgeEvent` is gone.
-- The bot's data and requests (`docs/sdk-v1.md` §2.13–§2.16, §4.4): pass the bot's two strings in
-  `WidgetHostOptions::data` (`WidgetData { chatData, publicData }`, each 1–1024
-  bytes of text without NUL, none = `std::nullopt`) and the message's flags as
-  the server sends them in `context` (`WidgetContext { isCopy, canQuery,
-  backgroundQuery, chatType, viewer }`; all false by default: no requests; a
+- The widget's state and requests (`docs/sdk-v1.md` §2.13–§2.16, §4.4): pass the
+  widget's state, which only the bot writes, in `WidgetHostOptions::data`
+  (`WidgetData { chatData, publicData }`: the chat state and the shared state,
+  each 1–1024 bytes of text without NUL, none = `std::nullopt`) and the
+  message's flags as the server sends them in `context` (`WidgetContext {
+  isCopy, canQuery, backgroundQuery, chatType, viewer }`; all false by default: no requests; a
   copy gets no chat type; the viewer, `WidgetViewer { id, firstName, lastName,
   username, isPremium }`, reaches the widget only with `canQuery`, as Mini Apps'
   `WebAppUser`, a field that breaks its rule left out with `data-rejected`); call
   `setData(WidgetData)` with the full state on every edit from the server (the
   widget gets `chatDataChanged`, then `publicDataChanged`, for each field that
-  changed; a copy keeps no `chatData`, its `publicData` can change).
+  changed; a copy keeps no chat state, its shared state can change).
   `diagnostics().watchesPublicData` (false until the widget calls
   `TelegramWidget.watchPublicData()`) says whether to poll a shared widget's
-  `public_data` while it is on screen; `onWatchPublicData(on)` gets each
+  shared state (`public_data`) while it is on screen; `onWatchPublicData(on)` gets each
   change (not an action, no gesture). A widget
-  in an inline-results list before it is sent gets `context.preview`: its data
+  in an inline-results list before it is sent gets `context.preview`: its state
   as usual but no input (the host drops the renderer's events and gesture
   claims; a tap is the client's), no requests or bridge calls but `ready` and
   `setResizeAnchor` (`preview-blocked`), no chat type, viewer or storage

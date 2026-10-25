@@ -153,9 +153,9 @@ anchor to `SandboxEngine.Delegate.onResizeAnchor`, and `WidgetHost` keeps the la
 `WidgetDiagnostics.resizeAnchor` ("top" until the widget calls it) next to `height`, set before the size
 report of the content its task changed; the client keeps that edge of the bubble in place when the height
 changes (the demo's lists: `WidgetView(scroll = …)`).
-The bot's data and requests (`docs/sdk-v1.md` §2.13–§2.15, §4.2): `Options(data = WidgetData(chatData, publicData),
-context = WidgetContext(isCopy, canQuery, backgroundQuery, chatType, viewer))` (the server's flags), `setData(WidgetData)`
-(the full state on every change),
+The widget's state and requests (`docs/sdk-v1.md` §2.13–§2.15, §4.2): `Options(data = WidgetData(chatData, publicData),
+context = WidgetContext(isCopy, canQuery, backgroundQuery, chatType, viewer))` (the chat state and the shared state,
+which only the bot writes; the server's flags), `setData(WidgetData)` (the full state on every change),
 `onRequest(WidgetRequest(data), complete)` (complete once, from any thread, with `Result.success(WidgetRequestAnswer(result))`,
 the server's answer, or `Result.failure(WidgetRequestException(WidgetRequestFailure.…))`),
 `onCopyText(text)`. `SandboxEngine` runs
