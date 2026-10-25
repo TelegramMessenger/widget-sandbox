@@ -220,7 +220,7 @@ anchor to try it.
   only while a hold claim may still win. On the web pass `bubbleGestures` and
   the renderer plays the bubble itself (`onBubbleGesture` says what it took);
   the browser's vertical pan stays allowed over every widget. The conformance
-  widgets `auto/23-gestures` and `visual/sdk/12-drag-gestures` check your
+  widgets `auto/23-gestures-a` / `-b` and `visual/sdk/12-drag-gestures` check your
   client.
 - **What the widget asks for** arrives as `onAction`, checked: `openLink(url)`
   (show a confirmation with the full URL, then the browser),

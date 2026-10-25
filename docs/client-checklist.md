@@ -63,7 +63,7 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       widget's touch cancelled (`pointercancel`) when the bubble takes it; nothing taken
       over `touch-action: none`; no double-tap reaction over the widget (double taps are
       always the widget's); the leading 20 px never claimed
-      ([sdk-v1.md §5.5](sdk-v1.md#55-gestures-and-drag-d4); conformance `auto/23-gestures`,
+      ([sdk-v1.md §5.5](sdk-v1.md#55-gestures-and-drag-d4); conformance `auto/23-gestures-a` / `-b`,
       `visual/sdk/12-drag-gestures`).
 - [ ] A widget stays stopped after 2 crashes in a row ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
 - [ ] A forwarded copy works like the original with its own, empty storage. The HTML
