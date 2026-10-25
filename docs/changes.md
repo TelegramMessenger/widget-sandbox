@@ -3,8 +3,26 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release
+## v0.2.1 — release notes (2026-10-26)
 
+What v0.2.0 left for later: the full test matrix, the conformance cases for the widget's state and requests, and the
+docs' wording. No API, wire or behaviour change: a client on v0.2.0 needs no code change, only the new conformance
+cases to run.
+
+- **Conformance for the widget's state and requests** (`packages/conformance`, `CLIENTS.md`): `auto/25-state-api-a`
+  / `-b` (the rules that hold in every message: read-only state and its events, `isForward`, `chatType`, `isPreview`,
+  the frozen `viewer`, the `request` and `copyText` errors, `watchPublicData` / `unwatchPublicData`) and
+  `auto/26-context-{private,group,no-queries,copy,live-copy,preview}` (what the client passes in each kind of message
+  and what a request may do with and without a tap); `visual/sdk/16-state-edit` (replaces `16-bot-edit`: an HTML edit
+  no longer exists), `19-request-tap`, `20-forward-requests`, `21-network-marker`, `22-copy-text`, `23-preview`,
+  `24-watch-public-data`, `25-group-chat-state`. A case header now says how to send it (`message`: the kind, the
+  `inputMediaWidget` flags and state, group / forward / inline) and what the bot answers (`bot`: per request `data`,
+  the `result` and the state edit); both reach the manifest and `channel.json`. `scripts/conformance/test-bot.ts`
+  plays that bot over the Bot API (`--post` sends a case, the default mode answers `widget_query` and edits the state;
+  `--self-test`). The web run: in 171 ✅ / 3 ◐ / 0 ❌ on iframe and shadow, all new cases pass.
+- **`auto/23-gestures` in two parts** (`-a`: holds and double taps, `-b`: vertical drags and the edge strip): it was
+  605 px tall at 320 px, over the 600 px a client clips at. `build.ts` now measures the automatic set through the
+  sandbox and fails on anything over 560 px, as it already did for the visual set (`--no-heights` skips it).
 - **A widget is fixed code plus changeable state** (docs only): the HTML is set when the bot sends the widget and
   never changes; the state changes, and only the bot writes it. `chatData` is the widget's **chat state** (one
   message, seen only in its chat, never forwarded) and `publicData` its **shared state** (wherever the widget is
@@ -15,6 +33,19 @@ nothing until the host lists them; "default" items apply to every host.
   "The widget's state and requests" in `docs/tgw-format.md`, `docs/integration.md` and `docs/client-checklist.md`
   §d. Also reworded: `docs/decisions.md`, the authors' guide and its agent block, the I1, `tw.*` and `behaviour.*`
   texts in `profile.json` (`docs/profile-v1.md` regenerated). API and wire names, behaviour and limits are unchanged.
+
+**Known issues:**
+
+- The full matrix ran on v0.2.0's code (this release changes no shipped code): typecheck, unit 710, `test:sdk` 43,
+  activation 4, attacks 124 on iframe and shadow (0 canary hits), compat 20, showcase 21, defaults 6, generated 40 and
+  common 32 on iframe and shadow, gestures 28, lifecycle 6, the gesture and resize corpora; htmlbubbles 109/116 (the
+  known screenshot-only and timing cases); Swift macOS 261 and iOS 262 with only `IntlBridgeTests.testPluralRulesMatchICU`
+  failing (the OS's JavaScriptCore, as before); Kotlin JVM 26; C++ 73 tests with Blitz and litehtml, 104 attacks with 0
+  leaks on all three renderers; the iOS and macOS demos build and the macOS demo's attack autorun passes. Android's
+  instrumented tests last ran on the same glue before the merge with main (102/102).
+- `scripts/conformance/test-bot.ts` has not run against the server yet; the Bot API shape of an inline result that sends
+  a widget is not in the server's spec, so the script assumes one (marked in the file).
+- The iOS/macOS and Android demo apps do not show requests (no mock bot there).
 
 ## v0.2.0 — release notes (2026-10-26)
 

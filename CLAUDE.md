@@ -352,7 +352,11 @@ flags `isCopy` / `canQuery` / `backgroundQuery`, the chat type, the viewer, `pre
 the polled shared state), `onRequest({ data }, complete)` (`{ result }` only) and `onCopyText`; the checks are
 `sdk-policy` and its twins on the fixture (`RequestGate` with `show`). The dev app's **Bot (mock)** panel
 (`apps/web/src/mock-bot.ts`, `?message=private|group|via-bot|no-queries|live-copy|copy|preview`, the network marker in the bubble's header) plays the bot; `corpus/interactive`; five
-`request-*` attacks. Released ahead of the full matrix; the rest follows in 0.2.1 (`docs/changes.md`, Known issues).
+`request-*` attacks. Released ahead of the full matrix.
+2026-10-26: v0.2.1 (`docs/changes.md`): the full matrix on v0.2.0's code, conformance cases for the widget's state and
+requests (`auto/25`, `auto/26-context-*`, `visual/sdk/16`, `19`–`25`; case headers say how to send a case and what the bot
+answers; `scripts/conformance/test-bot.ts`), `auto/23-gestures` split under the 560 px gate (now enforced for the automatic
+set), and the docs reworded: a widget is fixed code plus changeable state (chat state, shared state).
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
