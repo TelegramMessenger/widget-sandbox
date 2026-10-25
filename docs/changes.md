@@ -3,13 +3,35 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release — the bot's data and requests (widget interactivity)
+## v0.2.0 — release notes (2026-10-26)
+
+A widget is now fixed code plus changeable state, and it can ask the bot. This is layer 233 at the launch of
+widgets (the server's final spec: `docs/tgw-format.md`, "The bot's data and requests"). SDK and profile stay
+version 1: the additions are part of SDK v1 at the launch, with no version of their own.
+
+**What a client does** (the details are below, in `docs/integration.md` "The bot's data and requests" and in
+`docs/client-checklist.md` §d):
+
+1. Read the new fields of `messageMediaWidget` (`is_copy`, `can_query`, `background_query`, `public_data`,
+   `chat_data`, `widget_id`) and pass them to `WidgetHost` as `data` and `context`: the server's flags as they
+   are, the chat type (`null` in a forward), `viewer` (the account's own, only with `can_query`), `preview` for an
+   inline result before it is sent.
+2. Call `setData` on `updateMessageWidgetData` and when a poll of `messages.getWidgetPublicData` brings a new
+   shared value. Poll only widgets on screen that called `watchPublicData()` and have a `widget_id`, one message
+   per `widget_id`, at the `period` the server returns (30 s by default, 5–3600 s).
+3. Answer `onRequest` with `messages.getBotWidgetQueryAnswer` (the server allows 5 requests in 5 s per user and
+   bot), `onCopyText` with a copy and a toast that shows the text, and show the network marker ("a tap may send
+   data to the bot") exactly where the message has `can_query`.
+4. Show an inline result (`botInlineMessageWidget`) as a widget in preview mode.
+
+This release goes out ahead of the full test matrix so that clients can start; the remaining checks and the
+conformance cases for the new API follow in 0.2.1 (Known issues).
 
 The widget's HTML never changes after sending; only data changes (`docs/decisions.md` "The bot's data and
 requests", decision I1; `docs/sdk-v1.md` §2.13–§2.15, §5.11; the server's spec in `docs/tgw-format.md`, "The bot's
 data and requests"). Part of SDK v1 at the launch, no version of its own: profile 1 stays, a widget written without it
-is part of layer 233 from the launch; a client that passes no flags gets widgets whose requests are refused. Until
-the server ships, the dev app's mock bot and the harness play the bot.
+is part of layer 233 from the launch; a client that passes no flags gets widgets whose requests are refused. The dev
+app's mock bot and the harness play the bot for local work.
 
 **For widgets** (default, every client):
 - `TelegramWidget.chatData` and `publicData`: the bot's two strings (text of at most 1024 bytes each, read-only,
@@ -83,9 +105,17 @@ unscopable in an inline handler's scope. `'reset' in button` is still true (the 
 `undefined`. Unit test: `packages/core/tests/unit/element-members.test.ts`. Found with a widget sent through
 Telegram Android, where the Reset button did nothing.
 
-**Known issues:** `packages/conformance` has no case for the bot's data and requests yet, and
-`visual/sdk/16-bot-edit` still tests an HTML edit, which the server no longer allows (to be replaced by a data-edit
-case once the server ships). The iOS/macOS and Android demo apps do not show requests (no mock bot there).
+**Known issues:**
+
+- Released ahead of the full test matrix. On this tag: typecheck, unit, the profile check, `test:sdk`, `test:activation`,
+  `test:attacks` (iframe and shadow), compat, showcase and defaults; the native suites (Swift, Kotlin, C++) ran on the
+  same glue before the merge with main. Not run yet: generated, htmlbubbles, the conformance web run, the demo autoruns,
+  the C++ build with Blitz and litehtml; they follow in 0.2.1.
+- `packages/conformance` has no case for the widget's state and requests yet, and `visual/sdk/16-bot-edit` still
+  tests an HTML edit, which the server no longer allows (to be replaced by a state-edit case in 0.2.1).
+- The docs still call `chatData` / `publicData` "the bot's data" in places; 0.2.1 rewords them as the widget's
+  chat state and shared state (the code is fixed, the state changes).
+- The iOS/macOS and Android demo apps do not show requests (no mock bot there).
 
 ## v0.1.3 — release notes (2026-10-24)
 

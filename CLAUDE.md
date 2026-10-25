@@ -338,9 +338,9 @@ record of what the rule removed); `TelegramWidget.setResizeAnchor('top' | 'botto
 `sdk-policy` and its three twins, the host keeps the latest edge next to the height; web `onResize(height, anchor)`,
 `WidgetDiagnostics.resizeAnchor` elsewhere; the dev app, the feed, the iOS demo (single-widget screen and chat feed) and the Android demo list keep the anchored edge;
 `corpus/resize`, `auto/24-resize-anchor`, `visual/sdk/18-resize-anchor`).
-2026-10-25: the bot's data and requests, widget interactivity (`docs/decisions.md` "The bot's data and requests",
-decision I1; `docs/sdk-v1.md` §2.13–§2.16, §5.11; the server's spec in `docs/tgw-format.md`; part of SDK v1 at the
-launch in layer 233, unreleased): the HTML never changes after sending, only data: `TelegramWidget.chatData` / `publicData` (the
+2026-10-26: v0.2.0 (`docs/changes.md`), the bot's data and requests, widget interactivity (`docs/decisions.md` "The bot's data and requests",
+decision I1; `docs/sdk-v1.md` §2.13–§2.16, §5.11; the server's final spec in `docs/tgw-format.md`; part of SDK v1 at the
+launch in layer 233): the HTML never changes after sending, only data: `TelegramWidget.chatData` / `publicData` (the
 bot's two strings, ≤ 1 KB of text each; `chatDataChanged` / `publicDataChanged`), `isForward`, `chatType`, `viewer`
 (`{ id, first_name, last_name?, username?, is_premium? }` as Mini Apps' `WebAppUser`, only where the message has `can_query`; a copy is told nothing about its chat: `chatType` null in every copy); `request(data)` (a callback button inside the widget, resolves `{ result }`; where it may ask is the
 server's flag per message: `can_query` on a tap, `background_query` in the background while visible, one when the widget
@@ -350,7 +350,7 @@ flags `isCopy` / `canQuery` / `backgroundQuery`, the chat type, the viewer, `pre
 the polled shared `public_data`), `onRequest({ data }, complete)` (`{ result }` only) and `onCopyText`; the checks are
 `sdk-policy` and its twins on the fixture (`RequestGate` with `show`). The dev app's **Bot (mock)** panel
 (`apps/web/src/mock-bot.ts`, `?message=private|group|via-bot|no-queries|live-copy|copy|preview`, the network marker in the bubble's header) plays the bot; `corpus/interactive`; five
-`request-*` attacks. The server side is in progress.
+`request-*` attacks. Released ahead of the full matrix; the rest follows in 0.2.1 (`docs/changes.md`, Known issues).
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
