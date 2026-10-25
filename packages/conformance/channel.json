@@ -879,12 +879,20 @@
    "zlib": 3754
   },
   {
-   "widget": "auto/23-gestures.html",
+   "widget": "auto/23-gestures-a.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/23-gestures · Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); a vertical drag is always the chat's, on none and pan-x too; the leading 20 px take no claim. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/23-gestures-a · Who gets a press (1/2): a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 3379
+   "zlib": 2843
+  },
+  {
+   "widget": "auto/23-gestures-b.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/23-gestures-b · Who gets a press (2/2): a vertical drag is always the chat's, on touch-action: none and pan-x too; a drag from the leading 20 px is the back gesture. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2928
   },
   {
    "widget": "auto/24-resize-anchor.html",

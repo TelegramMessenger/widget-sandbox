@@ -36,7 +36,7 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
   framework tag: `catalogue.json` (267 profile features, statuses synced from `profile.json`), `auto/`
-  (49 self-checking widgets; `auto/26-context-*` per message context), `visual/` (20 widgets for people + `visual/sdk`, 25 client-SDK cases),
+  (50 self-checking widgets; `auto/26-context-*` per message context), `visual/` (20 widgets for people + `visual/sdk`, 25 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B after zlib at level 9) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`

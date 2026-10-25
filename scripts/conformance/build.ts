@@ -13,7 +13,9 @@
 //      group in the test channel: the whole widget rendered natively at the
 //      reference width (refs/visual/<widget>[.dark].png); the height gate
 //      (MAX_HEIGHT): a visual or client-SDK widget taller than the bubble's
-//      cap allows fails the build;
+//      cap allows fails the build; so does an automatic widget, measured
+//      through the sandbox (heights.ts: the dev app on a dev server the build
+//      starts, or --origin; --no-heights skips it);
 //   5. the native run of every widget (no template swap): what a plain
 //      browser engine says to each check, recorded in the manifest as a sanity
 //      reference for the tests themselves;
@@ -21,7 +23,7 @@
 //      actions, host checks, themes and widths, coverage per set;
 //   7. channel.json: the posting order for the test channel.
 //
-//   corepack pnpm tsx scripts/conformance/build.ts [--only 04-layout] [--no-refs] [--engines chromium,webkit]
+//   corepack pnpm tsx scripts/conformance/build.ts [--only 04-layout] [--no-refs] [--engines chromium,webkit] [--origin http://127.0.0.1:5175 | --no-heights]
 //   corepack pnpm tsx scripts/conformance/build.ts --sizes [--only …]   # sizes and the size gate only: no browser, nothing written
 
 import fs from 'node:fs';
@@ -34,6 +36,9 @@ import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
 import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
+import { measureHeights } from './heights';
+import { spawn } from 'node:child_process';
+import net from 'node:net';
 import { REFERENCE_STYLESHEET } from '../../packages/core/src/shared/reference.ts';
 import { DEFAULT_THEME_PARAMS } from '../../packages/core/src/shared/sdk-policy.ts';
 
@@ -453,6 +458,9 @@ async function main() {
     for (const p of tooLarge) console.log('  ' + p);
     process.exitCode = 1;
   }
+  // The automatic set's height gate: through the sandbox (drawn natively an automatic widget also lists the
+  // out-of-profile checks Chromium fails, so the native height is not the client's).
+  if (!args.includes('--no-heights')) tooTall.push(...(await autoHeights(widgets.filter((w) => w.set === 'auto'))));
   if (tooTall.length) {
     console.log(`\ntaller than ${MAX_HEIGHT.height} px at a ${MAX_HEIGHT.width} px bubble (the cap is 600; split the widget, or "tall": true for a test of the cap):`);
     for (const p of tooTall) console.log('  ' + p);
@@ -465,6 +473,27 @@ async function main() {
  * once or with a size: a header's "anchors" ([[width, height], …]) wins. 17-size-hint is sent four times, one per anchor case of its hint (0×0, 0×300, 300×0, 300×300).
  */
 const ANCHORS: Record<string, [number, number][]> = { 'visual/sdk/17-size-hint': [[0, 0], [0, 300], [300, 0], [300, 300]] };
+
+/** The automatic widgets taller than MAX_HEIGHT allows, measured through the dev app: --origin's, or a dev server the build starts. */
+async function autoHeights(widgets: Widget[]): Promise<string[]> {
+  if (!widgets.length) return [];
+  let origin = opt('origin');
+  let server: ReturnType<typeof spawn> | undefined;
+  if (!origin) {
+    const port = await new Promise<number>((resolve) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => resolve(p)); }); });
+    origin = `http://127.0.0.1:${port}`;
+    server = spawn('corepack', ['pnpm', 'dev', '--port', String(port)], { cwd: ROOT, stdio: 'ignore', detached: true });
+    const t0 = Date.now();
+    for (;;) {
+      try { if ((await fetch(origin)).ok) break; } catch {}
+      if (Date.now() - t0 > 90_000) { process.kill(-server.pid!); throw new Error(`the dev server for the height gate did not start on ${origin}`); }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  console.log(`\nheights of the automatic set through the sandbox (${origin}):`);
+  try { return await measureHeights(widgets, origin, 'shadow', [MAX_HEIGHT.width], (line) => console.log('  ' + line)); }
+  finally { if (server) process.kill(-server.pid!); }
+}
 
 /** One message spec in words (the README's Sent as column, a post's caption). */
 export function describeMessage(m: MessageSpec): string {

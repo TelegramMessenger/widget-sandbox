@@ -6977,11 +6977,11 @@
    "zlib": 3754
   },
   {
-   "id": "auto/23-gestures",
+   "id": "auto/23-gestures-a",
    "set": "auto",
-   "file": "auto/23-gestures.html",
-   "title": "Who gets a press: a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel); a vertical drag is always the chat's, on none and pan-x too; the leading 20 px take no claim",
-   "hint": "Hold “none” and “auto” for a second each, double-tap “none ×2” and “auto ×2”, drag “none ↕” and “pan-x ↕” down (the chat scrolls), drag the pad to the right from its red strip and then from its green mark, tap Finish.",
+   "file": "auto/23-gestures-a.html",
+   "title": "Who gets a press (1/2): a double tap is always the widget's (dblclick, on every element); a hold on touch-action: none is the widget's (contextmenu), on auto the bubble's (pointercancel)",
+   "hint": "Hold “none” and “auto” for a second each, double-tap “none ×2” and “auto ×2”, tap Finish.",
    "kind": [
     "self",
     "interactive"
@@ -7026,6 +7026,67 @@
       "input.dblclick"
      ]
     },
+    {
+     "tap": "finish"
+    }
+   ],
+   "host": [],
+   "checks": [
+    {
+     "id": "input.long-press",
+     "name": "a hold on touch-action: none is the widget's: pointerdown … pointerup, no pointercancel, and contextmenu from a finger",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "behaviour.gesture-claim",
+     "name": "a hold on auto is the message menu: pointercancel, no pointerup (a mouse hold stays the widget's)",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "input.dblclick",
+     "name": "a double tap on touch-action: none: both clicks, then dblclick",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "input.dblclick",
+     "name": "a double tap on auto is the widget's too: both clicks, then dblclick, no pointercancel",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 6590,
+   "zlib": 2843
+  },
+  {
+   "id": "auto/23-gestures-b",
+   "set": "auto",
+   "file": "auto/23-gestures-b.html",
+   "title": "Who gets a press (2/2): a vertical drag is always the chat's, on touch-action: none and pan-x too; a drag from the leading 20 px is the back gesture",
+   "hint": "Drag “none ↕” and “pan-x ↕” down (the chat scrolls), drag the pad to the right from its red strip and then from its green mark, tap Finish.",
+   "kind": [
+    "self",
+    "interactive"
+   ],
+   "covers": [
+    "behaviour.gesture-claim"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [
     {
      "drag": "vnone",
      "to": [
@@ -7081,34 +7142,6 @@
    "host": [],
    "checks": [
     {
-     "id": "input.long-press",
-     "name": "a hold on touch-action: none is the widget's: pointerdown … pointerup, no pointercancel, and contextmenu from a finger",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "behaviour.gesture-claim",
-     "name": "a hold on auto is the message menu: pointercancel, no pointerup (a mouse hold stays the widget's)",
-     "native": {
-      "chromium": "skip"
-     }
-    },
-    {
-     "id": "input.dblclick",
-     "name": "a double tap on touch-action: none: both clicks, then dblclick",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
-     "id": "input.dblclick",
-     "name": "a double tap on auto is the widget's too: both clicks, then dblclick, no pointercancel",
-     "native": {
-      "chromium": "pass"
-     }
-    },
-    {
      "id": "behaviour.gesture-claim",
      "name": "a vertical drag on touch-action: none is the chat's scroll: pointercancel (a mouse drag stays the widget's)",
      "native": {
@@ -7138,8 +7171,8 @@
     }
    ],
    "stages": [],
-   "bytes": 8817,
-   "zlib": 3379
+   "bytes": 6738,
+   "zlib": 2928
   },
   {
    "id": "auto/24-resize-anchor",
@@ -8530,7 +8563,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/slide.chromium.png"
      },
-     "nativeVsTemplate": 0.6449
+     "nativeVsTemplate": 0.6305
     },
     {
      "name": "spin-pulse",
@@ -8547,7 +8580,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
      },
-     "nativeVsTemplate": 0.8403
+     "nativeVsTemplate": 0.8422
     },
     {
      "name": "steps",
@@ -8652,7 +8685,7 @@
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
      },
-     "nativeVsTemplate": 0.0132
+     "nativeVsTemplate": 0
     },
     {
      "name": "seek",
@@ -9047,7 +9080,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7147
+     "nativeVsTemplate": 0.7194
     }
    ],
    "bytes": 5218,

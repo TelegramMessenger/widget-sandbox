@@ -10,7 +10,7 @@ You need three things: the framework tag, your own host and renderer, and Node �
 
 | | |
 |---|---|
-| `auto/*.html` | The automatic set: 49 widgets that check themselves. Required. |
+| `auto/*.html` | The automatic set: 50 widgets that check themselves. Required. |
 | `visual/*.html` | The visual set: 20 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
 | `channel.json` | The test channel in posting order: per message the widget, its size anchors, the caption and the reference photos. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
@@ -72,7 +72,7 @@ Build it as a test target or a debug mode in your client. For every entry of `ma
 
    An action your platform cannot perform goes into `skippedActions` (its index); the checks it feeds are then reported as skipped, not failed.
 
-   Perform the actions through your **real bubble**, with its recognizers on: `auto/23-gestures` (and `auto/16-sdk-taps-b`, `auto/17-drag-hover`) check who gets each press, by the shared gesture policy (`docs/sdk-v1.md` §5.5): a `press` of 700 ms on a `touch-action: auto` element must reach the widget as `pointercancel` (your message menu took it), a `drag` from the widget's leading 20 px as well (back); on `touch-action: none` the widget must get the whole press and the renderer's own `contextmenu`; a vertical `drag` must reach the widget as `pointercancel` on `none` and on `pan-x` too (your list scrolled: vertical drags are always the chat's since v0.1.3); a `dblclick` must reach the widget whole on every element (both clicks and `dblclick`: your reaction never acts over the widget). A desktop client performs `press` and `drag` with the mouse, and those checks expect the widget to keep them. A runner that injects input below the bubble (straight into the renderer view) reports these checks as failures: that is the bubble the test is about.
+   Perform the actions through your **real bubble**, with its recognizers on: `auto/23-gestures-a` and `-b` (and `auto/16-sdk-taps-b`, `auto/17-drag-hover`) check who gets each press, by the shared gesture policy (`docs/sdk-v1.md` §5.5): a `press` of 700 ms on a `touch-action: auto` element must reach the widget as `pointercancel` (your message menu took it), a `drag` from the widget's leading 20 px as well (back); on `touch-action: none` the widget must get the whole press and the renderer's own `contextmenu`; a vertical `drag` must reach the widget as `pointercancel` on `none` and on `pan-x` too (your list scrolled: vertical drags are always the chat's since v0.1.3); a `dblclick` must reach the widget whole on every element (both clicks and `dblclick`: your reaction never acts over the widget). A desktop client performs `press` and `drag` with the mouse, and those checks expect the widget to keep them. A runner that injects input below the bubble (straight into the renderer view) reports these checks as failures: that is the bubble the test is about.
 7. **Snapshot the widget** at 2× scale. Crop every stage in `manifest.tests[].stages` whose `themes` include this theme, at `rect` (`[x, y, w, h]` in CSS px from the widget's top-left). Each crop is a PNG of `2w × 2h` pixels. Save it next to the run file.
 8. **Record what the host saw:**
    - the bridge calls your host accepted after the gesture gate (`openLink` and the like, with their arguments);
