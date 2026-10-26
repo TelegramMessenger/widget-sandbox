@@ -59,4 +59,21 @@ class UserActivationTest {
         assertFalse(g.consume(false))
         assertTrue(g.consume(true))
     }
+
+    /** A request to the bot peeks at the press (`available`) and consumes it only when it goes out as the press's. */
+    @Test
+    fun availablePeeksWithoutConsuming() {
+        val g = ActivationGate()
+        assertFalse(g.available(true))
+        g.begin(1, true)
+        assertFalse("hidden: no press", g.available(false))
+        assertTrue(g.available(true))
+        assertTrue("a peek leaves the press", g.available(true))
+        assertTrue(g.consume(true))
+        assertFalse(g.available(true))
+        g.end()
+        g.begin(2, true)
+        g.end()
+        assertFalse("outside its task", g.available(true))
+    }
 }

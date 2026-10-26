@@ -7,7 +7,8 @@
 // Everything that comes out of the context is UNTRUSTED: the delegate must
 // pass it through TrustedValidator before it reaches any renderer. SDK v1
 // calls (docs/sdk-v1.md §3.2) are checked here with sdk_policy.h before the
-// delegate sees them: `onBridgeAction`, `onResizeAnchor` and `onStorage` get only what passed.
+// delegate sees them: `onBridgeAction`, `onResizeAnchor`, `onStorage`,
+// `onBridgeRequest` and `onBridgeCopyText` get only what passed.
 #pragma once
 
 #include "twidget/cpu_budget.h"
@@ -18,8 +19,10 @@
 #include "twidget/sdk_policy.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -53,6 +56,12 @@ struct SandboxConfig {
     /// Web Storage of this message as the client keeps it; an area over the quota drops the whole
     /// preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
+    /// The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13); later edits go through
+    /// `setData`. Checked at boot: a field over 1024 bytes, with a NUL or malformed is null (diagnostic `data-rejected`).
+    WidgetData data;
+    /// The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer
+    /// (docs/sdk-v1.md §4.4). All false: no requests.
+    WidgetContext context;
     /// "strict" (default): privileged bridge calls need a user gesture, text values are capped at
     /// 64 KB and visible text is budgeted. "compat": the behaviour before that hardening, for tests
     /// and tooling. Anything but exactly "compat" is strict (isStrictPolicy).
@@ -86,6 +95,23 @@ struct QueryAnswer {
 
 class SandboxEngine;
 
+/// How a delegate completes a request (`onBridgeRequest`): call it with the client's outcome, or
+/// `unsupported()` when the client handles no requests; once, from any thread. Later calls, and calls after the engine
+/// died or was destroyed, are ignored; every copy shares the once. It converts to the client-facing
+/// `std::function<void(const WidgetRequestOutcome&)>` (WidgetHost::onRequest's `respond`).
+class WidgetRequestResponder {
+public:
+    void operator()(const WidgetRequestOutcome& outcome) const { settle_(outcome); }
+    /// No client side for requests (WidgetHost without `onRequest` when the request is delivered): the widget gets
+    /// NOT_ALLOWED with the reason `unsupported`.
+    void unsupported() const { settle_(std::nullopt); }
+
+private:
+    friend class SandboxEngine;
+    explicit WidgetRequestResponder(std::function<void(const std::optional<WidgetRequestOutcome>&)> settle) : settle_(std::move(settle)) {}
+    std::function<void(const std::optional<WidgetRequestOutcome>&)> settle_;
+};
+
 /// All delegate calls happen on the engine's thread, never on the caller's.
 /// `onQuery` is synchronous: it may block the engine thread (and must not block the UI thread).
 class SandboxEngineDelegate {
@@ -104,9 +130,21 @@ public:
     /// bubble that stays put when the widget's height changes. Not an action (never `onBridgeAction` / `onBridge`), no
     /// gesture needed, at any visibility; the shim sends only changes, during the task and so before that task's `onOps`.
     virtual void onResizeAnchor(SandboxEngine&, const std::string& /*edge*/) {}
+    /// `TelegramWidget.watchPublicData()` / `unwatchPublicData()` (round 7): whether the widget watches its shared
+    /// `public_data`. Not an action, no gesture needed, at any visibility; the shim sends only changes (false at start).
+    virtual void onPublicDataWatch(SandboxEngine&, bool /*on*/) {}
     /// The new full content of a Web Storage area ("local" or "session") at the end of a task that changed it;
     /// once per area of a commit, local first. Checked against the quota; strings as in sdk_policy.h.
     virtual void onStorage(SandboxEngine&, const std::string& /*area*/, const StorageArea& /*values*/) {}
+    /// `TelegramWidget.request(data)` (docs/sdk-v1.md §2.14) that passed its checks and the request gate (a
+    /// press, or the background rules; one in flight per widget): send it to the bot and complete `respond` once, from
+    /// any thread, with the answer or the failure, or `respond.unsupported()` when the client handles no requests
+    /// (decided here, at delivery). Until then every other request of the widget is BUSY. Not an action (never
+    /// `onBridgeAction` / `onBridge`). The default handles none.
+    virtual void onBridgeRequest(SandboxEngine&, const WidgetRequest&, WidgetRequestResponder respond) { respond.unsupported(); }
+    /// `TelegramWidget.copyText(text)`: 1–256 UTF-16 code units, well-formed; a privileged call (one per
+    /// press, shared with the links and a request's press; `activation-blocked` without one). Not an action.
+    virtual void onBridgeCopyText(SandboxEngine&, const std::string& /*text*/) {}
     /// Deprecated since SDK v1 (`onBridgeAction`): the raw method and arguments JSON of each call `onBridgeAction` gets, right after it.
     virtual void onBridge(SandboxEngine&, const std::string& /*method*/, const std::string& /*argsJson*/) {}
     virtual void onLoaded(SandboxEngine& engine) = 0;
@@ -131,7 +169,7 @@ public:
     void start();
     void terminate();
 
-    // Inputs from the host (all asynchronous).
+    // Inputs from the host (all asynchronous). A preview (`WidgetContext::preview`) takes no input: events are dropped.
     void event(const std::string& json);
     /// A real user input event from the renderer (press, click, key press); every event of one physical gesture carries the same increasing `gesture` number.
     void activationEvent(const std::string& json, int gesture);
@@ -143,21 +181,47 @@ public:
     void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams = {});
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);
+    /// The renderer's primary press began / ended (pointerdown; pointerup or pointercancel), trusted input only, never the
+    /// widget's events (v0.2.2): haptics pass while a press is down and 5 s after it is lifted; outside a touch only one
+    /// 1 s series (sdk::HapticGate). WidgetHost calls these on the renderer's `gesture` and `release` messages.
+    void pressBegan();
+    void pressEnded();
+    /// The bot's data changed (an edit the client got from the server): the full state of both strings, checked as at
+    /// boot (`data-rejected`; a copy keeps no `chatData`, its publicData can change). The widget gets `chatDataChanged`,
+    /// then `publicDataChanged`, for each that differs.
+    void setData(const WidgetData& data);
 
     /// Evaluates trusted diagnostic code in the widget context (tests only). Returns the string value or the error text.
     std::string probe(const std::string& code);
 
 private:
     struct Deferred { std::string kind; std::string arg; };
+    /// What a request's `respond` reaches the engine through: null once the engine is being destroyed (under `mutex`).
+    struct Liveness {
+        std::mutex mutex;
+        SandboxEngine* engine = nullptr;
+    };
 
     void boot();
     void enqueue(const std::string& kind, const std::string& arg);
+    /// The body of `enqueue`, on the engine thread: buffered before boot, a hidden frame dropped, else dispatched.
+    void input(const std::string& kind, const std::string& arg);
     bool dispatch(const std::string& kind, const std::string& arg);
     void deferTask(const std::string& kind, const std::string& arg);
     void scheduleWake(double atSeconds);
     void wake();
     void onTimerFired(int id);
     HostReturn hostCall(const std::string& kind, const std::string& arg);
+    /// A checked `request` call: the request gate, then the delegate.
+    void request(int64_t id, const std::string& data);
+    /// A request's outcome back on the engine thread (nullopt: the client handles no requests): the gate frees, the
+    /// answer is checked and goes into the widget.
+    void answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome);
+    /// `request-blocked` (at most 20 per widget) and the `bridge` answer event that refuses request `id`.
+    std::string refusal(int64_t id, std::string_view error, std::string_view reason, const std::string& detail);
+    /// `{"chatData":…,"publicData":…}` members of `checked` set on `event` (JSON null for none); `data-rejected` when the
+    /// client passed a field that broke the rules.
+    void putData(Json& event, const sdk::CheckedWidgetData& checked);
     std::string syncQuery(const std::string& json);
     void kill(const std::string& reason);
     void handleError(const std::string& text, const std::string& where);
@@ -222,6 +286,12 @@ private:
     int rejectedStorageReported_ = 0;
     sdk::HapticGate haptics_;
     void rejectStorage(const std::string& detail);
+    // Requests to the bot (docs/sdk-v1.md §2.14): one in flight, a press or the background rules; refusals reported at most 20 times.
+    sdk::RequestGate requests_;
+    int blockedRequestsReported_ = 0;
+    // A preview's dropped bridge calls (docs/sdk-v1.md §2.16), reported at most 20 times.
+    int previewBlockedReported_ = 0;
+    std::shared_ptr<Liveness> liveness_ = std::make_shared<Liveness>();
 };
 
 } // namespace twidget

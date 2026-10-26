@@ -1,9 +1,11 @@
-// SDK v1 checks (docs/sdk-v1.md §2.5, §2.6, §2.8, §2.9, §3): a line-for-line
-// mirror of the checked part of src/shared/sdk-policy.ts (see the comments
-// there). The shim checks the same calls, but it is untrusted, so the glue
-// checks them again: link URLs, haptic arguments and the 5 + 10/s gate, theme
-// params, the locale, storage commits and preloads, bridge calls (the resize
-// anchor among them).
+// SDK v1 checks (docs/sdk-v1.md §2.5, §2.6, §2.8, §2.9, §2.13–§2.15, §3): a
+// line-for-line mirror of the checked part of src/shared/sdk-policy.ts (see the
+// comments there). The shim checks the same calls, but it is untrusted, so the
+// glue checks them again: link URLs, haptic arguments and the 5 + 10/s gate,
+// theme params, the locale, storage commits and preloads, bridge calls (the
+// resize anchor, requests and copyText among them); and what goes into the
+// widget: the bot's data, the viewer, the chat type, a request's answer, the
+// request gate.
 //
 // Pure and side-effect free; checked against tests/fixtures/sdk-policy.json
 // (copied to Tests/WidgetSandboxTests/Fixtures by `pnpm build:ios`), shared
@@ -23,6 +25,14 @@ public enum SdkPolicy {
     public static let hapticPerSecond = 10.0
     /// `haptic-limit` is reported at most this often.
     public static let hapticReportMs = 1000.0
+    /// Haptics are free (under the rate limit) while a finger or a mouse button is down on the widget and this long after it is lifted.
+    public static let hapticTouchWindowMs = 5000.0
+    /// Outside a touch, the first haptic opens a series: the calls of its first second pass (under the rate limit), later ones are dropped.
+    public static let hapticSeriesMs = 1000.0
+    /// Without a touch since the last series, the next one may start this long after the last one began.
+    public static let hapticSeriesGapMs = 10000.0
+    /// A press whose end the host never saw (the finger left the view) counts as lifted this long after it began.
+    public static let hapticPressMaxMs = 30000.0
     /// The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts); the shim reports a mismatch with its own.
     public static let profileVersion = 1
 
@@ -34,8 +44,54 @@ public enum SdkPolicy {
     public static let hapticImpactStyles = ["light", "medium", "heavy", "rigid", "soft"]
     public static let hapticNotificationTypes = ["error", "success", "warning"]
     public static let telegramHosts = ["t.me", "telegram.me", "telegram.dog"]
-    /// Methods that need the task's user gesture (docs/protocol.md, "User activation").
-    public static let privilegedMethods: Set<String> = ["openLink", "openTelegramLink"]
+    /// Methods that need the task's user gesture (docs/protocol.md, "User activation"); one press unlocks one of them.
+    /// `request` has its own gate (`RequestGate`).
+    public static let privilegedMethods: Set<String> = ["openLink", "openTelegramLink", "copyText"]
+    /// The bridge methods a preview (an inline result before it is sent: `WidgetContext.preview`) may call; everything
+    /// else is refused there: no request, link, copy or haptic. A preview gets no input either (its host drops the
+    /// renderer's events and gesture claims).
+    public static let previewMethods: Set<String> = ["ready", "setResizeAnchor"]
+
+    public static func allowedInPreview(_ method: Any?) -> Bool {
+        guard let method = method as? String else { return false }
+        return previewMethods.contains(method)
+    }
+
+    // Bot data and requests (docs/sdk-v1.md §2.13–§2.15).
+
+    /// UTF-8 bytes of `chatData` and of `publicData` each (the server's limit, `chat_data` / `public_data`).
+    public static let maxWidgetDataBytes = 1024
+    /// UTF-8 bytes of a request's `data` (as `callback_data`).
+    public static let maxRequestDataBytes = 64
+    /// UTF-8 bytes of an answer's `result`.
+    public static let maxRequestResultBytes = 1024
+    /// UTF-16 code units of a `copyText` text (as the `copy_text` button's).
+    public static let maxCopyTextLength = 256
+    /// A background request (not from a press) at most this often, per widget.
+    public static let backgroundRequestIntervalMs = 5000.0
+    /// The request ids the shim numbers its calls with.
+    public static let maxRequestId = 2147483647
+    /// A Telegram user id fits in 53 bits: a JS number holds it exactly.
+    public static let maxViewerId: Int64 = 9007199254740991
+    /// UTF-16 code units of the viewer's first and last name (each 1 to this).
+    public static let maxViewerNameLength = 64
+    /// Why a viewer field was left out (`data-rejected`: `viewer.<field>: <why>; the widget does not see it`).
+    public static let viewerFieldRules: [String: String] = [
+        "first_name": "not text of 1–64 UTF-16 code units",
+        "last_name": "not text of 1–64 UTF-16 code units",
+        "username": "not 5–32 characters of A–Z, a–z, 0–9 and _",
+        "is_premium": "not a boolean",
+    ]
+
+    /// What a refused or failed request rejects with in the widget (`error.code`).
+    public enum RequestError: String, CaseIterable {
+        case notAllowed = "NOT_ALLOWED"
+        case busy = "BUSY"
+        case rateLimited = "RATE_LIMITED"
+        case timeout = "TIMEOUT"
+        case failed = "FAILED"
+        case invalidAnswer = "INVALID_ANSWER"
+    }
 
     /// A checked haptic: `impact` / `notification` with their value, `selection` without.
     public struct HapticCall: Equatable {
@@ -47,14 +103,19 @@ public enum SdkPolicy {
     public static let defaultResizeAnchor = WidgetResizeAnchor.top
 
     /// A checked bridge call (the TS `BridgeCall`): an action for the client (the TS `WidgetAction`; the URL as the
-    /// check gives it, a string), or the resize anchor, which no `WidgetAction` carries: the host keeps the latest one
-    /// next to the height it reports.
+    /// check gives it, a string); the resize anchor, which no `WidgetAction` carries (the host keeps the latest one
+    /// next to the height it reports); whether the widget watches its shared `public_data` (the host keeps the latest,
+    /// the client polls only for widgets that watch); a request to the bot (the request gate, then the client's
+    /// `onRequest`); a text to copy (`onCopyText`). The last four are never a `WidgetAction`.
     public enum Action: Equatable {
         case ready
         case openLink(String)
         case openTelegramLink(String)
         case haptic(HapticCall)
         case setResizeAnchor(WidgetResizeAnchor)
+        case watchPublicData(Bool)
+        case request(id: Int, data: String)
+        case copyText(String)
     }
 
     /// A checked storage commit (or preload): the areas present, each in full.
@@ -168,8 +229,202 @@ public enum SdkPolicy {
             return checkHaptic(args).map { .haptic($0) }
         case "setResizeAnchor":
             return args.count == 1 ? checkResizeAnchor(args[0]).map { .setResizeAnchor($0) } : nil
+        case "watchPublicData":
+            // Exactly one JSON boolean (not a number that bridges to one).
+            guard args.count == 1, let on = args[0] as? NSNumber, CFGetTypeID(on) == CFBooleanGetTypeID() else { return nil }
+            return .watchPublicData(on.boolValue)
+        case "request":
+            guard args.count == 2, let id = integer(args[0], in: 1...Int64(maxRequestId)), let data = checkRequestData(args[1]) else { return nil }
+            return .request(id: Int(id), data: data)
+        case "copyText":
+            return args.count == 1 ? checkCopyText(args[0]).map { .copyText($0) } : nil
         default:
             return nil
+        }
+    }
+
+    // MARK: bot data and requests
+
+    /// A JSON number that is an integer within `range`, as `Number.isInteger` and the range test take it: not a
+    /// boolean, not a numeric string, not 1.5.
+    static func integer(_ value: Any?, in range: ClosedRange<Int64>) -> Int64? {
+        guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+        let d = n.doubleValue
+        guard d.isFinite, d.rounded() == d, d >= Double(range.lowerBound), d <= Double(range.upperBound) else { return nil }
+        return n.int64Value
+    }
+
+    // The TS checks below also refuse a lone surrogate (`wellFormed`). A Swift string never holds one (bridging a
+    // Foundation string turns it into U+FFFD) and JSONSerialization refuses a `\ud800` escape, so a bridge call that
+    // carries one is `bridge-rejected` before any check: here every string is well-formed.
+
+    /// A request's `data`, or nil: a string of 1–64 UTF-8 bytes.
+    public static func checkRequestData(_ data: Any?) -> String? {
+        guard let s = data as? String else { return nil }
+        let n = utf8Length(s)
+        return n >= 1 && n <= maxRequestDataBytes ? s : nil
+    }
+
+    /// A `copyText` text, or nil: a string of 1–256 UTF-16 code units.
+    public static func checkCopyText(_ text: Any?) -> String? {
+        guard let s = text as? String, (1...maxCopyTextLength).contains(s.utf16.count) else { return nil }
+        return s
+    }
+
+    /// Text as the server takes it for its text fields: no NUL (other control characters are text).
+    static func hasNoNul(_ s: String) -> Bool { !s.utf8.contains(0) }
+
+    /// One of `chatData` / `publicData`: a string of 1–1024 UTF-8 bytes without a NUL (the server's rule for its text
+    /// fields); nil for none (nil, NSNull, the empty string the bot clears it with) and for anything else.
+    public static func checkWidgetDataValue(_ value: Any?) -> String? {
+        guard let s = value as? String, !s.isEmpty, hasNoNul(s), utf8Length(s) <= maxWidgetDataBytes else { return nil }
+        return s
+    }
+
+    /// The bot's data as the widget sees it, and the fields the client passed that broke the rules (the glue reports `data-rejected`).
+    public struct CheckedWidgetData: Equatable {
+        public var chatData: String?
+        public var publicData: String?
+        /// `"chatData"`, `"publicData"`, in this order.
+        public var rejected: [String]
+    }
+
+    /// The full state of the bot's two strings, as the client passes it at creation and in `setData` (a `WidgetData`,
+    /// or the TS shape as a dictionary). A forwarded copy has no `chatData` (the server never copies it): the glue
+    /// drops what the client passed, silently; its `publicData` still applies.
+    public static func checkWidgetData(_ data: Any?, copy: Bool) -> CheckedWidgetData {
+        let d = (data as? WidgetData)?.json ?? (data as? [String: Any]) ?? [:]
+        var out = CheckedWidgetData(chatData: nil, publicData: nil, rejected: [])
+        for field in ["chatData", "publicData"] {
+            if field == "chatData" && copy { continue }
+            let v = d[field]
+            let checked = checkWidgetDataValue(v)
+            if field == "chatData" { out.chatData = checked } else { out.publicData = checked }
+            if checked == nil, let v, !(v is NSNull), (v as? String) != "" { out.rejected.append(field) }
+        }
+        return out
+    }
+
+    /// The viewer as the widget sees it, and the fields the client passed that broke their rules (left out; the glue
+    /// reports `data-rejected`), in the order `first_name`, `last_name`, `username`, `is_premium`.
+    public struct CheckedViewer: Equatable {
+        public var viewer: WidgetViewer?
+        public var rejected: [String]
+    }
+
+    /// A username: 5–32 characters of A–Z, a–z, 0–9 and _ (ASCII only).
+    static func isUsername(_ s: String) -> Bool {
+        (5...32).contains(s.utf8.count) && s.utf8.allSatisfy { ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122) || ($0 >= 48 && $0 <= 57) || $0 == 95 }
+    }
+
+    /// Who looks at the widget, as the widget sees it (Mini Apps' `WebAppUser`; a `WidgetViewer`, or the widget's field
+    /// names as a dictionary). No viewer without a positive integer id of at most 53 bits; a field that breaks its
+    /// rule is left out and listed in `rejected`: a name of 1–64 UTF-16 code units, a username of 5–32 characters of
+    /// A–Z, a–z, 0–9 and _, `is_premium` a boolean, kept only when true. Absent (nil or NSNull) fields are left out
+    /// without a word.
+    public static func checkViewer(_ viewer: Any?) -> CheckedViewer {
+        let v = (viewer as? WidgetViewer)?.json ?? (viewer as? [String: Any]) ?? [:]
+        guard let id = integer(v["id"], in: 1...maxViewerId) else { return CheckedViewer(viewer: nil, rejected: []) }
+        var out = WidgetViewer(id: id)
+        var rejected: [String] = []
+        let present = { (field: String) -> Any? in v[field].flatMap { $0 is NSNull ? nil : $0 } }
+        for field in ["first_name", "last_name"] {
+            guard let value = present(field) else { continue }
+            guard let s = value as? String, (1...maxViewerNameLength).contains(s.utf16.count) else {
+                rejected.append(field)
+                continue
+            }
+            if field == "first_name" { out.firstName = s } else { out.lastName = s }
+        }
+        if let value = present("username") {
+            if let s = value as? String, isUsername(s) { out.username = s } else { rejected.append("username") }
+        }
+        if let value = present("is_premium") {
+            // A JSON (or Swift) boolean, not a number that bridges to one.
+            if let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() { out.isPremium = n.boolValue } else { rejected.append("is_premium") }
+        }
+        return CheckedViewer(viewer: out, rejected: rejected)
+    }
+
+    /// Exactly `private`, `group`, `supergroup` or `channel` (`Chat.type` of the Bot API), else nil.
+    public static func checkChatType(_ chatType: Any?) -> WidgetChatType? {
+        if let t = chatType as? WidgetChatType { return t }
+        return (chatType as? String).flatMap(WidgetChatType.init(rawValue:))
+    }
+
+    /// An answer the glue passes into the widget: the bot's `result` (nil for none).
+    public struct CheckedAnswer: Equatable {
+        public var result: String?
+    }
+
+    /// The bot's answer to a request as the widget gets it (a `WidgetRequestAnswer`, or the TS shape as a dictionary):
+    /// `result`, a string of at most 1024 UTF-8 bytes without a NUL (empty allowed), or none. Nil when it breaks the
+    /// rules (the widget gets `INVALID_ANSWER`). An answer carries no data: the bot edits its data with separate calls,
+    /// which reach the host as `setData`.
+    public static func checkRequestAnswer(_ answer: Any?) -> CheckedAnswer? {
+        let a = (answer as? WidgetRequestAnswer)?.json ?? (answer as? [String: Any]) ?? [:]
+        guard let r = a["result"], !(r is NSNull) else { return CheckedAnswer(result: nil) }
+        guard let s = r as? String, hasNoNul(s), utf8Length(s) <= maxRequestResultBytes else { return nil }
+        return CheckedAnswer(result: s)
+    }
+
+    /// The verdict on a request (docs/sdk-v1.md §2.14): `foreground` (it consumes the task's press) and `background`
+    /// go to the client; the rest are refused: `disabled` (no `canQuery`: a widget sent without `allow_queries`, or a
+    /// forwarded copy of one sent without `fwd_allow_queries`), `busy` (one request in flight per widget), `noActivation` (no press, and no `backgroundQuery`),
+    /// `hidden` (a background request from a widget off screen), `rateLimited` (a background request sooner than 5 s
+    /// after the last one, unless the widget appeared on screen since).
+    public enum RequestVerdict: String {
+        case foreground, background, disabled, busy
+        case noActivation = "no-activation"
+        case hidden
+        case rateLimited = "rate-limited"
+    }
+
+    /// What the widget's promise rejects with for a refused request; nil for the two that go to the client.
+    public static func requestRefusal(_ verdict: RequestVerdict) -> RequestError? {
+        switch verdict {
+        case .foreground, .background: return nil
+        case .busy: return .busy
+        case .rateLimited: return .rateLimited
+        case .disabled, .noActivation, .hidden: return .notAllowed
+        }
+    }
+
+    /// The client's sandbox policy for requests, from the server's flags only: on a tap whenever `canQuery`; without
+    /// one only with `backgroundQuery`, only while visible: one when the widget appears on screen (`show`, and at
+    /// creation), then at most one per 5 s counted from the start of the last background request; one request in
+    /// flight. `gesture`: the task has a press no privileged call consumed yet (the glue consumes it on `foreground`).
+    /// `finish` when the answer or the failure has gone into the widget.
+    public struct RequestGate {
+        private var inFlight = false
+        private var lastBackground: Double?
+
+        public init() {}
+
+        public var busy: Bool { inFlight }
+
+        public mutating func decide(nowMs now: Double, gesture: Bool, visible: Bool, canQuery: Bool, backgroundQuery: Bool) -> RequestVerdict {
+            if !canQuery { return .disabled }
+            if inFlight { return .busy }
+            if gesture && visible {
+                inFlight = true
+                return .foreground
+            }
+            if !backgroundQuery { return .noActivation }
+            if !visible { return .hidden }
+            if let lastBackground, now - lastBackground < SdkPolicy.backgroundRequestIntervalMs { return .rateLimited }
+            lastBackground = now
+            inFlight = true
+            return .background
+        }
+
+        public mutating func finish() {
+            inFlight = false
+        }
+
+        /// The widget appeared on screen (it was hidden): its next background request may go out at once.
+        public mutating func show() {
+            lastBackground = nil
         }
     }
 
@@ -182,18 +437,48 @@ public enum SdkPolicy {
         case report
     }
 
-    /// Haptics need no gesture but a visible widget and room in the bucket (5 calls, refilled at 10 per second).
+    /// Haptics need a visible widget and room in the bucket (5 calls, refilled at 10 per second), and a touch: while a
+    /// finger is down on the widget and for 5 s after it is lifted they are free (under the rate limit); outside that,
+    /// the first call opens a series whose first second passes, then nothing until the next touch, or 10 s after the
+    /// series began when there was none (docs/sdk-v1.md §2.6; a widget cannot buzz the phone from a timer). `press` /
+    /// `release` are the host's trusted presses (the renderer's claim at a primary pointerdown and its release), never
+    /// the widget's events.
     public struct HapticGate {
         private var tokens = SdkPolicy.hapticBurst
         private var last: Double?
         private var reported: Double?
+        /// A press is on since then.
+        private var down: Double?
+        /// The last press ended then.
+        private var lifted: Double?
+        /// The last series (haptics outside a touch) began then.
+        private var series: Double?
 
         public init() {}
+
+        /// A finger or a mouse button went down on the widget (trusted input only).
+        public mutating func press(nowMs now: Double) {
+            down = now
+        }
+
+        /// The press ended: the finger was lifted or the press was cancelled.
+        public mutating func release(nowMs now: Double) {
+            down = nil
+            lifted = now
+        }
 
         public mutating func decide(nowMs now: Double, visible: Bool) -> HapticDecision {
             if let last { tokens = min(SdkPolicy.hapticBurst, tokens + (max(0, now - last) * SdkPolicy.hapticPerSecond) / 1000) }
             last = now
-            if visible, tokens >= 1 {
+            if let down, now - down > SdkPolicy.hapticPressMaxMs { release(nowMs: down + SdkPolicy.hapticPressMaxMs) }
+            let touching = down != nil || (lifted.map { now - $0 <= SdkPolicy.hapticTouchWindowMs } ?? false)
+            var allowed = visible
+            if allowed, !touching, !(series.map { now - $0 < SdkPolicy.hapticSeriesMs } ?? false) {
+                // A new series: after a touch at any time (one per touch), else 10 s after the last one began.
+                let touchedSince = lifted.map { lifted in series.map { lifted > $0 } ?? true } ?? false
+                if series == nil || touchedSince || now - series! >= SdkPolicy.hapticSeriesGapMs { series = now } else { allowed = false }
+            }
+            if allowed, tokens >= 1 {
                 tokens -= 1
                 return .play
             }

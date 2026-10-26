@@ -42,6 +42,10 @@ public struct WidgetDiagnostics {
     /// bubbles' bottom edge in place (the content above moves) and `.top` ones' top edge (the content below moves).
     /// It is set before the size report of the ops that follow it in the widget's task.
     public var resizeAnchor = SdkPolicy.defaultResizeAnchor
+    /// Whether the widget watches its shared `public_data` (its latest `TelegramWidget.watchPublicData` /
+    /// `unwatchPublicData`; docs/sdk-v1.md §2.13), false until then. The client polls `getWidgetPublicData` only for a
+    /// widget that watches, is on screen and whose message has a `widget_id`. Not reset when the widget stops.
+    public var watchesPublicData = false
     /// Wall clock to the first `size` report that follows validated ops (the widget's first content on screen).
     public var firstContentMs: Double?
     /// Which parts came prewarmed from the pools ("renderer+engine+validator"), empty when none.
@@ -89,6 +93,12 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var locale = SdkPolicy.defaultLocale
         /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`).
         public var storage = WidgetStorage()
+        /// The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`.
+        public var data = WidgetData()
+        /// The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type, the viewer and
+        /// `preview` for an inline result not sent yet (docs/sdk-v1.md §4.4); fixed for the host's life. Without
+        /// `canQuery` (the default) every request is refused; a preview takes no input, no actions and commits no storage.
+        public var context = WidgetContext()
         public init() {}
     }
 
@@ -115,6 +125,20 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// always the chat's (`y` is always false since v0.1.3). The client's recognizers decide with it (GestureArbiter).
     /// Main thread, a few ms after the touch began.
     public var onGestureClaim: ((WidgetGestureClaim) -> Void)?
+    /// The widget started (`true`) or stopped (`false`) watching its shared `public_data` (`TelegramWidget.watchPublicData`,
+    /// docs/sdk-v1.md §2.13): poll `getWidgetPublicData` for it only while it watches and is on screen, and only when the
+    /// message has a `widget_id`. Called on a change only; `diagnostics.watchesPublicData` has the latest. Main thread.
+    public var onWatchPublicData: ((Bool) -> Void)?
+    /// A request the widget sends to the bot (`TelegramWidget.request`, checked: the data, the server's flags, the
+    /// press or the background rules, one in flight; docs/sdk-v1.md §2.14). The client sends `data` like a callback
+    /// button's press and calls the completion once, from any thread, with the server's answer (`result`) or a
+    /// failure; later calls, and calls after `destroy()`, are ignored. Read on the main thread when a request is
+    /// delivered: nil then refuses it (`NOT_ALLOWED`), so setting it right after creating the host catches every
+    /// request. Main thread.
+    public var onRequest: ((WidgetRequest, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?
+    /// Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked:
+    /// at most 256 UTF-16 code units, one per press, shared with the link calls; docs/sdk-v1.md §2.15). Main thread.
+    public var onCopyText: ((String) -> Void)?
     /// The raw method and arguments JSON of each call `onAction` gets.
     @available(*, deprecated, message: "use onAction (SDK v1)")
     public var onBridge: ((String, String) -> Void)? {
@@ -132,7 +156,8 @@ public final class WidgetHost: SandboxEngineDelegate {
     private let validator: TrustedValidator
     private let renderer: Renderer
     private let options: Options
-    private let config: SandboxConfig
+    /// What the engine boots with; `setData` before the engine starts updates its data. Executor only after init.
+    private var config: SandboxConfig
     private var theme: WidgetTheme
     /// The colour scheme as the renderer, the validator and the sandbox take it.
     private var scheme: String { theme.colorScheme.rawValue }
@@ -211,6 +236,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.themeParams = widgetTheme.params
         config.locale = options.locale
         config.storage = options.storage
+        config.data = options.data
+        config.context = options.context
         self.config = config
         if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
             engine = pooled
@@ -331,6 +358,20 @@ public final class WidgetHost: SandboxEngineDelegate {
     @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
     public func setTheme(_ theme: String) {
         setTheme(WidgetTheme(colorScheme: theme))
+    }
+
+    /// The bot's data changed (`updateMessageWidgetData`, or a new `public_data` from polling the shared object;
+    /// docs/sdk-v1.md §2.13): the full state of both strings. The widget gets `chatDataChanged` and then
+    /// `publicDataChanged` for each that differs; a copy keeps no `chatData`, only its `publicData` changes; a field
+    /// over 1024 bytes (UTF-8) or with a NUL is null for the widget (`data-rejected`). Before the widget starts, it
+    /// starts with this data.
+    public func setData(_ data: WidgetData) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.setData(data) }
+        }
+        guard !destroyed else { return }
+        config.data = data
+        if engineStarted { engine.setData(data) }
     }
 
     /// The last render as an image, for an owner that is about to `destroy()` a
@@ -589,6 +630,33 @@ public final class WidgetHost: SandboxEngineDelegate {
             self.changed()
         }
     }
+    /// Not an action either: whether the widget watches its shared `public_data` goes into the state, in order with
+    /// the ops, and to the client's `onWatchPublicData` on a change only.
+    public func engine(_ engine: SandboxEngine, watchesPublicData on: Bool) {
+        inOrder {
+            guard self.state.watchesPublicData != on else { return }
+            self.state.watchesPublicData = on
+            self.changed()
+            self.onMain { self.onWatchPublicData?(on) }
+        }
+    }
+    /// A request that passed the engine's gate, to the client's `onRequest` on main, in order with the actions. The
+    /// client side is decided here, at delivery: without `onRequest` now the widget gets `NOT_ALLOWED` (`unsupported`).
+    /// The engine honours the first call of `respond` only.
+    public func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) {
+        inOrder {
+            self.onMain {
+                guard let onRequest = self.onRequest else { return respond.unsupported() }
+                onRequest(request) { respond($0) }
+            }
+        }
+    }
+    /// Not an action: the client copies the text and shows what it copied.
+    public func engine(_ engine: SandboxEngine, copyText: String) {
+        inOrder {
+            self.onMain { self.onCopyText?(copyText) }
+        }
+    }
     public func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {
         inOrder {
             self.onMain {
@@ -653,6 +721,8 @@ public final class WidgetHost: SandboxEngineDelegate {
             queued.forEach(deliver)
             startEngine()
         case "event":
+            // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
+            if options.context.preview { return }
             if let ev = msg["ev"] {
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
                 if (msg["trusted"] as? Bool) == true, let gesture = gesture(for: ev) {
@@ -701,11 +771,18 @@ public final class WidgetHost: SandboxEngineDelegate {
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
             engine.theme(scheme, params: theme.params)
         case "gesture":
+            // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s
+            // after. Before the preview check: harmless, a preview plays no haptics anyway.
+            engine.pressBegan()
+            if options.context.preview { return }
             // The renderer core sends x, y and hold (`wants` is y, always false since v0.1.3). Vertical drags are the
             // chat's: the claim the client gets has `y` false whatever the renderer says. A renderer that sends only
             // `wants` (the Blitz and litehtml prototypes) claims nothing.
             let claim = WidgetGestureClaim(x: Self.isTrue(msg["x"]), y: false, hold: Self.isTrue(msg["hold"]))
             onMain { self.onGestureClaim?(claim) }
+        case "release":
+            // The primary press ended (pointerup or pointercancel, listened to or not).
+            engine.pressEnded()
         case "violation":
             diag("renderer-violation", msg["detail"] as? String ?? "")
         default:

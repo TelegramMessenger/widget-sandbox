@@ -48,10 +48,15 @@ class WidgetDiagnostics(
      * widget's latest call; it reaches this state before the size report of the content its task changed.
      */
     var resizeAnchor: String = SdkPolicy.DEFAULT_RESIZE_ANCHOR,
+    /**
+     * Whether the widget watches its shared `public_data` (its latest `TelegramWidget.watchPublicData()` /
+     * `unwatchPublicData()`, docs/sdk-v1.md §2.13), false until it calls one. Kept after the widget stops or dies.
+     */
+    var watchesPublicData: Boolean = false,
 ) {
     fun copy() = WidgetDiagnostics(
         ArrayList(logs), LinkedHashMap(diags.mapValues { it.value.copy() }), ArrayList(bridge), stats.copy(), nodes, loaded, dead, height, lastError,
-        rendererReadyMs, firstContentMs, loadedMs, prewarmed, ArrayList(actions), resizeAnchor,
+        rendererReadyMs, firstContentMs, loadedMs, prewarmed, ArrayList(actions), resizeAnchor, watchesPublicData,
     )
 }
 
@@ -107,6 +112,77 @@ data class WidgetTextTokens(
 /** Web Storage of the message as the client keeps it (docs/sdk-v1.md §2.8, §5.4): the stored `local` area and the in-memory `session` one. */
 data class WidgetStorage(val local: Map<String, String> = emptyMap(), val session: Map<String, String> = emptyMap())
 
+/**
+ * The bot's two strings as the message has them (docs/sdk-v1.md §2.13), the full state each time: `chatData`
+ * (this chat only, never in a copy) and `publicData` (a copy gets it too, and its changes). Null or "" for none; a field
+ * that is not text of at most 1024 bytes (UTF-8, no NUL) reaches the widget as null (`data-rejected`).
+ */
+data class WidgetData(val chatData: String? = null, val publicData: String? = null)
+
+/**
+ * The account that looks at the widget (docs/sdk-v1.md §4): its Telegram user id (1 … 2^53 − 1; anything else is no
+ * viewer) and, when the client has them, its names, username and Premium. The widget sees it as Mini Apps' `WebAppUser`
+ * (`{ id, first_name?, last_name?, username?, is_premium? }`), only with `canQuery`; a field that breaks its rule (a name
+ * 1–64 UTF-16 code units, a username 5–32 characters of A–Z, a–z, 0–9 and _) is left out with `data-rejected`.
+ */
+data class WidgetViewer(
+    val id: Long,
+    val firstName: String? = null,
+    val lastName: String? = null,
+    val username: String? = null,
+    val isPremium: Boolean = false,
+)
+
+/**
+ * The message's flags from the server (docs/sdk-v1.md §4.4), the chat type and the viewer; fixed for the host's life.
+ * All false by default: a client that passes no flags gets no requests.
+ */
+data class WidgetContext(
+    /** `is_copy`: the message is a forwarded copy: never any chatData (`TelegramWidget.isForward` in the widget). */
+    val isCopy: Boolean = false,
+    /** `can_query`: requests are allowed, on a tap (an original of a widget sent with `allow_queries`, or a copy of one sent with `fwd_allow_queries`). */
+    val canQuery: Boolean = false,
+    /** `background_query`: requests without a tap too (the original in the private chat with the bot): while visible, one when the widget appears on screen, then one per 5 s. */
+    val backgroundQuery: Boolean = false,
+    /** "private" | "group" | "supergroup" | "channel" ([SdkPolicy.CHAT_TYPES]); anything else is none. No copy gets it, with `canQuery` or not (a bot must learn nothing about where its widget was forwarded), nor a preview. */
+    val chatType: String? = null,
+    /** A copy without `canQuery` gets none. */
+    val viewer: WidgetViewer? = null,
+    /**
+     * An inline result shown before it is sent (no message yet, docs/sdk-v1.md §2.16): the widget gets its data and runs
+     * as usual, but no input (a tap on it is the client's: it selects the result), no requests or other bridge calls but
+     * `ready` / `setResizeAnchor`, no chat type or viewer, and Web Storage that is never committed (the preload is
+     * ignored). The request flags and `isCopy` are ignored.
+     */
+    val preview: Boolean = false,
+)
+
+/**
+ * What the client sends to the bot like a callback button's press: `data` (1–64 bytes, UTF-8). Whether it came from a
+ * press or in the background is the glue's decision (the request gate); the server and the bot cannot tell them apart.
+ */
+data class WidgetRequest(val data: String)
+
+/**
+ * The server's answer as the client hands it to the host: `result`, text of at most 1024 bytes (UTF-8, no NUL; anything
+ * else is INVALID_ANSWER in the widget), null for none. The bot's data changes come as message edits (`setData`); the
+ * client shows the answer's text, alert and URL itself, as for a callback button.
+ */
+data class WidgetRequestAnswer(val result: String? = null)
+
+/** Why a client could not complete a request: the bot did not answer in time, flood wait, anything else. */
+enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED }
+
+/** A failed request, as `onRequest` reports it: `Result.failure(WidgetRequestException(…))`; any other exception is FAILED. */
+class WidgetRequestException(val failure: WidgetRequestFailure) : Exception(failure.name)
+
+/**
+ * The internal outcome of a request no client handles (WidgetHost: `onRequest` is null when the request reaches the main
+ * thread): the engine refuses it as NOT_ALLOWED with the reason `unsupported`. Not a [WidgetRequestFailure]: a client
+ * that has `onRequest` always delivers or fails.
+ */
+internal class WidgetRequestUnsupported : Exception("the client handles no requests")
+
 class WidgetHost(
     context: Context,
     html: String,
@@ -157,6 +233,10 @@ class WidgetHost(
         val locale: String = SdkPolicy.DEFAULT_LOCALE,
         /** Web Storage of this message as the client keeps it (the preload); over the 16 KB quota it is dropped whole (`storage-rejected`). */
         val storage: WidgetStorage = WidgetStorage(),
+        /** The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`. */
+        val data: WidgetData = WidgetData(),
+        /** The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer (docs/sdk-v1.md §4.4); without `canQuery` every request is refused. */
+        val context: WidgetContext = WidgetContext(),
     )
 
     val view: View get() = renderer.view
@@ -166,6 +246,24 @@ class WidgetHost(
     var onAction: ((WidgetAction) -> Unit)? = null
     /** The new full content of a Web Storage area ("local" | "session") at the end of each task that changed it, in order (docs/sdk-v1.md §5.4). */
     var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)? = null
+    /**
+     * A request the widget sends to the bot (`TelegramWidget.request`, docs/sdk-v1.md §2.14), checked: the data,
+     * [WidgetContext.canQuery], a press (or the background rules of [WidgetContext.backgroundQuery]), one in flight. Send it like a callback
+     * button's press and call the completion once, from any thread, with the bot's answer (its toast, alert and URL the
+     * client shows itself) or `Result.failure(WidgetRequestException(…))`; any other exception is FAILED. Later calls,
+     * and calls after `destroy()` or the widget's death, are ignored. Runs on the main thread, and is read there when a
+     * request arrives, so it may be set after the constructor; null then refuses the request (NOT_ALLOWED, `unsupported`).
+     */
+    var onRequest: ((WidgetRequest, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
+    /** Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked: 1–256 characters, one per press). Main thread. */
+    var onCopyText: ((String) -> Unit)? = null
+    /**
+     * The widget started (true) or stopped (false) watching its shared `public_data` (`TelegramWidget.watchPublicData`,
+     * docs/sdk-v1.md §2.13): poll `getWidgetPublicData` for it only while it watches and is on screen, and only when the
+     * message has a `widget_id`, then `setData`. Called on a change only, on the main thread; `diagnostics.watchesPublicData`
+     * has the latest.
+     */
+    var onWatchPublicData: ((Boolean) -> Unit)? = null
     /**
      * On every primary pointerdown: what of this press the widget claims with CSS `touch-action` (docs/sdk-v1.md §5.5,
      * GesturePolicy.kt): horizontal drags (`x`) and holds (`hold`: no message menu); taps and double taps are always the
@@ -191,6 +289,8 @@ class WidgetHost(
     private val validator: TrustedValidator
     private val renderer: Renderer
     private val options = options
+    /** [WidgetContext.preview]: an inline result not sent yet takes no input. */
+    private val preview = options.context.preview
     /** The client's theme, its scheme normalised and its palette checked. */
     private var theme = checkedTheme(theme)
     private val scheme get() = theme.colorScheme
@@ -224,12 +324,15 @@ class WidgetHost(
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
             maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
             themeParams = this.theme.params, locale = options.locale, storage = options.storage,
+            data = options.data, context = options.context,
         )
         if (isStrictPolicy(options.policy)) validator.setPolicy("strict")
         engine = SandboxEngine(html, config, resources)
         engine.delegate = this
         renderer.onDiag = { k, d -> diag(k, d) }
         renderer.onMessage = { json -> onRenderer(json) }
+        // A preview takes no input: the renderer leaves every press to the client (the inline-results list) at once.
+        if (preview) renderer.setPreview(true)
         renderer.view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) { inWindow = true; pushVisibility() }
             override fun onViewDetachedFromWindow(v: View) { inWindow = false; pushVisibility() }
@@ -256,6 +359,12 @@ class WidgetHost(
 
     @Deprecated("Since SDK v1: setTheme(WidgetTheme)", ReplaceWith("setTheme(WidgetTheme(theme))"))
     fun setTheme(theme: String) = setTheme(WidgetTheme(theme))
+
+    /**
+     * The bot's data changed (an edit the client got from the server): the full state of both strings. The widget gets
+     * `chatDataChanged`, then `publicDataChanged`, for each that differs; a copy keeps no `chatData`, its `publicData` applies.
+     */
+    fun setData(data: WidgetData) = engine.setData(data)
 
     private fun checkedTheme(t: WidgetTheme) = t.copy(colorScheme = if (t.colorScheme == "dark") "dark" else "light", params = SdkPolicy.checkThemeParams(t.params))
 
@@ -404,6 +513,25 @@ class WidgetHost(
         main.post { if (!destroyed) onStorageCommit?.invoke(area, values) }
     }
     /**
+     * `onRequest` is read here, on the main thread at delivery, not when the widget asked: a client that sets it after the
+     * constructor still gets a request the widget made at boot. The engine's `respond` honours the first call only, from
+     * any thread; a client that throws has failed the request (FAILED).
+     */
+    override fun onRequest(engine: SandboxEngine, request: WidgetRequest, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+        main.post {
+            if (destroyed) return@post
+            val handler = onRequest ?: return@post respond(Result.failure(WidgetRequestUnsupported()))
+            try {
+                handler(request, respond)
+            } catch (e: Exception) {
+                respond(Result.failure(e))
+            }
+        }
+    }
+    override fun onCopyText(engine: SandboxEngine, text: String) {
+        main.post { if (!destroyed) onCopyText?.invoke(text) }
+    }
+    /**
      * The latest anchor goes into the state next to the height (no callback of its own: `onChange`, coalesced). Posted
      * from the engine thread during the task, so it runs on main before that task's ops (posted at its end), hence
      * before the renderer lays them out and before the `size` report that follows.
@@ -412,6 +540,15 @@ class WidgetHost(
         main.post {
             if (destroyed || diagnostics.resizeAnchor == edge) return@post
             diagnostics.resizeAnchor = edge
+            changed()
+        }
+    }
+    /** Like the anchor, into the state; the client's callback on a change only. */
+    override fun onWatchPublicData(engine: SandboxEngine, on: Boolean) {
+        main.post {
+            if (destroyed || diagnostics.watchesPublicData == on) return@post
+            diagnostics.watchesPublicData = on
+            onWatchPublicData?.invoke(on)
             changed()
         }
     }
@@ -452,12 +589,17 @@ class WidgetHost(
                 queued.forEach(renderer::send)
                 engine.start()
             }
-            "event" -> (msg.opt("ev") as? JSONObject)?.let { ev ->
+            // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
+            "event" -> if (!preview) (msg.opt("ev") as? JSONObject)?.let { ev ->
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
                 val gesture = if (msg.opt("trusted") == true) gestures.gestureFor(ev.optString("type"), ev.optDouble("detail", 0.0)) else 0
                 if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
             }
             "gesture" -> {
+                // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s after.
+                engine.press()
+                if (preview) return
+                // A preview claims nothing (no onGesture / onGestureClaim); its renderer already leaves every press to the client.
                 // Vertical drags are the chat's (v0.1.3): the claim's `y` is false whatever the renderer sends. The renderer
                 // core still sends `wants` / `y` (always false now); the Blitz and litehtml prototypes send only `wants` (their
                 // old vertical claim), so they now claim nothing.
@@ -491,6 +633,8 @@ class WidgetHost(
                     engine.viewport(vp.first, vp.second, vp.third)
                 }
             }
+            // The primary press ended (pointerup or pointercancel), listened to by the widget or not: the haptic gate's touch window starts.
+            "release" -> engine.release()
             "resize" -> msg.optJSONArray("entries")?.let { engine.resize(it.toString()) }
             "frame" -> engine.frame(msg.optDouble("time", 0.0))
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.

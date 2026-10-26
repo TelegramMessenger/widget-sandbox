@@ -458,6 +458,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
     globals.setTheme({ theme: config.theme, themeParams: config.themeParams }, false);
     globals.setLocale(config.locale);
     globals.preloadStorage(config.storage);
+    globals.configureWidget(config);
     if (config.profile !== undefined && config.profile !== PROFILE_VERSION) diag('profile-mismatch', `the glue enforces profile ${String(config.profile).slice(0, 8)}, the sandbox bundle is profile ${PROFILE_VERSION}`);
     globals.setViewport(config.viewport);
     loadDocument(String(html));
@@ -509,6 +510,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
   },
   resize(arg) { globals.fireResize(JSON.parse(arg), capture.nodeById); },
   theme(arg) { globals.setTheme(JSON.parse(arg), true); globals.mediaChanged(); },
+  bridge(arg) { globals.bridgeEvent(JSON.parse(arg)); },
   morph(arg) {
     if (!morphEnabled) return '';
     const { html } = JSON.parse(arg);

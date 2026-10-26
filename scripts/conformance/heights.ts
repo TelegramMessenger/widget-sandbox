@@ -2,23 +2,17 @@
 // loads it through the real pipeline (QuickJS worker → validator → renderer) at a narrow bubble width, and
 // the renderer's own size report (before the host clamps it to the cap) is the height. Fails when a widget
 // is taller than MAX_HEIGHT (lib.ts) allows, except one marked "tall" (a test of the cap). build.ts checks
-// the visual set drawn natively; this is the check for the automatic set, which drawn natively also lists
-// the out-of-profile checks Chromium fails. The height is taken before any input, so an interactive
-// widget's pending checks are in it.
+// the visual set drawn natively, and the automatic set with measureHeights() here (it starts a dev server
+// for it): drawn natively an automatic widget also lists the out-of-profile checks Chromium fails. The
+// height is taken before any input, so an interactive widget's pending checks are in it.
 //
 // Needs the dev server of this checkout:  corepack pnpm dev --port 5175
 //   corepack pnpm tsx scripts/conformance/heights.ts --origin http://127.0.0.1:5175 \
 //     [--renderer shadow|iframe] [--widths 320,390] [--only auto/]
 
+import { pathToFileURL } from 'node:url';
 import { chromium, type Page } from '@playwright/test';
 import { MAX_HEIGHT, listWidgets, type Widget } from './lib';
-
-const args = process.argv.slice(2);
-const opt = (name: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : undefined);
-const ORIGIN = opt('origin') ?? 'http://127.0.0.1:5175';
-const RENDERER = opt('renderer') ?? 'shadow';
-const WIDTHS = (opt('widths') ?? String(MAX_HEIGHT.width)).split(',').map(Number);
-const ONLY = opt('only');
 
 /** Loads the widget at `width` and returns its unclamped content height once it has run its checks (or waits for input). */
 async function measure(page: Page, w: Widget, width: number): Promise<{ height: number; status: string }> {
@@ -63,30 +57,40 @@ async function measure(page: Page, w: Widget, width: number): Promise<{ height: 
   return { height: Math.ceil(await page.evaluate(() => (window as any).__heights.height)), status };
 }
 
-async function main() {
-  const widgets = listWidgets(ONLY);
+/**
+ * Measures `widgets` through the dev app at `origin` and returns the ones taller than MAX_HEIGHT allows at a
+ * width up to MAX_HEIGHT.width (a "tall" widget excepted), as "<id>: <h> px at <w> px wide".
+ */
+export async function measureHeights(widgets: Widget[], origin: string, renderer = 'shadow', widths = [MAX_HEIGHT.width], log = console.log): Promise<string[]> {
   const browser = await chromium.launch();
   const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 }, deviceScaleFactor: 2 })).newPage();
   const q = new URLSearchParams({ theme: 'light', features: 'webAnimations', policy: 'strict' });
-  if (RENDERER !== 'iframe') q.set(RENDERER, '1');
-  await page.goto(`${ORIGIN}/?${q}`);
+  if (renderer !== 'iframe') q.set(renderer, '1');
+  await page.goto(`${origin}/?${q}`);
   await page.waitForFunction(() => !!(window as any).__tw, null, { timeout: 60_000 });
 
   const over: string[] = [];
-  console.log(`${RENDERER}, widths ${WIDTHS.join(', ')}; at most ${MAX_HEIGHT.height} px at ${MAX_HEIGHT.width} px wide`);
+  log(`${renderer}, widths ${widths.join(', ')}; at most ${MAX_HEIGHT.height} px at ${MAX_HEIGHT.width} px wide`);
   for (const w of widgets) {
     const cells: string[] = [];
     let status = '';
-    for (const width of WIDTHS) {
+    for (const width of widths) {
       const r = await measure(page, w, width);
       status = r.status;
       const tooTall = width <= MAX_HEIGHT.width && r.height > MAX_HEIGHT.height;
       if (tooTall && !w.meta.tall) over.push(`${w.id}: ${r.height} px at ${width} px wide`);
       cells.push(`${String(r.height).padStart(5)}${tooTall ? (w.meta.tall ? '~' : '!') : ' '}`);
     }
-    console.log(`${w.id.padEnd(40)} ${cells.join(' ')}  ${status}`);
+    log(`${w.id.padEnd(40)} ${cells.join(' ')}  ${status}`);
   }
   await browser.close();
+  return over;
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const opt = (name: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : undefined);
+  const over = await measureHeights(listWidgets(opt('only')), opt('origin') ?? 'http://127.0.0.1:5175', opt('renderer') ?? 'shadow', (opt('widths') ?? String(MAX_HEIGHT.width)).split(',').map(Number));
   if (over.length) {
     console.log(`\ntaller than ${MAX_HEIGHT.height} px (split the widget, or "tall": true for a test of the cap):`);
     for (const o of over) console.log('  ' + o);
@@ -94,4 +98,4 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((e) => { console.error(e); process.exit(1); });

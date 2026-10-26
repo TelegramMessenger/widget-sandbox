@@ -1658,3 +1658,194 @@ height and the first report differs and after it is re-created; a bubble off
 screen keeps the visible content in place; during a height animation the old
 pixels are aligned to the anchored edge. The web dev app and the feed do it
 (`corpus/resize` has one widget per anchor).
+
+## The bot's data and requests: widget interactivity (2026-10-25)
+
+Artem's decisions after the product discussion of October 2026 and the server's
+spec of 2026-10-25 (decision I1 in `profile.json`; `docs/sdk-v1.md` §2.13–§2.15
+and §5.11; the server's side, `docs/tgw-format.md` "The widget's state and
+requests"): **a widget is fixed code plus changeable state: the HTML never
+changes after sending; the state changes, and only the bot writes it.** The
+chat state, `chat_data`, is tied to one original message and seen only in its
+chat (the user's in the private chat, shared by the members of a group) and is
+never forwarded; the shared state, `public_data`, is seen wherever the widget is
+shown (a forward gets a frozen copy, or the state of a server object shared by
+the original and all its forwards). The widget reads its state and cannot
+change it itself; it can only ask the bot. A request from the widget is a
+callback button inside it: the bot gets what an inline button's press gives
+(`from`, the message with its state, `chat_instance`, the chat type; from a
+forward only `from` and the shared object's id) plus `data` of at most 64 bytes,
+and answers with a `result` of at most 1 KB for the widget that asked. The bot
+changes the state only with separate calls, never in an answer. Whether a
+widget may ask at all is the bot's choice per widget (`allow_queries`, and
+`fwd_allow_queries` for its forwards); where it may ask is the server's flags
+per message: `can_query` (originals of a widget sent with `allow_queries`;
+forwards of one sent with `fwd_allow_queries`), `background_query` (only the
+original in the private chat with the bot). The second version of the server's
+spec (same day) replaced `fwd_live` with these two flags, showed the shared
+object's id to the bot and took the place out of a forward's request; the
+framework reads the flags, so only the docs changed. The final spec (2026-10-26)
+made the shared object the widget itself (the HTML, the size, `public_data`, its
+refresh period and its flags, named by `widget_id`, sent by reference with
+`inputMediaWidgetId`), let `fwd_allow_queries` imply `allow_queries`, gave
+the bot three updates (an original, a via-bot message, a copy with only
+`from`, `data` and `widget_id`), set the request limit to 5 per 5 s and made
+the poll one message per call again; the framework's side did not change
+(`docs/tgw-format.md` has the server's side).
+
+**Why this model.** Code that the bot can swap after sending would let one
+edit change a thousand forwarded copies and make every widget a moving target
+for moderation; fixed code with changing state keeps what a reader saw
+reviewable and lets the widget animate into its new state instead of
+restarting. A request shaped as a callback query needs no signature (it
+reaches the bot as an update from Telegram) and no bot server at all with
+Telegram's serverless handlers. The widget knows locally only what the bot
+gets with a press anyway (in an original that may ask: the viewer's id and the
+chat type; in a live forward: the viewer's id; where it cannot ask: no viewer),
+so a request has nothing extra to leak. A copy is told nothing about the chat it is
+in (Artem: the bot must learn nothing about where its widget was forwarded, and
+whatever the widget knows can go to the bot in a request's 64 bytes).
+
+**Part of SDK v1 and layer 233 from the launch** (Artem: everything ships with
+the widgets' launch; no client ever has widgets without state and requests). No
+version of its own, no detection: every client has it. A client that passes no
+flags gets widgets whose requests are refused (`NOT_ALLOWED`); the profile
+stays 1.
+
+**The shapes we chose.**
+- Names follow Mini Apps where one exists (`chatType` from `chat_type`,
+  `viewer` for `initDataUnsafe.user`); `request` returns a promise of
+  `{ result }` and rejects with `error.code` (`NOT_ALLOWED`, `BUSY`,
+  `RATE_LIMITED`, `TIMEOUT`, `FAILED`, `INVALID_ANSWER`), so a widget always
+  learns how its request ended.
+- **The client reads the server's flags, it derives nothing.** The host's
+  context is `isCopy`, `canQuery`, `backgroundQuery` as the media has them, plus
+  the chat type and the viewer; no flags, no requests. The request gate decides from them: no `canQuery` →
+  refused; a tap → out (and the tap is used); no `backgroundQuery` → refused;
+  hidden → refused; a background request: one when the widget appears on screen,
+  then at most one per 5 s while it stays visible (Artem; one constant,
+  `BACKGROUND_REQUEST_INTERVAL_MS`, and the gate's `show`). The server and the bot
+  cannot tell a tap from a background request, as for callback buttons, so the
+  request carries only `data` and the limit is the client's. One request in
+  flight per widget, whatever its kind.
+- **`viewer` is a `WebAppUser`** (Artem, 2026-10-26): `{ id, first_name,
+  last_name?, username?, is_premium? }`, as Mini Apps' `initDataUnsafe.user`,
+  since the SDK already follows Mini Apps' names (`themeParams`,
+  `HapticFeedback`). The client passes the account's own names, username and
+  Premium flag; the glue checks them like the id (names 1–64 UTF-16 code units,
+  a username 5–32 of `[A-Za-z0-9_]`, `is_premium` a boolean, kept only when
+  true) and leaves out a field that breaks its rule (`data-rejected`), not the
+  whole viewer. On a tap the bot gets `from` with the same fields, so nothing
+  new leaks; a fake Telegram dialog that greets the reader by name was the
+  worry before, and the rule below answers it: only a widget that may ask
+  knows. **The viewer only with `canQuery`** (Artem, after the
+  server's spec v2): an original or a forward that may ask gets the viewer, whom
+  the bot learns with its first tap anyway; an original sent without
+  `allow_queries`, a copy that may not ask and a preview get none. A widget that
+  may not talk to the bot does not know who views it, so it cannot pass the id
+  out through `openLink` either, and the rule matches the network marker; in the
+  private chat the bot can put the user's id into the chat state itself. No copy
+  gets the chat type, with or without `canQuery`.
+- **Polling only for widgets that ask: `watchPublicData()`** (Artem, 2026-10-26;
+  the second proposal to the server, `notes/server-proposal-widget-object.md`).
+  A bot may make a widget shared only to send it by `widget_id`, and polling
+  every such card on screen would ask the server for nothing. So the widget asks
+  to follow its shared state live with `TelegramWidget.watchPublicData()` (and
+  stops with `unwatchPublicData()`): synchronous, no tap, idempotent; the shim
+  sends only changes, the host keeps the latest value and reports a change, like
+  the resize anchor; a preview never watches. The client polls
+  `getWidgetPublicData` only for watching widgets on screen with a `widget_id`,
+  one carrier per id; every other widget gets its shared state with the
+  message. The protocol does not change. The same proposal moved `period` to 5–3600 s with a default of 30 s
+  (`cache_time` 0 sets it back to 30 s; the final spec had 2–3600 s and 5 s);
+  the server made it so (Artem: "на сервере сделал 5, 30, 3600").
+- **The network marker** (the server's spec, a UI contract): where the message
+  has `can_query`, the client marks the widget as one whose tap may send data to
+  the bot's server; without it there is no marker, and the server refuses every
+  request from that message. The marker is the client's own UI from the flag it
+  already passes (`context.canQuery`), so the framework adds no API for it; the
+  dev app draws one in its bubble's header.
+- **The answer is only `result`** (no toast, alert, URL, `cache_time` or state):
+  the widget shows the result itself and the client shows nothing for a
+  request. Changes of the state reach the widget the usual ways (the server's
+  update for the chat state, polling for a shared widget's shared state), and
+  the client does not re-fetch after an answer: a bot whose widget needs the new
+  state at once returns it in `result`. This keeps one path for the state and
+  the edits under their own rate limits.
+- **Two events**, `chatDataChanged` (the chat state) and `publicDataChanged`
+  (the shared state), not one: a widget redraws what changed, and in a forward
+  only `publicDataChanged` can fire. One `setData` that changes both fires
+  both, chat first, in one task; a value that did not change fires nothing (so a
+  duplicate delivery is harmless). `setData` always takes the full state: the
+  client knows its message's values.
+- The chat state, the shared state and `result` are the server's text fields,
+  each a text of up to 1024 bytes (UTF-8) without a NUL; the glue refuses the
+  same (`data-rejected`, `INVALID_ANSWER`), so a client bug cannot hand the
+  widget what the server would refuse.
+- One tap unlocks one privileged call, shared by `openLink`,
+  `openTelegramLink`, `copyText` and a request: the rule a reader can rely on
+  ("one tap, one thing"). A request looks at the tap without consuming it and
+  consumes it only when it goes out as the tap's.
+- A client without `onRequest` refuses at delivery, after the gate, on every
+  host (`NOT_ALLOWED`, reason `unsupported`): the native hosts take `onRequest`
+  as a property set after creation, and a widget that asks at boot must not
+  lose that race.
+- `copyText` is a separate callback, not a `WidgetAction` case, so clients'
+  exhaustive switches keep compiling; the client's toast shows the copied text
+  so a widget cannot show one address and copy another unnoticed.
+
+**Where it lives.** The checks are one policy with four copies and the
+fixture (`sdk-policy`: `checkRequestData`, `checkCopyText`,
+`checkWidgetData`, `checkViewer`, `checkChatType`, `checkRequestAnswer`,
+`RequestGate`, `requestRefusal`; `tests/fixtures/sdk-policy.json`). The shim
+checks the same limits to give the widget a `TypeError` or an immediate `BUSY`
+or `NOT_ALLOWED`; every glue checks again (a widget can rewrite what the shim
+sends: `JSON.stringify` is a global, `corpus/attacks/request-forged-wire.html`).
+Answers and changes of the state go into the sandbox as a host → sandbox
+`bridge` dispatch, the task kind the CPU budget already defers (it carried the
+profile-0 bot answers), so no policy change was needed there. The request and
+the polling go over the client's own connection: the sandbox still has no
+network (invariant 5).
+
+**Downsides we accept.** Through a request the bot learns whatever the widget's
+code knows, up to 64 bytes (language, theme, text size, bubble width, time
+zone, what it kept locally); in the private chat background requests also
+show the bot when the user has the chat open. A tap "for the game" and a tap
+"for the bot" look the same to the reader, so the bot is always visible as
+the sender or via, and a widget is never forwarded without its author.
+The chat state in a group is visible to every member. A bug in a sent widget
+cannot be fixed, only replaced by a new message. Forwards of widgets not sent
+live cannot vote or play: that goes through the bot.
+
+**Previews** (Artem, 2026-10-25: "give all the data, but the client must know
+the widget is in a preview and give it no interactivity and no data about the
+user"). A widget in an inline-results list, before it is sent, runs with its
+state and `TelegramWidget.isPreview`; the host (`context.preview`) takes no
+input from it (a tap selects the result), lets through only `ready` and
+`setResizeAnchor` (`PREVIEW_METHODS` in the policy: no request, link, copy or
+haptic), gives it no chat type or viewer and the request flags off, and never
+commits its Web Storage (there is no message yet). Timers, animations, the theme
+and the limits are as for any bubble, so the preview is the first state the user
+is about to send.
+
+## Haptics need a touch (v0.2.2)
+
+**The bug.** Telegram Android 13.2.0 (7255): a widget with
+`setInterval(function(){TelegramWidget.HapticFeedback.notificationOccurred("error")},0)` vibrated the phone for as
+long as it was on screen. The gate allowed haptics with no gesture, under a rate limit only (a burst of 5, 10 per
+second), and 10 a second is a continuous buzz.
+
+**The rule** (Artem, 2026-10-26; `HapticGate` in `sdk-policy` and its three twins, the numbers named constants he may
+tune): while a finger or a mouse button is down on the widget and 5 s after it is lifted, haptics pass under the rate
+limit; outside a touch the first call opens a 1 s series, and the next series needs a touch (one series at any time
+after it) or 10 s since the last one began. Hidden widgets and previews get nothing, as before. The touch is trusted
+input the renderer reports (its claim at `pointerdown`, and since v0.2.2 `release` at the end of the press), never an
+event the widget dispatches; a press whose end the host never sees (the finger left the view) counts as lifted 30 s
+after it began.
+
+**Why not a gesture-only rule** (haptics only within a tap's task, like links): widgets play haptics where no tap is
+at hand. A bot's answer arrives 1.5–15 s after the tap that asked; an animation ends a second later; an arcade game
+buzzes on a collision while the finger is still down or just lifted. The touch window covers the game and the
+animation, the one series after a touch covers the late answer, and the 1 s series every 10 s keeps a widget with no
+touch at all (a timer, a ticker) from becoming a vibrator.
+

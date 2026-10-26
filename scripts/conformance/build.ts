@@ -13,7 +13,9 @@
 //      group in the test channel: the whole widget rendered natively at the
 //      reference width (refs/visual/<widget>[.dark].png); the height gate
 //      (MAX_HEIGHT): a visual or client-SDK widget taller than the bubble's
-//      cap allows fails the build;
+//      cap allows fails the build; so does an automatic widget, measured
+//      through the sandbox (heights.ts: the dev app on a dev server the build
+//      starts, or --origin; --no-heights skips it);
 //   5. the native run of every widget (no template swap): what a plain
 //      browser engine says to each check, recorded in the manifest as a sanity
 //      reference for the tests themselves;
@@ -21,7 +23,7 @@
 //      actions, host checks, themes and widths, coverage per set;
 //   7. channel.json: the posting order for the test channel.
 //
-//   corepack pnpm tsx scripts/conformance/build.ts [--only 04-layout] [--no-refs] [--engines chromium,webkit]
+//   corepack pnpm tsx scripts/conformance/build.ts [--only 04-layout] [--no-refs] [--engines chromium,webkit] [--origin http://127.0.0.1:5175 | --no-heights]
 //   corepack pnpm tsx scripts/conformance/build.ts --sizes [--only …]   # sizes and the size gate only: no browser, nothing written
 
 import fs from 'node:fs';
@@ -32,8 +34,11 @@ import { chromium, webkit, type Browser, type BrowserContext, type Page } from '
 import { PNG } from 'pngjs';
 import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
-import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type Published, type Widget } from './lib';
+import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
+import { measureHeights } from './heights';
+import { spawn } from 'node:child_process';
+import net from 'node:net';
 import { REFERENCE_STYLESHEET } from '../../packages/core/src/shared/reference.ts';
 import { DEFAULT_THEME_PARAMS } from '../../packages/core/src/shared/sdk-policy.ts';
 
@@ -159,7 +164,7 @@ const SWAP = "document.addEventListener('DOMContentLoaded',function(){[].forEach
  * The page's canvas is the reference palette's bubble colour, set outside the document (Chromium), as the client's bubble is
  * behind a transparent renderer: a widget's root background or body background still paints over it (propagation).
  */
-async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdk: 'mock' | 'palette' | false = false, theme: 'light' | 'dark' = 'light'): Promise<Page> {
+async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdk: 'mock' | 'palette' | false = false, theme: 'light' | 'dark' = 'light', message?: MessageSpec): Promise<Page> {
   const page = await ctx.newPage();
   if (ctx.browser()?.browserType().name() === 'chromium') {
     const hex = DEFAULT_THEME_PARAMS[theme].bg_color;
@@ -167,7 +172,7 @@ async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'nati
     await (await ctx.newCDPSession(page)).send('Emulation.setDefaultBackgroundColorOverride', { color: { r, g, b, a: 1 } });
   }
   // The mode goes into the HTML, before the harness. Links never navigate in a native reference run.
-  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true);${mode === 'ref' ? SWAP + ';' + BUBBLE : ''}</script>` + (sdk ? `<script>${sdk === 'palette' ? 'window.__conformanceNoSdk=1;' : ''}${SDK_MOCK}</script>` : '');
+  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true);${mode === 'ref' ? SWAP + ';' + BUBBLE : ''}</script>` + (sdk ? `<script>${sdk === 'palette' ? 'window.__conformanceNoSdk=1;' : ''}${message ? `window.__conformanceMessage=${JSON.stringify(message)};` : ''}${SDK_MOCK}</script>` : '');
   // Served from a real (fake) origin, not about:blank, so storage works as in a WebView.
   const url = 'https://conformance.test/widget.html';
   await page.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html.replace(/<head>/i, '<head>' + boot) }));
@@ -180,7 +185,7 @@ async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'nati
 interface NativeResult { status: string; checks: [string, string, string, string][]; skipped: string[] }
 
 async function runNative(ctx: BrowserContext, w: Widget, html: string): Promise<NativeResult> {
-  const page = await openNative(ctx, html, 'native', isSdk(w) && 'mock');
+  const page = await openNative(ctx, html, 'native', isSdk(w) && 'mock', 'light', w.meta.message?.[0]);
   let pub = await waitStatus(page, ['done', 'awaiting'], 15_000);
   let skipped: string[] = [];
   let skippedIds: string[] = [];
@@ -233,7 +238,7 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
   const out: Record<string, string> = {};
   for (const theme of pictureThemes(w)) {
     const ctx = await newContext(browser, theme);
-    const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', theme);
+    const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', theme, w.meta.message?.[0]);
     await waitStatus(page, ['done', 'awaiting'], 15_000);
     await page.waitForTimeout(300);
     const h = Math.min(isSdk(w) ? 1200 : 2000, await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height)));
@@ -249,7 +254,7 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
 /** The height gate: the widget's height at MAX_HEIGHT.width, drawn natively in reference mode. */
 async function measureHeight(browser: Browser, w: Widget, html: string): Promise<number> {
   const ctx = await newContext(browser, 'light', MAX_HEIGHT.width);
-  const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette');
+  const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', 'light', w.meta.message?.[0]);
   await waitStatus(page, ['done', 'awaiting'], 15_000);
   await page.waitForTimeout(300);
   const h = await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height));
@@ -384,6 +389,8 @@ async function main() {
       ...(refImages ? { refImages } : {}),
       ...(height !== undefined ? { height } : {}),
       ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending } : {}),
+      ...(w.meta.message ? { message: w.meta.message } : {}),
+      ...(w.meta.bot ? { bot: w.meta.bot } : {}),
     });
     const n = native.chromium.checks.reduce((m: Record<string, number>, c) => ({ ...m, [c[2]]: (m[c[2]] ?? 0) + 1 }), {});
     console.log(`${checks.length} checks (chromium: ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ')}), ${w.stages.length} stages, ${(size.raw / 1024).toFixed(1)} KB (${size.zlib} B compressed)${bad ? ' TOO LARGE' : ''}${height !== undefined ? `, ${height} px tall${tooTall.at(-1)?.startsWith(w.id + ':') ? ' TOO TALL' : ''}` : ''}`);
@@ -407,7 +414,11 @@ async function main() {
     'behaviour.gesture-claim': 'visual/sdk/12-drag-gestures (client behaviour)',
     'behaviour.storage-persist': 'visual/sdk/07, 08, 09 (client behaviour)',
     'behaviour.storage-forward': 'visual/sdk/15-storage-forward (client behaviour)',
-    'behaviour.message-edit': 'visual/sdk/16-bot-edit (client behaviour)',
+    'behaviour.message-edit': 'visual/sdk/16-state-edit (client behaviour)',
+    'behaviour.data-edit': 'visual/sdk/16-state-edit, 24-watch-public-data, 25-group-chat-state (client behaviour)',
+    'behaviour.forward-copy': 'visual/sdk/20-forward-requests and auto/26-context-copy, -live-copy viewed as forwards (client behaviour)',
+    'behaviour.preview': 'visual/sdk/23-preview and auto/26-context-preview in the inline results (client behaviour)',
+    'behaviour.network-marker': 'visual/sdk/21-network-marker (client behaviour)',
     'behaviour.resize-anchor': 'visual/sdk/18-resize-anchor (client behaviour)',
     'behaviour.size-hint': 'visual/sdk/17-size-hint (client behaviour)',
   };
@@ -428,11 +439,11 @@ async function main() {
     const lines = [
       '# Client SDK group: what each client implements on its side of SDK v1',
       '',
-      'Generated by `scripts/conformance/build.ts` from the widget headers. Contract: `docs/sdk-v1.md`. Each widget is a v1 mini-widget (at most 4 KB compressed, 32 KB of HTML); post it as a widget message with its picture as a separate image next to it (two pictures: light and dark). A tester does what the instruction says and checks the client against the expected behaviour. Rows marked *waits* need server support first; they are here so the client side can be built against them.',
+      'Generated by `scripts/conformance/build.ts` from the widget headers. Contract: `docs/sdk-v1.md`. Each widget is a v1 mini-widget (at most 4 KB compressed, 32 KB of HTML); post it as a widget message with its picture as a separate image next to it (two pictures: light and dark). A tester does what the instruction says and checks the client against the expected behaviour. Rows marked *waits* need server support first; they are here so the client side can be built against them. *Sent as* says how the test bot sends the widget (the `inputMediaWidget` fields, the chat, a forward, the inline results) and *The bot* what it does on the widget\'s requests (`scripts/conformance/test-bot.ts`, `CLIENTS.md`).',
       '',
-      '| # | Widget | Picture | The tester | The client must | Contract | zlib |',
-      '|---|---|---|---|---|---|---|',
-      ...sdk.map((t) => `| ${t.id.split('/').pop().slice(0, 2)} | [${t.title}](${path.basename(t.file)})${t.pending ? `<br>*waits: ${t.pending}*` : ''} | ${Object.entries(t.refImages ?? {}).map(([k, v]) => `[${k}](../../${v})`).join(' · ')} | ${t.hint ?? ''} | ${t.expect ?? ''} | ${t.contract ?? ''} | ${(t.zlib / 1024).toFixed(1)} KB |`.replace(/\n/g, ' ')),
+      '| # | Widget | Picture | The tester | The client must | Sent as · the bot | Contract | zlib |',
+      '|---|---|---|---|---|---|---|---|',
+      ...sdk.map((t) => `| ${t.id.split('/').pop().slice(0, 2)} | [${t.title}](${path.basename(t.file)})${t.pending ? `<br>*waits: ${t.pending}*` : ''} | ${Object.entries(t.refImages ?? {}).map(([k, v]) => `[${k}](../../${v})`).join(' · ')} | ${t.hint ?? ''} | ${t.expect ?? ''} | ${sentAs(t.message, t.bot) || '—'} | ${t.contract ?? ''} | ${(t.zlib / 1024).toFixed(1)} KB |`.replace(/\n/g, ' ')),
       '',
     ];
     fs.writeFileSync(path.join(CONF, 'visual', 'sdk', 'README.md'), lines.join('\n'));
@@ -447,6 +458,9 @@ async function main() {
     for (const p of tooLarge) console.log('  ' + p);
     process.exitCode = 1;
   }
+  // The automatic set's height gate: through the sandbox (drawn natively an automatic widget also lists the
+  // out-of-profile checks Chromium fails, so the native height is not the client's).
+  if (!args.includes('--no-heights')) tooTall.push(...(await autoHeights(widgets.filter((w) => w.set === 'auto'))));
   if (tooTall.length) {
     console.log(`\ntaller than ${MAX_HEIGHT.height} px at a ${MAX_HEIGHT.width} px bubble (the cap is 600; split the widget, or "tall": true for a test of the cap):`);
     for (const p of tooTall) console.log('  ' + p);
@@ -460,30 +474,81 @@ async function main() {
  */
 const ANCHORS: Record<string, [number, number][]> = { 'visual/sdk/17-size-hint': [[0, 0], [0, 300], [300, 0], [300, 300]] };
 
+/** The automatic widgets taller than MAX_HEIGHT allows, measured through the dev app: --origin's, or a dev server the build starts. */
+async function autoHeights(widgets: Widget[]): Promise<string[]> {
+  if (!widgets.length) return [];
+  let origin = opt('origin');
+  let server: ReturnType<typeof spawn> | undefined;
+  if (!origin) {
+    const port = await new Promise<number>((resolve) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => resolve(p)); }); });
+    origin = `http://127.0.0.1:${port}`;
+    server = spawn('corepack', ['pnpm', 'dev', '--port', String(port)], { cwd: ROOT, stdio: 'ignore', detached: true });
+    const t0 = Date.now();
+    for (;;) {
+      try { if ((await fetch(origin)).ok) break; } catch {}
+      if (Date.now() - t0 > 90_000) { process.kill(-server.pid!); throw new Error(`the dev server for the height gate did not start on ${origin}`); }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  console.log(`\nheights of the automatic set through the sandbox (${origin}):`);
+  try { return await measureHeights(widgets, origin, 'shadow', [MAX_HEIGHT.width], (line) => console.log('  ' + line)); }
+  finally { if (server) process.kill(-server.pid!); }
+}
+
+/** One message spec in words (the README's Sent as column, a post's caption). */
+export function describeMessage(m: MessageSpec): string {
+  const where = m.inline ? 'an inline result for the query conf-preview' : m.chat === 'group' ? 'the test group' : 'the private chat';
+  const flags = (['allow_queries', 'fwd_allow_queries', 'shared_widget'] as const).filter((f) => m[f]);
+  const data = (['chat_data', 'public_data'] as const).filter((f) => m[f] !== undefined).map((f) => `${f} ${JSON.stringify(m[f])}`);
+  return [`${m.kind}: ${where}`, flags.length ? flags.join(', ') : 'no flags', ...data, m.forward ? 'then forwarded' : ''].filter(Boolean).join(', ');
+}
+/** What the test bot does for one request data. */
+export function describeBot(data: string, a: BotAction): string {
+  const parts = [
+    a.edit ? `editMessageWidgetData ${Object.entries(a.edit).map(([k, v]) => `${k} ${JSON.stringify(v)}`).join(', ')}` : '',
+    a.editShared ? `editWidgetData public_data ${JSON.stringify(a.editShared.public_data)}${a.editShared.cache_time !== undefined ? `, cache_time ${a.editShared.cache_time}` : ''}` : '',
+    a.repeat ? `every ${a.repeat.every} s, ${a.repeat.times} times` : '',
+    a.result !== undefined ? `result ${JSON.stringify(a.result)}` : 'an empty answer',
+  ].filter(Boolean);
+  return `\`${data}\` → ${parts.join('; ')}`;
+}
+function sentAs(message?: MessageSpec[], bot?: Record<string, BotAction>): string {
+  return [...(message ?? []).map(describeMessage), ...Object.entries(bot ?? {}).map(([d, a]) => describeBot(d, a))].join('<br>');
+}
+
 /** channel.json: the test channel's posting order (the visual set, the client-SDK group, then the automatic set), one entry per message. */
 function writeChannel(tests: any[]) {
   const order = (t: any) => (t.set === 'visual' ? (t.group === 'sdk' ? 1 : 0) : 2);
   const posts: any[] = [];
+  const bot: Record<string, { case: string; action: BotAction }> = {};
   for (const t of [...tests].sort((a, b) => order(a) - order(b) || a.id.localeCompare(b.id))) {
     const header = parseWidget(t.set, t.id.slice(t.set.length + 1), fs.readFileSync(path.join(CONF, t.file), 'utf8')).meta as any;
     const check = t.set === 'auto'
       ? 'the widget checks itself: its result line at the bottom must say "done" and show no "fail" (each failure is listed under it)'
       : t.group === 'sdk' ? `${t.hint ?? ''} The client must: ${t.expect ?? ''}` : t.hint ?? 'compare with the picture';
-    for (const [width, height] of header.anchors ?? ANCHORS[t.id] ?? [[0, 0]]) {
+    const messages: (MessageSpec | undefined)[] = header.message ?? [undefined];
+    for (const message of messages) for (const [width, height] of header.anchors ?? ANCHORS[t.id] ?? [[0, 0]]) {
+      const view = message ? ` Sent as ${describeMessage(message)}${message.view ? `; look at ${message.view}` : ''}.` : '';
       posts.push({
         widget: t.file,
         width, height,
-        caption: `${t.id} · ${t.title}. ${check}`.replace(/\s+/g, ' ').trim(),
+        ...(message ? { message, ...(messages.length > 1 ? { variant: message.kind } : {}) } : {}),
+        caption: `${t.id} · ${t.title}. ${check}${view}`.replace(/\s+/g, ' ').trim(),
         photos: Object.values(t.refImages ?? {}),
         zlib: t.zlib,
         ...(t.pending ? { pending: t.pending } : {}),
       });
     }
+    for (const [data, action] of Object.entries((header.bot ?? {}) as Record<string, BotAction>)) {
+      if (bot[data] && JSON.stringify(bot[data].action) !== JSON.stringify(action)) throw new Error(`${t.id}: bot data ${data} is also used by ${bot[data].case} with another action`);
+      bot[data] = { case: t.id, action };
+    }
   }
   const channel = {
-    $comment: 'Generated by scripts/conformance/build.ts: the test channel, in posting order. A test bot sends each widget as a layer-233 message (inputMediaWidget: html = the file, width / height = the anchors, 0 = auto) with its caption, then the photos (the reference pictures, light then dark) as a separate message next to it. Bots post only into private chats; the shared channel is filled by forwarding.',
+    $comment: 'Generated by scripts/conformance/build.ts: the test channel, in posting order. A test bot sends each widget as a layer-233 message (inputMediaWidget: html = the file, width / height = the anchors, 0 = auto) with its caption, then the photos (the reference pictures, light then dark) as a separate message next to it. A post with `message` is sent with those fields (allow_queries, fwd_allow_queries, shared_widget, chat_data, public_data), into the test group when chat is group, forwarded by the tester when forward, or as the inline result for the query conf-preview when inline; its kind is the message context the client must report where the tester looks. `bot`: what the test bot does on a widget_query with that data (scripts/conformance/test-bot.ts; templates {n}, {from}, {time}).',
     version: 1,
     posts,
+    bot,
   };
   fs.writeFileSync(path.join(CONF, 'channel.json'), JSON.stringify(channel, null, 1) + '\n');
 }

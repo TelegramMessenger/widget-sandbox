@@ -7,8 +7,9 @@ import { diag, host, invalidateLayout, query, unsupported } from './host';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import { cssSupports } from '../shared/css-supports';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, STORAGE_QUOTA_BYTES,
-  checkLink, checkLocale, checkResizeAnchor, completeThemeParams, utf8Length, type ResizeAnchor, type ThemeParams,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, REQUEST_ERRORS, STORAGE_QUOTA_BYTES,
+  checkChatType, checkCopyText, checkLink, checkLocale, checkRequestData, checkResizeAnchor, checkViewer, checkWidgetDataValue, completeThemeParams, utf8Length,
+  type ChatType, type RequestError, type ResizeAnchor, type ThemeParams, type WidgetUser,
 } from '../shared/sdk-policy';
 
 const G: any = globalThis;
@@ -420,7 +421,7 @@ function installNetworkStubs() {
 
 let colorScheme: 'light' | 'dark' = 'light';
 let themeParams: Readonly<ThemeParams> = Object.freeze(completeThemeParams({}, 'light'));
-const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated'];
+const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated', 'chatDataChanged', 'publicDataChanged'];
 const widgetHandlers = new Map<string, Function[]>(WIDGET_EVENTS.map((t) => [t, []]));
 const themeCallbacks: Function[] = [];
 
@@ -490,12 +491,113 @@ const HapticFeedback = Object.freeze({
 
 /** The anchor the glue has: only a change goes over the bridge, before the ops of the change it anchors. */
 let resizeAnchor: ResizeAnchor = DEFAULT_RESIZE_ANCHOR;
+let watchingPublicData = false;
+/** `watchPublicData` / `unwatchPublicData`: the host keeps the latest; only changes go out. */
+function watchPublicData(on: boolean) {
+  if (on === watchingPublicData) return;
+  watchingPublicData = on;
+  bridge('watchPublicData', on);
+}
 function setResizeAnchor(edge: unknown) {
   const checked = checkResizeAnchor(edge);
   if (checked === null) throw new TypeError("setResizeAnchor: edge must be 'top' or 'bottom'");
   if (checked === resizeAnchor) return;
   resizeAnchor = checked;
   bridge('setResizeAnchor', checked);
+}
+
+// ── the bot's data, where the widget is, requests (docs/sdk-v1.md §2.13–§2.15) ──
+
+let chatData: string | null = null;
+let publicData: string | null = null;
+let isCopy = false;
+let canQuery = false;
+let isPreview = false;
+let chatType: ChatType | null = null;
+let viewer: Readonly<WidgetUser> | null = null;
+
+/**
+ * The glue's context at boot (already decided there from the server's flags: a copy never has chatData, and has no
+ * chatType or viewer unless it may request); checked again, the shim trusts nothing.
+ */
+export function configureWidget(config: Record<string, unknown>) {
+  isCopy = config.isCopy === true;
+  isPreview = config.isPreview === true;
+  canQuery = config.canQuery === true && !isPreview;
+  chatData = isCopy ? null : checkWidgetDataValue(config.chatData);
+  publicData = checkWidgetDataValue(config.publicData);
+  chatType = checkChatType(config.chatType);
+  const v = checkViewer(config.viewer).viewer;
+  viewer = v && Object.freeze(v);
+}
+
+/** The client's `setData`: the full state of both strings; `chatDataChanged`, then `publicDataChanged`, for each that differs, in this task. */
+function applyData(data: unknown) {
+  const d = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+  const c = isCopy ? null : checkWidgetDataValue(d.chatData);
+  const p = checkWidgetDataValue(d.publicData);
+  const chatChanged = c !== chatData, publicChanged = p !== publicData;
+  chatData = c;
+  publicData = p;
+  if (chatChanged) fireWidgetEvent('chatDataChanged');
+  if (publicChanged) fireWidgetEvent('publicDataChanged');
+}
+
+const REQUEST_MESSAGES: Record<string, string> = {
+  preview: 'a preview (an inline result not sent yet) cannot ask the bot',
+  disabled: 'requests are off for this message (the bot did not allow them here)',
+  'no-activation': 'it needs a tap on the widget and runs in that tap\'s handler, one call per tap; background requests only where the client allows them (the private chat with the bot)',
+  hidden: 'background requests only while the widget is on screen',
+  unsupported: 'this client does not deliver requests',
+  BUSY: 'a request is already in flight; wait for its answer',
+  RATE_LIMITED: 'too many requests (background requests at most once per 5 s); try again later',
+  TIMEOUT: 'the bot did not answer in time',
+  FAILED: 'the client could not deliver the request',
+  INVALID_ANSWER: "the bot's answer broke the limits (a result over 1024 bytes, or not text)",
+};
+
+function requestError(code: RequestError, reason?: unknown): Error {
+  const e = new Error('request: ' + (REQUEST_MESSAGES[typeof reason === 'string' && code === 'NOT_ALLOWED' ? reason : code] ?? REQUEST_MESSAGES['no-activation']));
+  e.name = 'WidgetRequestError';
+  (e as any).code = code;
+  return e;
+}
+
+let requestSeq = 0;
+let pendingRequest: { id: number; resolve: (v: unknown) => void; reject: (e: unknown) => void } | null = null;
+
+function request(data: unknown): Promise<unknown> {
+  const checked = checkRequestData(data);
+  if (checked === null) throw new TypeError('request: data must be a string of 1 to 64 bytes (UTF-8), without lone surrogates');
+  if (!canQuery) return Promise.reject(requestError('NOT_ALLOWED', isPreview ? 'preview' : 'disabled'));
+  if (pendingRequest) return Promise.reject(requestError('BUSY'));
+  const id = ++requestSeq;
+  return new Promise((resolve, reject) => {
+    pendingRequest = { id, resolve, reject };
+    bridge('request', id, checked);
+  });
+}
+
+/** A `bridge` dispatch from the glue: the bot's data, or the answer to a request. */
+export function bridgeEvent(event: unknown) {
+  const e = (typeof event === 'object' && event !== null ? event : {}) as Record<string, unknown>;
+  if (e.type === 'data') return applyData(e);
+  if (e.type !== 'answer') return;
+  const p = pendingRequest;
+  if (!p || p.id !== e.id) return;
+  pendingRequest = null;
+  if (typeof e.error === 'string') {
+    p.reject(requestError((REQUEST_ERRORS as readonly string[]).includes(e.error) ? (e.error as RequestError) : 'FAILED', e.reason));
+    return;
+  }
+  const result = typeof e.result === 'string' ? e.result : null;
+  p.resolve(Object.freeze({ result }));
+}
+
+function copyText(text: unknown) {
+  const checked = checkCopyText(text);
+  if (checked === null) throw new TypeError('copyText: text must be a string of 1 to 256 characters (UTF-16), without lone surrogates');
+  bridge('copyText', checked);
 }
 
 function installBridge() {
@@ -529,6 +631,30 @@ function installBridge() {
      * default: the bubble grows and shrinks downward) or `'bottom'` (it grows upward, its bottom stays).
      */
     setResizeAnchor(edge: unknown) { setResizeAnchor(edge); },
+    /**
+     * Ask for live shared data: while the widget is on screen the client polls its `publicData` (a shared widget's,
+     * at the server's period) and `publicDataChanged` brings the new value. Without it the widget gets `publicData`
+     * with the message and the bot's pushed edits only. No tap needed; calling it again changes nothing.
+     */
+    watchPublicData() { watchPublicData(true); },
+    /** Stop asking for live shared data (`watchPublicData`). */
+    unwatchPublicData() { watchPublicData(false); },
+    /** What the bot keeps for this message (in a group every member sees it; a forward never gets it); null for none or in a copy. `chatDataChanged` when the bot edits it. */
+    get chatData() { return chatData; },
+    /** What the bot keeps for everyone, a forward included (a snapshot, or a value shared with the original); null for none. `publicDataChanged` when it changes. */
+    get publicData() { return publicData; },
+    /** This message is a forwarded copy: no `chatData`; requests only if the bot sent the widget live, on a tap. */
+    get isForward() { return isCopy; },
+    /** An inline result shown before it is sent: data only, no input, no requests, nothing about the user. */
+    get isPreview() { return isPreview; },
+    /** The kind of chat the widget is in (`private`, `group`, `supergroup`, `channel`); null in a copy that cannot request, or when the client does not say. */
+    get chatType() { return chatType; },
+    /** Who looks at the widget, `{ id }` (the Telegram user id the bot gets with a request); null in a copy that cannot request. */
+    get viewer() { return viewer; },
+    /** Ask the bot (a callback button inside the widget): `data` of 1–64 bytes; resolves with `{ result }`, rejects with `error.code`. Needs a tap, except in the private chat with the bot. */
+    request(data: unknown) { return request(data); },
+    /** Copy text to the clipboard (the client shows what it copied); 1–256 characters; needs a tap. */
+    copyText(text: unknown) { copyText(text); },
     /** Deprecated alias of `colorScheme`. */
     get theme() { return colorScheme; },
     /** Deprecated: `onEvent('themeChanged', …)`; called at once with the colour scheme and on every change. */

@@ -8,7 +8,8 @@
 // Threading. A Qt-free library has no main thread, so the host owns a "host
 // thread" that stands in for it: every renderer call, every diagnostics update
 // and `onChange` / `onRenderOps` / `onAction` / `onStorageCommit` /
-// `onGesture` (and the deprecated `onGestureClaim` and `onBridgeCall`) run there, in order. Engine
+// `onGesture` / `onRequest` / `onCopyText` / `onWatchPublicData` (and the deprecated `onGestureClaim`
+// and `onBridgeCall`) run there, in order. Engine
 // callbacks hop from the engine thread; a layout query blocks the engine
 // thread (≤ 3 s) until the renderer answers on the host thread. A Qt host
 // would replace the thread with the UI thread (`crl::on_main`) one for one.
@@ -61,7 +62,8 @@ struct WidgetTheme {
     WidgetTextTokens text;
 };
 
-// WidgetStorage, WidgetAction and StorageArea are in twidget/sdk_policy.h (the engine checks with them).
+// WidgetStorage, WidgetAction and StorageArea, and WidgetData, WidgetViewer, WidgetContext, WidgetRequest,
+// WidgetRequestAnswer, WidgetRequestFailure and WidgetRequestOutcome are in twidget/sdk_policy.h (the engine checks with them).
 
 /// Limits for the widget's QuickJS runtime (see SandboxConfig); mirrors WidgetHost.Options on iOS/Android.
 struct WidgetHostOptions {
@@ -84,6 +86,14 @@ struct WidgetHostOptions {
     /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); an area over the
     /// 16 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
+    /// The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later
+    /// edits go through `setData`. A field over 1024 bytes, with a NUL or malformed is null for the widget (`data-rejected`).
+    WidgetData data;
+    /// The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer
+    /// (docs/sdk-v1.md §4.4); fixed for the host's life. Without `canQuery` every request is refused. `preview`: an
+    /// inline result not sent yet (§2.16): no input (the renderer's events and gesture claims are dropped), only
+    /// `ready` and `setResizeAnchor` (`preview-blocked` for the rest), no storage preload or commits.
+    WidgetContext context;
 };
 
 struct WidgetDiagnostics {
@@ -117,6 +127,10 @@ struct WidgetDiagnostics {
     /// call; it is in the state before the size report that follows the same task's ops. No callback of its own: a
     /// change goes through `onChange`, read it there with the height.
     std::string resizeAnchor = std::string(sdk::DEFAULT_RESIZE_ANCHOR);
+    /// Whether the widget watches its shared `public_data` (round 7, `TelegramWidget.watchPublicData()` /
+    /// `unwatchPublicData()`): its latest call, false until then. Poll a shared widget's `public_data` only while it is on
+    /// screen and this is true; a change also reaches `onWatchPublicData`. Not reset when the widget dies.
+    bool watchesPublicData = false;
     /// Wall clock to the first `size` report that follows validated ops.
     std::optional<double> firstContentMs;
 
@@ -163,6 +177,10 @@ public:
     void setTheme(const std::string& theme) { setTheme(WidgetTheme{theme, {}, {}, {}}); }
     /// Off-screen pause: no animation frames, timers at 1 Hz, `document.hidden` inside the widget.
     void setVisible(bool visible);
+    /// The bot's data changed (an edit the client got from the server): the full state of both strings. The
+    /// widget gets `chatDataChanged`, then `publicDataChanged`, for each that differs; a copy keeps no `chatData` (its
+    /// publicData can change); a field over the limit is null (`data-rejected`).
+    void setData(const WidgetData& data);
     /// A DOM event for the widget that did not come from the renderer (the harness's `--events`).
     void event(const std::string& json);
     /// Trusted diagnostic code evaluated in the widget context (tests / harness only).
@@ -194,13 +212,29 @@ public:
     /// The new full content of a Web Storage area, "local" or "session", at the end of each task that changed it
     /// (docs/sdk-v1.md §5.4). Within the quota; a lone surrogate of the widget's string arrives in its WTF-8 form.
     std::function<void(const std::string& area, const std::map<std::string, std::string>& values)> onStorageCommit;
-    /// On every primary pointerdown, what of this press the widget claims with `touch-action` (docs/sdk-v1.md §5.5):
+    /// On every primary pointerdown (the renderer's `gesture` message, which also starts the haptic gate's touch; its
+    /// `release` message ends it, v0.2.2), what of this press the widget claims with `touch-action` (docs/sdk-v1.md §5.5):
     /// horizontal drags (`x`) and holds (`hold`: no message menu, the widget gets `contextmenu`); taps and double taps
     /// are always the widget's, vertical drags always the chat's (`y` is always false since v0.1.3, whatever the
     /// renderer sends). Feed it to the GestureArbiter of the client's recognizers over this widget
     /// (twidget/gesture_policy.h). It arrives a few ms after the touch starts. A renderer that reports only `wants`
     /// (the Blitz and litehtml prototypes) claims nothing.
     std::function<void(const WidgetGestureClaim& claim)> onGesture;
+    /// A request the widget sends to the bot (`TelegramWidget.request`, docs/sdk-v1.md §2.14), checked: the
+    /// data (1–64 bytes), the message's `WidgetContext::canQuery`, a press (one request per press, shared with the links
+    /// and copyText) or, without one, `backgroundQuery` (visible, one when the widget appears on screen, then one per
+    /// 5 s), one in flight. Send it like a callback button's press and call `respond` once, from any thread, with the
+    /// server's answer (`result`) or a failure (`Timeout`, `RateLimited`, `Failed`); later calls, and calls after
+    /// `destroy()`, are ignored. Until then the
+    /// widget's next request is BUSY. Read on the host thread when a request is delivered: unset then, the widget gets
+    /// `NOT_ALLOWED` (reason `unsupported`).
+    std::function<void(const WidgetRequest& request, std::function<void(const WidgetRequestOutcome&)> respond)> onRequest;
+    /// Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`):
+    /// 1–256 UTF-16 code units, well-formed, at most one privileged call per pointer press. Not an action.
+    std::function<void(const std::string& text)> onCopyText;
+    /// Whether the widget watches its shared `public_data` changed (round 7): poll it only while true and the widget is on
+    /// screen. Called only on a change, after `diagnostics().watchesPublicData` took the new value. Not an action.
+    std::function<void(bool on)> onWatchPublicData;
     /// Deprecated since v0.1.2 (`onGesture`): the claim's `x` and `y` (always false), right after `onGesture`.
     [[deprecated("use onGesture (v0.1.2)")]]
     std::function<void(bool x, bool y)> onGestureClaim;
@@ -223,7 +257,10 @@ public:
     void onDiag(SandboxEngine&, const std::string& kind, const std::string& detail) override;
     void onBridgeAction(SandboxEngine&, const WidgetAction& action) override;
     void onResizeAnchor(SandboxEngine&, const std::string& edge) override;
+    void onPublicDataWatch(SandboxEngine&, bool on) override;
     void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override;
+    void onBridgeRequest(SandboxEngine&, const WidgetRequest& request, WidgetRequestResponder respond) override;
+    void onBridgeCopyText(SandboxEngine&, const std::string& text) override;
     void onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) override;
     void onLoaded(SandboxEngine&) override;
     void onStats(SandboxEngine&, const SandboxStats& stats) override;

@@ -14,7 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /** Collects everything the engine emits; answers layout queries with canned values. */
-class RecordingDelegate : SandboxEngine.Delegate {
+open class RecordingDelegate : SandboxEngine.Delegate {
     val loaded = CountDownLatch(1)
     val ops: MutableList<String> = Collections.synchronizedList(ArrayList())
     val logs: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())
@@ -24,6 +24,12 @@ class RecordingDelegate : SandboxEngine.Delegate {
     val actions: MutableList<WidgetAction> = Collections.synchronizedList(ArrayList())
     val storage: MutableList<Pair<String, Map<String, String>>> = Collections.synchronizedList(ArrayList())
     val resizeAnchors: MutableList<String> = Collections.synchronizedList(ArrayList())
+    val watches: MutableList<Boolean> = Collections.synchronizedList(ArrayList())
+    /** The requests that reached the client and the texts it was asked to copy. */
+    val requests: MutableList<WidgetRequest> = Collections.synchronizedList(ArrayList())
+    val copied: MutableList<String> = Collections.synchronizedList(ArrayList())
+    /** The client's side of a request: called on the engine thread; null leaves the delegate's default, which refuses every request (`unsupported`). */
+    @Volatile var answer: ((WidgetRequest, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
     @Volatile var died: String? = null
     @Volatile var frameRequests = 0
 
@@ -43,6 +49,13 @@ class RecordingDelegate : SandboxEngine.Delegate {
     override fun onAction(engine: SandboxEngine, action: WidgetAction) { actions.add(action) }
     override fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) { storage.add(area to values) }
     override fun onResizeAnchor(engine: SandboxEngine, edge: String) { resizeAnchors.add(edge) }
+    override fun onWatchPublicData(engine: SandboxEngine, on: Boolean) { watches.add(on) }
+    override fun onRequest(engine: SandboxEngine, request: WidgetRequest, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+        val a = answer ?: return super.onRequest(engine, request, respond)
+        requests.add(request)
+        a(request, respond)
+    }
+    override fun onCopyText(engine: SandboxEngine, text: String) { copied.add(text) }
     override fun onLoaded(engine: SandboxEngine) { loaded.countDown() }
     override fun onStats(engine: SandboxEngine, stats: SandboxStats) {}
     override fun onDied(engine: SandboxEngine, reason: String) { died = reason; loaded.countDown() }

@@ -3,6 +3,190 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.2.2 — release notes (2026-10-26)
+
+One fix, for every client: haptics need a touch. No API change; a client on v0.2.1 updates the framework and gets the
+new limit, as long as it plays haptics only from `onAction` (`WidgetAction.Haptic`) and never straight from the widget.
+
+**Haptics need a touch** (a bug report from Telegram Android 13.2.0: a widget's `setInterval` called
+`HapticFeedback.notificationOccurred` and vibrated the phone non-stop with no user action; `docs/sdk-v1.md` §2.6,
+`docs/decisions.md` "Haptics need a touch"):
+- While a finger or a mouse button is down on the widget and for 5 s after it is lifted, haptics pass under the rate
+  limit (5 in a burst, 10 per second) as before. Outside a touch the first call opens a series: its first second
+  passes, later calls are dropped (`haptic-limit`). The next series may start after a touch (one at any time later:
+  a bot's answer, the end of an animation), or 10 s after the last one began without one. Hidden widgets and
+  previews: nothing, as before. The numbers are named constants of the policy.
+- `HapticGate` in `sdk-policy` and its three twins gains `press` / `release`; the fixture `hapticGate` has touch steps
+  and six new cases (the bug's timer, a slider drag, one series after a tap, a second series within 10 s, hidden, a
+  press without its release).
+- The renderer core posts `{ type: 'release' }` when the primary press ends, next to the claim at `pointerdown`; every
+  host feeds both to the gate (trusted renderer input only). A host whose renderer sends neither gets the no-touch
+  rule. The renderer bundle is rebuilt.
+- `corpus/attacks/haptic-timer-buzz.html` (the bug's pattern; `test:attacks` checks at most one second of haptics)
+  and a conformance case (`auto/27-haptics-no-touch`, `visual/sdk/26-haptics-no-touch`).
+- Checked: unit 711, typecheck, `test:sdk` 43, activation 4, attacks 126 on iframe and shadow (0 canary hits), the
+  conformance build and the haptic cases on iframe and shadow; Swift macOS 263 and iOS 264 (only the known
+  `IntlBridgeTests.testPluralRulesMatchICU`), Kotlin JVM 26 and instrumented 104; C++ 75 tests with Blitz and litehtml,
+  105 attacks with 0 leaks on all three renderers.
+
+## v0.2.1 — release notes (2026-10-26)
+
+What v0.2.0 left for later: the full test matrix, the conformance cases for the widget's state and requests, and the
+docs' wording. No API, wire or behaviour change: a client on v0.2.0 needs no code change, only the new conformance
+cases to run.
+
+- **Conformance for the widget's state and requests** (`packages/conformance`, `CLIENTS.md`): `auto/25-state-api-a`
+  / `-b` (the rules that hold in every message: read-only state and its events, `isForward`, `chatType`, `isPreview`,
+  the frozen `viewer`, the `request` and `copyText` errors, `watchPublicData` / `unwatchPublicData`) and
+  `auto/26-context-{private,group,no-queries,copy,live-copy,preview}` (what the client passes in each kind of message
+  and what a request may do with and without a tap); `visual/sdk/16-state-edit` (replaces `16-bot-edit`: an HTML edit
+  no longer exists), `19-request-tap`, `20-forward-requests`, `21-network-marker`, `22-copy-text`, `23-preview`,
+  `24-watch-public-data`, `25-group-chat-state`. A case header now says how to send it (`message`: the kind, the
+  `inputMediaWidget` flags and state, group / forward / inline) and what the bot answers (`bot`: per request `data`,
+  the `result` and the state edit); both reach the manifest and `channel.json`. `scripts/conformance/test-bot.ts`
+  plays that bot over the Bot API (`--post` sends a case, the default mode answers `widget_query` and edits the state;
+  `--self-test`). The web run: in 171 ✅ / 3 ◐ / 0 ❌ on iframe and shadow, all new cases pass.
+- **`auto/23-gestures` in two parts** (`-a`: holds and double taps, `-b`: vertical drags and the edge strip): it was
+  605 px tall at 320 px, over the 600 px a client clips at. `build.ts` now measures the automatic set through the
+  sandbox and fails on anything over 560 px, as it already did for the visual set (`--no-heights` skips it).
+- **A widget is fixed code plus changeable state** (docs only): the HTML is set when the bot sends the widget and
+  never changes; the state changes, and only the bot writes it. `chatData` is the widget's **chat state** (one
+  message, seen only in its chat, never forwarded) and `publicData` its **shared state** (wherever the widget is
+  shown: a copy as of the forward, or one for all the messages and forwards of a shared widget); the widget reads
+  them, learns of changes from `chatDataChanged` / `publicDataChanged` and asks the bot with `request`. The docs no
+  longer call them "the bot's data" or "the bot's two strings". Renamed sections (formerly "The bot's data …"):
+  `docs/sdk-v1.md` §2.13 "The widget's state and where it is" and §5.11 "The widget's state, requests and copies";
+  "The widget's state and requests" in `docs/tgw-format.md`, `docs/integration.md` and `docs/client-checklist.md`
+  §d. Also reworded: `docs/decisions.md`, the authors' guide and its agent block, the I1, `tw.*` and `behaviour.*`
+  texts in `profile.json` (`docs/profile-v1.md` regenerated). API and wire names, behaviour and limits are unchanged.
+
+**Known issues:**
+
+- The full matrix ran on v0.2.0's code (this release changes no shipped code): typecheck, unit 710, `test:sdk` 43,
+  activation 4, attacks 124 on iframe and shadow (0 canary hits), compat 20, showcase 21, defaults 6, generated 40 and
+  common 32 on iframe and shadow, gestures 28, lifecycle 6, the gesture and resize corpora; htmlbubbles 109/116 (the
+  known screenshot-only and timing cases); Swift macOS 261 and iOS 262 with only `IntlBridgeTests.testPluralRulesMatchICU`
+  failing (the OS's JavaScriptCore, as before); Kotlin JVM 26; C++ 73 tests with Blitz and litehtml, 104 attacks with 0
+  leaks on all three renderers; the iOS and macOS demos build and the macOS demo's attack autorun passes. Android's
+  instrumented tests last ran on the same glue before the merge with main (102/102).
+- `scripts/conformance/test-bot.ts` has not run against the server yet; the Bot API shape of an inline result that sends
+  a widget is not in the server's spec, so the script assumes one (marked in the file).
+- The iOS/macOS and Android demo apps do not show requests (no mock bot there).
+
+## v0.2.0 — release notes (2026-10-26)
+
+A widget is now fixed code plus changeable state, and it can ask the bot. This is layer 233 at the launch of
+widgets (the server's final spec: `docs/tgw-format.md`, "The bot's data and requests"). SDK and profile stay
+version 1: the additions are part of SDK v1 at the launch, with no version of their own.
+
+**What a client does** (the details are below, in `docs/integration.md` "The bot's data and requests" and in
+`docs/client-checklist.md` §d):
+
+1. Read the new fields of `messageMediaWidget` (`is_copy`, `can_query`, `background_query`, `public_data`,
+   `chat_data`, `widget_id`) and pass them to `WidgetHost` as `data` and `context`: the server's flags as they
+   are, the chat type (`null` in a forward), `viewer` (the account's own, only with `can_query`), `preview` for an
+   inline result before it is sent.
+2. Call `setData` on `updateMessageWidgetData` and when a poll of `messages.getWidgetPublicData` brings a new
+   shared value. Poll only widgets on screen that called `watchPublicData()` and have a `widget_id`, one message
+   per `widget_id`, at the `period` the server returns (30 s by default, 5–3600 s).
+3. Answer `onRequest` with `messages.getBotWidgetQueryAnswer` (the server allows 5 requests in 5 s per user and
+   bot), `onCopyText` with a copy and a toast that shows the text, and show the network marker ("a tap may send
+   data to the bot") exactly where the message has `can_query`.
+4. Show an inline result (`botInlineMessageWidget`) as a widget in preview mode.
+
+This release goes out ahead of the full test matrix so that clients can start; the remaining checks and the
+conformance cases for the new API follow in 0.2.1 (Known issues).
+
+The widget's HTML never changes after sending; only data changes (`docs/decisions.md` "The bot's data and
+requests", decision I1; `docs/sdk-v1.md` §2.13–§2.15, §5.11; the server's spec in `docs/tgw-format.md`, "The bot's
+data and requests"). Part of SDK v1 at the launch, no version of its own: profile 1 stays, a widget written without it
+is part of layer 233 from the launch; a client that passes no flags gets widgets whose requests are refused. The dev
+app's mock bot and the harness play the bot for local work.
+
+**For widgets** (default, every client):
+- `TelegramWidget.chatData` and `publicData`: the bot's two strings (text of at most 1024 bytes each, read-only,
+  `null` for none); `onEvent('chatDataChanged')` and `onEvent('publicDataChanged')` when they change (both, chat
+  first, when one change touches both), no restart. `chatData` belongs to one original message (in a group every
+  member sees the same) and never reaches a forward; `publicData` does: a snapshot, or a value shared with the
+  original that keeps changing.
+- `isForward`, `chatType` (`private` | `group` | `supergroup` | `channel`) and `viewer` (Mini Apps' `WebAppUser`: `{ id, first_name, last_name?, username?, is_premium? }`, the client passes the account's own; a field that breaks its rule is left out, `data-rejected`); a forward
+  is told nothing about the chat it is in (`chatType` null in every copy: the bot must not learn where its widget was
+  forwarded); the widget knows its viewer only where it may send requests (`can_query`), originals included.
+- `TelegramWidget.request(data)` (1–64 bytes): a callback button inside the widget; resolves `{ result }` (text of at
+  most 1024 bytes), rejects with `error.code` (`NOT_ALLOWED`, `BUSY`, `RATE_LIMITED`, `TIMEOUT`, `FAILED`,
+  `INVALID_ANSWER`). Where it may ask is the server's per message, for a widget the bot sent with `allow_queries`: on
+  a tap in originals (private chat, groups, via the bot) and in forwards of widgets sent with `fwd_allow_queries`;
+  without a tap only in the original in the private chat with the bot, while visible: one when the widget appears on screen, then one per 5 s. One tap, one
+  call, shared with `openLink`, `openTelegramLink` and `copyText`; one request in flight. The answer carries no
+  data: the bot's edits arrive as the events, and a widget that needs them at once gets them in `result`.
+- `TelegramWidget.copyText(text)` (1–256 UTF-16 code units) on a tap; the client shows what it copied.
+- `TelegramWidget.watchPublicData()` / `unwatchPublicData()`: the widget asks for live shared data (no tap, idempotent);
+  the client polls a shared widget's `public_data` only while it watches and is on screen, at the server's period
+  (5–3600 s, 30 s by default; `cache_time` 0 sets it back to 30 s); every other widget gets `public_data` with the message. Hosts report it like the
+  resize anchor: web `onWatchPublicData(on)` and `WidgetHost.watchesPublicData`, Swift, Kotlin and C++
+  `onWatchPublicData` and `WidgetDiagnostics.watchesPublicData`; the bridge call `watchPublicData [on]` is checked in
+  `sdk-policy` and its twins (fixture `bridge`, `previewMethods`). The dev app's mock bot polls only a watching widget
+  (`edit by id`, `shared`, the poll period in its panel); `corpus/interactive/01-poll` watches its counts.
+- `TelegramWidget.isPreview`: an inline result in the list, before it is sent, runs as a preview: its data, no input,
+  no requests or other actions (only `ready` and `setResizeAnchor`), no chat type or viewer, Web Storage that is never
+  kept.
+- The HTML of a sent widget is fixed: `behaviour.message-edit` now says so.
+
+**For clients** (every host: web `WidgetHost`, Swift, Kotlin, C++, the Node harness; `docs/integration.md` "The
+bot's data and requests", `docs/client-checklist.md` §d):
+- New options `data` (`{ chatData, publicData }`) and `context`: the server's flags from `messageMediaWidget`
+  (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and `viewer`; no flags, no requests. `setData(data)` (the
+  full state) on `updateMessageWidgetData` (in a supergroup with the channel's pts) and when polling
+  `getWidgetPublicData` (one visible carrier per `widget_id`, one message per call, at the object's `period`)
+  brings a new shared value, forwards included. The client shows a network marker ("a tap may send data
+  to the bot's server") exactly where the message has `can_query` (`docs/integration.md`). `onRequest({ data },
+  complete)`: `getBotWidgetQueryAnswer`, complete once with `{ result }` or `timeout` / `rateLimited` / `failed`.
+  `onCopyText(text)`: copy and show the text. `context.preview` for an inline result before it is sent (the host
+  drops its input and every bridge call but `ready` / `setResizeAnchor`, and its storage commits). New types per
+  platform in `docs/sdk-v1.md` §4. Without `onRequest`
+  every request is refused in the widget.
+- New diagnostics: `request-blocked`, `answer-rejected`, `data-rejected` (also for a NUL: the strings are the
+  server's text fields).
+- The checks are in `sdk-policy` and its three twins on `tests/fixtures/sdk-policy.json` (sections `widgetData`,
+  `viewer`, `chatType`, `answers`, `requestGate`, `requestRefusals`; `request` and `copyText` in `bridge`; the
+  gate reads `canQuery` / `backgroundQuery` and resets its interval with `show()` when the widget appears);
+  `copyText` joins `PRIVILEGED_METHODS`. The host → sandbox `bridge` dispatch is back (the bot's data and the
+  answers), deferred under the CPU quota like `theme`.
+
+**Dev tooling:** the dev app's **Bot (mock)** panel (`apps/web/src/mock-bot.ts`): the kind of message and so its
+flags (private, group, via-bot, no-queries, live-copy, copy, preview: `WIDGET_MESSAGE_KINDS` in `sdk-policy.ts`) with
+the network marker in the bubble's header where it has `canQuery`, the chat type, the viewer (`?message=…&chat=…&viewer=…&botmode=…`), the two strings and the bot's edit, built-in bots chosen by the
+widget's `<meta name="tw-bot">` (echo, poll, tic-tac-toe, ticker, promo), manual answers and failures, a "Copied: …"
+toast; `window.__tw.bot`, `__tw.setContext`. `corpus/interactive`: a poll, tic-tac-toe against the bot, a live ticker
+on background requests, a promo code with `copyText`. The harness: `data`, `context`, `onRequest`, `{ data }` script
+steps, `RunResult.requests` / `copiedTexts`; from a shell `--message` (preview too), `--copy`, `--can-query`, `--background-query`,
+`--chat-type`, `--viewer id[,first,last,username,premium]`, `--chat-data`, `--public-data`, `--answer`, `--answer-error`, `--set-data`;
+`twidget-run` takes the same flags. `corpus/attacks` has five `request-*` files (no request without a tap, a forged
+wire, a background flood, two in flight, a copy).
+
+**Also in this release** (Arseny, 6ca5360): **Element members stay their element's** (default, every client; `packages/core/src/sandbox/forms.ts`). linkedom
+has no class of its own for `form`, `dialog`, `output`, `fieldset`, `label`, `progress`, `meter` and some others:
+they share HTMLElement's prototype, so the shim's members for one of them were on every element. An inline
+handler (`with (element)`) then found them first: `<button onclick="reset()">` called the button's form
+`reset` instead of the widget's `reset()` (and `show()`, `showModal()`, `submit()`, `value`, `length`, `form`
+likewise); output's `value` also overwrote progress' and meter's (`progress.value` read `""`). On the shared
+prototype such a member is now looked up by the element's local name, and the members of other elements are
+unscopable in an inline handler's scope. `'reset' in button` is still true (the prototype is shared), its value
+`undefined`. Unit test: `packages/core/tests/unit/element-members.test.ts`. Found with a widget sent through
+Telegram Android, where the Reset button did nothing.
+
+**Known issues:**
+
+- Released ahead of the full test matrix. On this tag: typecheck, unit, the profile check, `test:sdk`, `test:activation`,
+  `test:attacks` (iframe and shadow), compat, showcase and defaults; the native suites (Swift, Kotlin, C++) ran on the
+  same glue before the merge with main. Not run yet: generated, htmlbubbles, the conformance web run, the demo autoruns,
+  the C++ build with Blitz and litehtml; they follow in 0.2.1.
+- `packages/conformance` has no case for the widget's state and requests yet, and `visual/sdk/16-bot-edit` still
+  tests an HTML edit, which the server no longer allows (to be replaced by a state-edit case in 0.2.1).
+- The docs still call `chatData` / `publicData` "the bot's data" in places; 0.2.1 rewords them as the widget's
+  chat state and shared state (the code is fixed, the state changes).
+- The iOS/macOS and Android demo apps do not show requests (no mock bot there).
+
 ## v0.1.3 — release notes (2026-10-24)
 
 Vertical drags are always the chat's, a widget chooses which edge of its bubble stays put when it

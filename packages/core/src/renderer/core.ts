@@ -755,6 +755,8 @@ function onEvent(e: Event) {
   let verdict: GestureVerdict | null = null;
   let ev: WidgetEvent | null = null;
   if (e instanceof PointerEvent && (type === 'pointerdown' || type === 'pointermove' || type === 'pointerup' || type === 'pointercancel')) {
+    // The end of a press for the host's haptic gate (the start is the claim at pointerdown), listened to or not.
+    if ((type === 'pointerup' || type === 'pointercancel') && e.isPrimary && e.isTrusted) post({ type: 'release' });
     if (e.pointerId === takenPointer) {
       // The bubble's press: nothing more of it, and not the click its release would make.
       if (type === 'pointerup' || type === 'pointercancel') { takenPointer = -1; dropClick = type === 'pointerup'; }

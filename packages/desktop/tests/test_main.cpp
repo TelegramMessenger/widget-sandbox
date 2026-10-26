@@ -249,6 +249,14 @@ static Json expandRepeat(const Json& v) {
 
 static Json orNull(const std::optional<std::string>& s) { return s ? Json(*s) : Json(); }
 
+/// A fixture's data input as a native host passes it: each field a string, or none for null / absent.
+static WidgetData widgetDataOf(const Json& input) {
+    WidgetData d;
+    if (input["chatData"].isString()) d.chatData = input["chatData"].asString();
+    if (input["publicData"].isString()) d.publicData = input["publicData"].asString();
+    return d;
+}
+
 /// sdk_policy against the fixture shared with sdk-policy.ts, SdkPolicy.swift and SdkPolicy.kt: every section.
 TEST(sdk_policy_shared_fixture) {
     auto root = Json::parse(readFile(std::string(TW_FIXTURES) + "/sdk-policy.json"));
@@ -267,28 +275,45 @@ TEST(sdk_policy_shared_fixture) {
         if (h) { got = Json::object(); got.set("haptic", h->haptic); if (h->value) got.set("value", *h->value); }
         CHECK_MSG(jsonEqual(got, c["expect"]), c["args"].dump() + " → " + got.dump());
     }
-    int anchors = 0;
+    int anchors = 0, requests = 0, copies = 0, watches = 0;
     for (const auto& c : (*root)["bridge"].arr()) {
         cases++;
         auto a = sdk::checkBridgeCall(c["method"], c["args"]);
         Json got = a ? a->toJson() : Json();
         CHECK_MSG(jsonEqual(got, c["expect"]), c["method"].dump() + " " + c["args"].dump() + " → " + got.dump());
-        // setResizeAnchor carries the edge and no action; every other call an action and no edge.
-        if (a) CHECK_MSG(a->action.has_value() != a->resizeAnchor.has_value(), c["method"].dump());
-        if (c["method"].isString() && c["method"].asString() == "setResizeAnchor") anchors++;
+        // Exactly one of the five: the action, setResizeAnchor's edge, the request, the text to copy, the watch flag.
+        if (a) CHECK_MSG(int(a->action.has_value()) + int(a->resizeAnchor.has_value()) + int(a->request.has_value()) + int(a->copyText.has_value()) +
+                                 int(a->watchPublicData.has_value()) == 1,
+                         c["method"].dump());
+        const std::string method = c["method"].isString() ? c["method"].asString() : "";
+        anchors += method == "setResizeAnchor";
+        requests += method == "request";
+        copies += method == "copyText";
+        watches += method == "watchPublicData";
     }
-    // v0.1.3's fixture or later: a stale copy without the setResizeAnchor entries fails here.
+    // v0.1.3's fixture or later: a stale copy without the setResizeAnchor entries fails here; the bot's requests: request and copyText.
     CHECK_MSG(anchors >= 15, std::to_string(anchors) + " setResizeAnchor entries");
+    CHECK_MSG(requests >= 19 && copies >= 12, std::to_string(requests) + " request, " + std::to_string(copies) + " copyText entries");
+    CHECK_MSG(watches >= 6, std::to_string(watches) + " watchPublicData entries"); // round 7 or later
+    int touchSteps = 0;
     for (const auto& c : (*root)["hapticGate"].arr()) {
         cases++;
         sdk::HapticGate gate;
         int i = 0;
         for (const auto& s : c["steps"].arr()) {
-            std::string got(sdk::HapticGate::name(gate.decide(s["at"].asNumber(), s["visible"].asBool())));
-            CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            // v0.2.2: {at, touch: "down" | "up"} is the host's press / release; else {at, visible, expect} is a decision.
+            if (s["touch"].isString()) {
+                touchSteps++;
+                if (s["touch"].asString() == "down") gate.press(s["at"].asNumber());
+                else gate.release(s["at"].asNumber());
+            } else {
+                std::string got(sdk::HapticGate::name(gate.decide(s["at"].asNumber(), s["visible"].asBool())));
+                CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            }
             i++;
         }
     }
+    CHECK_MSG(touchSteps >= 6, std::to_string(touchSteps) + " touch steps"); // v0.2.2's fixture or later
     for (const auto& c : (*root)["themeParams"].arr()) {
         cases++;
         Json got = sdk::themeParamsJson(sdk::checkThemeParams(c["input"]));
@@ -309,10 +334,161 @@ TEST(sdk_policy_shared_fixture) {
         cases++;
         CHECK_MSG(sdk::utf8Length(c["s"].asString()) == size_t(c["bytes"].asInt()), c["s"].asString());
     }
+    // Bot data and requests.
+    for (const auto& c : (*root)["widgetData"].arr()) {
+        cases++;
+        Json got = sdk::checkWidgetData(widgetDataOf(expandRepeat(c["input"])), c["copy"].asBool()).toJson();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), (c["note"].isString() ? c["note"].asString() : c["input"].dump().substr(0, 80)) + " → " + got.dump().substr(0, 120));
+    }
+    int viewerShapes = 0;
+    for (const auto& c : (*root)["viewer"].arr()) {
+        cases++;
+        // The input in the widget's field names, mapped onto the typed struct (round 6: Mini Apps' WebAppUser).
+        const Json in = expandRepeat(c["input"]);
+        std::optional<WidgetViewer> input;
+        if (in["id"].isNumber()) {
+            WidgetViewer v;
+            v.id = int64_t(in["id"].asNumber());
+            if (in["first_name"].isString()) v.firstName = in["first_name"].asString();
+            if (in["last_name"].isString()) v.lastName = in["last_name"].asString();
+            if (in["username"].isString()) v.username = in["username"].asString();
+            v.isPremium = in["is_premium"].asBool();
+            input = v;
+        }
+        Json got = sdk::checkViewer(input).toJson();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), (c["note"].isString() ? c["note"].asString() : in.dump().substr(0, 80)) + " → " + got.dump().substr(0, 160));
+        viewerShapes += c["expect"].find("rejected") != nullptr;
+    }
+    // Round 6 or later: {viewer, rejected}; a stale copy fails here.
+    CHECK_MSG(viewerShapes >= 20, std::to_string(viewerShapes) + " viewer cases with a rejected list");
+    for (const auto& c : (*root)["chatType"].arr()) {
+        cases++;
+        Json got = orNull(sdk::checkChatType(c["input"].asString())); // null is "" (none) for a native host
+        CHECK_MSG(jsonEqual(got, c["expect"]), c["input"].dump() + " → " + got.dump());
+    }
+    for (const auto& c : (*root)["answers"].arr()) {
+        cases++;
+        const Json input = expandRepeat(c["input"]);
+        // The server's answer is only the result.
+        WidgetRequestAnswer answer;
+        if (input["result"].isString()) answer.result = input["result"].asString();
+        std::optional<sdk::CheckedAnswer> checked = sdk::checkRequestAnswer(answer);
+        Json got = checked ? checked->toJson() : Json();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), (c["note"].isString() ? c["note"].asString() : input.dump().substr(0, 80)) + " → " + got.dump().substr(0, 120));
+    }
+    for (const auto& c : (*root)["requestGate"].arr()) {
+        cases++;
+        sdk::RequestGate gate;
+        int i = 0;
+        for (const auto& s : c["steps"].arr()) {
+            if (s["op"].asString() == "finish") gate.finish();
+            else if (s["op"].asString() == "show") gate.show();
+            else {
+                sdk::RequestGate::Conditions at{s["gesture"].asBool(), s["visible"].asBool(), s["canQuery"].asBool(), s["backgroundQuery"].asBool()};
+                std::string got(sdk::requestVerdictName(gate.decide(s["at"].asNumber(), at)));
+                CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            }
+            i++;
+        }
+        CHECK_MSG(!c["steps"].arr().empty(), c["name"].asString());
+    }
+    std::vector<std::string> verdicts;
+    for (const auto& c : (*root)["requestRefusals"].arr()) {
+        cases++;
+        sdk::RequestVerdict all[] = {sdk::RequestVerdict::Foreground, sdk::RequestVerdict::Background, sdk::RequestVerdict::Disabled, sdk::RequestVerdict::Busy,
+                                     sdk::RequestVerdict::NoActivation, sdk::RequestVerdict::Hidden, sdk::RequestVerdict::RateLimited};
+        const sdk::RequestVerdict* v = std::find_if(std::begin(all), std::end(all), [&](sdk::RequestVerdict x) { return sdk::requestVerdictName(x) == c["verdict"].asString(); });
+        CHECK_MSG(v != std::end(all), c["verdict"].asString());
+        if (v == std::end(all)) continue;
+        verdicts.push_back(c["verdict"].asString());
+        std::optional<std::string_view> refusal = sdk::requestRefusal(*v);
+        Json got = refusal ? Json(*refusal) : Json();
+        CHECK_MSG(jsonEqual(got, c["expect"]), c["verdict"].asString() + " → " + got.dump());
+    }
+    CHECK_MSG(verdicts.size() == 7, std::to_string(verdicts.size()) + " verdicts"); // every verdict once
+    // The server's spec or later (the server's flags, answers of a result only, no NUL in data); a stale copy fails here.
+    int flagged = 0, shows = 0, nulData = 0, edits = 0;
+    for (const auto& c : (*root)["requestGate"].arr())
+        for (const auto& st : c["steps"].arr()) { flagged += st.find("canQuery") != nullptr; shows += st["op"].asString() == "show"; }
+    for (const auto& c : (*root)["widgetData"].arr()) nulData += c.find("copy") != nullptr && c["input"].dump().find("\\u0000") != std::string::npos;
+    for (const auto& c : (*root)["answers"].arr()) edits += c["expect"].find("edit") != nullptr;
+    CHECK_MSG(flagged >= 10 && shows >= 2 && nulData >= 1 && edits == 0,
+              std::to_string(flagged) + " gate steps with canQuery, " + std::to_string(shows) + " show steps, " + std::to_string(nulData) + " NUL data cases, " + std::to_string(edits) + " answers with an edit");
+    // Round 4 (previews): the methods a preview may call.
+    for (const auto& c : (*root)["previewMethods"].arr()) {
+        cases++;
+        CHECK_MSG(sdk::allowedInPreview(c["method"].asString()) == c["allowed"].asBool(), c["method"].dump());
+    }
     printf("    %d fixture cases\n", cases);
     CHECK(cases > 150);
-    for (const char* section : {"links", "haptics", "bridge", "hapticGate", "themeParams", "locales", "storage", "utf8"})
+    for (const char* section : {"links", "haptics", "bridge", "hapticGate", "themeParams", "locales", "storage", "utf8",
+                                "widgetData", "viewer", "chatType", "answers", "requestGate", "requestRefusals", "previewMethods"})
         CHECK_MSG((*root)[section].size() > 0, section);
+}
+
+/// What the fixture cannot carry: the strings of the bot's data and requests refuse a lone surrogate (its WTF-8 form, as QuickJS and the
+/// engine's `Surrogates::Keep` parse give it) and invalid UTF-8 everywhere a string leaves the widget or enters it;
+/// lengths are UTF-8 bytes for the data and UTF-16 code units for copyText; out-of-range ids and viewers are none.
+TEST(sdk_request_strings_refuse_surrogates_and_invalid_utf8) {
+    const std::string lone = "\xED\xA0\x80", loneLow = "\xED\xB0\x80", emoji = "\xF0\x9F\x98\x80";
+    for (const std::string& bad : {"a" + lone, loneLow + "b", lone + loneLow /* CESU-8, not a pair in UTF-8 */, std::string("\xFF"), std::string("x\xC3"), std::string("\xC0\xAF")}) {
+        CHECK_MSG(!sdk::checkRequestData(bad), bad);
+        CHECK_MSG(!sdk::checkCopyText(bad), bad);
+        CHECK_MSG(!sdk::checkWidgetDataValue(bad), bad);
+        CHECK(!sdk::checkRequestAnswer(WidgetRequestAnswer{bad}));
+        sdk::CheckedWidgetData d = sdk::checkWidgetData(WidgetData{bad, std::string("ok")}, false);
+        CHECK(!d.chatData && d.publicData == std::string("ok") && d.rejected == std::vector<std::string>{"chatData"});
+    }
+    CHECK(sdk::checkRequestData(emoji) == emoji);
+    CHECK(sdk::checkRequestData(std::string("a\0b", 3)).has_value()); // a NUL is a character like any other
+    auto call = Json::parse("[\"request\",[1,\"a\\ud800\"]]", Json::Surrogates::Keep);
+    CHECK(call && !sdk::checkBridgeCall((*call)[0], (*call)[1]));
+    call = Json::parse("[\"copyText\",[\"\\udc00\"]]", Json::Surrogates::Keep);
+    CHECK(call && !sdk::checkBridgeCall((*call)[0], (*call)[1]));
+    // UTF-16 code units: an emoji is 2, so 128 fit and 129 do not; 256 Cyrillic letters (512 bytes) fit.
+    CHECK(sdk::utf16Length(emoji) == 2 && sdk::utf16Length("\xD0\xB6") == 1 && sdk::utf16Length("a" + emoji + "\xE2\x82\xAC") == 4);
+    std::string emojis, cyrillic;
+    for (int i = 0; i < 128; i++) emojis += emoji;
+    for (int i = 0; i < 256; i++) cyrillic += "\xD0\xB6";
+    CHECK(sdk::checkCopyText(emojis).has_value() && !sdk::checkCopyText(emojis + "a"));
+    CHECK(sdk::checkCopyText(cyrillic).has_value() && !sdk::checkCopyText(cyrillic + "a"));
+    // Ids: integers 1 … 2^31 − 1, as numbers only.
+    for (const char* args : {"[1e0,\"x\"]", "[2147483647.0,\"x\"]"}) CHECK_MSG(sdk::checkBridgeCall(Json("request"), *Json::parse(args)).has_value(), args);
+    for (const char* args : {"[0.5,\"x\"]", "[1e10,\"x\"]", "[true,\"x\"]", "[null,\"x\"]", "[[1],\"x\"]", "[-0,\"x\"]"})
+        CHECK_MSG(!sdk::checkBridgeCall(Json("request"), *Json::parse(args)), args);
+    // Viewers outside 1 … 2^53 − 1.
+    CHECK(!sdk::checkViewer(WidgetViewer{INT64_MIN}).viewer && !sdk::checkViewer(WidgetViewer{INT64_MAX}).viewer && !sdk::checkViewer(std::nullopt).viewer);
+    CHECK(sdk::checkViewer(WidgetViewer{sdk::MAX_VIEWER_ID}).viewer->id == sdk::MAX_VIEWER_ID);
+    // The viewer's names refuse WTF-8 surrogates and invalid UTF-8; the username is ASCII only (a Cyrillic letter is 2
+    // bytes, so a byte count would not catch "аннаx" either way).
+    for (const std::string& bad : {"A" + lone, std::string("\xFF"), std::string("x\xC3")}) {
+        WidgetViewer v{7};
+        v.firstName = bad;
+        v.lastName = "Lee";
+        sdk::CheckedViewer c = sdk::checkViewer(v);
+        CHECK_MSG(c.viewer && !c.viewer->firstName && c.viewer->lastName == std::string("Lee") && c.rejected == std::vector<std::string>{"first_name"}, bad);
+    }
+    {
+        WidgetViewer v{7};
+        v.username = "\xD0\xB0nnax";
+        v.isPremium = false;
+        sdk::CheckedViewer c = sdk::checkViewer(v);
+        CHECK(c.viewer && !c.viewer->username && c.rejected == std::vector<std::string>{"username"});
+        CHECK(sdk::viewerJson(*c.viewer).dump() == "{\"id\":7}");
+        std::string names;
+        for (int i = 0; i < 64; i++) names += "\xD0\xB6"; // 64 Cyrillic letters: 128 bytes, 64 UTF-16 code units
+        v = WidgetViewer{7};
+        v.firstName = names;
+        CHECK(sdk::checkViewer(v).viewer->firstName == names);
+        v.firstName = names + "a";
+        CHECK(sdk::checkViewer(v).rejected == std::vector<std::string>{"first_name"});
+    }
+    CHECK(sdk::viewerFieldRule("first_name") == "not text of 1–64 UTF-16 code units" && sdk::viewerFieldRule("username") == "not 5–32 characters of A–Z, a–z, 0–9 and _" &&
+          sdk::viewerFieldRule("is_premium") == "not a boolean");
+    // A client failure outside the three is FAILED; the privileged methods now include copyText, not request.
+    CHECK(sdk::requestFailureCode(WidgetRequestFailure::Timeout) == "TIMEOUT" && sdk::requestFailureCode(WidgetRequestFailure::RateLimited) == "RATE_LIMITED");
+    CHECK(sdk::requestFailureCode(WidgetRequestFailure::Failed) == "FAILED" && sdk::requestFailureCode(WidgetRequestFailure(42)) == "FAILED");
+    CHECK(sdk::isPrivilegedMethod("copyText") && !sdk::isPrivilegedMethod("request"));
 }
 
 /// What the fixture cannot carry (no lone surrogates cross every platform's string type): the C++ strings
@@ -918,7 +1094,8 @@ TEST(sdk_anchor_and_window_open_route_by_host) {
     CHECK_MSG(r.host.countDiag("navigation-blocked") == 2, r.diagsText());
 }
 
-/// Haptics need no tap: seven impactOccurred in one task give 5 actions and one `haptic-limit`; a hidden widget plays nothing.
+/// Haptics without a touch get one 1 s series (v0.2.2): seven impactOccurred in one task give 5 actions (the burst) and one
+/// `haptic-limit`, a call 250 ms later plays (the bucket refilled, still in the series); a hidden widget plays nothing.
 TEST(sdk_haptics_burst_and_limit) {
     Run r("<script>for (var i = 0; i < 7; i++) TelegramWidget.HapticFeedback.impactOccurred('medium');"
           "TelegramWidget.HapticFeedback.notificationOccurred('success').selectionChanged();</script>");
@@ -1241,6 +1418,728 @@ TEST(sdk_resize_anchor_is_host_state_next_to_the_height) {
     CHECK(plain.waitLoaded(20));
     CHECK(plain.waitRendered(5));
     CHECK(plain.diagnostics().resizeAnchor == "top" && plain.diagnostics().height > 0);
+}
+
+// ───────────── The bot's data and requests through the real engine and WidgetHost (docs/sdk-v1.md §2.13–§2.15) ─────────────
+
+static const char* kShowContext = "JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.isForward, TelegramWidget.chatType, TelegramWidget.viewer])";
+
+/// A button whose tap asks twice (the second is BUSY in the shim); `mode = 'copy'` makes it copy twice instead. The log
+/// shows each settled request and each `chatDataChanged` / `publicDataChanged`.
+static const char* kRequester =
+    "<button id='b'>go</button><script>var log = [], mode = 'ask';"
+    "function ask(d) { TelegramWidget.request(d).then(function (a) { log.push('ok:' + d + ':' + JSON.stringify(a) + ':' + Object.isFrozen(a)); },"
+    "  function (e) { log.push('err:' + d + ':' + e.name + ':' + e.code); }); }"
+    "TelegramWidget.onEvent('chatDataChanged', function () { log.push('chat:' + TelegramWidget.chatData); });"
+    "TelegramWidget.onEvent('publicDataChanged', function () { log.push('public:' + TelegramWidget.publicData); });"
+    "document.getElementById('b').addEventListener('click', function () {"
+    "  if (mode === 'ask') { ask('tap'); ask('tap2'); } else { TelegramWidget.copyText('PROMO-2026 \\u2713'); TelegramWidget.copyText('second'); } });</script>";
+static const std::string kTapOnButton = "{\"type\":\"click\",\"targetId\":5,\"detail\":1}";
+
+using Respond = std::function<void(const WidgetRequestOutcome&)>;
+
+/// The server's answer: only the result.
+static WidgetRequestOutcome answered(std::optional<std::string> result) {
+    WidgetRequestOutcome o;
+    o.answer.result = std::move(result);
+    return o;
+}
+
+/// The server's flags for a kind of message (WIDGET_MESSAGE_KINDS in sdk-policy.ts).
+static WidgetContext messageContext(bool isCopy, bool canQuery, bool backgroundQuery, std::string chatType = "", std::optional<WidgetViewer> viewer = std::nullopt) {
+    WidgetContext c;
+    c.isCopy = isCopy;
+    c.canQuery = canQuery;
+    c.backgroundQuery = backgroundQuery;
+    c.chatType = std::move(chatType);
+    c.viewer = viewer;
+    return c;
+}
+
+/// Polls a probe until it gives `expected` (an answer may come from another thread); returns the last value.
+template <typename Engine>
+static std::string probeUntil(Engine& engine, const std::string& code, const std::string& expected, double timeoutSeconds = 5) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(timeoutSeconds * 1000));
+    std::string got = engine.probe(code);
+    while (got != expected && std::chrono::steady_clock::now() < deadline) {
+        sleepMs(10);
+        got = engine.probe(code);
+    }
+    return got;
+}
+
+/// Polls state a test's callbacks keep under their own lock.
+static bool eventually(const std::function<bool()>& pred, double timeoutSeconds = 5) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(timeoutSeconds * 1000));
+    while (!pred()) {
+        if (std::chrono::steady_clock::now() > deadline) return false;
+        sleepMs(10);
+    }
+    return true;
+}
+
+static std::vector<std::string> diagsOf(RecordingHost& host, const std::string& kind) {
+    auto l = host.lock();
+    std::vector<std::string> out;
+    for (auto& d : host.diags) if (d.first == kind) out.push_back(d.second);
+    return out;
+}
+
+static std::vector<WidgetRequest> requestsOf(RecordingHost& host) {
+    auto l = host.lock();
+    return host.requests;
+}
+
+/// chatData, publicData, chatType and viewer come from the client, checked, with real JSON nulls for none: an original
+/// sees them all; a live copy (`isCopy`, `canQuery`) sees the viewer but no chatData and no chat type (round 5: nothing
+/// about where it was forwarded); a plain copy (`isCopy` only) only publicData; an original without `canQuery` (sent
+/// without allow_queries) its data and chat but no viewer. What breaks the rules (over 1024 bytes, a NUL) is none and
+/// reported.
+TEST(sdk_bot_data_and_context_at_boot) {
+    SandboxConfig cfg = testConfig();
+    cfg.data = {std::string("{\"turn\":1}"), std::string("score 3:1")};
+    cfg.context = messageContext(false, true, false, "group", WidgetViewer{42});
+    Run r("<p>x</p>", cfg);
+    CHECK_MSG(r.engine.probe(kShowContext) == "[\"{\\\"turn\\\":1}\",\"score 3:1\",false,\"group\",{\"id\":42}]", r.engine.probe(kShowContext));
+    CHECK(r.engine.probe("[Object.isFrozen(TelegramWidget.viewer), TelegramWidget.viewer === TelegramWidget.viewer, typeof TelegramWidget.request, typeof TelegramWidget.copyText].join()") ==
+          "true,true,function,function");
+    CHECK(diagsOf(r.host, "data-rejected").empty());
+    SandboxConfig live = cfg;
+    live.data.chatData = "secret";
+    live.context = messageContext(true, true, false, "supergroup", WidgetViewer{42});
+    Run l("<p>x</p>", live);
+    CHECK_MSG(l.engine.probe(kShowContext) == "[null,\"score 3:1\",true,null,{\"id\":42}]", l.engine.probe(kShowContext));
+    CHECK(diagsOf(l.host, "data-rejected").empty()); // a copy's chatData is dropped, not rejected
+    SandboxConfig copy = live;
+    copy.context = messageContext(true, false, false, "supergroup", WidgetViewer{42});
+    Run c("<p>x</p>", copy);
+    CHECK_MSG(c.engine.probe(kShowContext) == "[null,\"score 3:1\",true,null,null]", c.engine.probe(kShowContext));
+    SandboxConfig quiet = cfg;
+    quiet.context = messageContext(false, false, false, "private", WidgetViewer{42});
+    Run q("<p>x</p>", quiet);
+    CHECK_MSG(q.engine.probe(kShowContext) == "[\"{\\\"turn\\\":1}\",\"score 3:1\",false,\"private\",null]", q.engine.probe(kShowContext));
+    SandboxConfig none = testConfig();
+    none.data = {std::string(""), std::string(1025, 'x')};
+    none.context = messageContext(false, false, false, "sender", WidgetViewer{0});
+    Run n("<p>x</p>", none);
+    CHECK_MSG(n.engine.probe(kShowContext) == "[null,null,false,null,null]", n.engine.probe(kShowContext));
+    CHECK((diagsOf(n.host, "data-rejected") == std::vector<std::string>{"publicData: not text of at most 1024 bytes (UTF-8, no NUL); the widget sees null"}));
+    SandboxConfig nul = testConfig();
+    nul.data = {std::string("a\0b", 3), std::string("tab\tok")};
+    Run z("<p>x</p>", nul);
+    CHECK_MSG(z.engine.probe("JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData])") == "[null,\"tab\\tok\"]", z.engine.probe("JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData])"));
+    CHECK((diagsOf(z.host, "data-rejected") == std::vector<std::string>{"chatData: not text of at most 1024 bytes (UTF-8, no NUL); the widget sees null"}));
+    SandboxConfig big = testConfig();
+    big.context = messageContext(false, true, false, "private", WidgetViewer{sdk::MAX_VIEWER_ID});
+    Run b("<p>x</p>", big);
+    CHECK(b.engine.probe("TelegramWidget.viewer.id === 9007199254740991") == "true");
+}
+
+/// The viewer (round 6) reaches the widget as Mini Apps' `WebAppUser`, only with canQuery: a private original with every
+/// field boots with exactly {id, first_name, last_name, username, is_premium}, frozen, nothing rejected; a group
+/// original with a broken username and no Premium boots with {id, first_name} and one `data-rejected` for the username;
+/// an original without canQuery boots with null (and reports nothing).
+TEST(sdk_viewer_is_a_web_app_user) {
+    const std::string show = "JSON.stringify(TelegramWidget.viewer) + ' ' + Object.isFrozen(TelegramWidget.viewer)";
+    WidgetViewer ann{42};
+    ann.firstName = "Ann";
+    ann.lastName = "Lee";
+    ann.username = "ann_lee";
+    ann.isPremium = true;
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, true, "private", ann);
+    Run p("<p>x</p>", cfg);
+    const std::string full = "{\"id\":42,\"first_name\":\"Ann\",\"last_name\":\"Lee\",\"username\":\"ann_lee\",\"is_premium\":true} true";
+    CHECK_MSG(p.engine.probe(show) == full, p.engine.probe(show));
+    CHECK(diagsOf(p.host, "data-rejected").empty());
+    WidgetViewer broken{42};
+    broken.firstName = "Ann";
+    broken.username = "a-b";
+    broken.isPremium = false;
+    cfg.context = messageContext(false, true, false, "group", broken);
+    Run g("<p>x</p>", cfg);
+    CHECK_MSG(g.engine.probe(show) == "{\"id\":42,\"first_name\":\"Ann\"} true", g.engine.probe(show));
+    CHECK((diagsOf(g.host, "data-rejected") == std::vector<std::string>{"viewer.username: not 5–32 characters of A–Z, a–z, 0–9 and _; the widget does not see it"}));
+    cfg.context = messageContext(false, false, false, "private", ann);
+    Run q("<p>x</p>", cfg);
+    CHECK_MSG(q.engine.probe("String(TelegramWidget.viewer)") == "null", q.engine.probe("String(TelegramWidget.viewer)"));
+    CHECK(diagsOf(q.host, "data-rejected").empty());
+    // The same through WidgetHost.
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHostOptions options;
+    options.context = messageContext(false, true, false, "group", broken);
+    WidgetHost host("<p>x</p>", WidgetTheme{}, 300, options, RES, scripted(renderer));
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK_MSG(host.probe(show) == "{\"id\":42,\"first_name\":\"Ann\"} true", host.probe(show));
+    CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("data-rejected") == 1; }, 5));
+}
+
+/// watchPublicData (round 7) through the real engine: `watchPublicData(); watchPublicData();` then later
+/// `unwatchPublicData(); watchPublicData();` reaches the delegate as true, false, true (the shim sends only changes), with
+/// no gesture, on a hidden widget too, never as an action or a raw call; a widget that never calls it sends nothing; a
+/// preview's call is `preview-blocked`.
+TEST(sdk_watch_public_data_reaches_the_delegate) {
+    SandboxConfig hidden = testConfig();
+    hidden.visible = false;
+    Run r("<script>TelegramWidget.watchPublicData(); TelegramWidget.watchPublicData();"
+          "setTimeout(function () { TelegramWidget.unwatchPublicData(); TelegramWidget.watchPublicData(); }, 10);</script>", hidden);
+    CHECK(r.host.waitUntil([&] { return r.host.publicDataWatches.size() >= 3; }, 5));
+    r.barrier();
+    {
+        auto l = r.host.lock();
+        CHECK((r.host.publicDataWatches == std::vector<bool>{true, false, true}));
+        CHECK_MSG(r.host.actions.empty() && r.host.bridge.empty(), actionsText(r.host.actions));
+        CHECK_MSG(!r.host.hasDiag("bridge-rejected") && !r.host.hasDiag("activation-blocked"), r.diagsText());
+    }
+    Run n("<p>x</p>");
+    n.barrier();
+    {
+        auto l = n.host.lock();
+        CHECK(n.host.publicDataWatches.empty());
+    }
+    SandboxConfig preview = testConfig();
+    preview.context.preview = true;
+    Run p("<script>TelegramWidget.watchPublicData();</script>", preview);
+    p.barrier();
+    auto l = p.host.lock();
+    CHECK(p.host.publicDataWatches.empty());
+    CHECK_MSG(p.host.countDiag("preview-blocked") == 1, p.diagsText());
+}
+
+/// WidgetHost keeps whether the widget watches its public_data in its diagnostics (false at start) and calls
+/// onWatchPublicData only on a change: true, false, true, ending with true; a widget that never calls it: false, no
+/// callback; a preview: false, one `preview-blocked`.
+TEST(sdk_widget_host_watches_public_data) {
+    auto make = [](const std::string& html, WidgetHostOptions options) {
+        ScriptedRenderer* renderer = nullptr;
+        return std::make_unique<WidgetHost>(html, WidgetTheme{}, 300, options, RES, scripted(renderer));
+    };
+    std::mutex m;
+    std::vector<bool> changes;
+    auto host = make("<button>b</button><script>TelegramWidget.watchPublicData(); TelegramWidget.watchPublicData();"
+                     "document.querySelector('button').onclick = function () { TelegramWidget.unwatchPublicData(); TelegramWidget.watchPublicData(); };</script>",
+                     WidgetHostOptions());
+    host->onWatchPublicData = [&](bool on) { std::lock_guard<std::mutex> l(m); changes.push_back(on); };
+    host->start();
+    CHECK(host->waitLoaded(20));
+    CHECK(host->waitUntil([](const WidgetDiagnostics& d) { return d.watchesPublicData; }, 5));
+    host->event(kTapOnButton);
+    CHECK(eventually([&] { std::lock_guard<std::mutex> l(m); return changes.size() >= 3; }));
+    host->probe("0");
+    host->onHostThread([] {});
+    {
+        std::lock_guard<std::mutex> l(m);
+        CHECK((changes == std::vector<bool>{true, false, true}));
+    }
+    WidgetDiagnostics d = host->diagnostics();
+    CHECK(d.watchesPublicData && d.countDiag("bridge-rejected") == 0);
+    CHECK_MSG(d.actions.empty() && d.bridge.empty(), actionsText(d.actions));
+    // The host's own guard: an equal value is no change.
+    SandboxEngine unused("", testConfig(), RES);
+    host->onPublicDataWatch(unused, true);
+    host->onHostThread([] {});
+    {
+        std::lock_guard<std::mutex> l(m);
+        CHECK(changes.size() == 3);
+    }
+    host.reset();
+    bool called = false;
+    auto plain = make("<p>x</p>", WidgetHostOptions());
+    plain->onWatchPublicData = [&](bool) { called = true; };
+    plain->start();
+    CHECK(plain->waitLoaded(20));
+    plain->probe("0");
+    plain->onHostThread([] {});
+    CHECK(!plain->diagnostics().watchesPublicData && !called);
+    WidgetHostOptions previewOptions;
+    previewOptions.context.preview = true;
+    auto preview = make("<script>TelegramWidget.watchPublicData();</script>", previewOptions);
+    preview->onWatchPublicData = [&](bool) { called = true; };
+    preview->start();
+    CHECK(preview->waitLoaded(20));
+    CHECK(preview->waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("preview-blocked") == 1; }, 5));
+    CHECK(!preview->diagnostics().watchesPublicData && !called);
+}
+
+/// setData: the full state; `chatDataChanged` then `publicDataChanged` for each field that changed (a missing field is
+/// none), both after both fields are set; equal data fires nothing; a field over the limit is none and reported. A copy
+/// keeps no chatData and its publicData can change.
+TEST(sdk_set_data_fires_chat_then_public_data_changed) {
+    SandboxConfig cfg = testConfig();
+    cfg.data = {std::string("a"), std::string("p")};
+    const char* html = "<script>var log = []; ['chatDataChanged', 'publicDataChanged'].forEach(function (t) { TelegramWidget.onEvent(t, function () {"
+                       "  log.push(t + ':' + TelegramWidget.chatData + '|' + TelegramWidget.publicData + ':' + (this === TelegramWidget)); }); });</script>";
+    Run r(html, cfg);
+    r.engine.setData({std::string("a"), std::string("p")});
+    r.engine.setData({std::string("b"), std::string("q")});
+    r.engine.setData({std::nullopt, std::string("q")});
+    r.engine.setData({std::string(1025, 'x'), std::string("q")});
+    r.barrier();
+    const std::string expected = "chatDataChanged:b|q:true publicDataChanged:b|q:true chatDataChanged:null|q:true";
+    CHECK_MSG(r.engine.probe("log.join(' ')") == expected, r.engine.probe("log.join(' ')"));
+    CHECK((diagsOf(r.host, "data-rejected") == std::vector<std::string>{"chatData: not text of at most 1024 bytes (UTF-8, no NUL); the widget sees null"}));
+    SandboxConfig copy = testConfig();
+    copy.data.publicData = "p";
+    copy.context.isCopy = true;
+    Run c(html, copy);
+    c.engine.setData({std::string("c"), std::string("p2")});
+    c.barrier();
+    CHECK_MSG(c.engine.probe("log.join(' ')") == "publicDataChanged:null|p2:true", c.engine.probe("log.join(' ')"));
+    CHECK(diagsOf(c.host, "data-rejected").empty());
+}
+
+/// A tap sends one request (the client gets only its data) where the message allows requests: an original in a group
+/// (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap
+/// is BUSY in the shim and never reaches the client; after the answer the next tap can ask again.
+TEST(sdk_request_tap_answer_and_busy) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, false, "group");
+    Run r(kRequester, cfg, false);
+    int n = 0;
+    r.host.onRequest = [&n](const WidgetRequest&, Respond respond) { respond(answered(++n == 1 ? "thanks" : "again")); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    const std::string first = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true";
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", first) == first, r.engine.probe("log.join(' ')"));
+    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}}));
+    r.engine.activationEvent(kTapOnButton, 2);
+    const std::string second = first + " err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"again\"}:true";
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", second) == second, r.engine.probe("log.join(' ')"));
+    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}, {"tap"}}));
+    CHECK(diagsOf(r.host, "request-blocked").empty());
+    {
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.actions.empty() && r.host.bridge.empty(), actionsText(r.host.actions)); // not an action, not a raw call
+    }
+    SandboxConfig live = testConfig();
+    live.context = messageContext(true, true, false, "private", WidgetViewer{42});
+    Run c(kRequester, live, false);
+    c.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(std::nullopt)); };
+    c.engine.start();
+    c.host.waitLoaded(20);
+    c.engine.activationEvent(kTapOnButton, 1);
+    const std::string asked = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":null}:true";
+    CHECK_MSG(probeUntil(c.engine, "log.join(' ')", asked) == asked, c.engine.probe("log.join(' ')"));
+    CHECK((requestsOf(c.host) == std::vector<WidgetRequest>{{"tap"}}));
+}
+
+/// Refused requests never reach the client: a message with `canQuery` only, from a timer (no-activation); with
+/// `backgroundQuery` the first goes out and the next within 5 s is RATE_LIMITED; a hidden widget's is refused (hidden);
+/// a plain copy and a message without flags never ask, even with a tap (the shim refuses; a forged call on the wire is
+/// the glue's `disabled`). Without onRequest the gate lets the request through and the delivery refuses it
+/// (`unsupported`): the tap is used, the gate frees, the next tap is refused the same way, not BUSY.
+TEST(sdk_request_refusals) {
+    auto never = [](int& calls) { return [&calls](const WidgetRequest&, Respond respond) { calls++; respond(answered("never")); }; };
+    int calls = 0;
+    {
+        SandboxConfig group = testConfig();
+        group.context = messageContext(false, true, false, "group");
+        Run t("<script>var log = []; setTimeout(function () { TelegramWidget.request('t').catch(function (e) { log.push(e.code + ':' + /tap/.test(e.message)); }); }, 0);</script>", group, false);
+        t.host.onRequest = never(calls);
+        t.engine.start();
+        t.host.waitLoaded(20);
+        CHECK_MSG(probeUntil(t.engine, "log.join()", "NOT_ALLOWED:true") == "NOT_ALLOWED:true", t.engine.probe("log.join()"));
+        CHECK((diagsOf(t.host, "request-blocked") ==
+               std::vector<std::string>{"request refused (no-activation): it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)"}));
+    }
+    const char* background = "<script>var log = []; function ask() { TelegramWidget.request('bg').then(function () { log.push('ok'); }, function (e) { log.push(e.code); }); }"
+                             "ask(); setTimeout(ask, 10);</script>";
+    SandboxConfig bg = testConfig();
+    bg.context = messageContext(false, true, true, "private");
+    {
+        Run b(background, bg, false);
+        b.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(std::nullopt)); };
+        b.engine.start();
+        b.host.waitLoaded(20);
+        CHECK_MSG(probeUntil(b.engine, "log.join()", "ok,RATE_LIMITED") == "ok,RATE_LIMITED", b.engine.probe("log.join()"));
+        CHECK((requestsOf(b.host) == std::vector<WidgetRequest>{{"bg"}}));
+        CHECK((diagsOf(b.host, "request-blocked") == std::vector<std::string>{"request refused (rate-limited): background requests at most once per 5 s"}));
+    }
+    {
+        SandboxConfig hidden = bg;
+        hidden.visible = false;
+        Run h("<script>var log = []; TelegramWidget.request('bg').catch(function (e) { log.push(e.code); });</script>", hidden, false);
+        h.host.onRequest = never(calls);
+        h.engine.start();
+        h.host.waitLoaded(20);
+        CHECK_MSG(probeUntil(h.engine, "log.join()", "NOT_ALLOWED") == "NOT_ALLOWED", h.engine.probe("log.join()"));
+        CHECK((diagsOf(h.host, "request-blocked") == std::vector<std::string>{"request refused (hidden): a background request from a widget off screen"}));
+    }
+    for (WidgetContext context : {messageContext(true, false, false, "private"), messageContext(true, false, true), WidgetContext{}}) {
+        SandboxConfig cfg = testConfig();
+        cfg.context = context;
+        Run c(kRequester, cfg, false);
+        c.host.onRequest = never(calls);
+        c.engine.start();
+        c.host.waitLoaded(20);
+        c.engine.activationEvent(kTapOnButton, 1);
+        const std::string refused = "err:tap:WidgetRequestError:NOT_ALLOWED err:tap2:WidgetRequestError:NOT_ALLOWED";
+        CHECK_MSG(probeUntil(c.engine, "log.join(' ')", refused) == refused, c.engine.probe("log.join(' ')"));
+        CHECK(requestsOf(c.host).empty() && diagsOf(c.host, "request-blocked").empty()); // the shim refuses before the glue
+    }
+    {
+        // A widget that rewrites what the shim sends forges a request in place of ready(): the glue's own gate refuses it.
+        Run f("<script>var s = JSON.stringify; JSON.stringify = function (v) { return s(Array.isArray(v) && v[0] === 'ready' ? ['request', [1, 'forged']] : v); };"
+              "TelegramWidget.ready();</script>", testConfig(), false);
+        f.host.onRequest = never(calls);
+        f.engine.start();
+        f.host.waitLoaded(20);
+        f.barrier();
+        CHECK((diagsOf(f.host, "request-blocked") ==
+               std::vector<std::string>{"request refused (disabled): the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)"}));
+        CHECK(requestsOf(f.host).empty());
+    }
+    {
+        SandboxConfig group = testConfig();
+        group.context = messageContext(false, true, false, "group");
+        Run u(kRequester, group); // no onRequest
+        u.engine.activationEvent(kTapOnButton, 1);
+        const std::string refused = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED";
+        CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused) == refused, u.engine.probe("log.join(' ')"));
+        u.engine.activationEvent(kTapOnButton, 2);
+        CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused + " " + refused) == refused + " " + refused, u.engine.probe("log.join(' ')"));
+        const std::string unsupported = "request refused: the client handles no requests (onRequest)";
+        CHECK((diagsOf(u.host, "request-blocked") == std::vector<std::string>{unsupported, unsupported}));
+        CHECK(requestsOf(u.host).size() == 2); // delivered, then refused there
+    }
+    CHECK_MSG(calls == 0, std::to_string(calls) + " refused requests reached the client");
+}
+
+/// The client's failures become their codes; the answer is only `result`: an empty one is a result, none is null; a
+/// result over 1024 bytes or with a NUL is INVALID_ANSWER (`answer-rejected`).
+TEST(sdk_request_failures_and_invalid_answers) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, false, "group");
+    auto tapWith = [&](WidgetRequestOutcome outcome, const std::string& code, const std::string& expected) {
+        Run r(kRequester, cfg, false);
+        r.host.onRequest = [outcome](const WidgetRequest&, Respond respond) { respond(outcome); };
+        r.engine.start();
+        r.host.waitLoaded(20);
+        r.engine.activationEvent(kTapOnButton, 1);
+        CHECK_MSG(probeUntil(r.engine, code, expected) == expected, r.engine.probe("log.join(' ')"));
+        return diagsOf(r.host, "answer-rejected");
+    };
+    for (auto [failure, code] : {std::pair{WidgetRequestFailure::Timeout, "TIMEOUT"}, {WidgetRequestFailure::RateLimited, "RATE_LIMITED"}, {WidgetRequestFailure::Failed, "FAILED"}})
+        tapWith({failure, {}}, "log[1]", std::string("err:tap:WidgetRequestError:") + code);
+    tapWith(answered(""), "log[1]", "ok:tap:{\"result\":\"\"}:true");
+    const std::vector<std::string> rejected = {"the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER"};
+    CHECK(tapWith(answered(std::string(1025, 'x')), "log[1]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered(std::string("a\0b", 3)), "log[1]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered("{\"v\":[1,2]}\n"), "log[1]", "ok:tap:{\"result\":\"{\\\"v\\\":[1,2]}\\n\"}:true").empty());
+}
+
+/// Background requests: one when the widget appears on screen, then one per 5 s. A background request at boot goes
+/// out; after hide and show the next goes out at once; another at once is RATE_LIMITED. The client gets only the data.
+TEST(sdk_background_request_after_the_widget_appears) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, true, "private");
+    const char* html = "<script>var log = []; function ask() { TelegramWidget.request('bg').then(function () { log.push('ok'); }, function (e) { log.push(e.code); }); } ask();</script>";
+    Run r(html, cfg, false);
+    r.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(std::nullopt)); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    CHECK_MSG(probeUntil(r.engine, "log.join()", "ok") == "ok", r.engine.probe("log.join()"));
+    r.engine.setVisible(false);
+    r.engine.setVisible(true);
+    r.engine.probe("ask()");
+    CHECK_MSG(probeUntil(r.engine, "log.join()", "ok,ok") == "ok,ok", r.engine.probe("log.join()"));
+    r.engine.probe("ask()");
+    CHECK_MSG(probeUntil(r.engine, "log.join()", "ok,ok,RATE_LIMITED") == "ok,ok,RATE_LIMITED", r.engine.probe("log.join()"));
+    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"bg"}, {"bg"}}));
+    // Visible all along: no reset.
+    Run v(html, cfg, false);
+    v.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(std::nullopt)); };
+    v.engine.start();
+    v.host.waitLoaded(20);
+    CHECK_MSG(probeUntil(v.engine, "log.join()", "ok") == "ok", v.engine.probe("log.join()"));
+    v.engine.setVisible(true); // no transition
+    v.engine.probe("ask()");
+    CHECK_MSG(probeUntil(v.engine, "log.join()", "ok,RATE_LIMITED") == "ok,RATE_LIMITED", v.engine.probe("log.join()"));
+}
+
+/// copyText: one per tap, to the client as given (onBridgeCopyText), never an action or a raw call; the second call of
+/// the tap and one from a timer are `activation-blocked`. A request takes the tap: a copyText or a link after it in the
+/// same tap is blocked.
+TEST(sdk_copy_text_needs_a_tap_and_shares_it_with_requests) {
+    {
+        Run r("<button>c</button><script>setTimeout(function () { TelegramWidget.copyText('timer'); }, 0);"
+              "document.querySelector('button').onclick = function () { TelegramWidget.copyText('PROMO-2026 \\u2713'); TelegramWidget.copyText('second'); };</script>");
+        r.host.waitUntil([&] { return r.host.hasDiag("activation-blocked"); }, 3);
+        r.engine.activationEvent(kTapOnButton, 1);
+        r.barrier();
+        auto l = r.host.lock();
+        CHECK_MSG((r.host.copiedTexts == std::vector<std::string>{"PROMO-2026 \xE2\x9C\x93"}), std::to_string(r.host.copiedTexts.size()));
+        CHECK_MSG(r.host.countDiag("activation-blocked") == 2, r.diagsText());
+        CHECK_MSG(r.host.actions.empty() && r.host.bridge.empty(), actionsText(r.host.actions));
+    }
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, false, "group");
+    Run r("<button>x</button><script>document.querySelector('button').onclick = function () {"
+          "  TelegramWidget.request('r'); TelegramWidget.copyText('c'); TelegramWidget.openLink('https://example.com/'); };</script>", cfg, false);
+    r.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(std::nullopt)); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK(r.host.requests.size() == 1);
+    CHECK(r.host.copiedTexts.empty());
+    CHECK_MSG(r.host.actions.empty(), actionsText(r.host.actions));
+    CHECK_MSG(r.host.countDiag("activation-blocked") == 2, r.diagsText());
+}
+
+/// A preview (an inline result not sent yet, docs/sdk-v1.md §2.16) with data, a viewer, the private chat's flags and a
+/// storage preload: it sees `isPreview`, its data, no chat type or viewer and an empty localStorage; a tap reaches
+/// nothing; `request` is NOT_ALLOWED in the shim and never reaches the client; openLink, copyText and a haptic are
+/// `preview-blocked` (×3) and reach nothing; ready and setResizeAnchor work; its storage is never committed; a timer
+/// still fires. A request forged onto the wire is the glue's `preview-blocked` too.
+TEST(sdk_preview_takes_no_input_and_no_actions) {
+    SandboxConfig cfg = testConfig();
+    cfg.data = {std::string("c"), std::string("p")};
+    cfg.context = messageContext(false, true, true, "private", WidgetViewer{42});
+    cfg.context.preview = true;
+    cfg.storage.local = {{"k", "kept"}};
+    Run r("<button>b</button><script>var log = [];"
+          "document.querySelector('button').onclick = function () { log.push('tapped'); TelegramWidget.openLink('https://example.com/tap'); };"
+          "TelegramWidget.ready(); TelegramWidget.setResizeAnchor('bottom');"
+          "TelegramWidget.request('x').catch(function (e) { log.push(e.code + ':' + /preview|inline/.test(e.message)); });"
+          "TelegramWidget.openLink('https://example.com/'); TelegramWidget.copyText('c'); TelegramWidget.HapticFeedback.selectionChanged();"
+          "localStorage.setItem('n', '1'); setTimeout(function () { log.push('timer'); }, 20);</script>", cfg, false);
+    int calls = 0;
+    r.host.onRequest = [&calls](const WidgetRequest&, Respond respond) { calls++; respond(answered("no")); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    const std::string seen = "JSON.stringify([TelegramWidget.isPreview, TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.chatType, TelegramWidget.viewer, TelegramWidget.isForward])";
+    CHECK_MSG(r.engine.probe(seen) == "[true,\"c\",\"p\",null,null,false]", r.engine.probe(seen));
+    CHECK(r.engine.probe("localStorage.getItem('k') + ',' + localStorage.getItem('n')") == "null,1"); // no preload; its own writes stay for this run
+    r.engine.activationEvent(kTapOnButton, 1);
+    r.engine.event(kTapOnButton);
+    CHECK_MSG(probeUntil(r.engine, "log.join()", "NOT_ALLOWED:true,timer") == "NOT_ALLOWED:true,timer", r.engine.probe("log.join()"));
+    r.barrier();
+    {
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.actions.size() == 1 && r.host.actions[0].kind == WidgetAction::Ready, actionsText(r.host.actions));
+        CHECK((r.host.resizeAnchors == std::vector<std::string>{"bottom"}));
+        CHECK(r.host.copiedTexts.empty() && r.host.requests.empty() && r.host.storageCommits.empty());
+        CHECK_MSG(r.host.countDiag("preview-blocked") == 3 && !r.host.hasDiag("activation-blocked") && !r.host.hasDiag("storage-rejected"), r.diagsText());
+    }
+    CHECK((diagsOf(r.host, "preview-blocked") == std::vector<std::string>{"openLink ignored: a preview (an inline result not sent yet) takes no actions",
+                                                                          "copyText ignored: a preview (an inline result not sent yet) takes no actions",
+                                                                          "haptic ignored: a preview (an inline result not sent yet) takes no actions"}));
+    // A widget that rewrites what the shim sends forges a request in place of ready(): the glue drops it too.
+    SandboxConfig forged = cfg;
+    Run f("<script>var s = JSON.stringify; JSON.stringify = function (v) { return s(Array.isArray(v) && v[0] === 'ready' ? ['request', [1, 'forged']] : v); };"
+          "TelegramWidget.ready();</script>", forged, false);
+    f.host.onRequest = [&calls](const WidgetRequest&, Respond respond) { calls++; respond(answered("no")); };
+    f.engine.start();
+    f.host.waitLoaded(20);
+    f.barrier();
+    CHECK((diagsOf(f.host, "preview-blocked") == std::vector<std::string>{"request ignored: a preview (an inline result not sent yet) takes no actions"}));
+    CHECK(diagsOf(f.host, "request-blocked").empty() && requestsOf(f.host).empty());
+    CHECK_MSG(calls == 0, std::to_string(calls) + " requests reached the client");
+}
+
+/// WidgetHost, preview: the renderer's events (trusted or not) and gesture claims are dropped; only `ready` reaches
+/// onAction; nothing reaches onRequest, onCopyText or onStorageCommit.
+TEST(sdk_widget_host_preview_drops_input) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHostOptions options;
+    options.context = messageContext(false, true, true, "private", WidgetViewer{7});
+    options.context.preview = true;
+    options.storage.local = {{"k", "v"}};
+    WidgetHost host("<button>b</button><script>var taps = 0; TelegramWidget.ready();"
+                    "document.querySelector('button').onclick = function () { taps++; TelegramWidget.copyText('x'); TelegramWidget.request('r').catch(function () {}); localStorage.k = 'w'; };"
+                    "localStorage.setItem('mine', '1');</script>",
+                    WidgetTheme{}, 300, options, RES, scripted(renderer));
+    std::mutex m;
+    int requests = 0, copies = 0, commits = 0, claims = 0;
+    std::vector<WidgetAction> actions;
+    host.onRequest = [&](const WidgetRequest&, Respond respond) { std::lock_guard<std::mutex> l(m); requests++; respond(answered("no")); };
+    host.onCopyText = [&](const std::string&) { std::lock_guard<std::mutex> l(m); copies++; };
+    host.onStorageCommit = [&](const std::string&, const StorageArea&) { std::lock_guard<std::mutex> l(m); commits++; };
+    host.onGesture = [&](const WidgetGestureClaim&) { std::lock_guard<std::mutex> l(m); claims++; };
+    host.onAction = [&](const WidgetAction& a) { std::lock_guard<std::mutex> l(m); actions.push_back(a); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK(host.probe("TelegramWidget.isPreview + ',' + TelegramWidget.chatType + ',' + TelegramWidget.viewer + ',' + localStorage.getItem('k')") == "true,null,null,null");
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + "}");
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":true,\"y\":false,\"hold\":true}");
+    host.onHostThread([] {});
+    host.probe("0");
+    host.onHostThread([] {});
+    CHECK(host.probe("taps") == "0");
+    host.destroy();
+    std::lock_guard<std::mutex> l(m);
+    CHECK(requests == 0 && copies == 0 && commits == 0 && claims == 0);
+    CHECK_MSG(actions.size() == 1 && actions[0].kind == WidgetAction::Ready, actionsText(actions));
+    CHECK(host.diagnostics().countDiag("activation-blocked") == 0 && host.diagnostics().countDiag("storage-rejected") == 0);
+}
+
+/// WidgetHost: data and the message's flags from WidgetHostOptions; onRequest on the host thread, answered
+/// from another thread; a second respond is ignored; onCopyText on the host thread; setData (chatDataChanged and
+/// publicDataChanged); a respond after destroy() and after the host is gone is ignored; without onRequest at delivery a
+/// request is refused, and one set later on the host thread gets the next.
+TEST(sdk_widget_host_requests_data_and_copy_text) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHostOptions options;
+    options.data = {std::string("v1"), std::string("pub")};
+    options.context = messageContext(false, true, false, "group", WidgetViewer{7});
+    auto host = std::make_unique<WidgetHost>(kRequester, WidgetTheme{}, 300, options, RES, scripted(renderer));
+    std::thread::id hostThread;
+    host->onHostThread([&] { hostThread = std::this_thread::get_id(); });
+    std::mutex m;
+    std::vector<WidgetRequest> asked;
+    std::vector<std::string> copied;
+    std::vector<Respond> kept;
+    bool onHost = true;
+    host->onRequest = [&](const WidgetRequest& q, Respond respond) {
+        std::lock_guard<std::mutex> l(m);
+        onHost = onHost && std::this_thread::get_id() == hostThread;
+        asked.push_back(q);
+        kept.push_back(std::move(respond));
+    };
+    host->onCopyText = [&](const std::string& text) {
+        std::lock_guard<std::mutex> l(m);
+        onHost = onHost && std::this_thread::get_id() == hostThread;
+        copied.push_back(text);
+    };
+    host->start();
+    CHECK(host->waitLoaded(20));
+    CHECK_MSG(host->probe(kShowContext) == "[\"v1\",\"pub\",false,\"group\",{\"id\":7}]", host->probe(kShowContext));
+    auto tap = [&] { renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}"); };
+    tap();
+    CHECK(eventually([&] { std::lock_guard<std::mutex> l(m); return kept.size() == 1; }));
+    Respond respond;
+    {
+        std::lock_guard<std::mutex> l(m);
+        respond = kept[0];
+    }
+    std::thread([respond] {
+        respond(answered("thanks"));
+        respond({WidgetRequestFailure::Timeout, {}}); // once only
+    }).join();
+    std::string log = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true";
+    CHECK_MSG(probeUntil(*host, "log.join(' ')", log) == log, host->probe("log.join(' ')"));
+    // The bot's data through setData: one event per changed field.
+    host->setData({std::string("v3"), std::string("pub")});
+    host->setData({std::string("v3"), std::string("pub")});
+    host->setData({std::string("v3"), std::string("pub2")});
+    log += " chat:v3 public:pub2";
+    CHECK_MSG(probeUntil(*host, "log.join(' ')", log) == log, host->probe("log.join(' ')"));
+    // copyText in a tap; untrusted, it is blocked.
+    host->probe("mode = 'copy'");
+    tap();
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + "}");
+    CHECK(host->waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("activation-blocked") >= 3; }, 5)); // the tap's second call, the untrusted click's two
+    host->onHostThread([] {});
+    {
+        std::lock_guard<std::mutex> l(m);
+        CHECK_MSG((copied == std::vector<std::string>{"PROMO-2026 \xE2\x9C\x93"}), std::to_string(copied.size()));
+        CHECK((asked == std::vector<WidgetRequest>{{"tap"}}));
+        CHECK(onHost);
+    }
+    WidgetDiagnostics d = host->diagnostics();
+    CHECK_MSG(d.actions.empty() && d.bridge.empty(), actionsText(d.actions));
+    CHECK(d.countDiag("request-blocked") == 0 && d.countDiag("answer-rejected") == 0);
+    // A request in flight when the host goes: its respond is ignored after destroy() and after the host is freed.
+    host->probe("mode = 'ask'");
+    tap();
+    CHECK(eventually([&] { std::lock_guard<std::mutex> l(m); return kept.size() == 2; }));
+    {
+        std::lock_guard<std::mutex> l(m);
+        respond = kept[1];
+    }
+    host->destroy();
+    respond(answered("late"));
+    host.reset();
+    respond(answered("later"));
+    // Without onRequest at delivery: refused, `unsupported`.
+    WidgetHostOptions plainOptions;
+    plainOptions.context = messageContext(false, true, false, "group");
+    WidgetHost plain(kRequester, WidgetTheme{}, 300, plainOptions, RES, scripted(renderer));
+    plain.start();
+    CHECK(plain.waitLoaded(20));
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
+    const std::string refused = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED";
+    CHECK_MSG(probeUntil(plain, "log.join(' ')", refused) == refused, plain.probe("log.join(' ')"));
+    CHECK(plain.waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("request-blocked") == 1; }, 5));
+    CHECK(plain.diagnostics().diags["request-blocked"].second == std::vector<std::string>{"request refused: the client handles no requests (onRequest)"});
+    // Decided at delivery: set on the host thread after start, the next tap's request reaches it.
+    plain.onHostThread([&] { plain.onRequest = [](const WidgetRequest& q, Respond respond) { respond(answered("late " + q.data)); }; });
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
+    const std::string answeredLog = refused + " err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"late tap\"}:true";
+    CHECK_MSG(probeUntil(plain, "log.join(' ')", answeredLog) == answeredLog, plain.probe("log.join(' ')"));
+}
+
+static size_t countHaptics(RecordingHost& host) {
+    auto l = host.lock();
+    return size_t(countActions(host.actions, WidgetAction::Haptic));
+}
+
+/// v0.2.2 (the Telegram Android 13.2.0 report): a timer that asks for a haptic every 10 ms with no touch gets one series,
+/// at most 16 played in its first second (a burst of 5, then 10 per second) and none in the next second, reported as
+/// `haptic-limit`; a press (the renderer's, `pressBegan`) lets them through again. After a spent series a haptic outside
+/// a touch is dropped and one in a tap's handler (press, click, release) plays.
+TEST(sdk_haptics_need_a_touch) {
+    Run r("<script>var H = TelegramWidget.HapticFeedback; setInterval(function () { H.notificationOccurred('error'); }, 10);</script>");
+    sleepMs(1300);
+    const size_t first = countHaptics(r.host);
+    CHECK_MSG(first >= 5 && first <= 16, std::to_string(first) + " haptics in the series");
+    sleepMs(1000);
+    CHECK_MSG(countHaptics(r.host) == first, std::to_string(countHaptics(r.host)) + " after the series, " + std::to_string(first) + " in it");
+    {
+        auto l = r.host.lock();
+        bool detail = false;
+        for (auto& d : r.host.diags)
+            detail = detail || (d.first == "haptic-limit" && d.second == "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped");
+        CHECK_MSG(detail, r.diagsText());
+    }
+    r.engine.pressBegan();
+    CHECK(r.host.waitUntil([&] { return size_t(countActions(r.host.actions, WidgetAction::Haptic)) > first; }, 3));
+    r.engine.pressEnded();
+
+    Run t("<button>b</button><script>var H = TelegramWidget.HapticFeedback; H.selectionChanged();"
+          "document.querySelector('button').onclick = function () { H.impactOccurred('light'); };</script>");
+    sleepMs(1100); // the boot's call opened a series and played; it is over now
+    t.engine.probe("TelegramWidget.HapticFeedback.selectionChanged(), 1");
+    t.engine.event(kTapOnButton); // an untrusted click is no press
+    t.barrier();
+    CHECK(countHaptics(t.host) == 1);
+    t.engine.pressBegan();
+    t.engine.activationEvent(kTapOnButton, 1);
+    t.engine.pressEnded();
+    t.barrier();
+    auto l = t.host.lock();
+    CHECK_MSG(actionsText(t.host.actions) == "{\"kind\":\"haptic\",\"haptic\":\"selection\"} {\"kind\":\"haptic\",\"haptic\":\"impact\",\"value\":\"light\"} ", actionsText(t.host.actions));
+}
+
+/// WidgetHost: presses come from the renderer's messages (v0.2.2): after a spent series an untrusted click's haptic is
+/// dropped (`haptic-limit`), and one in a tap the renderer frames with `gesture` and `release` plays.
+TEST(sdk_widget_host_haptics_follow_the_renderers_presses) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<button>b</button><script>var H = TelegramWidget.HapticFeedback; H.selectionChanged();"
+                    "document.querySelector('button').onclick = function () { H.impactOccurred('light'); };</script>",
+                    WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+    std::mutex m;
+    std::vector<WidgetAction> actions;
+    host.onAction = [&](const WidgetAction& a) { std::lock_guard<std::mutex> l(m); actions.push_back(a); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    sleepMs(1100);
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + "}");
+    CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("haptic-limit") == 1; }, 5));
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":false,\"y\":false,\"hold\":false}");
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
+    renderer->onMessage("{\"type\":\"release\"}");
+    CHECK(eventually([&] { std::lock_guard<std::mutex> l(m); return actions.size() >= 2; }));
+    host.probe("0");
+    host.onHostThread([] {});
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG(actionsText(actions) == "{\"kind\":\"haptic\",\"haptic\":\"selection\"} {\"kind\":\"haptic\",\"haptic\":\"impact\",\"value\":\"light\"} ", actionsText(actions));
+    CHECK(host.diagnostics().diags["haptic-limit"].second == std::vector<std::string>{"haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped"});
 }
 
 TEST(widget_code_cannot_reach_host_globals) {

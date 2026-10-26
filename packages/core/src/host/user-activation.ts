@@ -69,10 +69,15 @@ export class HostActivationGate {
 
   /** True once per issued gesture, while the widget is visible and the gesture is recent. */
   accept(gesture: unknown, now: number, visible: boolean): boolean {
+    if (!this.available(gesture, now, visible)) return false;
+    this.consumed = gesture as number;
+    return true;
+  }
+
+  /** What `accept` would say, without consuming the gesture (a request consumes it only when it goes out as a press's). */
+  available(gesture: unknown, now: number, visible: boolean): boolean {
     const n = typeof gesture === 'number' && Number.isInteger(gesture) ? gesture : 0;
     const at = this.issued.get(n);
-    if (!visible || n <= this.consumed || at === undefined || now - at > GESTURE_TTL_MS) return false;
-    this.consumed = n;
-    return true;
+    return visible && n > this.consumed && at !== undefined && now - at <= GESTURE_TTL_MS;
   }
 }

@@ -31,7 +31,8 @@
       <div id="feed-view" class="hidden"></div>
       <div class="stage">
         <div class="chat" id="chat-sandbox">
-          <div class="bubble-head">sandbox</div>
+          <!-- the network marker (docs/integration.md "The network marker"): shown when the message has can_query -->
+          <div class="bubble-head">sandbox <span id="net-marker" class="net-marker hidden" title="can_query: a tap on this widget may send data to the bot's server (docs/integration.md, the network marker)">⇅ may send data to the bot</span></div>
           <div class="bubble"><div class="frame-wrap" id="sandbox-wrap"></div></div>
           <div id="widget-error" class="hidden"></div>
         </div>
@@ -48,6 +49,7 @@
       <section><h3>Stats</h3><table id="stats"></table></section>
       <section><h3>Diagnostics</h3><ul id="diags"></ul></section>
       <section><h3>Bridge</h3><ul id="bridge"></ul></section>
+      <section title="the mock bot (src/mock-bot.ts): the widget's chatData / publicData, the bot's edits, its answers to requests, and the context a client passes"><h3>Bot (mock)</h3><div id="bot-panel"></div></section>
       <section><h3>Gestures</h3><ul id="gestures"></ul></section>
       <section class="grow"><h3>Widget console</h3><pre id="console"></pre></section>
     </aside>

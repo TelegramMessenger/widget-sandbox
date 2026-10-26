@@ -11,8 +11,9 @@ import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import { GESTURE_MODES, bubbleGestureLabel, bubbleGesturesOption, claimLabel, gestureMode, showBubbleGesture, type GestureMode } from './bubble-gestures';
 import type { FeedApi } from './feed';
+import { DEFAULT_PROFILE, MODES, MockBot, botOf, mountPanel, showCopied, type Mode, type RequestRecord } from './mock-bot';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
-import { DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, themeVariables, type ResizeAnchor, type StorageCommit, type WidgetAction } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { CHAT_TYPES, DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, WIDGET_MESSAGE_KINDS, themeVariables, type ChatType, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetMessageKind } from '@telegram/widget-sandbox/shared/sdk-policy';
 import { sizeVerdict, type WidgetSize } from '@telegram/widget-sandbox/shared/widget-size';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -23,7 +24,8 @@ const el = {
   sandboxWrap: $('#sandbox-wrap'), referenceWrap: $('#reference-wrap'), chatReference: $('#chat-reference'), compareChats: $('#compare-chats'), stage: $('.stage'),
   status: $('#status'), stats: $('#stats'), diags: $('#diags'), bridge: $('#bridge'), console: $('#console'),
   widgetError: $('#widget-error'), width: $<HTMLSelectElement>('#width'), widthValue: $('#width-value'), gestureMode: $<HTMLSelectElement>('#gesture-mode'),
-  chatSandbox: $('#chat-sandbox'), bubble: $('#chat-sandbox .bubble'), gestures: $('#gestures'),
+  chatSandbox: $('#chat-sandbox'), bubble: $('#chat-sandbox .bubble'), gestures: $('#gestures'), botPanel: $('#bot-panel'),
+  netMarker: $('#net-marker'),
 };
 
 export interface TwState {
@@ -49,9 +51,21 @@ export interface TwState {
   lastError: string | null;
   /** The HTML's size as the server counts it (zlib, UTF-8 bytes; widget-size.ts): null until measured. */
   size: WidgetSize | null;
+  /** The widget's requests to the mock bot (`onRequest`) and what each got, in order (all files; the bot keeps the last 200). */
+  requests: RequestRecord[];
+  /** Texts the widget copied (`onCopyText`), in order. */
+  copiedTexts: string[];
 }
 
-const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, resizeAnchor: DEFAULT_RESIZE_ANCHOR, lastError: null, size: null };
+// The mock bot (mock-bot.ts): the message's chatData / publicData, the bot's answers and edits, the client's context.
+const bot = new MockBot({
+  restart: () => { if (state.html) load(state.html, state.file); },
+  setData: (data) => { for (const h of [host, ...compareHosts]) h?.setData(data); },
+  changed: () => { coalesce(renderBot); coalesce(syncUrl); },
+});
+const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, resizeAnchor: DEFAULT_RESIZE_ANCHOR, lastError: null, size: null, requests: bot.requests, copiedTexts: [] };
+/** The file whose `<meta name="tw-bot">` chose the bot: a restart of the same file keeps the bot the panel shows. */
+let botFile: string | null | undefined;
 /** The bubble's own presses (docs/sdk-v1.md §5.5): `?gestures=phone` (default), `desktop` or `off`. */
 let gestures: GestureMode = gestureMode(new URLSearchParams(location.search).get('gestures'));
 /** Bubble widths a client lays out (CSS px); 0 = the default column, -1 = free (drag the column's corner). */
@@ -101,6 +115,18 @@ function applyVisibility() {
   host?.setVisible(forcedVisible ?? (intersecting && !document.hidden));
 }
 document.addEventListener('visibilitychange', applyVisibility);
+
+// The client's poll of a shared widget's public_data (docs/integration.md): only while the widget watches
+// (`watchPublicData`), is on screen and is a shared object (the mock bot's `shared`), every `bot.pollMs`.
+let lastPoll = 0;
+setInterval(() => {
+  const now = performance.now();
+  if (now - lastPoll < bot.pollMs) return;
+  if (!host || !state.loaded || state.dead || !host.watchesPublicData || !(forcedVisible ?? (intersecting && !document.hidden))) return;
+  lastPoll = now;
+  const next = bot.poll(state.file);
+  if (next) for (const h of [host, ...compareHosts]) h?.setData(next);
+}, 50);
 let referenceTimer = 0;
 let loadWaiters: (() => void)[] = [];
 
@@ -189,6 +215,8 @@ function renderGestures() {
   const taken = state.bubbleGestures.slice(-4).map((g) => `bubble: ${bubbleGestureLabel(g)} (${g.gesture}; the widget got pointercancel)`);
   el.gestures.replaceChildren(...[...rows, ...taken].map((t) => Object.assign(document.createElement('li'), { textContent: t })));
 }
+const botPanel = mountPanel(el.botPanel, bot, () => state.file);
+function renderBot() { botPanel.render(); }
 function renderConsole() {
   el.console.replaceChildren(...state.logs.slice(-300).map((l) => {
     const div = document.createElement('div');
@@ -204,7 +232,8 @@ function renderConsole() {
 function load(html: string, name: string | null) {
   host?.destroy();
   host = null;
-  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, resizeAnchor: DEFAULT_RESIZE_ANCHOR, lastError: null, size: null });
+  Object.assign(state, { file: name, html, loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, resizeAnchor: DEFAULT_RESIZE_ANCHOR, lastError: null, size: null, copiedTexts: [] });
+  if (name !== botFile || name === null) { botFile = name; bot.bot = botOf(html); }
   applyAnchor();
   void measureSize(html).then((size) => { if (state.html === html) { state.size = size; coalesce(renderStats); } });
   tasksAtError = 0;
@@ -225,13 +254,25 @@ new ResizeObserver(() => {
 
   el.title.textContent = name ?? 'dropped file';
   el.sandboxWrap.replaceChildren();
-  renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole(); renderGestures();
+  renderStatus(); renderStats(); renderDiags(); renderBridge(); renderConsole(); renderGestures(); renderBot();
+  const context = bot.hostContext();
+  bot.loaded(name);
+  // The network marker, as a client draws it: exactly when the message has can_query (a preview has no flags).
+  el.netMarker.classList.toggle('hidden', !context.canQuery || !!context.preview);
   host = new WidgetHost(el.sandboxWrap, html, {
     policy: WIDGET_POLICY,
     features: WIDGET_FEATURES,
     theme: state.theme,
     locale: LOCALE,
     storage: storageFor(name),
+    data: bot.dataFor(name),
+    context,
+    onRequest: (request) => bot.request(name, request),
+    onCopyText: (text) => {
+      state.copiedTexts.push(text);
+      showCopied(el.bubble, text);
+      navigator.clipboard?.writeText(text).catch(() => {});
+    },
     ...limits,
     // Blitz / litehtml (dev tooling): a native renderer compiled to wasm instead of the sandboxed iframe; sandbox and validator unchanged.
     // Shadow DOM (prototype): the same renderer core on a shadow root in this page, no iframe.
@@ -259,6 +300,7 @@ new ResizeObserver(() => {
     onDead: (reason) => { state.dead = reason; renderStatus(); settle(); },
     onLoaded: () => { state.loaded = true; renderStatus(); settle(); },
     onResize: (h, anchor) => { state.height = h; state.resizeAnchor = anchor; applyAnchor(); coalesce(renderStats); },
+    onWatchPublicData: (on) => { bot.watching = on; coalesce(renderBot); },
   });
   visibilityObserver.disconnect();
   intersecting = true;
@@ -328,6 +370,8 @@ function updateCompare() {
       policy: WIDGET_POLICY,
       features: WIDGET_FEATURES,
       theme: state.theme,
+      data: bot.dataFor(state.file),
+      context: bot.hostContext(),
       ...limits,
       rendererFactory: r.factory,
       bubbleGestures: bubbleGesturesOption(gestures),
@@ -443,6 +487,12 @@ function syncUrl() {
   if (workerPool) p.set('pool', String(workerPool.size));
   if (bubbleWidth) p.set('width', bubbleWidth > 0 ? String(bubbleWidth) : 'free');
   if (gestures !== 'phone') p.set('gestures', gestures);
+  // The mock bot's context and answers, when not the defaults (the original in the private chat with the bot, viewer 1001).
+  const c = bot.context;
+  if (c.message !== 'private') p.set('message', c.message);
+  if (c.chatType) p.set('chat', c.chatType);
+  if (c.viewer !== 1001 || c.profile !== DEFAULT_PROFILE) p.set('viewer', c.viewer === null ? 'none' : `${c.viewer},${c.profile}`);
+  if (bot.mode !== 'bot') p.set('botmode', bot.mode);
   history.replaceState(null, '', '?' + p.toString());
 }
 
@@ -509,6 +559,21 @@ async function init() {
   el.litehtml.checked = params.get('litehtml') === '1';
   el.shadow.checked = params.get('shadow') === '1';
   el.compare.checked = params.get('compare') === '1';
+  // The mock bot's context from the URL (`?message=group&chat=supergroup&viewer=42,Ann,Lee,ann_lee,premium&botmode=TIMEOUT`), before the first widget.
+  const kind = params.get('message');
+  if (kind && kind in WIDGET_MESSAGE_KINDS) bot.context.message = kind as WidgetMessageKind;
+  const chat = params.get('chat');
+  if (chat) bot.context.chatType = (CHAT_TYPES as readonly string[]).includes(chat) ? (chat as ChatType) : null;
+  const viewer = params.get('viewer');
+  if (viewer) {
+    // `?viewer=42` keeps the default names; `?viewer=42,Ann,,ann_lee,premium` sets them (`viewerFromList`).
+    const [id, ...rest] = viewer.split(',');
+    bot.context.viewer = Number(id) > 0 ? Number(id) : null;
+    if (rest.length) bot.context.profile = rest.join(',');
+  }
+  const botMode = params.get('botmode');
+  if (botMode && (MODES as readonly string[]).includes(botMode)) bot.mode = botMode as Mode;
+  renderBot();
   const w = params.get('width');
   setWidth(w === 'free' ? 'free' : Number(w) || 0);
   setGestures(gestures);
@@ -575,6 +640,14 @@ el.drop.addEventListener('drop', async (e) => {
   get pool() { return workerPool ? { size: workerPool.size, warm: workerPool.warm, ...workerPool.stats } : null; },
   /** `?feed=1`: the chat feed demo's API (src/feed.ts); null otherwise. */
   feed: null as FeedApi | null,
+  /**
+   * The mock bot (mock-bot.ts): `bot.bot` (echo, poll, tictactoe, ticker, promo), `bot.mode` (bot, manual, TIMEOUT,
+   * RATE_LIMITED, FAILED), `bot.delayMs`, `bot.context` (then `restart()`), `bot.requests`, `bot.dataFor(file)`,
+   * `bot.edit(file, { chatData, publicData })`, `bot.answer(record)` / `bot.fail(record, code)` for manual answers.
+   */
+  bot,
+  /** Set the client's context for the widget (the kind of message: its server flags; the chat type; the viewer) and re-create it. */
+  setContext: (patch: Partial<MockBot['context']>) => { Object.assign(bot.context, patch); renderBot(); if (state.html) load(state.html, state.file); else syncUrl(); },
 };
 
 init().catch((e) => { el.status.textContent = String(e); });

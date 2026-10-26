@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts. */
 data class SandboxConfig(
@@ -50,6 +51,10 @@ data class SandboxConfig(
     var locale: String = SdkPolicy.DEFAULT_LOCALE,
     /** The client's Web Storage preload (docs/sdk-v1.md §2.8); over the quota it is dropped whole with `storage-rejected` and the widget starts empty. */
     var storage: WidgetStorage? = null,
+    /** The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13): a field that is not text of at most 1024 bytes is null with `data-rejected`, a copy gets no chatData. Later edits: [SandboxEngine.setData]. */
+    var data: WidgetData = WidgetData(),
+    /** The message's flags from the server (docs/sdk-v1.md §4.4: `isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer; fixed for the engine's life. */
+    var context: WidgetContext = WidgetContext(),
 )
 
 /** The features the Kotlin glue implements; the twin of Swift `runtimeFeatures` and `WEB_FEATURES` in worker.ts. */
@@ -76,8 +81,17 @@ data class SandboxStats(
 private const val ACTIVATION_PREFIX = "activation:"
 /** Two full areas of the quota at 12 JSON characters per byte (`\uXXXX` escapes plus the quotes, colon and comma of tiny pairs): a longer commit cannot be within it (worker.ts). */
 private const val MAX_STORAGE_COMMIT_CHARS = 2 * 12 * SdkPolicy.STORAGE_QUOTA_BYTES + 64
-/** `bridge-rejected`, `activation-blocked` and `storage-rejected` are each reported at most this often per widget. */
+/** `bridge-rejected`, `activation-blocked`, `storage-rejected`, `request-blocked` and `preview-blocked` are each reported at most this often per widget. */
 private const val MAX_REJECTED_REPORTS = 20
+/** Why the request gate refused a request (the `request-blocked` detail; widget-host.ts REQUEST_REFUSED). */
+private val REQUEST_REFUSED = mapOf(
+    RequestVerdict.DISABLED to "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)",
+    RequestVerdict.BUSY to "a request is already in flight",
+    RequestVerdict.NO_ACTIVATION to "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
+    RequestVerdict.HIDDEN to "a background request from a widget off screen",
+    RequestVerdict.RATE_LIMITED to "background requests at most once per 5 s",
+)
+private const val UNSUPPORTED_DETAIL = "request refused: the client handles no requests (onRequest)"
 
 /** Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets. */
 internal fun coarseNowMs(ms: Double): Double = kotlin.math.floor(ms / 0.1) * 0.1
@@ -113,6 +127,25 @@ class SandboxEngine(
          * not gated by visibility; the shim sends only changes, during the task and before that task's ops.
          */
         fun onResizeAnchor(engine: SandboxEngine, edge: String) {}
+        /**
+         * `TelegramWidget.watchPublicData()` (true) / `unwatchPublicData()` (false) (docs/sdk-v1.md §2.13): whether the widget
+         * wants its shared `public_data` polled while on screen. Like the anchor: not an action, no gesture, not gated by
+         * visibility; the shim sends only changes.
+         */
+        fun onWatchPublicData(engine: SandboxEngine, on: Boolean) {}
+        /**
+         * A request the gate let through (docs/sdk-v1.md §2.14: [WidgetContext.canQuery] and a press, or a background
+         * request where [WidgetContext.backgroundQuery] allows it; one in flight per widget). Call `respond` once, from any thread,
+         * with the bot's answer or a failure (`Result.failure(WidgetRequestException(…))`; any other exception is FAILED);
+         * later calls, and calls after the widget died, are ignored. Until then the widget's next request is BUSY. A client
+         * that handles no requests completes with [WidgetRequestUnsupported] (the default): NOT_ALLOWED in the widget,
+         * `request-blocked` with the reason `unsupported`; WidgetHost decides that on the main thread at delivery.
+         */
+        fun onRequest(engine: SandboxEngine, request: WidgetRequest, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+            respond(Result.failure(WidgetRequestUnsupported()))
+        }
+        /** `TelegramWidget.copyText(text)` that passed its checks (1–256 UTF-16 units; one per press under the strict policy, shared with the link calls). Not an action (no `onAction` / `onBridge`). */
+        fun onCopyText(engine: SandboxEngine, text: String) {}
         fun onLoaded(engine: SandboxEngine)
         fun onStats(engine: SandboxEngine, stats: SandboxStats)
         fun onDied(engine: SandboxEngine, reason: String)
@@ -240,7 +273,16 @@ class SandboxEngine(
                         .put("themeParams", JSONObject(SdkPolicy.checkThemeParams(config.themeParams)))
                         .put("locale", SdkPolicy.checkLocale(config.locale) ?: SdkPolicy.DEFAULT_LOCALE)
                         .put("profile", SdkPolicy.PROFILE_VERSION)
-                        .put("storage", preload())
+                        // A preview has no message yet: no storage of its own (it lives in the sandbox for this run, never committed).
+                        .put("storage", if (preview) JSONObject() else preload())
+                        .also { putData(it, checkData(config.data)) }
+                        .put("isCopy", copy)
+                        .put("canQuery", canQuery)
+                        .put("isPreview", preview)
+                        // No copy says where it was forwarded (a bot could learn it from the widget's 64-byte requests), nor does a
+                        // preview; the viewer only where the widget may send requests (canQuery, never in a preview).
+                        .put("chatType", (if (preview || copy) null else SdkPolicy.checkChatType(config.context.chatType)) ?: JSONObject.NULL)
+                        .put("viewer", (if (hideViewer) null else viewer())?.let(::viewerJson) ?: JSONObject.NULL)
                         .put("features", JSONArray(config.features.intersect(RUNTIME_FEATURES).sorted())),
                 ).toString()
             callTw("boot", bootArg)
@@ -262,22 +304,59 @@ class SandboxEngine(
 
     private val activation = ActivationGate()
     private val haptics = HapticGate()
+    private val requests = RequestGate()
+    /** A preview (an inline result not sent yet, docs/sdk-v1.md §2.16) asks nothing and is no copy, whatever the flags say. */
+    private val preview = config.context.preview
+    private val copy = config.context.isCopy && !preview
+    private val canQuery = config.context.canQuery && !preview
+    private val backgroundQuery = config.context.backgroundQuery && !preview
+    /** The widget knows its viewer only where it may send requests (`canQuery`, never in a preview), as the network marker. */
+    private val hideViewer = !canQuery
+    private var previewBlockedReported = 0
     private var blockedBridgeReported = 0
+    private var blockedRequestsReported = 0
     private var rejectedBridgeReported = 0
     private var rejectedStorageReported = 0
     fun frame(time: Double) = enqueue("frame", coarseNowMs(time).toString())
     fun viewport(innerWidth: Double, innerHeight: Double, dpr: Double) =
         enqueue("viewport", JSONObject().put("innerWidth", innerWidth).put("innerHeight", innerHeight).put("dpr", dpr).toString())
     fun resize(entriesJson: String) = enqueue("resize", entriesJson)
+
+    /**
+     * A primary press began on the widget (the renderer's claim at pointerdown: trusted input, never the widget's events):
+     * haptics are free while it lasts and 5 s after (HapticGate, docs/sdk-v1.md §2.6). Timestamped now, on the gate's clock.
+     */
+    fun press() {
+        val at = nowMs()
+        thread.post { haptics.press(at) }
+    }
+
+    /** The primary press ended (the renderer's `release`: pointerup or pointercancel). */
+    fun release() {
+        val at = nowMs()
+        thread.post { haptics.release(at) }
+    }
     /** The colour scheme and the palette (checked here). The shim fills keys that are missing from the scheme's defaults, so pass the full palette at every change. */
     fun theme(theme: String, themeParams: Map<String, String> = emptyMap()) =
         enqueue("theme", JSONObject().put("theme", theme).put("themeParams", JSONObject(SdkPolicy.checkThemeParams(themeParams))).toString())
+
+    /**
+     * The bot's data changed (docs/sdk-v1.md §2.13): the full state of both strings, checked here (`data-rejected`;
+     * a copy keeps no chatData, its publicData applies). The widget gets `chatDataChanged`, then `publicDataChanged`, for
+     * each that differs: a `bridge` task, deferred under the CPU quota like a theme change, in order.
+     */
+    fun setData(data: WidgetData) = thread.post {
+        if (dead) return@post
+        accept("bridge", putData(JSONObject().put("type", "data"), checkData(data)).toString())
+    }
 
     /** The host knows whether the widget is on screen; the sandbox does not. */
     fun setVisible(v: Boolean) {
         thread.post {
             if (dead || visible == v) return@post
             visible = v
+            // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
+            if (v) requests.show()
             if (js == null) return@post // boot reads `visible` for the shim
             dispatch("visibility", "{\"visible\":$v}")
             if (v) {
@@ -287,17 +366,18 @@ class SandboxEngine(
         }
     }
 
-    private fun enqueue(kind: String, arg: String) {
-        thread.post {
-            if (dead) return@post
-            if (js == null) {
-                pendingBeforeBoot.add(kind to arg)
-                return@post
-            }
-            // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
-            if (kind == "frame" && !visible) { frameWanted = true; return@post }
-            dispatch(kind, arg)
+    private fun enqueue(kind: String, arg: String) = thread.post { accept(kind, arg) }
+
+    /** An input on the engine thread, outside any task: kept until boot, a hidden widget's frame dropped, else dispatched. */
+    private fun accept(kind: String, arg: String) {
+        if (dead) return
+        if (js == null) {
+            pendingBeforeBoot.add(kind to arg)
+            return
         }
+        // A frame that arrives after the widget was hidden is dropped; the shim's callbacks wait for the next visible frame.
+        if (kind == "frame" && !visible) { frameWanted = true; return }
+        dispatch(kind, arg)
     }
 
     /** Runs one task for an input (event, timer, frame, …) if the CPU quota allows, otherwise defers it (returns false). Events and visibility always run. */
@@ -450,29 +530,50 @@ class SandboxEngine(
 
     /**
      * `__host('bridge', JSON [method, args])` (docs/sdk-v1.md §3.2), checked in this order:
-     * the method and its arguments (`bridge-rejected`), user activation for the link calls
-     * under the strict policy (`activation-blocked`), the haptic limit (`haptic-limit`).
-     * `setResizeAnchor` is no action: it goes to `onResizeAnchor` once its argument passed.
+     * the method and its arguments (`bridge-rejected`), in a preview its allowed methods (`preview-blocked`),
+     * user activation for the link calls and `copyText` under the strict policy (`activation-blocked`), the
+     * haptic limit (`haptic-limit`).
+     * `setResizeAnchor` is no action: it goes to `onResizeAnchor` once its argument passed; `request`
+     * has its own gate ([request]); `copyText` goes to `onCopyText`, not `onAction`.
      */
     private fun bridgeCall(arg: String) {
         val call = (try { JSONTokener(arg).nextValue() } catch (e: Exception) { null }) as? JSONArray
         val method = call?.opt(0)
         val args = call?.opt(1)
         val name = (method?.toString() ?: "undefined").take(64)
-        val action = when (val checked = if (call == null) null else SdkPolicy.checkBridgeCall(method, args)) {
-            null -> {
-                if (rejectedBridgeReported < MAX_REJECTED_REPORTS) {
-                    rejectedBridgeReported += 1
-                    delegate?.onDiag(this, "bridge-rejected", "$name: unknown method or malformed arguments")
-                }
-                return
+        val c = (if (call == null) null else SdkPolicy.checkBridgeCall(method, args)) ?: run {
+            if (rejectedBridgeReported < MAX_REJECTED_REPORTS) {
+                rejectedBridgeReported += 1
+                delegate?.onDiag(this, "bridge-rejected", "$name: unknown method or malformed arguments")
             }
+            return
+        }
+        // A preview may only say it is ready and set its anchor: no request, link, copy or haptic (docs/sdk-v1.md §2.16).
+        if (preview && !SdkPolicy.allowedInPreview(method)) {
+            if (previewBlockedReported < MAX_REJECTED_REPORTS) {
+                previewBlockedReported += 1
+                delegate?.onDiag(this, "preview-blocked", "$name ignored: a preview (an inline result not sent yet) takes no actions")
+            }
+            if (c is BridgeCall.Request) enqueue("bridge", JSONObject().put("type", "answer").put("id", c.id).put("error", "NOT_ALLOWED").put("reason", "preview").toString())
+            return
+        }
+        val checked = when (c) {
             // Not an action: the host keeps the latest anchor next to the height (no gesture, no visibility gate).
             is BridgeCall.SetResizeAnchor -> {
-                delegate?.onResizeAnchor(this, checked.edge)
+                delegate?.onResizeAnchor(this, c.edge)
                 return
             }
-            is WidgetAction -> checked
+            // Not an action either: the host keeps whether the widget watches its public_data and tells the client on a change.
+            is BridgeCall.WatchPublicData -> {
+                delegate?.onWatchPublicData(this, c.on)
+                return
+            }
+            // A request has its own gate (a press or the background rules) and goes to `onRequest`, not `onAction`.
+            is BridgeCall.Request -> {
+                request(c.id, c.data)
+                return
+            }
+            else -> c
         }
         if (isStrictPolicy(config.policy) && name in SdkPolicy.PRIVILEGED_METHODS && !activation.consume(visible)) {
             if (blockedBridgeReported < MAX_REJECTED_REPORTS) {
@@ -481,17 +582,102 @@ class SandboxEngine(
             }
             return
         }
+        if (checked is BridgeCall.CopyText) {
+            delegate?.onCopyText(this, checked.text)
+            return
+        }
+        val action = checked as? WidgetAction ?: return
         if (action is WidgetAction.Haptic) {
             val d = haptics.decide(nowMs(), visible)
-            if (d == HapticDecision.REPORT) delegate?.onDiag(this, "haptic-limit", if (visible) "haptics over 5 per burst or 10 per second are dropped" else "haptics of a hidden widget are dropped")
+            if (d == HapticDecision.REPORT) delegate?.onDiag(this, "haptic-limit", if (visible) "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped" else "haptics of a hidden widget are dropped")
             if (d != HapticDecision.PLAY) return
         }
         delegate?.onAction(this, action)
         delegate?.onBridge(this, name, JSONObject.wrap(args)?.toString() ?: "null")
     }
 
+    /**
+     * docs/sdk-v1.md §2.14: a press unlocks one request (peeked here, consumed only when the request goes out as the
+     * press's), background ones only where the context allows them; one in flight. Whether the client handles requests
+     * is decided at delivery (a client may set `onRequest` after the constructor, before a boot-time request reaches
+     * it): [WidgetRequestUnsupported] comes back like an answer. Every outcome goes back into the widget as a `bridge`
+     * answer task, never inside the task that asked.
+     */
+    private fun request(id: Int, data: String) {
+        val delegate = delegate ?: return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
+        val strict = isStrictPolicy(config.policy)
+        val pressed = !strict || activation.available(visible)
+        val verdict = requests.decide(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, backgroundQuery = backgroundQuery)
+        SdkPolicy.requestRefusal(verdict)?.let { return refuseRequest(id, verdict.value, it, "request refused (${verdict.value}): ${REQUEST_REFUSED[verdict] ?: verdict.value}") }
+        if (verdict == RequestVerdict.FOREGROUND && strict) activation.consume(visible)
+        val once = AtomicBoolean(false)
+        // Any thread, honoured once; the gate lives on the engine thread. A stopped thread drops the post (destroyed).
+        val respond: (Result<WidgetRequestAnswer>) -> Unit = { outcome -> if (once.compareAndSet(false, true)) thread.post { answerRequest(id, outcome) } }
+        try {
+            delegate.onRequest(this, WidgetRequest(data), respond)
+        } catch (e: Exception) {
+            respond(Result.failure(e)) // a delegate that throws has failed the request (FAILED), the gate does not stay in flight
+        }
+    }
+
+    private fun refuseRequest(id: Int, reason: String, error: String, detail: String) {
+        if (blockedRequestsReported < MAX_REJECTED_REPORTS) {
+            blockedRequestsReported += 1
+            delegate?.onDiag(this, "request-blocked", detail)
+        }
+        enqueue("bridge", JSONObject().put("type", "answer").put("id", id).put("error", error).put("reason", reason).toString())
+    }
+
+    /** The client's answer or failure, on the engine thread outside any task: checked, then into the widget (the promise settles in a `bridge` task). */
+    private fun answerRequest(id: Int, outcome: Result<WidgetRequestAnswer>) {
+        if (dead) return
+        requests.finish()
+        val event = JSONObject().put("type", "answer").put("id", id)
+        val answer = outcome.getOrElse { e ->
+            if (e is WidgetRequestUnsupported) return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
+            return accept("bridge", event.put("error", SdkPolicy.requestFailure(e)).toString())
+        }
+        val checked = SdkPolicy.checkRequestAnswer(mapOf("result" to answer.result))
+        if (checked == null) {
+            delegate?.onDiag(this, "answer-rejected", "the answer's result is not text of at most ${SdkPolicy.MAX_REQUEST_RESULT_BYTES} bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER")
+            return accept("bridge", event.put("error", "INVALID_ANSWER").toString())
+        }
+        accept("bridge", event.put("result", checked.result ?: JSONObject.NULL).toString())
+    }
+
+    /** The client's data as SdkPolicy takes it (an object of `chatData` / `publicData`; null = none). */
+    private fun dataMap(d: WidgetData) = mapOf("chatData" to d.chatData, "publicData" to d.publicData)
+
+    /** The client's data at boot and in `setData` (widget-host.ts checkData): the full state of both strings, a copy without chatData, a field over the limit null and reported. */
+    private fun checkData(data: WidgetData): CheckedWidgetData {
+        val d = SdkPolicy.checkWidgetData(dataMap(data), copy)
+        if (d.rejected.isNotEmpty()) delegate?.onDiag(this, "data-rejected", "${d.rejected.joinToString(" and ")}: not text of at most ${SdkPolicy.MAX_WIDGET_DATA_BYTES} bytes (UTF-8, no NUL); the widget sees null")
+        return d
+    }
+
+    /** `chatData` and `publicData` into a boot config or a `bridge` event, real JSON nulls for none. */
+    private fun putData(o: JSONObject, d: CheckedWidgetData): JSONObject =
+        o.put("chatData", d.chatData ?: JSONObject.NULL).put("publicData", d.publicData ?: JSONObject.NULL)
+
+    /** The viewer the boot config carries, checked (no id of 1 … 2^53 − 1: none); a field that breaks its rule is left out and reported (`data-rejected`). */
+    private fun viewer(): WidgetViewer? {
+        val v = config.context.viewer ?: return null
+        val checked = SdkPolicy.checkViewer(mapOf("id" to v.id, "first_name" to v.firstName, "last_name" to v.lastName, "username" to v.username, "is_premium" to v.isPremium))
+        for (field in checked.rejected) delegate?.onDiag(this, "data-rejected", "viewer.$field: ${SdkPolicy.VIEWER_FIELD_RULES[field]}; the widget does not see it")
+        return checked.viewer
+    }
+
+    /** The viewer in the widget's field names (`WebAppUser`): the fields it has, `is_premium` only when true. */
+    private fun viewerJson(v: WidgetViewer): JSONObject = JSONObject().put("id", v.id).apply {
+        v.firstName?.let { put("first_name", it) }
+        v.lastName?.let { put("last_name", it) }
+        v.username?.let { put("username", it) }
+        if (v.isPremium) put("is_premium", true)
+    }
+
     /** `__host('storage', JSON commit)`: the full areas a task changed, at most once per task, after its ops (docs/sdk-v1.md §3.2). */
     private fun storageCommit(arg: String) {
+        if (preview) return // a preview's Web Storage lives in this run only: there is no message to keep it for
         val tooLong = arg.length > MAX_STORAGE_COMMIT_CHARS
         val commit = if (tooLong) null else try { SdkPolicy.checkStorageCommit(JSONTokener(arg).nextValue()) } catch (e: Exception) { null }
         if (commit == null || (commit.local == null && commit.session == null)) {

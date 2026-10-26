@@ -1,10 +1,11 @@
 package org.telegram.widgetsandbox
 
 /**
- * Privileged bridge calls (the link calls, [SdkPolicy.PRIVILEGED_METHODS]) need
+ * Privileged bridge calls (the link calls and `copyText`, [SdkPolicy.PRIVILEGED_METHODS]) need
  * a real user gesture: the host numbers gestures from renderer events, the
  * engine lets one call through per gesture, made in that gesture's own event
- * task on a visible widget. Pure policy, shared by WidgetHost and SandboxEngine
+ * task on a visible widget; a request to the bot that goes out as a press's takes
+ * the gesture too ([RequestGate]). Pure policy, shared by WidgetHost and SandboxEngine
  * (the Swift and C++ copies: WidgetHost.gesture(for:) / SandboxEngine.activationEvent).
  */
 object UserActivation {
@@ -65,9 +66,12 @@ class ActivationGate {
 
     /** True once per gesture, only inside its task and while the widget is visible. */
     fun consume(visible: Boolean): Boolean {
-        if (!visible || active <= consumed) return false
+        if (!available(visible)) return false
         consumed = active
         active = 0
         return true
     }
+
+    /** What [consume] would say, without consuming the gesture (a request consumes it only when it goes out as a press's). */
+    fun available(visible: Boolean): Boolean = visible && active > consumed
 }

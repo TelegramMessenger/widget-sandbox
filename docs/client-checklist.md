@@ -63,13 +63,50 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       widget's touch cancelled (`pointercancel`) when the bubble takes it; nothing taken
       over `touch-action: none`; no double-tap reaction over the widget (double taps are
       always the widget's); the leading 20 px never claimed
-      ([sdk-v1.md §5.5](sdk-v1.md#55-gestures-and-drag-d4); conformance `auto/23-gestures`,
+      ([sdk-v1.md §5.5](sdk-v1.md#55-gestures-and-drag-d4); conformance `auto/23-gestures-a` / `-b`,
       `visual/sdk/12-drag-gestures`).
 - [ ] A widget stays stopped after 2 crashes in a row ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
-- [ ] A forwarded copy works like the original with its own, empty storage; a bot
-      edit replaces the payload and restarts the widget on the same storage.
+- [ ] A forwarded copy works like the original with its own, empty storage. The HTML
+      of a sent widget never changes: no edit replaces it (only the caption can be
+      edited), so there is no host to re-create for an edit.
 
-## d. Test
+## d. The widget's state and requests
+
+- [ ] Create the host with the message's chat state (`chat_data`) and shared state
+      (`public_data`) as `data` and the server's flags as `context`: `isCopy` =
+      `is_copy`, `canQuery` = `can_query`,
+      `backgroundQuery` = `background_query`, read from `messageMediaWidget`, never
+      derived; the chat type and the account's user id as `viewer` (the framework keeps it
+      from a widget without `can_query`)
+      ([integration.md, "The widget's state and requests"](integration.md#the-widgets-state-and-requests),
+      [sdk-v1.md §5.11](sdk-v1.md#511-the-widgets-state-requests-and-copies)).
+- [ ] The network marker: a sign in the bubble, "a tap may send data to the bot's
+      server", exactly when the message has `can_query`; none without it, none on a
+      preview ([integration.md, "The network marker"](integration.md#the-widgets-state-and-requests)).
+- [ ] `updateMessageWidgetData`: applied by its pts sequence (the account's in private
+      chats and basic groups; in a supergroup the channel's, through the usual edit of
+      channel posts), then `setData` with the full state on the live host; keep it with
+      the message.
+- [ ] A shared widget (`widget_id` in the media) that watches (`onWatchPublicData` /
+      `watchesPublicData`): poll `messages.getWidgetPublicData` for one visible carrier per
+      id, one message per call with its last hash, again after the `period` each answer
+      carries (5–3600 s, 30 s by default, also before the first answer); a widget
+      that does not watch is never polled; apply a new
+      value with `setData` to every widget on screen with that id, forwards included.
+      Optionally cache the checked payload and the shared state per `widget_id`.
+- [ ] `onRequest`: `messages.getBotWidgetQueryAnswer` with the widget's `data`; complete
+      once with `{ result }`, or `timeout` (`WIDGET_RESPONSE_TIMEOUT`), `rateLimited`
+      (`FLOOD_WAIT`), `failed` (anything else). Show nothing for an answer and do not
+      re-fetch the state after it.
+- [ ] `onCopyText`: copy the text and show a toast with the text itself.
+- [ ] Groups: widgets the bot sends to a group show and ask on a tap; via-bot results
+      are sent as widgets; forwarding a widget always keeps its author.
+- [ ] Inline results: a widget result in the list (`botInlineMessageWidget`) is a preview
+      (`context.preview`, the result's state, `chat_data` / `public_data`, no flags, no marker):
+      no touches routed to it, a tap selects the result; the sent message gets a new
+      host ([sdk-v1.md §2.16](sdk-v1.md#216-previews)).
+
+## e. Test
 
 - [ ] The conformance automatic set on your renderer, with the report
       ([CLIENTS.md](../packages/conformance/CLIENTS.md)).
@@ -79,10 +116,17 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       with its reference picture posted next to it (`visual/` and `visual/sdk/`;
       the automatic widgets report their own checks). Go through the visual ones with
       the manual checklist: light and dark themes, rotation, system font size, an RTL
-      locale, reduce motion, bubble re-creation on scroll, forward, edit.
+      locale, reduce motion, bubble re-creation on scroll, forward, a caption edit.
+- [ ] The widget's state and requests with a test bot: in the private chat (a tap, a
+      background request when the widget appears and every 5 s while it is on screen,
+      `editMessageWidgetData` without a restart, the network marker), a widget sent
+      without `allow_queries` (no requests, no marker), in a group (taps only, one
+      chat state for all members), a forward of a `fwd_allow_queries` widget (taps
+      only, no chat state, the marker), a forward without it (no requests, no marker),
+      a shared widget's shared state changing in the original and its forwards together.
 - [ ] A feed bench on a low-end device: many widgets in a list, scroll, memory.
 
-## e. Send back
+## f. Send back
 
 - [ ] The conformance report (`<platform>-<renderer>.json` and `summary.md`) and
       every discrepancy you found, to the widget-sandbox maintainers or as a PR

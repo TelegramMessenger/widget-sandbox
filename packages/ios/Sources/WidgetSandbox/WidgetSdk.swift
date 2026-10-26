@@ -1,6 +1,7 @@
 // The client-facing types of SDK v1 (docs/sdk-v1.md §4.1): what WidgetHost takes
-// (the theme, the storage preload) and what it reports (actions, storage
-// commits, gesture claims). The checks behind them are SdkPolicy.swift.
+// (the theme, the storage preload, the bot's data and where the widget is) and
+// what it reports (actions, storage commits, gesture claims, requests to the
+// bot). The checks behind them are SdkPolicy.swift.
 
 import Foundation
 
@@ -170,9 +171,152 @@ public enum WidgetAction: Equatable {
             case "notification": self = .haptic(.notification(h.value ?? ""))
             default: self = .haptic(.selection)
             }
-        case .setResizeAnchor:
-            // Not an action: the host keeps it in its state (WidgetDiagnostics.resizeAnchor).
+        case .setResizeAnchor, .watchPublicData:
+            // Not actions: the host keeps them in its state (WidgetDiagnostics.resizeAnchor, .watchesPublicData).
             return nil
+        case .request, .copyText:
+            // Not actions: a request goes through the request gate to `onRequest`, a text to `onCopyText`.
+            return nil
+        }
+    }
+}
+
+// MARK: the bot's data and requests (docs/sdk-v1.md §2.13–§2.15)
+
+/// The bot's two strings for this message (docs/sdk-v1.md §2.13), the full state each time: `chatData` (this message
+/// only, never forwarded) and `publicData` (a forward gets it too: a snapshot, or a value shared with the original).
+/// nil or empty is none; a field over 1024 bytes (UTF-8) or with a NUL is none for the widget and reported
+/// (`data-rejected`).
+public struct WidgetData: Equatable {
+    public var chatData: String?
+    public var publicData: String?
+
+    public init(chatData: String? = nil, publicData: String? = nil) {
+        self.chatData = chatData
+        self.publicData = publicData
+    }
+
+    /// The fields that are set, with the TS `WidgetData` names (`SdkPolicy.checkWidgetData` takes it).
+    var json: [String: Any] {
+        var out: [String: Any] = [:]
+        if let chatData { out["chatData"] = chatData }
+        if let publicData { out["publicData"] = publicData }
+        return out
+    }
+}
+
+/// The kind of chat the widget is in (`Chat.type` of the Bot API).
+public enum WidgetChatType: String, CaseIterable {
+    case `private`, group, supergroup, channel
+}
+
+/// Who looks at the widget (the widget sees it as Mini Apps' `WebAppUser`: `id`, `first_name`, `last_name`,
+/// `username`, `is_premium`): the account's Telegram user id, the one the bot gets with a request, and, when it has
+/// them, its names, username and Premium. An id outside 1…2^53 − 1 is no viewer for the widget; a field that breaks its
+/// rule (a name of 1–64 UTF-16 code units, a username of 5–32 characters of A–Z, a–z, 0–9 and _) is left out and
+/// reported (`data-rejected`).
+public struct WidgetViewer: Equatable {
+    public var id: Int64
+    public var firstName: String?
+    public var lastName: String?
+    public var username: String?
+    public var isPremium: Bool
+
+    public init(id: Int64, firstName: String? = nil, lastName: String? = nil, username: String? = nil, isPremium: Bool = false) {
+        self.id = id
+        self.firstName = firstName
+        self.lastName = lastName
+        self.username = username
+        self.isPremium = isPremium
+    }
+
+    /// In the widget's field names (`WebAppUser`; `is_premium` only when true): what `SdkPolicy.checkViewer` takes and
+    /// what the shim gets at boot.
+    var json: [String: Any] {
+        var out: [String: Any] = ["id": id]
+        if let firstName { out["first_name"] = firstName }
+        if let lastName { out["last_name"] = lastName }
+        if let username { out["username"] = username }
+        if isPremium { out["is_premium"] = true }
+        return out
+    }
+}
+
+/// Where the widget is and what it may do (docs/sdk-v1.md §4.4): the message's flags as the server computes them
+/// (`messageMediaWidget`), the chat and the viewer; fixed for the host's life. The framework derives nothing itself:
+/// with the defaults (no flags) the widget never sends a request.
+public struct WidgetContext: Equatable {
+    /// `is_copy`: the message is a forwarded copy: never any `chatData` (the widget reads it as `TelegramWidget.isForward`).
+    public var isCopy = false
+    /// `can_query`: requests are allowed, on a tap. Without it every request is refused (`NOT_ALLOWED`).
+    public var canQuery = false
+    /// `background_query`: requests without a tap too (the original in the private chat with the bot): visible only,
+    /// one when the widget appears on screen, then one per 5 s.
+    public var backgroundQuery = false
+    /// The kind of chat the message is in. A copy gets none (null in the widget): the bot learns nothing about where its
+    /// widget was forwarded.
+    public var chatType: WidgetChatType?
+    /// The account that looks at the widget. Only a widget with `canQuery` gets it (null elsewhere, previews included).
+    public var viewer: WidgetViewer?
+    /// An inline result shown before it is sent (no message yet; docs/sdk-v1.md §2.16): the widget gets its data and
+    /// runs as usual, but no input (a tap selects the result), no requests or other bridge calls but `ready` and
+    /// `setResizeAnchor`, no chat type or viewer, and Web Storage that is never committed. The flags are ignored.
+    public var preview = false
+
+    public init(isCopy: Bool = false, canQuery: Bool = false, backgroundQuery: Bool = false, chatType: WidgetChatType? = nil, viewer: WidgetViewer? = nil, preview: Bool = false) {
+        self.isCopy = isCopy
+        self.canQuery = canQuery
+        self.backgroundQuery = backgroundQuery
+        self.chatType = chatType
+        self.viewer = viewer
+        self.preview = preview
+    }
+
+    /// The flags as the glue applies them: a preview has none, whatever the client passed.
+    var effective: WidgetContext {
+        preview ? WidgetContext(chatType: chatType, viewer: viewer, preview: true) : self
+    }
+}
+
+/// What the client sends to the bot (`TelegramWidget.request`, checked: docs/sdk-v1.md §2.14): `data` (1–64 bytes,
+/// UTF-8), as a callback button's `callback_data`. Neither the server nor the bot can tell a tap from a background
+/// request, so the request says nothing about it (the glue's request gate decided).
+public struct WidgetRequest: Equatable {
+    public let data: String
+
+    public init(data: String) {
+        self.data = data
+    }
+}
+
+/// The bot's answer as the client hands it to the host: the server's `result` (at most 1024 bytes, UTF-8, no NUL; nil:
+/// an empty answer). An answer carries no data: the bot edits its data with separate calls, which reach the host as
+/// `setData`.
+public struct WidgetRequestAnswer: Equatable {
+    public var result: String?
+
+    public init(result: String? = nil) {
+        self.result = result
+    }
+
+    /// The TS `WidgetRequestAnswer` shape, absent for nil (`SdkPolicy.checkRequestAnswer` takes it).
+    var json: [String: Any] {
+        var out: [String: Any] = [:]
+        if let result { out["result"] = result }
+        return out
+    }
+}
+
+/// A request the client could not complete: the bot did not answer in time (`timeout`), a flood wait
+/// (`rateLimited`), anything else (`failed`). The widget's promise rejects with `TIMEOUT`, `RATE_LIMITED` or `FAILED`.
+public enum WidgetRequestFailure: Error, Equatable {
+    case timeout, rateLimited, failed
+
+    var code: SdkPolicy.RequestError {
+        switch self {
+        case .timeout: return .timeout
+        case .rateLimited: return .rateLimited
+        case .failed: return .failed
         }
     }
 }

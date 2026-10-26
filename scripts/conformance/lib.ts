@@ -64,8 +64,48 @@ export interface HostCheck {
   xfail?: string;
 }
 
+/**
+ * How the test bot sends a widget and where the tester looks at it (layer 233: docs/tgw-format.md). `kind` is the
+ * message context the client must report there (WIDGET_MESSAGE_KINDS in sdk-policy.ts); run-web gives the dev app's
+ * mock bot the first spec's kind and data. The rest are the inputMediaWidget fields the bot sends with
+ * (`sendWidget`); `chat: 'group'` = into the test group (else the tester's private chat), `forward` = the tester
+ * forwards it and looks at the forward, `inline` = the bot's inline mode returns it for the query `conf-preview`
+ * and the tester looks at the list of results.
+ */
+export interface MessageSpec {
+  kind: 'private' | 'group' | 'via-bot' | 'no-queries' | 'live-copy' | 'copy' | 'preview';
+  allow_queries?: boolean;
+  fwd_allow_queries?: boolean;
+  shared_widget?: boolean;
+  chat_data?: string;
+  public_data?: string;
+  chat?: 'private' | 'group';
+  forward?: boolean;
+  inline?: boolean;
+  /** Where the tester looks, when it is not obvious from the rest. */
+  view?: string;
+}
+
+/**
+ * What the test bot does on a widget_query with exactly this data (scripts/conformance/test-bot.ts): edit the
+ * message's state (editMessageWidgetData, or editInlineBotMessageWidgetData for a via-bot message), edit the shared
+ * widget (editWidgetData by widget_id, with cache_time), then answer with `result`. `repeat` runs the edits again
+ * every `every` s, `times` times in all (a ticker). Templates in the strings: {n} counts the requests with this data
+ * per message (per widget_id for a copy), {from} is who pressed (first_name), {time} the bot's HH:MM:SS.
+ */
+export interface BotAction {
+  result?: string;
+  edit?: { chat_data?: string; public_data?: string };
+  editShared?: { public_data: string; cache_time?: number };
+  repeat?: { every: number; times: number };
+}
+
 export interface WidgetMeta {
   title: string;
+  /** How the test bot sends it, one entry per post (default: a plain send to the tester's private chat). */
+  message?: MessageSpec[];
+  /** What the test bot answers to the widget's requests, by their exact data. */
+  bot?: Record<string, BotAction>;
   /** One line for a human tester (visual set) or for the report. */
   hint?: string;
   actions?: Action[];

@@ -37,6 +37,12 @@ interface Renderer {
      * keeps this default, which since v0.1.3 always lets the parent intercept (`y` is always false).
      */
     fun gestureDecision(claim: WidgetGestureClaim) = gestureDecision(claim.y)
+    /**
+     * A preview (WidgetContext.preview: an inline result not sent yet) takes no input: the renderer keeps no press from
+     * its parent (a tap selects the result) and WidgetHost sends it no gesture decisions. Called once, before `load`.
+     * The default does nothing: a renderer that never holds presses back needs nothing.
+     */
+    fun setPreview(preview: Boolean) {}
     fun destroy()
 }
 

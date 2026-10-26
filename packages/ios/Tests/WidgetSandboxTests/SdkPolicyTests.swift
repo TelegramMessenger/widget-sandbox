@@ -54,28 +54,38 @@ final class SdkPolicyTests: XCTestCase {
         }
     }
 
-    private func actionDict(_ a: SdkPolicy.Action?) -> [String: String]? {
+    private func actionDict(_ a: SdkPolicy.Action?) -> NSDictionary? {
         switch a {
         case nil: return nil
         case .ready: return ["kind": "ready"]
         case .openLink(let url): return ["kind": "openLink", "url": url]
         case .openTelegramLink(let url): return ["kind": "openTelegramLink", "url": url]
-        case .haptic(let h): return hapticDict(h)!.merging(["kind": "haptic"]) { a, _ in a }
+        case .haptic(let h): return hapticDict(h)!.merging(["kind": "haptic"]) { a, _ in a } as NSDictionary
         case .setResizeAnchor(let edge): return ["kind": "setResizeAnchor", "edge": edge.rawValue]
+        case .watchPublicData(let on): return ["kind": "watchPublicData", "on": on]
+        case .request(let id, let data): return ["kind": "request", "id": id, "data": data]
+        case .copyText(let text): return ["kind": "copyText", "text": text]
         }
     }
 
     func testBridgeCalls() throws {
-        var anchors = 0
+        var anchors = 0, watches = 0, requests = 0, copies = 0
         for c in try cases("bridge") {
             let checked = SdkPolicy.checkBridgeCall(value(c["method"]), value(c["args"]))
-            XCTAssertEqual(actionDict(checked), value(c["expect"]) as? [String: String], "\(short(c["method"])) \(short(c["args"]))")
-            if case .setResizeAnchor = checked {
-                anchors += 1
-                XCTAssertNil(WidgetAction(checked!), "the anchor is never a WidgetAction")
+            XCTAssertEqual(actionDict(checked), value(c["expect"]) as? NSDictionary, "\(short(c["method"])) \(short(c["args"]))")
+            switch checked {
+            case .setResizeAnchor?: anchors += 1
+            case .watchPublicData?: watches += 1
+            case .request?: requests += 1
+            case .copyText?: copies += 1
+            default: continue
             }
+            XCTAssertNil(WidgetAction(checked!), "the anchor, the watch, a request and a copy are never a WidgetAction")
         }
         XCTAssertEqual(anchors, 2, "the fixture's setResizeAnchor entries for top and bottom")
+        XCTAssertEqual(watches, 2, "the fixture's watchPublicData entries for true and false")
+        XCTAssertEqual(requests, 5, "the fixture's valid request entries")
+        XCTAssertEqual(copies, 4, "the fixture's valid copyText entries")
     }
 
     /// The single-argument check behind `setResizeAnchor` (the fixture covers it through `bridge`).
@@ -94,8 +104,13 @@ final class SdkPolicyTests: XCTestCase {
             var gate = SdkPolicy.HapticGate()
             for (i, step) in try XCTUnwrap(c["steps"] as? [[String: Any]]).enumerated() {
                 let at = try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue)
-                let visible = try XCTUnwrap(step["visible"] as? Bool)
-                XCTAssertEqual(gate.decide(nowMs: at, visible: visible).rawValue, step["expect"] as? String, "\(name), step \(i)")
+                switch step["touch"] as? String {
+                case "down": gate.press(nowMs: at)
+                case "up": gate.release(nowMs: at)
+                default:
+                    let visible = try XCTUnwrap(step["visible"] as? Bool)
+                    XCTAssertEqual(gate.decide(nowMs: at, visible: visible).rawValue, step["expect"] as? String, "\(name), step \(i)")
+                }
             }
         }
     }
@@ -140,11 +155,171 @@ final class SdkPolicyTests: XCTestCase {
         }
     }
 
+    // MARK: bot data and requests
+
+    private func dataDict(_ d: SdkPolicy.CheckedWidgetData?) -> NSDictionary? {
+        guard let d else { return nil }
+        return ["chatData": SandboxEngine.orNull(d.chatData), "publicData": SandboxEngine.orNull(d.publicData), "rejected": d.rejected]
+    }
+
+    func testWidgetData() throws {
+        for c in try cases("widgetData") {
+            let note = c["note"] as? String ?? short(c["input"])
+            let copy = try XCTUnwrap(c["copy"] as? Bool, note)
+            let expected = try XCTUnwrap(expand(c["expect"]) as? NSDictionary, note)
+            XCTAssertEqual(dataDict(SdkPolicy.checkWidgetData(expand(c["input"]), copy: copy)), expected, note)
+            // The typed form the host takes gives the same.
+            let input = try XCTUnwrap(expand(c["input"]) as? [String: Any], note)
+            let typed = WidgetData(chatData: input["chatData"] as? String, publicData: input["publicData"] as? String)
+            XCTAssertEqual(dataDict(SdkPolicy.checkWidgetData(typed, copy: copy)), expected, note)
+        }
+    }
+
+    /// The TS shape: `{ viewer, rejected }`, the viewer in the widget's field names or NSNull.
+    private func viewerDict(_ c: SdkPolicy.CheckedViewer) -> NSDictionary {
+        ["viewer": SandboxEngine.orNull(c.viewer.map { $0.json as NSDictionary }), "rejected": c.rejected]
+    }
+
+    func testViewer() throws {
+        var typedCases = 0
+        for c in try cases("viewer") {
+            let note = c["note"] as? String ?? short(c["input"])
+            let expected = try XCTUnwrap(expand(c["expect"]) as? NSDictionary, note)
+            XCTAssertEqual(viewerDict(SdkPolicy.checkViewer(expand(c["input"]))), expected, note)
+            // The typed form the host takes gives the same (the inputs are typed as the native hosts take them).
+            guard let input = expand(c["input"]) as? [String: Any], let id = (input["id"] as? NSNumber)?.int64Value else { continue }
+            typedCases += 1
+            let typed = WidgetViewer(id: id, firstName: input["first_name"] as? String, lastName: input["last_name"] as? String,
+                                     username: input["username"] as? String, isPremium: input["is_premium"] as? Bool ?? false)
+            XCTAssertEqual(viewerDict(SdkPolicy.checkViewer(typed)), expected, "typed: " + note)
+        }
+        XCTAssertGreaterThan(typedCases, 20)
+    }
+
+    /// What the fixture cannot carry: JSON types a native host never passes, and ids past 2^53 as Int64.
+    func testViewerEdges() {
+        let none = SdkPolicy.CheckedViewer(viewer: nil, rejected: [])
+        for bad: Any? in [["id": "1"], ["id": 1.5], ["id": true], ["id": NSNull()], [:] as [String: Any], 7, "7"] {
+            XCTAssertEqual(SdkPolicy.checkViewer(bad), none, short(bad))
+        }
+        XCTAssertEqual(SdkPolicy.checkViewer(["id": 7, "first_name": 5, "last_name": NSNull(), "username": "artem", "is_premium": 1, "photo_url": "x"] as [String: Any]),
+                       SdkPolicy.CheckedViewer(viewer: WidgetViewer(id: 7, username: "artem"), rejected: ["first_name", "is_premium"]),
+                       "a number is no name and no boolean, null is absent, other fields are not passed on")
+        XCTAssertEqual(SdkPolicy.checkViewer(["id": 7, "is_premium": false] as [String: Any]), SdkPolicy.CheckedViewer(viewer: WidgetViewer(id: 7), rejected: []))
+        XCTAssertEqual(SdkPolicy.checkViewer(WidgetViewer(id: 9007199254740993, firstName: "Ann")), none)
+        XCTAssertEqual(SdkPolicy.checkViewer(WidgetViewer(id: .max)), none)
+        XCTAssertEqual(SdkPolicy.checkViewer(WidgetViewer(id: -1)), none)
+        XCTAssertEqual(SdkPolicy.checkViewer(nil), none)
+    }
+
+    func testChatType() throws {
+        for c in try cases("chatType") {
+            XCTAssertEqual(SdkPolicy.checkChatType(value(c["input"]))?.rawValue, value(c["expect"]) as? String, short(c["input"]))
+        }
+        for type in WidgetChatType.allCases { XCTAssertEqual(SdkPolicy.checkChatType(type), type) }
+    }
+
+    private func answerDict(_ a: SdkPolicy.CheckedAnswer?) -> NSDictionary? {
+        a.map { ["result": SandboxEngine.orNull($0.result)] }
+    }
+
+    func testAnswers() throws {
+        for c in try cases("answers") {
+            let note = c["note"] as? String ?? short(c["input"])
+            let expected = expand(c["expect"]) as? NSDictionary
+            XCTAssertEqual(answerDict(SdkPolicy.checkRequestAnswer(expand(c["input"]))), expected, note)
+            // The typed form the host takes gives the same.
+            let input = try XCTUnwrap(expand(c["input"]) as? [String: Any], note)
+            XCTAssertEqual(answerDict(SdkPolicy.checkRequestAnswer(WidgetRequestAnswer(result: input["result"] as? String))), expected, "typed: " + note)
+        }
+    }
+
+    /// What the fixture cannot carry: JSON types a native host never passes.
+    func testAnswerEdges() {
+        XCTAssertNil(SdkPolicy.checkRequestAnswer(["result": 5]))
+        XCTAssertEqual(SdkPolicy.checkRequestAnswer(nil), SdkPolicy.CheckedAnswer(result: nil))
+        XCTAssertEqual(SdkPolicy.checkRequestAnswer(["result": NSNull()]), SdkPolicy.CheckedAnswer(result: nil))
+        XCTAssertEqual(SdkPolicy.checkRequestAnswer(["result": "r", "chatData": "ignored"]), SdkPolicy.CheckedAnswer(result: "r"), "an answer carries no data")
+        XCTAssertNil(SdkPolicy.checkRequestAnswer(WidgetRequestAnswer(result: "\u{0}")))
+        XCTAssertEqual(SdkPolicy.checkWidgetData(["chatData": 5, "publicData": ["x"]] as [String: Any], copy: false).rejected, ["chatData", "publicData"])
+        XCTAssertEqual(SdkPolicy.checkWidgetData("chat", copy: false), SdkPolicy.CheckedWidgetData(chatData: nil, publicData: nil, rejected: []))
+        XCTAssertNil(SdkPolicy.checkWidgetDataValue("x\u{0}"))
+        XCTAssertEqual(SdkPolicy.checkWidgetDataValue("\u{1}\t\r\n"), "\u{1}\t\r\n", "other control characters are text")
+    }
+
+    /// The TS checks refuse a lone surrogate; on Apple platforms none reaches them: JSONSerialization refuses the
+    /// escape the shim's JSON.stringify would write (the call is `bridge-rejected`), a Foundation string's becomes U+FFFD.
+    func testLoneSurrogatesNeverReachTheChecks() {
+        XCTAssertNil(SandboxEngine.parse(#"["request",[1,"a\ud800"]]"#))
+        XCTAssertNil(SandboxEngine.parse(#"["copyText",["\udc00b"]]"#))
+        XCTAssertNotNil(SandboxEngine.parse(#"["copyText",["\ud83d\ude00"]]"#))
+        let lone = NSString(characters: [0x61, 0xD800], length: 2) as String
+        XCTAssertEqual(Array(lone.utf16), [0x61, 0xFFFD])
+        XCTAssertEqual(SdkPolicy.checkCopyText(NSString(characters: [0xD83D, 0xDE00], length: 2) as String), "😀")
+    }
+
+    func testRequestGate() throws {
+        for c in try cases("requestGate") {
+            let name = c["name"] as? String ?? "?"
+            var gate = SdkPolicy.RequestGate()
+            for (i, step) in try XCTUnwrap(c["steps"] as? [[String: Any]]).enumerated() {
+                if step["op"] as? String == "finish" {
+                    gate.finish()
+                    XCTAssertFalse(gate.busy, "\(name), step \(i)")
+                    continue
+                }
+                if step["op"] as? String == "show" {
+                    let busy = gate.busy
+                    gate.show()
+                    XCTAssertEqual(gate.busy, busy, "\(name), step \(i): show changes nothing in flight")
+                    continue
+                }
+                let verdict = gate.decide(
+                    nowMs: try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue), gesture: try XCTUnwrap(step["gesture"] as? Bool),
+                    visible: try XCTUnwrap(step["visible"] as? Bool), canQuery: try XCTUnwrap(step["canQuery"] as? Bool), backgroundQuery: try XCTUnwrap(step["backgroundQuery"] as? Bool))
+                XCTAssertEqual(verdict.rawValue, step["expect"] as? String, "\(name), step \(i)")
+                if verdict == .foreground || verdict == .background { XCTAssertTrue(gate.busy, "\(name), step \(i)") }
+            }
+        }
+    }
+
+    func testPreviewMethods() throws {
+        let list = try cases("previewMethods")
+        for c in list {
+            XCTAssertEqual(SdkPolicy.allowedInPreview(value(c["method"])), try XCTUnwrap(c["allowed"] as? Bool), short(c["method"]))
+        }
+        XCTAssertFalse(SdkPolicy.allowedInPreview(nil))
+        XCTAssertFalse(SdkPolicy.allowedInPreview(1))
+    }
+
+    func testRequestRefusals() throws {
+        let list = try cases("requestRefusals")
+        for c in list {
+            let verdict = try XCTUnwrap(SdkPolicy.RequestVerdict(rawValue: try XCTUnwrap(c["verdict"] as? String)))
+            XCTAssertEqual(SdkPolicy.requestRefusal(verdict)?.rawValue, value(c["expect"]) as? String, verdict.rawValue)
+        }
+        XCTAssertEqual(list.count, 7, "every verdict")
+    }
+
     /// The constants the fixture does not spell out, as sdk-policy.ts has them.
     func testConstants() {
         XCTAssertEqual(SdkPolicy.themeKeys.count, 15)
         XCTAssertEqual(Set(SdkPolicy.themeKeys).count, 15)
-        XCTAssertEqual(SdkPolicy.privilegedMethods, ["openLink", "openTelegramLink"])
+        XCTAssertEqual(SdkPolicy.privilegedMethods, ["openLink", "openTelegramLink", "copyText"])
+        XCTAssertEqual(SdkPolicy.previewMethods, ["ready", "setResizeAnchor"])
+        XCTAssertEqual([SdkPolicy.hapticBurst, SdkPolicy.hapticPerSecond, SdkPolicy.hapticReportMs], [5, 10, 1000])
+        XCTAssertEqual([SdkPolicy.hapticTouchWindowMs, SdkPolicy.hapticSeriesMs, SdkPolicy.hapticSeriesGapMs, SdkPolicy.hapticPressMaxMs], [5000, 1000, 10000, 30000])
+        XCTAssertEqual(SdkPolicy.maxWidgetDataBytes, 1024)
+        XCTAssertEqual(SdkPolicy.maxRequestDataBytes, 64)
+        XCTAssertEqual(SdkPolicy.maxRequestResultBytes, 1024)
+        XCTAssertEqual(SdkPolicy.maxCopyTextLength, 256)
+        XCTAssertEqual(SdkPolicy.backgroundRequestIntervalMs, 5000)
+        XCTAssertEqual(SdkPolicy.maxRequestId, 2147483647)
+        XCTAssertEqual(SdkPolicy.maxViewerId, 9007199254740991)
+        XCTAssertEqual(SdkPolicy.maxViewerNameLength, 64)
+        XCTAssertEqual(Set(SdkPolicy.viewerFieldRules.keys), ["first_name", "last_name", "username", "is_premium"])
+        XCTAssertEqual(WidgetChatType.allCases.map(\.rawValue), ["private", "group", "supergroup", "channel"])
+        XCTAssertEqual(SdkPolicy.RequestError.allCases.map(\.rawValue), ["NOT_ALLOWED", "BUSY", "RATE_LIMITED", "TIMEOUT", "FAILED", "INVALID_ANSWER"])
         XCTAssertEqual(SdkPolicy.maxLinkLength, 256)
         XCTAssertEqual(SdkPolicy.storageQuotaBytes, 16384)
         XCTAssertEqual(SdkPolicy.maxLocaleLength, 35)

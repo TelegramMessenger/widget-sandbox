@@ -240,6 +240,70 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   };
   for (const [name, d] of Object.entries(generic)) if (!(name in sample)) define(HTMLElementProto, { [name]: d });
 
+  // ── elements without a class of their own ──
+  // linkedom gives several elements no class of their own (form, dialog, output, fieldset, label, progress, meter,
+  // …): they share HTMLElement's prototype, so a member defined there for one of them would be every element's
+  // (a button's `reset`, a div's `value`), and two of them would overwrite each other's (output's `value` over
+  // progress'). On that prototype a member of such an element is looked up by local name: the element's own
+  // descriptor, else what the prototype chain had before (or nothing). An inline handler's scope (`with (element)`,
+  // events.ts) does not see the members of other elements (Symbol.unscopables): `onclick="reset()"` on a button
+  // calls the widget's reset(), as in a browser.
+  const ownByName = new Map<string, Map<string, PropertyDescriptor>>();
+  const inheritedByName = new Map<string, PropertyDescriptor | undefined>();
+  const unscopableByTag = new Map<string, Record<string, boolean>>();
+  const lookup = (proto: any, name: string): PropertyDescriptor | undefined => {
+    for (let p = proto; p; p = Object.getPrototypeOf(p)) {
+      const d = Object.getOwnPropertyDescriptor(p, name);
+      if (d) return d;
+    }
+    return undefined;
+  };
+  const descriptorOf = (el: any, name: string) => ownByName.get(name)?.get(el.localName) ?? inheritedByName.get(name);
+  const dispatcher = (name: string): PropertyDescriptor => ({
+    configurable: true,
+    get(this: any) {
+      const d = descriptorOf(this, name);
+      if (!d) return undefined;
+      return d.get ? d.get.call(this) : d.value;
+    },
+    set(this: any, v: any) {
+      const d = descriptorOf(this, name);
+      if (d?.set) return d.set.call(this, v);
+      if (d && !d.get && !d.writable) return;
+      if (d?.get) return;
+      // A writable value or no member at all: the element keeps it as its own (an expando, `returnValue`).
+      Object.defineProperty(this, name, { value: v, writable: true, enumerable: true, configurable: true });
+    },
+  });
+  const unscopablesBefore = HTMLElementProto[Symbol.unscopables];
+  Object.defineProperty(HTMLElementProto, Symbol.unscopables, {
+    configurable: true,
+    get(this: any) {
+      const tag = this && typeof this.localName === 'string' ? this.localName : '';
+      let hidden = unscopableByTag.get(tag);
+      if (!hidden) {
+        hidden = Object.assign(Object.create(null), unscopablesBefore) as Record<string, boolean>;
+        for (const [name, own] of ownByName) if (!own.has(tag) && !inheritedByName.get(name)) hidden[name] = true;
+        unscopableByTag.set(tag, hidden);
+      }
+      return hidden;
+    },
+  });
+  const defineOwn = (tag: string, props: Record<string, PropertyDescriptor | Function>) => {
+    const proto = protoOf(tag);
+    if (proto !== HTMLElementProto) return define(proto, props);
+    unscopableByTag.clear();
+    for (const [name, d] of Object.entries(props)) {
+      let own = ownByName.get(name);
+      if (!own) {
+        ownByName.set(name, (own = new Map()));
+        inheritedByName.set(name, lookup(HTMLElementProto, name));
+        Object.defineProperty(HTMLElementProto, name, dispatcher(name));
+      }
+      own.set(tag, typeof d === 'function' ? { value: d, writable: true, configurable: true } : { configurable: true, ...d });
+    }
+  };
+
   // ── methods that act in the renderer ──
   define(ElementProto, {
     focus(this: any) { callMethod(this, 'focus'); },
@@ -310,7 +374,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   });
 
   // ── textarea ──
-  define(protoOf('textarea'), {
+  defineOwn('textarea', {
     value: { get(this: any) { return controlValue(this); }, set(this: any, v: any) { setState(this, 'value', v === null ? '' : String(v)); } },
     defaultValue: { get(this: any) { return this.textContent; }, set(this: any, v: any) { this.textContent = v; } },
     select(this: any) { callMethod(this, 'select'); },
@@ -319,7 +383,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   });
 
   // ── select / option ──
-  define(protoOf('select'), {
+  defineOwn('select', {
     options: { get(this: any) { return optionsOf(this); } },
     length: { get(this: any) { return optionsOf(this).length; } },
     selectedIndex: { get(this: any) { return selectIndex(this); }, set(this: any, v: any) { setState(this, 'selectedIndex', Number(v) | 0); } },
@@ -331,7 +395,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
     add(this: any, option: any, before?: any) { this.insertBefore(option, typeof before === 'number' ? optionsOf(this)[before] ?? null : before ?? null); },
     item(this: any, i: number) { return optionsOf(this)[i] ?? null; },
   });
-  define(protoOf('option'), {
+  defineOwn('option', {
     value: { get(this: any) { return optionValue(this); }, set(this: any, v: any) { this.setAttribute('value', String(v)); } },
     text: { get(this: any) { return (this.textContent ?? '').trim(); }, set(this: any, v: any) { this.textContent = v; } },
     label: { get(this: any) { return this.getAttribute('label') ?? (this.textContent ?? '').trim(); }, set(this: any, v: any) { this.setAttribute('label', String(v)); } },
@@ -350,7 +414,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
 
   // ── shared by all listed controls ──
   for (const t of ['input', 'textarea', 'select', 'button', 'output', 'fieldset']) {
-    define(protoOf(t), {
+    defineOwn(t, {
       form: { get(this: any) { return formOwner(this); } },
       labels: { get(this: any) { const id = this.getAttribute('id'); return [...document.querySelectorAll('label')].filter((l: any) => l.contains(this) || (id && l.getAttribute('for') === id)); } },
       validity: { get(this: any) { return validity(this); } },
@@ -361,21 +425,21 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
       setCustomValidity() { unsupported('setCustomValidity'); },
     });
   }
-  define(protoOf('button'), {
+  defineOwn('button', {
     type: { get(this: any) { return (this.getAttribute('type') ?? 'submit').toLowerCase(); }, set(this: any, v: any) { this.setAttribute('type', String(v)); } },
     value: reflectString('value'),
   });
-  define(protoOf('label'), { control: { get(this: any) { const f = this.getAttribute('for'); return f ? document.getElementById(f) : this.querySelector('input, select, textarea, button'); } } });
+  defineOwn('label', { control: { get(this: any) { const f = this.getAttribute('for'); return f ? document.getElementById(f) : this.querySelector('input, select, textarea, button'); } } });
   for (const t of ['progress', 'meter']) {
-    define(protoOf(t), {
+    defineOwn(t, {
       value: { get(this: any) { return Number(this.getAttribute('value') ?? 0); }, set(this: any, v: any) { this.setAttribute('value', String(v)); } },
       max: { get(this: any) { return Number(this.getAttribute('max') ?? 1); }, set(this: any, v: any) { this.setAttribute('max', String(v)); } },
     });
   }
-  define(protoOf('output'), { value: { get(this: any) { return this.textContent; }, set(this: any, v: any) { this.textContent = v; } } });
+  defineOwn('output', { value: { get(this: any) { return this.textContent; }, set(this: any, v: any) { this.textContent = v; } } });
 
   // ── form ──
-  define(protoOf('form'), {
+  defineOwn('form', {
     elements: {
       get(this: any) {
         const list: any = formControls(this);
@@ -404,7 +468,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   });
 
   // ── details / dialog ──
-  define(protoOf('dialog'), {
+  defineOwn('dialog', {
     showModal(this: any) { this.setAttribute('open', ''); callMethod(this, 'showModal'); },
     show(this: any) { this.setAttribute('open', ''); },
     close(this: any, value?: string) {
@@ -417,7 +481,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   });
 
   // ── img ──
-  define(protoOf('img'), {
+  defineOwn('img', {
     naturalWidth: { get(this: any) { return st(this).naturalWidth ?? 0; } },
     naturalHeight: { get(this: any) { return st(this).naturalHeight ?? 0; } },
     complete: { get(this: any) { return st(this).complete ?? !this.getAttribute('src'); } },
@@ -455,7 +519,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
     }
     return s;
   };
-  define(protoOf('table'), {
+  defineOwn('table', {
     rows: { get(this: any) { return rowsOf(this); } },
     tBodies: { get(this: any) { return [...this.children].filter((c: any) => c.localName === 'tbody'); } },
     tHead: { get(this: any) { return [...this.children].find((c: any) => c.localName === 'thead') ?? null; } },
@@ -463,8 +527,8 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
     caption: { get(this: any) { return [...this.children].find((c: any) => c.localName === 'caption') ?? null; } },
     insertRow, deleteRow, createTHead: section('thead'), createTBody: section('tbody'), createTFoot: section('tfoot'),
   });
-  for (const t of ['thead', 'tbody', 'tfoot']) define(protoOf(t), { rows: { get(this: any) { return rowsOf(this); } }, insertRow, deleteRow });
-  define(protoOf('tr'), {
+  for (const t of ['thead', 'tbody', 'tfoot']) defineOwn(t, { rows: { get(this: any) { return rowsOf(this); } }, insertRow, deleteRow });
+  defineOwn('tr', {
     cells: { get(this: any) { return [...this.children].filter((c: any) => c.localName === 'td' || c.localName === 'th'); } },
     rowIndex: { get(this: any) { const t = this.closest('table'); return t ? rowsOf(t).indexOf(this) : -1; } },
     sectionRowIndex: { get(this: any) { return this.parentNode ? rowsOf(this.parentNode).indexOf(this) : -1; } },
@@ -476,7 +540,7 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
     },
     deleteCell(this: any, index: number) { const cells = this.cells; cells[index < 0 ? cells.length + index : index]?.remove(); },
   });
-  for (const t of ['td', 'th']) define(protoOf(t), { cellIndex: { get(this: any) { return this.parentNode ? this.parentNode.cells.indexOf(this) : -1; } } });
+  for (const t of ['td', 'th']) defineOwn(t, { cellIndex: { get(this: any) { return this.parentNode ? this.parentNode.cells.indexOf(this) : -1; } } });
 }
 
 /** Toggle state for a script-initiated el.click() on a checkbox/radio (the renderer is told via prop op). */

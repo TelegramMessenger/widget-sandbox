@@ -21,14 +21,17 @@ import type { GestureClaim } from '../src/shared/gesture-policy.ts';
 import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
 import { sizeLine, sizeVerdict, type WidgetSize } from '../src/shared/widget-size.ts';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, checkBridgeCall, checkLocale, checkStorageCommit, checkThemeParams, toWidgetTheme,
-  type ButtonTokens, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetTheme,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, checkBridgeCall, checkChatType, checkLocale, checkRequestAnswer, checkStorageCommit,
+  allowedInPreview, checkThemeParams, checkViewer, checkWidgetData, requestFailure, requestRefusal, toWidgetTheme, viewerFromList, viewerUser, VIEWER_FIELD_RULES,
+  WIDGET_MESSAGE_KINDS, type WidgetMessageKind, type WidgetViewer,
+  type ButtonTokens, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
+  type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
 import { formatIntl } from '../src/shared/intl.ts';
 import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
 import { Validator } from '../src/host/validator.ts';
-import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type RenderOp } from '../src/shared/protocol.ts';
+import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type BridgeEvent, type RenderOp } from '../src/shared/protocol.ts';
 import { sandboxBuildOptions } from './sandbox-build.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -53,6 +56,17 @@ export interface RunResult {
   resizeAnchor: ResizeAnchor;
   /** Each anchor the glue accepted, in order (the shim sends only changes). */
   resizeAnchors: ResizeAnchor[];
+  /** Whether the widget watches its shared public_data: its latest `watchPublicData` / `unwatchPublicData`, false until then (docs/sdk-v1.md §2.13). */
+  watchesPublicData: boolean;
+  /** Each change the glue accepted, in order (the shim sends only changes). */
+  publicDataWatches: boolean[];
+  /**
+   * The widget's requests to the bot, in order (docs/sdk-v1.md §2.14): the data, whether it went out without a press,
+   * the request gate's verdict (`unsupported` without `onRequest`), and what went back into the widget.
+   */
+  requests: { data: string; background: boolean; verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> }[];
+  /** Texts the glue let through to the client's clipboard (`onCopyText`). */
+  copiedTexts: string[];
   timers: number;
   probes: string[];
   /** Tasks the CPU quota deferred (the harness drops them instead of retrying). */
@@ -151,7 +165,7 @@ export interface RunOptions {
   /** Initial visibility (default true): a hidden widget gets no frames and cannot use a gesture, as in the worker and the web host. */
   visible?: boolean;
   /** Steps run after the timer rounds: visibility and theme changes and probes, in order (probe results land in RunResult.probes before `probes`). */
-  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> })[];
+  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> } | { data: WidgetData })[];
   /** The colour scheme at start (default light). */
   theme?: 'light' | 'dark';
   /** The client's palette (checked as WidgetHost does: unknown keys and non-#rrggbb values are dropped). */
@@ -163,6 +177,17 @@ export interface RunOptions {
   locale?: string;
   /** The client's Web Storage preload; over the quota it is dropped whole (`storage-rejected`). */
   storage?: unknown;
+  /** The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13); `{ data }` script steps are the client's `setData`. */
+  data?: WidgetData;
+  /** The server's flags for the message (`isCopy`, `canQuery`, `backgroundQuery`), the chat type, the viewer; `WIDGET_MESSAGE_KINDS` has them per kind of message. */
+  context?: WidgetContext;
+  /**
+   * The client's side of a request: the server's answer `{ result? }`, sync or a promise; throw or reject with
+   * 'TIMEOUT', 'RATE_LIMITED' or 'FAILED'.
+   * Answers go into the widget at the next step of the run (after the events, each timer round, each script step and
+   * each press). Without it every request is refused, as on the hosts.
+   */
+  onRequest?: (request: WidgetRequest) => WidgetRequestAnswer | Promise<WidgetRequestAnswer>;
   /** CPU quota per second (default: effectively unlimited, like the harness's 10 s cpuLimitMs; wasm under Node is slow). */
   cpuQuotaMs?: number;
   /** Validator CSS scope: 'shadow' for ops meant for the Shadow DOM renderer (css-sanitizer.ts). */
@@ -200,6 +225,23 @@ export interface RunOptions {
 
 export async function runWidget(html: string, opts: RunOptions = {}): Promise<RunResult> {
   const bundle = opts.bundle ?? (cachedBundle ??= await bundleSandbox());
+  // As WidgetHost: a preview (an inline result not sent yet) asks nothing, takes no input and keeps no storage.
+  const preview = opts.context?.preview === true;
+  const copy = opts.context?.isCopy === true && !preview;
+  const canQuery = opts.context?.canQuery === true && !preview;
+  const dataDiags: { kind: string; detail: string }[] = [];
+  /** As WidgetHost: the full state of both strings, a copy without chatData, a field over the limit null and reported. */
+  const checkData = (data: unknown) => {
+    const d = checkWidgetData(data, copy);
+    if (d.rejected.length) dataDiags.push({ kind: 'data-rejected', detail: `${d.rejected.join(' and ')}: not text of at most 1024 bytes` });
+    return { chatData: d.chatData, publicData: d.publicData };
+  };
+  /** As WidgetHost: the viewer as the widget sees it, a field that breaks its rule left out and reported. */
+  const checkViewerFields = (viewer: WidgetViewer | undefined) => {
+    const v = checkViewer(viewerUser(viewer));
+    for (const field of v.rejected) dataDiags.push({ kind: 'data-rejected', detail: `viewer.${field}: ${VIEWER_FIELD_RULES[field]}; the widget does not see it` });
+    return v.viewer;
+  };
   // Same memory cap as src/host/worker.ts: the emscripten build cannot count its
   // heap, so the wasm Memory's maximum is the limit (see the comment there).
   const memoryLimitBytes = opts.memoryLimitBytes ?? LIMIT_DEFAULTS.memoryLimitBytes;
@@ -218,14 +260,18 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit };
-  if (opts.storage !== undefined) {
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null };
+  res.diags.push(...dataDiags.splice(0));
+  if (opts.storage !== undefined && !preview) {
     const preload = checkStorageCommit(opts.storage);
     if (preload) config.storage = preload;
     else res.diags.push({ kind: 'storage-rejected', detail: 'the preload is not { local, session } objects of strings within the quota' });
   }
   const haptics = new HapticGate();
+  const requestGate = new RequestGate();
+  /** Answers on their way into the widget, delivered in order at the next step of the run. */
+  const answers: Promise<BridgeEvent>[] = [];
   const budget = new CpuBudget(config);
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const policy = opts.policy === 'compat' ? 'compat' : 'strict';
@@ -287,11 +333,48 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         const method = Array.isArray(call) ? call[0] : undefined;
         const action = Array.isArray(call) ? checkBridgeCall(method, call[1]) : null;
         if (!action) { res.diags.push({ kind: 'bridge-rejected', detail: `${String(method).slice(0, 64)}: unknown method or malformed arguments` }); return vm.undefined; }
+        if (preview && !allowedInPreview(method)) {
+          res.diags.push({ kind: 'preview-blocked', detail: `${String(method)} ignored in a preview` });
+          if (action.kind === 'request') answers.push(Promise.resolve({ type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' }));
+          return vm.undefined;
+        }
         // Not an action: the host keeps the latest anchor next to the height.
         if (action.kind === 'setResizeAnchor') {
           res.resizeAnchor = action.edge;
           res.resizeAnchors.push(action.edge);
           log('[bridge]', arg);
+          return vm.undefined;
+        }
+        // Not an action either: the host keeps whether the widget watches its public_data (the client polls only then).
+        if (action.kind === 'watchPublicData') {
+          if (action.on !== res.watchesPublicData) { res.watchesPublicData = action.on; res.publicDataWatches.push(action.on); }
+          log('[bridge]', arg);
+          return vm.undefined;
+        }
+        // As WidgetHost.request: the gate (a press, or the background rules; one in flight), then no client side → refused.
+        if (action.kind === 'request') {
+          const entry: RunResult['requests'][number] = { data: action.data, background: false, verdict: 'no-activation' };
+          res.requests.push(entry);
+          const settle = (p: Promise<Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'>>) =>
+            answers.push(p.then((a) => { entry.answer = a; return { type: 'answer', id: action.id, ...a }; }));
+          const refuse = (reason: RequestVerdict | 'unsupported') => {
+            res.diags.push({ kind: 'request-blocked', detail: `request refused (${reason})` });
+            settle(Promise.resolve({ error: (reason === 'unsupported' ? null : requestRefusal(reason)) ?? 'NOT_ALLOWED', reason }));
+          };
+          const pressed = policy === 'compat' || (visible && activeGesture > consumedGesture);
+          entry.verdict = requestGate.decide(opts.now ? opts.now() : performance.now(), { gesture: pressed, visible, canQuery, backgroundQuery: opts.context?.backgroundQuery === true });
+          if (requestRefusal(entry.verdict)) { refuse(entry.verdict); return vm.undefined; }
+          if (entry.verdict === 'foreground' && policy === 'strict') { consumedGesture = activeGesture; activeGesture = 0; }
+          entry.background = entry.verdict === 'background';
+          const onRequest = opts.onRequest;
+          if (!onRequest) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return vm.undefined; }
+          settle(new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data: action.data }))).then((a) => {
+            requestGate.finish();
+            const checked = checkRequestAnswer(a);
+            if (!checked) { res.diags.push({ kind: 'answer-rejected', detail: 'result over 1024 bytes or not text' }); return { error: 'INVALID_ANSWER' as const }; }
+            return { result: checked.result };
+          }, (reason) => { requestGate.finish(); return { error: requestFailure(reason) }; }));
+          log('[request]', arg);
           return vm.undefined;
         }
         if (policy === 'strict' && PRIVILEGED_METHODS.has(String(method))) {
@@ -304,8 +387,13 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         }
         if (action.kind === 'haptic') {
           const d = haptics.decide(opts.now ? opts.now() : performance.now(), visible);
-          if (d === 'report') res.diags.push({ kind: 'haptic-limit', detail: visible ? 'over the rate limit' : 'hidden widget' });
+          if (d === 'report') res.diags.push({ kind: 'haptic-limit', detail: visible ? 'over the rate limit, or outside a touch after a 1 s series' : 'hidden widget' });
           if (d !== 'play') return vm.undefined;
+        }
+        if (action.kind === 'copyText') {
+          res.copiedTexts.push(action.text);
+          log('[copyText]', arg);
+          return vm.undefined;
         }
         res.bridge.push(call);
         res.actions.push(action);
@@ -313,6 +401,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         return vm.undefined;
       }
       case 'storage': {
+        if (preview) return vm.undefined; // a preview's storage is never committed
         let commit: StorageCommit | null = null;
         try { commit = checkStorageCommit(JSON.parse(arg)); } catch {}
         if (!commit || (!commit.local && !commit.session)) res.diags.push({ kind: 'storage-rejected', detail: arg.slice(0, 200) });
@@ -471,8 +560,23 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
 
   task('boot', () => tw('boot', JSON.stringify({ html, config })));
   task('boot', () => tw('loaded'));
+  /** Answers settled by now go into the widget, one `bridge` task each, in the order of the requests (at most 100 per step: a widget that asks again from every answer would never end). */
+  const deliver = async () => {
+    for (let n = 0; n < 100 && answers.length; n++) {
+      const event = await answers.shift()!;
+      task('bridge', () => tw('bridge', JSON.stringify(event)));
+    }
+  };
+  await deliver();
   const inject = (ev: Record<string, unknown>) => {
+    if (preview) return; // a preview takes no input
     const { gesture, ...event } = ev as Record<string, unknown> & { gesture?: number };
+    // Without a renderer, an injected trusted event stands for the renderer's press (claim) and release (haptic gate).
+    if (typeof gesture === 'number' && gesture > 0) {
+      const at = opts.now ? opts.now() : performance.now();
+      if (event.type === 'pointerdown' || event.type === 'mousedown') haptics.press(at);
+      else haptics.release(at);
+    }
     task('event', () => {
       activeGesture = visible && typeof gesture === 'number' && gesture > consumedGesture ? gesture : 0;
       try {
@@ -482,7 +586,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       }
     });
   };
-  for (const ev of opts.events ?? []) inject(ev);
+  for (const ev of opts.events ?? []) { inject(ev); await deliver(); }
   // Due timers by delay; equal delays in the order they were set.
   const dueTimers = () => [...timers.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
   const timerRound = () => {
@@ -490,12 +594,13 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
     if (visible) task('frame', () => tw('frame', String(coarseNowMs(performance.now()))));
   };
-  for (let round = 0; round < (opts.timerRounds ?? 2); round++) timerRound();
+  for (let round = 0; round < (opts.timerRounds ?? 2); round++) { timerRound(); await deliver(); }
   if (opts.gestures?.length || opts.layout) await pressInRenderer();
   for (let round = 0; round < (opts.frames ?? 0); round++) {
     const due = dueTimers();
     for (const id of due) { timers.delete(id); res.timers++; task('timer', () => tw('timer', String(id))); }
     if (visible) task('frame', () => tw('frame', String(coarseNowMs(performance.now()))));
+    await deliver();
   }
   const probe = (code: string) => {
     const r = vm.evalCode(`(function(){ try { return String(${code}); } catch (e) { return 'THREW ' + e; } })()`, 'probe.js');
@@ -505,12 +610,19 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   };
   for (const step of opts.script ?? []) {
     if ('visible' in step) {
+      if (step.visible && !visible) requestGate.show();
       visible = step.visible;
       task('visibility', () => tw('visibility', JSON.stringify({ visible: step.visible })));
     }
     else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
     else if ('theme' in step) task('theme', () => tw('theme', JSON.stringify({ theme: step.theme, themeParams: checkThemeParams(step.themeParams) })));
+    else if ('data' in step) {
+      const event: BridgeEvent = { type: 'data', ...checkData(step.data) };
+      res.diags.push(...dataDiags.splice(0));
+      task('bridge', () => tw('bridge', JSON.stringify(event)));
+    }
     else probe(step.probe);
+    await deliver();
   }
   for (const code of opts.probes ?? []) probe(code);
   res.wasmBytes = wasmMemory.buffer.byteLength;
@@ -554,7 +666,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           flush();
           break;
         }
-        case 'gesture': current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'gesture': haptics.press(opts.now ? opts.now() : performance.now()); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'release': haptics.release(opts.now ? opts.now() : performance.now()); break;
         case 'bubble': current?.bubble.push(String(msg.action) + (msg.edge ? ' (edge strip)' : '')); break;
         case 'size': if (Number.isFinite(msg.height)) res.height = msg.height; break;
       }
@@ -581,6 +694,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         reports.push(report);
         current = null;
         timerRound();
+        await deliver();
         flush();
         await r.settle();
       }
@@ -628,9 +742,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
     console.error(`usage: tsx scripts/sandbox-node.ts --guide     (the rules for a model writing widgets)
        tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose] [--json]
        [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
+       [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query] [--chat-type t] [--viewer id[,first,last,username,premium]]
+       [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json]
   --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
   the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),
-  and each is reported: the element, its touch-action claim, who got the press, the events the widget received, a hint.`);
+  and each is reported: the element, its touch-action claim, who got the press, the events the widget received, a hint.
+  The bot (docs/sdk-v1.md §2.13–§2.15): --message sets the server's flags for a kind of message (private: the original
+  in the private chat with the bot, taps and background requests; group, via-bot: taps only; no-queries: an original sent
+  without allow_queries, no requests; live-copy: a forward of a widget sent with fwd_allow_queries, taps only; copy: no
+  requests; preview: an inline result not sent yet, no input, no requests,
+  nothing about the user); --copy, --can-query, --background-query, --chat-type set
+  them one by one (none given: no requests); --viewer who looks (id, then optionally the first and last name, the username and premium); --chat-data / --public-data the strings at start;
+  every request gets --answer (the server's answer: {"result":"…"}, default {"result":null}) or fails with
+  --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.`);
     process.exit(2);
   }
   const verbose = args.includes('--verbose');
@@ -648,7 +772,28 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
     gestures.push(step);
   }
   const desktop = args.includes('--desktop');
+  const value = (flag: string) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; };
+  const jsonFlag = (flag: string) => {
+    const v = value(flag);
+    if (v === undefined) return undefined;
+    try { return JSON.parse(v); } catch { console.error(`${flag}: expected JSON, got ${v}`); process.exit(2); }
+  };
+  const answer = jsonFlag('--answer') ?? { result: null };
+  const answerError = value('--answer-error');
+  const setData = jsonFlag('--set-data');
+  const viewerId = value('--viewer');
+  const kind = value('--message') as WidgetMessageKind | undefined;
+  if (kind !== undefined && !(kind in WIDGET_MESSAGE_KINDS)) { console.error(`--message takes ${Object.keys(WIDGET_MESSAGE_KINDS).join(', ')}`); process.exit(2); }
   const r = await runWidget(fs.readFileSync(file, 'utf8'), {
+    data: { chatData: value('--chat-data') ?? null, publicData: value('--public-data') ?? null },
+    context: {
+      ...(kind ? WIDGET_MESSAGE_KINDS[kind] : {}),
+      ...(args.includes('--copy') ? { isCopy: true } : {}), ...(args.includes('--can-query') ? { canQuery: true } : {}),
+      ...(args.includes('--background-query') ? { backgroundQuery: true } : {}), ...(value('--chat-type') ? { chatType: value('--chat-type') as any } : {}),
+      ...(viewerId !== undefined && viewerFromList(viewerId) ? { viewer: viewerFromList(viewerId)! } : {}),
+    },
+    onRequest: () => (answerError ? Promise.reject(answerError) : answer),
+    ...(setData !== undefined ? { script: [{ data: setData }] } : {}),
     verbose, probes, cssScope: args.includes('--shadow') ? 'shadow' : 'document', theme: args.includes('--dark') ? 'dark' : 'light',
     ...(fontSize >= 0 ? { text: { fontSize: Number(args[fontSize + 1]) } } : {}),
     width, desktop, layout: width !== undefined, ...(gestures.length ? { gestures } : {}),
@@ -668,11 +813,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url
   if (size.message) console.log(size.message);
   console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
+  if (r.publicDataWatches.length) console.log(`public data: ${r.watchesPublicData ? 'watched' : 'not watched'} (watchPublicData: ${r.publicDataWatches.join(' → ')}): a client polls a shared widget's public_data only while it watches`);
   if (r.resizeAnchors.length) console.log(`resize anchor: ${r.resizeAnchor} (setResizeAnchor: ${r.resizeAnchors.join(' → ')}): the ${r.resizeAnchor} edge of the bubble stays put when the height changes`);
   console.log(`listens for: ${r.listens.length ? r.listens.join(', ') : '(no listeners)'}; click, load, error and toggle are always delivered`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);
   for (const l of r.logs) console.log(`[${l.level}]`, l.text);
   for (const a of r.actions) console.log('action', JSON.stringify(a));
+  for (const q of r.requests) console.log(`request ${JSON.stringify(q.data)}: ${q.verdict === 'foreground' ? 'sent (a tap)' : q.verdict === 'background' ? 'sent (background)' : 'refused (' + q.verdict + ')'} → ${JSON.stringify(q.answer ?? null)}`);
+  for (const t of r.copiedTexts) console.log('copyText', JSON.stringify(t));
   for (const c of r.storageCommits) console.log('storage', JSON.stringify(c).slice(0, 500));
   if (r.gestures) console.log('\n' + formatReports(r.gestures, width ?? 400, desktop));
 }

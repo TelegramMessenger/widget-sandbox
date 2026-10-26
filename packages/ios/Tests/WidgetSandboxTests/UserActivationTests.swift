@@ -266,6 +266,8 @@ final class UserActivationTests: XCTestCase {
         XCTAssertEqual(h.privileged, [])
     }
 
+    /// No attack opens a link (the privileged bridge) without a tap. Haptics need no tap: an attack that plays them
+    /// is held to the haptic gate instead (`testHapticTimerBuzzPlaysOneSeries`).
     func testBundledAttackWidgetsReachNoPrivilegedBridge() throws {
         try XCTSkipIf(!FileManager.default.fileExists(atPath: Self.attacks.path), "needs the repository's corpus/attacks")
         let directory = Self.attacks
@@ -274,8 +276,22 @@ final class UserActivationTests: XCTestCase {
         for file in files {
             let h = Harness(try String(contentsOf: file), timeout: 1)
             h.settle(0.05)
-            XCTAssertEqual(h.privileged, [], file.lastPathComponent)
+            XCTAssertEqual(h.privileged.filter { if case .haptic = $0 { return false } else { return true } }, [], file.lastPathComponent)
         }
+    }
+
+    /// corpus/attacks/haptic-timer-buzz.html (Telegram Android 13.2.0): `setInterval(…, 0)` asking for haptics with no
+    /// touch gets one series, the first second under the rate limit, then nothing (tests/attacks.spec.ts).
+    func testHapticTimerBuzzPlaysOneSeries() throws {
+        let file = Self.attacks.appendingPathComponent("haptic-timer-buzz.html")
+        try XCTSkipIf(!FileManager.default.fileExists(atPath: file.path), "needs the repository's corpus/attacks")
+        let h = Harness(try String(contentsOf: file))
+        h.settle(3)
+        let played = h.actions.filter { if case .haptic = $0 { return true } else { return false } }.count
+        XCTAssertGreaterThan(played, 0)
+        XCTAssertLessThanOrEqual(played, 5 + 10 + 1)
+        XCTAssertGreaterThan(h.count("haptic-limit"), 0)
+        XCTAssertEqual(h.links, [])
     }
 }
 
