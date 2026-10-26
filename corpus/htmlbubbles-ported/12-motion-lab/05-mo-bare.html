@@ -128,9 +128,9 @@ $('hits').innerHTML = Array.from({ length: SEGS }, (_, k) => `<div class="hit" d
 
 function go(i, dir) {
   if (i === track) return;
-  bubble(dir);
   track = i; pl.pos = 0; posTween++;
   header();
+  bubble(dir);
 }
 function nextIndex() { return shuffle ? (track + 1 + Math.floor(Math.random() * (TRACKS.length - 1))) % TRACKS.length : (track + 1) % TRACKS.length; }
 
@@ -200,7 +200,7 @@ function controls() {
   $('shuffle').classList.toggle('on', shuffle); $('repeat').classList.toggle('on', repeat);
   $('modeline').textContent = (shuffle ? 'Shuffle on' : 'In order') + (repeat ? ' · repeat one' : '');
   $('queuelnk').textContent = `Up next ${queue ? '▴' : '▾'}`;
-  if (queue) list();
+  list();
 }
 function list() {
   const el = $('list');
