@@ -50,7 +50,7 @@ function listCorpus(): string[] {
       for (const name of fs.readdirSync(dir).sort()) {
         const p = path.join(dir, name);
         if (fs.statSync(p).isDirectory()) { if (group !== 'conformance' || name === 'auto' || name === 'visual' || dir !== base) walk(p); }
-        else if (name.endsWith('.html')) out.push(group + '/' + path.relative(base, p));
+        else if (name.endsWith('.html')) out.push(group + '/' + path.relative(base, p).split(path.sep).join('/'));
       }
     };
     walk(base);
