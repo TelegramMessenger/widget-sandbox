@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 
+/** path.relative with / separators: what the manifest and the channel table store, on every OS. */
+export const posixRelative = (from: string, to: string) => path.relative(from, to).split(path.sep).join('/');
+
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const CONF = path.join(ROOT, 'packages', 'conformance');
 export const SETS = ['auto', 'visual'] as const;

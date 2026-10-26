@@ -34,7 +34,7 @@ import { chromium, webkit, type Browser, type BrowserContext, type Page } from '
 import { PNG } from 'pngjs';
 import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
-import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
+import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, posixRelative, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 import { measureHeights } from './heights';
 import { spawn } from 'node:child_process';
@@ -219,7 +219,7 @@ async function renderRefs(browsers: Record<string, Browser>, w: Widget, html: st
         const loc = page.locator(`[data-stage="${s.name}"]`);
         const buf = await loc.screenshot({ animations: 'allow', caret: 'hide' });
         writeIfChanged(file, buf);
-        ((out[s.name] ??= {})[`${engine}${theme === 'dark' ? '.dark' : ''}`] = path.relative(CONF, file));
+        ((out[s.name] ??= {})[`${engine}${theme === 'dark' ? '.dark' : ''}`] = posixRelative(CONF, file));
       }
       await ctx.close();
     }
@@ -246,7 +246,7 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
     const file = path.join(CONF, 'refs', w.set, `${w.stem}${theme === 'dark' ? '.dark' : ''}.png`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     writeIfChanged(file, await page.screenshot({ clip: { x: 0, y: 0, width: WIDTH, height: Math.max(h, 40) }, animations: 'disabled', caret: 'hide' }));
-    out[theme] = path.relative(CONF, file);
+    out[theme] = posixRelative(CONF, file);
     await ctx.close();
   }
   return out;
@@ -374,7 +374,7 @@ async function main() {
     entries.set(w.id, {
       id: w.id,
       set: w.set,
-      file: path.relative(CONF, w.file),
+      file: posixRelative(CONF, w.file),
       title: w.meta.title,
       hint: w.meta.hint,
       kind: [checks.length ? 'self' : null, w.stages.length ? 'pixel' : null, w.meta.actions?.length ? 'interactive' : null].filter(Boolean),

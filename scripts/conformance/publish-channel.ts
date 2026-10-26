@@ -304,7 +304,7 @@ function corpusPosts(t: TopicSpec, skipped: string[]): Post[] {
   const dir = path.join(ROOT, t.corpus!);
   const out: Post[] = [];
   for (const file of walk(dir).filter((f) => f.endsWith('.html'))) {
-    const key = path.relative(path.join(ROOT, 'corpus'), file).replace(/\.html$/, '').replace('generated/with-profile/', 'generated/');
+    const key = path.relative(path.join(ROOT, 'corpus'), file).split(path.sep).join('/').replace(/\.html$/, '').replace('generated/with-profile/', 'generated/');
     const html = fs.readFileSync(file);
     const packed = zlibSize(html);
     if (html.length > MAX_RAW || packed > MAX_ZLIB) {
