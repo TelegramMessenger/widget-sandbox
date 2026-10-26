@@ -310,12 +310,13 @@ public struct WidgetRequestAnswer: Equatable {
 /// A request the client could not complete: the bot did not answer in time (`timeout`), a flood wait
 /// (`rateLimited`), anything else (`failed`). The widget's promise rejects with `TIMEOUT`, `RATE_LIMITED` or `FAILED`.
 public enum WidgetRequestFailure: Error, Equatable {
-    case timeout, rateLimited, failed
+    case timeout, rateLimited, notAllowed, failed
 
     var code: SdkPolicy.RequestError {
         switch self {
         case .timeout: return .timeout
         case .rateLimited: return .rateLimited
+        case .notAllowed: return .notAllowed
         case .failed: return .failed
         }
     }
