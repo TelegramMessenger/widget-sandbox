@@ -12,10 +12,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { runWidget } from '../../scripts/sandbox-node.ts';
 import { LIMIT_DEFAULTS, WASM_INITIAL_PAGES, WASM_PAGE_BYTES } from '../../src/shared/protocol.ts';
 
-const attack = (f: string) => fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'corpus', 'attacks', f), 'utf8');
+const attack = (f: string) => fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'corpus', 'attacks', f), 'utf8');
 const errorsOf = (r: Awaited<ReturnType<typeof runWidget>>) => r.logs.filter((l) => l.level === 'error').map((l) => l.text);
 const FOOTPRINT_CAP = WASM_INITIAL_PAGES * WASM_PAGE_BYTES + LIMIT_DEFAULTS.memoryLimitBytes;
 

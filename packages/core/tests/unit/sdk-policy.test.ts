@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   HapticGate, RequestGate, THEME_KEYS, allowedInPreview, THEME_VARIABLES, checkBridgeCall, checkChatType, checkCopyText, checkHaptic, checkLink, checkLocale, checkRequestAnswer,
   checkRequestData, checkStorageCommit, checkThemeParams, checkViewer, checkWidgetData, DEFAULT_TEXT_TOKENS, completeThemeParams, requestFailure, requestRefusal, viewerFromList, viewerUser,
@@ -13,7 +14,7 @@ import {
 } from '../../src/shared/sdk-policy.ts';
 import { PROFILE_UA_STYLESHEET } from '../../src/shared/profile-tables.ts';
 
-const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'fixtures', 'sdk-policy.json'), 'utf8'));
+const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'sdk-policy.json'), 'utf8'));
 
 /** `{ "repeat": [s, n] }` stands for s repeated n times. */
 const expand = (v: unknown): unknown => {

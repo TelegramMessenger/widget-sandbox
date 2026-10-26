@@ -13,10 +13,11 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { runWidget } from '@telegram/widget-sandbox/node';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const run = path.join(root, 'packages', 'desktop', 'build', 'twidget-run');
 const out = path.join(root, 'reports', 'profile');
 const probeDir = path.join(out, 'probes');

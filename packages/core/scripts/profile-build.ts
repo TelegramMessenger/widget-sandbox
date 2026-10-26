@@ -9,8 +9,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const pkgRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = path.resolve(pkgRoot, '..', '..');
 
 export interface ProfileFeature {
@@ -156,7 +157,7 @@ const TARGETS: { file: string; make: (p: ProfileFile, have: string) => string }[
   { file: path.join(root, 'docs', 'widget-runtime-profile.md'), make: guideSource },
 ];
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const p = readProfile();
   const check = process.argv.includes('--check');
   let stale = 0;

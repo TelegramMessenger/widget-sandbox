@@ -30,9 +30,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { BotAction, MessageSpec } from './lib';
 
-const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONF = path.join(ROOT, 'packages', 'conformance');
 const args = process.argv.slice(2);
 const opt = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);

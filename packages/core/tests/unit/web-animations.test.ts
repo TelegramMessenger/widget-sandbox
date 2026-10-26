@@ -4,10 +4,11 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { Validator } from '../../src/host/validator.ts';
 import { runWidget, type RunOptions } from '../../scripts/sandbox-node.ts';
 
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(here, '..', 'fixtures', 'waapi');
 const appFixture = path.join(fixtures, 'app-anims.json');
 const validatorFixture = path.join(fixtures, 'app-validator.json');

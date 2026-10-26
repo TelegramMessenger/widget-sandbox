@@ -66,21 +66,21 @@ const RESOLVE_TREE = 'startEntity(decodeMode) {\n        if (typeof this.decodeT
  */
 export function lazyEntityTables(): Plugin {
   const transforms: [RegExp, (text: string, file: string) => string][] = [
-    [/\/entities\/dist\/(esm\/)?decode\.js$/, (text, file) => edit(file, text, [
+    [/[\\/]entities[\\/]dist[\\/](esm[\\/])?decode\.js$/, (text, file) => edit(file, text, [
       ['startEntity(decodeMode) {', RESOLVE_TREE],
     ]) + '\nexport { htmlDecodeTreeLazy } from "./generated/decode-data-html.js";\n'],
-    [/\/htmlparser2\/dist\/esm\/Tokenizer\.js$/, (text, file) => edit(file, text, [
+    [/[\\/]htmlparser2[\\/]dist[\\/]esm[\\/]Tokenizer\.js$/, (text, file) => edit(file, text, [
       ['import { EntityDecoder, DecodingMode, htmlDecodeTree, xmlDecodeTree, } from "entities/decode";', 'import { EntityDecoder, DecodingMode, htmlDecodeTreeLazy, xmlDecodeTree, } from "entities/decode";'],
       ['new EntityDecoder(xmlMode ? xmlDecodeTree : htmlDecodeTree,', 'new EntityDecoder(xmlMode ? xmlDecodeTree : htmlDecodeTreeLazy,'],
     ])],
-    [/\/parse5\/dist\/tokenizer\/index\.js$/, (text, file) => edit(file, text, [
+    [/[\\/]parse5[\\/]dist[\\/]tokenizer[\\/]index\.js$/, (text, file) => edit(file, text, [
       ["import { htmlDecodeTree, EntityDecoder, DecodingMode } from 'entities/decode';", "import { htmlDecodeTreeLazy, EntityDecoder, DecodingMode } from 'entities/decode';"],
       ['new EntityDecoder(htmlDecodeTree,', 'new EntityDecoder(htmlDecodeTreeLazy,'],
     ])],
-    [/\/entities\/lib\/esm\/generated\/decode-data-html\.js$/, (text, file) => edit(file, text, [
+    [/[\\/]entities[\\/]lib[\\/]esm[\\/]generated[\\/]decode-data-html\.js$/, (text, file) => edit(file, text, [
       ['export default new Uint16Array(', `let lazyHtmlDecodeTree = null;\nexport ${LAZY_TREE}\nconst buildHtmlDecodeTree = () => new Uint16Array(`],
     ])],
-    [/\/entities\/lib\/esm\/decode\.js$/, (text, file) => edit(file, text, [
+    [/[\\/]entities[\\/]lib[\\/]esm[\\/]decode\.js$/, (text, file) => edit(file, text, [
       ['import htmlDecodeTree from "./generated/decode-data-html.js";', 'import { htmlDecodeTreeLazy } from "./generated/decode-data-html.js";'],
       ['export { htmlDecodeTree, xmlDecodeTree, decodeCodePoint };', 'export { xmlDecodeTree, decodeCodePoint };'],
       ['startEntity(decodeMode) {', RESOLVE_TREE],
@@ -91,12 +91,12 @@ export function lazyEntityTables(): Plugin {
   return {
     name: 'lazy-entity-tables',
     setup(build) {
-      build.onLoad({ filter: /\/entities\/dist\/(esm\/)?generated\/decode-data-html\.js$/ }, async (args) => {
+      build.onLoad({ filter: /[\\/]entities[\\/]dist[\\/](esm[\\/])?generated[\\/]decode-data-html\.js$/ }, async (args) => {
         const tree: unknown = (await import(pathToFileURL(args.path).href)).htmlDecodeTree;
         if (!(tree instanceof Uint16Array)) throw new Error(`lazy-entity-tables: ${args.path}: htmlDecodeTree is not a Uint16Array`);
         return { contents: utf16TreeModule(tree), loader: 'js' };
       });
-      build.onLoad({ filter: /\/(entities|htmlparser2|parse5)\/.*\.js$/ }, (args) => {
+      build.onLoad({ filter: /[\\/](entities|htmlparser2|parse5)[\\/].*\.js$/ }, (args) => {
         const t = transforms.find(([re]) => re.test(args.path));
         if (!t) return undefined;
         return { contents: t[1](fs.readFileSync(args.path, 'utf8'), args.path), loader: 'js' };

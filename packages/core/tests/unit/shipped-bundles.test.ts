@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const pkgRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const root = path.resolve(pkgRoot, '..', '..');
 
 const SHIPPED = {

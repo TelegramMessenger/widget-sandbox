@@ -17,6 +17,7 @@
 //          [--timers N] [--features canvasWords,binaryOps,webAnimations] [--policy strict] [--json out.json] corpus/compat corpus/generated/… file.html
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bundleSandbox, runWidget, type RunResult } from '../packages/core/scripts/sandbox-node.ts';
 
 interface Node {
@@ -208,7 +209,7 @@ function widgets(args: string[]): string[] {
   return out;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2);
   const opt = (name: string) => { const i = argv.indexOf(name); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
   const aPath = opt('--a');

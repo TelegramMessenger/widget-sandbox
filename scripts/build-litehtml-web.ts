@@ -12,8 +12,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const core = path.join(root, 'apps', 'renderer-litehtml');
 const lite = path.join(core, 'third_party', 'litehtml');
 const outDir = path.join(core, 'pkg-web');

@@ -2,9 +2,10 @@
 // never mixes runs (screenshots are simply overwritten).
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export default function globalSetup() {
-  const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
   for (const dir of ['compat', 'generated']) {
     const d = path.join(root, 'reports', dir);
     if (!fs.existsSync(d)) continue;

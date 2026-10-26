@@ -8,9 +8,10 @@
 import { expect, test, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { APP_ORIGIN, CANARY } from '../playwright.config';
 
-const attacksDir = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'corpus', 'attacks');
+const attacksDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'corpus', 'attacks');
 const files = fs.readdirSync(attacksDir).filter((f) => f.endsWith('.html')).sort();
 
 const ALLOWED = [APP_ORIGIN + '/', APP_ORIGIN.replace(/^http/, 'ws') + '/', 'data:', 'blob:', 'about:'];

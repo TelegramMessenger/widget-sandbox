@@ -39,6 +39,7 @@ import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 import { measureHeights } from './heights';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { REFERENCE_STYLESHEET } from '../../packages/core/src/shared/reference.ts';
 import { DEFAULT_THEME_PARAMS } from '../../packages/core/src/shared/sdk-policy.ts';
 
@@ -63,7 +64,7 @@ const MINI_JS = fs.readFileSync(path.join(harnessDir, 'mini.js'), 'utf8').replac
 const MINI_CSS = fs.readFileSync(path.join(harnessDir, 'mini.css'), 'utf8').trim();
 const MINI_BEGIN = '<!-- conformance:mini -->';
 const MINI_END = '<!-- /conformance:mini -->';
-const SDK_MOCK = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'sdk-mock.js'), 'utf8');
+const SDK_MOCK = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'sdk-mock.js'), 'utf8');
 /**
  * v1 mini-widgets (docs/tgw-format.md): the server refuses more than 4 KB after zlib at level 9
  * (PHP gzcompress) or 32 KB of HTML (INPUT_MEDIA_WIDGET_TOO_LARGE). Every widget stays within

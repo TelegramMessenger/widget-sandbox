@@ -82,7 +82,7 @@ function buildQjsc(): string {
   console.log('building packages/tools/qjsc from the QuickJS submodule (TelegramMessenger/quickjs)…');
   const cc = process.env.CC ?? 'cc';
   execFileSync(cc, ['-O2', '-std=gnu11', '-D_GNU_SOURCE', '-DQUICKJS_NG_BUILD', '-I', path.join(qjs, 'include'), '-I', path.join(qjs, 'quickjs'),
-    '-Wno-unused-parameter', ...sources, '-lm', '-o', bin], { stdio: 'inherit' });
+    '-Wno-unused-parameter', ...sources, ...(process.platform === 'win32' ? [] : ['-lm']), '-o', bin], { stdio: 'inherit' });
   return bin;
 }
 // Test fixtures shared with the native ports (one source of truth: packages/core/tests/fixtures).

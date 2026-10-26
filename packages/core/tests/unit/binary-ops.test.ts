@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { runWidget } from '../../scripts/sandbox-node.ts';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const files = (dir: string): string[] => fs.readdirSync(dir).flatMap((f) => {
   const p = path.join(dir, f);
   return fs.statSync(p).isDirectory() ? files(p) : f.endsWith('.html') ? [p] : [];

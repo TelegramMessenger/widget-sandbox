@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { sanitizeStylesheet, sanitizeStyleProperty } from '../../src/host/css-sanitizer.ts';
 import { DROPPED_TAGS, HTML_ATTRS, HTML_TAGS, REPLACED_TAGS, SECURITY_DROPPED_TAGS, SVG_ALLOWED_ATTRS, SVG_TAGS } from '../../src/host/allowlist.ts';
 import { checkUrl } from '../../src/host/url-policy.ts';
@@ -16,7 +17,7 @@ import { PROFILE_TABLES } from '../../src/shared/profile-tables.ts';
 import { EVENT_TYPES } from '../../src/shared/protocol.ts';
 import { readProfile } from '../../scripts/profile-build.ts';
 
-const pkgRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const profile = readProfile();
 const T = PROFILE_TABLES;
 

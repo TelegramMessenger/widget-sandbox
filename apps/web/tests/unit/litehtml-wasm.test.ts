@@ -9,9 +9,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { Validator } from '@telegram/widget-sandbox/host/validator';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const glueFile = path.join(root, 'apps', 'renderer-litehtml', 'pkg-web', 'twidget_litehtml.js');
 const wasmFile = path.join(root, 'apps', 'renderer-litehtml', 'pkg-web', 'twidget_litehtml.wasm');
 const built = fs.existsSync(glueFile) && fs.existsSync(wasmFile);

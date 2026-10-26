@@ -7,9 +7,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CATALOGUE, CATALOGUE_VERSION, DECISIONS, TODAY_LEGEND, type Feature } from './catalogue';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const dir = path.join(root, 'packages', 'conformance');
 
 /** packages/core/profile.json, when this branch has it, is the single source: its statuses, decisions and neutralisations win. */

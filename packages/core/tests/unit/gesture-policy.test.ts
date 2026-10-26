@@ -5,12 +5,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import * as policy from '../../src/shared/gesture-policy.ts';
 import { GestureArbiter, claimOf, type GestureClaim, type PointerKind } from '../../src/shared/gesture-policy.ts';
 
 type Point = [number, number, number];
 interface Step { down?: Point; move?: Point; up?: Point; tick?: number; cancel?: boolean; holdDeadline?: number | null; claim?: string; claimed?: GestureClaim; pointer?: PointerKind; button?: number; expect?: unknown }
-const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'fixtures', 'gesture-policy.json'), 'utf8')) as {
+const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'gesture-policy.json'), 'utf8')) as {
   constants: Record<string, number>;
   claims: { touchActions: string[]; prevented: boolean; expect: unknown }[];
   cases: { name: string; steps: Step[] }[];

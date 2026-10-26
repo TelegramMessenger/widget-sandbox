@@ -227,7 +227,8 @@ Pitfalls: Playwright suites must not run concurrently (shared canary on
 checkout) gets tested instead of yours — run with `TW_PORT=5174` from a worktree;
 editing `packages/core/src` or `apps/web` during a Playwright run reloads Vite and breaks
 the run; `tests/global-setup.ts` wipes `reports/` so a `-g` partial run yields a
-partial report; macOS has no `timeout`.
+partial report; macOS has no `timeout`. On Windows `build:*` needs a C compiler for qjsc in `CC` (Visual
+Studio's `VC\Tools\Llvm\x64\bin\clang.exe`): its bundles and `.qbc` are byte-identical to the macOS ones.
 
 ## Status (Oct 2026)
 

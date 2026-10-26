@@ -5,9 +5,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { REFERENCE_STYLESHEET } from '../packages/core/src/shared/reference.ts';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TARGETS = {
   ios: 'apps/ios/DemoApp/Corpus',
   // The macOS demo references the iOS demo's corpus folder.

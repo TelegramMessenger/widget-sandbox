@@ -8,8 +8,9 @@
 import { chromium, type FrameLocator, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const genDir = path.join(root, 'corpus', 'generated');
 const outDir = process.argv[2];
 if (!outDir) throw new Error('usage: corepack pnpm tsx scripts/blitz-experiment/dump-dom.mts <outDir> [filter]  (dev server on 127.0.0.1:5173 must be running)');

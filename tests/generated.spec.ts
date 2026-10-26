@@ -15,10 +15,11 @@
 import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GROUP = process.env.CORPUS_GROUP ?? 'generated';
 /** 'blitz' | 'litehtml' | 'shadow': the renderer the sandbox side runs on instead of the iframe (wasm: pnpm build:<name>-web first), '' for the iframe. */
 const NATIVE = ['blitz', 'litehtml', 'shadow'].includes(process.env.TW_RENDERER ?? '') ? process.env.TW_RENDERER! : '';

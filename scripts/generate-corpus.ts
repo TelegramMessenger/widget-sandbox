@@ -10,8 +10,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (name: string, dflt: string) => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : dflt; };
 const MODEL = opt('model', 'claude-sonnet-5-5');

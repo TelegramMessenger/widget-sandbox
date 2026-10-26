@@ -4,10 +4,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 
-export const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const CONF = path.join(ROOT, 'packages', 'conformance');
 export const SETS = ['auto', 'visual'] as const;
 export type SetName = (typeof SETS)[number];

@@ -5,10 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { CpuBudget, FLOOR_MS, queryBudgetMs } from '../../src/host/cpu-budget.ts';
 
 interface Step { at: number; decide?: string; record?: string; cpuMs?: number; expect?: unknown; kill?: boolean; queryBudget?: number }
-const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'fixtures', 'cpu-budget.json'), 'utf8')) as {
+const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'cpu-budget.json'), 'utf8')) as {
   cases: { name: string; config: ConstructorParameters<typeof CpuBudget>[0]; steps: Step[] }[];
 };
 

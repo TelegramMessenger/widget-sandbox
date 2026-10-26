@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
 import { build } from 'esbuild';
 import { runWidget } from '../../scripts/sandbox-node.ts';
 import { sandboxBuildOptions, utf16TreeModule } from '../../scripts/sandbox-build.ts';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 async function bundle(lazy: boolean, minify = true): Promise<string> {
   const options = sandboxBuildOptions(root);

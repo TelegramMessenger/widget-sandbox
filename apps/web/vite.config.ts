@@ -5,10 +5,11 @@
 import { defineConfig } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { widgetSandbox } from '@telegram/widget-sandbox/vite';
 import { REFERENCE_STYLESHEET } from '@telegram/widget-sandbox/shared/reference';
 
-const appRoot = path.dirname(new URL(import.meta.url).pathname);
+const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(appRoot, '..', '..');
 const corpusDir = path.join(repoRoot, 'corpus');
 /** The Blitz wasm renderer prototype (pnpm build:blitz-web), served at /blitz/ outside the module graph. Dev tooling. */

@@ -8,10 +8,11 @@
 import { build, type BuildOptions } from 'esbuild';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { rendererBuildOptions, sandboxBuildOptions } from './scripts/sandbox-build.ts';
 
-const pkgRoot = path.dirname(new URL(import.meta.url).pathname);
+const pkgRoot = path.dirname(fileURLToPath(import.meta.url));
 
 /** Cross-origin isolation (COOP/COEP/CORP): required for SharedArrayBuffer (the sync query bridge). */
 export const ISOLATION_HEADERS = {

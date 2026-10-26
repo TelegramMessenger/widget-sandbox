@@ -16,9 +16,10 @@
 import * as csstree from 'css-tree';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runWidget } from '@telegram/widget-sandbox/node';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const out = path.join(root, 'reports', 'profile');
 fs.mkdirSync(out, { recursive: true });
 const groups = process.argv.includes('--groups') ? process.argv[process.argv.indexOf('--groups') + 1].split(',') : ['compat', 'generated', 'htmlbubbles-ported', 'attacks'];

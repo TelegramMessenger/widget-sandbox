@@ -730,7 +730,7 @@ export function agentBlock(): string {
   return block.replace(/^[^]*?```text\n/, '').replace(/\n```[^]*$/, '');
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const file = process.argv[2];
   const args = process.argv.slice(3);
   if (file === '--guide') {

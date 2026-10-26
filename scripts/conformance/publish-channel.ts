@@ -55,8 +55,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONF = path.join(ROOT, 'packages', 'conformance');
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'widget-sandbox');
 

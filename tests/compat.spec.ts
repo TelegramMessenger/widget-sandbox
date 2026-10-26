@@ -8,10 +8,11 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Outside Playwright's test-results/ (which it wipes at every run start); cleared by tests/global-setup.ts.
 const outDir = path.join(root, 'reports', 'compat');
 fs.mkdirSync(outDir, { recursive: true });

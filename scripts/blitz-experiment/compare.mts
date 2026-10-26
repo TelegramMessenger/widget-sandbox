@@ -5,10 +5,11 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = path.dirname(fileURLToPath(import.meta.url));
 const [dumpDir, bin, outDir] = process.argv.slice(2);
 if (!dumpDir || !bin || !outDir) throw new Error('usage: TW_SHARED_FONTS=1 corepack pnpm tsx scripts/blitz-experiment/compare.mts <dumpDir> <twidget_render binary> <outDir>');
 const reportMd = fs.readFileSync(path.join(here, '..', '..', 'docs', 'compat-report-generated.md'), 'utf8');
