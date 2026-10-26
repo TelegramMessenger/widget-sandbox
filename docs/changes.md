@@ -3,7 +3,10 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release (v0.2.2)
+## v0.2.2 — release notes (2026-10-26)
+
+One fix, for every client: haptics need a touch. No API change; a client on v0.2.1 updates the framework and gets the
+new limit, as long as it plays haptics only from `onAction` (`WidgetAction.Haptic`) and never straight from the widget.
 
 **Haptics need a touch** (a bug report from Telegram Android 13.2.0: a widget's `setInterval` called
 `HapticFeedback.notificationOccurred` and vibrated the phone non-stop with no user action; `docs/sdk-v1.md` §2.6,
@@ -20,7 +23,11 @@ nothing until the host lists them; "default" items apply to every host.
   host feeds both to the gate (trusted renderer input only). A host whose renderer sends neither gets the no-touch
   rule. The renderer bundle is rebuilt.
 - `corpus/attacks/haptic-timer-buzz.html` (the bug's pattern; `test:attacks` checks at most one second of haptics)
-  and a conformance case.
+  and a conformance case (`auto/27-haptics-no-touch`, `visual/sdk/26-haptics-no-touch`).
+- Checked: unit 711, typecheck, `test:sdk` 43, activation 4, attacks 126 on iframe and shadow (0 canary hits), the
+  conformance build and the haptic cases on iframe and shadow; Swift macOS 263 and iOS 264 (only the known
+  `IntlBridgeTests.testPluralRulesMatchICU`), Kotlin JVM 26 and instrumented 104; C++ 75 tests with Blitz and litehtml,
+  105 attacks with 0 leaks on all three renderers.
 
 ## v0.2.1 — release notes (2026-10-26)
 

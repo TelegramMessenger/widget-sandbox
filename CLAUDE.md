@@ -357,6 +357,9 @@ the polled shared state), `onRequest({ data }, complete)` (`{ result }` only) an
 requests (`auto/25`, `auto/26-context-*`, `visual/sdk/16`, `19`–`25`; case headers say how to send a case and what the bot
 answers; `scripts/conformance/test-bot.ts`), `auto/23-gestures` split under the 560 px gate (now enforced for the automatic
 set), and the docs reworded: a widget is fixed code plus changeable state (chat state, shared state).
+2026-10-26: v0.2.2 (`docs/changes.md`): haptics need a touch (a Telegram Android bug: a timer vibrated the phone non-stop):
+free during a press and 5 s after; otherwise a 1 s series, the next one after a touch or 10 s later (`HapticGate`, the
+renderer's `release`, `docs/decisions.md` "Haptics need a touch").
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.
