@@ -245,6 +245,11 @@ describe('validator: protocol strictness', () => {
     assert.deepEqual(v.validateQuery({ q: 'measureText', font: '12px Inter, monospace', text: 'x' }), { q: 'measureText', font: '12px monospace', text: 'x' });
     assert.equal(v.validateQuery({ q: 'eval', code: '1' }), null);
     assert.deepEqual(v.validateListen(['click', 'install', 1, 'keydown', 'dblclick', 'contextmenu', 'touchstart', 'wheel', 'focus']), ['click', 'dblclick', 'contextmenu']);
+    assert.deepEqual(v.validateListen(['scroll', 'wheel']), []);
+    v.cssEnv.nativeScrolling = true;
+    assert.deepEqual(v.validateListen(['scroll', 'wheel', 'click']), ['scroll', 'click']);
+    v.cssEnv.nativeScrolling = false;
+    assert.deepEqual(v.validateListen(['scroll', 'click']), ['click']);
     assert.deepEqual(v.validatePreventDefault(['12:click', 'x:y', '12:keydown:Enter']), ['12:click', '12:keydown:Enter']);
   });
   it('canvas commands: allowlisted methods, props and object refs only; filter, shadows, compositing and conic gradients are outside the profile', () => {

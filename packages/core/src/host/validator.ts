@@ -1023,7 +1023,7 @@ export class Validator {
   /** Event types the sandbox wants forwarded. */
   validateListen(types: unknown): string[] {
     if (!Array.isArray(types)) return [];
-    return types.filter((t): t is string => typeof t === 'string' && EVENT_TYPE_SET.has(t));
+    return types.filter((t): t is string => typeof t === 'string' && (EVENT_TYPE_SET.has(t) || t === 'scroll' && this.cssEnv.nativeScrolling === true));
   }
 
   /** "Learned preventDefault" keys: `${nodeId}:${eventType}`. */
