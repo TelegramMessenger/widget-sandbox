@@ -3,6 +3,18 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+**Canvas arguments are converted as a real context converts them** (default, every client;
+`packages/core/src/sandbox/canvas.ts`). The shim forwarded a call's arguments as the widget passed them, and the
+renderers read anything that was not the expected type as 0 or dropped the call: `fillText(4, …)` drew nothing on the
+native renderers (the browser converted it on the web), `fillRect('1', '2', 3, 4)` drew at 0, 0, and a `NaN` became
+`null` in JSON and then 0, so `fillRect(NaN, …)` painted from x = 0 where a browser does nothing. The text of
+`fillText`/`strokeText` is now `String()`, coordinates are `Number()` (a call with one that is not finite does nothing,
+in `Path2D` too), the `anticlockwise` flag of `arc`/`ellipse` is a boolean, `setTransform` takes a `DOMMatrix` or a
+plain `{a…f}` / `{m11…m42}`, `isPointInPath`/`isPointInStroke` convert their point (not finite: false), and
+`Path2D.roundRect` keeps its radii list. Unit test: `packages/core/tests/unit/canvas-args.test.ts`.
+
 ## v0.2.2 — release notes (2026-10-26)
 
 One fix, for every client: haptics need a touch. No API change; a client on v0.2.1 updates the framework and gets the

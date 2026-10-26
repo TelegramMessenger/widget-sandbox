@@ -275,6 +275,59 @@ class CanvasPattern {
   setTransform() {}
 }
 
+// WebIDL's argument conversions, which a real context applies before anything else: the renderer gets text as a
+// string and coordinates as numbers, and a call with a coordinate that is not finite does nothing.
+/** The arguments each method takes as numbers: [first, end). */
+const NUMBER_ARGS: Record<string, [number, number]> = {
+  scale: [0, 2], rotate: [0, 1], translate: [0, 2], transform: [0, 6], setTransform: [0, 6],
+  clearRect: [0, 4], fillRect: [0, 4], strokeRect: [0, 4], moveTo: [0, 2], lineTo: [0, 2],
+  bezierCurveTo: [0, 6], quadraticCurveTo: [0, 4], arc: [0, 5], arcTo: [0, 5], ellipse: [0, 7], rect: [0, 4],
+  roundRect: [0, 4], fillText: [1, 4], strokeText: [1, 4], drawImage: [1, 9],
+};
+/** The `anticlockwise` flag. */
+const FLAG_ARG: Record<string, number> = { arc: 5, ellipse: 7 };
+
+/** The arguments as the method sees them, or null when the call does nothing. */
+function convertArgs(name: string, args: any[]): any[] | null {
+  const span = NUMBER_ARGS[name];
+  if (!span) return args;
+  let out = args.slice();
+  if (name === 'setTransform' && out.length <= 1) {
+    // setTransform(DOMMatrix2DInit): a DOMMatrix, a plain {a…f} or {m11…m42}, or nothing (the identity).
+    const m = out[0] ?? {};
+    out = [m.a ?? m.m11 ?? 1, m.b ?? m.m12 ?? 0, m.c ?? m.m21 ?? 0, m.d ?? m.m22 ?? 1, m.e ?? m.m41 ?? 0, m.f ?? m.m42 ?? 0];
+  }
+  if (name === 'fillText' || name === 'strokeText') out[0] = String(out[0]);
+  for (let i = span[0]; i < Math.min(span[1], out.length); i++) {
+    if (out[i] === undefined) continue;
+    const n = Number(out[i]);
+    if (!Number.isFinite(n)) return null;
+    out[i] = n;
+  }
+  const flag = FLAG_ARG[name];
+  if (flag !== undefined && flag < out.length) out[flag] = !!out[flag];
+  return out;
+}
+
+/** isPointInPath / isPointInStroke: ([path,] x, y [, fillRule]) with x and y as numbers; null (false) when either is not finite. */
+function pointArgs(args: any[]): any[] | null {
+  const at = args[0] instanceof Path2D ? 1 : 0;
+  const out = args.slice();
+  for (const i of [at, at + 1]) {
+    const n = Number(out[i]);
+    if (!Number.isFinite(n)) return null;
+    out[i] = n;
+  }
+  return out;
+}
+
+/** roundRect's radii: a number, a DOMPoint-like {x, y}, or a list of numbers. */
+function radiiArg(r: any): any {
+  if (Array.isArray(r)) return r.map(Number);
+  if (r && typeof r === 'object' && 'x' in r && 'y' in r) return [Number(r.x), Number(r.y)];
+  return r === undefined ? undefined : Number(r);
+}
+
 export class Path2D {
   _id = objectSeq++;
   _d: string | null;
@@ -298,7 +351,12 @@ export class Path2D {
   }
 }
 for (const m of ['moveTo', 'lineTo', 'bezierCurveTo', 'quadraticCurveTo', 'arc', 'arcTo', 'ellipse', 'rect', 'roundRect', 'closePath']) {
-  (Path2D.prototype as any)[m] = function (this: Path2D, ...args: any[]) { this._cmds.push([m, ...args.map(Number)]); };
+  (Path2D.prototype as any)[m] = function (this: Path2D, ...args: any[]) {
+    const radii = m === 'roundRect' ? radiiArg(args[4]) : undefined;
+    const out = convertArgs(m, args.slice(0, m === 'roundRect' ? 4 : args.length));
+    if (!out) return;
+    this._cmds.push([m, ...out.map((a) => (typeof a === 'boolean' ? Number(a) : a)), ...(radii === undefined ? [] : [radii])]);
+  };
 }
 
 export class ImageData {
@@ -380,15 +438,17 @@ export class Context2D {
     const id = ensureCreated(this.canvas);
     return query({ q: 'canvasCall', id, method, args: args.map((a) => this._enc(a)) });
   }
-  isPointInPath(...a: any[]) { return this._call('isPointInPath', a) === true; }
-  isPointInStroke(...a: any[]) { return this._call('isPointInStroke', a) === true; }
+  isPointInPath(...a: any[]) { const args = pointArgs(a); return args !== null && this._call('isPointInPath', args) === true; }
+  isPointInStroke(...a: any[]) { const args = pointArgs(a); return args !== null && this._call('isPointInStroke', args) === true; }
   getTransform() { const m = this._call('getTransform', []); return new (globalThis as any).DOMMatrix(m && !m.error ? m : undefined); }
   getContextAttributes() { return { alpha: true, colorSpace: 'srgb', desynchronized: false, willReadFrequently: false }; }
   drawFocusIfNeeded() {}
 }
 
 for (const name of CALLS) {
-  Context2D.prototype[name] = function (this: Context2D, ...args: any[]) {
+  Context2D.prototype[name] = function (this: Context2D, ...given: any[]) {
+    const args = convertArgs(name, given);
+    if (!args) return;
     if (name === 'save') this._stack.push([{ ...this._s }, [...this._dash]]);
     else if (name === 'restore') {
       const top = this._stack.pop();
@@ -407,7 +467,7 @@ for (const name of CALLS) {
 for (const name of ['fillRect', 'strokeRect', 'clearRect']) {
   const generic = Context2D.prototype[name];
   Context2D.prototype[name] = function (this: Context2D, a: any, b: any, c: any, d: any) {
-    if (rectFast && arguments.length === 4 && typeof a === 'number' && typeof b === 'number' && typeof c === 'number' && typeof d === 'number') {
+    if (rectFast && arguments.length === 4 && Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d)) {
       const cmds = buffer(this.canvas);
       if (!Array.isArray(cmds) && cmds.length <= MAX_BUFFERED && cmds.rect(name, a, b, c, d)) {
         markDirty(this.canvas);
