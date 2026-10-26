@@ -149,6 +149,11 @@ export interface StageInfo {
    * colour does not.
    */
   colors?: string[];
+  /**
+   * Visual set: the stage's template illustrates motion or a state after input (the frames a box moves between, the end
+   * of a transition) rather than a frame the widget draws on load; picture-check.ts leaves the stage out.
+   */
+  illustration?: boolean;
 }
 
 export interface Widget {
@@ -197,7 +202,7 @@ export function parseWidget(set: SetName, stem: string, html: string): Widget {
     const covers = (attr(tag, 'data-covers') ?? '').split(/\s+/).filter(Boolean);
     const maxDiff = attr(tag, 'data-max-diff');
     const colors = (attr(tag, 'data-colors') ?? '').split(/\s+/).filter(Boolean);
-    stages.push({ name, w, h, covers, themes, maxDiff: maxDiff ? Number(maxDiff) : undefined, reftest: html.includes(`data-ref="${name}"`), xfail: attr(tag, 'data-xfail'), colors: colors.length ? colors : undefined });
+    stages.push({ name, w, h, covers, themes, maxDiff: maxDiff ? Number(maxDiff) : undefined, reftest: html.includes(`data-ref="${name}"`), xfail: attr(tag, 'data-xfail'), colors: colors.length ? colors : undefined, illustration: /\sdata-illustration(?=[\s=>])/.test(tag) || undefined });
   }
   return { set, stem, id, file: path.join(CONF, set, stem + '.html'), html, meta, stages };
 }
@@ -285,6 +290,11 @@ export function crop(png: PNG, x: number, y: number, w: number, h: number, dpr: 
 
 export function refPath(w: Widget, stage: string, engine: string, theme: 'light' | 'dark'): string {
   return path.join(CONF, 'refs', w.set, w.stem, `${stage}.${engine}${theme === 'dark' ? '.dark' : ''}.png`);
+}
+
+/** The picture posted next to a visual or client-SDK widget: refs/visual/<widget>[.dark].png. */
+export function picturePath(w: Widget, theme: 'light' | 'dark'): string {
+  return path.join(CONF, 'refs', w.set, `${w.stem}${theme === 'dark' ? '.dark' : ''}.png`);
 }
 
 export function readJson<T>(file: string, fallback: T): T {

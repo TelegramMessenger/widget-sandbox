@@ -15,7 +15,10 @@
 //      (MAX_HEIGHT): a visual or client-SDK widget taller than the bubble's
 //      cap allows fails the build; so does an automatic widget, measured
 //      through the sandbox (heights.ts: the dev app on a dev server the build
-//      starts, or --origin; --no-heights skips it);
+//      starts, or --origin; --no-heights skips it); and so does a picture of
+//      the visual set that differs from the widget drawn through the sandbox
+//      (picture-check.ts, on the same dev server): a picture shows what widget
+//      profile 1 draws, not what Chromium does with an out-of-profile feature;
 //   5. the native run of every widget (no template swap): what a plain
 //      browser engine says to each check, recorded in the manifest as a sanity
 //      reference for the tests themselves;
@@ -34,9 +37,10 @@ import { chromium, webkit, type Browser, type BrowserContext, type Page } from '
 import { PNG } from 'pngjs';
 import { CATALOGUE } from './catalogue';
 import { emitCatalogue } from './emit-catalogue';
-import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, posixRelative, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
+import { AUTO_GRID, CONF, MAX_HEIGHT, ROOT, STAGE, autoStagePos, listWidgets, parseWidget, perform, picturePath, posixRelative, readJson, refPath, type BotAction, type MessageSpec, type Published, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
 import { measureHeights } from './heights';
+import { checkPictures } from './picture-check';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -234,6 +238,8 @@ const pictureThemes = (w: Widget) => (w.meta.themes ?? (w.stages.some((s) => s.t
  * The reference picture posted next to a visual or client-SDK widget in the test channel: the whole widget
  * rendered natively in reference mode at the reference width, DPR 2, on the reference palette's background
  * (the SDK group with the SDK stand-in), at most 2000 CSS px tall (1200 for the SDK group) → refs/visual/<widget>[.dark].png.
+ * Animations as they are: Playwright's `animations: 'disabled'` finishes a finite animation, a paused one too (it drew
+ * 06-css-animations' frozen box back at its start); a row that moves has a template.
  */
 async function renderPictures(browser: Browser, w: Widget, html: string): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
@@ -243,9 +249,9 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
     await waitStatus(page, ['done', 'awaiting'], 15_000);
     await page.waitForTimeout(300);
     const h = Math.min(isSdk(w) ? 1200 : 2000, await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height)));
-    const file = path.join(CONF, 'refs', w.set, `${w.stem}${theme === 'dark' ? '.dark' : ''}.png`);
+    const file = picturePath(w, theme);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeIfChanged(file, await page.screenshot({ clip: { x: 0, y: 0, width: WIDTH, height: Math.max(h, 40) }, animations: 'disabled', caret: 'hide' }));
+    writeIfChanged(file, await page.screenshot({ clip: { x: 0, y: 0, width: WIDTH, height: Math.max(h, 40) }, animations: 'allow', caret: 'hide' }));
     out[theme] = posixRelative(CONF, file);
     await ctx.close();
   }
@@ -459,12 +465,30 @@ async function main() {
     for (const p of tooLarge) console.log('  ' + p);
     process.exitCode = 1;
   }
-  // The automatic set's height gate: through the sandbox (drawn natively an automatic widget also lists the
-  // out-of-profile checks Chromium fails, so the native height is not the client's).
-  if (!args.includes('--no-heights')) tooTall.push(...(await autoHeights(widgets.filter((w) => w.set === 'auto'))));
+  // Through the sandbox, on the dev app: the automatic set's height gate (drawn natively an automatic widget also
+  // lists the out-of-profile checks Chromium fails, so the native height is not the client's), and the pictures just
+  // drawn against the pipeline (the widget files as written above).
+  const measured = args.includes('--no-heights') ? [] : widgets.filter((w) => w.set === 'auto');
+  const pictured = NO_REFS ? [] : listWidgets(ONLY).filter((w) => w.set === 'visual');
+  let differ: string[] = [];
+  if (measured.length || pictured.length) await withDevServer(async (origin) => {
+    if (measured.length) {
+      console.log(`\nheights of the automatic set through the sandbox (${origin}):`);
+      tooTall.push(...(await measureHeights(measured, origin, 'shadow', [MAX_HEIGHT.width], (line) => console.log('  ' + line))));
+    }
+    if (pictured.length) {
+      console.log(`\nthe visual set's pictures against the widget drawn through the sandbox (${origin}):`);
+      differ = await checkPictures(pictured, origin, 'shadow', (line) => console.log('  ' + line));
+    }
+  });
   if (tooTall.length) {
     console.log(`\ntaller than ${MAX_HEIGHT.height} px at a ${MAX_HEIGHT.width} px bubble (the cap is 600; split the widget, or "tall": true for a test of the cap):`);
     for (const p of tooTall) console.log('  ' + p);
+    process.exitCode = 1;
+  }
+  if (differ.length) {
+    console.log('\npictures that differ from the widget drawn through the sandbox (an out-of-profile feature drawn by Chromium: neutralise it in reference mode; or a pipeline bug; diffs in reports/conformance/pictures):');
+    for (const p of differ) console.log('  ' + p);
     process.exitCode = 1;
   }
 }
@@ -475,9 +499,8 @@ async function main() {
  */
 const ANCHORS: Record<string, [number, number][]> = { 'visual/sdk/17-size-hint': [[0, 0], [0, 300], [300, 0], [300, 300]] };
 
-/** The automatic widgets taller than MAX_HEIGHT allows, measured through the dev app: --origin's, or a dev server the build starts. */
-async function autoHeights(widgets: Widget[]): Promise<string[]> {
-  if (!widgets.length) return [];
+/** Runs `fn` on the dev app: --origin's, or a dev server the build starts for it on a free port. */
+async function withDevServer(fn: (origin: string) => Promise<void>): Promise<void> {
   let origin = opt('origin');
   let server: ReturnType<typeof spawn> | undefined;
   if (!origin) {
@@ -487,12 +510,11 @@ async function autoHeights(widgets: Widget[]): Promise<string[]> {
     const t0 = Date.now();
     for (;;) {
       try { if ((await fetch(origin)).ok) break; } catch {}
-      if (Date.now() - t0 > 90_000) { process.kill(-server.pid!); throw new Error(`the dev server for the height gate did not start on ${origin}`); }
+      if (Date.now() - t0 > 90_000) { process.kill(-server.pid!); throw new Error(`the dev server for the checks through the sandbox did not start on ${origin}`); }
       await new Promise((r) => setTimeout(r, 500));
     }
   }
-  console.log(`\nheights of the automatic set through the sandbox (${origin}):`);
-  try { return await measureHeights(widgets, origin, 'shadow', [MAX_HEIGHT.width], (line) => console.log('  ' + line)); }
+  try { await fn(origin); }
   finally { if (server) process.kill(-server.pid!); }
 }
 

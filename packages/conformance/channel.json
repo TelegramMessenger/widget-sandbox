@@ -80,7 +80,7 @@
    "photos": [
     "refs/visual/06-css-animations.png"
    ],
-   "zlib": 2889
+   "zlib": 2904
   },
   {
    "widget": "visual/07-web-animations.html",
@@ -90,27 +90,27 @@
    "photos": [
     "refs/visual/07-web-animations.png"
    ],
-   "zlib": 2658
+   "zlib": 2669
   },
   {
    "widget": "visual/08-canvas-a.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/08-canvas-a · Canvas 2D (1/2): shapes and paths, line styles, colours, gradients and patterns, text, alpha. Each canvas should look like the reference picture posted next to this message.",
+   "caption": "visual/08-canvas-a · Canvas 2D (1/2): shapes and paths, line styles, colours, gradients, text, alpha. Each canvas should look like the reference picture posted next to this message.",
    "photos": [
     "refs/visual/08-canvas-a.png"
    ],
-   "zlib": 2667
+   "zlib": 2554
   },
   {
    "widget": "visual/08-canvas-b.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/08-canvas-b · Canvas 2D (2/2): transforms and clipping; shadows, ctx.filter and conic gradients out; a chart. Each canvas should look like the reference picture posted next to this message.",
+   "caption": "visual/08-canvas-b · Canvas 2D (2/2): transforms and clipping; shadows, ctx.filter, conic gradients and patterns out; a chart. Each canvas should look like the reference picture posted next to this message.",
    "photos": [
     "refs/visual/08-canvas-b.png"
    ],
-   "zlib": 2613
+   "zlib": 2732
   },
   {
    "widget": "visual/09-svg-a.html",
@@ -167,11 +167,11 @@
    "widget": "visual/13-out-of-profile.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/13-out-of-profile · Out of the profile, neutralised the same way everywhere: form controls, inner scrolling, sticky, named fonts, 3D, popover over the chat. Each box must look like the reference picture: the out-of-profile feature is simply not there. Tap “Show popover”: nothing may appear outside this bubble.",
+   "caption": "visual/13-out-of-profile · Out of the profile, neutralised the same way everywhere: form controls, inner scrolling, sticky, named fonts, 3D, popover over the chat. Each box must look like the reference picture: the out-of-profile feature is simply not there. The popover is dropped: its red box is an ordinary block in the bubble, shown from the start. Tap “Show popover”: nothing changes, and nothing may appear outside this bubble.",
    "photos": [
     "refs/visual/13-out-of-profile.png"
    ],
-   "zlib": 2610
+   "zlib": 2722
   },
   {
    "widget": "visual/14-unstyled-document.html",

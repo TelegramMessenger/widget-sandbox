@@ -5,6 +5,23 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Next release
 
+**The conformance set's pictures show what widget profile 1 draws** (the conformance set only, no framework change;
+`packages/conformance`, `scripts/conformance`). The pictures posted next to the visual widgets are drawn natively by
+Chromium, and two of them showed Chromium's own behaviour for an out-of-profile feature, so a client that drew what
+the profile says differed from its picture: `visual/08-canvas-a` drew a checker with `createPattern`, which profile 1
+leaves blank (a pattern draws nothing), and `visual/13-out-of-profile` hid the popover's red box, which profile 1
+shows from the start as an ordinary block in the bubble (the `popover` attribute is dropped). The checker moves to
+the out row of `visual/08-canvas-b` ("no checker strip"); 13 drops the attribute in reference mode, gets a caption for
+the row, and its button sets its own text colour (a client's button style chose it before). A third picture was wrong
+for another reason: `visual/06-css-animations` showed its frozen box at the start, not half-way, because the
+screenshot finished the paused animation; the pictures are now taken with the animations as they are. The build
+checks every picture of the visual set against the widget drawn through the sandbox and fails when one differs
+(`scripts/conformance/picture-check.ts`, on the dev server it already starts for the heights; `data-illustration` marks
+a stage whose picture shows motion, which the check leaves out). The other visual widgets and the client-SDK group
+already matched. In the test group, `publish-channel.ts` re-sends the Visual topic from 06 on (the widgets 06, 07, 08a,
+08b and 13 changed; 07 only gains the attribute, its picture stays).
+
+
 **Canvas arguments are converted as a real context converts them** (default, every client;
 `packages/core/src/sandbox/canvas.ts`). The shim forwarded a call's arguments as the widget passed them, and the
 renderers read anything that was not the expected type as 0 or dropped the call: `fillText(4, …)` drew nothing on the

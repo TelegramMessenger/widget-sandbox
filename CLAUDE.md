@@ -40,7 +40,9 @@ pnpm workspace). A framework change touches `packages/` only.
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B after zlib at level 9) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
-  for the visual set, `heights.ts` through the sandbox for all). `CLIENTS.md` tells a client team how to
+  for the visual set, `heights.ts` through the sandbox for all); every visual picture shows what the profile draws
+  (`picture-check.ts`: the build fails when one differs from the widget drawn through the sandbox, so an out-of-profile
+  feature is neutralised in reference mode by a template or `T.mode == 'ref'`). `CLIENTS.md` tells a client team how to
   run it on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`;
   `publish-channel.ts` fills the Telegram test group through a test bot; `test-bot.ts` is the reference bot for the cases
   that talk to it (sends them with their layer-233 fields, answers their requests, edits their state; `--self-test`).
@@ -205,7 +207,7 @@ corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscript
 # dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
 corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md + the out list in docs/widget-runtime-profile.md (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
 corepack pnpm tsx packages/core/scripts/intl-cases.ts   # after adding an Intl case (or an ICU update of Node): rewrites packages/core/tests/fixtures/intl-cases.json with V8's answers (--check: exit 1 when stale; intl-cases.test.ts runs it); then pnpm build:ios|android|desktop copy it to the native tests
-corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance
+corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance; starts a dev server (or --origin) for the automatic set's heights and the picture check (picture-check.ts: each visual picture against the widget drawn through the sandbox, diffs in reports/conformance/pictures)
 corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
 corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage behind the historical draft docs/widget-profile-draft.md and widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
 cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 26 JVM + 104 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)

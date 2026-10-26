@@ -8697,8 +8697,8 @@
      "nativeVsTemplate": 0.9824
     }
    ],
-   "bytes": 8068,
-   "zlib": 2889,
+   "bytes": 8140,
+   "zlib": 2904,
    "refImages": {
     "light": "refs/visual/06-css-animations.png"
    },
@@ -8803,8 +8803,8 @@
      "nativeVsTemplate": 0.0154
     }
    ],
-   "bytes": 7452,
-   "zlib": 2658,
+   "bytes": 7470,
+   "zlib": 2669,
    "refImages": {
     "light": "refs/visual/07-web-animations.png"
    },
@@ -8814,7 +8814,7 @@
    "id": "visual/08-canvas-a",
    "set": "visual",
    "file": "visual/08-canvas-a.html",
-   "title": "Canvas 2D (1/2): shapes and paths, line styles, colours, gradients and patterns, text, alpha",
+   "title": "Canvas 2D (1/2): shapes and paths, line styles, colours, gradients, text, alpha",
    "hint": "Each canvas should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
@@ -8826,7 +8826,6 @@
     "canvas.hidpi",
     "canvas.line-style",
     "canvas.path",
-    "canvas.pattern",
     "canvas.rect",
     "canvas.text"
    ],
@@ -8891,8 +8890,8 @@
      }
     }
    ],
-   "bytes": 6055,
-   "zlib": 2667,
+   "bytes": 5689,
+   "zlib": 2554,
    "refImages": {
     "light": "refs/visual/08-canvas-a.png"
    },
@@ -8902,7 +8901,7 @@
    "id": "visual/08-canvas-b",
    "set": "visual",
    "file": "visual/08-canvas-b.html",
-   "title": "Canvas 2D (2/2): transforms and clipping; shadows, ctx.filter and conic gradients out; a chart",
+   "title": "Canvas 2D (2/2): transforms and clipping; shadows, ctx.filter, conic gradients and patterns out; a chart",
    "hint": "Each canvas should look like the reference picture posted next to this message.",
    "kind": [
     "pixel"
@@ -8914,6 +8913,7 @@
     "canvas.hidpi",
     "canvas.line-style",
     "canvas.path",
+    "canvas.pattern",
     "canvas.rect",
     "canvas.shadow",
     "canvas.transform"
@@ -8979,12 +8979,12 @@
      }
     }
    ],
-   "bytes": 5621,
-   "zlib": 2613,
+   "bytes": 6008,
+   "zlib": 2732,
    "refImages": {
     "light": "refs/visual/08-canvas-b.png"
    },
-   "height": 352
+   "height": 358
   },
   {
    "id": "visual/09-svg-a",
@@ -9144,7 +9144,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7156
+     "nativeVsTemplate": 0.7179
     }
    ],
    "bytes": 5218,
@@ -9402,7 +9402,7 @@
    "set": "visual",
    "file": "visual/13-out-of-profile.html",
    "title": "Out of the profile, neutralised the same way everywhere: form controls, inner scrolling, sticky, named fonts, 3D, popover over the chat",
-   "hint": "Each box must look like the reference picture: the out-of-profile feature is simply not there. Tap “Show popover”: nothing may appear outside this bubble.",
+   "hint": "Each box must look like the reference picture: the out-of-profile feature is simply not there. The popover is dropped: its red box is an ordinary block in the bubble, shown from the start. Tap “Show popover”: nothing changes, and nothing may appear outside this bubble.",
    "kind": [
     "pixel",
     "interactive"
@@ -9500,12 +9500,12 @@
      "nativeVsTemplate": 0.436
     }
    ],
-   "bytes": 6382,
-   "zlib": 2610,
+   "bytes": 6752,
+   "zlib": 2722,
    "refImages": {
     "light": "refs/visual/13-out-of-profile.png"
    },
-   "height": 494
+   "height": 531
   },
   {
    "id": "visual/14-unstyled-document",

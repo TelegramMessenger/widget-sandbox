@@ -214,7 +214,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `canvas.colors` | fillStyle / strokeStyle with CSS colours | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a |
 | `canvas.gradients` | createLinearGradient, createRadialGradient, addColorStop | in | D3a | kept |  | auto/12-canvas-a, visual/08-canvas-a |
 | `canvas.conic-gradient` | createConicGradient | out | P1 | replaced | createConicGradient returns a gradient that draws nothing | auto/12-canvas-a, visual/08-canvas-b |
-| `canvas.pattern` | createPattern from a canvas or image | out | P1 | replaced | createPattern returns a pattern that draws nothing | auto/12-canvas-b, visual/08-canvas-a |
+| `canvas.pattern` | createPattern from a canvas or image | out | P1 | replaced | createPattern returns a pattern that draws nothing | auto/12-canvas-b, visual/08-canvas-b |
 | `canvas.transform` | save, restore, translate, rotate, scale, transform, setTransform, resetTransform | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas-b |
 | `canvas.clip` | clip() with a path | in | D3a | kept |  | auto/12-canvas-b, visual/08-canvas-b |
 | `canvas.text` | fillText, strokeText, font, textAlign, textBaseline, measureText | in | D3a | kept |  | auto/12-canvas-a, auto/12-canvas-b, visual/08-canvas-a |
