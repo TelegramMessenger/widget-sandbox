@@ -1849,3 +1849,15 @@ buzzes on a collision while the finger is still down or just lifted. The touch w
 animation, the one series after a touch covers the late answer, and the 1 s series every 10 s keeps a widget with no
 touch at all (a timer, a ticker) from becoming a vibrator.
 
+
+## Native scrolling: an experiment (v0.2.3, 2026-10-27)
+
+`WidgetHost.Options.nativeScrolling` (Swift, from the Telegram macOS work, a5a7023) lets the validator keep `overflow:
+auto` / `scroll` and lets a widget listen to `scroll`. Widget profile 1 clips instead (no inner scrolling, `docs/profile-v1.md`),
+and every other client does. Earlier Swift-only options (`canvasWords`, `binaryOps`, `morphUpdates`) change how the same
+validated output travels; this one changes what a widget can do, so a widget written against a client that turns it on
+breaks on every other client. It stays as an experiment, the way the 3D side channel does: only DEBUG builds or builds
+with `TWIDGET_EXPERIMENTAL_SCROLLING` honour it, and a release build reports a `native-scrolling` diag and keeps profile 1.
+The shared validator code is unchanged and inert unless a host turns the flag on (Kotlin, C++ and the web never do).
+Inner scrolling for every client is a question for widget profile 2: with a wheel or a trackpad it is safe; on a touch
+screen horizontal scrolling fits the gesture rule, vertical scrolling conflicts with "vertical drags are the chat's" (v0.1.3).

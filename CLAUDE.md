@@ -363,6 +363,10 @@ set), and the docs reworded: a widget is fixed code plus changeable state (chat 
 2026-10-26: v0.2.2 (`docs/changes.md`): haptics need a touch (a Telegram Android bug: a timer vibrated the phone non-stop):
 free during a press and 5 s after; otherwise a 1 s series, the next one after a touch or 10 s later (`HapticGate`, the
 renderer's `release`, `docs/decisions.md` "Haptics need a touch").
+2026-10-27: v0.2.3 (`docs/changes.md`): Fela's fixes (canvas arguments converted as a real context does; a script's
+`new Image()` loads before it is inserted; the tooling builds on Windows), conformance pictures checked against the sandbox
+(`scripts/conformance/picture-check.ts`), and `nativeScrolling` (Swift, tmacos) honoured only in DEBUG or
+`TWIDGET_EXPERIMENTAL_SCROLLING` builds (`docs/decisions.md`, "Native scrolling: an experiment").
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.

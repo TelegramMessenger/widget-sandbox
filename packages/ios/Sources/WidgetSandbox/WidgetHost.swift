@@ -73,6 +73,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         /// Take prewarmed parts from RendererPool / EnginePool / ValidatorPool when they have any, and recycle the validator on destroy.
         public var pools = false
         public var recyclesRenderers = false
+        /// Experimental, outside widget profile 1: lets `overflow` scroll inside the widget and lets it listen to `scroll`.
+        /// Only DEBUG builds or builds with TWIDGET_EXPERIMENTAL_SCROLLING honour it; a release build reports a
+        /// `native-scrolling` diag and keeps profile 1 (docs/decisions.md, "Native scrolling: an experiment").
         public var nativeScrolling = false
         /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`, `binaryOps`; empty means plain JSON.
         public var features: Set<String> = []
@@ -248,7 +251,14 @@ public final class WidgetHost: SandboxEngineDelegate {
         state.prewarmed = prewarmed.joined(separator: "+")
         validator.setAssetResolver(options.assetResolver)
         validator.setPolicy(options.policy)
+        #if DEBUG || TWIDGET_EXPERIMENTAL_SCROLLING
         validator.setNativeScrolling(options.nativeScrolling)
+        #else
+        if options.nativeScrolling {
+            // Inner scrolling is outside widget profile 1: other clients clip, so a release build must not let widgets rely on it.
+            executor.async { [weak self] in self?.diag("native-scrolling", "nativeScrolling is an experiment outside widget profile 1: only DEBUG or TWIDGET_EXPERIMENTAL_SCROLLING builds honour it") }
+        }
+        #endif
         validator.useNativeModel(engine.runtimeFeatures.contains("binaryOps"))
         engine.delegate = self
         let channels = sideChannels

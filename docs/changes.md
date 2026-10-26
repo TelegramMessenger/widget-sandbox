@@ -3,7 +3,26 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release
+## v0.2.3 — release notes (2026-10-27)
+
+Fixes from Fela after the Android beta (canvas arguments, images created by a script, building on Windows), conformance
+pictures that follow widget profile 1, and what tmacos and macosswift pushed to `main` since v0.2.2, with native scrolling
+made an experiment. No API change. A client that uses the framework's renderer (`RendererWebView` on iOS and Android, the
+shadow renderer on the web) only updates. A client with its own native renderer must load an image the widget created
+but never inserted (the renderer gets the node without a parent) and send its `load` / `error`, as the renderer core does.
+Behaviour moves closer to a browser: a canvas call with a coordinate that is not finite draws nothing (it drew from 0),
+and `img.width` / `height` of an inserted image are its rendered size (a layout query; cache it in a drawing loop).
+
+**Native scrolling is an experiment** (`docs/decisions.md`, "Native scrolling: an experiment"). `WidgetHost.Options.nativeScrolling`
+(Swift, tmacos) works only in DEBUG builds or with `TWIDGET_EXPERIMENTAL_SCROLLING`; a release build reports a
+`native-scrolling` diag and keeps profile 1's clipping. Swift tests: `NativeScrollingTests`.
+
+**Also from tmacos and macosswift** (on `main` since v0.2.2): the Swift renderer can be told when a widget task starts and
+ends (`TaskRenderer`); the Apple Intl glue parses locale tags with `Locale.Components`, so a Unicode extension like
+`ar-EG-u-nu-arab` no longer builds a broken `Locale` whose formatters trap the host; Swift's request completion gains
+`notAllowed` (the server's `WIDGET_QUERY_NOT_ALLOWED` reaches the widget as `NOT_ALLOWED`; Kotlin, C++ and the web still
+report it as `failed`); fixes to widgets in `corpus/htmlbubbles-ported` (`test:htmlbubbles` 108/116, in the known range;
+`12-motion-lab/05-mo-bare`, rewritten, now differs from its picture by 5.9 %).
 
 **The conformance set's pictures show what widget profile 1 draws** (the conformance set only, no framework change;
 `packages/conformance`, `scripts/conformance`). The pictures posted next to the visual widgets are drawn natively by
