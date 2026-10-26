@@ -10,7 +10,7 @@ You need three things: the framework tag, your own host and renderer, and Node �
 
 | | |
 |---|---|
-| `auto/*.html` | The automatic set: 50 widgets that check themselves. Required. |
+| `auto/*.html` | The automatic set: 51 widgets that check themselves. Required. |
 | `visual/*.html` | The visual set: 20 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
 | `channel.json` | The test channel in posting order: per message the widget, its size anchors, the caption and the reference photos. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
@@ -162,9 +162,9 @@ Send `<platform>-<renderer>.json` and `summary.md` to the widget-sandbox maintai
 
 ## The client SDK group (`visual/sdk/`)
 
-Twenty-five small widgets test what **your client** implements on its side of SDK v1 (`docs/sdk-v1.md`, §5):
+Twenty-six small widgets test what **your client** implements on its side of SDK v1 (`docs/sdk-v1.md`, §5):
 - links (the confirmation with the full URL, t.me inside the client, rejected and over-long URLs, no link from a timer);
-- haptics of each kind and the rate limit;
+- haptics of each kind, the rate limit, and that without a touch a widget gets one second of them, then none for nine (`26-haptics-no-touch`; `auto/27-haptics-no-touch` counts them on the bridge);
 - storage (re-creation, app restart, deletion with the message, the 16 KB quota);
 - stopping after 2 consecutive crashes;
 - who gets a press (`12-drag-gestures`): double taps are always the widget's; horizontal drags and holds on `touch-action: none` are the widget's, on `auto` the bubble's (menu, swipe-to-reply); a vertical drag is always the chat's scroll, over `none` too; a drag from the leading 20 px is back;

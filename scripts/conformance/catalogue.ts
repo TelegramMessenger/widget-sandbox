@@ -326,7 +326,7 @@ tw('watch-public-data', 'TelegramWidget.watchPublicData() / unwatchPublicData():
 tw('preview', 'TelegramWidget.isPreview: an inline result shown in the list before it is sent', 'in', 'I1', 'host', { match: { apis: ['TelegramWidget.isPreview'] }, note: 'A preview has its data but no input, no request, link, copy or haptic (only ready and setResizeAnchor), no chatType or viewer, and Web Storage that is never committed.' });
 tw('open-link', 'openLink(url): an absolute https URL of at most 256 characters, no user info, not a t.me host; one call per pointer press; the client confirms showing the full URL', 'in', 'SDK', 'host', { match: { apis: ['TelegramWidget.openLink'] }, note: 'Invalid arguments throw TypeError; one call per tap reaches the client.' });
 tw('open-telegram-link', 'openTelegramLink(url): any https://t.me/… (telegram.me, telegram.dog) path, at most 256 characters, opened inside the client; tg: URLs refused', 'in', 'SDK', 'host', { match: { apis: ['TelegramWidget.openTelegramLink'] } });
-tw('haptic', 'HapticFeedback: impactOccurred(light|medium|heavy|rigid|soft), notificationOccurred(error|success|warning), selectionChanged(); no gesture needed, visible widgets only', 'in', 'SDK', 'host', { match: { apis: ['TelegramWidget.HapticFeedback'] }, note: 'Desktop and web accept the calls and play nothing.' });
+tw('haptic', 'HapticFeedback: impactOccurred(light|medium|heavy|rigid|soft), notificationOccurred(error|success|warning), selectionChanged(); visible widgets only, during a touch or in one 1 s series without one (v0.2.2)', 'in', 'SDK', 'host', { match: { apis: ['TelegramWidget.HapticFeedback'] }, note: 'Desktop and web accept the calls and play nothing.' });
 tw('profile', 'TelegramWidget.profile (integer) and isProfileAtLeast(n)', 'in', 'D23', 'kept', { match: { apis: ['TelegramWidget.profile', 'TelegramWidget.isProfileAtLeast'] } });
 tw('send-message', 'TelegramWidget.sendMessage', 'out', 'D8', 'missing', { match: { apis: ['TelegramWidget.sendMessage'] }, neutralise: 'removed from the SDK' });
 
@@ -358,7 +358,7 @@ lim('memory', 'QuickJS heap 64 MB', 'in', 'today', 'kept');
 lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'kept');
 lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'kept');
 lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'kept');
-lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)', 'in', 'SDK', 'kept');
+lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit)', 'in', 'SDK', 'kept');
 lim('html-size', 'HTML up to 32 KB uncompressed and 4 KB after zlib compression (server-side)', 'in', 'D20', 'host', { note: 'Checked by the server, not the client. Every conformance widget stays under it (build.ts keeps each one under 3800 bytes after zlib at level 9, as the server compresses) and reaches a client from a test bot.' });
 
 // ───────────── Client behaviour ─────────────

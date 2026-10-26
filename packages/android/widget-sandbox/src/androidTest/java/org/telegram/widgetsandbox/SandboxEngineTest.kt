@@ -14,7 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /** Collects everything the engine emits; answers layout queries with canned values. */
-class RecordingDelegate : SandboxEngine.Delegate {
+open class RecordingDelegate : SandboxEngine.Delegate {
     val loaded = CountDownLatch(1)
     val ops: MutableList<String> = Collections.synchronizedList(ArrayList())
     val logs: MutableList<Pair<String, String>> = Collections.synchronizedList(ArrayList())

@@ -567,6 +567,16 @@
    "zlib": 1943
   },
   {
+   "widget": "visual/sdk/26-haptics-no-touch.html",
+   "width": 0,
+   "height": 0,
+   "caption": "visual/sdk/26-haptics-no-touch · Haptics without a touch: one second, then nothing for nine (a widget cannot buzz the phone). Tap Start, then do not touch the widget: 6 s later it asks for a haptic every 50 ms for 15 s (the counter runs). You feel one second of them, nothing for nine, one more second, then nothing. Then hold Hold and buzz for a second and lift your finger: it asks every 100 ms while you hold and for 8 s after; you feel it while you hold and about 6 s after (the 5 s after a touch, then one series), then nothing. The client must: Outside a touch the first haptic opens a 1 s series; the next series needs a touch or 10 s since the last began (one series after a touch at any time later). During a touch (a press on the widget and 5 s after it is lifted) haptics pass under the rate limit (a burst of 5, then 10 per second).",
+   "photos": [
+    "refs/visual/sdk/26-haptics-no-touch.png"
+   ],
+   "zlib": 2057
+  },
+  {
    "widget": "auto/01-html-elements-a.html",
    "width": 0,
    "height": 0,
@@ -1011,6 +1021,14 @@
    "caption": "auto/26-context-private · The message context: the original in the private chat with the bot: isForward, isPreview, chatType, viewer, chatData and what a request may do. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it) Sent as private: the private chat, allow_queries, chat_data \"conf-chat\", public_data \"conf-public\"; look at the original in the tester's private chat with the test bot.",
    "photos": [],
    "zlib": 3084
+  },
+  {
+   "widget": "auto/27-haptics-no-touch.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/27-haptics-no-touch · Haptics without a touch (v0.2.2): a timer's haptics get one series, the first second's, then none until a touch or 10 s later. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2182
   }
  ],
  "bot": {

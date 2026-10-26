@@ -81,19 +81,50 @@ enum class RequestVerdict(val value: String) {
 enum class HapticDecision { PLAY, DROP, REPORT }
 
 /**
- * Haptics need no gesture but a visible widget and room in the bucket (5 calls,
- * refilled at 10 per second). PLAY delivers; DROP drops silently; REPORT drops
- * and reports `haptic-limit` (at most once per second). Times in ms.
+ * Haptics need a visible widget and room in the bucket (5 calls, refilled at 10 per second), and a touch: while a
+ * finger is down on the widget and for 5 s after it is lifted they are free (under the rate limit); outside that, the
+ * first call opens a series whose first second passes, then nothing until the next touch, or 10 s after the series
+ * began when there was none (docs/sdk-v1.md §2.6; a widget cannot buzz the phone from a timer). [press] / [release]
+ * are the host's trusted presses (the renderer's claim at a primary pointerdown and its release), never the widget's
+ * events. PLAY delivers; DROP drops silently; REPORT drops and reports `haptic-limit` (at most once per second).
+ * Times in ms.
  */
 class HapticGate {
     private var tokens = SdkPolicy.HAPTIC_BURST.toDouble()
     private var last: Double? = null
     private var reported: Double? = null
+    /** A press is on since then. */
+    private var down: Double? = null
+    /** The last press ended then. */
+    private var lifted: Double? = null
+    /** The last series (haptics outside a touch) began then. */
+    private var series: Double? = null
+
+    /** A finger or a mouse button went down on the widget (trusted input only). */
+    fun press(now: Double) {
+        down = now
+    }
+
+    /** The press ended: the finger was lifted or the press was cancelled. */
+    fun release(now: Double) {
+        down = null
+        lifted = now
+    }
 
     fun decide(now: Double, visible: Boolean): HapticDecision {
         last?.let { tokens = min(SdkPolicy.HAPTIC_BURST.toDouble(), tokens + (max(0.0, now - it) * SdkPolicy.HAPTIC_PER_SECOND) / 1000) }
         last = now
-        if (visible && tokens >= 1) {
+        down?.let { if (now - it > SdkPolicy.HAPTIC_PRESS_MAX_MS) release(it + SdkPolicy.HAPTIC_PRESS_MAX_MS) }
+        val touching = down != null || lifted.let { it != null && now - it <= SdkPolicy.HAPTIC_TOUCH_WINDOW_MS }
+        var allowed = visible
+        if (allowed && !touching && !series.let { it != null && now - it < SdkPolicy.HAPTIC_SERIES_MS }) {
+            // A new series: after a touch at any time (one per touch), else 10 s after the last one began.
+            val s = series
+            val l = lifted
+            val touchedSince = l != null && (s == null || l > s)
+            if (s == null || touchedSince || now - s >= SdkPolicy.HAPTIC_SERIES_GAP_MS) series = now else allowed = false
+        }
+        if (allowed && tokens >= 1) {
             tokens -= 1
             return HapticDecision.PLAY
         }
@@ -150,6 +181,14 @@ object SdkPolicy {
     const val HAPTIC_PER_SECOND = 10
     /** `haptic-limit` is reported at most this often. */
     const val HAPTIC_REPORT_MS = 1000
+    /** Haptics are free (under the rate limit) while a finger or a mouse button is down on the widget and this long after it is lifted. */
+    const val HAPTIC_TOUCH_WINDOW_MS = 5000
+    /** Outside a touch, the first haptic opens a series: the calls of its first second pass (under the rate limit), later ones are dropped. */
+    const val HAPTIC_SERIES_MS = 1000
+    /** Without a touch since the last series, the next one may start this long after the last one began. */
+    const val HAPTIC_SERIES_GAP_MS = 10000
+    /** A press whose end the host never saw (the finger left the view) counts as lifted this long after it began. */
+    const val HAPTIC_PRESS_MAX_MS = 30000
     /** The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts; docs/profile-v1.md). */
     const val PROFILE_VERSION = 1
     /** Until the widget calls `setResizeAnchor`: the bubble grows and shrinks downward (docs/sdk-v1.md §2.12). */

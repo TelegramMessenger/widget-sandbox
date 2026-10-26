@@ -25,6 +25,14 @@ public enum SdkPolicy {
     public static let hapticPerSecond = 10.0
     /// `haptic-limit` is reported at most this often.
     public static let hapticReportMs = 1000.0
+    /// Haptics are free (under the rate limit) while a finger or a mouse button is down on the widget and this long after it is lifted.
+    public static let hapticTouchWindowMs = 5000.0
+    /// Outside a touch, the first haptic opens a series: the calls of its first second pass (under the rate limit), later ones are dropped.
+    public static let hapticSeriesMs = 1000.0
+    /// Without a touch since the last series, the next one may start this long after the last one began.
+    public static let hapticSeriesGapMs = 10000.0
+    /// A press whose end the host never saw (the finger left the view) counts as lifted this long after it began.
+    public static let hapticPressMaxMs = 30000.0
     /// The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts); the shim reports a mismatch with its own.
     public static let profileVersion = 1
 
@@ -429,18 +437,48 @@ public enum SdkPolicy {
         case report
     }
 
-    /// Haptics need no gesture but a visible widget and room in the bucket (5 calls, refilled at 10 per second).
+    /// Haptics need a visible widget and room in the bucket (5 calls, refilled at 10 per second), and a touch: while a
+    /// finger is down on the widget and for 5 s after it is lifted they are free (under the rate limit); outside that,
+    /// the first call opens a series whose first second passes, then nothing until the next touch, or 10 s after the
+    /// series began when there was none (docs/sdk-v1.md §2.6; a widget cannot buzz the phone from a timer). `press` /
+    /// `release` are the host's trusted presses (the renderer's claim at a primary pointerdown and its release), never
+    /// the widget's events.
     public struct HapticGate {
         private var tokens = SdkPolicy.hapticBurst
         private var last: Double?
         private var reported: Double?
+        /// A press is on since then.
+        private var down: Double?
+        /// The last press ended then.
+        private var lifted: Double?
+        /// The last series (haptics outside a touch) began then.
+        private var series: Double?
 
         public init() {}
+
+        /// A finger or a mouse button went down on the widget (trusted input only).
+        public mutating func press(nowMs now: Double) {
+            down = now
+        }
+
+        /// The press ended: the finger was lifted or the press was cancelled.
+        public mutating func release(nowMs now: Double) {
+            down = nil
+            lifted = now
+        }
 
         public mutating func decide(nowMs now: Double, visible: Bool) -> HapticDecision {
             if let last { tokens = min(SdkPolicy.hapticBurst, tokens + (max(0, now - last) * SdkPolicy.hapticPerSecond) / 1000) }
             last = now
-            if visible, tokens >= 1 {
+            if let down, now - down > SdkPolicy.hapticPressMaxMs { release(nowMs: down + SdkPolicy.hapticPressMaxMs) }
+            let touching = down != nil || (lifted.map { now - $0 <= SdkPolicy.hapticTouchWindowMs } ?? false)
+            var allowed = visible
+            if allowed, !touching, !(series.map { now - $0 < SdkPolicy.hapticSeriesMs } ?? false) {
+                // A new series: after a touch at any time (one per touch), else 10 s after the last one began.
+                let touchedSince = lifted.map { lifted in series.map { lifted > $0 } ?? true } ?? false
+                if series == nil || touchedSince || now - series! >= SdkPolicy.hapticSeriesGapMs { series = now } else { allowed = false }
+            }
+            if allowed, tokens >= 1 {
                 tokens -= 1
                 return .play
             }

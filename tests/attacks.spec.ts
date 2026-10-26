@@ -59,7 +59,7 @@ test('control: the canary records hits from the app page', async ({ page }) => {
 
 const twState = (page: Page) => page.evaluate(() => {
   const s = (window as any).__tw.state;
-  return { dead: s.dead as string | null, loaded: s.loaded as boolean, diags: s.diags as Record<string, { count: number; details: string[] }>, stats: s.stats, logs: s.logs as { level: string; text: string }[] };
+  return { dead: s.dead as string | null, loaded: s.loaded as boolean, diags: s.diags as Record<string, { count: number; details: string[] }>, stats: s.stats, logs: s.logs as { level: string; text: string }[], actions: s.actions as { kind: string }[] };
 });
 async function openAttack(page: Page, file: string, params = '') {
   await page.goto(`/?file=attacks/${file}${params}${RENDERER_PARAM}`);
@@ -300,6 +300,18 @@ test.describe('cpu quota', () => {
     await f.locator('#btn').click();
     await expect(f.locator('#clicks')).toHaveText('1');
     await expect(page.locator('#status')).toHaveText('● loaded');
+  });
+
+  test('haptics from a timer with no touch: one second of them, then nothing (the widget cannot buzz the phone)', async ({ page }) => {
+    const f = await openAttack(page, 'haptic-timer-buzz.html');
+    await page.waitForTimeout(3000);
+    const s = await twState(page);
+    const played = s.actions.filter((a) => a.kind === 'haptic').length;
+    // One series: the first second, under the rate limit (a burst of 5, then 10 per second); the widget asked far more.
+    expect(played).toBeGreaterThan(0);
+    expect(played).toBeLessThanOrEqual(5 + 10 + 1);
+    expect(Number(await f.locator('#n').textContent())).toBeGreaterThan(played * 3);
+    expect(s.diags['haptic-limit']?.count).toBeGreaterThan(0);
   });
 
   test('a rAF loop burning 30 ms per frame is throttled and frames collapse', async ({ page }) => {

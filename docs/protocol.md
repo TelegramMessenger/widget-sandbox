@@ -321,6 +321,13 @@ cannot see into it also act on `wants` themselves: the Android host denies the
 container's touch interception from `ACTION_DOWN` and releases it on
 `wants: false` (or after 150 ms without an answer).
 
+Since v0.2.2 the renderer also posts `{ type: 'release' }` when the primary
+press ends (`pointerup` or `pointercancel`), whether or not the widget listens:
+with the claim at `pointerdown` (its start) the host's haptic gate knows when a
+finger is down on the widget and when it was lifted (docs/sdk-v1.md §2.6). Both
+are the renderer's own messages from trusted input; nothing the widget does
+makes one.
+
 Since v0.1.2 the message is `{ type: 'gesture', wants, x, y, hold }`: the claim
 is `claimOf` of the gesture policy over the target's and its ancestors' computed
 `touch-action` (a learned `preventDefault` claims both axes), and `hold` is true

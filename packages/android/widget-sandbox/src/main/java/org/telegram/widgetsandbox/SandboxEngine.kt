@@ -321,6 +321,21 @@ class SandboxEngine(
     fun viewport(innerWidth: Double, innerHeight: Double, dpr: Double) =
         enqueue("viewport", JSONObject().put("innerWidth", innerWidth).put("innerHeight", innerHeight).put("dpr", dpr).toString())
     fun resize(entriesJson: String) = enqueue("resize", entriesJson)
+
+    /**
+     * A primary press began on the widget (the renderer's claim at pointerdown: trusted input, never the widget's events):
+     * haptics are free while it lasts and 5 s after (HapticGate, docs/sdk-v1.md §2.6). Timestamped now, on the gate's clock.
+     */
+    fun press() {
+        val at = nowMs()
+        thread.post { haptics.press(at) }
+    }
+
+    /** The primary press ended (the renderer's `release`: pointerup or pointercancel). */
+    fun release() {
+        val at = nowMs()
+        thread.post { haptics.release(at) }
+    }
     /** The colour scheme and the palette (checked here). The shim fills keys that are missing from the scheme's defaults, so pass the full palette at every change. */
     fun theme(theme: String, themeParams: Map<String, String> = emptyMap()) =
         enqueue("theme", JSONObject().put("theme", theme).put("themeParams", JSONObject(SdkPolicy.checkThemeParams(themeParams))).toString())
@@ -574,7 +589,7 @@ class SandboxEngine(
         val action = checked as? WidgetAction ?: return
         if (action is WidgetAction.Haptic) {
             val d = haptics.decide(nowMs(), visible)
-            if (d == HapticDecision.REPORT) delegate?.onDiag(this, "haptic-limit", if (visible) "haptics over 5 per burst or 10 per second are dropped" else "haptics of a hidden widget are dropped")
+            if (d == HapticDecision.REPORT) delegate?.onDiag(this, "haptic-limit", if (visible) "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped" else "haptics of a hidden widget are dropped")
             if (d != HapticDecision.PLAY) return
         }
         delegate?.onAction(this, action)

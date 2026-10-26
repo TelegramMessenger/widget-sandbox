@@ -7793,6 +7793,49 @@
    }
   },
   {
+   "id": "auto/27-haptics-no-touch",
+   "set": "auto",
+   "file": "auto/27-haptics-no-touch.html",
+   "title": "Haptics without a touch (v0.2.2): a timer's haptics get one series, the first second's, then none until a touch or 10 s later",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.haptic-rate"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [
+    {
+     "id": "limit.haptic-rate",
+     "name": "no touch: the 5 haptics of the first second reach the client, the ones at 1.2 s and 2.5 s do not",
+     "bridge": {
+      "method": "haptic",
+      "count": 5
+     }
+    }
+   ],
+   "checks": [
+    {
+     "id": "limit.haptic-rate",
+     "name": "haptics may be asked for without a touch: no exception (the client decides what plays)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 4103,
+   "zlib": 2182
+  },
+  {
    "id": "visual/01-boxes",
    "set": "visual",
    "file": "visual/01-boxes.html",
@@ -8563,7 +8606,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/slide.chromium.png"
      },
-     "nativeVsTemplate": 0.6305
+     "nativeVsTemplate": 0.6184
     },
     {
      "name": "spin-pulse",
@@ -8580,7 +8623,7 @@
      "refs": {
       "chromium": "refs/visual/06-css-animations/spin-pulse.chromium.png"
      },
-     "nativeVsTemplate": 0.8422
+     "nativeVsTemplate": 0.8319
     },
     {
      "name": "steps",
@@ -8685,7 +8728,7 @@
      "refs": {
       "chromium": "refs/visual/07-web-animations/bounce.chromium.png"
      },
-     "nativeVsTemplate": 0
+     "nativeVsTemplate": 0.0132
     },
     {
      "name": "seek",
@@ -9080,7 +9123,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7194
+     "nativeVsTemplate": 0.7156
     }
    ],
    "bytes": 5218,
@@ -10662,6 +10705,49 @@
      "result": "ok"
     }
    }
+  },
+  {
+   "id": "visual/sdk/26-haptics-no-touch",
+   "set": "visual",
+   "file": "visual/sdk/26-haptics-no-touch.html",
+   "title": "Haptics without a touch: one second, then nothing for nine (a widget cannot buzz the phone)",
+   "hint": "Tap Start, then do not touch the widget: 6 s later it asks for a haptic every 50 ms for 15 s (the counter runs). You feel one second of them, nothing for nine, one more second, then nothing. Then hold Hold and buzz for a second and lift your finger: it asks every 100 ms while you hold and for 8 s after; you feel it while you hold and about 6 s after (the 5 s after a touch, then one series), then nothing.",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.haptic-rate",
+    "tw.haptic"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "tw.haptic",
+     "name": "HapticFeedback is there",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 4448,
+   "zlib": 2057,
+   "refImages": {
+    "light": "refs/visual/sdk/26-haptics-no-touch.png"
+   },
+   "height": 172,
+   "group": "sdk",
+   "expect": "Outside a touch the first haptic opens a 1 s series; the next series needs a touch or 10 s since the last began (one series after a touch at any time later). During a touch (a press on the widget and 5 s after it is lifted) haptics pass under the rate limit (a burst of 5, then 10 per second).",
+   "contract": "docs/sdk-v1.md §2.6"
   }
  ]
 }

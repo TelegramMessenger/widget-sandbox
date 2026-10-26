@@ -104,8 +104,13 @@ final class SdkPolicyTests: XCTestCase {
             var gate = SdkPolicy.HapticGate()
             for (i, step) in try XCTUnwrap(c["steps"] as? [[String: Any]]).enumerated() {
                 let at = try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue)
-                let visible = try XCTUnwrap(step["visible"] as? Bool)
-                XCTAssertEqual(gate.decide(nowMs: at, visible: visible).rawValue, step["expect"] as? String, "\(name), step \(i)")
+                switch step["touch"] as? String {
+                case "down": gate.press(nowMs: at)
+                case "up": gate.release(nowMs: at)
+                default:
+                    let visible = try XCTUnwrap(step["visible"] as? Bool)
+                    XCTAssertEqual(gate.decide(nowMs: at, visible: visible).rawValue, step["expect"] as? String, "\(name), step \(i)")
+                }
             }
         }
     }
@@ -302,6 +307,8 @@ final class SdkPolicyTests: XCTestCase {
         XCTAssertEqual(Set(SdkPolicy.themeKeys).count, 15)
         XCTAssertEqual(SdkPolicy.privilegedMethods, ["openLink", "openTelegramLink", "copyText"])
         XCTAssertEqual(SdkPolicy.previewMethods, ["ready", "setResizeAnchor"])
+        XCTAssertEqual([SdkPolicy.hapticBurst, SdkPolicy.hapticPerSecond, SdkPolicy.hapticReportMs], [5, 10, 1000])
+        XCTAssertEqual([SdkPolicy.hapticTouchWindowMs, SdkPolicy.hapticSeriesMs, SdkPolicy.hapticSeriesGapMs, SdkPolicy.hapticPressMaxMs], [5000, 1000, 10000, 30000])
         XCTAssertEqual(SdkPolicy.maxWidgetDataBytes, 1024)
         XCTAssertEqual(SdkPolicy.maxRequestDataBytes, 64)
         XCTAssertEqual(SdkPolicy.maxRequestResultBytes, 1024)

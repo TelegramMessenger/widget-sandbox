@@ -44,10 +44,10 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 67 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
+./build/twidget-tests                             # 69 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
-    --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press
+    --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
 ./build/twidget-run w.html --message group --viewer 42,Ann,Lee,ann_lee,premium --chat-data c1 --public-data p1 --answer '{"result":"ok"}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # the bot's requests: prints `request …` and `copyText …`; --message private|group|via-bot|no-queries|live-copy|copy|preview, or --copy / --can-query / --background-query / --chat-type; --answer-error TIMEOUT, --set-data JSON
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
@@ -92,7 +92,7 @@ and `data:` images.
 
 ```bash
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build   # first cargo build: 1–2 min, ≈ 39 MB static library
-./build/twidget-tests                                                            # 70 tests: + layout answers from the document, hit-tested clicks, frozen fallback
+./build/twidget-tests                                                            # 72 tests: + layout answers from the document, hit-tested clicks, frozen fallback
 ./build/twidget-run ../corpus/compat/tabs.html --blitz --dpr 2 --png /tmp/tabs.png [--click X,Y]...
 ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + height / paint / loaded columns, one PNG per widget
 ./build/twidget-run --attacks --blitz                                            # a fetch attempt from the Rust document counts as a leak too
@@ -108,7 +108,7 @@ is `blitz_renderer.h` with `twl_*` for `twb_*`. `docs/litehtml-renderer.md`.
 
 ```bash
 cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build
-./build/twidget-tests                                                           # 73 tests: + 3 litehtml twins of the Blitz ones
+./build/twidget-tests                                                           # 75 tests: + 3 litehtml twins of the Blitz ones
 ./build/twidget-run ../corpus/compat/tabs.html --litehtml --dpr 2 --png /tmp/tabs.png [--click X,Y]...
 ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # 12/12, paint 0.3–6 ms at 800 px
 ./build/twidget-run --attacks --litehtml                                         # 104 attacks, 0 leaks, 0 fetch attempts
@@ -158,8 +158,12 @@ What it is on this platform:
   `setTheme(WidgetTheme)` on every chat theme change; pass `locale` and the
   stored `storage` (`WidgetStorage { local, session }`) in `WidgetHostOptions`.
   `onAction` gets checked actions only (`OpenLink` / `OpenTelegramLink` with
-  the normalised URL, at most one per pointer press; `Haptic`, rate-limited;
-  `Ready`); `onStorageCommit(area, values)` the full new content of an area at
+  the normalised URL, at most one per pointer press; `Haptic`, rate-limited,
+  and since v0.2.2 free only while a press is down and 5 s after it is lifted,
+  else one 1 s series per touch or per 10 s: the presses are the renderer's
+  `gesture` and `release` messages, which WidgetHost passes to the engine's
+  `pressBegan` / `pressEnded`; a renderer that sends neither gets the no-touch
+  rule; `Ready`); `onStorageCommit(area, values)` the full new content of an area at
   the end of each task that changed it, within the 16 KB quota (persist
   `local`, keep `session` in memory); `onGesture(WidgetGestureClaim)` on every
   primary press: what of it the widget claims with `touch-action` (`x`:

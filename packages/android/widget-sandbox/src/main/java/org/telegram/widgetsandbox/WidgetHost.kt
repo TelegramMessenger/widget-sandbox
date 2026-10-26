@@ -595,7 +595,10 @@ class WidgetHost(
                 val gesture = if (msg.opt("trusted") == true) gestures.gestureFor(ev.optString("type"), ev.optDouble("detail", 0.0)) else 0
                 if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
             }
-            "gesture" -> if (!preview) {
+            "gesture" -> {
+                // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s after.
+                engine.press()
+                if (preview) return
                 // A preview claims nothing (no onGesture / onGestureClaim); its renderer already leaves every press to the client.
                 // Vertical drags are the chat's (v0.1.3): the claim's `y` is false whatever the renderer sends. The renderer
                 // core still sends `wants` / `y` (always false now); the Blitz and litehtml prototypes send only `wants` (their
@@ -630,6 +633,8 @@ class WidgetHost(
                     engine.viewport(vp.first, vp.second, vp.third)
                 }
             }
+            // The primary press ended (pointerup or pointercancel), listened to by the widget or not: the haptic gate's touch window starts.
+            "release" -> engine.release()
             "resize" -> msg.optJSONArray("entries")?.let { engine.resize(it.toString()) }
             "frame" -> engine.frame(msg.optDouble("time", 0.0))
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.

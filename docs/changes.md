@@ -3,6 +3,25 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release (v0.2.2)
+
+**Haptics need a touch** (a bug report from Telegram Android 13.2.0: a widget's `setInterval` called
+`HapticFeedback.notificationOccurred` and vibrated the phone non-stop with no user action; `docs/sdk-v1.md` §2.6,
+`docs/decisions.md` "Haptics need a touch"):
+- While a finger or a mouse button is down on the widget and for 5 s after it is lifted, haptics pass under the rate
+  limit (5 in a burst, 10 per second) as before. Outside a touch the first call opens a series: its first second
+  passes, later calls are dropped (`haptic-limit`). The next series may start after a touch (one at any time later:
+  a bot's answer, the end of an animation), or 10 s after the last one began without one. Hidden widgets and
+  previews: nothing, as before. The numbers are named constants of the policy.
+- `HapticGate` in `sdk-policy` and its three twins gains `press` / `release`; the fixture `hapticGate` has touch steps
+  and six new cases (the bug's timer, a slider drag, one series after a tap, a second series within 10 s, hidden, a
+  press without its release).
+- The renderer core posts `{ type: 'release' }` when the primary press ends, next to the claim at `pointerdown`; every
+  host feeds both to the gate (trusted renderer input only). A host whose renderer sends neither gets the no-touch
+  rule. The renderer bundle is rebuilt.
+- `corpus/attacks/haptic-timer-buzz.html` (the bug's pattern; `test:attacks` checks at most one second of haptics)
+  and a conformance case.
+
 ## v0.2.1 — release notes (2026-10-26)
 
 What v0.2.0 left for later: the full test matrix, the conformance cases for the widget's state and requests, and the

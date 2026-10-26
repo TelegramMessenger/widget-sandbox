@@ -39,7 +39,11 @@ describe('sdk-policy fixture', () => {
   it('haptic gate', () => {
     for (const c of fixture.hapticGate) {
       const gate = new HapticGate();
-      c.steps.forEach((s: { at: number; visible: boolean; expect: string }, i: number) => assert.equal(gate.decide(s.at, s.visible), s.expect, `${c.name}, step ${i}`));
+      c.steps.forEach((s: { at: number; visible?: boolean; expect?: string; touch?: 'down' | 'up' }, i: number) => {
+        if (s.touch === 'down') gate.press(s.at);
+        else if (s.touch === 'up') gate.release(s.at);
+        else assert.equal(gate.decide(s.at, s.visible!), s.expect, `${c.name}, step ${i}`);
+      });
     }
   });
   it('theme params', () => {

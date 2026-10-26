@@ -295,16 +295,25 @@ TEST(sdk_policy_shared_fixture) {
     CHECK_MSG(anchors >= 15, std::to_string(anchors) + " setResizeAnchor entries");
     CHECK_MSG(requests >= 19 && copies >= 12, std::to_string(requests) + " request, " + std::to_string(copies) + " copyText entries");
     CHECK_MSG(watches >= 6, std::to_string(watches) + " watchPublicData entries"); // round 7 or later
+    int touchSteps = 0;
     for (const auto& c : (*root)["hapticGate"].arr()) {
         cases++;
         sdk::HapticGate gate;
         int i = 0;
         for (const auto& s : c["steps"].arr()) {
-            std::string got(sdk::HapticGate::name(gate.decide(s["at"].asNumber(), s["visible"].asBool())));
-            CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            // v0.2.2: {at, touch: "down" | "up"} is the host's press / release; else {at, visible, expect} is a decision.
+            if (s["touch"].isString()) {
+                touchSteps++;
+                if (s["touch"].asString() == "down") gate.press(s["at"].asNumber());
+                else gate.release(s["at"].asNumber());
+            } else {
+                std::string got(sdk::HapticGate::name(gate.decide(s["at"].asNumber(), s["visible"].asBool())));
+                CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            }
             i++;
         }
     }
+    CHECK_MSG(touchSteps >= 6, std::to_string(touchSteps) + " touch steps"); // v0.2.2's fixture or later
     for (const auto& c : (*root)["themeParams"].arr()) {
         cases++;
         Json got = sdk::themeParamsJson(sdk::checkThemeParams(c["input"]));
@@ -1085,7 +1094,8 @@ TEST(sdk_anchor_and_window_open_route_by_host) {
     CHECK_MSG(r.host.countDiag("navigation-blocked") == 2, r.diagsText());
 }
 
-/// Haptics need no tap: seven impactOccurred in one task give 5 actions and one `haptic-limit`; a hidden widget plays nothing.
+/// Haptics without a touch get one 1 s series (v0.2.2): seven impactOccurred in one task give 5 actions (the burst) and one
+/// `haptic-limit`, a call 250 ms later plays (the bucket refilled, still in the series); a hidden widget plays nothing.
 TEST(sdk_haptics_burst_and_limit) {
     Run r("<script>for (var i = 0; i < 7; i++) TelegramWidget.HapticFeedback.impactOccurred('medium');"
           "TelegramWidget.HapticFeedback.notificationOccurred('success').selectionChanged();</script>");
@@ -2062,6 +2072,74 @@ TEST(sdk_widget_host_requests_data_and_copy_text) {
     renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
     const std::string answeredLog = refused + " err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"late tap\"}:true";
     CHECK_MSG(probeUntil(plain, "log.join(' ')", answeredLog) == answeredLog, plain.probe("log.join(' ')"));
+}
+
+static size_t countHaptics(RecordingHost& host) {
+    auto l = host.lock();
+    return size_t(countActions(host.actions, WidgetAction::Haptic));
+}
+
+/// v0.2.2 (the Telegram Android 13.2.0 report): a timer that asks for a haptic every 10 ms with no touch gets one series,
+/// at most 16 played in its first second (a burst of 5, then 10 per second) and none in the next second, reported as
+/// `haptic-limit`; a press (the renderer's, `pressBegan`) lets them through again. After a spent series a haptic outside
+/// a touch is dropped and one in a tap's handler (press, click, release) plays.
+TEST(sdk_haptics_need_a_touch) {
+    Run r("<script>var H = TelegramWidget.HapticFeedback; setInterval(function () { H.notificationOccurred('error'); }, 10);</script>");
+    sleepMs(1300);
+    const size_t first = countHaptics(r.host);
+    CHECK_MSG(first >= 5 && first <= 16, std::to_string(first) + " haptics in the series");
+    sleepMs(1000);
+    CHECK_MSG(countHaptics(r.host) == first, std::to_string(countHaptics(r.host)) + " after the series, " + std::to_string(first) + " in it");
+    {
+        auto l = r.host.lock();
+        bool detail = false;
+        for (auto& d : r.host.diags)
+            detail = detail || (d.first == "haptic-limit" && d.second == "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped");
+        CHECK_MSG(detail, r.diagsText());
+    }
+    r.engine.pressBegan();
+    CHECK(r.host.waitUntil([&] { return size_t(countActions(r.host.actions, WidgetAction::Haptic)) > first; }, 3));
+    r.engine.pressEnded();
+
+    Run t("<button>b</button><script>var H = TelegramWidget.HapticFeedback; H.selectionChanged();"
+          "document.querySelector('button').onclick = function () { H.impactOccurred('light'); };</script>");
+    sleepMs(1100); // the boot's call opened a series and played; it is over now
+    t.engine.probe("TelegramWidget.HapticFeedback.selectionChanged(), 1");
+    t.engine.event(kTapOnButton); // an untrusted click is no press
+    t.barrier();
+    CHECK(countHaptics(t.host) == 1);
+    t.engine.pressBegan();
+    t.engine.activationEvent(kTapOnButton, 1);
+    t.engine.pressEnded();
+    t.barrier();
+    auto l = t.host.lock();
+    CHECK_MSG(actionsText(t.host.actions) == "{\"kind\":\"haptic\",\"haptic\":\"selection\"} {\"kind\":\"haptic\",\"haptic\":\"impact\",\"value\":\"light\"} ", actionsText(t.host.actions));
+}
+
+/// WidgetHost: presses come from the renderer's messages (v0.2.2): after a spent series an untrusted click's haptic is
+/// dropped (`haptic-limit`), and one in a tap the renderer frames with `gesture` and `release` plays.
+TEST(sdk_widget_host_haptics_follow_the_renderers_presses) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<button>b</button><script>var H = TelegramWidget.HapticFeedback; H.selectionChanged();"
+                    "document.querySelector('button').onclick = function () { H.impactOccurred('light'); };</script>",
+                    WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+    std::mutex m;
+    std::vector<WidgetAction> actions;
+    host.onAction = [&](const WidgetAction& a) { std::lock_guard<std::mutex> l(m); actions.push_back(a); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    sleepMs(1100);
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + "}");
+    CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("haptic-limit") == 1; }, 5));
+    renderer->onMessage("{\"type\":\"gesture\",\"wants\":false,\"x\":false,\"y\":false,\"hold\":false}");
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
+    renderer->onMessage("{\"type\":\"release\"}");
+    CHECK(eventually([&] { std::lock_guard<std::mutex> l(m); return actions.size() >= 2; }));
+    host.probe("0");
+    host.onHostThread([] {});
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG(actionsText(actions) == "{\"kind\":\"haptic\",\"haptic\":\"selection\"} {\"kind\":\"haptic\",\"haptic\":\"impact\",\"value\":\"light\"} ", actionsText(actions));
+    CHECK(host.diagnostics().diags["haptic-limit"].second == std::vector<std::string>{"haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped"});
 }
 
 TEST(widget_code_cannot_reach_host_globals) {

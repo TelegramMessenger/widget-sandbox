@@ -92,7 +92,12 @@ abstract class SdkPolicyFixtureTest {
             val steps = c.getJSONArray("steps")
             for (i in 0 until steps.length()) {
                 val s = steps.getJSONObject(i)
-                assertEquals("${c.getString("name")}, step $i", HapticDecision.valueOf(s.getString("expect").uppercase()), gate.decide(s.getDouble("at"), s.getBoolean("visible")))
+                // `{at, touch: "down" | "up"}` is the host's press / release (v0.2.2), else a decide.
+                when (s.optString("touch")) {
+                    "down" -> gate.press(s.getDouble("at"))
+                    "up" -> gate.release(s.getDouble("at"))
+                    else -> assertEquals("${c.getString("name")}, step $i", HapticDecision.valueOf(s.getString("expect").uppercase()), gate.decide(s.getDouble("at"), s.getBoolean("visible")))
+                }
             }
         }
     }

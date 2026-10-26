@@ -212,7 +212,8 @@ public:
     /// The new full content of a Web Storage area, "local" or "session", at the end of each task that changed it
     /// (docs/sdk-v1.md §5.4). Within the quota; a lone surrogate of the widget's string arrives in its WTF-8 form.
     std::function<void(const std::string& area, const std::map<std::string, std::string>& values)> onStorageCommit;
-    /// On every primary pointerdown, what of this press the widget claims with `touch-action` (docs/sdk-v1.md §5.5):
+    /// On every primary pointerdown (the renderer's `gesture` message, which also starts the haptic gate's touch; its
+    /// `release` message ends it, v0.2.2), what of this press the widget claims with `touch-action` (docs/sdk-v1.md §5.5):
     /// horizontal drags (`x`) and holds (`hold`: no message menu, the widget gets `contextmenu`); taps and double taps
     /// are always the widget's, vertical drags always the chat's (`y` is always false since v0.1.3, whatever the
     /// renderer sends). Feed it to the GestureArbiter of the client's recognizers over this widget

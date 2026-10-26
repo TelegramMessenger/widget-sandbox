@@ -757,12 +757,18 @@ public final class WidgetHost: SandboxEngineDelegate {
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
             engine.theme(scheme, params: theme.params)
         case "gesture":
+            // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s
+            // after. Before the preview check: harmless, a preview plays no haptics anyway.
+            engine.pressBegan()
             if options.context.preview { return }
             // The renderer core sends x, y and hold (`wants` is y, always false since v0.1.3). Vertical drags are the
             // chat's: the claim the client gets has `y` false whatever the renderer says. A renderer that sends only
             // `wants` (the Blitz and litehtml prototypes) claims nothing.
             let claim = WidgetGestureClaim(x: Self.isTrue(msg["x"]), y: false, hold: Self.isTrue(msg["hold"]))
             onMain { self.onGestureClaim?(claim) }
+        case "release":
+            // The primary press ended (pointerup or pointercancel, listened to or not).
+            engine.pressEnded()
         case "violation":
             diag("renderer-violation", msg["detail"] as? String ?? "")
         default:

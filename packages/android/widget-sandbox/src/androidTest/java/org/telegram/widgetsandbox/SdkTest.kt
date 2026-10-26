@@ -100,6 +100,46 @@ class SdkTest {
         engine2.terminate()
     }
 
+    /**
+     * v0.2.2: haptics need a touch. A timer that calls one every ~10 ms gets one series: at most 16 played in its first
+     * second (burst 5, 10 per second), none after; a tap (a press from the renderer, then its click) plays one.
+     */
+    @Test
+    fun hapticsNeedATouch() {
+        val html = "<button>b</button><script>var n = 0;" +
+            "var t = setInterval(function () { TelegramWidget.HapticFeedback.notificationOccurred('error'); if (++n === 200) { clearInterval(t); console.log('timer=' + n); } }, 10);" +
+            "document.querySelector('button').onclick = function () { TelegramWidget.HapticFeedback.impactOccurred('heavy'); console.log('tapped'); };</script>"
+        val times = Collections.synchronizedList(ArrayList<Long>())
+        val d = object : RecordingDelegate() {
+            override fun onAction(engine: SandboxEngine, action: WidgetAction) {
+                if (action is WidgetAction.Haptic) times.add(System.nanoTime())
+                super.onAction(engine, action)
+            }
+        }
+        val (_, engine) = run(html, d)
+        assertTrue("${d.logs}", waitFor(15) { d.logged().any { it.startsWith("timer=") } })
+        engine.thread.sync {}
+        val played = times.toList()
+        assertTrue("${played.size} played", played.size in 5..16)
+        val span = (played.last() - played.first()) / 1_000_000
+        assertTrue("all in the series' first second: $span ms", span <= 1100)
+        assertEquals("${d.diags}", "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped", d.rejected("haptic-limit").first())
+        val timer = played.size
+        // A click that is no press plays nothing now (the series is over, no touch, under 10 s since it began)…
+        val button = idOf(d, "button")
+        engine.event(click(button))
+        engine.thread.sync {}
+        assertEquals(timer, d.actions.count { it is WidgetAction.Haptic })
+        // …a tap does: the renderer's press, the click, the release.
+        engine.press()
+        engine.activationEvent(click(button), 1)
+        engine.release()
+        engine.thread.sync {}
+        assertEquals(WidgetAction.Haptic("impact", "heavy"), d.actions.last())
+        assertEquals(timer + 1, d.actions.count { it is WidgetAction.Haptic })
+        engine.terminate()
+    }
+
     @Test
     fun storagePreloadAndCommits() {
         val html = "<button>b</button><script>" +
@@ -666,6 +706,44 @@ class SdkTest {
             assertTrue(waitFor(5) { eval() == dark })
             assertEquals(dark, eval())
             assertEquals("callbacks run on the main thread", emptyList<String>(), offMain.toList())
+            assertNull(latest.get().dead)
+            instrumentation.runOnMainSync { host.destroy() }
+        }
+    }
+
+    /**
+     * v0.2.2 through WidgetHost on the WebView renderer: a widget whose timer used up its haptic series gets none from the
+     * timer afterwards, but a real tap (the renderer's `gesture` at pointerdown and `release` at pointerup) plays one.
+     */
+    @Test
+    fun hostHapticsNeedATouch() {
+        val html = """
+            <style>body { margin: 0 }</style>
+            <div id="b" style="height:150px;background:#ccc">tap</div>
+            <script>
+              var n = 0;
+              var t = setInterval(function () { TelegramWidget.HapticFeedback.selectionChanged(); if (++n === 150) { clearInterval(t); console.log('timer=' + n); } }, 10);
+              document.getElementById('b').addEventListener('click', function () { TelegramWidget.HapticFeedback.impactOccurred('heavy'); console.log('tapped'); });
+            </script>
+        """.trimIndent()
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            lateinit var host: WidgetHost
+            val latest = AtomicReference(WidgetDiagnostics())
+            val actions = Collections.synchronizedList(ArrayList<WidgetAction>())
+            scenario.onActivity { activity ->
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0)
+                host.onChange = { latest.set(it) }
+                host.onAction = { actions.add(it) }
+                activity.show(host.view)
+            }
+            assertTrue("widget never loaded", waitFor(15) { latest.get().loaded && latest.get().logs.any { it.second.startsWith("timer=") } })
+            Thread.sleep(300)
+            val fromTimer = actions.toList()
+            assertTrue("the timer's series: $fromTimer", fromTimer.size in 5..16 && fromTimer.all { it == WidgetAction.Haptic("selection", null) })
+            tap(host.view, 50f, 50f)
+            assertTrue("${latest.get().logs}", waitFor { latest.get().logs.any { it.second == "tapped" } })
+            Thread.sleep(300)
+            assertEquals("the tap's haptic plays", fromTimer + WidgetAction.Haptic("impact", "heavy"), actions.toList())
             assertNull(latest.get().dead)
             instrumentation.runOnMainSync { host.destroy() }
         }

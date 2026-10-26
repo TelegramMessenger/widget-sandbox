@@ -4605,7 +4605,7 @@
   {
    "id": "limit.haptic-rate",
    "area": "limit",
-   "title": "Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit)",
+   "title": "Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit)",
    "status": "in",
    "decision": "SDK"
   },

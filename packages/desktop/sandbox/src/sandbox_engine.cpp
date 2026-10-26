@@ -246,6 +246,17 @@ void SandboxEngine::putData(Json& event, const sdk::CheckedWidgetData& checked) 
     delegate_->onDiag(*this, "data-rejected", joinFields(checked.rejected) + ": not text of at most " + std::to_string(sdk::MAX_WIDGET_DATA_BYTES) + " bytes (UTF-8, no NUL); the widget sees null");
 }
 
+// The haptic gate's touch (v0.2.2): stamped on the caller's thread with the clock `decide` reads, applied in order
+// with the events the host sends after it (a tap's haptic sees its press). Gate state only: no task, never deferred.
+void SandboxEngine::pressBegan() {
+    double at = nowMs();
+    thread_.async([this, at] { haptics_.press(at); });
+}
+void SandboxEngine::pressEnded() {
+    double at = nowMs();
+    thread_.async([this, at] { haptics_.release(at); });
+}
+
 void SandboxEngine::setVisible(bool v) {
     thread_.async([this, v] {
         if (dead_ || visible_ == v) return;
@@ -503,7 +514,7 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         if (action.kind == WidgetAction::Haptic) {
             sdk::HapticGate::Decision d = haptics_.decide(nowMs(), visible_);
             if (d == sdk::HapticGate::Decision::Report && delegate_)
-                delegate_->onDiag(*this, "haptic-limit", visible_ ? "haptics over 5 per burst or 10 per second are dropped" : "haptics of a hidden widget are dropped");
+                delegate_->onDiag(*this, "haptic-limit", visible_ ? "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped" : "haptics of a hidden widget are dropped");
             if (d != sdk::HapticGate::Decision::Play) return HostReturn::undefined();
         }
         if (delegate_) {

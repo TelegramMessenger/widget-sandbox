@@ -421,7 +421,16 @@ RequestVerdict RequestGate::decide(double now, const Conditions& s) {
 HapticGate::Decision HapticGate::decide(double now, bool visible) {
     if (last_) tokens_ = std::min(double(HAPTIC_BURST), tokens_ + (std::max(0.0, now - *last_) * HAPTIC_PER_SECOND) / 1000);
     last_ = now;
-    if (visible && tokens_ >= 1) {
+    if (down_ && now - *down_ > HAPTIC_PRESS_MAX_MS) release(*down_ + HAPTIC_PRESS_MAX_MS);
+    const bool touching = down_.has_value() || (lifted_ && now - *lifted_ <= HAPTIC_TOUCH_WINDOW_MS);
+    bool allowed = visible;
+    if (allowed && !touching && !(series_ && now - *series_ < HAPTIC_SERIES_MS)) {
+        // A new series: after a touch at any time (one per touch), else 10 s after the last one began.
+        const bool touchedSince = lifted_ && (!series_ || *lifted_ > *series_);
+        if (!series_ || touchedSince || now - *series_ >= HAPTIC_SERIES_GAP_MS) series_ = now;
+        else allowed = false;
+    }
+    if (allowed && tokens_ >= 1) {
         tokens_ -= 1;
         return Decision::Play;
     }

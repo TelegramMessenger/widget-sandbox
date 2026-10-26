@@ -296,9 +296,23 @@ Other form controls are outside the profile and dropped by the validator.
 - `impactOccurred`, `notificationOccurred`, `selectionChanged` as in Mini
   Apps' `HapticFeedback`. An unknown style or type throws `TypeError`.
 - Delivered only while the widget is visible. Rate limit per widget: a bucket
-  of 5 calls refilled at 10 per second; calls over the limit or
-  from a hidden widget are dropped without an exception and reported once per
-  second as `haptic-limit`. No user gesture is required.
+  of 5 calls refilled at 10 per second.
+- **A touch** (since v0.2.2): while a finger (or a mouse button) is down on the
+  widget, and for 5 s after it is lifted, haptics pass under the rate limit.
+  Outside a touch the first call opens a **series**: the calls of its first
+  second pass, later ones do not. A new series may start after a touch (one
+  series at any time later, until the next touch: a bot's answer that arrives
+  seconds after the tap, the end of an animation), or, with no touch since the
+  last series, 10 s after the last one began. So a timer cannot buzz the phone:
+  it gets one second of haptics, then nothing for nine. The touch is the
+  client's trusted input (the renderer's press and its release), never an event
+  the widget dispatches; a press whose end never arrives counts as lifted 30 s
+  after it began.
+- Calls over the limit, outside a touch after the series, or from a hidden
+  widget are dropped without an exception and reported once per second as
+  `haptic-limit`. The numbers are the policy's named constants
+  (`HAPTIC_TOUCH_WINDOW_MS`, `HAPTIC_SERIES_MS`, `HAPTIC_SERIES_GAP_MS`,
+  `HAPTIC_PRESS_MAX_MS`).
 - Desktop and web clients accept the calls and play nothing.
 
 ### 2.7 Lifecycle
@@ -380,7 +394,7 @@ missing or malformed locale is `en-US` (before v1: always `en-US`).
 | call | invalid arguments | outside the rules | other limits |
 |---|---|---|---|
 | `openLink`, `openTelegramLink` | `TypeError` | dropped, `activation-blocked` (no press, hidden, press used) | 256 characters; one call per press |
-| haptics | `TypeError` | dropped, `haptic-limit` (hidden, over the bucket) | bucket 5, 10 per second |
+| haptics | `TypeError` | dropped, `haptic-limit` (hidden, over the bucket, outside a touch after the series) | bucket 5, 10 per second; outside a touch (a press and 5 s after it) one 1 s series, the next after a touch or 10 s later |
 | `localStorage`, `sessionStorage` | — | `QuotaExceededError` | 16 KB per area |
 | `isProfileAtLeast` | `false` | — | — |
 | `onEvent`, `offEvent` | ignored (unknown type or non-function) | — | 16 handlers per type; further ones are ignored |
@@ -1244,7 +1258,8 @@ later).
 The questions this contract left open, as decided on 2026-10-17:
 
 1. Haptics need no gesture: allowed while the widget is visible, with the rate
-   limit of §2.6 (a bucket of 5, refilled at 10 per second).
+   limit of §2.6 (a bucket of 5, refilled at 10 per second). Since v0.2.2 they
+   need a touch, or get one 1 s series without one (§2.6).
 2. Limits: URLs at most 256 characters, at most 16 handlers per event type, and
    the widget stays stopped after 2 crashes in a row (D22, which said 2–3).
 3. `openTelegramLink` takes any `t.me` path, as in Mini Apps; the client's own

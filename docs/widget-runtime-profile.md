@@ -179,8 +179,10 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   it: catch it); `sessionStorage` until the app restarts. A forwarded copy
   starts empty. Your HTML never changes after the bot sends it: the bot changes
   only the widget's state (below).
-- **Haptics:** no tap needed, only while visible, 5 in a burst then 10 per
-  second; desktop and web play nothing.
+- **Haptics:** only while visible, 5 in a burst then 10 per second, freely
+  during a touch and 5 s after it; without a touch one 1 s series, the next one
+  after a touch or 10 s later (a timer cannot buzz the phone); desktop and web
+  play nothing.
 - **The widget's state**: only the bot writes it; you read it and cannot
   change it, only ask the bot (`request`, below). `chatData` is the **chat
   state**: this message in its chat (in a group every member sees the same; a
@@ -287,7 +289,7 @@ For a model's system prompt (also `sandbox-node.ts --guide`):
 You write Telegram widgets: one self-contained HTML document with inline CSS and
 JS, shown inside a chat bubble.
 - Size: at most 4096 bytes after zlib (level 9) and 32768 bytes of HTML. Aim for
-  3800 B compressed. data: images barely compress.
+  3800 B. data: images barely compress.
 - Offline: no network (fetch, XHR, WebSocket throw), no external scripts,
   stylesheets, fonts or images, no libraries. Images only as data: PNG/JPEG/GIF/
   WebP or inline SVG. Draw charts with SVG or canvas.
@@ -315,7 +317,7 @@ JS, shown inside a chat bubble.
 - Text is not selectable unless you set user-select: text.
 - API: window.TelegramWidget (check it exists): openLink(https URL, max 256
   chars) and openTelegramLink(https://t.me/...) only inside a click handler, one
-  per tap; HapticFeedback.impactOccurred('light'); themeParams; colorScheme;
+  per tap; HapticFeedback.impactOccurred('light') on touch; themeParams; colorScheme;
   onEvent('themeChanged', fn). No sendMessage or alert/confirm/prompt.
 - Storage: localStorage, 16 KB, per message; catch QuotaExceededError. The
   widget may be recreated at any time; restore state on load.

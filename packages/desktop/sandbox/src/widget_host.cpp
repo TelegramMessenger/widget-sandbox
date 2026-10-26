@@ -540,7 +540,13 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         engine_.theme(theme_, widgetTheme_.params);
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
+    } else if (type == "release") {
+        // The primary press ended (pointerup or pointercancel; renderer-made): the haptic gate's 5 s touch window starts.
+        engine_.pressEnded();
     } else if (type == "gesture") {
+        // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s
+        // after. Before the preview check: harmless, a preview gets no haptics anyway.
+        engine_.pressBegan();
         if (options_.context.preview) return; // no input, so nothing to claim: the press is the client's
         // docs/sdk-v1.md §5.5, gesture_policy.h. The renderer core sends x and hold (and `y` / `wants`, always false
         // since v0.1.3); vertical drags are the chat's, so the claim's `y` is false whatever a renderer sends. A

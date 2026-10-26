@@ -185,6 +185,12 @@ export type RendererToHost =
    * The host's `onGestureClaim`, docs/sdk-v1.md §5.5.
    */
   | { type: 'gesture'; wants: boolean; x: boolean; y: boolean; hold: boolean }
+  /**
+   * Sent when the primary press ends (pointerup or pointercancel), whether or not the widget listens: with
+   * `gesture` (the press's start) the host's haptic gate knows when a finger is down on the widget and when it
+   * was lifted (docs/sdk-v1.md §2.6). Trusted input only.
+   */
+  | { type: 'release' }
   /** With `arbitrate` `bubble` on: the bubble took a press (`action`); (x, y): the pointer then, in widget coordinates. */
   | { type: 'bubble'; action: BubbleAction; gesture: Gesture; x: number; y: number; edge: boolean }
   | { type: 'violation'; detail: string };

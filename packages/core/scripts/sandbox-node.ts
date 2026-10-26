@@ -387,7 +387,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         }
         if (action.kind === 'haptic') {
           const d = haptics.decide(opts.now ? opts.now() : performance.now(), visible);
-          if (d === 'report') res.diags.push({ kind: 'haptic-limit', detail: visible ? 'over the rate limit' : 'hidden widget' });
+          if (d === 'report') res.diags.push({ kind: 'haptic-limit', detail: visible ? 'over the rate limit, or outside a touch after a 1 s series' : 'hidden widget' });
           if (d !== 'play') return vm.undefined;
         }
         if (action.kind === 'copyText') {
@@ -571,6 +571,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const inject = (ev: Record<string, unknown>) => {
     if (preview) return; // a preview takes no input
     const { gesture, ...event } = ev as Record<string, unknown> & { gesture?: number };
+    // Without a renderer, an injected trusted event stands for the renderer's press (claim) and release (haptic gate).
+    if (typeof gesture === 'number' && gesture > 0) {
+      const at = opts.now ? opts.now() : performance.now();
+      if (event.type === 'pointerdown' || event.type === 'mousedown') haptics.press(at);
+      else haptics.release(at);
+    }
     task('event', () => {
       activeGesture = visible && typeof gesture === 'number' && gesture > consumedGesture ? gesture : 0;
       try {
@@ -660,7 +666,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           flush();
           break;
         }
-        case 'gesture': if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'gesture': haptics.press(opts.now ? opts.now() : performance.now()); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'release': haptics.release(opts.now ? opts.now() : performance.now()); break;
         case 'bubble': current?.bubble.push(String(msg.action) + (msg.edge ? ' (edge strip)' : '')); break;
         case 'size': if (Number.isFinite(msg.height)) res.height = msg.height; break;
       }

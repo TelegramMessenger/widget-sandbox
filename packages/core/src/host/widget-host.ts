@@ -470,7 +470,7 @@ export class WidgetHost {
         }
         if (action.kind === 'haptic') {
           const d = this.haptics.decide(performance.now(), this.visible);
-          if (d === 'report') this.opts.onDiag?.('haptic-limit', this.visible ? 'haptics over 5 per burst or 10 per second are dropped' : 'haptics of a hidden widget are dropped');
+          if (d === 'report') this.opts.onDiag?.('haptic-limit', this.visible ? 'haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped' : 'haptics of a hidden widget are dropped');
           if (d !== 'play') break;
         }
         if (action.kind === 'copyText') {
@@ -566,9 +566,14 @@ export class WidgetHost {
         break;
       }
       case 'gesture':
+        // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s after.
+        this.haptics.press(performance.now());
         if (this.context.preview) break;
         // Vertical drags are the chat's (v0.1.3): `y` is false whatever a renderer sends.
         this.opts.onGestureClaim?.({ x: msg.x === true, y: false, hold: msg.hold === true });
+        break;
+      case 'release':
+        this.haptics.release(performance.now());
         break;
       case 'bubble': {
         if (this.context.preview) break;

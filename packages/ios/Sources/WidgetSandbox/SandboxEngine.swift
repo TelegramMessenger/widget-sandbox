@@ -525,6 +525,19 @@ public final class SandboxEngine {
         }
     }
 
+    /// A primary press began on the widget (the renderer's claim at a trusted pointerdown) / ended (its release): haptics
+    /// are free while it lasts and 5 s after (`SdkPolicy.HapticGate`). The host's trusted input only, never the widget's
+    /// events; the time is taken here, on the caller's thread.
+    public func pressBegan() {
+        let now = Self.nowMs()
+        queue.async { if !self.dead { self.haptics.press(nowMs: now) } }
+    }
+
+    public func pressEnded() {
+        let now = Self.nowMs()
+        queue.async { if !self.dead { self.haptics.release(nowMs: now) } }
+    }
+
     /// The host knows whether the widget is on screen; the sandbox does not.
     public func setVisible(_ v: Bool) {
         queue.async {
@@ -761,7 +774,7 @@ public final class SandboxEngine {
             case .play:
                 break
             case .report:
-                delegate?.engine(self, diag: "haptic-limit", detail: visible ? "haptics over 5 per burst or 10 per second are dropped" : "haptics of a hidden widget are dropped")
+                delegate?.engine(self, diag: "haptic-limit", detail: visible ? "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped" : "haptics of a hidden widget are dropped")
                 return
             case .drop:
                 return

@@ -1827,3 +1827,25 @@ haptic), gives it no chat type or viewer and the request flags off, and never
 commits its Web Storage (there is no message yet). Timers, animations, the theme
 and the limits are as for any bubble, so the preview is the first state the user
 is about to send.
+
+## Haptics need a touch (v0.2.2)
+
+**The bug.** Telegram Android 13.2.0 (7255): a widget with
+`setInterval(function(){TelegramWidget.HapticFeedback.notificationOccurred("error")},0)` vibrated the phone for as
+long as it was on screen. The gate allowed haptics with no gesture, under a rate limit only (a burst of 5, 10 per
+second), and 10 a second is a continuous buzz.
+
+**The rule** (Artem, 2026-10-26; `HapticGate` in `sdk-policy` and its three twins, the numbers named constants he may
+tune): while a finger or a mouse button is down on the widget and 5 s after it is lifted, haptics pass under the rate
+limit; outside a touch the first call opens a 1 s series, and the next series needs a touch (one series at any time
+after it) or 10 s since the last one began. Hidden widgets and previews get nothing, as before. The touch is trusted
+input the renderer reports (its claim at `pointerdown`, and since v0.2.2 `release` at the end of the press), never an
+event the widget dispatches; a press whose end the host never sees (the finger left the view) counts as lifted 30 s
+after it began.
+
+**Why not a gesture-only rule** (haptics only within a tap's task, like links): widgets play haptics where no tap is
+at hand. A bot's answer arrives 1.5–15 s after the tap that asked; an animation ends a second later; an arcade game
+buzzes on a collision while the finger is still down or just lifted. The touch window covers the game and the
+animation, the one series after a touch covers the late answer, and the 1 s series every 10 s keeps a widget with no
+touch at all (a timer, a ticker) from becoming a vibrator.
+

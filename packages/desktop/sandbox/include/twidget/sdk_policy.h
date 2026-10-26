@@ -138,6 +138,14 @@ inline constexpr int HAPTIC_BURST = 5;
 inline constexpr int HAPTIC_PER_SECOND = 10;
 /// `haptic-limit` is reported at most this often.
 inline constexpr double HAPTIC_REPORT_MS = 1000;
+/// Haptics are free (under the rate limit) while a finger or a mouse button is down on the widget and this long after it is lifted (v0.2.2).
+inline constexpr double HAPTIC_TOUCH_WINDOW_MS = 5000;
+/// Outside a touch, the first haptic opens a series: the calls of its first second pass (under the rate limit), later ones are dropped.
+inline constexpr double HAPTIC_SERIES_MS = 1000;
+/// Without a touch since the last series, the next one may start this long after the last one began.
+inline constexpr double HAPTIC_SERIES_GAP_MS = 10000;
+/// A press whose end the host never saw (the finger left the view) counts as lifted this long after it began.
+inline constexpr double HAPTIC_PRESS_MAX_MS = 30000;
 /// Handlers per `onEvent` type in the shim (here for completeness; the glue never sees them).
 inline constexpr int MAX_HANDLERS_PER_EVENT = 16;
 /// The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts; docs/profile-v1.md).
@@ -377,21 +385,37 @@ private:
 };
 
 /**
- * Haptics need no gesture but a visible widget and room in the bucket (5 calls,
- * refilled at 10 per second). `Play` delivers; `Drop` drops silently; `Report`
- * drops and reports `haptic-limit` (at most once per second). Same arithmetic,
- * in the same order, as the TS class (the fixture steps through the floats).
+ * Haptics need a visible widget and room in the bucket (5 calls, refilled at 10 per second), and a touch (v0.2.2):
+ * while a finger is down on the widget and for 5 s after it is lifted they are free (under the rate limit); outside
+ * that, the first call opens a series whose first second passes, then nothing until the next touch, or 10 s after the
+ * series began when there was none (docs/sdk-v1.md §2.6; a widget cannot buzz the phone from a timer). `press` /
+ * `release` are the host's trusted presses (the renderer's claim at a primary pointerdown and its release), never the
+ * widget's events. `Play` delivers; `Drop` drops silently; `Report` drops and reports `haptic-limit` (at most once per
+ * second). Same arithmetic, in the same order, as the TS class (the fixture steps through the floats).
  */
 class HapticGate {
 public:
     enum class Decision { Play, Drop, Report };
     Decision decide(double nowMs, bool visible);
+    /// A finger or a mouse button went down on the widget (trusted input only).
+    void press(double nowMs) { down_ = nowMs; }
+    /// The press ended: the finger was lifted or the press was cancelled.
+    void release(double nowMs) {
+        down_.reset();
+        lifted_ = nowMs;
+    }
     static std::string_view name(Decision d) { return d == Decision::Play ? "play" : d == Decision::Drop ? "drop" : "report"; }
 
 private:
     double tokens_ = HAPTIC_BURST;
     std::optional<double> last_;
     std::optional<double> reported_;
+    /// A press is on since then.
+    std::optional<double> down_;
+    /// The last press ended then.
+    std::optional<double> lifted_;
+    /// The last series (haptics outside a touch) began then.
+    std::optional<double> series_;
 };
 
 /// The theme keys of `params` whose values are `#rrggbb` (lowercased); everything else is dropped.

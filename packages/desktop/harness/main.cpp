@@ -278,8 +278,16 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
         // An event with a numeric `gesture` is a trusted press (as the Node harness's `gesture: n`); the rest are untrusted.
         for (const auto& ev : opts.events) {
             auto parsed = Json::parse(ev);
-            if (parsed && (*parsed)["gesture"].isNumber() && (*parsed)["gesture"].asInt() > 0) engine.activationEvent(ev, (*parsed)["gesture"].asInt());
-            else engine.event(ev);
+            if (parsed && (*parsed)["gesture"].isNumber() && (*parsed)["gesture"].asInt() > 0) {
+                // Without a renderer, a trusted event also stands for the renderer's press (pointerdown, mousedown) or its
+                // release (anything else): the haptic gate's touch, as in scripts/sandbox-node.ts.
+                const std::string& type = (*parsed)["type"].asString();
+                if (type == "pointerdown" || type == "mousedown") engine.pressBegan();
+                else engine.pressEnded();
+                engine.activationEvent(ev, (*parsed)["gesture"].asInt());
+            } else {
+                engine.event(ev);
+            }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(opts.waitMs));
         if (opts.setData) engine.setData(*opts.setData); // after the presses' answers; before the probes, which wait for it

@@ -56,6 +56,35 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(h.count("haptic-limit"), 1)
     }
 
+    /// v0.2.2: haptics need a touch. A timer's flood opens one series: at most 16 play in its first second (the burst
+    /// and the refill), none in the next; a click alone is no touch (presses come from the renderer, never the
+    /// widget's events), while a click inside the renderer's press (its claim at pointerdown and its release) plays.
+    func testHapticsNeedATouch() {
+        let flood = Harness("<script>setInterval(function(){TelegramWidget.HapticFeedback.impactOccurred('light');},10);</script>")
+        flood.settle(1.3)
+        let first = flood.actions.count
+        XCTAssertGreaterThanOrEqual(first, 5, "the series' burst plays")
+        XCTAssertLessThanOrEqual(first, 16, "at most the burst and a second's refill")
+        flood.settle(1.0)
+        XCTAssertEqual(flood.actions.count, first, "none after the series' first second")
+        XCTAssertEqual(flood.host.diagnostics.diags["haptic-limit"]?.details.first, "haptics over 5 per burst or 10 per second, or outside a touch after a 1 s series, are dropped")
+
+        let tap = Harness("<button id='b'>x</button><script>TelegramWidget.HapticFeedback.impactOccurred('light');" +
+            "setTimeout(function(){TelegramWidget.HapticFeedback.impactOccurred('medium');console.log('late');},1200);" +
+            "document.getElementById('b').onclick=function(){TelegramWidget.HapticFeedback.impactOccurred('heavy');console.log('clicked');};</script>")
+        tap.pump(3) { tap.logs.contains("late") }
+        tap.click(5)
+        tap.pump { tap.logs.contains("clicked") }
+        tap.settle(0.1)
+        XCTAssertEqual(tap.actions, [.haptic(.impact("light"))], "the timer's call after the series and a bare click are dropped")
+        tap.renderer.onMessage?("{\"type\":\"gesture\",\"wants\":false,\"x\":false,\"y\":false}")
+        tap.click(5)
+        tap.renderer.onMessage?("{\"type\":\"release\"}")
+        tap.pump { tap.actions.count >= 2 }
+        tap.settle(0.1)
+        XCTAssertEqual(tap.actions, [.haptic(.impact("light")), .haptic(.impact("heavy"))], "a press the renderer saw makes the tap's haptic play")
+    }
+
     // MARK: storage
 
     func testPreloadIsReadableFromTheFirstLineAndEachTaskCommits() {

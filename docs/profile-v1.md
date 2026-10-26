@@ -352,7 +352,7 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 | `limit.html-size` | HTML up to 32 KB uncompressed and 4 KB after zlib compression (server-side) | in |  | D20 |
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in |  | SDK |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in |  | SDK |
-| `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second; the rest dropped (haptic-limit) | in |  | SDK |
+| `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit) | in |  | SDK |
 
 ## Client behaviour
 

@@ -14,6 +14,14 @@ export const HAPTIC_BURST = 5;
 export const HAPTIC_PER_SECOND = 10;
 /** `haptic-limit` is reported at most this often. */
 export const HAPTIC_REPORT_MS = 1000;
+/** Haptics are free (under the rate limit) while a finger or a mouse button is down on the widget and this long after it is lifted. */
+export const HAPTIC_TOUCH_WINDOW_MS = 5000;
+/** Outside a touch, the first haptic opens a series: the calls of its first second pass (under the rate limit), later ones are dropped. */
+export const HAPTIC_SERIES_MS = 1000;
+/** Without a touch since the last series, the next one may start this long after the last one began. */
+export const HAPTIC_SERIES_GAP_MS = 10000;
+/** A press whose end the host never saw (the finger left the view) counts as lifted this long after it began. */
+export const HAPTIC_PRESS_MAX_MS = 30000;
 /** Handlers per `onEvent` type (and for the legacy `onTheme`); more are ignored. */
 export const MAX_HANDLERS_PER_EVENT = 16;
 
@@ -448,19 +456,48 @@ export class RequestGate {
 }
 
 /**
- * Haptics need no gesture but a visible widget and room in the bucket (5 calls,
- * refilled at 10 per second). `play` delivers; `drop` drops silently; `report`
- * drops and reports `haptic-limit` (at most once per second).
+ * Haptics need a visible widget and room in the bucket (5 calls, refilled at 10 per second), and a touch: while a
+ * finger is down on the widget and for 5 s after it is lifted they are free (under the rate limit); outside that, the
+ * first call opens a series whose first second passes, then nothing until the next touch, or 10 s after the series
+ * began when there was none (docs/sdk-v1.md §2.6; a widget cannot buzz the phone from a timer). `press` / `release`
+ * are the host's trusted presses (the renderer's claim at a primary pointerdown and its release), never the widget's
+ * events. `play` delivers; `drop` drops silently; `report` drops and reports `haptic-limit` (at most once per second).
  */
 export class HapticGate {
   private tokens = HAPTIC_BURST;
   private last: number | null = null;
   private reported: number | null = null;
+  /** A press is on since then. */
+  private down: number | null = null;
+  /** The last press ended then. */
+  private lifted: number | null = null;
+  /** The last series (haptics outside a touch) began then. */
+  private series: number | null = null;
+
+  /** A finger or a mouse button went down on the widget (trusted input only). */
+  press(now: number) {
+    this.down = now;
+  }
+
+  /** The press ended: the finger was lifted or the press was cancelled. */
+  release(now: number) {
+    this.down = null;
+    this.lifted = now;
+  }
 
   decide(now: number, visible: boolean): 'play' | 'drop' | 'report' {
     if (this.last !== null) this.tokens = Math.min(HAPTIC_BURST, this.tokens + (Math.max(0, now - this.last) * HAPTIC_PER_SECOND) / 1000);
     this.last = now;
-    if (visible && this.tokens >= 1) {
+    if (this.down !== null && now - this.down > HAPTIC_PRESS_MAX_MS) this.release(this.down + HAPTIC_PRESS_MAX_MS);
+    const touching = this.down !== null || (this.lifted !== null && now - this.lifted <= HAPTIC_TOUCH_WINDOW_MS);
+    let allowed = visible;
+    if (allowed && !touching && !(this.series !== null && now - this.series < HAPTIC_SERIES_MS)) {
+      // A new series: after a touch at any time (one per touch), else 10 s after the last one began.
+      const touchedSince = this.lifted !== null && (this.series === null || this.lifted > this.series);
+      if (this.series === null || touchedSince || now - this.series >= HAPTIC_SERIES_GAP_MS) this.series = now;
+      else allowed = false;
+    }
+    if (allowed && this.tokens >= 1) {
       this.tokens -= 1;
       return 'play';
     }

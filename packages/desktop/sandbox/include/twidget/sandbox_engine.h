@@ -181,6 +181,11 @@ public:
     void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams = {});
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);
+    /// The renderer's primary press began / ended (pointerdown; pointerup or pointercancel), trusted input only, never the
+    /// widget's events (v0.2.2): haptics pass while a press is down and 5 s after it is lifted; outside a touch only one
+    /// 1 s series (sdk::HapticGate). WidgetHost calls these on the renderer's `gesture` and `release` messages.
+    void pressBegan();
+    void pressEnded();
     /// The bot's data changed (an edit the client got from the server): the full state of both strings, checked as at
     /// boot (`data-rejected`; a copy keeps no `chatData`, its publicData can change). The widget gets `chatDataChanged`,
     /// then `publicDataChanged`, for each that differs.
