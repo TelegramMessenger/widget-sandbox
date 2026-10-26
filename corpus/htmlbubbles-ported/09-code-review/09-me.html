@@ -66,7 +66,14 @@ const root = $('root');
 const esc = v => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const TR = ['fade', 'slide-left', 'slide-right'];
-function transition(kind) { for (const k of TR) root.classList.remove('tr-' + k); requestAnimationFrame(() => root.classList.add('tr-' + kind)); }
+function transition(kind) {
+  requestAnimationFrame(() => {
+    const target = tab === QUIZ ? $('quiz') : $('rows');
+    for (const k of TR) target.classList.remove('tr-' + k);
+    void target.offsetWidth;
+    target.classList.add('tr-' + kind);
+  });
+}
 function replay(el, cls) { el.classList.remove(cls); requestAnimationFrame(() => el.classList.add(cls)); }
 
 const CATS = [

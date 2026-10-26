@@ -107,10 +107,10 @@ const root = document.getElementById('w');
 const $ = id => document.getElementById(id);
 const ctx = $('eq').getContext('2d');
 function restart(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
-function bubble(kind) {
-  for (const c of [...root.classList]) if (c.startsWith('tr-')) root.classList.remove(c);
-  void root.offsetWidth;
-  root.classList.add('tr-' + kind);
+function bubble(kind, target = $('art')) {
+  for (const c of [...target.classList]) if (c.startsWith('tr-')) target.classList.remove(c);
+  void target.offsetWidth;
+  target.classList.add('tr-' + kind);
 }
 // tween() on a number (the playhead): the prelude's formula, one owner per key
 let posTween = 0;
@@ -226,8 +226,9 @@ function action(name, value) {
   }
   if (name === 'shuffle') shuffle = !shuffle;
   if (name === 'repeat') repeat = !repeat;
-  if (name === 'queue') { bubble(queue ? 'slide-up' : 'slide-down'); queue = !queue; }
+  if (name === 'queue') queue = !queue;
   controls();
+  if (name === 'queue' && queue) bubble('slide-down', $('list'));
   wake();
 }
 root.addEventListener('click', e => {

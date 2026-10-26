@@ -113,11 +113,11 @@ const stress = s => esc(s).replace(/[A-Z]{2,}/g, m => `<b class="t-orange">${m}<
 const visible = () => PH.map((p, i) => i).filter(i => cat === 'all' || PH[i].c === cat);
 
 const TR = ['tr-pop', 'tr-slide-left', 'tr-slide-right'];
-function bubble(kind) {
-  if (TR.some(c => root.classList.contains(c))) { root.classList.remove(...TR); void root.offsetWidth; }
-  root.classList.add('tr-' + kind);
+function bubble(kind, target = $('rows')) {
+  if (TR.some(c => target.classList.contains(c))) { target.classList.remove(...TR); void target.offsetWidth; }
+  target.classList.add('tr-' + kind);
 }
-root.addEventListener('animationend', e => { if (e.target === root) root.classList.remove(...TR); });
+root.addEventListener('animationend', e => e.target.classList.remove(...TR));
 
 // --- list ---
 function renderCats() {
@@ -207,14 +207,14 @@ function answer(ok) {
   if (ok) seen.add(deck[qi]);
   qrun++;
   if (qi + 1 >= deck.length) {
-    bubble('pop');
+    bubble('pop', $('v-done'));
     mode = 'done'; showMode();
     const right = marks.filter(Boolean).length;
     $('msg').textContent = right === deck.length ? 'Perfeito! 🏆' : right >= deck.length - 1 ? 'Muito bem! 🎉' : 'Quase! Keep practising 💪';
     $('d-learned').textContent = `Learned ${seen.size} of ${PH.length} phrases so far`;
     animate(800, p => { $('score').textContent = `${Math.round(right * p)} / ${deck.length}`; }, ease.outCubic);
   } else {
-    bubble('slide-left');
+    bubble('slide-left', $('qcard'));
     qi++; flipped = false; flipV = 0;
     renderCard();
   }
@@ -242,12 +242,12 @@ root.addEventListener('click', e => {
     list.forEach(i => reveal(i, on));
     return;
   }
-  if (t.closest('#quiz') || t.closest('#again')) { bubble('slide-left'); startQuiz(); return; }
+  if (t.closest('#quiz') || t.closest('#again')) { startQuiz(); bubble('slide-left', $('v-quiz')); return; }
   if (t.closest('#flip') || t.closest('#qcard')) { flip(); return; }
   const a = t.closest('[data-answer]');
   if (a) { answer(a.dataset.answer === 'yes'); return; }
   if (t.closest('#exit') || t.closest('#exit2')) {
-    bubble('slide-right');
+    bubble('slide-right', $('v-list'));
     mode = 'list'; qrun++; flipping = false;
     renderRows(false); showMode();
   }
