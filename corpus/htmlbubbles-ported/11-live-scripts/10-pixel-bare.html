@@ -5,6 +5,7 @@
   ported: classic widget, see corpus/htmlbubbles-ported/README.md
 -->
 <style>
+  [hidden] { display: none !important; }
   :root { color-scheme: light dark;
     --fg: light-dark(#000, #fff); --muted: light-dark(#6e6e73, #98989d);
     --card: light-dark(#fff, #1c1c1e); --border: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
@@ -116,13 +117,17 @@ function paintFace() {
   right.textContent = running ? 'Stop' : ms ? 'Resume' : 'Start';
 }
 
+let lastList = "";
 function paintLaps(fresh) {
   const [best, worst] = bestWorst();
   left.textContent = running ? 'Lap' : 'Reset';
   tabs.hidden = !laps.length;
-  if (!laps.length) { list.innerHTML = ''; return; }
+  if (!laps.length) { lastList = ''; list.innerHTML = ''; return; }
   for (const t of tabs.querySelectorAll('.tab')) t.classList.toggle('on', t.dataset.view === view);
   lapinfo.textContent = `${laps.length} lap${laps.length > 1 ? 's' : ''}${best >= 0 ? ` · best ${full(laps[best].t)}` : ''}`;
+  const renderKey = view + '|' + laps.map(l => l.t + ':' + l.total).join(',');
+  if (lastList === renderKey && !fresh) return;
+  lastList = renderKey;
   if (view === 'laps') {
     const rows = laps.slice().reverse().slice(0, 5).map((l, k) => {
       const n = laps.length - k, i = n - 1;
@@ -137,10 +142,9 @@ function paintLaps(fresh) {
     const offset = laps.length - shown.length;
     list.innerHTML = `<div class="bars">${shown.map((l, k) => {
       const i = offset + k, c = i === best ? '#34c759' : i === worst ? '#ff3b30' : '#ff9500';
-      return `<div class="br"><span class="n muted">L${i + 1}</span><div class="track"><div class="fill" data-w="${Math.max(2, 100 * l.t / max).toFixed(1)}" style="background-color: ${c}; transition-delay: ${k * 35}ms"></div></div><span class="v">${full(l.t)}</span></div>`;
+      return `<div class="br"><span class="n muted">L${i + 1}</span><div class="track"><div class="fill" style="width: ${Math.max(2, 100 * l.t / max).toFixed(1)}%; background-color: ${c}"></div></div><span class="v">${full(l.t)}</span></div>`;
     }).join('')}</div>`;
     // Bars grow from 2px to their width, staggered (grow.k tween in the original).
-    requestAnimationFrame(() => { for (const f of list.querySelectorAll('.fill')) f.style.width = f.dataset.w + '%'; });
   }
 }
 
@@ -154,7 +158,6 @@ function handleAction(name, value) {
     if (!looping) { looping = true; requestAnimationFrame(frame); }
     paintFace(); paintLaps();
   } else if (name === 'lap' && running) {
-    transition('slide-up');
     const total = elapsed();
     laps.push({ t: total - lapBase(), total });
     paintLaps(true);
@@ -165,7 +168,6 @@ function handleAction(name, value) {
     banked = 0; laps = []; view = 'laps';
     paintFace(); paintLaps();
   } else if (name === 'view' && value !== view) {
-    transition(value === 'chart' ? 'slide-left' : 'slide-right');
     view = value;
     paintLaps();
   }

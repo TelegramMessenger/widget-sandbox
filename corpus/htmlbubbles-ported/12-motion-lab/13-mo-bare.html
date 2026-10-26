@@ -247,7 +247,7 @@ root.addEventListener('click', e => {
     restart($('bet'), 'pop');
     return ui();
   }
-  if (name === 'pay') { paytable = !paytable; $('pay').hidden = !paytable; ui(); if (paytable) bubble('slide-down', $('pay')); }
+  if (name === 'pay') { paytable = !paytable; $('pay').hidden = !paytable; ui(); }
 });
 // intro: the message springs in and the bulbs sweep once (chase 0 → 11 over 800 ms outCubic)
 setTimeout(() => {

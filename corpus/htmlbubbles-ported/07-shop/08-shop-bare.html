@@ -112,8 +112,6 @@ const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const outCubic = t => 1 - Math.pow(1 - t, 3);
 const $ = id => document.getElementById(id);
 const root = $('root');
-function fade(target = $('list')) { const a = target.classList.contains('fx-fade'); target.classList.remove('fx-fade', 'fx-fade2'); target.classList.add(a ? 'fx-fade2' : 'fx-fade'); }
-root.addEventListener('animationend', e => e.target.classList.remove('fx-fade', 'fx-fade2'));
 function pop(el, cls, other) { el.classList.remove(cls, other); void el.offsetWidth; el.classList.add(cls); }
 
 // --- static parts ---
@@ -169,15 +167,15 @@ root.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el || !root.contains(el)) return;
   const name = el.dataset.action, value = el.dataset.value;
-  if (name === 'filter') { const s = Number(value); fade(); filter = filter === s ? 0 : s; limit = 3; renderList(); }
-  else if (name === 'sort') { if (sort === value) return; fade(); sort = value; limit = 3; renderList(); }
+  if (name === 'filter') { const s = Number(value); introDone = true; filter = filter === s ? 0 : s; limit = 3; renderList(); }
+  else if (name === 'sort') { if (sort === value) return; sort = value; limit = 3; renderList(); }
   else if (name === 'more') {
     const id = Number(value);
     if (open.has(id)) open.delete(id); else open.add(id);
     const p = root.querySelector(`.rev[data-id="${id}"] p`);
-    if (p) { p.innerHTML = textHTML(R[id]); fade(p); }
+    if (p) { p.innerHTML = textHTML(R[id]);  }
   }
-  else if (name === 'page') { fade(); limit = visible().length > limit ? limit + 3 : 3; renderList(); }
+  else if (name === 'page') { limit = visible().length > limit ? limit + 3 : 3; renderList(); }
   else if (name === 'help') {
     const id = Number(value), was = voted.has(id);
     if (was) voted.delete(id); else voted.add(id);

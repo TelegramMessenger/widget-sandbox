@@ -5,6 +5,7 @@
   ported: classic widget, see corpus/htmlbubbles-ported/README.md
 -->
 <style>
+  [hidden] { display: none !important; }
   :root { color-scheme: light dark;
     --fg: light-dark(#000, #fff); --muted: light-dark(#6e6e73, #98989d);
     --card: light-dark(#fff, #1c1c1e); --border: light-dark(rgba(0,0,0,0.10), rgba(255,255,255,0.14));
@@ -265,7 +266,6 @@ function cycle(id) {
     sticky.add(t.id);
     clearTimeout(sweep);
     sweep = setTimeout(() => {
-      if (TASKS.some(x => sticky.has(x.id) && !match(x))) fx('slide-up');
       sticky.clear();
       drawRows();
     }, 900);
@@ -274,7 +274,6 @@ function cycle(id) {
 }
 function setFilter(value) {
   if (value === filter) return;
-  fx(FILTERS.indexOf(value) > FILTERS.indexOf(filter) ? 'slide-left' : 'slide-right');
   filter = value;
   sticky.clear(); clearTimeout(sweep);
   drawRows();
@@ -285,7 +284,6 @@ function stepDay(delta) {
   drawRows();
 }
 function reset() {
-  fx('fade');
   TASKS.forEach((t, i) => { t.s = START[i]; });
   sticky.clear(); clearTimeout(sweep);
   tween(meter, { v: burned() }, 700, ease.outCubic);
