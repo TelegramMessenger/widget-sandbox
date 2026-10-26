@@ -69,6 +69,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         /// Take prewarmed parts from RendererPool / EnginePool / ValidatorPool when they have any, and recycle the validator on destroy.
         public var pools = false
         public var recyclesRenderers = false
+        public var nativeScrolling = false
         /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`, `binaryOps`; empty means plain JSON.
         public var features: Set<String> = []
         /// Side channels next to the DOM protocol, one fresh instance per host (e.g. the twidget kit's 3D surfaces).
@@ -220,6 +221,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         state.prewarmed = prewarmed.joined(separator: "+")
         validator.setAssetResolver(options.assetResolver)
         validator.setPolicy(options.policy)
+        validator.setNativeScrolling(options.nativeScrolling)
         validator.useNativeModel(engine.runtimeFeatures.contains("binaryOps"))
         engine.delegate = self
         let channels = sideChannels

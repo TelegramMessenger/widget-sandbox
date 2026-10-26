@@ -40,6 +40,7 @@ export type Diag = (kind: string, detail: string) => void;
  */
 export interface CssEnv {
   colorScheme: 'light' | 'dark';
+  nativeScrolling?: boolean;
   /**
    * 'shadow': the renderer is a shadow root in the host page (ShadowDomRenderer
    * prototype), not a document of its own. Selectors that would reach the host
@@ -238,7 +239,7 @@ function declarationIsSafe(decl: csstree.Declaration, diag: Diag, env: CssEnv): 
   }
   // Filter lists lose their out-of-profile functions before the function check would drop the whole list.
   if (FILTER_PROPERTIES.has(prop) && !pruneFilterList(prop, decl, diag)) return false;
-  return valueIsSafe(decl.value, 'image', diag, prop, env) && valueInProfile(prop, decl, diag);
+  return valueIsSafe(decl.value, 'image', diag, prop, env) && valueInProfile(prop, decl, diag, env);
 }
 
 const FILTER_PROPERTIES = new Set(['filter', 'backdrop-filter', '-webkit-backdrop-filter']);
@@ -269,7 +270,7 @@ const comma = (): csstree.CssNode => ({ type: 'Operator', value: ',' });
  * env() or attr() is judged only by what is visible here (the substituted text
  * is checked where it is declared, as a custom property).
  */
-function valueInProfile(prop: string, decl: csstree.Declaration, diag: Diag): boolean {
+function valueInProfile(prop: string, decl: csstree.Declaration, diag: Diag, env: CssEnv): boolean {
   if (prop.startsWith('--') || decl.value.type !== 'Value') return true;
   const items = decl.value.children.toArray();
   const substituted = items.some((n) => csstree.find(n, SUBSTITUTED) !== null);
@@ -278,7 +279,8 @@ function valueInProfile(prop: string, decl: csstree.Declaration, diag: Diag): bo
   const drop = (why: string) => { diag('profile', `${prop}: ${truncate(why)}`); return false; };
 
   const allowed = VALUE_SETS[prop];
-  const rewrite = REWRITES[prop === 'overflow-x' || prop === 'overflow-y' ? 'overflow' : prop];
+  const overflow = prop === 'overflow' || prop === 'overflow-x' || prop === 'overflow-y';
+  const rewrite = overflow && env.nativeScrolling ? undefined : REWRITES[overflow ? 'overflow' : prop];
   if (rewrite) {
     for (const n of items) {
       const v = ident(n);
@@ -631,7 +633,7 @@ export function clearStylesheetCache(): void {
 }
 
 export function sanitizeStylesheet(css: string, diag: Diag, env: CssEnv = DEFAULT_ENV): string {
-  const key = `${env.colorScheme}\u0001${env.scope ?? ''}\u0001${env.strict ? 1 : 0}${env.reducedMotion ? 1 : 0}\u0001${css}`;
+  const key = `${env.colorScheme}\u0001${env.scope ?? ''}\u0001${env.strict ? 1 : 0}${env.reducedMotion ? 1 : 0}${env.nativeScrolling ? 1 : 0}\u0001${css}`;
   let hit = sheetCache.get(key);
   if (!hit) {
     const diags: [string, string][] = [];

@@ -34,6 +34,11 @@ const v = () => {
     clearStylesheetCache();
     validator = new Validator(diag, { colorScheme: theme === 'dark' ? 'dark' : 'light' });
   },
+  setNativeScrolling(enabled: string) {
+    v().cssEnv.nativeScrolling = enabled === '1';
+    clearStylesheetCache();
+    return '';
+  },
   processOps(json: string) {
     return JSON.stringify(v().processOps(JSON.parse(json)));
   },

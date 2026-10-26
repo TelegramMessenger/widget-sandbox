@@ -108,6 +108,7 @@ public final class TrustedValidator {
             globalThis.__v_validatePreventDefault = (j) => __twValidator.validatePreventDefault(j);
             globalThis.__v_validateAnim = (j) => __twValidator.validateAnim(j);
             globalThis.__v_setTheme = (t) => __twValidator.setTheme(t);
+            globalThis.__v_nativeScrolling = (v) => __twValidator.setNativeScrolling(v);
             globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);
             globalThis.__v_nodeCount = () => __twValidator.nodeCount();
             globalThis.__v_isCanvas = (id) => __twValidator.isCanvas(Number(id)) ? 1 : 0;
@@ -220,6 +221,12 @@ public final class TrustedValidator {
     }
 
     public private(set) var policy: SandboxPolicy = .compat
+
+    public func setNativeScrolling(_ enabled: Bool) {
+        thread.async { [self] in
+            _ = str("__v_nativeScrolling", [enabled ? "1" : "0"])
+        }
+    }
 
     public func setPolicy(_ policy: SandboxPolicy) {
         thread.async { [self] in
