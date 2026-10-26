@@ -432,7 +432,11 @@ function syncChildren(node: any, id: number, m: Mirror) {
 function syncNode(node: any) {
   const id = node[ID];
   const m = id === undefined ? undefined : mirror.get(id);
-  if (!m) return;
+  if (!m) {
+    // A script's image (new Image()) loads before it is inserted, as in a browser: the renderer gets it with its src.
+    if (node?.nodeType === 1 && node.localName === 'img' && !node.isConnected && node.getAttribute('src')) ensureCreated(node);
+    return;
+  }
   if (node.nodeType === 1) {
     syncAttrs(node, id, m);
     syncChildren(node, id, m);

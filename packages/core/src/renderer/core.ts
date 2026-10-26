@@ -245,6 +245,8 @@ function applyOp(op: RenderOp) {
       else if (op.adopt === 'head') el = HEAD;
       else if (op.adopt === 'body') el = BODY;
       else el = op.ns === 'svg' ? createElementNS(doc, SVG_NS, op.tag) : createElement(doc, op.tag);
+      // A script's image loads before it is inserted (new Image()), where the root's listeners do not see it.
+      if (tag === 'img' && !op.adopt) for (const type of ['load', 'error']) el.addEventListener(type, onDetachedImage);
       register(op.id, el);
       for (const [name, value] of op.attrs) applyAttr(el, name, value);
       return;
@@ -727,6 +729,10 @@ function forward(ev: WidgetEvent, trusted: boolean) {
     pendingMoves.clear();
   }
   post({ type: 'event', ev, trusted });
+}
+
+function onDetachedImage(e: Event) {
+  if (!root.contains(e.currentTarget as Node)) onEvent(e);
 }
 
 function onEvent(e: Event) {

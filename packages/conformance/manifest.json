@@ -727,6 +727,27 @@
      "native": {
       "chromium": "skip"
      }
+    },
+    {
+     "id": "html.el.img",
+     "name": "img.width is the rendered width (12, not the attribute's 30)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "html.el.img",
+     "name": "a broken image fires error and is complete, with no natural size",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "html.el.img",
+     "name": "new Image() loads before it is inserted: naturalWidth, complete, width",
+     "native": {
+      "chromium": "pass"
+     }
     }
    ],
    "stages": [
@@ -779,8 +800,8 @@
      "nativeVsTemplate": 0.9853
     }
    ],
-   "bytes": 9014,
-   "zlib": 3492
+   "bytes": 10242,
+   "zlib": 3792
   },
   {
    "id": "auto/03-layout-a",

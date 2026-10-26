@@ -35,7 +35,7 @@ export function finishPointerEvent(event: any) {
 }
 
 const STATE = Symbol('tw.state');
-interface State { value?: string; checked?: boolean; selectedIndex?: number; indeterminate?: boolean; dirty: Set<string>; naturalWidth?: number; naturalHeight?: number; complete?: boolean }
+interface State { value?: string; checked?: boolean; selectedIndex?: number; indeterminate?: boolean; dirty: Set<string>; naturalWidth?: number; naturalHeight?: number; doneSrc?: string }
 
 function st(el: any): State {
   return el[STATE] ?? (Object.defineProperty(el, STATE, { value: { dirty: new Set() }, enumerable: false })[STATE] as State);
@@ -125,6 +125,16 @@ function radioGroup(el: any): any[] {
   return [...root.querySelectorAll('input[type=radio]')].filter((r: any) => r !== el && r.getAttribute('name') === name);
 }
 
+function imageSize(el: any, dim: 'width' | 'height'): number {
+  if (el.isConnected) {
+    const rendered = parseFloat((globalThis as any).getComputedStyle(el)[dim]);
+    if (Number.isFinite(rendered)) return Math.trunc(rendered);
+  }
+  const attr = parseInt(el.getAttribute(dim) ?? '', 10);
+  if (attr >= 0) return attr;
+  return (dim === 'width' ? st(el).naturalWidth : st(el).naturalHeight) ?? 0;
+}
+
 /** Update the mirror from a renderer event (no ops are generated). */
 export function applyEventState(el: any, ev: any) {
   const t = tag(el);
@@ -139,11 +149,12 @@ export function applyEventState(el: any, ev: any) {
     if (ev.value !== undefined) st(el).value = ev.value;
   } else if (t === 'select') {
     if (ev.selectedIndex !== undefined) st(el).selectedIndex = ev.selectedIndex;
-  } else if (t === 'img' && ev.type === 'load') {
+  } else if (t === 'img' && (ev.type === 'load' || ev.type === 'error')) {
+    // A broken image is complete too, with no natural size; `complete` holds for the src that finished.
     const s = st(el);
-    s.naturalWidth = ev.naturalWidth;
-    s.naturalHeight = ev.naturalHeight;
-    s.complete = true;
+    s.naturalWidth = ev.type === 'load' ? ev.naturalWidth : 0;
+    s.naturalHeight = ev.type === 'load' ? ev.naturalHeight : 0;
+    s.doneSrc = el.getAttribute('src') ?? '';
   } else if (t === 'details' && ev.type === 'toggle') {
     if (ev.open) el.setAttribute('open', '');
     else el.removeAttribute('open');
@@ -484,7 +495,10 @@ export function installForms(protoOf: (tagName: string) => any, HTMLElementProto
   defineOwn('img', {
     naturalWidth: { get(this: any) { return st(this).naturalWidth ?? 0; } },
     naturalHeight: { get(this: any) { return st(this).naturalHeight ?? 0; } },
-    complete: { get(this: any) { return st(this).complete ?? !this.getAttribute('src'); } },
+    complete: { get(this: any) { const src = this.getAttribute('src'); return !src || st(this).doneSrc === src; } },
+    // The rendered size when the image is rendered, else the attribute, else the natural size (HTML's width/height IDL attributes).
+    width: { get(this: any) { return imageSize(this, 'width'); }, set(this: any, v: any) { this.setAttribute('width', String(Number(v) >>> 0)); } },
+    height: { get(this: any) { return imageSize(this, 'height'); }, set(this: any, v: any) { this.setAttribute('height', String(Number(v) >>> 0)); } },
     decode() { return Promise.resolve(); },
   });
 

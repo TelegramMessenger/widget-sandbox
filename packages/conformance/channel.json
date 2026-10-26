@@ -614,7 +614,7 @@
    "height": 0,
    "caption": "auto/02-attributes-images-b · <img> formats, remote images. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 3492
+   "zlib": 3792
   },
   {
    "widget": "auto/03-layout-a.html",

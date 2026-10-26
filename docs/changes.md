@@ -15,6 +15,18 @@ in `Path2D` too), the `anticlockwise` flag of `arc`/`ellipse` is a boolean, `set
 plain `{a…f}` / `{m11…m42}`, `isPointInPath`/`isPointInStroke` convert their point (not finite: false), and
 `Path2D.roundRect` keeps its radii list. Unit test: `packages/core/tests/unit/canvas-args.test.ts`.
 
+**A script's image loads before it is inserted** (default, every client; `packages/core/src/sandbox/capture.ts`,
+`forms.ts`, `src/renderer/core.ts`). The shim mirrors only the nodes in the document, so `new Image()` (or a detached
+`createElement('img')`) with a `src` never reached the renderer: no `load`, no `error`, `complete` false forever, and a
+widget that waits for the image before `drawImage` drew nothing. Such an image now reaches the renderer with its `src`,
+and the web renderer forwards its `load` / `error` (its root's listeners do not see a node outside the document); a native
+renderer must load an element it has never inserted (TwidgetCore does). The image's state follows a browser's: `complete`
+is true once the current `src` loaded or failed (a broken image too, with `naturalWidth` 0) and false again for a new
+`src`; `img.width` / `height` are the rendered size, else the attribute, else the natural size (they were the attribute
+only). The image stays a renderer node for the widget's life, as a detached canvas does. Conformance:
+`auto/02-attributes-images-b` checks a `new Image()`, the rendered width and a broken image; unit test
+`packages/core/tests/unit/image-state.test.ts`.
+
 ## v0.2.2 — release notes (2026-10-26)
 
 One fix, for every client: haptics need a touch. No API change; a client on v0.2.1 updates the framework and gets the
