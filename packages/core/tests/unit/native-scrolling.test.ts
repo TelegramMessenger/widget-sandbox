@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { sanitizeStylesheet, sanitizeStyleProperty } from '../../src/host/css-sanitizer.ts';
+import { Validator } from '../../src/host/validator.ts';
 
 describe('native scrolling capability', () => {
   const css = '#v{height:170px;overflow-y:auto;overflow-x:hidden}#h{overflow-x:scroll;overflow-y:hidden}';
@@ -23,5 +24,12 @@ describe('native scrolling capability', () => {
     const before = sanitizeStylesheet(css, diag, { colorScheme: 'light' });
     sanitizeStylesheet(css, diag, { colorScheme: 'light', nativeScrolling: true });
     assert.equal(sanitizeStylesheet(css, diag, { colorScheme: 'light' }), before);
+  });
+
+  it('forwards scroll events only for a native host that opted in', () => {
+    const standard = new Validator(diag, { colorScheme: 'light' });
+    const native = new Validator(diag, { colorScheme: 'light', nativeScrolling: true });
+    assert.deepEqual(standard.validateListen(['click', 'scroll', 'unknown']), ['click']);
+    assert.deepEqual(native.validateListen(['click', 'scroll', 'unknown']), ['click', 'scroll']);
   });
 });
