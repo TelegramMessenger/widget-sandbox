@@ -3,6 +3,21 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+**Swift renderer task-boundary regression coverage** (tests and documentation
+only; no runtime, SDK, profile or bundle change). Eight `TaskRendererHostTests`
+exercise the real host/engine/validator pipeline: synchronous and asynchronous
+JSON delivery, asynchronous typed binary delivery, buffered startup, script
+exceptions, CPU-limit stops, destruction during a pending query, and equivalent
+operations/query answers with and without task callbacks. The native-only
+presentation scope and shared-parity requirements are documented in
+`docs/native-port-notes.md`, "Swift renderer task boundaries". Tests run in Debug;
+no additional scrolling capability is enabled. Checked: the eight new cases on
+macOS and iOS simulator through Xcode, 18 selected Swift host regressions,
+workspace typecheck and 722 JavaScript unit tests. Removing either callback
+makes the binary-delivery regression fail; runtime source is restored unchanged.
+
 ## v0.2.3 — release notes (2026-10-27)
 
 Fixes from Fela after the Android beta (canvas arguments, images created by a script, building on Windows), conformance
