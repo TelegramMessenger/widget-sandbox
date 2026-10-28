@@ -5,6 +5,10 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- Binary-vs-JSON corpus tests freeze the widget's wall clock, so the clock fixture compares identical
+  dates across runs instead of failing when the two sandbox boots cross a second boundary. Production
+  clocks are unchanged.
+
 - The shared renderer preserves `movementX` and `movementY` across coalesced pointer and mouse moves,
   keeping the latest coordinates per event type and pointer. Previously it discarded all but the last
   move's delta within a frame, so controls that integrate movement lagged behind a drag. This applies to
@@ -737,8 +741,7 @@ and CLAUDE.md).
   host load the renderer's gesture decision misses `GestureWebView`'s 150 ms timeout, so
   the list scrolls. Three other tests time out when the host is loaded; all pass
   alone. Not a framework regression; rerun on a hardware-GPU emulator or a phone.
-- *Timing-sensitive tests*: `binary-ops.test.ts` "same render ops as JSON: clock.html"
-  (the widget prints `new Date()`), `shim.test.ts` "defers timers once the widget has
+- *Timing-sensitive tests*: `shim.test.ts` "defers timers once the widget has
   burnt its quota", Swift `CanvasWordsTests.testWordPayloadsSpliceToTheSameJSONAsTheJSONPath`
   (a 1 ms timer races the hand-driven frames), Swift `CpuTimeLimitTests.testBusyMachineDoesNotKillAWidgetWithinItsCPUBudget`
   (`loaded` and the engine stats reach the diagnostics on two async paths, so the

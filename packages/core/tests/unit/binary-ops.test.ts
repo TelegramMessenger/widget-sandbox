@@ -18,7 +18,10 @@ const files = (dir: string): string[] => fs.readdirSync(dir).flatMap((f) => {
 describe('binary ops', () => {
   for (const file of files(path.join(root, 'corpus/compat'))) {
     it(`same render ops as JSON: ${path.basename(file)}`, async () => {
-      const html = fs.readFileSync(file, 'utf8');
+      const html = `<script>Date = class extends Date {
+        constructor(...args) { super(...(args.length ? args : [1767225600000])); }
+        static now() { return 1767225600000; }
+      };</script>` + fs.readFileSync(file, 'utf8');
       const det = () => { let t = 0; return { now: () => (t += 4), random: (n: number) => new Array(n).fill(7) }; };
       const json = await runWidget(html, { timerRounds: 3, ...det() });
       const bin = await runWidget(html, { timerRounds: 3, binaryOps: true, ...det() });
