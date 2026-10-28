@@ -253,6 +253,10 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   the second's 300 ms (an event gets at least 50 ms), and one that runs past
   its share stops the widget. 64 MB of memory; 256 live timers; 50 000 nodes. A widget over a limit
   or crashed keeps its last frame with a "Widget stopped" badge.
+- Canvases: 4096 × 4096 pixels for all of a widget's canvases together (a size
+  past it is not applied). A `data:` image: PNG, JPEG, GIF or WebP of at most
+  4096 × 4096 pixels (larger: the placeholder); other bytes behind an image type
+  are a broken image.
 - Keep the first render synchronous and fast; animate with
   `requestAnimationFrame`, never read layout in every frame.
 

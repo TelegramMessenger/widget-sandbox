@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet } from '../../src/host/css-sanitizer.ts';
-import { checkUrl } from '../../src/host/url-policy.ts';
+import { BROKEN_IMAGE, checkUrl } from '../../src/host/url-policy.ts';
 import { Validator } from '../../src/host/validator.ts';
 import type { RenderOp } from '../../src/shared/protocol.ts';
 
@@ -24,10 +24,15 @@ function run(ops: unknown[], diags: string[] = [], policy: 'compat' | 'strict' =
 }
 const attrsOf = (ops: RenderOp[], id: number) => Object.fromEntries((ops.find((o) => o.op === 'el' && o.id === id) as any)?.attrs ?? []);
 const json = (ops: RenderOp[]) => JSON.stringify(ops);
+/** A 2 × 2 PNG, and the header of a 1 × 1 lossless WebP: what checkUrl reads of an image is its size. */
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR4AWM8Y2z8nwEImBigAAAh4QI1lhEEowAAAABJRU5ErkJggg==';
+const WEBP = 'data:image/webp;base64,' + Buffer.from('RIFF\x1a\x00\x00\x00WEBPVP8L\x0d\x00\x00\x00\x2f' + '\x00'.repeat(9), 'latin1').toString('base64');
 
 describe('url policy', () => {
   it('allows only data: images / fonts, host blobs and fragments', () => {
-    assert.equal(checkUrl('data:image/png;base64,AAAA', 'image'), 'data:image/png;base64,AAAA');
+    assert.equal(checkUrl(PNG, 'image'), PNG);
+    // bytes of no image of the profile's behind an image type: broken (an error, no size), never decoded as anything
+    assert.equal(checkUrl('data:image/png;base64,AAAA', 'image'), BROKEN_IMAGE);
     // No font or media kind exists any more: only images may be data: URLs.
     assert.equal(checkUrl('data:font/woff2;base64,AAAA', 'image'), null);
     assert.equal(checkUrl('data:video/mp4;base64,AAAA', 'image'), null);
@@ -35,7 +40,7 @@ describe('url policy', () => {
     // The profile's image types only: SVG, AVIF, BMP and ICO are out (the decoder runs in the app process).
     assert.equal(checkUrl('data:image/svg+xml,<svg/>', 'image'), null);
     assert.equal(checkUrl('data:image/avif;base64,AAAA', 'image'), null);
-    assert.equal(checkUrl('data:image/webp;base64,AAAA', 'image'), 'data:image/webp;base64,AAAA');
+    assert.equal(checkUrl(WEBP, 'image'), WEBP);
     assert.equal(checkUrl('#frag', 'image'), '#frag');
     assert.equal(checkUrl('#frag', 'fragment-only'), '#frag');
     assert.equal(checkUrl(CANARY, 'image'), null);
@@ -151,7 +156,7 @@ describe('validator: elements and attributes', () => {
       { op: 'el', id: 13, tag: 'body', attrs: { background: CANARY } },
       { op: 'el', id: 14, tag: 'a', attrs: { href: '#top' } },
       { op: 'el', id: 15, tag: 'a', attrs: { href: 'javascript:alert(1)' } },
-      { op: 'el', id: 16, tag: 'img', attrs: { src: 'data:image/png;base64,AA' } },
+      { op: 'el', id: 16, tag: 'img', attrs: { src: PNG } },
     ]);
     assert.ok(!json(ops).includes('127.0.0.1'));
     assert.ok(!json(ops).toLowerCase().includes('onclick'));
@@ -161,7 +166,7 @@ describe('validator: elements and attributes', () => {
     assert.deepEqual(attrsOf(ops, 12), {});
     assert.deepEqual(attrsOf(ops, 14), { href: '#top' });
     assert.deepEqual(attrsOf(ops, 15), { href: '#', 'data-tg-link': '' });
-    assert.deepEqual(attrsOf(ops, 16), { src: 'data:image/png;base64,AA' });
+    assert.deepEqual(attrsOf(ops, 16), { src: PNG });
   });
   it('attribute updates: rejected values clear the attribute', () => {
     const ops = run([

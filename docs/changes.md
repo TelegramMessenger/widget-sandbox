@@ -5,6 +5,42 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- Bitmaps a widget makes the page hold are bounded. The shared renderer holds a widget's canvases to 4096 × 4096 pixels
+  together (64 MB as RGBA), whether a size comes as an attribute or as the shim's `r` command: past it the size is not
+  applied (the canvas keeps the one it had, a new one is 0 × 0) and a `violation` says so; four canvases of 16384² grew
+  a browser by ~16 GB. `checkUrl` reads a `data:` image's size from its bytes (PNG's IHDR; GIF's logical screen, grown
+  to its first frame where that frame reaches past it, as decoders grow the image; WebP's first chunk; JPEG's first
+  frame header; a GIF's descriptor and a JPEG's header within 64 KB), decoding the body as fetch does (without the
+  URL's `#fragment`), and refuses more than 4096²
+  pixels (the placeholder, as for a refused URL): a few hundred bytes can claim 65535². The browser picks a decoder by
+  the bytes, not by the declared type, so bytes of none of the profile's formats (BMP, ICO or AVIF behind `image/png`,
+  or no image at all) become `BROKEN_IMAGE` (`data:image/png;base64,`), which fires `error` as a broken image does
+  (conformance `auto/02` checks that). The check runs for every element and style that names an image, and URLs that
+  differ in their fragment alone are checked anew, so it reads no more than it needs, in place: a plain base64 body by
+  windows of at least 4096 characters from where a read lands, any other decoded once from its start, a body that is
+  no base64 tried once, the last image remembered; and a scan takes at most 1024 steps to a JPEG's frame header (a
+  fill byte, a standalone marker or a segment each), 256 extensions and 4096 sub-blocks to a GIF's first frame (an
+  image has tens; past them it is broken).
+  Its worst bytes cost about one parse of the message that brings them: 64 KB of a JPEG's fill bytes took 4.5 ms an
+  URL (500 of them ~2.9 s of `Validator.processOps`), restart markers 2.2 ms, empty segments 1.1 ms, 32 000 one-byte
+  GIF sub-blocks 0.53 ms, 20 000 empty GIF extensions ~13 ms; now each is 0.02–0.06 ms, a frame header past
+  62 KB of segments 0.015 ms (Node, the scan alone). A WebP's size is read where
+  its chunk keeps it (a whole lossless 1 × 1 image is 28 bytes). The validator JS runs in QuickJS on native hosts, so it
+  uses `atob` and `unescape`, not `TextEncoder`. Not in Swift's `NativeValidator` (opt-in `binaryOps` on iOS and macOS),
+  whose `URLPolicy.check` takes an image attribute by its type alone (CSS still goes through this JS): it wants the same
+  check, `dataImageSize` with `MAX_IMAGE_PIXELS` and `BROKEN_IMAGE` ported or the attribute routed through the validator
+  bundle's `checkUrl`, with `url-policy-images.test.ts`'s cases; not changed here (no Swift toolchain). Until then, with
+  `binaryOps`, an `<img>` of a size past the cap or of other bytes reaches WebKit. Not in `profile.json` (profile 1 is
+  frozen): the two limits are in the authors' guide; rows in the profile tables are a maintainers' call. Shared renderer and validator JS: the iOS,
+  Android and desktop bundles are rebuilt. Regression: `packages/core/tests/unit/renderer-canvas.test.ts`,
+  `url-policy-images.test.ts` (every image of the corpora and the conformance set at its size, headers past the cap, a
+  GIF's first frame past its screen and its extensions, a short lossless WebP, every encoding of the body, a fragment, a
+  JPEG's offsets; each scan's worst bytes — a JPEG's fill bytes, restart markers and empty segments, a GIF's sub-blocks,
+  a PNG or WebP with 64 KB after its header, a body that is no base64 — with the steps' cap, the characters decoded and the time against a parse of
+  the message), and `validator.test.ts` now passes real images where it means an
+  allowed one. Not in this change (`CONTRIBUTING.md` §3): attack widgets for `test:attacks`, the conformance set and
+  the corpora runs (`test:compat`, `test:showcase`, …) on both renderers.
+
 - A `timer` host call with an id that already has a timer replaces it: the glue cancels the old one first. It kept it
   running and overwrote its handle, so a shim told to reuse an id (its `JSON.stringify` replaced) kept native timers past
   `maxTimers`, still queued after `destroy()`. Changed in the web worker (`host/worker.ts`), the Node harness

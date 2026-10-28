@@ -173,8 +173,41 @@ function forget(node: Node) {
     ids.delete(node);
     canvases.delete(id);
     if (node instanceof Element) resizeObserver.unobserve(node);
+    if (node instanceof HTMLCanvasElement) { canvasPixelsTotal -= canvasPixels.get(node) ?? 0; canvasPixels.delete(node); }
   }
   for (let c = firstChildOf(node); c; c = nextSiblingOf(c)) forget(c);
+}
+
+// ───────────────────────── canvas sizes ─────────────────────────
+
+/**
+ * A canvas's bitmap is the page's memory, as large as the widget makes it (four canvases of 16384² grew a browser by
+ * ~16 GB): a widget's canvases hold at most this many pixels together (64 MB as RGBA; a canvas over a whole bubble at
+ * 3× is ~2.5 M). A size past it is not applied: the canvas keeps the one it had, a new one is 0 × 0.
+ */
+const CANVAS_PIXELS_MAX = 4096 * 4096;
+const canvasPixels = new Map<HTMLCanvasElement, number>();
+let canvasPixelsTotal = 0;
+
+/** Charges `el` the size `w` × `h` if the widget's canvases can hold it together; false, and nothing charged, if not. */
+function fitCanvas(el: HTMLCanvasElement, w: number, h: number): boolean {
+  const others = canvasPixelsTotal - (canvasPixels.get(el) ?? 0);
+  if (!(others + w * h <= CANVAS_PIXELS_MAX)) {
+    violation(`canvas ${w}×${h}: a widget's canvases hold at most ${CANVAS_PIXELS_MAX} pixels together`);
+    return false;
+  }
+  canvasPixels.set(el, w * h);
+  canvasPixelsTotal = others + w * h;
+  return true;
+}
+
+/** Whether `el` may take `value` (null: none) as its `name`: anything but a canvas's width or height may. */
+function canvasSizeFits(el: Element, name: string, value: string | null): boolean {
+  if (!(el instanceof HTMLCanvasElement) || (name !== 'width' && name !== 'height')) return true;
+  // HTML's rules for non-negative integers; a value they refuse, or none, is the default
+  const parsed = /^[\t\n\f\r ]*\+?(\d+)/.exec(value ?? '');
+  const n = parsed ? Number(parsed[1]) : name === 'width' ? 300 : 150;
+  return fitCanvas(el, name === 'width' ? n : el.width, name === 'height' ? n : el.height);
 }
 
 function idOf(node: Node | null): number {
@@ -193,6 +226,7 @@ function applyAttr(el: Element, name: string, value: string) {
   // Assigning canvas width/height clears the bitmap even if unchanged; the
   // canvas command stream ('r') is authoritative for resets.
   if (el instanceof HTMLCanvasElement && (lower === 'width' || lower === 'height') && getAttribute(el, lower) === value) return;
+  if (!canvasSizeFits(el, lower, value)) return;
   setAttribute(el, name, value);
   if (lower === 'style') widenTouchAction(styleOf(el));
 }
@@ -248,6 +282,8 @@ function applyOp(op: RenderOp) {
       // A script's image loads before it is inserted (new Image()), where the root's listeners do not see it.
       if (tag === 'img' && !op.adopt) for (const type of ['load', 'error']) el.addEventListener(type, onDetachedImage);
       register(op.id, el);
+      // a canvas is born 300 × 150
+      if (el instanceof HTMLCanvasElement && !fitCanvas(el, 300, 150)) { el.width = 0; el.height = 0; }
       for (const [name, value] of op.attrs) applyAttr(el, name, value);
       return;
     }
@@ -266,6 +302,7 @@ function applyOp(op: RenderOp) {
       if (node === HTML && op.name.toLowerCase() === 'style') applyThemeVariables();
       return;
     case 'rattr':
+      if (!canvasSizeFits(node as Element, op.name.toLowerCase(), null)) return;
       removeAttribute(node as Element, op.name);
       if (node === HTML && op.name.toLowerCase() === 'style') applyThemeVariables();
       return;
@@ -398,6 +435,8 @@ function replay(id: number, el: HTMLCanvasElement, cmds: CanvasCmd[]) {
           ctx[name] = resolveArg(st, rest[0]);
           break;
         case 'r':
+          // a size past the widget's canvas pixels still clears the bitmap
+          if (!fitCanvas(el, name, rest[0])) { el.width = el.width; break; }
           el.width = name;
           el.height = rest[0];
           break;
