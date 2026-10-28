@@ -3,6 +3,15 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased
+
+- The shared renderer preserves `movementX` and `movementY` across coalesced pointer and mouse moves,
+  keeping the latest coordinates per event type and pointer. Previously it discarded all but the last
+  move's delta within a frame, so controls that integrate movement lagged behind a drag. This applies to
+  the web iframe and shadow renderers and the bundled iOS, macOS, Android and desktop renderers.
+  Regression: `packages/core/tests/unit/renderer-moves.test.ts` checks real mouse events without a pointer ID,
+  independent numbered pointers, and both frame and release flushes.
+
 ## v0.2.3 — release notes (2026-10-27)
 
 Fixes from Fela after the Android beta (canvas arguments, images created by a script, building on Windows), conformance

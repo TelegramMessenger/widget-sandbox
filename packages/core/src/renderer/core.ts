@@ -713,7 +713,13 @@ function settle(v: GestureVerdict, base: WidgetEvent) {
 function forward(ev: WidgetEvent, trusted: boolean) {
   if (!ALWAYS_FORWARD.has(ev.type) && !interest.has(ev.type)) return;
   if (THROTTLED.has(ev.type)) {
-    pendingMoves.set(ev.type + ':' + (ev.pointerId ?? 0), ev);
+    const key = ev.type + ':' + (ev.pointerId ?? 0);
+    const previous = pendingMoves.get(key);
+    if (previous) {
+      ev.movementX = (previous.movementX ?? 0) + (ev.movementX ?? 0);
+      ev.movementY = (previous.movementY ?? 0) + (ev.movementY ?? 0);
+    }
+    pendingMoves.set(key, ev);
     if (!moveFrame) {
       moveFrame = requestAnimationFrame(() => {
         moveFrame = 0;

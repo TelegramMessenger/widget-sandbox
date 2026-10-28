@@ -98,6 +98,9 @@ a press, undo what `pointerdown` started (put the value back, re-centre the
 stick). `touch-action` on a container covers its children, as in CSS. Keep
 controls at least 20 px from the widget's leading edge.
 
+Move events may be coalesced per frame: their coordinates are the latest, while
+`movementX` and `movementY` sum all moves for that event type and pointer.
+
 No keyboard and no focus at all: no key events, no text input, `focus()` does
 nothing. No touch events (use pointer events), no wheel or scroll events.
 
@@ -304,16 +307,13 @@ JS, shown inside a chat bubble.
 - Out of the profile (removed): form controls except <button>, inner scrolling,
   3D transforms, :has(), @container, @layer, CSS nesting, clip-path, masks,
   blend modes, text-shadow, getImageData, keyboard input and focus.
-- Input: taps and pointer events; double taps are always yours (two clicks,
-  then dblclick). Vertical drags always scroll the chat: nothing can be dragged
-  up or down (no vertical sliders, pickers, joysticks or drawing); use
-  horizontal controls or buttons. touch-action decides holds and
-  horizontal drags: on auto (default) a hold is the chat's menu and a sideways
-  swipe its reply, and the widget gets pointercancel (undo what pointerdown
-  started). touch-action: pan-y gives the widget horizontal drags (sliders,
-  carousels); none gives it horizontal drags and holds, plus contextmenu (game
-  buttons, held controls). It covers an element's children too. Keep controls
-  20 px from the leading edge.
+- Input: coalesced moves retain latest coordinates and summed movementX/movementY.
+  Taps, pointer events and double taps (two clicks then dblclick) reach the widget.
+  Vertical drags always scroll the chat; use horizontal controls or buttons.
+  touch-action: auto gives holds and sideways drags to the chat's menu and reply;
+  pointercancel means undo pointerdown. pan-y claims horizontal drags;
+  none claims horizontal drags and holds, plus contextmenu. Claims cover children.
+  Keep controls 20 px from the leading edge.
 - Text is not selectable unless you set user-select: text.
 - API: window.TelegramWidget (check it exists): openLink(https URL, max 256
   chars) and openTelegramLink(https://t.me/...) only inside a click handler, one
