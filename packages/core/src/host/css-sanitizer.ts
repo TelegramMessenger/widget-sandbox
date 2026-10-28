@@ -141,7 +141,7 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
   }
   let ok = true;
   const fnStack: string[] = [];
-  csstree.walk(value, {
+  const visitor: csstree.WalkOptionsNoVisit = {
     enter(node: csstree.CssNode, item: csstree.ListItem<csstree.CssNode>, list: csstree.List<csstree.CssNode>) {
       if (!ok) return;
       if (node.type === 'Function' && node.name.toLowerCase() === 'light-dark' && list) {
@@ -151,6 +151,9 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
         const chosen = parts[env.colorScheme === 'dark' ? 1 : 0] ?? parts[0];
         const repl = new csstree.List<csstree.CssNode>();
         for (const c of chosen) repl.appendData(c);
+        // The branch takes the function's place behind the walk, which never visits it: it is checked here
+        // (a url() in it reached the renderer unchecked).
+        csstree.walk({ type: 'Value', children: repl } as csstree.Value, visitor);
         list.replace(item, repl);
         return csstree.walk.skip;
       }
@@ -215,7 +218,8 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
     leave(node: csstree.CssNode) {
       if (node.type === 'Function') fnStack.pop();
     },
-  });
+  };
+  csstree.walk(value, visitor);
   return ok;
 }
 

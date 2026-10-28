@@ -5,6 +5,14 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- The CSS sanitizer checks the `light-dark()` branch it picks for the host theme. It put the branch in the function's
+  place behind its own walk, which never visited it, so a `url()` there reached the renderer unchecked
+  (`light-dark(url(/x.png), red)` became `url(/x.png)`): invariant 4 then rested on the renderer's own defences (the
+  frame's and the WebViews' CSP; on the shadow renderer, the page's CSP). A nested `light-dark()` in the branch is
+  resolved too. Shared validator JS: the iOS, macOS, Android and desktop bundles are rebuilt. Regression:
+  `packages/core/tests/unit/validator.test.ts` ("checks the light-dark() branch it picks…"). Not in this change
+  (`CONTRIBUTING.md` §3): an attack widget for `test:attacks` on both renderers.
+
 - The `auto/23-gestures-b` conformance widget captures each pressed pointer, so its mouse-drag
   checks receive the release after leaving the small target instead of remaining pending. Gesture
   ownership rules are unchanged.

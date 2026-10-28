@@ -104,6 +104,17 @@ describe('css sanitizer: host-owned colour scheme', () => {
     assert.ok(light.includes('@media (min-width: 99999px){p{color:red}}'), light);
     assert.ok(light.includes('color-scheme:light') && light.includes('background:#fff'), light);
   });
+  it('checks the light-dark() branch it picks like the rest of the value, nested ones too', () => {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      const d: string[] = [];
+      const css = sanitizeStylesheet('p{background:light-dark(url(/x.png),url(https://example.com/y.png))} b{background:light-dark(red,light-dark(blue,url(/z.png)))} i{color:light-dark(red,blue)}', (k) => d.push(k), { colorScheme });
+      assert.ok(!/url\(/.test(css), css);
+      assert.ok(d.includes('url-blocked'), d.join());
+      assert.ok(css.includes(colorScheme === 'light' ? 'b{background:red}' : 'i{color:blue}'), css);
+    }
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR4AWM8Y2z8nwEImBigAAAh4QI1lhEEowAAAABJRU5ErkJggg==';
+    assert.equal(sanitizeStyleProperty('background', `light-dark(url(${png}),red)`, noDiag, { colorScheme: 'light' })?.value, `url(${png})`);
+  });
   it('re-emits stylesheets when the validator theme changes', () => {
     const v = new Validator(noDiag, { colorScheme: 'light' });
     v.processOps([{ op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null }, { op: 'el', id: 3, tag: 'style' }, { op: 'ins', parent: 2, id: 3, before: null }, { op: 'text', id: 4, data: '@media (prefers-color-scheme: dark){p{color:red}}' }, { op: 'ins', parent: 3, id: 4, before: null }]);
