@@ -310,7 +310,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'now': return vm.newNumber(opts.now ? opts.now() : coarseNowMs(performance.now()));
       case 'timer': {
         const [id, delay] = JSON.parse(arg);
-        if (timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }
+        // An id that has a timer replaces it, as in the other glue copies.
+        if (!timers.has(id) && timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }
         const ms = Math.min(Math.max(Number(delay) || 0, 0), MAX_TIMER_DELAY_MS);
         // Rounds fire timers by delay, as a clock would; hidden ones as the other glue copies clamp them (1 Hz, in order).
         timers.set(id, visible ? ms : Math.max(ms, 1000 + ms / 10));

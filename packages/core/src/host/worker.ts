@@ -185,7 +185,10 @@ function hostCall(kind: string, arg: string): string | number | undefined {
     case 'timer': {
       const [id, delay] = JSON.parse(arg) as [number, number];
       if (typeof id !== 'number') return;
-      if (timers.size >= config.maxTimers) {
+      // An id that has a timer replaces it: the old one, left running, was past maxTimers and outlived destroy().
+      const replaced = timers.get(id);
+      if (replaced !== undefined) clearTimeout(replaced);
+      else if (timers.size >= config.maxTimers) {
         // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
         if (!timerLimitReported) { timerLimitReported = true; post({ type: 'diag', kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}; the shim did not stop it` }); }
         return;

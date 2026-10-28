@@ -5,6 +5,15 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- A `timer` host call with an id that already has a timer replaces it: the glue cancels the old one first. It kept it
+  running and overwrote its handle, so a shim told to reuse an id (its `JSON.stringify` replaced) kept native timers past
+  `maxTimers`, still queued after `destroy()`. Changed in the web worker (`host/worker.ts`), the Node harness
+  (`scripts/sandbox-node.ts`: a replaced id no longer counts against the cap) and the desktop core
+  (`sandbox_engine.cpp`: dropping the `shared_ptr` did not cancel the `JSThread` timer). Not yet in Swift
+  (`SandboxEngine.swift`, `timers[id] = queue.after(…)`) and Kotlin (`SandboxEngine.kt`, `timers[id] = thread.after(…)`):
+  the same change, cancel the replaced handle before storing the new one; no Swift or Kotlin toolchain here to run it.
+  No regression test in this change (`CONTRIBUTING.md` §3 asks for one).
+
 - A finger's or a pen's press is a gesture from its `pointerup` on, not from its `pointerdown`: that press may still
   become the chat's scroll (it then ends in `pointercancel`), and a swipe that started on a widget let it call
   `copyText` and send a request from a `pointerdown` handler. The shared renderer marks such a `pointerdown` not
