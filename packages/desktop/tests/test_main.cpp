@@ -952,6 +952,13 @@ TEST(user_gestures_are_numbered_per_physical_press) {
     CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 3);
     CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\" \"}")) == 0);
     CHECK(c.gestureFor(ev("{\"type\":\"mousemove\"}")) == 0);
+    // A press the renderer reports (its `gesture` claim) begins a new gesture: a finger's release after a drag, whose
+    // pointerdown is not trusted, is not the end of the drag's press.
+    GestureCounter d;
+    CHECK(d.gestureFor(ev("{\"type\":\"pointerup\"}")) == 1);
+    d.pressBegan();
+    CHECK(d.gestureFor(ev("{\"type\":\"pointerup\"}")) == 2);
+    CHECK(d.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 2);
 }
 
 /// A renderer without a document: announces itself, answers every query with null, keeps what it was sent; tests inject its events.
@@ -1023,6 +1030,32 @@ TEST(gestures_need_the_renderers_trusted_flag) {
     std::lock_guard<std::mutex> l(m);
     CHECK_MSG(sent == std::vector<std::string>({"https://example.com/click-1"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
     CHECK(host.diagnostics().countDiag("activation-blocked") == 8);
+}
+
+/// Any pointerdown begins a press, trusted or not: a second finger's is neither trusted (it may become the chat's scroll)
+/// nor claimed (`gesture` is the primary pointer's), so its release is a new gesture, not the one before it, spent.
+TEST(an_untrusted_pointerdown_begins_a_new_gesture) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<button id='b'>go</button><script>TelegramWidget.ready(); var n = 0;"
+                    "document.getElementById('b').addEventListener('pointerup', function () { TelegramWidget.openLink('https://example.com/up-' + (++n)); });</script>",
+                    WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+    std::mutex m;
+    std::vector<std::string> sent;
+    host.onAction = [&](const WidgetAction& a) { std::lock_guard<std::mutex> l(m); if (a.kind != WidgetAction::Ready) sent.push_back(a.url); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    auto event = [&](const std::string& type, bool trusted) {
+        renderer->onMessage("{\"type\":\"event\",\"ev\":{\"type\":\"" + type + "\",\"targetId\":5,\"pointerId\":2,\"pointerType\":\"touch\",\"isPrimary\":false},\"trusted\":" + (trusted ? "true" : "false") + "}");
+    };
+    // a second finger's tap, its gesture spent in its pointerup handler; then another tap of it
+    event("pointerdown", false);
+    event("pointerup", true);
+    event("pointerdown", false);
+    event("pointerup", true);
+    CHECK(host.waitUntil([&](const WidgetDiagnostics&) { std::lock_guard<std::mutex> l(m); return sent.size() >= 2; }, 5));
+    sleepMs(100);
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG(sent == std::vector<std::string>({"https://example.com/up-1", "https://example.com/up-2"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
 }
 
 // ───────────── SDK v1 through the real engine (docs/sdk-v1.md §2–§4) ─────────────

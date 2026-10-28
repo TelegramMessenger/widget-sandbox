@@ -195,8 +195,10 @@ anchor to try it.
 - **User activation is a pointer press only.** A link call (`openLink`,
   `openTelegramLink`, a tapped `<a href>`) goes through only from the handler of a real
   tap or click the renderer saw (`trusted`), one call per press; no key press
-  counts. A renderer behind your own `Renderer` implementation must mark its
-  real input `trusted: true` or the widget never gets a gesture.
+  counts, and a finger's press counts from its release (it may still become the
+  chat's scroll). A renderer behind your own `Renderer` implementation must mark its
+  real input `trusted: true` or the widget never gets a gesture, but not a finger's
+  or a pen's `pointerdown`.
 - **Who gets a press: `touch-action` is the claim, and vertical drags are
   always the chat's** (v0.1.2 and v0.1.3, `docs/sdk-v1.md` §5.5). On every
   primary pointer press the host reports the widget's claim (`onGestureClaim`

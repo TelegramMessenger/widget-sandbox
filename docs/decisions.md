@@ -689,6 +689,22 @@ callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
   v1" below), nor does the click a key activates (`detail` 0). Timers, frames,
   promise jobs after the task, scripted `click()`/`dispatchEvent` and hidden
   widgets get an `activation-blocked` diag instead. `ready` stays free.
+- A finger's or a pen's press is a gesture from its `pointerup` on (Oct 2026, after
+  v0.2.3), as HTML's activation-triggering input events have it: its `pointerdown` may
+  still become the chat's scroll, which ends it in `pointercancel`, and a swipe that
+  started on a widget let it copy text and send a request. The renderer core marks
+  such a `pointerdown` not `trusted`, nor a mouse event of a finger or a pen still
+  down: the `mousedown` a pen's contact makes at once, its barrel button pressed or
+  let go with the tip down (by the pointer whose buttons changed last: a mouse
+  pressed while a finger is held keeps its own `mousedown`; by the input's own
+  `pointerType`: a mouse that
+  plays a finger in the dev app's phone mode keeps its press), so the rule is one
+  JS change for every host. The counters no longer see that `pointerdown`, so every
+  host starts a new gesture at the renderer's `gesture` claim, which comes before
+  the press's events for every primary press, listened to or not, and at every
+  `pointerdown` event, trusted or not, which a second finger (no claim) has
+  (`GestureCounter.pressBegan`): without it a finger's release and click after a
+  press that ended without a click (a drag) continued that press's spent gesture.
 - Native glue (Swift, Kotlin, C++): the host numbers gestures from renderer
   events marked `trusted` and hands the number to the engine with the event;
   the engine opens the gesture for that event's task only and consumes it with

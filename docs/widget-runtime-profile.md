@@ -174,7 +174,9 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
 ```
 
 - **Links:** `https:` only, at most 256 characters, one call per tap, only in
-  the handler of a real tap (not from a timer or a promise); a bad URL throws
+  the handler of a real tap (not from a timer or a promise; nor from a finger's
+  `pointerdown`, which may still become the chat's scroll: use `click` or
+  `pointerup`); a bad URL throws
   `TypeError`. A tapped `<a href="https://…">` does the same. The widget is not
   told whether the user opened it.
 - **Storage:** `localStorage` is kept for this message on this device, there

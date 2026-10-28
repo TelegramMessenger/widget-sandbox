@@ -536,6 +536,9 @@ export class WidgetHost {
       case 'event': {
         // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
         if (this.context.preview) break;
+        // Any pointerdown begins a press, trusted or not: a second finger's is neither trusted nor claimed (`gesture` is the
+        // primary pointer's), and without this its release continued the press before it.
+        if (msg.ev?.type === 'pointerdown') this.gestures.pressBegan();
         const gesture = msg.trusted === true ? this.gestures.gestureFor(msg.ev) : 0;
         if (gesture) this.activation.issue(gesture, performance.now());
         this.toWorker(gesture ? { type: 'event', ev: msg.ev, gesture } : { type: 'event', ev: msg.ev });
@@ -568,6 +571,7 @@ export class WidgetHost {
       case 'gesture':
         // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s after.
         this.haptics.press(performance.now());
+        this.gestures.pressBegan();
         if (this.context.preview) break;
         // Vertical drags are the chat's (v0.1.3): `y` is false whatever a renderer sends.
         this.opts.onGestureClaim?.({ x: msg.x === true, y: false, hold: msg.hold === true });

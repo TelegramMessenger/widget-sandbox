@@ -271,7 +271,9 @@ Other form controls are outside the profile and dropped by the validator.
 - **User activation** (`docs/protocol.md`, "User activation"): the glue
   forwards a call only while the task of a real pointer press on the visible
   widget runs, and one press unlocks one call shared by both methods. A press
-  is `pointerdown` … `click` from the renderer, marked `trusted`, and the
+  is `pointerdown` … `click` from the renderer, marked `trusted` (a finger's or
+  a pen's from its `pointerup`: the renderer does not mark their `pointerdown`,
+  which may still become the chat's scroll), and the
   `dblclick` that ends a double tap (delivered since v0.1.2, §2.10) belongs to
   the press of its second click;
   keys never count (D4: no keyboard input or focus at all), nor does a click a

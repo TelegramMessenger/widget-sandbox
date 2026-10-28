@@ -26,6 +26,19 @@ describe('user activation: policy', () => {
     assert.equal(c.gestureFor({ type: 'mousemove' }), 0);
   });
 
+  it("a press the renderer reports begins a new gesture: a finger's release after a drag is not the drag's", () => {
+    const c = new GestureCounter();
+    // a drag's release (its pointerdown not trusted: a finger), no click after it
+    assert.equal(c.gestureFor({ type: 'pointerup' }), 1);
+    // the next press: the claim, its pointerdown again not trusted, then its release and its click
+    c.pressBegan();
+    assert.equal(c.gestureFor({ type: 'pointerup' }), 2);
+    assert.equal(c.gestureFor({ type: 'click', detail: 1 }), 2);
+    // a mouse's press after a claim is one gesture, as before
+    c.pressBegan();
+    assert.deepEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].map((type) => c.gestureFor({ type, detail: 1 })), [3, 3, 3, 3, 3]);
+  });
+
   it('keys and keyboard clicks are never a gesture', () => {
     const c = new GestureCounter();
     for (const key of ['Enter', ' ', 'Tab']) assert.equal(c.gestureFor({ type: 'keydown', key } as any), 0, key);

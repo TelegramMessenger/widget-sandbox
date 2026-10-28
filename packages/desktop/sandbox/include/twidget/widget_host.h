@@ -147,6 +147,8 @@ public:
     static bool isUserActivation(const Json& ev);
     /// The gesture number for this renderer event, 0 when it is not a user activation.
     int gestureFor(const Json& ev);
+    /// A primary press began (the renderer's `gesture` claim): what follows is a new gesture (user-activation.ts).
+    void pressBegan() { pressOpen_ = false; lastType_.clear(); }
 
 private:
     int number_ = 0;

@@ -5,6 +5,40 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- A finger's or a pen's press is a gesture from its `pointerup` on, not from its `pointerdown`: that press may still
+  become the chat's scroll (it then ends in `pointercancel`), and a swipe that started on a widget let it call
+  `copyText` and send a request from a `pointerdown` handler. The shared renderer marks such a `pointerdown` not
+  `trusted`, nor a mouse event of a finger or a pen still down: the compatibility `mousedown` a pen's contact makes at
+  once, its barrel button pressed or let go with the tip down (by the pointer whose buttons changed last, through
+  `pointerdown`, a chorded `pointermove` or `pointerup`: a mouse pressed while a finger is held keeps its own
+  `mousedown`); by the input's own `pointerType` (a mouse playing a finger keeps its press). The gesture counters no
+  longer see that `pointerdown`, so a host starts a new gesture at the renderer's `gesture` claim and at any forwarded
+  `pointerdown`, trusted or not (a second finger's has no claim) (`GestureCounter.pressBegan`), or a finger's release
+  and click after a press that ended without a click (a drag) continued its spent gesture (`docs/decisions.md`, "User
+  activation"). Changed in
+  the web host, the Node harness and the desktop core. Not in Swift and Kotlin (no toolchain here to run them), which
+  get the renderer's change with their bundles all the same and want this too: in `WidgetHost.swift`, on the renderer's
+  `gesture` message (`case "gesture"`, before the preview check) and on every `event` whose `ev.type` is `pointerdown`,
+  trusted or not, `pressOpen = false; lastActivationType = ""` (the state of `gesture(for:)`); in Kotlin,
+  `GestureCounter.pressBegan()` in `UserActivation.kt` (`pressOpen = false; lastType = ""`), called from the `"gesture"`
+  branch of `WidgetHost.kt` and for every `pointerdown` event before its trusted check; each with its test
+  (`UserActivationTests`, `UserActivationTest.kt`: a release and a click after `pressBegan` are a new gesture). Until then a tap on iOS, macOS
+  and Android after a press that spent its gesture without a click (a drag) gets none of its own: its `pointerup` and
+  `click` continue the spent one, and so does a pen's `mousedown`, which used to start a fresh one. Known limitation, for
+  the maintainers: the counters number presses, not pointers, so another pointer's `pointerdown` while a press is open
+  starts a new gesture that press then continues. A mouse press that spent its gesture in its `pointerdown` handler, with
+  a finger put down on the widget before the mouse is let go, gets a fresh one at its `pointerup`: two calls from one
+  mouse press, both from the user's own input. `main` did the same (every trusted `pointerdown`, a second finger's too,
+  opened a gesture that the mouse's release then continued); this change keeps it. A counter per pointer would close it
+  (compatibility mouse events, which carry no `pointerId`, mapped to the pointer whose buttons changed last, as the
+  renderer core does): a change of the model in all four counters and their tests. Authors: call privileged methods from `click` (or `pointerup`); the conformance
+  set and the corpora already do. Regression: `packages/core/tests/unit/renderer-presses.test.ts` (a CDP touch tap, a
+  pen press, a mouse pressed while a finger is held, a pen's barrel button pressed and let go after a mouse click while
+  the pen is held, a mouse press), `user-activation.test.ts` and the desktop `user_gestures_are_numbered_per_physical_press`
+  (a press after a drag) and `an_untrusted_pointerdown_begins_a_new_gesture` (a second finger's taps).
+  Not in this change (`CONTRIBUTING.md` §3): a touch case in `test:activation`, `test:gestures` and `test:sdk` on both
+  renderers.
+
 - The shared renderer lets a widget capture only a pointer whose trusted press began on it, and a press begun elsewhere
   and let go over the widget reaches it untrusted, so its release is no gesture. The shim checks that a pointer is
   pressed, but in the VM, which the widget can lie to: on the Shadow DOM renderer, where the widget shares its document

@@ -792,7 +792,13 @@ function onEvent(e: Event) {
   } else if (MOUSE_COMPAT.has(type) && (takenPointer !== -1 || (dropClick && type !== 'mousemove'))) return;
   // A press begun off the widget and let go over it (on the Shadow DOM renderer, a drag from the chat) is no press of
   // the widget's: its release reaches it, but is no gesture. A release is that of the pointer whose buttons changed last.
-  const trusted = e.isTrusted && (changedOwn || (type !== 'pointerup' && type !== 'mouseup'));
+  // A finger's or a pen's press may still become the chat's scroll, which ends it in pointercancel: its pointerdown is
+  // no gesture either, its release is (HTML's activation-triggering input events), and neither is a mouse event of a
+  // finger or a pen still down: the mousedown a pen's contact makes at once, its barrel button pressed or let go with the
+  // tip down (a mouse pressed while a finger is held makes its own). The type is the input's own: a mouse playing a
+  // finger (`pressAsTouch`) scrolls nothing.
+  const mayScroll = type === 'pointerdown' ? e instanceof PointerEvent && isFingerOrPen(e) : (type === 'mousedown' || type === 'mouseup') && changedFingerDown;
+  const trusted = e.isTrusted && !mayScroll && (changedOwn || (type !== 'pointerup' && type !== 'mouseup'));
   if (ev) forward(ev, trusted);
   else if (ALWAYS_FORWARD.has(type) || interest.has(type)) {
     const out = serialize(e, targetId);
@@ -981,16 +987,29 @@ function swallow(e: Event) {
  */
 const ownPointers = new Set<number>();
 let changedOwn = false;
+/** Of those, the fingers' and pens' still down (a press of theirs is no gesture before its release), and whether the pointer whose buttons changed last is one. */
+const fingersDown = new Set<number>();
+let changedFingerDown = false;
+const isFingerOrPen = (e: PointerEvent) => e.pointerType === 'touch' || e.pointerType === 'pen';
 function pressedHere(e: Event) {
   if (!e.isTrusted) return;
-  ownPointers.add((e as PointerEvent).pointerId);
+  const id = (e as PointerEvent).pointerId;
+  ownPointers.add(id);
+  if (isFingerOrPen(e as PointerEvent)) fingersDown.add(id);
   changedOwn = true;
+  changedFingerDown = fingersDown.has(id);
 }
 function buttonsChanged(e: Event) {
-  if (e.isTrusted && (e as PointerEvent).button !== -1) changedOwn = ownPointers.has((e as PointerEvent).pointerId);
+  if (!e.isTrusted || (e as PointerEvent).button === -1) return;
+  const id = (e as PointerEvent).pointerId;
+  changedOwn = ownPointers.has(id);
+  changedFingerDown = fingersDown.has(id);
 }
 function letGo(e: Event) {
-  changedOwn = ownPointers.delete((e as PointerEvent).pointerId);
+  const id = (e as PointerEvent).pointerId;
+  changedOwn = ownPointers.delete(id);
+  fingersDown.delete(id);
+  changedFingerDown = false;
 }
 
 function init(s: Send) {
@@ -1028,6 +1047,7 @@ function destroy() {
   window.removeEventListener('pointerup', letGo, true);
   window.removeEventListener('pointercancel', letGo, true);
   ownPointers.clear();
+  fingersDown.clear();
   if (root instanceof ShadowRoot) for (const type of ENTER_LEAVE) root.host.removeEventListener(type, noop, true);
   for (const o of sizeObservers) o.disconnect();
   sizeObservers = [];

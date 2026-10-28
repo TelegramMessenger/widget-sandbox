@@ -55,6 +55,17 @@ export class GestureCounter {
     this.lastType = type;
     return this.n;
   }
+
+  /**
+   * A primary press began: the renderer's `gesture` claim, sent for every one, whether the widget listens or not, and
+   * before the press's own events. What follows is a new gesture, not the end of an open one: a finger's pointerdown is
+   * not `trusted` (it may become the chat's scroll), so without this its release continued a press that had ended
+   * without a click (a drag), whose gesture was spent.
+   */
+  pressBegan() {
+    this.pressOpen = false;
+    this.lastType = '';
+  }
 }
 
 /** Host side: gestures handed to the worker, and the last one a privileged call consumed. */

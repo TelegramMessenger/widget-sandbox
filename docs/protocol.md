@@ -420,6 +420,13 @@ consuming it, and consumes it only when the request goes out as the tap's
 (`foreground`); without a gesture it may go out as a background request where
 the server's flags allow them (below). A gesture is one physical pointer press (`pointerdown`,
 `mousedown`, `pointerup`, `mouseup`, `click`, `dblclick` of the same press).
+A finger's or a pen's press is one from its `pointerup` on: its `pointerdown` may still
+become the chat's scroll (it then ends in `pointercancel`), so the renderer does not mark
+it `trusted` (HTML's activation-triggering input events; a mouse's press counts from its
+`pointerdown`); nor is a mouse event of a finger or a pen still down (the `mousedown` a pen's
+contact makes at once, its barrel button with the tip down). Neither is a release of a press begun
+outside the widget `trusted`. Every host starts a new gesture at the renderer's `gesture` claim,
+sent for every primary press before its events, and at every `pointerdown` event, trusted or not.
 Keys are never gestures: widgets get no keyboard. A `click` or `dblclick`
 starts a gesture only with a click count (`detail` ≥ 1); the click that Enter
 or Space on a focused control produces has `detail` 0 and counts only as the

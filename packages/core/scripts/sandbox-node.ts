@@ -660,13 +660,15 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       switch (msg?.type) {
         case 'event': {
           const ev = msg.ev as Record<string, unknown>;
+          // any pointerdown begins a press, trusted or not (a second finger's is neither, and has no claim): as WidgetHost
+          if (ev.type === 'pointerdown') counter.pressBegan();
           const gesture = msg.trusted === true ? counter.gestureFor(ev) : 0;
           current?.received.push(`${ev.type} ${labelOf(ev.targetId)}`);
           inject(gesture ? { ...ev, gesture } : ev);
           flush();
           break;
         }
-        case 'gesture': haptics.press(opts.now ? opts.now() : performance.now()); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'gesture': haptics.press(opts.now ? opts.now() : performance.now()); counter.pressBegan(); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
         case 'release': haptics.release(opts.now ? opts.now() : performance.now()); break;
         case 'bubble': current?.bubble.push(String(msg.action) + (msg.edge ? ' (edge strip)' : '')); break;
         case 'size': if (Number.isFinite(msg.height)) res.height = msg.height; break;

@@ -68,9 +68,11 @@ const capture = (page: Page, pointerId: number) => page.evaluate((id) => {
   return (document.querySelector('.widget-shadow')!.shadowRoot!.querySelector('body > div') as Element).hasPointerCapture(id);
 }, pointerId);
 
-const releases = (page: Page) => page.evaluate(() => (window as any).__messages
-  .filter((m: any) => m.type === 'event' && (m.ev.type === 'pointerup' || m.ev.type === 'mouseup'))
-  .map((m: any) => `${m.ev.type}:${m.trusted ? 'trusted' : 'untrusted'}`));
+/** The press events the renderer sent the widget, of `types`, and whether it marked them trusted (a gesture). */
+const sent = (page: Page, types: string[]) => page.evaluate((t) => (window as any).__messages
+  .filter((m: any) => m.type === 'event' && t.includes(m.ev.type))
+  .map((m: any) => `${m.ev.type}:${m.trusted ? 'trusted' : 'untrusted'}`), types);
+const releases = (page: Page) => sent(page, ['pointerup', 'mouseup']);
 
 describe('renderer: presses that began on the widget', () => {
   it('captures only a pointer pressed on the widget; a press begun elsewhere and let go over it is no gesture', async () => {
@@ -116,6 +118,72 @@ describe('renderer: presses that began on the widget', () => {
       await page.mouse.move(p.widget.x, p.widget.y, { steps: 5 });
       await page.mouse.up();
       assert.deepEqual(await releases(page), ['pointerup:untrusted', 'mouseup:untrusted']);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("a finger's press is a gesture from its release: until then it may still become the chat's scroll", async () => {
+    const browser = await chromium.launch();
+    try {
+      const context = await browser.newContext({ hasTouch: true });
+      const page = await context.newPage();
+      await openShadowRenderer(page);
+      const p = await points(page);
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: p.widget.x, y: p.widget.y, id: 1 }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(100);
+      assert.deepEqual(await sent(page, ['pointerdown', 'pointerup']), ['pointerdown:untrusted', 'pointerup:trusted']);
+
+      // a pen's contact makes its compatibility mousedown at once: no gesture either, until the pen is lifted
+      await page.evaluate(() => { (window as any).__messages = []; (window as any).__renderer.send({ type: 'listen', types: ['pointerdown', 'pointerup', 'mousedown', 'mouseup'] }); });
+      for (const type of ['mousePressed', 'mouseReleased'] as const) {
+        await cdp.send('Input.dispatchMouseEvent', { type, x: p.widget.x, y: p.widget.y, button: 'left', clickCount: 1, pointerType: 'pen' });
+      }
+      await page.waitForTimeout(100);
+      const pen = await sent(page, ['pointerdown', 'mousedown', 'pointerup', 'mouseup']);
+      assert.ok(pen.includes('pointerdown:untrusted') && pen.includes('pointerup:trusted'), pen.join());
+      assert.ok(!pen.includes('mousedown:trusted'), pen.join());
+
+      // a mouse pressed while a finger is held on the widget keeps its press: its mousedown is its own, not the finger's
+      await page.evaluate(() => { (window as any).__messages = []; });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: p.widget.x - 40, y: p.widget.y, id: 2 }] });
+      await page.mouse.move(p.widget.x, p.widget.y);
+      await page.mouse.down();
+      await page.mouse.up();
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(100);
+      // the finger's pointerdown, then the mouse's and its mousedown (the finger's own mousedown follows its release)
+      const both = await sent(page, ['pointerdown', 'mousedown']);
+      assert.deepEqual(both.slice(0, 3), ['pointerdown:untrusted', 'pointerdown:trusted', 'mousedown:trusted'], both.join());
+
+      // a pen held on the widget, a mouse clicked meanwhile, then the pen's barrel button with the tip still down: a
+      // chorded press (a pointermove and a mousedown, no pointerdown) is the pen's, no gesture before the pen is lifted
+      await page.evaluate(() => { (window as any).__messages = []; });
+      const penInput = (type: 'mousePressed' | 'mouseReleased', button: 'left' | 'right', buttons: number) =>
+        cdp.send('Input.dispatchMouseEvent', { type, x: p.widget.x, y: p.widget.y, button, buttons, clickCount: 1, pointerType: 'pen' });
+      await penInput('mousePressed', 'left', 1);
+      await page.mouse.down();
+      await page.mouse.up();
+      await penInput('mousePressed', 'right', 3);
+      await page.waitForTimeout(100);
+      const chorded = await sent(page, ['pointerdown', 'mousedown']);
+      // and so is the barrel button let go with the tip still down (a pointermove and a mouseup)
+      await page.evaluate(() => { (window as any).__messages = []; });
+      await penInput('mouseReleased', 'right', 1);
+      await page.waitForTimeout(100);
+      const barrelUp = await sent(page, ['mouseup']);
+      await penInput('mouseReleased', 'left', 0);
+      assert.equal(chorded[chorded.length - 1], 'mousedown:untrusted', chorded.join());
+      assert.deepEqual(barrelUp, ['mouseup:untrusted']);
+
+      // a mouse's press is one from its pointerdown
+      await page.evaluate(() => { (window as any).__messages = []; });
+      await page.mouse.move(p.widget.x, p.widget.y);
+      await page.mouse.down();
+      await page.mouse.up();
+      assert.deepEqual(await sent(page, ['pointerdown', 'pointerup']), ['pointerdown:trusted', 'pointerup:trusted']);
     } finally {
       await browser.close();
     }
