@@ -320,8 +320,9 @@ describe("SDK v1: the bot's data, where the widget is, requests, copyText", () =
       probes: ['log.join(" ")'],
     });
     assert.deepEqual(asked, [{ data: 'tap' }]);
-    assert.equal(r.probes[0], 'err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true');
-    assert.deepEqual(r.requests.map((q) => [q.data, q.verdict, q.background]), [['tap', 'foreground', false]]);
+    // The shim forwards both; the glue's gate refuses the second (the harness settles in the order the calls came).
+    assert.equal(r.probes[0], 'ok:tap:{"result":"thanks"}:true err:tap2:WidgetRequestError:BUSY');
+    assert.deepEqual(r.requests.map((q) => [q.data, q.verdict, q.background]), [['tap', 'foreground', false], ['tap2', 'busy', false]]);
   });
 
   it("a bot's data edit reaches the widget through setData, not with the answer", async () => {
@@ -338,9 +339,10 @@ describe("SDK v1: the bot's data, where the widget is, requests, copyText", () =
     const r = await runWidget(timer, { context: K.group, onRequest: () => ({ result: 'never' }), probes: ['log.join()'] });
     assert.equal(r.probes[0], 'NOT_ALLOWED:true');
     assert.deepEqual(r.requests.map((q) => q.verdict), ['no-activation']);
-    const unsupported = await runWidget(requester, { events: await tap(), context: K.private, probes: ['log[1]'] });
-    assert.equal(unsupported.probes[0], 'err:tap:WidgetRequestError:NOT_ALLOWED');
-    assert.deepEqual(unsupported.requests.map((q) => q.verdict), ['unsupported']);
+    // Refused at delivery, the first leaves nothing in flight: the second goes on as a background request, refused the same way.
+    const unsupported = await runWidget(requester, { events: await tap(), context: K.private, probes: ['log.join(" ")'] });
+    assert.equal(unsupported.probes[0], 'err:tap:WidgetRequestError:NOT_ALLOWED err:tap2:WidgetRequestError:NOT_ALLOWED');
+    assert.deepEqual(unsupported.requests.map((q) => q.verdict), ['unsupported', 'unsupported']);
     for (const context of [K.copy, {}]) {
       const off = await runWidget(requester, { events: await tap(), context, onRequest: () => ({ result: 'x' }), probes: ['log.join(" ")'] });
       assert.equal(off.probes[0], 'err:tap:WidgetRequestError:NOT_ALLOWED err:tap2:WidgetRequestError:NOT_ALLOWED');
@@ -371,20 +373,22 @@ describe("SDK v1: the bot's data, where the widget is, requests, copyText", () =
     const asked: unknown[] = [];
     const r = await runWidget(html, {
       context: K.private, now: () => 0, onRequest: (q) => { asked.push(q); return {}; },
-      script: [{ visible: false }, { probe: '(ask(), 1)' }, { visible: true }], timerRounds: 2, probes: ['log.join()'],
+      script: [{ visible: false }, { probe: '(ask(), log.join())' }, { visible: true }], timerRounds: 2, probes: ['log.join()'],
     });
-    assert.deepEqual(asked, [{ data: 'bg' }]);
-    assert.deepEqual(r.requests.map((q) => q.background), [true, false, false]);
-    // The refusal of the 10 ms call comes back as a task of its own: the 20 ms call, in the same timer round, finds it still in flight.
-    assert.equal(r.probes[1], 'ok,BUSY,RATE_LIMITED,NOT_ALLOWED');
-    assert.deepEqual(r.requests.map((q) => q.verdict), ['background', 'rate-limited', 'hidden']);
+    // The 10 and 20 ms calls are too soon; the one made off screen waits and goes out when the widget appears.
+    assert.deepEqual(asked, [{ data: 'bg' }, { data: 'bg' }]);
+    assert.deepEqual(r.requests.map((q) => q.background), [true, false, false, true]);
+    assert.equal(r.probes[0], 'ok,RATE_LIMITED,RATE_LIMITED', 'nothing settles the held request while the widget is off screen');
+    assert.equal(r.probes[1], 'ok,RATE_LIMITED,RATE_LIMITED,ok');
+    assert.deepEqual(r.requests.map((q) => q.verdict), ['background', 'rate-limited', 'rate-limited', 'held']);
     let now = 0;
     const spaced = await runWidget('<script>var log = []; function ask() { TelegramWidget.request("a").then(function () { log.push("a"); if (log.length < 3) setTimeout(ask, 0); }); } setTimeout(ask, 0);</script>', {
       context: K.private, now: () => (now += 5000), onRequest: () => ({}), timerRounds: 3, probes: ['log.join()'],
     });
     assert.equal(spaced.probes[0], 'a,a,a');
     const tapOnly = await runWidget(html, { context: K['via-bot'], onRequest: () => ({}), probes: ['log.join()'] });
-    assert.equal(tapOnly.probes[0], 'NOT_ALLOWED,BUSY,NOT_ALLOWED');
+    // Each refusal comes back as a task of its own; the shim forwards the next call meanwhile and the gate refuses it too, never BUSY.
+    assert.equal(tapOnly.probes[0], 'NOT_ALLOWED,NOT_ALLOWED,NOT_ALLOWED');
   });
 
   it('backgroundQuery: one at once when the widget appears on screen again, then one per 5 s', async () => {
@@ -395,6 +399,55 @@ describe("SDK v1: the bot's data, where the widget is, requests, copyText", () =
       probes: ['log.join()'],
     });
     assert.equal(r.probes.at(-1), 'boot:ok,soon:RATE_LIMITED,shown:ok,again:RATE_LIMITED');
+  });
+
+  it('backgroundQuery: a request at boot off screen waits for the widget to appear and goes out then', async () => {
+    const html = '<script>var log = []; TelegramWidget.request("boot").then(function (a) { log.push("ok:" + a.result); }, function (e) { log.push(e.code); });</script>';
+    const asked: unknown[] = [];
+    const r = await runWidget(html, {
+      context: K.private, visible: false, now: () => 1000, onRequest: (q) => { asked.push(q); return { result: 'r' }; },
+      script: [{ probe: 'log.length + ":" + TelegramWidget.isActive' }, { visible: true }], probes: ['log.join()'],
+    });
+    assert.deepEqual(r.probes, ['0:false', 'ok:r']);
+    assert.deepEqual(asked, [{ data: 'boot' }]);
+    assert.deepEqual(r.requests.map((q) => [q.verdict, q.background]), [['held', true]]);
+    assert.deepEqual(diags(r, 'request-blocked'), []);
+    // The widget never appears: the request never reaches the client, and the widget is not told anything.
+    const never = await runWidget(html, { context: K.private, visible: false, onRequest: (q) => { asked.push(q); return {}; }, probes: ['log.join()'] });
+    assert.deepEqual(never.probes, ['']);
+    assert.equal(asked.length, 1);
+    assert.deepEqual(never.requests.map((q) => [q.verdict, q.background]), [['held', false]]);
+    // Without backgroundQuery nothing waits: a boot request off screen is refused as before, and the appearance sends nothing.
+    const group = await runWidget(html, { context: K.group, visible: false, onRequest: (q) => { asked.push(q); return {}; }, script: [{ visible: true }], probes: ['log.join()'] });
+    assert.deepEqual(group.probes, ['NOT_ALLOWED']);
+    assert.equal(asked.length, 1);
+  });
+
+  it('backgroundQuery: a request at boot off screen and one on activated: the first goes out when the widget appears, the second is BUSY', async () => {
+    const html = '<script>var log = []; function ask(t) { TelegramWidget.request(t).then(function () { log.push(t + ":ok"); }, function (e) { log.push(t + ":" + e.code); }); } TelegramWidget.onEvent("activated", function () { ask("activated"); }); ask("boot");</script>';
+    const asked: unknown[] = [];
+    const r = await runWidget(html, { context: K.private, visible: false, now: () => 0, onRequest: (q) => { asked.push(q); return {}; }, script: [{ visible: true }], probes: ['log.sort().join()'] });
+    assert.deepEqual(asked, [{ data: 'boot' }]);
+    assert.equal(r.probes[0], 'activated:BUSY,boot:ok');
+    assert.deepEqual(r.requests.map((q) => q.verdict), ['held', 'busy']);
+  });
+
+  it('a held request frees the slot with its answer: the next request after the appearance is decided on its own, not BUSY', async () => {
+    const html = '<script>var log = []; function ask(t) { TelegramWidget.request(t).then(function () { log.push(t + ":ok"); }, function (e) { log.push(t + ":" + e.code); }); } ask("boot");</script>';
+    let clock = 0;
+    const asked: unknown[] = [];
+    const r = await runWidget(html, {
+      context: K.private, visible: false, now: () => clock, onRequest: (q) => { asked.push(q); return {}; },
+      script: [{ visible: true }, { probe: '(ask("soon"), 1)' }], probes: ['log.join()'],
+    });
+    assert.equal(r.probes.at(-1), 'boot:ok,soon:RATE_LIMITED', 'the appearance sent the held one: the next is 5 s after it');
+    clock = 0;
+    const later = await runWidget(html, {
+      context: K.private, visible: false, now: () => clock, onRequest: (q) => { asked.push(q); clock += 5000; return {}; },
+      script: [{ visible: true }, { probe: '(ask("later"), 1)' }], probes: ['log.join()'],
+    });
+    assert.equal(later.probes.at(-1), 'boot:ok,later:ok');
+    assert.deepEqual(asked, [{ data: 'boot' }, { data: 'boot' }, { data: 'later' }]);
   });
 
   it('data of 1–64 bytes, a string: anything else throws TypeError and sends nothing', async () => {
@@ -408,11 +461,11 @@ describe("SDK v1: the bot's data, where the widget is, requests, copyText", () =
   it('a result over 1024 bytes or with a NUL is INVALID_ANSWER; a failure becomes its code', async () => {
     for (const result of ['x'.repeat(1025), 'a\0b']) {
       const r = await runWidget(requester, { events: await tap(), context: K.private, onRequest: () => ({ result }), probes: ['log.join(" ")'] });
-      assert.equal(r.probes[0], 'err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:INVALID_ANSWER');
+      assert.equal(r.probes[0], 'err:tap:WidgetRequestError:INVALID_ANSWER err:tap2:WidgetRequestError:BUSY');
       assert.equal(diags(r, 'answer-rejected').length, 1);
     }
     for (const [reason, code] of [['TIMEOUT', 'TIMEOUT'], [{ code: 'RATE_LIMITED' }, 'RATE_LIMITED'], [new Error('offline'), 'FAILED']] as const) {
-      const f = await runWidget(requester, { events: await tap(), context: K.private, onRequest: () => Promise.reject(reason), probes: ['log[1]'] });
+      const f = await runWidget(requester, { events: await tap(), context: K.private, onRequest: () => Promise.reject(reason), probes: ['log[0]'] });
       assert.equal(f.probes[0], `err:tap:WidgetRequestError:${code}`);
     }
   });

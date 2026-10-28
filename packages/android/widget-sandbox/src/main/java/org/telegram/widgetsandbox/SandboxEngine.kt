@@ -88,7 +88,6 @@ private val REQUEST_REFUSED = mapOf(
     RequestVerdict.DISABLED to "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)",
     RequestVerdict.BUSY to "a request is already in flight",
     RequestVerdict.NO_ACTIVATION to "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
-    RequestVerdict.HIDDEN to "a background request from a widget off screen",
     RequestVerdict.RATE_LIMITED to "background requests at most once per 5 s",
 )
 private const val UNSUPPORTED_DETAIL = "request refused: the client handles no requests (onRequest)"
@@ -305,6 +304,8 @@ class SandboxEngine(
     private val activation = ActivationGate()
     private val haptics = HapticGate()
     private val requests = RequestGate()
+    /** A background request the widget made off screen: it goes to the client when the widget appears ([setVisible]); engine thread only. */
+    private var heldRequest: Pair<Int, String>? = null
     /** A preview (an inline result not sent yet, docs/sdk-v1.md §2.16) asks nothing and is no copy, whatever the flags say. */
     private val preview = config.context.preview
     private val copy = config.context.isCopy && !preview
@@ -355,8 +356,9 @@ class SandboxEngine(
         thread.post {
             if (dead || visible == v) return@post
             visible = v
-            // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
-            if (v) requests.show()
+            // On screen again: the widget's next background request may go out at once, the one it made off screen now
+            // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
+            if (v && requests.show(nowMs())) heldRequest?.let { (id, data) -> heldRequest = null; deliverRequest(id, data) }
             if (js == null) return@post // boot reads `visible` for the shim
             dispatch("visibility", "{\"visible\":$v}")
             if (v) {
@@ -604,18 +606,28 @@ class SandboxEngine(
 
     /**
      * docs/sdk-v1.md §2.14: a press unlocks one request (peeked here, consumed only when the request goes out as the
-     * press's), background ones only where the context allows them; one in flight. Whether the client handles requests
+     * press's), background ones only where the context allows them, one made off screen held until the widget appears
+     * ([setVisible]); one in flight. Whether the client handles requests
      * is decided at delivery (a client may set `onRequest` after the constructor, before a boot-time request reaches
      * it): [WidgetRequestUnsupported] comes back like an answer. Every outcome goes back into the widget as a `bridge`
      * answer task, never inside the task that asked.
      */
     private fun request(id: Int, data: String) {
-        val delegate = delegate ?: return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
+        if (delegate == null) return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
         val strict = isStrictPolicy(config.policy)
         val pressed = !strict || activation.available(visible)
         val verdict = requests.decide(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, backgroundQuery = backgroundQuery)
         SdkPolicy.requestRefusal(verdict)?.let { return refuseRequest(id, verdict.value, it, "request refused (${verdict.value}): ${REQUEST_REFUSED[verdict] ?: verdict.value}") }
         if (verdict == RequestVerdict.FOREGROUND && strict) activation.consume(visible)
+        if (verdict == RequestVerdict.HELD) heldRequest = id to data else deliverRequest(id, data)
+    }
+
+    /** A request the gate let through, to the delegate; its outcome frees the gate ([answerRequest]). */
+    private fun deliverRequest(id: Int, data: String) {
+        val delegate = delegate ?: run {
+            requests.finish()
+            return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
+        }
         val once = AtomicBoolean(false)
         // Any thread, honoured once; the gate lives on the engine thread. A stopped thread drops the post (destroyed).
         val respond: (Result<WidgetRequestAnswer>) -> Unit = { outcome -> if (once.compareAndSet(false, true)) thread.post { answerRequest(id, outcome) } }
@@ -737,6 +749,7 @@ class SandboxEngine(
     private fun kill(reason: String) {
         if (dead) return
         dead = true
+        heldRequest = null // never reaches the client
         pendingBeforeBoot.clear()
         for (t in timers.values) t.cancel()
         timers.clear()

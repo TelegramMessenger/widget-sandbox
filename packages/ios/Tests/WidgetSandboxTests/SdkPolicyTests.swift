@@ -270,15 +270,15 @@ final class SdkPolicyTests: XCTestCase {
                 }
                 if step["op"] as? String == "show" {
                     let busy = gate.busy
-                    gate.show()
-                    XCTAssertEqual(gate.busy, busy, "\(name), step \(i): show changes nothing in flight")
+                    XCTAssertEqual(gate.show(nowMs: try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue)), try XCTUnwrap(step["expect"] as? Bool), "\(name), step \(i)")
+                    XCTAssertEqual(gate.busy, busy, "\(name), step \(i): show changes nothing in flight (a held request stays in flight as it goes out)")
                     continue
                 }
                 let verdict = gate.decide(
                     nowMs: try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue), gesture: try XCTUnwrap(step["gesture"] as? Bool),
                     visible: try XCTUnwrap(step["visible"] as? Bool), canQuery: try XCTUnwrap(step["canQuery"] as? Bool), backgroundQuery: try XCTUnwrap(step["backgroundQuery"] as? Bool))
                 XCTAssertEqual(verdict.rawValue, step["expect"] as? String, "\(name), step \(i)")
-                if verdict == .foreground || verdict == .background { XCTAssertTrue(gate.busy, "\(name), step \(i)") }
+                if verdict == .foreground || verdict == .background || verdict == .held { XCTAssertTrue(gate.busy, "\(name), step \(i)") }
             }
         }
     }

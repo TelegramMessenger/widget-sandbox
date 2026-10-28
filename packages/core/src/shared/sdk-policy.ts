@@ -368,7 +368,7 @@ export interface WidgetContext {
   isCopy?: boolean;
   /** `can_query`: requests are allowed, on a tap. */
   canQuery?: boolean;
-  /** `background_query`: requests without a tap too (the original in the private chat with the bot): one when the widget appears on screen, then one per 5 s. */
+  /** `background_query`: requests without a tap too (the original in the private chat with the bot): one when the widget appears on screen, then one per 5 s while visible; one made off screen waits for it to appear. */
   backgroundQuery?: boolean;
   /** The kind of chat the message is in. A copy gets none (null in the widget): the bot must not learn where its widget was forwarded. */
   chatType?: ChatType;
@@ -400,17 +400,18 @@ export function requestFailure(reason: unknown): RequestFailure {
 
 /**
  * The verdict on a request (docs/sdk-v1.md §2.14): `foreground` (it consumes the task's press) and `background`
- * go to the client; the rest are refused: `disabled` (no `canQuery`: a widget sent without `allow_queries`, or a
- * forwarded copy of one sent without `fwd_allow_queries`), `busy` (one request in flight per widget), `no-activation` (no press, and no `backgroundQuery`),
- * `hidden` (a background request from a widget off screen), `rate-limited` (a background request sooner than 5 s
- * after the last one, unless the widget appeared on screen since).
+ * go to the client; `held` (a background request from a widget off screen) waits in the glue and goes to the client
+ * when the widget appears on screen (`RequestGate.show`); the rest are refused: `disabled` (no `canQuery`: a widget
+ * sent without `allow_queries`, or a forwarded copy of one sent without `fwd_allow_queries`), `busy` (one request in
+ * flight per widget, a held one included), `no-activation` (no press, and no `backgroundQuery`), `rate-limited` (a
+ * background request sooner than 5 s after the last one, unless the widget appeared on screen since).
  */
-export type RequestVerdict = 'foreground' | 'background' | 'disabled' | 'busy' | 'no-activation' | 'hidden' | 'rate-limited';
+export type RequestVerdict = 'foreground' | 'background' | 'held' | 'disabled' | 'busy' | 'no-activation' | 'rate-limited';
 
 /** What the widget's promise rejects with for a refused request. */
 export function requestRefusal(verdict: RequestVerdict): RequestError | null {
   switch (verdict) {
-    case 'foreground': case 'background': return null;
+    case 'foreground': case 'background': case 'held': return null;
     case 'busy': return 'BUSY';
     case 'rate-limited': return 'RATE_LIMITED';
     default: return 'NOT_ALLOWED';
@@ -419,13 +420,16 @@ export function requestRefusal(verdict: RequestVerdict): RequestError | null {
 
 /**
  * The client's sandbox policy for requests, from the server's flags only: on a tap whenever `canQuery`; without one
- * only with `backgroundQuery`, only while visible: one when the widget appears on screen (`show`, and at creation),
- * then at most one per 5 s counted from the start of the last background request; one request in flight.
- * `gesture`: the task has a press no privileged call consumed yet (the glue consumes it on `foreground`). `finish`
- * when the answer or the failure has gone into the widget.
+ * only with `backgroundQuery`: one when the widget appears on screen (`show`, and at creation), then at most one per
+ * 5 s counted from the start of the last background request, while it stays visible; one made while it is off screen
+ * is held (`held`) and is the one of its next appearance (`show` returns true: the glue sends it then). One request
+ * in flight, a held one included. `gesture`: the task has a press no privileged call consumed yet (the glue consumes
+ * it on `foreground`). `finish` when the answer or the failure has gone into the widget, or when the glue drops a
+ * held request (the widget stopped).
  */
 export class RequestGate {
   private inFlight = false;
+  private held = false;
   private lastBackground: number | null = null;
 
   get busy(): boolean { return this.inFlight; }
@@ -438,7 +442,10 @@ export class RequestGate {
       return 'foreground';
     }
     if (!s.backgroundQuery) return 'no-activation';
-    if (!s.visible) return 'hidden';
+    if (!s.visible) {
+      this.inFlight = this.held = true;
+      return 'held';
+    }
     if (this.lastBackground !== null && now - this.lastBackground < BACKGROUND_REQUEST_INTERVAL_MS) return 'rate-limited';
     this.lastBackground = now;
     this.inFlight = true;
@@ -446,12 +453,19 @@ export class RequestGate {
   }
 
   finish(): void {
-    this.inFlight = false;
+    this.inFlight = this.held = false;
   }
 
-  /** The widget appeared on screen (it was hidden): its next background request may go out at once. */
-  show(): void {
+  /**
+   * The widget appeared on screen (it was hidden): its next background request may go out at once. True when a held
+   * request goes out now, as this appearance's background request (the glue sends it; it stays in flight).
+   */
+  show(now: number): boolean {
     this.lastBackground = null;
+    if (!this.held) return false;
+    this.held = false;
+    this.lastBackground = now;
+    return true;
   }
 }
 

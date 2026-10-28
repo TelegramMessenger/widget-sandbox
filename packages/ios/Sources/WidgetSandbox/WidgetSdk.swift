@@ -250,8 +250,8 @@ public struct WidgetContext: Equatable {
     public var isCopy = false
     /// `can_query`: requests are allowed, on a tap. Without it every request is refused (`NOT_ALLOWED`).
     public var canQuery = false
-    /// `background_query`: requests without a tap too (the original in the private chat with the bot): visible only,
-    /// one when the widget appears on screen, then one per 5 s.
+    /// `background_query`: requests without a tap too (the original in the private chat with the bot): one when the
+    /// widget appears on screen, then one per 5 s while visible; one made off screen waits for it to appear.
     public var backgroundQuery = false
     /// The kind of chat the message is in. A copy gets none (null in the widget): the bot learns nothing about where its
     /// widget was forwarded.

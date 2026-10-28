@@ -74,9 +74,9 @@ describe('sdk-policy fixture', () => {
   it('request gate', () => {
     for (const c of fixture.requestGate) {
       const gate = new RequestGate();
-      c.steps.forEach((s: { op: string; at: number; gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean; expect: string }, i: number) => {
+      c.steps.forEach((s: { op: string; at: number; gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean; expect: string | boolean }, i: number) => {
         if (s.op === 'finish') return gate.finish();
-        if (s.op === 'show') return gate.show();
+        if (s.op === 'show') return assert.equal(gate.show(s.at), s.expect, `${c.name}, step ${i}`);
         assert.equal(gate.decide(s.at, s), s.expect, `${c.name}, step ${i}`);
       });
     }

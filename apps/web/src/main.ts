@@ -267,6 +267,8 @@ new ResizeObserver(() => {
     storage: storageFor(name),
     data: bot.dataFor(name),
     context,
+    // Forced off (tests): created off screen, as Telegram's clients create a bubble before it is shown.
+    ...(forcedVisible !== null ? { visible: forcedVisible } : {}),
     onRequest: (request) => bot.request(name, request),
     onCopyText: (text) => {
       state.copiedTexts.push(text);
@@ -578,6 +580,8 @@ async function init() {
   setWidth(w === 'free' ? 'free' : Number(w) || 0);
   setGestures(gestures);
   setTheme(params.get('theme') === 'dark' ? 'dark' : 'light');
+  // ?offscreen=1: the widget boots off screen until __tw.setVisible(true | null), as Telegram's clients create a bubble.
+  if (params.get('offscreen') === '1') forcedVisible = false;
   const file = params.get('file');
   if (file && files.includes(file)) await openFile(file);
 }

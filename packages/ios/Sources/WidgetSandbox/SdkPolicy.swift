@@ -369,34 +369,37 @@ public enum SdkPolicy {
     }
 
     /// The verdict on a request (docs/sdk-v1.md §2.14): `foreground` (it consumes the task's press) and `background`
-    /// go to the client; the rest are refused: `disabled` (no `canQuery`: a widget sent without `allow_queries`, or a
-    /// forwarded copy of one sent without `fwd_allow_queries`), `busy` (one request in flight per widget), `noActivation` (no press, and no `backgroundQuery`),
-    /// `hidden` (a background request from a widget off screen), `rateLimited` (a background request sooner than 5 s
-    /// after the last one, unless the widget appeared on screen since).
+    /// go to the client; `held` (a background request from a widget off screen) waits in the glue and goes to the
+    /// client when the widget appears on screen (`RequestGate.show`); the rest are refused: `disabled` (no `canQuery`:
+    /// a widget sent without `allow_queries`, or a forwarded copy of one sent without `fwd_allow_queries`), `busy` (one
+    /// request in flight per widget, a held one included), `noActivation` (no press, and no `backgroundQuery`),
+    /// `rateLimited` (a background request sooner than 5 s after the last one, unless the widget appeared on screen since).
     public enum RequestVerdict: String {
-        case foreground, background, disabled, busy
+        case foreground, background, held, disabled, busy
         case noActivation = "no-activation"
-        case hidden
         case rateLimited = "rate-limited"
     }
 
-    /// What the widget's promise rejects with for a refused request; nil for the two that go to the client.
+    /// What the widget's promise rejects with for a refused request; nil for the three that go to the client.
     public static func requestRefusal(_ verdict: RequestVerdict) -> RequestError? {
         switch verdict {
-        case .foreground, .background: return nil
+        case .foreground, .background, .held: return nil
         case .busy: return .busy
         case .rateLimited: return .rateLimited
-        case .disabled, .noActivation, .hidden: return .notAllowed
+        case .disabled, .noActivation: return .notAllowed
         }
     }
 
     /// The client's sandbox policy for requests, from the server's flags only: on a tap whenever `canQuery`; without
-    /// one only with `backgroundQuery`, only while visible: one when the widget appears on screen (`show`, and at
-    /// creation), then at most one per 5 s counted from the start of the last background request; one request in
-    /// flight. `gesture`: the task has a press no privileged call consumed yet (the glue consumes it on `foreground`).
-    /// `finish` when the answer or the failure has gone into the widget.
+    /// one only with `backgroundQuery`: one when the widget appears on screen (`show`, and at creation), then at most
+    /// one per 5 s counted from the start of the last background request, while it stays visible; one made while it
+    /// is off screen is held (`held`) and is the one of its next appearance (`show` returns true: the glue sends it
+    /// then). One request in flight, a held one included. `gesture`: the task has a press no privileged call consumed
+    /// yet (the glue consumes it on `foreground`). `finish` when the answer or the failure has gone into the widget,
+    /// or when the glue drops a held request (the widget stopped).
     public struct RequestGate {
         private var inFlight = false
+        private var held = false
         private var lastBackground: Double?
 
         public init() {}
@@ -411,7 +414,11 @@ public enum SdkPolicy {
                 return .foreground
             }
             if !backgroundQuery { return .noActivation }
-            if !visible { return .hidden }
+            if !visible {
+                inFlight = true
+                held = true
+                return .held
+            }
             if let lastBackground, now - lastBackground < SdkPolicy.backgroundRequestIntervalMs { return .rateLimited }
             lastBackground = now
             inFlight = true
@@ -420,11 +427,17 @@ public enum SdkPolicy {
 
         public mutating func finish() {
             inFlight = false
+            held = false
         }
 
-        /// The widget appeared on screen (it was hidden): its next background request may go out at once.
-        public mutating func show() {
+        /// The widget appeared on screen (it was hidden): its next background request may go out at once. True when a
+        /// held request goes out now, as this appearance's background request (the glue sends it; it stays in flight).
+        public mutating func show(nowMs now: Double) -> Bool {
             lastBackground = nil
+            if !held { return false }
+            held = false
+            lastBackground = now
+            return true
         }
     }
 

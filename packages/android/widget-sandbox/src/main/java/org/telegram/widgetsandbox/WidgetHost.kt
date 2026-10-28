@@ -142,7 +142,7 @@ data class WidgetContext(
     val isCopy: Boolean = false,
     /** `can_query`: requests are allowed, on a tap (an original of a widget sent with `allow_queries`, or a copy of one sent with `fwd_allow_queries`). */
     val canQuery: Boolean = false,
-    /** `background_query`: requests without a tap too (the original in the private chat with the bot): while visible, one when the widget appears on screen, then one per 5 s. */
+    /** `background_query`: requests without a tap too (the original in the private chat with the bot): one when the widget appears on screen, then one per 5 s while visible; one made off screen waits for it to appear. */
     val backgroundQuery: Boolean = false,
     /** "private" | "group" | "supergroup" | "channel" ([SdkPolicy.CHAT_TYPES]); anything else is none. No copy gets it, with `canQuery` or not (a bot must learn nothing about where its widget was forwarded), nor a preview. */
     val chatType: String? = null,

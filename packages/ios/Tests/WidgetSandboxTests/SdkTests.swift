@@ -306,7 +306,7 @@ final class SdkTests: XCTestCase {
         XCTAssertTrue(logs.contains("n=0"), "\(logs)")
     }
 
-    /// The widget of sdk.test.ts: a tap asks twice (the second is BUSY in the shim); every outcome goes into `log`.
+    /// The widget of sdk.test.ts: a tap asks twice (the shim forwards both, the glue's gate refuses the second as BUSY); every outcome goes into `log`.
     private static let requester = "<button id='b'>go</button><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
         "function ask(d){TelegramWidget.request(d).then(function(a){out('ok:'+d+':'+JSON.stringify(a)+':'+Object.isFrozen(a)+':'+TelegramWidget.chatData);},function(e){out('err:'+d+':'+e.name+':'+e.code);});}" +
         "document.getElementById('b').addEventListener('click',function(){ask('tap');ask('tap2');});</script>"
@@ -316,6 +316,13 @@ final class SdkTests: XCTestCase {
     private func log(_ h: Harness, entries: Int) -> String {
         h.pump { (h.logs.last { $0.hasPrefix("log=") }?.split(separator: " ").count ?? 0) >= entries }
         return String(h.logs.last { $0.hasPrefix("log=") }?.dropFirst(4) ?? "")
+    }
+
+    /// `log` with each tap's two outcomes sorted: the client's answer comes through the main thread, the gate's BUSY
+    /// for the second call from the engine's, in either order.
+    private func tapLog(_ h: Harness, entries: Int) -> String {
+        let all = log(h, entries: entries).split(separator: " ").map(String.init)
+        return stride(from: 0, to: all.count, by: 2).flatMap { all[$0..<min($0 + 2, all.count)].sorted() }.joined(separator: " ")
     }
 
     /// An original in a group (`canQuery` only) asks on a tap: one request, the answer resolves with `{ result }`, a
@@ -328,14 +335,14 @@ final class SdkTests: XCTestCase {
             respond(.success(WidgetRequestAnswer(result: "thanks")))
         }
         h.click(Self.button)
-        XCTAssertEqual(log(h, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
+        XCTAssertEqual(tapLog(h, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
         XCTAssertEqual(asked, [WidgetRequest(data: "tap")])
-        XCTAssertEqual(h.count("request-blocked"), 0, "BUSY came from the shim")
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details, ["request refused (busy): a request is already in flight"], "BUSY comes from the glue's gate")
         XCTAssertEqual(h.actions, [], "a request is no action")
         XCTAssertTrue(h.host.diagnostics.bridge.isEmpty)
 
         h.click(Self.button)
-        XCTAssertEqual(log(h, entries: 4).split(separator: " ").suffix(2).joined(separator: " "), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
+        XCTAssertEqual(tapLog(h, entries: 4).split(separator: " ").suffix(2).joined(separator: " "), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
         XCTAssertEqual(asked.count, 2, "after the answer the next tap asks again")
     }
 
@@ -377,8 +384,8 @@ final class SdkTests: XCTestCase {
         XCTAssertNil(host.diagnostics.diags["request-blocked"])
     }
 
-    /// No tap: refused without `backgroundQuery` (a group); with it (the private chat with the bot) visible only, one
-    /// per 5 s (sdk.test.ts "without a tap …" and "background requests …").
+    /// No tap: refused without `backgroundQuery` (a group); with it (the private chat with the bot) one per 5 s
+    /// (sdk.test.ts "without a tap …" and "background requests …"); off screen it waits (the tests below).
     func testRequestsWithoutATap() {
         // The pointer moving is no press: the request comes from a timer that it starts.
         let html = "<p>x</p><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
@@ -400,12 +407,55 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(asked, [WidgetRequest(data: "bg")])
         h.event(["type": "pointermove", "targetId": 4])
         XCTAssertEqual(log(h, entries: 2), "ok RATE_LIMITED:false", "a second background request within 5 s")
-        h.host.setVisible(false)
-        h.event(["type": "pointermove", "targetId": 4])
-        XCTAssertEqual(log(h, entries: 3), "ok RATE_LIMITED:false NOT_ALLOWED:false", "a hidden widget asks nothing in the background (its timer waits for the 1 Hz tick)")
         XCTAssertEqual(asked.count, 1)
-        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details.map { $0.components(separatedBy: ":").first ?? "" }, ["request refused (rate-limited)", "request refused (hidden)"])
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details.map { $0.components(separatedBy: ":").first ?? "" }, ["request refused (rate-limited)"])
     }
+
+    /// Telegram's clients create the host off screen (`isActive` false at boot): a background request at boot waits
+    /// in the glue (no answer, nothing refused) and goes to the client when the widget appears, as that appearance's;
+    /// one on `activated` meanwhile is BUSY, the first being in flight (sdk.test.ts "… a request at boot off screen …").
+    func testBackgroundRequestAtBootOffScreenGoesOutWhenTheWidgetAppears() {
+        var options = WidgetHost.Options()
+        options.context = Self.privateChat
+        options.visible = false
+        let h = Harness(Self.offScreenAsker, options: options)
+        var asked: [WidgetRequest] = []
+        h.host.onRequest = { request, respond in asked.append(request); respond(.success(WidgetRequestAnswer(result: "r"))) }
+        h.pump { h.logs.contains("active=false") }
+        h.settle(0.2)
+        XCTAssertEqual(asked, [], "held while off screen")
+        XCTAssertFalse(h.logs.contains { $0.hasPrefix("log=") }, "\(h.logs)")
+        XCTAssertEqual(h.count("request-blocked"), 0)
+        let window = TestWindow.makeVisible()
+        defer { window.close() }
+        window.attach(h.host.view)
+        h.host.setVisible(true)
+        XCTAssertEqual(log(h, entries: 2).split(separator: " ").sorted(), ["activated:BUSY", "boot:r"])
+        XCTAssertEqual(asked, [WidgetRequest(data: "boot")])
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details, ["request refused (busy): a request is already in flight"])
+    }
+
+    /// A held request never reaches the client once the host is destroyed, even if it is shown afterwards.
+    func testHeldRequestIsDroppedWhenTheHostIsDestroyed() {
+        var options = WidgetHost.Options()
+        options.context = Self.privateChat
+        options.visible = false
+        let h = Harness(Self.offScreenAsker, options: options)
+        var asked: [WidgetRequest] = []
+        h.host.onRequest = { request, respond in asked.append(request); respond(.success(WidgetRequestAnswer())) }
+        h.pump { h.logs.contains("active=false") }
+        let window = TestWindow.makeVisible()
+        defer { window.close() }
+        window.attach(h.host.view)
+        h.host.destroy()
+        h.host.setVisible(true)
+        h.settle(0.3)
+        XCTAssertEqual(asked, [])
+    }
+
+    private static let offScreenAsker = "<p>x</p><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
+        "function ask(t){TelegramWidget.request(t).then(function(a){out(t+':'+a.result);},function(e){out(t+':'+e.code);});}" +
+        "TelegramWidget.onEvent('activated',function(){ask('activated');});ask('boot');console.log('active='+TelegramWidget.isActive);</script>"
 
     /// A background request, the widget hidden and shown again, a background request at once: delivered (one when the
     /// widget appears on screen), another at once: RATE_LIMITED (then one per 5 s).
@@ -443,7 +493,7 @@ final class SdkTests: XCTestCase {
         let live = harness(Self.requester + "<script>" + Self.show + "</script>", Self.liveCopy, data: WidgetData(chatData: "secret", publicData: "p"))
         live.host.onRequest = answerX
         live.click(Self.button)
-        XCTAssertEqual(log(live, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"x"}:true:null"#)
+        XCTAssertEqual(tapLog(live, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"x"}:true:null"#)
         XCTAssertEqual(asked, [WidgetRequest(data: "tap")])
         XCTAssertEqual(context(live), #"ctx=[null,"p",true,null,{"id":42}]"#, "no copy tells where it was forwarded")
 
@@ -474,10 +524,11 @@ final class SdkTests: XCTestCase {
 
         let unsupported = harness(Self.requester.replacingOccurrences(of: "e.code);", with: "e.code+'|'+e.message);"), Self.group)
         unsupported.click(Self.button)
-        unsupported.pump { unsupported.logs.contains { $0.contains("err:tap:") } }
-        XCTAssertEqual(unsupported.logs.last { $0.hasPrefix("log=") },
-                       "log=err:tap2:WidgetRequestError:BUSY|request: a request is already in flight; wait for its answer err:tap:WidgetRequestError:NOT_ALLOWED|request: this client does not deliver requests")
-        XCTAssertEqual(unsupported.host.diagnostics.diags["request-blocked"]?.details, ["request refused: the client handles no requests (WidgetHost.onRequest)"])
+        unsupported.pump { unsupported.logs.contains { $0.contains("err:tap:") && $0.contains("err:tap2:") } }
+        let line = unsupported.logs.last { $0.hasPrefix("log=") } ?? ""
+        XCTAssertTrue(line.contains("err:tap2:WidgetRequestError:BUSY|request: a request is already in flight; wait for its answer"), line)
+        XCTAssertTrue(line.contains("err:tap:WidgetRequestError:NOT_ALLOWED|request: this client does not deliver requests"), line)
+        XCTAssertEqual(unsupported.host.diagnostics.diags["request-blocked"]?.details, ["request refused (busy): a request is already in flight", "request refused: the client handles no requests (WidgetHost.onRequest)"])
     }
 
     /// A failure becomes its code; a result over 1024 bytes or with a NUL is INVALID_ANSWER (`answer-rejected`); the
@@ -493,7 +544,7 @@ final class SdkTests: XCTestCase {
         for code in ["TIMEOUT", "RATE_LIMITED", "FAILED", "INVALID_ANSWER", "INVALID_ANSWER"] {
             h.click(Self.button)
             expected += ["err:tap2:WidgetRequestError:BUSY", "err:tap:WidgetRequestError:\(code)"]
-            XCTAssertEqual(log(h, entries: expected.count), expected.joined(separator: " "))
+            XCTAssertEqual(tapLog(h, entries: expected.count), expected.joined(separator: " "))
         }
         XCTAssertEqual(h.host.diagnostics.diags["answer-rejected"]?.details, Array(repeating: "the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER", count: 2))
 
@@ -509,9 +560,9 @@ final class SdkTests: XCTestCase {
         }
         h.click(Self.button)
         expected += ["err:tap2:WidgetRequestError:BUSY", #"ok:tap:{"result":"first"}:true:null"#]
-        XCTAssertEqual(log(h, entries: expected.count), expected.joined(separator: " "))
+        XCTAssertEqual(tapLog(h, entries: expected.count), expected.joined(separator: " "))
         h.settle()
-        XCTAssertEqual(log(h, entries: expected.count), expected.joined(separator: " "), "later calls are ignored")
+        XCTAssertEqual(tapLog(h, entries: expected.count), expected.joined(separator: " "), "later calls are ignored")
 
         // A completion kept past destroy() reaches nothing.
         h.host.onRequest = { _, respond in stored = respond }

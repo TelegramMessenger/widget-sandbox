@@ -212,8 +212,10 @@ private:
     void wake();
     void onTimerFired(int id);
     HostReturn hostCall(const std::string& kind, const std::string& arg);
-    /// A checked `request` call: the request gate, then the delegate.
+    /// A checked `request` call: the request gate, then the delegate (or held until the widget appears).
     void request(int64_t id, const std::string& data);
+    /// A request the gate let through, to the delegate; its outcome frees the gate (`answerRequest`).
+    void deliverRequest(int64_t id, const std::string& data);
     /// A request's outcome back on the engine thread (nullopt: the client handles no requests): the gate frees, the
     /// answer is checked and goes into the widget.
     void answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome);
@@ -288,6 +290,12 @@ private:
     void rejectStorage(const std::string& detail);
     // Requests to the bot (docs/sdk-v1.md §2.14): one in flight, a press or the background rules; refusals reported at most 20 times.
     sdk::RequestGate requests_;
+    /// A background request the widget made off screen: it goes to the delegate when the widget appears (`setVisible`).
+    struct HeldRequest {
+        int64_t id;
+        std::string data;
+    };
+    std::optional<HeldRequest> heldRequest_;
     int blockedRequestsReported_ = 0;
     // A preview's dropped bridge calls (docs/sdk-v1.md §2.16), reported at most 20 times.
     int previewBlockedReported_ = 0;

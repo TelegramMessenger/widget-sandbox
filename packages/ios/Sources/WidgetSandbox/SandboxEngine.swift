@@ -215,6 +215,8 @@ public final class SandboxEngine {
     private var haptics = SdkPolicy.HapticGate()
     /// The server's flags, one request to the bot in flight, a press or the background rules (docs/sdk-v1.md §2.14); JS thread only.
     private var requests = SdkPolicy.RequestGate()
+    /// A background request the widget made off screen: it goes to the client when the widget appears (`setVisible`); JS thread only.
+    private var heldRequest: (id: Int, data: String)?
     private var blockedRequestsReported = 0
     private var previewBlockedReported = 0
     /// The texts of `request-blocked` per refusal (REQUEST_REFUSED in widget-host.ts).
@@ -222,7 +224,6 @@ public final class SandboxEngine {
         .disabled: "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)",
         .busy: "a request is already in flight",
         .noActivation: "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
-        .hidden: "a background request from a widget off screen",
         .rateLimited: "background requests at most once per 5 s",
     ]
     private static let activationPrefix = "activation:"
@@ -547,8 +548,12 @@ public final class SandboxEngine {
         queue.async {
             if self.dead || self.visible == v { return }
             self.visible = v
-            // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
-            if v { self.requests.show() }
+            // On screen again: the widget's next background request may go out at once, the one it made off screen now
+            // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
+            if v, self.requests.show(nowMs: Self.nowMs()), let held = self.heldRequest {
+                self.heldRequest = nil
+                self.deliverRequest(id: held.id, data: held.data)
+            }
             guard self.js != nil else { return } // boot reads `visible` for the shim
             self.dispatch("visibility", "{\"visible\":\(v)}")
             if !v, !self.dead { self.js.collectGarbage() }
@@ -811,7 +816,8 @@ public final class SandboxEngine {
 
     /// docs/sdk-v1.md §2.14 (WidgetHost.request in widget-host.ts): the request gate on the server's flags: none
     /// without `canQuery`; a press unlocks one request (peeked here, consumed only when the request goes out as that
-    /// press's, under `strict`); background ones only with `backgroundQuery`; one in flight. Whether the client has a side for requests is decided where it
+    /// press's, under `strict`); background ones only with `backgroundQuery`, one made off screen held until the widget
+    /// appears (`setVisible`); one in flight. Whether the client has a side for requests is decided where it
     /// is delivered, by the delegate (WidgetHost: `onRequest` on the main thread, so a client that sets it right after
     /// creating the host gets a request the widget made before that). Every outcome goes back into the widget as a
     /// `bridge` task of its own, never inside the calling task.
@@ -826,6 +832,11 @@ public final class SandboxEngine {
             consumedGesture = activeGesture
             activeGesture = 0
         }
+        if verdict == .held { heldRequest = (id, data) } else { deliverRequest(id: id, data: data) }
+    }
+
+    /// A request the gate let through, to the delegate; its outcome frees the gate (`settleRequest`).
+    private func deliverRequest(id: Int, data: String) {
         // The client answers once, from any thread; the gate and the widget are touched on this thread only.
         let once = RequestOnce()
         let respond = WidgetRequestCompletion { [weak self] outcome in
@@ -918,6 +929,7 @@ public final class SandboxEngine {
         }
         if dead { return }
         dead = true
+        heldRequest = nil // never reaches the client
         pendingBeforeBoot.removeAll()
         for (_, t) in timers { t.cancel() }
         timers.removeAll()

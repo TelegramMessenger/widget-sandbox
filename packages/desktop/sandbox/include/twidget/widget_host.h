@@ -224,8 +224,8 @@ public:
     std::function<void(const WidgetGestureClaim& claim)> onGesture;
     /// A request the widget sends to the bot (`TelegramWidget.request`, docs/sdk-v1.md §2.14), checked: the
     /// data (1–64 bytes), the message's `WidgetContext::canQuery`, a press (one request per press, shared with the links
-    /// and copyText) or, without one, `backgroundQuery` (visible, one when the widget appears on screen, then one per
-    /// 5 s), one in flight. Send it like a callback button's press and call `respond` once, from any thread, with the
+    /// and copyText) or, without one, `backgroundQuery` (one when the widget appears on screen, then one per 5 s while
+    /// visible; one made off screen waits for `setVisible(true)`), one in flight. Send it like a callback button's press and call `respond` once, from any thread, with the
     /// server's answer (`result`) or a failure (`Timeout`, `RateLimited`, `Failed`); later calls, and calls after
     /// `destroy()`, are ignored. Until then the
     /// widget's next request is BUSY. Read on the host thread when a request is delivered: unset then, the widget gets

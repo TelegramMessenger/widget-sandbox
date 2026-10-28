@@ -270,6 +270,9 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   }
   const haptics = new HapticGate();
   const requestGate = new RequestGate();
+  /** A background request made off screen, sent when the widget appears. */
+  let heldRequest = null as (() => void) | null;
+  const now = () => (opts.now ? opts.now() : performance.now());
   /** Answers on their way into the widget, delivered in order at the next step of the run. */
   const answers: Promise<BridgeEvent>[] = [];
   const budget = new CpuBudget(config);
@@ -363,18 +366,23 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
             settle(Promise.resolve({ error: (reason === 'unsupported' ? null : requestRefusal(reason)) ?? 'NOT_ALLOWED', reason }));
           };
           const pressed = policy === 'compat' || (visible && activeGesture > consumedGesture);
-          entry.verdict = requestGate.decide(opts.now ? opts.now() : performance.now(), { gesture: pressed, visible, canQuery, backgroundQuery: opts.context?.backgroundQuery === true });
+          entry.verdict = requestGate.decide(now(), { gesture: pressed, visible, canQuery, backgroundQuery: opts.context?.backgroundQuery === true });
           if (requestRefusal(entry.verdict)) { refuse(entry.verdict); return vm.undefined; }
           if (entry.verdict === 'foreground' && policy === 'strict') { consumedGesture = activeGesture; activeGesture = 0; }
-          entry.background = entry.verdict === 'background';
-          const onRequest = opts.onRequest;
-          if (!onRequest) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return vm.undefined; }
-          settle(new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data: action.data }))).then((a) => {
-            requestGate.finish();
-            const checked = checkRequestAnswer(a);
-            if (!checked) { res.diags.push({ kind: 'answer-rejected', detail: 'result over 1024 bytes or not text' }); return { error: 'INVALID_ANSWER' as const }; }
-            return { result: checked.result };
-          }, (reason) => { requestGate.finish(); return { error: requestFailure(reason) }; }));
+          const sendToClient = () => {
+            entry.background = entry.verdict !== 'foreground';
+            const onRequest = opts.onRequest;
+            if (!onRequest) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return; }
+            settle(new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data: action.data }))).then((a) => {
+              requestGate.finish();
+              const checked = checkRequestAnswer(a);
+              if (!checked) { res.diags.push({ kind: 'answer-rejected', detail: 'result over 1024 bytes or not text' }); return { error: 'INVALID_ANSWER' as const }; }
+              return { result: checked.result };
+            }, (reason) => { requestGate.finish(); return { error: requestFailure(reason) }; }));
+          };
+          // Off screen: it waits for the widget to appear (a { visible: true } step), the background request of that appearance.
+          if (entry.verdict === 'held') heldRequest = sendToClient;
+          else sendToClient();
           log('[request]', arg);
           return vm.undefined;
         }
@@ -387,7 +395,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           activeGesture = 0;
         }
         if (action.kind === 'haptic') {
-          const d = haptics.decide(opts.now ? opts.now() : performance.now(), visible);
+          const d = haptics.decide(now(), visible);
           if (d === 'report') res.diags.push({ kind: 'haptic-limit', detail: visible ? 'over the rate limit, or outside a touch after a 1 s series' : 'hidden widget' });
           if (d !== 'play') return vm.undefined;
         }
@@ -574,7 +582,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     const { gesture, ...event } = ev as Record<string, unknown> & { gesture?: number };
     // Without a renderer, an injected trusted event stands for the renderer's press (claim) and release (haptic gate).
     if (typeof gesture === 'number' && gesture > 0) {
-      const at = opts.now ? opts.now() : performance.now();
+      const at = now();
       if (event.type === 'pointerdown' || event.type === 'mousedown') haptics.press(at);
       else haptics.release(at);
     }
@@ -611,8 +619,10 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   };
   for (const step of opts.script ?? []) {
     if ('visible' in step) {
-      if (step.visible && !visible) requestGate.show();
+      const appears = step.visible && !visible;
       visible = step.visible;
+      // The held request goes to the client before the widget hears it is visible, as in every other glue copy.
+      if (appears && requestGate.show(now()) && heldRequest) { const send = heldRequest; heldRequest = null; send(); }
       task('visibility', () => tw('visibility', JSON.stringify({ visible: step.visible })));
     }
     else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
@@ -669,8 +679,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           flush();
           break;
         }
-        case 'gesture': haptics.press(opts.now ? opts.now() : performance.now()); counter.pressBegan(); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
-        case 'release': haptics.release(opts.now ? opts.now() : performance.now()); break;
+        case 'gesture': haptics.press(now()); counter.pressBegan(); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'release': haptics.release(now()); break;
         case 'bubble': current?.bubble.push(String(msg.action) + (msg.edge ? ' (edge strip)' : '')); break;
         case 'size': if (Number.isFinite(msg.height)) res.height = msg.height; break;
       }
@@ -745,7 +755,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
        tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose] [--json]
        [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
        [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query] [--chat-type t] [--viewer id[,first,last,username,premium]]
-       [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json]
+       [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json] [--offscreen]
   --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
   the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),
   and each is reported: the element, its touch-action claim, who got the press, the events the widget received, a hint.
@@ -756,7 +766,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   nothing about the user); --copy, --can-query, --background-query, --chat-type set
   them one by one (none given: no requests); --viewer who looks (id, then optionally the first and last name, the username and premium); --chat-data / --public-data the strings at start;
   every request gets --answer (the server's answer: {"result":"…"}, default {"result":null}) or fails with
-  --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.`);
+  --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.
+  --offscreen: the widget boots off screen and then appears, as Telegram's clients create it (a background request
+  made at boot waits for that and goes out then).`);
     process.exit(2);
   }
   const verbose = args.includes('--verbose');
@@ -795,7 +807,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ...(viewerId !== undefined && viewerFromList(viewerId) ? { viewer: viewerFromList(viewerId)! } : {}),
     },
     onRequest: () => (answerError ? Promise.reject(answerError) : answer),
-    ...(setData !== undefined ? { script: [{ data: setData }] } : {}),
+    ...(args.includes('--offscreen') ? { visible: false } : {}),
+    script: [...(args.includes('--offscreen') ? [{ visible: true }] : []), ...(setData !== undefined ? [{ data: setData }] : [])],
     verbose, probes, cssScope: args.includes('--shadow') ? 'shadow' : 'document', theme: args.includes('--dark') ? 'dark' : 'light',
     ...(fontSize >= 0 ? { text: { fontSize: Number(args[fontSize + 1]) } } : {}),
     width, desktop, layout: width !== undefined, ...(gestures.length ? { gestures } : {}),
@@ -821,7 +834,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);
   for (const l of r.logs) console.log(`[${l.level}]`, l.text);
   for (const a of r.actions) console.log('action', JSON.stringify(a));
-  for (const q of r.requests) console.log(`request ${JSON.stringify(q.data)}: ${q.verdict === 'foreground' ? 'sent (a tap)' : q.verdict === 'background' ? 'sent (background)' : 'refused (' + q.verdict + ')'} → ${JSON.stringify(q.answer ?? null)}`);
+  const requestOutcome = (q: RunResult['requests'][number]) => q.verdict === 'foreground' ? 'sent (a tap)' : q.verdict === 'background' ? 'sent (background)'
+    : q.verdict === 'held' ? (q.background ? 'held off screen, sent (background) when the widget appeared' : 'held off screen, never sent (the widget did not appear)') : 'refused (' + q.verdict + ')';
+  for (const q of r.requests) console.log(`request ${JSON.stringify(q.data)}: ${requestOutcome(q)} → ${JSON.stringify(q.answer ?? null)}`);
   for (const t of r.copiedTexts) console.log('copyText', JSON.stringify(t));
   for (const c of r.storageCommits) console.log('storage', JSON.stringify(c).slice(0, 500));
   if (r.gestures) console.log('\n' + formatReports(r.gestures, width ?? 400, desktop));

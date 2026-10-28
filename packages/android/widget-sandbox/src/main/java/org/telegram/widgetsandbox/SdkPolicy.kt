@@ -69,13 +69,14 @@ data class CheckedViewer(val viewer: WidgetViewer?, val rejected: List<String> =
 
 /**
  * The verdict on a request (docs/sdk-v1.md §2.14): [FOREGROUND] (it consumes the task's press) and [BACKGROUND] go
- * to the client; the rest are refused: [DISABLED] (the server allows no requests for the message: no `can_query`),
- * [BUSY] (one request in flight per widget), [NO_ACTIVATION] (no press and no `background_query`), [HIDDEN] (a
- * background request from a widget off screen), [RATE_LIMITED] (a background request sooner than 5 s after the last one).
+ * to the client; [HELD] (a background request from a widget off screen) waits in the glue and goes to the client when
+ * the widget appears on screen ([RequestGate.show]); the rest are refused: [DISABLED] (the server allows no requests
+ * for the message: no `can_query`), [BUSY] (one request in flight per widget, a held one included), [NO_ACTIVATION]
+ * (no press and no `background_query`), [RATE_LIMITED] (a background request sooner than 5 s after the last one).
  */
 enum class RequestVerdict(val value: String) {
-    FOREGROUND("foreground"), BACKGROUND("background"), DISABLED("disabled"), BUSY("busy"),
-    NO_ACTIVATION("no-activation"), HIDDEN("hidden"), RATE_LIMITED("rate-limited"),
+    FOREGROUND("foreground"), BACKGROUND("background"), HELD("held"), DISABLED("disabled"), BUSY("busy"),
+    NO_ACTIVATION("no-activation"), RATE_LIMITED("rate-limited"),
 }
 
 enum class HapticDecision { PLAY, DROP, REPORT }
@@ -135,13 +136,17 @@ class HapticGate {
 }
 
 /**
- * The server's flags decide: no `canQuery`, no request; one request in flight per widget; a press unlocks one; without
- * a press only with `backgroundQuery` (the original in the private chat with the bot), only while visible, one when the
- * widget appears on screen ([show]) and then at most one per 5 s, counted from the start of the last background request. `gesture`: the task has a press no privileged call consumed yet (the glue
- * consumes it on FOREGROUND). [finish] when the answer or the failure has gone into the widget. Times in ms.
+ * The server's flags decide: no `canQuery`, no request; one request in flight per widget, a held one included; a press
+ * unlocks one; without a press only with `backgroundQuery` (the original in the private chat with the bot): one when
+ * the widget appears on screen ([show]) and then at most one per 5 s while it stays visible, counted from the start of
+ * the last background request; one made while it is off screen is held (HELD) and is the one of its next appearance
+ * ([show] returns true: the glue sends it then). `gesture`: the task has a press no privileged call consumed yet (the
+ * glue consumes it on FOREGROUND). [finish] when the answer or the failure has gone into the widget, or when the glue
+ * drops a held request (the widget stopped). Times in ms.
  */
 class RequestGate {
     private var inFlight = false
+    private var held = false
     private var lastBackground: Double? = null
 
     val busy: Boolean get() = inFlight
@@ -154,7 +159,11 @@ class RequestGate {
             return RequestVerdict.FOREGROUND
         }
         if (!backgroundQuery) return RequestVerdict.NO_ACTIVATION
-        if (!visible) return RequestVerdict.HIDDEN
+        if (!visible) {
+            inFlight = true
+            held = true
+            return RequestVerdict.HELD
+        }
         lastBackground?.let { if (now - it < SdkPolicy.BACKGROUND_REQUEST_INTERVAL_MS) return RequestVerdict.RATE_LIMITED }
         lastBackground = now
         inFlight = true
@@ -163,11 +172,19 @@ class RequestGate {
 
     fun finish() {
         inFlight = false
+        held = false
     }
 
-    /** The widget appeared on screen (a hidden → visible transition): its next background request may go out at once. */
-    fun show() {
+    /**
+     * The widget appeared on screen (a hidden → visible transition): its next background request may go out at once.
+     * True when a held request goes out now, as this appearance's background request (the glue sends it; it stays in flight).
+     */
+    fun show(now: Double): Boolean {
         lastBackground = null
+        if (!held) return false
+        held = false
+        lastBackground = now
+        return true
     }
 }
 
@@ -479,7 +496,7 @@ object SdkPolicy {
 
     /** What the widget's promise rejects with for a refused request ([REQUEST_ERRORS]), null for one that goes to the client. */
     fun requestRefusal(verdict: RequestVerdict): String? = when (verdict) {
-        RequestVerdict.FOREGROUND, RequestVerdict.BACKGROUND -> null
+        RequestVerdict.FOREGROUND, RequestVerdict.BACKGROUND, RequestVerdict.HELD -> null
         RequestVerdict.BUSY -> "BUSY"
         RequestVerdict.RATE_LIMITED -> "RATE_LIMITED"
         else -> "NOT_ALLOWED"

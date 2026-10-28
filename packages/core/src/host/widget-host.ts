@@ -138,7 +138,6 @@ const REQUEST_REFUSED: Record<string, string> = {
   disabled: 'the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)',
   busy: 'a request is already in flight',
   'no-activation': 'it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)',
-  hidden: 'a background request from a widget off screen',
   'rate-limited': 'background requests at most once per 5 s',
 };
 const GESTURES = new Set<unknown>(['press', 'tap', 'double-tap', 'hold', 'drag-x', 'drag-y', 'menu-click']);
@@ -178,6 +177,8 @@ export class WidgetHost {
   private context: { isCopy: boolean; canQuery: boolean; backgroundQuery: boolean; preview: boolean };
   private previewBlockedReported = 0;
   private requests = new RequestGate();
+  /** A background request the widget made off screen: it goes to the client when the widget appears (`setVisible`). */
+  private heldRequest: { id: number; data: string } | null = null;
   private blockedRequestsReported = 0;
 
   constructor(container: HTMLElement, html: string, private opts: WidgetHostOptions) {
@@ -296,39 +297,57 @@ export class WidgetHost {
 
   /**
    * docs/sdk-v1.md §2.14: a press unlocks one request, background ones only where the context allows them; one in
-   * flight. The gate decides first; a client without `onRequest` refuses at delivery, as the native hosts do.
+   * flight. The gate decides first; one made off screen waits here for the widget to appear (`held`); a client
+   * without `onRequest` refuses at delivery, as the native hosts do.
    */
   private request(id: number, data: string, gesture: unknown) {
-    const answer = (event: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'>) => this.toWorker({ type: 'bridge', event: { type: 'answer', id, ...event } });
-    const refuse = (reason: RequestVerdict | 'unsupported', detail: string) => {
-      if (this.blockedRequestsReported < 20) {
-        this.blockedRequestsReported++;
-        this.opts.onDiag?.('request-blocked', detail);
-      }
-      answer({ error: (reason === 'unsupported' ? null : requestRefusal(reason)) ?? 'NOT_ALLOWED', reason });
-    };
     const now = performance.now();
     const pressed = this.policy === 'compat' || this.activation.available(gesture, now, this.visible);
     const verdict = this.requests.decide(now, { gesture: pressed, visible: this.visible, canQuery: this.context.canQuery, backgroundQuery: this.context.backgroundQuery });
-    if (requestRefusal(verdict)) return refuse(verdict, `request refused (${verdict}): ${REQUEST_REFUSED[verdict] ?? verdict}`);
+    if (requestRefusal(verdict)) return this.refuseRequest(id, verdict, `request refused (${verdict}): ${REQUEST_REFUSED[verdict] ?? verdict}`);
     if (verdict === 'foreground' && this.policy === 'strict') this.activation.accept(gesture, now, this.visible);
+    if (verdict === 'held') this.heldRequest = { id, data };
+    else this.deliverRequest(id, data);
+  }
+
+  private answerRequest(id: number, event: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'>) {
+    this.toWorker({ type: 'bridge', event: { type: 'answer', id, ...event } });
+  }
+
+  private refuseRequest(id: number, reason: RequestVerdict | 'unsupported', detail: string) {
+    if (this.blockedRequestsReported < 20) {
+      this.blockedRequestsReported++;
+      this.opts.onDiag?.('request-blocked', detail);
+    }
+    this.answerRequest(id, { error: (reason === 'unsupported' ? null : requestRefusal(reason)) ?? 'NOT_ALLOWED', reason });
+  }
+
+  /** A request the gate let through, to the client; its answer or failure frees the gate. */
+  private deliverRequest(id: number, data: string) {
     const onRequest = this.opts.onRequest;
     if (!onRequest) {
       this.requests.finish();
-      return refuse('unsupported', 'request refused: the client handles no requests (WidgetHostOptions.onRequest)');
+      return this.refuseRequest(id, 'unsupported', 'request refused: the client handles no requests (WidgetHostOptions.onRequest)');
     }
     new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data }))).then((a) => {
       this.requests.finish();
       const checked = checkRequestAnswer(a);
       if (!checked) {
         this.opts.onDiag?.('answer-rejected', 'the answer\'s result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER');
-        return answer({ error: 'INVALID_ANSWER' });
+        return this.answerRequest(id, { error: 'INVALID_ANSWER' });
       }
-      answer({ result: checked.result });
+      this.answerRequest(id, { result: checked.result });
     }, (reason) => {
       this.requests.finish();
-      answer({ error: requestFailure(reason) });
+      this.answerRequest(id, { error: requestFailure(reason) });
     });
+  }
+
+  /** The widget stopped (dead or destroyed): a held request never reaches the client. */
+  private dropHeldRequest() {
+    if (!this.heldRequest) return;
+    this.heldRequest = null;
+    this.requests.finish();
   }
 
   private preload(storage: unknown): StorageCommit {
@@ -347,14 +366,20 @@ export class WidgetHost {
   setVisible(visible: boolean) {
     if (this.visible === visible) return;
     this.visible = visible;
-    // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
-    if (visible) this.requests.show();
+    // On screen again: the widget's next background request may go out at once, the one it made off screen now
+    // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
+    if (visible && this.requests.show(performance.now()) && this.heldRequest) {
+      const { id, data } = this.heldRequest;
+      this.heldRequest = null;
+      this.deliverRequest(id, data);
+    }
     this.toWorker({ type: 'visibility', visible });
   }
 
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.dropHeldRequest();
     this.worker?.terminate();
     this.renderer.destroy();
   }
@@ -375,6 +400,7 @@ export class WidgetHost {
     // gone. `frozen` tells the renderer to stop forwarding events and frames
     // and to show the badge; the owner removes the widget with destroy().
     this.worker?.terminate();
+    this.dropHeldRequest();
     this.answerQuery({ error: 'dead' });
     this.toRenderer({ type: 'frozen', reason: this.opts.stoppedLabel ?? 'Widget stopped', fatal: true });
   }

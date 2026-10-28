@@ -421,10 +421,39 @@ test('background requests: the widget appearing on screen again may ask at once,
   const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
   await expect(root.locator('#log')).toHaveText(/^ok RATE_LIMITED/);
   await page.evaluate(() => (window as any).__tw.setVisible(false));
-  await expect(root.locator('#log')).toHaveText(/NOT_ALLOWED/, { timeout: 5000 });
+  // Off screen the next ask (its 300 ms timer fires at the hidden 1 Hz) waits in the host: no answer, nothing sent.
+  await page.waitForTimeout(1500);
+  const held = (await root.locator('#log').textContent()) ?? '';
+  expect(held).not.toMatch(/NOT_ALLOWED|BUSY/);
+  expect((await tw(page)).requests).toHaveLength(1);
   await page.evaluate(() => (window as any).__tw.setVisible(true));
   await expect.poll(async () => (await tw(page)).requests.length, { timeout: 3000 }).toBe(2);
+  await expect(root.locator('#log')).toHaveText(new RegExp('^' + held + ' ok'));
   expect(Date.now() - t0).toBeLessThan(5000);
+  await page.evaluate(() => (window as any).__tw.setVisible(null));
+});
+
+test('background requests: one at boot off screen (as Telegram\'s clients create a bubble) goes out when the widget appears; one on activated is BUSY', async ({ page }) => {
+  await page.goto('/');
+  // The bot takes 300 ms, as a real one does: the boot request is still in flight when the widget hears it is visible.
+  await page.evaluate(() => { const tw = (window as any).__tw; Object.assign(tw.bot.context, { message: 'private' }); tw.bot.bot = 'echo'; tw.bot.delayMs = 300; tw.setVisible(false); });
+  await page.evaluate((h) => (window as any).__tw.load(h, 'sdk/background-boot.html'), `<p id="log"></p><p id="active"></p><script>
+    var log = [];
+    function ask(t) { TelegramWidget.request(t).then(function (a) { log.push(t + ':' + a.result); show(); }, function (e) { log.push(t + ':' + e.code); show(); }); }
+    function show() { document.getElementById('log').textContent = log.slice().sort().join(' '); }
+    document.getElementById('active').textContent = 'active ' + TelegramWidget.isActive;
+    TelegramWidget.onEvent('activated', function () { ask('activated'); });
+    ask('boot');
+  </script>`);
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  await expect(root.locator('#active')).toHaveText('active false');
+  await page.waitForTimeout(500);
+  await expect(root.locator('#log')).toHaveText('');
+  expect((await tw(page)).requests).toEqual([]);
+  await page.evaluate(() => (window as any).__tw.setVisible(true));
+  await expect(root.locator('#log')).toHaveText('activated:BUSY boot:boot');
+  expect((await tw(page)).requests.map((r: any) => r.data)).toEqual(['boot']);
   await page.evaluate(() => (window as any).__tw.setVisible(null));
 });
 

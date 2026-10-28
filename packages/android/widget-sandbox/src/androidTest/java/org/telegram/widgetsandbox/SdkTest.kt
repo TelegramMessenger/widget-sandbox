@@ -209,7 +209,7 @@ class SdkTest {
 
     private val show = "<script>console.log(JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.isForward, TelegramWidget.chatType, TelegramWidget.viewer]));</script>"
 
-    /** A button whose tap asks twice (the second is BUSY in the shim); every outcome goes into one log line. */
+    /** A button whose tap asks twice (the shim forwards both, the glue's gate refuses the second as BUSY); every outcome goes into one log line. */
     private val requester = "<button>go</button><script>var log = [];" +
         "function put(s) { log.push(s); console.log('log=' + log.join(' ')); }" +
         "function ask(d) { TelegramWidget.request(d).then(function (a) { put('ok:' + d + ':' + JSON.stringify(a) + ':' + Object.isFrozen(a)); }, function (e) { put('err:' + d + ':' + e.name + ':' + e.code); }); }" +
@@ -290,7 +290,9 @@ class SdkTest {
         val button = idOf(d, "button")
         engine.activationEvent(click(button), 1)
         assertTrue(d.log(), waitFor { d.log().contains("ok:") })
-        assertEquals("the second call of the tap is BUSY in the shim", "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true", d.log())
+        assertTrue(d.log(), waitFor { d.log().contains("err:tap2:") })
+        // The answer was posted to the engine thread inside onRequest, before the gate's refusal of the second call.
+        assertEquals("the second call of the tap is BUSY in the glue's gate", "ok:tap:{\"result\":\"thanks\"}:true err:tap2:WidgetRequestError:BUSY", d.log())
         assertEquals("onRequest gets only the data", listOf(WidgetRequest("tap")), d.requests.toList())
         // After the answer the next tap can request again.
         engine.activationEvent(click(button), 2)
@@ -301,7 +303,12 @@ class SdkTest {
         assertTrue(d.log(), waitFor { d.outcomes().size == 3 })
         assertEquals("err:tap:WidgetRequestError:NOT_ALLOWED", d.outcomes()[2])
         assertEquals(2, d.requests.size)
-        assertEquals(listOf("request refused (no-activation): it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)"), d.rejected("request-blocked"))
+        assertTrue(d.log(), waitFor { d.log().split(" ").size == 6 })
+        // The second call of the untapped click is forwarded too: refused for itself, not BUSY behind a refused one.
+        assertEquals("err:tap2:WidgetRequestError:NOT_ALLOWED", d.log().split(" ").last())
+        val busy = "request refused (busy): a request is already in flight"
+        val noTap = "request refused (no-activation): it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)"
+        assertEquals(listOf(busy, busy, noTap, noTap), d.rejected("request-blocked"))
         assertEquals("a request is no action", emptyList<WidgetAction>(), d.actions.toList())
         assertEquals(emptyList<Pair<String, String>>(), d.bridge.toList())
         engine.terminate()
@@ -328,11 +335,16 @@ class SdkTest {
         assertTrue("${bg.diags}", bg.rejected("request-blocked").any { it.startsWith("request refused (rate-limited)") })
         engine2.terminate()
 
+        // Off screen the boot request waits for the widget to appear (held, in flight): the timer's one meanwhile is BUSY.
         val (hidden, engine3) = run(html, client()) { it.context = WidgetContext(canQuery = true, backgroundQuery = true); it.visible = false }
         assertTrue(hidden.log(), waitFor { hidden.log().isNotEmpty() })
-        assertEquals("NOT_ALLOWED:false", hidden.log().split(" ")[0])
+        assertEquals("BUSY:false", hidden.log())
         assertEquals(emptyList<WidgetRequest>(), hidden.requests.toList())
-        assertTrue("${hidden.diags}", hidden.rejected("request-blocked").any { it.startsWith("request refused (hidden)") })
+        engine3.setVisible(true)
+        assertTrue(hidden.log(), waitFor { hidden.log().split(" ").size == 2 })
+        assertEquals("BUSY:false ok", hidden.log())
+        assertEquals(listOf(WidgetRequest("bg")), hidden.requests.toList())
+        assertEquals(listOf("request refused (busy): a request is already in flight"), hidden.rejected("request-blocked"))
         engine3.terminate()
 
         val (compat, engine4) = run(html, client()) { it.policy = "compat"; it.context = tapOnly }
@@ -360,7 +372,7 @@ class SdkTest {
         }
         assertEquals("a plain copy sees no chat type or viewer", """[null,"p",true,null,null]""", tapped(WidgetContext(isCopy = true)).logged().first { it.startsWith("[") })
         val live = tapped(WidgetContext(isCopy = true, canQuery = true))
-        assertEquals("a live copy asks on a tap", "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"x\"}:true", live.log())
+        assertEquals("a live copy asks on a tap", "ok:tap:{\"result\":\"x\"}:true err:tap2:WidgetRequestError:BUSY", live.log())
         assertEquals(listOf(WidgetRequest("tap")), live.requests.toList())
         assertEquals("a live copy sees the viewer, no chat type, no chatData", """[null,"p",true,null,{"id":5}]""", live.logged().first { it.startsWith("[") })
     }
@@ -372,8 +384,9 @@ class SdkTest {
         val button = idOf(d, "button")
         engine.activationEvent(click(button), 1)
         assertTrue(d.log(), waitFor { d.outcomes().isNotEmpty() })
+        assertTrue(d.log(), waitFor { d.log().split(" ").size == 2 })
         assertEquals("err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED", d.log())
-        assertEquals(listOf("request refused: the client handles no requests (onRequest)"), d.rejected("request-blocked"))
+        assertEquals(listOf("request refused (busy): a request is already in flight", "request refused: the client handles no requests (onRequest)"), d.rejected("request-blocked"))
         assertEquals(emptyList<WidgetRequest>(), d.requests.toList())
         // The refusal freed the gate, and the client is asked at delivery: one that starts answering gets the next tap's request.
         d.answer = { _, respond -> respond(Result.success(WidgetRequestAnswer("now"))) }
@@ -434,6 +447,40 @@ class SdkTest {
         )
         assertEquals("over 1024 bytes, and a NUL", List(2) { "the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER" }, d.rejected("answer-rejected"))
         engine.terminate()
+    }
+
+    /**
+     * Telegram's clients create the host off screen: a background request at boot waits for the widget to appear and
+     * goes out then, as that appearance's; one on `activated` is BUSY, the first being in flight (it used to be that the boot
+     * one was refused as hidden and, on Android, the `activated` one met the shim's BUSY: nothing went out). A widget
+     * terminated before it appears never gets its held request to the client.
+     */
+    @Test
+    fun aBackgroundRequestAtBootOffScreenGoesOutWhenTheWidgetAppears() {
+        val html = "<script>var log = []; function put(s) { log.push(s); console.log('log=' + log.join(' ')); }" +
+            "function ask(t) { TelegramWidget.request(t).then(function (a) { put(t + ':' + a.result); }, function (e) { put(t + ':' + e.code); }); }" +
+            "TelegramWidget.onEvent('activated', function () { ask('activated'); }); ask('boot'); console.log('active=' + TelegramWidget.isActive);</script>"
+        val background = WidgetContext(canQuery = true, backgroundQuery = true)
+        val d = RecordingDelegate().apply { answer = { _, respond -> respond(Result.success(WidgetRequestAnswer("r"))) } }
+        val (_, engine) = run(html, d) { it.context = background; it.visible = false }
+        assertTrue("${d.logs}", waitFor { d.logged().contains("active=false") })
+        engine.thread.sync {}
+        assertEquals("held while off screen", emptyList<WidgetRequest>(), d.requests.toList())
+        assertEquals("", d.log())
+        assertEquals(emptyList<String>(), d.rejected("request-blocked"))
+        engine.setVisible(true)
+        assertTrue(d.log(), waitFor { d.log().split(" ").size == 2 })
+        assertEquals(listOf("activated:BUSY", "boot:r"), d.log().split(" ").sorted())
+        assertEquals(listOf(WidgetRequest("boot")), d.requests.toList())
+        engine.terminate()
+
+        val dropped = RecordingDelegate().apply { answer = { _, respond -> respond(Result.success(WidgetRequestAnswer())) } }
+        val (_, engine2) = run(html, dropped) { it.context = background; it.visible = false }
+        assertTrue("${dropped.logs}", waitFor { dropped.logged().contains("active=false") })
+        engine2.terminate()
+        engine2.setVisible(true)
+        Thread.sleep(300)
+        assertEquals(emptyList<WidgetRequest>(), dropped.requests.toList())
     }
 
     /** One background request when the widget appears on screen (hidden → visible), then one per 5 s. */

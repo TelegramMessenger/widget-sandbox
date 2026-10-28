@@ -547,7 +547,6 @@ const REQUEST_MESSAGES: Record<string, string> = {
   preview: 'a preview (an inline result not sent yet) cannot ask the bot',
   disabled: 'requests are off for this message (the bot did not allow them here)',
   'no-activation': 'it needs a tap on the widget and runs in that tap\'s handler, one call per tap; background requests only where the client allows them (the private chat with the bot)',
-  hidden: 'background requests only while the widget is on screen',
   unsupported: 'this client does not deliver requests',
   BUSY: 'a request is already in flight; wait for its answer',
   RATE_LIMITED: 'too many requests (background requests at most once per 5 s); try again later',
@@ -564,16 +563,19 @@ function requestError(code: RequestError, reason?: unknown): Error {
 }
 
 let requestSeq = 0;
-let pendingRequest: { id: number; resolve: (v: unknown) => void; reject: (e: unknown) => void } | null = null;
+/**
+ * Requests the glue has not answered yet. The glue's gate alone decides which one is in flight (`BUSY` for the
+ * others): a refusal comes back as a task of its own, so the shim cannot tell a refused request from one in flight.
+ */
+const pendingRequests = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
 
 function request(data: unknown): Promise<unknown> {
   const checked = checkRequestData(data);
   if (checked === null) throw new TypeError('request: data must be a string of 1 to 64 bytes (UTF-8), without lone surrogates');
   if (!canQuery) return Promise.reject(requestError('NOT_ALLOWED', isPreview ? 'preview' : 'disabled'));
-  if (pendingRequest) return Promise.reject(requestError('BUSY'));
   const id = ++requestSeq;
   return new Promise((resolve, reject) => {
-    pendingRequest = { id, resolve, reject };
+    pendingRequests.set(id, { resolve, reject });
     bridge('request', id, checked);
   });
 }
@@ -583,9 +585,9 @@ export function bridgeEvent(event: unknown) {
   const e = (typeof event === 'object' && event !== null ? event : {}) as Record<string, unknown>;
   if (e.type === 'data') return applyData(e);
   if (e.type !== 'answer') return;
-  const p = pendingRequest;
-  if (!p || p.id !== e.id) return;
-  pendingRequest = null;
+  const p = typeof e.id === 'number' ? pendingRequests.get(e.id) : undefined;
+  if (!p) return;
+  pendingRequests.delete(e.id as number);
   if (typeof e.error === 'string') {
     p.reject(requestError((REQUEST_ERRORS as readonly string[]).includes(e.error) ? (e.error as RequestError) : 'FAILED', e.reason));
     return;

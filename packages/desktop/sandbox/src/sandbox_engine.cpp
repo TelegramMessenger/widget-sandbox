@@ -261,7 +261,13 @@ void SandboxEngine::setVisible(bool v) {
     thread_.async([this, v] {
         if (dead_ || visible_ == v) return;
         visible_ = v;
-        if (v) requests_.show(); // the widget appeared on screen, its next background request may go out at once
+        // The widget appeared on screen: its next background request may go out at once, the one it made off screen now
+        // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
+        if (v && requests_.show(nowMs()) && heldRequest_) {
+            HeldRequest held = std::move(*heldRequest_);
+            heldRequest_.reset();
+            deliverRequest(held.id, held.data);
+        }
         if (!js_) return; // boot reads `visible_` for the shim
         dispatch("visibility", std::string("{\"visible\":") + (v ? "true" : "false") + "}");
         if (v) {
@@ -585,7 +591,6 @@ const char* refusalText(sdk::RequestVerdict verdict) {
     case sdk::RequestVerdict::Disabled: return "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)";
     case sdk::RequestVerdict::Busy: return "a request is already in flight";
     case sdk::RequestVerdict::NoActivation: return "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)";
-    case sdk::RequestVerdict::Hidden: return "a background request from a widget off screen";
     case sdk::RequestVerdict::RateLimited: return "background requests at most once per 5 s";
     default: return "";
     }
@@ -619,7 +624,13 @@ void SandboxEngine::request(int64_t id, const std::string& data) {
         consumedGesture_ = activeGesture_;
         activeGesture_ = 0;
     }
-    // 3. The client, which decides at delivery whether it handles requests at all. `respond` may come from any thread,
+    // 3. Off screen it waits for the widget to appear (setVisible); otherwise to the client now.
+    if (verdict == sdk::RequestVerdict::Held) heldRequest_ = HeldRequest{id, data};
+    else deliverRequest(id, data);
+}
+
+void SandboxEngine::deliverRequest(int64_t id, const std::string& data) {
+    // The client, which decides at delivery whether it handles requests at all. `respond` may come from any thread,
     // once; it reaches this engine only while it lives (the liveness record), and the answer task does nothing once the
     // runtime is dead. Background or not stays here: the bot cannot tell, and neither does the client.
     auto once = std::make_shared<std::atomic<bool>>(false);
@@ -681,6 +692,7 @@ std::string SandboxEngine::syncQuery(const std::string& json) {
 void SandboxEngine::kill(const std::string& reason) {
     if (dead_) return;
     dead_ = true;
+    heldRequest_.reset(); // never reaches the client
     pendingBeforeBoot_.clear();
     for (auto& [_, t] : timers_) t->cancel();
     timers_.clear();

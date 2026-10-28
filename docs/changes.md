@@ -5,6 +5,22 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Next release (unreleased)
 
+**A background request made off screen waits for the widget to appear** (default, every host; `docs/sdk-v1.md` §2.14).
+On 2026-10-28 Telegram's iOS and Android clients turned out to create the host off screen (`isActive` false at boot), so
+a background request in a widget's first lines, the natural way to fetch fresh state, was refused (`NOT_ALLOWED`,
+reason `hidden`); on Android the one a widget then made on `activated` failed with `BUSY` as well, because the shim
+still counted the refused request as in flight while its refusal was on the way back: no background request ever went
+out there. Now, where the message allows background requests (`backgroundQuery`), one made while the widget is hidden
+is held in the glue, takes the one-in-flight slot, and goes to `onRequest` when `setVisible(true)` shows the widget, as
+that appearance's request (the next one 5 s later); the widget's promise stays pending meanwhile, and a widget that is
+destroyed or stops first never sends it. Taps are unchanged; without `backgroundQuery` a hidden widget's request is
+still `NOT_ALLOWED`. The policy: `RequestGate.decide` returns `held` (`hidden` is gone) and `show(now)` returns whether
+the held request goes out now (`sdk-policy.ts` and its Swift, Kotlin and C++ twins on the fixture's new
+`requestGate` cases); the glue keeps the held request (worker host, Node harness, Swift, Kotlin, C++). Second, the shim
+no longer answers `BUSY` itself: it forwards every request and keeps the unanswered ones by id, and the glue's gate is
+the only judge of what is in flight, so a refused request never makes the next one `BUSY` (`BUSY` now arrives a task
+later, with a `request-blocked` diag). The harness gains `--offscreen` (boot hidden, then appear, as the clients do).
+
 **The authors' guide's agent block stands alone** (docs only; `docs/widget-runtime-profile.md`, `sandbox-node.ts
 --guide`). The block for a model's system prompt was a 400-word summary that pointed to the repository's documents, which a
 bot's model or a cloud agent never sees. It now carries what a widget needs (about 4K tokens): the bubble, the defaults

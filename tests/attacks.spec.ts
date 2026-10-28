@@ -316,7 +316,8 @@ test.describe('requests to the bot', () => {
   test('a widget that rewrites the wire gets nothing over the limits through: the glue re-checks every call', async ({ page }) => {
     const f = await openAttack(page, 'request-forged-wire.html', '&message=group');
     await f.locator('#go').click();
-    await expect.poll(() => diagCount(page, 'bridge-rejected')).toBe(2);
+    // The oversized request, the one with a forged id (the shim forwards it: only the glue's gate says BUSY) and the copyText.
+    await expect.poll(() => diagCount(page, 'bridge-rejected')).toBe(3);
     await page.waitForTimeout(300);
     const b = await bot(page);
     expect(b.requests).toEqual([]);
@@ -334,6 +335,27 @@ test.describe('requests to the bot', () => {
     const b = await bot(page);
     expect(b.requests.length).toBeGreaterThanOrEqual(1);
     expect(b.requests.length).toBeLessThanOrEqual(2);
+    expect((await twState(page)).dead).toBeNull();
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('background requests off screen: none go out while hidden; one per appearance, then one per 5 s', async ({ page }) => {
+    await openAttack(page, 'request-background-flood.html', '&offscreen=1');
+    await page.waitForTimeout(1500);
+    expect((await bot(page)).requests).toEqual([]);
+    const show = async (n: number) => {
+      await page.evaluate(() => (window as any).__tw.setVisible(true));
+      await expect.poll(async () => (await bot(page)).requests.length).toBe(n);
+      await page.waitForTimeout(2500);
+      expect((await bot(page)).requests).toHaveLength(n);
+    };
+    await show(1); // the request held since boot, at once
+    for (const n of [2, 3]) {
+      await page.evaluate(() => (window as any).__tw.setVisible(false));
+      await page.waitForTimeout(1200); // the hidden flood's timers run at 1 Hz: one request is held, the rest BUSY
+      expect((await bot(page)).requests).toHaveLength(n - 1);
+      await show(n);
+    }
     expect((await twState(page)).dead).toBeNull();
     expect(await canaryHits()).toHaveLength(0);
   });

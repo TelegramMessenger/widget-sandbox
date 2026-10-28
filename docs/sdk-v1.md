@@ -555,21 +555,27 @@ TelegramWidget.request('vote:2').then(
   visible widget, like `openLink`: one tap unlocks one call, shared with
   `openLink`, `openTelegramLink` and `copyText` (a handler that calls `request`
   and then `copyText` copies nothing).
-- **Background requests**, without a tap, only where the table allows them:
-  only while the widget is visible, one at once when the widget appears on
-  screen (scrolled into view, the app back in front, at creation), then at most
-  one per 5 s (from the start of the last one) while it stays visible. The
-  server and the bot cannot tell a background request from a tap (as for
-  callback buttons); the limit is the client's, the framework's.
-- **One in flight.** A second call while a request waits for its answer rejects
-  at once with `BUSY`.
+- **Background requests**, without a tap, only where the table allows them;
+  they go out only while the widget is visible: one at once when the widget
+  appears on screen (scrolled into view, the app back in front, at creation on
+  screen), then at most one per 5 s (from the start of the last one) while it
+  stays visible. One made while the widget is off screen waits in the client
+  and goes out when the widget appears, as that appearance's one; its promise
+  stays pending meanwhile (a widget that never appears never asks). Clients
+  create a bubble before it is on screen, so a request in the script's first
+  lines is the way to fetch fresh state: it goes out as soon as the widget is
+  seen. The server and the bot cannot tell a background request from a tap (as
+  for callback buttons); the limit is the client's, the framework's.
+- **One in flight.** A second call while a request waits for its answer, or
+  waits off screen to go out, rejects with `BUSY`. Only the client's gate
+  decides it: a request it refused never makes the next one `BUSY`.
 - The promise rejects with an `Error` whose `name` is `WidgetRequestError` and
   whose `code` says why:
 
 | `code` | when |
 |---|---|
-| `NOT_ALLOWED` | this message may not ask (a widget sent without `allow_queries`, or a forward of one sent without `fwd_allow_queries`); no tap where background requests are off; a background call while hidden; a client that does not deliver requests |
-| `BUSY` | another request is in flight |
+| `NOT_ALLOWED` | this message may not ask (a widget sent without `allow_queries`, or a forward of one sent without `fwd_allow_queries`); no tap where background requests are off; a client that does not deliver requests |
+| `BUSY` | another request is in flight, or waits off screen to go out |
 | `RATE_LIMITED` | a background call sooner than 5 s after the last one while the widget stayed visible, or the server's flood limit |
 | `TIMEOUT` | the bot did not answer in time (15 s: it is down, not subscribed to the updates, or slow) |
 | `FAILED` | anything else: the bot was blocked or deleted, the message is gone, the network |

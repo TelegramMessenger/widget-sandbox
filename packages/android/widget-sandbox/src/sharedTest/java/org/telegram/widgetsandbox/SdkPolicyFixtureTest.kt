@@ -180,7 +180,12 @@ abstract class SdkPolicyFixtureTest {
                 val s = steps.getJSONObject(i)
                 when (s.getString("op")) {
                     "finish" -> { gate.finish(); continue }
-                    "show" -> { gate.show(); continue }
+                    "show" -> {
+                        val busy = gate.busy
+                        assertEquals("${c.getString("name")}, step $i", s.getBoolean("expect"), gate.show(s.getDouble("at")))
+                        assertEquals("${c.getString("name")}, step $i: show changes nothing in flight", busy, gate.busy)
+                        continue
+                    }
                 }
                 val got = gate.decide(s.getDouble("at"), gesture = s.getBoolean("gesture"), visible = s.getBoolean("visible"), canQuery = s.getBoolean("canQuery"), backgroundQuery = s.getBoolean("backgroundQuery"))
                 assertEquals("${c.getString("name")}, step $i", s.getString("expect"), got.value)
@@ -285,6 +290,7 @@ abstract class SdkPolicyFixtureTest {
         assertEquals(listOf("private", "group", "supergroup", "channel"), SdkPolicy.CHAT_TYPES)
         assertFalse(RequestGate().busy)
         assertTrue(RequestGate().apply { decide(0.0, gesture = true, visible = true, canQuery = true, backgroundQuery = false) }.busy)
-        assertTrue("show changes nothing in flight", RequestGate().apply { decide(0.0, gesture = true, visible = true, canQuery = true, backgroundQuery = false); show() }.busy)
+        assertTrue("show changes nothing in flight", RequestGate().apply { decide(0.0, gesture = true, visible = true, canQuery = true, backgroundQuery = false); show(1.0) }.busy)
+        assertTrue("a held request stays in flight as it goes out", RequestGate().apply { decide(0.0, gesture = false, visible = false, canQuery = true, backgroundQuery = true); show(1.0) }.busy)
     }
 }

@@ -217,9 +217,12 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   tap handler (one call per tap, shared with links and `copyText`). The answer
   does not change the state: the bot's edits arrive as the events; if you need
   the new state at once, have the bot put it in `result`. In the private chat
-  with the bot it may also run without a tap, while visible: once when the
-  widget appears on screen, then once per 5 s (poll a score); elsewhere (groups,
-  via the bot, forwards) only on a tap. Show "sending…" and handle every code.
+  with the bot it may also run without a tap: once when the widget appears on
+  screen, then once per 5 s while it is visible (poll a score); one asked while
+  the widget is off screen (at start, before the client shows the bubble) waits
+  and goes out when it appears, so ask for fresh state in the script's first
+  lines. Elsewhere (groups, via the bot, forwards) only on a tap. Show
+  "sending…" and handle every code.
 - **A forward** (`isForward`) has no chat state (`chatData` is `null`) and no
   `chatType` (a copy is told nothing about its chat). It can ask on a tap only
   if the bot let forwards ask; otherwise it has no `viewer` either and every
@@ -281,7 +284,8 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   `--json` gives the whole result. The bot: `--message private|group|via-bot|no-queries|live-copy|copy|preview`
   sets where the widget is (what it may ask), `--viewer id,first,last,username,premium`, `--chat-data`,
   `--public-data` the rest, `--answer '{"result":"ok"}'` (or `--answer-error
-  TIMEOUT`) answers every request, `--set-data '{…}'` is the bot's edit of the state; a `request`
+  TIMEOUT`) answers every request, `--set-data '{…}'` is the bot's edit of the state, `--offscreen`
+  starts the widget off screen and then shows it, as Telegram's clients do; a `request`
   line per request says whether it went out and what came back.
 - **The dev app** (`corepack pnpm dev`): drop the file, pick a width (200–600 or
   free), toggle dark, and use the mouse as a finger (`gestures: phone`, the
@@ -460,8 +464,10 @@ THE WIDGET'S STATE AND REQUESTS (only the bot writes the state)
   catch every failure and say what happened. The answer does not change the
   state: the bot's edit arrives as the change events; if you need the new
   state at once, have the bot return it in result.
-- Without a tap request works only in the private chat with the bot and only
-  on screen: once when the widget appears, then at most once per 5 s.
+- Without a tap request works only in the private chat with the bot: once
+  when the widget appears on screen, then at most once per 5 s while visible.
+  One made off screen (at start: the client creates the bubble before showing
+  it) waits and goes out when the widget appears, so ask in the first lines.
 - viewer: { id, first_name, last_name?, username?, is_premium? } of the person
   looking, or null where the widget may not ask the bot. Compare viewer.id
   with the ids in the state (my turn, my vote).
