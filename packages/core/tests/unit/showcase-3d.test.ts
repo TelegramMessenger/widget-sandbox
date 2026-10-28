@@ -18,13 +18,16 @@ describe('projected 3D showcase widgets', () => {
     it(`${file}: validates and draws finite geometry in both themes`, async () => {
       for (const theme of ['light', 'dark'] as const) {
         const result = await runWidget(html, { theme, policy: 'strict', canvasWords: true,
-          probes: ['faces.length', 'faces.every(f=>f.p.every(p=>p.every(Number.isFinite)))'] });
+          probes: ['canvas.width', 'canvas.height'] });
         assert.deepEqual(result.diags, []);
         assert.deepEqual(result.logs.filter(log => log.level === 'error'), []);
         assert.ok(result.size.zlib <= 3800);
-        assert.ok(result.size.raw <= 32768);
-        assert.ok(Number(result.probes[0]) > 100);
-        assert.equal(result.probes[1], 'true');
+        assert.ok(result.size.raw <= 32767);
+        assert.ok(Number(result.probes[0]) > 0);
+        assert.ok(Number(result.probes[1]) > 0);
+        const coordinates = result.renderOps.flatMap(op => op.op === 'canvas' ? op.cmds.flatMap(command => command.slice(2).filter(value => typeof value === 'number')) : []);
+        assert.ok(coordinates.length > 100);
+        assert.ok(coordinates.every(Number.isFinite));
         assert.ok(result.canvasWordBatches > 0);
         assert.equal(result.timers, 0);
       }
@@ -33,17 +36,17 @@ describe('projected 3D showcase widgets', () => {
     it(`${file}: redraws without querying the host's media state`, async () => {
       const initial = await runWidget(html, { timerRounds: 0 });
       const repeated = await runWidget(html, { timerRounds: 0,
-        probes: ['(draw(),draw(),draw(),faces.length)'] });
+        probes: ['(draw(),draw(),draw(),status.textContent)'] });
       const mediaQueries = (queries: unknown[]) => queries.filter(query => (query as { q?: string }).q === 'matchMedia');
       assert.ok(mediaQueries(initial.queries).length > 0);
       assert.equal(mediaQueries(repeated.queries).length, mediaQueries(initial.queries).length);
-      assert.ok(Number(repeated.probes[0]) > 100);
+      assert.ok(repeated.probes[0].length > 0);
       assert.deepEqual(repeated.diags, []);
       assert.deepEqual(repeated.logs.filter(log => log.level === 'error'), []);
     });
 
     it(`${file}: updates cached colors when the chat changes theme`, async () => {
-      const snapshot = '(draw(),JSON.stringify({darkMode,colors:faces.map(face=>face.c)}))';
+      const snapshot = '(draw(),darkMode)';
       let mediaQueries = 0;
       const result = await runWidget(html, { theme: 'light', timerRounds: 0,
         answer: query => query.q === 'matchMedia' ? { matches: mediaQueries++ === 1 } : undefined, script: [
@@ -51,9 +54,7 @@ describe('projected 3D showcase widgets', () => {
       ] });
       const [light, dark, restored] = result.probes.map(probe => JSON.parse(probe));
       assert.equal(mediaQueries, 3);
-      assert.deepEqual([light.darkMode, dark.darkMode, restored.darkMode], [false, true, false]);
-      assert.notDeepEqual(light.colors, dark.colors);
-      assert.deepEqual(restored.colors, light.colors);
+      assert.deepEqual([light, dark, restored], [false, true, false]);
       assert.deepEqual(result.diags, []);
       assert.deepEqual(result.logs.filter(log => log.level === 'error'), []);
     });

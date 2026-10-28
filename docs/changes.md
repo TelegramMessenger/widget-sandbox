@@ -6,9 +6,11 @@ nothing until the host lists them; "default" items apply to every host.
 ## Unreleased
 
 - Five `showcase/3d` widgets render projected geometry with profile-1 canvas 2D: a robot,
-  camera assembly, solar system, island and molecular viewer. Horizontal orbit, elevation,
+  camera assembly, shaded single planet, island and molecular viewer. Horizontal orbit, elevation,
   zoom and model controls persist per message; canceled drags restore the previous view.
   Theme state is cached between change events, so orbit redraws make no media queries.
+  The planet uses smooth ray/sphere shading and supported fillRect color runs; all
+  five documents satisfy 32,767-byte raw and 4,096-byte zlib limits.
   No renderer, profile, SDK, library or native side-channel changes.
 
 - The `auto/23-gestures-b` conformance widget captures each pressed pointer, so its mouse-drag

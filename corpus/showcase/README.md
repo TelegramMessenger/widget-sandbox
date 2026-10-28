@@ -24,7 +24,7 @@ like at its best within the profile every client draws.
 |---|---|---|---|---|
 | `3d/` | `01-robot` | pocket robot viewer | horizontal orbit, elevation and zoom buttons; three poses | view and pose |
 | | `02-camera` | camera assembly viewer | orbit the assembled body or separate lens elements | view and assembly |
-| | `03-orbits` | illustrative solar system | turn the orbital plane; advance eight orbital steps | view and step |
+| | `03-orbits` | single shaded planet | perspective ray/sphere shading, camera orbit, elevation and cloud toggle | view and cloud cover |
 | | `04-island` | miniature coastal retreat | orbit the model; switch between three tide levels | view and tide |
 | | `05-molecules` | ball-and-stick molecular viewer | orbit water, methane or ammonia | view and molecule |
 | `travel/` | `01-boarding-pass` | airline boarding pass | gate countdown (1 Hz, turns orange → red), tap flips the pass to a QR pattern (a 2D flip: one face folds to a line with `scaleX`, the other unfolds; both faces share one grid cell), Add to Wallet settles into a done state, the plane glides along the route | "In Wallet"; Wallet opens the `.pkpass`, Share opens Telegram's share sheet (`t.me/share/url`) |

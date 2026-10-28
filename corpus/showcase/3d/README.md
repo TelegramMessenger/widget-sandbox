@@ -1,15 +1,16 @@
 # Object Studio: five projected 3D widgets
 
 These self-contained profile-1 widgets use canvas 2D to project, shade and depth-sort
-small 3D meshes. They use no WebGL, CSS 3D transforms, bundled library, image asset,
-network access or experimental native side channel. The models are procedural
-illustrations; the solar system is not to scale and the molecules are educational shapes.
+small 3D scenes. The planet uses perspective ray/sphere intersections and
+normal-based lighting, presented through supported canvas fillRect color runs. They use no WebGL, CSS 3D transforms, bundled library, image asset,
+network access or experimental native side channel. The models and planet surface are procedural illustrations; the molecules are
+educational shapes.
 
 | File | Model control |
 |---|---|
 | `01-robot.html` | Cycle ready, wave and resting poses |
 | `02-camera.html` | Assemble or separate the lens elements |
-| `03-orbits.html` | Advance eight illustrative orbital positions |
+| `03-orbits.html` | Orbit a single smoothly shaded planet and toggle cloud cover |
 | `04-island.html` | Cycle low, rising and high tide |
 | `05-molecules.html` | Cycle water, methane and ammonia |
 
@@ -24,7 +25,9 @@ Drawing happens on load, resize, a theme change or an interaction, coalesced to 
 animation frame. The color scheme is cached and updated by media-query change
 events, so redraws do not query the host for it. There is no idle timer,
 animation loop or layout read per frame.
-Canvas backing resolution follows the box and device pixel ratio, capped at 2x.
+Mesh canvas backing resolution follows the box and device pixel ratio, capped
+at 2x. The planet has a fixed 128×128 backing, throttles active redraws to 250 ms,
+and uses no pixel read-back/image-data APIs.
 Both chat themes and widths 200–600 px are supported; the 200 px layout uses a
 shorter viewport. Controls keep a 20 px inset from the leading edge.
 
