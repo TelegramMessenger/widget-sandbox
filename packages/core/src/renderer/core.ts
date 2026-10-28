@@ -331,6 +331,9 @@ const METHOD_IMPL: Record<string, (el: any, a: any[]) => void> = {
   scrollTo: (el, a) => Element.prototype.scrollTo.call(el, a[0], a[1]),
   scrollBy: (el, a) => Element.prototype.scrollBy.call(el, a[0], a[1]),
   setPointerCapture: (el, a) => {
+    // Only a pointer whose press began on the widget (`ownPointers`): the shim's check runs in the VM, which the widget
+    // can lie to, and on the Shadow DOM renderer a pointer pressed on the chat would be taken from the control under it.
+    if (!ownPointers.has(a[0])) return;
     try { Element.prototype.setPointerCapture.call(el, a[0]); } catch {}
   },
   releasePointerCapture: (el, a) => {
@@ -702,6 +705,7 @@ function settle(v: GestureVerdict, base: WidgetEvent) {
   if (!v.cancel || !bubbleMode || base.pointerId === undefined) return;
   forward({ ...base, type: 'pointercancel', button: -1, buttons: 0 }, true);
   takenPointer = base.pointerId;
+  ownPointers.delete(base.pointerId);
   clearHold();
   pressPointer = -1;
   pressAsTouch = clickAsTouch = false;
@@ -786,11 +790,14 @@ function onEvent(e: Event) {
     // A finger makes a click only for a tap: reproducing a phone with a mouse, a drag or a hold ends without one.
     if (type === 'pointerup' && bubbleMode?.touch && verdict && (verdict.gesture === 'drag-x' || verdict.gesture === 'drag-y' || verdict.gesture === 'hold')) dropClick = true;
   } else if (MOUSE_COMPAT.has(type) && (takenPointer !== -1 || (dropClick && type !== 'mousemove'))) return;
-  if (ev) forward(ev, e.isTrusted);
+  // A press begun off the widget and let go over it (on the Shadow DOM renderer, a drag from the chat) is no press of
+  // the widget's: its release reaches it, but is no gesture. A release is that of the pointer whose buttons changed last.
+  const trusted = e.isTrusted && (changedOwn || (type !== 'pointerup' && type !== 'mouseup'));
+  if (ev) forward(ev, trusted);
   else if (ALWAYS_FORWARD.has(type) || interest.has(type)) {
     const out = serialize(e, targetId);
     if (type === 'click' && clickAsTouch && out.pointerType === 'mouse') { out.pointerType = 'touch'; clickAsTouch = false; }
-    forward(out, e.isTrusted);
+    forward(out, trusted);
   }
   if (verdict && ev) settle(verdict, ev);
   if (type === 'click' && pendingDblclick) {
@@ -966,6 +973,26 @@ function swallow(e: Event) {
   if (e.cancelable) e.preventDefault();
 }
 
+/**
+ * The pointers whose trusted press began on the widget, until they are let go anywhere in the window: the only ones it
+ * may capture. And whether the pointer whose buttons changed last was one of them: pressed, let go (the window hears a
+ * release before the root does) or chorded (a button pressed or let go while another is held: a pointermove and its
+ * mouse event, no pointerdown or pointerup). A compatibility mouse event follows its pointer's change at once.
+ */
+const ownPointers = new Set<number>();
+let changedOwn = false;
+function pressedHere(e: Event) {
+  if (!e.isTrusted) return;
+  ownPointers.add((e as PointerEvent).pointerId);
+  changedOwn = true;
+}
+function buttonsChanged(e: Event) {
+  if (e.isTrusted && (e as PointerEvent).button !== -1) changedOwn = ownPointers.has((e as PointerEvent).pointerId);
+}
+function letGo(e: Event) {
+  changedOwn = ownPointers.delete((e as PointerEvent).pointerId);
+}
+
 function init(s: Send) {
   send = s;
   ({ html: HTML, head: HEAD, body: BODY } = env.roots());
@@ -974,6 +1001,10 @@ function init(s: Send) {
   const ua = createElement(doc, 'style');
   setTextContent(ua, PROFILE_UA_STYLESHEET);
   insertBefore(HEAD, ua, firstChildOf(HEAD));
+  root.addEventListener('pointerdown', pressedHere, true);
+  root.addEventListener('pointermove', buttonsChanged, true);
+  window.addEventListener('pointerup', letGo, true);
+  window.addEventListener('pointercancel', letGo, true);
   for (const type of SWALLOWED) root.addEventListener(type, swallow, { capture: true, passive: false });
   for (const type of ALL_EVENTS) root.addEventListener(type, onEvent, { capture: true, passive: false });
   // Chromium dispatches enter/leave events only to nodes that listen for them or have an ancestor element with a
@@ -992,6 +1023,11 @@ function init(s: Send) {
 function destroy() {
   for (const type of ALL_EVENTS) root.removeEventListener(type, onEvent, { capture: true });
   for (const type of SWALLOWED) root.removeEventListener(type, swallow, { capture: true });
+  root.removeEventListener('pointerdown', pressedHere, true);
+  root.removeEventListener('pointermove', buttonsChanged, true);
+  window.removeEventListener('pointerup', letGo, true);
+  window.removeEventListener('pointercancel', letGo, true);
+  ownPointers.clear();
   if (root instanceof ShadowRoot) for (const type of ENTER_LEAVE) root.host.removeEventListener(type, noop, true);
   for (const o of sizeObservers) o.disconnect();
   sizeObservers = [];

@@ -5,6 +5,17 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- The shared renderer lets a widget capture only a pointer whose trusted press began on it, and a press begun elsewhere
+  and let go over the widget reaches it untrusted, so its release is no gesture. The shim checks that a pointer is
+  pressed, but in the VM, which the widget can lie to: on the Shadow DOM renderer, where the widget shares its document
+  with the chat, `setPointerCapture` took a pointer pressed on the chat's own control, which lost its click, and the
+  widget got the release as a gesture (the same for a drag from the chat let go over it). The iframe and the WebViews
+  never routed such a press to the widget; the bundles change for every platform all the same. A release is that of the
+  pointer whose buttons changed last: a `pointerup`, or a button let go while another is held (a chorded release: a
+  `pointermove` and a `mouseup`, no `pointerup`). A widget capturing its own press (`auto/23-gestures-b`) is unaffected. Regression: `packages/core/tests/unit/renderer-presses.test.ts` (the
+  Shadow DOM renderer next to a control of the page, trusted mouse input, a chorded release). Not in this change (`CONTRIBUTING.md` §3):
+  `test:attacks` and `test:gestures` on both renderers, the conformance set.
+
 - The CSS sanitizer checks the `light-dark()` branch it picks for the host theme. It put the branch in the function's
   place behind its own walk, which never visited it, so a `url()` there reached the renderer unchecked
   (`light-dark(url(/x.png), red)` became `url(/x.png)`): invariant 4 then rested on the renderer's own defences (the
