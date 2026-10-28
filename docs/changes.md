@@ -5,6 +5,10 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- A profile-1 sculpted cat example adds X/Y mouse-drag rotation, zoom and tail pose.
+  Cached camera trigonometry, adaptive mesh detail and throttled redraws keep the
+  model within the widget CPU budget. Vertical touch gestures still belong to chat.
+
 - Five `showcase/3d` widgets render projected geometry with profile-1 canvas 2D: a robot,
   camera assembly, shaded single planet, island and molecular viewer. Horizontal orbit, elevation,
   zoom and model controls persist per message; canceled drags restore the previous view.

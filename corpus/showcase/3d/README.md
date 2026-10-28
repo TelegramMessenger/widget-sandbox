@@ -1,4 +1,4 @@
-# Object Studio: five projected 3D widgets
+# Object Studio: six projected 3D widgets
 
 These self-contained profile-1 widgets use canvas 2D to project, shade and depth-sort
 small 3D scenes. The planet uses perspective ray/sphere intersections and
@@ -13,8 +13,9 @@ educational shapes.
 | `03-orbits.html` | Orbit a single smoothly shaded planet and toggle cloud cover |
 | `04-island.html` | Cycle low, rising and high tide |
 | `05-molecules.html` | Cycle water, methane and ammonia |
+| `06-cat.html` | Mouse X/Y rotation of a sculpted cat with a raised-tail pose |
 
-All five support horizontal drag to orbit, elevation buttons, bounded zoom and reset.
+All six support horizontal drag to orbit, elevation buttons, bounded zoom and reset.
 Vertical touch drags belong to the chat; pointer cancellation rolls back the tentative
 orbit without saving it. A second pointer cannot replace an active drag. The view
 and model selection are saved only on completed interactions in per-message
@@ -47,7 +48,7 @@ The dev picker discovers `showcase/3d/*.html` automatically. For example, open
 sync commands discover the folder too; these additions do not require rebuilding
 the shared runtime bundles or bytecode.
 
-In telegram-macos, the companion patch mirrors these five files under the
+In telegram-macos, the companion patch mirrors these six files under the
 HTMLBubbles test fixtures. The existing recursive demo catalog discovers them
 when the test fixture catalog is installed; production app code is unchanged.
 

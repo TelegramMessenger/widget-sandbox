@@ -8,8 +8,8 @@ const files = fs.readdirSync(corpus).filter(file => file.endsWith('.html')).sort
 const state = 'JSON.stringify({yaw,pitch,zoom,variant,drag})';
 
 describe('projected 3D showcase widgets', () => {
-  it('contains exactly five self-contained widgets', () => {
-    assert.equal(files.length, 5);
+  it('contains exactly six self-contained widgets', () => {
+    assert.equal(files.length, 6);
   });
 
   for (const file of files) {
@@ -82,6 +82,24 @@ describe('projected 3D showcase widgets', () => {
       const defaults = JSON.parse(reset.probes[0]);
       assert.ok(Math.abs(defaults.yaw + .55) < 1e-10);
       assert.deepEqual({ ...defaults, yaw: -.55 }, { yaw: -.55, pitch: .28, zoom: 1, variant: 0, drag: null });
+    });
+
+    if (file === '06-cat.html') it('cat: mouse drag changes both yaw and pitch and keeps them on release', async () => {
+      const initial = await runWidget(html);
+      const canvas = initial.renderOps.find(op => op.op === 'el' && op.attrs.some(([key, value]) => key === 'id' && value === 'view'));
+      assert.ok(canvas);
+      const pointer = { targetId: canvas.id, pointerId: 1, pointerType: 'mouse', button: 0 };
+      const result = await runWidget(html, { timerRounds: 0, events: [
+        { ...pointer, type: 'pointerdown', clientX: 100, clientY: 100 },
+        { ...pointer, type: 'pointermove', clientX: 150, clientY: 145 },
+        { ...pointer, type: 'pointerup', clientX: 150, clientY: 145 },
+      ], probes: [state] });
+      const moved = JSON.parse(result.probes[0]);
+      assert.ok(Math.abs(moved.yaw - .05) < 1e-10);
+      assert.ok(Math.abs(moved.pitch - .82) < 1e-10);
+      assert.equal(moved.drag, null);
+      assert.equal(result.storageCommits.length, 1);
+      assert.deepEqual(result.diags, []);
     });
 
     it(`${file}: rolls back an orbit when the host cancels a pointer`, async () => {
