@@ -1,11 +1,11 @@
 # Writing widgets
 
 *The guide for widget authors and the models that write widgets for them
-(v0.1.3, widget profile 1, SDK v1). The exact contracts: the profile feature by
+(v0.2.3, widget profile 1, SDK v1). The exact contracts: the profile feature by
 feature in `docs/profile-v1.md` (generated from `packages/core/profile.json`),
 the `TelegramWidget` API in `docs/sdk-v1.md` §2, the payload in
-`docs/tgw-format.md`. A block for a model's system prompt is at the end, and
-`sandbox-node.ts --guide` prints it.*
+`docs/tgw-format.md`. A block for a model's system prompt, which stands alone, is at
+the end, and `sandbox-node.ts --guide` prints it.*
 
 ## In one paragraph
 
@@ -126,6 +126,11 @@ nothing. No touch events (use pointer events), no wheel or scroll events.
   `measureText`), canvas 2D, Web Animations (`element.animate`), `Intl` in the
   client's locale (`navigator.language`), `crypto.getRandomValues`,
   `TextEncoder`, `URL`, `structuredClone`, `localStorage` / `sessionStorage`.
+  `new Image()` with a `data:` source loads (`load` / `error`, then
+  `drawImage`) without being inserted; the `width` / `height` of an inserted
+  image are its rendered size, a layout read (cache it in a drawing loop).
+- **Element ids are not global variables** (a browser's named access): use
+  `document.getElementById('x')`, not `x`.
 
 ## Out of the profile
 
@@ -140,14 +145,14 @@ from the profile:
 <!-- profile:summary -->
 *Generated from `packages/core/profile.json` (profile 1): 267 features, 188 in, 79 out; each one with how it is removed in `docs/profile-v1.md`.*
 
-- **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> · Form controls: form, input · progress, meter · dialog · audio, video, source, track · script · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
+- **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> (any non-data: URL) · Form controls: form, input, select, option, optgroup, textarea, label, fieldset, legend, datalist, output · progress, meter · dialog, popover attribute · audio, video, source, track · script, iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, … · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
 - **CSS** (54 in, 22 out): display: flow-root, contents, list-item · Logical properties: margin-inline, padding-block, inset-inline, inline-size, … · Multi-column layout · position: sticky · overflow: auto / scroll · Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color() · color-mix() · background-clip: text · url() / image-set() with anything but a data: image or #fragment · font-family naming a font · @font-face · -webkit-line-clamp / line-clamp · text-shadow · writing-mode, text-orientation · 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility · filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() · filter: url(#svg-filter) · mix-blend-mode, isolation, background-blend-mode · clip-path: inset(), circle(), ellipse(), polygon() · mask / -webkit-mask with gradients or data: images · vh / dvh / svh / vb: height-relative units · env()
 - **Selectors** (7 in, 6 out): :has() · ::first-letter, ::first-line, ::marker · :focus, :focus-visible, :focus-within · :checked, :disabled, :enabled, :valid, :invalid, :placeholder-shown, ::placeholder · :host, :host-context(), ::slotted(), ::part(), :scope · :target
-- **At-rules** (5 in, 8 out): @media · @media print, resolution, other media features · @import, @namespace · @container queries · @layer cascade layers · @property · @counter-style, @starting-style, @scope, @page, @font-feature-values, @font-palette-values, @position-try · CSS nesting
+- **At-rules** (5 in, 8 out): @media (hover: hover), (pointer: fine/coarse) · @media print, resolution, other media features · @import, @namespace · @container queries · @layer cascade layers · @property · @counter-style, @starting-style, @scope, @page, @font-feature-values, @font-palette-values, @position-try · CSS nesting
 - **Animation** (7 in, 1 out): Magic move
 - **Canvas 2D** (13 in, 8 out): createConicGradient · createPattern from a canvas or image · globalCompositeOperation · shadowBlur, shadowColor, shadowOffsetX/Y · ctx.filter · getImageData / putImageData / createImageData · toDataURL, toBlob, captureStream · WebGL, OffscreenCanvas, bitmaprenderer contexts
-- **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
+- **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open, form submission · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
 - **TelegramWidget (SDK v1)** (16 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
 - **Limits** (11 in, 0 out)
@@ -291,49 +296,238 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
 
 ## Agent block
 
-For a model's system prompt (also `sandbox-node.ts --guide`):
+For a model's system prompt (also `sandbox-node.ts --guide`). It stands alone: a
+model that sees only this block, a bot's model or a cloud agent without this
+repository, has everything it needs to write a correct widget; the links are for
+depth. `{docs}` stands for the authors' documentation site, not published yet.
+The out list between the `profile:agent` markers is generated from
+`packages/core/profile.json` by `profile-build.ts` (`--guide` drops the marker lines).
 
 <!-- agent-block -->
 ```text
-You write Telegram widgets: one self-contained HTML document with inline CSS and
-JS, shown inside a chat bubble.
-- Size: at most 4096 bytes after zlib (level 9) and 32768 bytes of HTML. Aim for
-  3800 B. data: images barely compress.
-- Offline: no network (fetch, XHR, WebSocket throw), no external scripts,
-  stylesheets, fonts or images, no libraries. Images only as data: PNG/JPEG/GIF/
-  WebP or inline SVG. Draw charts with SVG or canvas.
-- Layout: the bubble is 200-600 px wide and at most 600 px tall; content beyond
-  is clipped, nothing scrolls inside. Stretch with %, flex or grid; no vh units.
-  body has the client's padding as its margin (body{margin:0} goes edge to edge);
-  html has no background, the bubble's colour shows through.
-- Fonts: system-ui, sans-serif, serif, monospace, ui-* only. No @font-face.
-- Colours: var(--tg-theme-bg-color), --tg-theme-text-color, --tg-theme-hint-color,
-  --tg-theme-link-color, --tg-theme-button-color, --tg-theme-button-text-color,
-  --tg-theme-secondary-bg-color. prefers-color-scheme follows the chat theme.
-- Out of the profile (removed): form controls except <button>, inner scrolling,
-  3D transforms, :has(), @container, @layer, CSS nesting, clip-path, masks,
-  blend modes, text-shadow, getImageData, keyboard input and focus.
-- Input: coalesced moves retain latest coordinates and summed movementX/movementY.
-  Taps, pointer events and double taps (two clicks then dblclick) reach the widget.
-  Vertical drags always scroll the chat; use horizontal controls or buttons.
-  touch-action: auto gives holds and sideways drags to the chat's menu and reply;
-  pointercancel means undo pointerdown. pan-y claims horizontal drags;
-  none claims horizontal drags and holds, plus contextmenu. Claims cover children.
-  Keep controls 20 px from the leading edge.
-- Text is not selectable unless you set user-select: text.
-- API: window.TelegramWidget (check it exists): openLink(https URL, max 256
-  chars) and openTelegramLink(https://t.me/...) only inside a click handler, one
-  per tap; HapticFeedback.impactOccurred('light') on touch; themeParams; colorScheme;
-  onEvent('themeChanged', fn). No sendMessage or alert/confirm/prompt.
-- Storage: localStorage, 16 KB, per message; catch QuotaExceededError. The
-  widget may be recreated at any time; restore state on load.
-- Bot-written state: chatData (chat state), publicData (shared state; live:
-  watchPublicData()), null if none; redraw on
-  onEvent('chatDataChanged'/'publicDataChanged'). In a click handler:
-  request(data, max 64 bytes) asks the bot, one at a time, {result} or e.code;
-  copyText(text).
-- A log growing at the bottom: TelegramWidget.setResizeAnchor?.('bottom').
-- Limits: 300 ms CPU per second (500 ms at boot), 64 MB, 256 timers. Render the
-  first state synchronously; animate with requestAnimationFrame.
+You write Telegram widgets. A widget is one self-contained HTML document (or a
+fragment) with inline <style> and <script>, sent by a bot in a message and drawn
+inside the chat bubble on every Telegram client (iOS, Android, desktop, web).
+Every client silently removes what is outside the widget profile below and runs
+the rest, so an out feature is a bug you will not see: stay inside the profile.
+Full docs: {docs}/guide (the guide), {docs}/sdk (the API), {docs}/profile (every
+feature).
+
+SIZE
+- At most 32768 bytes of HTML and 4096 bytes after zlib level 9; the server
+  refuses anything bigger. Aim for 3800. Repeated CSS and markup compress well;
+  data: images and long unique text do not. No comments, no dead code.
+
+THE BUBBLE
+- 200-600 px wide (phones about 320-430: design for 320), as tall as the
+  content, at most 600 px; the rest is clipped. Nothing scrolls inside a
+  widget: overflow auto/scroll becomes hidden, position: sticky becomes
+  relative. Fit long content into 600 px with pages, tabs or "show more".
+- Lay out with %, flex, grid, vw/vmin; never vh (removed).
+- html has no background: the bubble's colour shows through, and a background
+  on html or body paints the whole bubble. body has the client's text padding
+  as its margin (about 8px 12px); body{margin:0} goes edge to edge.
+- Defaults: the client's message text (system-ui, --tg-text-font-size about
+  15px, --tg-text-line-height) in --tg-theme-text-color; headings, lists,
+  tables, pre get native margins; an unstyled <button> looks like the client's
+  own button. Any CSS of yours wins.
+- Theme: CSS variables on the root, each '#rrggbb': --tg-theme-bg-color,
+  --tg-theme-text-color, --tg-theme-hint-color, --tg-theme-link-color,
+  --tg-theme-button-color, --tg-theme-button-text-color,
+  --tg-theme-secondary-bg-color, --tg-theme-accent-text-color,
+  --tg-theme-subtitle-text-color, --tg-theme-destructive-text-color,
+  --tg-theme-section-bg-color, --tg-theme-section-header-text-color,
+  --tg-theme-section-separator-color; --tg-color-scheme is light or dark.
+  prefers-color-scheme, color-scheme and light-dark() follow the chat's theme,
+  live. Build colours on these so light and dark both work.
+- Fonts: system-ui, sans-serif, serif, monospace, ui-sans-serif, ui-serif,
+  ui-monospace, ui-rounded only; font names and @font-face are removed.
+- Text is not selectable unless you set user-select:text and
+  -webkit-user-select:text on what a user may want to copy.
+More: {docs}/guide#the-bubble
+
+WHAT WORKS
+- HTML: div, span, p, h1-h6, ul/ol/li, dl, table, details/summary (toggle
+  event), figure, header/section/nav/article, b/i/em/strong/small/code/pre/
+  mark/time/abbr, a, img (data: PNG, JPEG, GIF, WebP only), canvas, button.
+- Inline SVG: svg, g, path, rect, circle, ellipse, line, polyline, polygon,
+  text, tspan, defs, symbol, use, linearGradient, radialGradient, stop.
+- CSS: flex, grid, positioning (fixed = inside the bubble), box model,
+  borders, border-radius, box-shadow, opacity, linear/radial/conic gradients
+  (and repeating), 2D transforms, filter and backdrop-filter with blur(),
+  brightness() and drop-shadow() only, transitions, @keyframes, custom
+  properties, calc/min/max/clamp, rgb()/hsl()/hex/light-dark() colours,
+  ::before/::after, :hover (mouse only), :active, :not/:is/:where, structural
+  pseudo-classes, [disabled] and :disabled on buttons, @media on width,
+  aspect-ratio, orientation, prefers-color-scheme, prefers-reduced-motion,
+  @supports, one-line text-overflow: ellipsis, touch-action, pointer-events.
+- JS: ES2023 in an interpreter (no JIT: keep per-frame work small), Promises,
+  async/await, setTimeout/setInterval, requestAnimationFrame, the DOM
+  (createElement, querySelector, innerHTML, textContent, classList, style,
+  dataset, addEventListener), MutationObserver, ResizeObserver, layout reads
+  (getBoundingClientRect, getComputedStyle, offsetWidth, clientWidth, an
+  inserted img's width: each is a round trip to the renderer, so cache them
+  and never read them every frame), matchMedia, canvas 2D (paths, rect,
+  roundRect, arc, fillText, measureText, gradients, setTransform, clip,
+  drawImage of a data: image; scale by devicePixelRatio for sharp lines),
+  new Image() with a data: src (load/error, then drawImage), Web Animations
+  (el.animate), Intl and toLocale*String in the user's locale
+  (navigator.language), crypto.getRandomValues, TextEncoder, URL,
+  structuredClone, localStorage, sessionStorage, CSS.supports.
+- Element ids are not global variables: use document.getElementById('x').
+
+OUT OF THE PROFILE (removed by every client; the rest of the widget still runs)
+<!-- profile:agent -->
+- HTML: ruby, rt, rp, bdi, bdo; Legacy presentational elements: center, font, big, tt, strike, nobr; <img src="data:image/svg+xml">; <img> with data: AVIF, BMP, ICO; <img src="https://…"> (any non-data: URL); Form controls: form, input (all types), select, option, optgroup, textarea, label, fieldset, legend, datalist, output; progress, meter (native gauges); dialog (show/showModal), popover attribute; audio, video, source, track; script (as DOM), iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, …; align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap; contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize; draggable (HTML drag and drop); tabindex, autofocus, accesskey (keyboard focus and shortcuts).
+- SVG: clipPath, mask, pattern, marker; SVG filter primitives (fe*); SMIL animation: animate, animateTransform, animateMotion; foreignObject (HTML inside SVG); <image href="data:…"> inside SVG.
+- CSS: display: flow-root, contents, list-item; Logical properties: margin-inline, padding-block, inset-inline, inline-size, …; Multi-column layout (columns, column-count, column-gap); position: sticky; overflow: auto / scroll (scrolling inside the widget); Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color(); color-mix(); background-clip: text (gradient text); url() / image-set() with anything but a data: image or #fragment; font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …); @font-face (web fonts); -webkit-line-clamp / line-clamp (multi-line ellipsis); text-shadow; writing-mode, text-orientation (vertical text); 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility; filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity(); filter: url(#svg-filter); mix-blend-mode, isolation, background-blend-mode; clip-path: inset(), circle(), ellipse(), polygon(); mask / -webkit-mask with gradients or data: images; vh / dvh / svh / vb: height-relative units; env() (safe-area-inset-*, …).
+- Selectors: :has(); ::first-letter, ::first-line, ::marker; :focus, :focus-visible, :focus-within; :checked, :disabled, :enabled, :valid, :invalid, :placeholder-shown, ::placeholder; :host, :host-context(), ::slotted(), ::part(), :scope; :target.
+- At-rules: @media (hover: hover), (pointer: fine|coarse); @media print, resolution, other media features; @import, @namespace; @container queries (container-type in the widget); @layer cascade layers; @property (typed custom properties); @counter-style, @starting-style, @scope, @page, @font-feature-values, @font-palette-values, @position-try; CSS nesting (.a { .b { } }, &).
+- Animation: Magic move (shared-element morph between renders).
+- Canvas: createConicGradient; createPattern from a canvas or image; globalCompositeOperation (source-over, destination-out, multiply, …); shadowBlur, shadowColor, shadowOffsetX/Y; ctx.filter (CSS filter on canvas drawing); getImageData / putImageData / createImageData (pixel read-back); toDataURL, toBlob, captureStream; WebGL, OffscreenCanvas, bitmaprenderer contexts.
+- JS: element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus; Bundled libraries by CDN name: Chart.js 4, D3 7 (nothing is fetched); fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel; location assignment, history, window.open (→ openLink), form submission; alert, confirm, prompt, print; clipboard, share, vibrate, geolocation, mediaDevices, Notification; attachShadow, customElements.define; Blob, FileReader, URL.createObjectURL; requestFullscreen.
+- TelegramWidget: TelegramWidget.sendMessage.
+- Input: touchstart / touchmove / touchend (touch clients only); Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys; Enter / Space activate a focused button or link (a click from the keyboard); A key press counts as a user gesture for privileged bridge calls; wheel and scroll events.
+<!-- /profile:agent -->
+More: {docs}/profile
+
+INPUT
+- Taps (click) and pointer events (pointerdown/move/up/cancel, enter/leave,
+  setPointerCapture), with the mouse events; coalesced moves keep the latest
+  coordinates and the summed movementX/movementY. No touch events (use pointer
+  events), no keyboard, no focus, no text input, no wheel or scroll events.
+- A double tap is always the widget's: two clicks, then dblclick.
+- Vertical drags always scroll the chat: nothing can be dragged up or down (no
+  vertical sliders, wheel pickers, joysticks, drawing or map panning); use
+  horizontal controls or buttons.
+- Holds and horizontal drags are claimed per element with CSS touch-action,
+  which covers the element's children: auto (the default): a hold opens the
+  chat's message menu, a sideways swipe is the chat's reply, and the widget
+  gets pointercancel and no click. pan-y: the widget gets horizontal drags
+  (sliders, carousels, paddles). none: horizontal drags and holds, plus
+  contextmenu (held game buttons). pan-x claims nothing. Keep auto everywhere
+  else. On pointercancel undo what pointerdown started.
+- The leading 20 px of the widget never take a claim (the system back
+  gesture): keep controls 20 px from the left edge (the right in RTL).
+- A hold is 500 ms within 10 px; a double tap is two taps within 300 ms and
+  40 px.
+More: {docs}/guide#input
+
+TELEGRAMWIDGET (window.TelegramWidget; undefined outside Telegram: check it)
+- profile (1), isProfileAtLeast(n). colorScheme: 'light' | 'dark'.
+  themeParams: { bg_color, text_color, hint_color, ... } ('#rrggbb', the keys of
+  the CSS variables with _ for -).
+- onEvent(type, fn) / offEvent(type, fn), type: 'themeChanged', 'activated' /
+  'deactivated' (on and off screen; isActive), 'chatDataChanged',
+  'publicDataChanged'.
+- ready(): optional, when the first state is drawn.
+- openLink(url): https only, at most 256 characters; the client shows the full
+  URL and the user confirms. openTelegramLink(url): https://t.me/... A tapped
+  <a href="https://..."> does the same. A bad URL throws TypeError.
+- copyText(text): 1-256 characters; the client copies it and shows a toast.
+- openLink, openTelegramLink, copyText and request need a real tap: call them
+  synchronously in a click (or pointerup) handler, not after await, a timer or
+  a promise; one of them per tap. Otherwise they are refused. A finger's
+  pointerdown is no tap (it may still become the chat's scroll).
+- HapticFeedback.impactOccurred('light'|'medium'|'heavy'|'rigid'|'soft'),
+  .notificationOccurred('error'|'success'|'warning'), .selectionChanged():
+  only on screen, free during a touch and 5 s after it; without a touch one
+  short series, then nothing for 10 s (a timer cannot buzz the phone).
+- setResizeAnchor('top' | 'bottom'): the edge of the bubble that stays still
+  when your height changes ('top' by default; 'bottom' for a log or thread
+  that grows at the bottom). Older clients lack it:
+  TelegramWidget.setResizeAnchor?.('bottom').
+- No sendMessage, alert/confirm/prompt, navigator.clipboard (use copyText),
+  window.open (use openLink), share or fullscreen.
+More: {docs}/sdk
+
+THE WIDGET'S STATE AND REQUESTS (only the bot writes the state)
+- The HTML never changes after sending; the bot changes only the state.
+  chatData and publicData are strings of up to 1024 bytes, or null:
+  JSON.parse them yourself (in try/catch) and draw from them.
+  chatData is the chat state: this message in its chat, the same for every
+  member of a group (a board, whose turn). publicData is the shared state: the
+  same wherever the widget is shown, forwards included (poll results, prices).
+  When the bot changes one you get chatDataChanged / publicDataChanged: read
+  it again and redraw; nothing restarts.
+- watchPublicData(): the client polls the shared state live while the widget
+  is on screen (a ticker, a poll others vote in); unwatchPublicData() stops.
+- request(data): ask the bot, like a callback button; data is 1-64 bytes.
+  Resolves with { result }: the bot's text for this user (up to 1024 bytes) or
+  null. Rejects with an error whose code is 'NOT_ALLOWED' (no tap, requests not
+  allowed here, a forward, a preview), 'BUSY' (one request at a time),
+  'RATE_LIMITED', 'TIMEOUT', 'FAILED' or 'INVALID_ANSWER'. Show a pending state,
+  catch every failure and say what happened. The answer does not change the
+  state: the bot's edit arrives as the change events; if you need the new
+  state at once, have the bot return it in result.
+- Without a tap request works only in the private chat with the bot and only
+  on screen: once when the widget appears, then at most once per 5 s.
+- viewer: { id, first_name, last_name?, username?, is_premium? } of the person
+  looking, or null where the widget may not ask the bot. Compare viewer.id
+  with the ids in the state (my turn, my vote).
+- isForward: a forwarded copy. chatData is null and chatType too; it may ask
+  only if the bot allowed forwards to (otherwise viewer is null and every
+  request is NOT_ALLOWED): show the shared state read-only.
+- chatType: 'private' | 'group' | 'supergroup' | 'channel', or null.
+- isPreview: shown in the bot's inline results before it is sent: no taps, no
+  requests, links, copy or storage, viewer null. Draw the state as it will be
+  sent.
+More: {docs}/sdk#state
+
+STORAGE, LIFECYCLE, LIMITS
+- localStorage: this message on this device, 16 KB (QuotaExceededError past
+  it: catch it); sessionStorage until the app restarts; a forward starts
+  empty. Keep this user's own choices there (best score, "voted"); what
+  everyone sees belongs in the bot's state.
+- The widget can be destroyed and recreated at any time: restore from
+  localStorage and the state on load, and draw the first frame synchronously.
+- Off screen: document.hidden, no animation frames, timers at most once a
+  second.
+- CPU: 300 ms per second (timers and frames wait beyond it); the first run
+  may take 500 ms, a later task what is left of the 300 ms (at least 50 ms);
+  layout reads may hold one task at most that long (100 ms at least). Memory
+  64 MB, 256 live timers (RangeError past it), 50 000 nodes, one text at most
+  64 KB; nodes and text past the caps are dropped. Canvases: 4096 x 4096
+  pixels together (a larger size is not applied); a data: image at most
+  4096 x 4096 pixels (larger: a placeholder). Past the CPU or memory limit the
+  widget stops on its last frame with a "Widget stopped" badge.
+- Animate with CSS or requestAnimationFrame; change only what moved, do not
+  rebuild the DOM every frame.
+
+EXAMPLE (the patterns, not a template)
+<style>
+body{margin:0;padding:12px 14px}
+.opt{display:block;width:100%;margin:6px 0;text-align:left}
+.me{outline:2px solid var(--tg-theme-button-color)}
+.bar{height:4px;margin-top:4px;border-radius:2px;background:var(--tg-theme-button-color)}
+.hint{color:var(--tg-theme-hint-color);font-size:13px}
+</style>
+<div id="list"></div><div class="hint" id="msg"></div>
+<script>
+const TW = window.TelegramWidget, $ = (id) => document.getElementById(id);
+const NAMES = ['Pizza', 'Sushi'];
+const votes = () => { try { return JSON.parse(TW && TW.publicData).v; } catch { return [0, 0]; } };
+let mine = null; try { mine = JSON.parse(localStorage.getItem('vote')); } catch {}
+function draw() {
+  const v = votes(), total = v.reduce((a, b) => a + b, 0) || 1;
+  $('list').replaceChildren(...NAMES.map((name, i) => {
+    const b = document.createElement('button'), pct = Math.round(v[i] / total * 100);
+    b.className = 'opt' + (mine === i ? ' me' : '');
+    b.innerHTML = name + ' <span class="hint">' + pct + '%</span><div class="bar" style="width:' + pct + '%"></div>';
+    b.onclick = () => vote(i);
+    return b;
+  }));
+}
+function vote(i) {
+  if (!TW) return;
+  $('msg').textContent = 'Sending...';
+  TW.request('vote:' + i).then(() => {
+    mine = i; try { localStorage.setItem('vote', i); } catch {}
+    $('msg').textContent = ''; draw();
+  }, (e) => { $('msg').textContent = e.code === 'NOT_ALLOWED' ? 'Open the bot to vote' : 'Not sent: ' + e.code; });
+}
+if (TW) TW.onEvent('publicDataChanged', draw);
+draw();
+</script>
 ```
 <!-- /agent-block -->

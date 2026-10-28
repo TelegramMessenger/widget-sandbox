@@ -2,7 +2,9 @@
 //   src/shared/profile-tables.ts     the tables the validator, the shim and the renderer enforce
 //   docs/profile-v1.md               the profile for widget authors and client teams
 //   docs/widget-runtime-profile.md   the authors' guide: only its "Out of the profile" list, between
-//                                    <!-- profile:summary --> and <!-- /profile:summary -->; the rest is written by hand
+//                                    <!-- profile:summary --> and <!-- /profile:summary -->, and the out list of its
+//                                    agent block, between <!-- profile:agent --> and <!-- /profile:agent -->; the rest
+//                                    is written by hand
 //
 //   corepack pnpm tsx packages/core/scripts/profile-build.ts           # write them
 //   corepack pnpm tsx packages/core/scripts/profile-build.ts --check   # exit 1 when one is stale
@@ -86,8 +88,7 @@ export function docSource(p: ProfileFile): string {
   for (const [k, v] of Object.entries(p.decisions)) out.push(`| ${k} | ${cell(v)} |`);
   out.push('');
   // Every area gets a section: one without a title here is listed under its own name, never left out.
-  const areas = [...AREAS, ...[...new Set(p.features.map((f) => f.area))].filter((a) => !AREAS.some(([k]) => k === a)).map((a) => [a, a] as [string, string])];
-  for (const [area, title] of areas) {
+  for (const [area, title] of areasOf(p)) {
     const list = p.features.filter((f) => f.area === area);
     if (!list.length) continue;
     out.push(`## ${title}`, '', '| id | feature | status | when out | decision |', '|---|---|---|---|---|');
@@ -126,29 +127,52 @@ export function docSource(p: ProfileFile): string {
   return out.join('\n');
 }
 
-/** The guide's list of what is out, one line per area (titles up to their first parenthesis), with the counts. */
+/** A feature's title without its explanations: every parenthesis without a colon goes ("overflow: auto / scroll
+ *  (scrolling inside the widget)" → "overflow: auto / scroll"), one with a colon stays ("@media (hover: hover)"). */
+export function briefTitle(title: string): string {
+  return title.replace(/ \([^():]*\)/g, '').replace(/\|/g, '/');
+}
+
+function areasOf(p: ProfileFile): [string, string][] {
+  return [...AREAS, ...[...new Set(p.features.map((f) => f.area))].filter((a) => !AREAS.some(([k]) => k === a)).map((a) => [a, a] as [string, string])];
+}
+
+/** The guide's list of what is out, one line per area (brief titles), with the counts. */
 export function summarySource(p: ProfileFile): string {
   const counts = { in: 0, out: 0 };
   for (const f of p.features) counts[f.status]++;
   const out = [`*Generated from \`packages/core/profile.json\` (profile ${p.profile}): ${p.features.length} features, ${counts.in} in, ${counts.out} out; each one with how it is removed in \`docs/profile-v1.md\`.*`, ''];
-  const areas = [...AREAS, ...[...new Set(p.features.map((f) => f.area))].filter((a) => !AREAS.some(([k]) => k === a)).map((a) => [a, a] as [string, string])];
-  for (const [area, title] of areas) {
+  for (const [area, title] of areasOf(p)) {
     const list = p.features.filter((f) => f.area === area);
     if (!list.length) continue;
-    const gone = list.filter((f) => f.status === 'out').map((f) => f.title.split(' (')[0].replace(/\|/g, '/').replace(/</g, '&lt;'));
+    const gone = list.filter((f) => f.status === 'out').map((f) => briefTitle(f.title).replace(/</g, '&lt;'));
     out.push(`- **${title}** (${list.length - gone.length} in, ${gone.length} out)${gone.length ? ': ' + gone.join(' · ') : ''}`);
   }
   return out.join('\n');
 }
 
-const SUMMARY_BEGIN = '<!-- profile:summary -->';
-const SUMMARY_END = '<!-- /profile:summary -->';
+const AGENT_AREAS: Record<string, string> = { html: 'HTML', svg: 'SVG', css: 'CSS', selector: 'Selectors', 'at-rule': 'At-rules', animation: 'Animation', canvas: 'Canvas', js: 'JS', sdk: 'TelegramWidget', input: 'Input' };
 
-/** `have` with its summary region replaced; the guide must keep both markers. */
+/** The agent block's list of what is out: plain text for a model's system prompt, full titles, one line per area. */
+export function agentOutSource(p: ProfileFile): string {
+  const out: string[] = [];
+  for (const [area, title] of areasOf(p)) {
+    const gone = p.features.filter((f) => f.area === area && f.status === 'out').map((f) => f.title);
+    if (gone.length) out.push(`- ${AGENT_AREAS[area] ?? title}: ${gone.join('; ')}.`);
+  }
+  return out.join('\n');
+}
+
+function replaceBetween(have: string, begin: string, end: string, body: string): string {
+  const i = have.indexOf(begin), j = have.indexOf(end);
+  if (i < 0 || j < i) throw new Error(`docs/widget-runtime-profile.md lost its ${begin} … ${end} markers`);
+  return have.slice(0, i + begin.length) + '\n' + body + '\n' + have.slice(j);
+}
+
+/** `have` with its summary and agent out list replaced; the guide must keep all four markers. */
 export function guideSource(p: ProfileFile, have: string): string {
-  const i = have.indexOf(SUMMARY_BEGIN), j = have.indexOf(SUMMARY_END);
-  if (i < 0 || j < i) throw new Error(`docs/widget-runtime-profile.md lost its ${SUMMARY_BEGIN} … ${SUMMARY_END} markers`);
-  return have.slice(0, i + SUMMARY_BEGIN.length) + '\n' + summarySource(p) + '\n' + have.slice(j);
+  const withSummary = replaceBetween(have, '<!-- profile:summary -->', '<!-- /profile:summary -->', summarySource(p));
+  return replaceBetween(withSummary, '<!-- profile:agent -->', '<!-- /profile:agent -->', agentOutSource(p));
 }
 
 const TARGETS: { file: string; make: (p: ProfileFile, have: string) => string }[] = [

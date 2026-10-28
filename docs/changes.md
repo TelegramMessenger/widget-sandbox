@@ -3,7 +3,24 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Unreleased
+## Next release (unreleased)
+
+**The authors' guide's agent block stands alone** (docs only; `docs/widget-runtime-profile.md`, `sandbox-node.ts
+--guide`). The block for a model's system prompt was a 400-word summary that pointed to the repository's documents, which a
+bot's model or a cloud agent never sees. It now carries what a widget needs (about 4K tokens): the bubble, the defaults
+and every theme variable, what works, the whole out list (generated from `profile.json` by `profile-build.ts` between
+`profile:agent` markers), input, every `TelegramWidget` member with its limits and request error codes, the state
+model and the message contexts (forward, preview, viewer), storage, lifecycle and limits, and a short example; links to
+the authors' documentation site are placeholders (`{docs}`) until it is published. Measured with 20 widget tasks written
+by a model that saw only one of the blocks, each run through the harness: on the 8 tasks that invite out-of-profile
+features, the old block's widgets used `line-clamp`, `backdrop-filter: saturate()` and `oklch()` in 3 (15 declarations
+silently removed), the new block's none; only the new block's widgets use `viewer`, `isForward` and `isPreview`
+(a tic-tac-toe written with the old block kept its player in `localStorage` and could not tell whose turn it was). The
+guide's own out list no longer cuts a title at its first parenthesis (`@media (hover: hover), (pointer: …)` read as
+"@media" out, the form controls list stopped at `input`), and it says that element ids are not global variables and
+that a script's `new Image()` loads before it is inserted (v0.2.3).
+
+**Fixes from the tweb audit, and what `main` on GitHub gained since v0.2.3** (default, every host):
 
 **Swift renderer task-boundary regression coverage** (tests and documentation
 only; no runtime, SDK, profile or bundle change). Eight `TaskRendererHostTests`

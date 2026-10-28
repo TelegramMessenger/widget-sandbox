@@ -730,7 +730,7 @@ function defaultAnswer(q: any, viewport: { innerWidth: number; innerHeight: numb
 export function agentBlock(): string {
   const guide = fs.readFileSync(path.join(root, '..', '..', 'docs', 'widget-runtime-profile.md'), 'utf8');
   const block = guide.slice(guide.indexOf('<!-- agent-block -->'), guide.indexOf('<!-- /agent-block -->'));
-  return block.replace(/^[^]*?```text\n/, '').replace(/\n```[^]*$/, '');
+  return block.replace(/^[^]*?```text\n/, '').replace(/\n```[^]*$/, '').replace(/^<!-- \/?profile:agent -->\n/gm, '');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -738,7 +738,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = process.argv.slice(3);
   if (file === '--guide') {
     console.log(agentBlock());
-    console.log('\nThe whole guide: docs/widget-runtime-profile.md; the profile: docs/profile-v1.md; the API: docs/sdk-v1.md §2.');
     process.exit(0);
   }
   if (!file) {

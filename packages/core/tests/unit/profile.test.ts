@@ -15,7 +15,7 @@ import { Validator } from '../../src/host/validator.ts';
 import { cssSupports, supportsDeclaration, supportsSelector } from '../../src/shared/css-supports.ts';
 import { PROFILE_TABLES } from '../../src/shared/profile-tables.ts';
 import { EVENT_TYPES } from '../../src/shared/protocol.ts';
-import { readProfile } from '../../scripts/profile-build.ts';
+import { briefTitle, readProfile } from '../../scripts/profile-build.ts';
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const profile = readProfile();
@@ -35,9 +35,11 @@ describe('widget profile: the generated files', () => {
   it('the authors\' guide (docs/widget-runtime-profile.md) names every out feature and has its agent block', () => {
     const guide = fs.readFileSync(path.join(pkgRoot, '..', '..', 'docs', 'widget-runtime-profile.md'), 'utf8');
     const list = guide.slice(guide.indexOf('<!-- profile:summary -->'), guide.indexOf('<!-- /profile:summary -->'));
-    for (const f of profile.features) if (f.status === 'out') assert.ok(list.includes(f.title.split(' (')[0].replace(/\|/g, '/').replace(/</g, '&lt;')), f.id);
+    for (const f of profile.features) if (f.status === 'out') assert.ok(list.includes(briefTitle(f.title).replace(/</g, '&lt;')), f.id);
+    // The agent block stands alone (a bot's model sees nothing else): every out feature by its full title, within ~4K tokens.
     const block = guide.slice(guide.indexOf('<!-- agent-block -->'), guide.indexOf('<!-- /agent-block -->'));
-    assert.ok(block.length > 500 && block.split(/\s+/).length <= 420, `agent block: ${block.split(/\s+/).length} words`);
+    for (const f of profile.features) if (f.status === 'out') assert.ok(block.includes(f.title), f.id);
+    assert.ok(block.split(/\s+/).length <= 2400, `agent block: ${block.split(/\s+/).length} words`);
   });
   it('docs/profile-v1.md lists every feature', () => {
     const doc = fs.readFileSync(path.join(pkgRoot, '..', '..', 'docs', 'profile-v1.md'), 'utf8');
