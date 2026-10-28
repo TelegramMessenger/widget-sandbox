@@ -5,6 +5,10 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- The `auto/23-gestures-b` conformance widget captures each pressed pointer, so its mouse-drag
+  checks receive the release after leaving the small target instead of remaining pending. Gesture
+  ownership rules are unchanged.
+
 - Binary-vs-JSON corpus tests freeze the widget's wall clock, so the clock fixture compares identical
   dates across runs instead of failing when the two sandbox boots cross a second boundary. Production
   clocks are unchanged.

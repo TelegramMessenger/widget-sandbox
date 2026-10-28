@@ -902,7 +902,7 @@
    "height": 0,
    "caption": "auto/23-gestures-b · Who gets a press (2/2): a vertical drag is always the chat's, on touch-action: none and pan-x too; a drag from the leading 20 px is the back gesture. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 2928
+   "zlib": 2912
   },
   {
    "widget": "auto/24-resize-anchor.html",

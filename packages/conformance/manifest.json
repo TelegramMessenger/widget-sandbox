@@ -7192,8 +7192,8 @@
     }
    ],
    "stages": [],
-   "bytes": 6738,
-   "zlib": 2928
+   "bytes": 6773,
+   "zlib": 2912
   },
   {
    "id": "auto/24-resize-anchor",
