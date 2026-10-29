@@ -43,6 +43,38 @@ semaphore. Two consequences, same as on the web:
 
 The timeout (3 s on the web) becomes the safety net for a frozen WebView.
 
+### Swift renderer task boundaries
+
+`TaskRenderer` is an optional Swift renderer interface. The host delivers
+`beginTask()` and `endTask()` around a sandbox task through the same ordered
+validation/executor pipeline as its operations and queries. A native renderer
+can lay out intermediate changes to answer a synchronous query while delaying
+presentation and height notifications until the task ends. Query answers must
+not wait for `endTask()`: the script is blocked on that answer.
+
+This is a renderer presentation optimization, not a widget profile feature or
+a new SDK capability. A renderer without this interface still receives the same
+validated operations and query requests. The interface does not change script
+execution, validation, query answers, CPU accounting, event policy or the shared
+wire protocol, so Kotlin, C++ and the web do not need a matching presentation
+callback. A change to any of those shared behaviors would require the parity
+work in `CONTRIBUTING.md`; a platform-only callback is not permission to change
+the contract.
+
+The engine closes a started task after a script exception or CPU-limit stop.
+When the renderer is not ready, the host buffers task boundaries along with the
+operations and replays them in order. Destroying the host discards later
+renderer delivery and releases a blocked query; renderer destruction must
+release any held presentation state without waiting for another callback.
+
+`TaskRendererHostTests` exercises the real Swift host, QuickJS engine and
+validator with synchronous/asynchronous validation, JSON/typed binary output,
+buffered startup, exceptions, CPU stops and destruction during a query. It also
+compares a plain renderer with a task-aware renderer for identical validated
+operations, query requests and script-observed answers. Native pixel and
+presentation tests remain in the renderer repository; these host tests alone
+do not establish visual parity across clients.
+
 ### Renderer is the same JavaScript
 
 `packages/core/src/renderer/renderer.ts` is a plain script with no bundler-specific code. It

@@ -5,6 +5,18 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+**Swift renderer task-boundary regression coverage** (tests and documentation
+only; no runtime, SDK, profile or bundle change). Eight `TaskRendererHostTests`
+exercise the real host/engine/validator pipeline: synchronous and asynchronous
+JSON delivery, asynchronous typed binary delivery, buffered startup, script
+exceptions, CPU-limit stops, destruction during a pending query, and equivalent
+operations/query answers with and without task callbacks. The native-only
+presentation scope and shared-parity requirements are documented in
+`docs/native-port-notes.md`, "Swift renderer task boundaries". Tests run in Debug;
+no additional scrolling capability is enabled. Removing either callback makes
+the binary-delivery regression fail; the tests do not change the runtime or
+historical corpus inputs. Commands are in `CLAUDE.md`.
+
 - The sculpted cat restores the full vertical angle saved by a mouse drag (−1.3 to
   1.3 radians) when its host recreates it. Previously reload clamped that angle to
   the narrower elevation-button range. This corrects the example only; the shared
