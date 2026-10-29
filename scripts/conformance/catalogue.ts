@@ -517,7 +517,7 @@ export const DECISIONS: Record<string, string> = {
   D4: 'Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)',
   D5: 'strict policy everywhere; webAnimations and morphUpdates from the profile',
   D6: '3D (__tw3d) cut from the release',
-  D8: 'SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage',
+  D8: 'SDK outward: openLink (confirmed with the full URL) and openTelegramLink (no confirmation of its own, 2026-10-29) on a tap, haptics; no sendMessage',
   SDK: 'SDK v1 (docs/sdk-v1.md), with Artem\'s answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble',
   D11: 'One widget model: classic DOM in the sandbox',
   D12a: 'Above the cap: hard clip, no fullscreen',

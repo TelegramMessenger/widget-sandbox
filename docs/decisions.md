@@ -1937,3 +1937,14 @@ with `TWIDGET_EXPERIMENTAL_SCROLLING` honour it, and a release build reports a `
 The shared validator code is unchanged and inert unless a host turns the flag on (Kotlin, C++ and the web never do).
 Inner scrolling for every client is a question for widget profile 2: with a wheel or a trackpad it is safe; on a touch
 screen horizontal scrolling fits the gesture rule, vertical scrolling conflicts with "vertical drags are the chat's" (v0.1.3).
+
+
+## Telegram links open without a confirmation (2026-10-29)
+
+`openTelegramLink(url)` no longer asks the client for a confirmation of its own (`docs/sdk-v1.md` §5.2; Artem,
+2026-10-29, after the bot demos: "Open @bot" in a widget showed a dialog that a `t.me` link in a message never shows).
+The client opens it as a tapped `t.me` link in a message, through its own `t.me` handling, which keeps the confirmations
+it has for the dangerous kinds (joining a chat, a proxy, a login, a language). `openLink(url)` keeps the confirmation
+with the full URL: an external page is where a widget could lead the user somewhere unexpected. Nothing changes in the
+framework: both calls stay privileged (only from a real tap, one per press) and the URL rules stay as they were; the
+confirmation was always the client's.

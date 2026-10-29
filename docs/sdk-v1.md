@@ -40,7 +40,7 @@ host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
 | widget API | `TelegramWidget`, Web Storage, `CSS.supports`, `navigator.language`, `visibilitychange`, the inert stubs | — |
 | checks | argument schemas, user activation, rate limits, storage quota, profile tables, in all five glue copies | — |
 | theme | CSS variables on the renderer root, `themeChanged`, the defaults of the root, the text and `<button>` (the UA layer) | maps the bubble's colours to `themeParams`, its button and message text to the button and text tokens, calls `setTheme` |
-| links | validates the URL, lets one call through per pointer press | shows the confirmation with the full URL, opens it |
+| links | validates the URL, lets one call through per pointer press | `openLink`: shows the confirmation with the full URL, opens it; `openTelegramLink`: opens it as a `t.me` link in a message, no confirmation of its own |
 | haptics | validates, rate-limits, drops calls from hidden widgets | plays them (or ignores them on desktop and web) |
 | storage | preload at start, per-task commits, the quota | persists per message, deletes with the message, chat, account, "Clear cache" |
 | gestures | reports per press what the widget claims with `touch-action` (horizontal drags, holds); the shared policy (thresholds, who wins); `dblclick` for every double tap, `contextmenu` for claimed holds; on the web, plays the bubble itself | drives its recognizers from the policy: menu and swipe-to-reply unless the widget claims the press, and then cancels the widget's touch; the list scroll always; no double-tap reaction over the widget (v0.1.2; vertical drags the chat's since v0.1.3, §5.5) |
@@ -981,13 +981,15 @@ private|group|via-bot|no-queries|live-copy|copy|preview`, or `--copy`, `--can-qu
 
 ### 5.2 Links
 
-- On `openLink(url)` and `openTelegramLink(url)`: show a native confirmation
-  that displays the **full URL** (not only the domain; the host in its ASCII
-  form, as the framework's URL parser gives it), with Open and Cancel.
-- On Open: `openLink` goes to the external browser (or the client's in-app
-  browser, by its usual setting); `openTelegramLink` goes through the client's
-  own `t.me` handling, which keeps its own confirmations (joining a chat,
-  starting a bot).
+- On `openLink(url)`: show a native confirmation that displays the **full
+  URL** (not only the domain; the host in its ASCII form, as the framework's
+  URL parser gives it), with Open and Cancel. On Open, go to the external
+  browser (or the client's in-app browser, by its usual setting).
+- On `openTelegramLink(url)`: no confirmation of its own; open it as a tapped
+  `t.me` link in a message, through the client's own `t.me` handling, which
+  keeps its own confirmations (joining a chat, a proxy, a login and the like).
+  Telegram opens its own links without asking (decided 2026-10-29,
+  `docs/decisions.md`, "Telegram links open without a confirmation").
 - One dialog at a time; drop actions that arrive while one is shown.
 - The framework guarantees at most one link action per pointer press.
 

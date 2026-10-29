@@ -1031,6 +1031,30 @@
    "zlib": 2182
   },
   {
+   "widget": "auto/28-grid-percent-fill.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/28-grid-percent-fill · A grid row with a percentage fill (a poll's options): a <button> grid 52px 1fr auto, a bar across columns 2–3 whose fill a width transition takes to 100 %. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 3629
+  },
+  {
+   "widget": "auto/29-grid-svg-marks.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/29-grid-svg-marks · A 3×3 board with SVG marks (a game board): nine <button>s in a grid on an aspect-ratio box, an SVG mark at 58 % put into a cell by innerHTML after load. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 3468
+  },
+  {
+   "widget": "auto/30-svg-fill-box.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/30-svg-fill-box · transform-box: fill-box on an SVG circle (a chart's end dot): scale(3) and a running pulse about its centre, before and after cx/cy move, measured and drawn (stages). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 3615
+  },
+  {
    "widget": "auto/31-stop-text.html",
    "width": 0,
    "height": 0,

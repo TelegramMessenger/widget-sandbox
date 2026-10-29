@@ -51,8 +51,9 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       sets the theme variables on the root, propagates a body background to the whole
       bubble and honours `user-select: text` (`docs/decisions.md`, "The renderer's
       defaults", "Text selection").
-- [ ] Links: `openLink` / `openTelegramLink` only from a real tap; confirmation
-      showing the full URL; then open ([sdk-v1.md §5.2](sdk-v1.md#52-links)).
+- [ ] Links: `openLink` / `openTelegramLink` only from a real tap; `openLink` with a
+      confirmation showing the full URL, then open; `openTelegramLink` straight into the
+      client's `t.me` handling, no confirmation of its own ([sdk-v1.md §5.2](sdk-v1.md#52-links)).
 - [ ] Haptics with the rate limit ([sdk-v1.md §5.3](sdk-v1.md#53-haptics)).
 - [ ] Storage per (account, chat, message id) on disk, preloaded at creation,
       committed from `onStorageCommit`, deleted with the message, the chat, the

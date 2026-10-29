@@ -230,7 +230,8 @@ anchor to try it.
   client.
 - **What the widget asks for** arrives as `onAction`, checked: `openLink(url)`
   (show a confirmation with the full URL, then the browser),
-  `openTelegramLink(url)` (your own t.me handling), `haptic(…)` (play it or
+  `openTelegramLink(url)` (your own t.me handling, as a tapped `t.me` link in a
+  message: no confirmation of its own), `haptic(…)` (play it or
   ignore it on desktop and web), `ready`. `docs/sdk-v1.md` §5 is the client's
   side of each. The widget's state and requests add two callbacks of their own:
   `onRequest` and `onCopyText` (below).

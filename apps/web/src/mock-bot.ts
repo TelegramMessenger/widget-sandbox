@@ -15,7 +15,8 @@ interface Bot {
   title: string;
   /** The data the bot sent the widget with. */
   initial: Data;
-  answer(data: string, ctx: { viewer: number; data: Data }): Reply;
+  /** `name`: the viewer's first name, as the bot gets it in `from`. */
+  answer(data: string, ctx: { viewer: number; name: string; data: Data }): Reply;
 }
 
 /** The dev app's viewer besides the id (1001): first name, last name, username, premium (`viewerFromList`). */
@@ -90,7 +91,121 @@ export const BOTS: Record<string, Bot> = {
       return { result: 'ok', chatData: JSON.stringify({ redeemed: new Date().toISOString().slice(0, 16) }) };
     },
   },
+  // corpus/bot-demos (notes on the protocol in each file's header; the real bot is scripts/bot-demos.ts).
+  order: {
+    title: 'bot-demos order: order:poll / order:refresh (refresh moves the order one step on), order:cancel while st ≤ 1',
+    initial: {
+      chatData: '{"items":[["Margherita",2,1250],["Burrata",1,900],["Lemonade",2,350]],"cur":"€","addr":"221B Baker St, flat 3","pay":"•• 4242"}',
+      publicData: '{"shop":"Pizzeria Uno","e":"🍕","id":"A-1042","st":1,"eta":"19:40","u":"19:12","bot":"examplebot"}',
+    },
+    answer(data, { data: d }) {
+      const p = json(d.publicData, { st: 0 });
+      if (data === 'order:cancel') {
+        if (p.st > 1 || p.st < 0) return { result: JSON.stringify({ err: p.st < 0 ? 'Already cancelled' : 'Too late to cancel' }) };
+        p.st = -1;
+      } else if (data === 'order:refresh') {
+        // Each refresh moves the order one step on, and the courier gets closer.
+        if (p.st >= 0 && p.st < 3) { p.st++; p.eta = new Date(Date.now() + (3 - p.st) * 8 * 60_000).toTimeString().slice(0, 5); }
+      }
+      else if (data !== 'order:poll') return { result: JSON.stringify({ err: 'unknown' }) };
+      if (data !== 'order:poll') p.u = new Date().toTimeString().slice(0, 5);
+      return { result: JSON.stringify({ st: p.st, eta: p.eta }), publicData: JSON.stringify(p) };
+    },
+  },
+  vote: {
+    title: 'bot-demos poll: vote:N toggles the viewer\'s vote; publicData {q, o, v, r} (r: the revision)',
+    initial: { chatData: null, publicData: '{"q":"Where do we go on Friday?","o":["Pizza","Sushi","Tacos","Burgers"],"v":[3,5,1,2]}' },
+    answer(data, { viewer, data: d }) {
+      const m = /^vote:(\d)$/.exec(data), p = json(d.publicData, { o: [], v: [] });
+      if (!m || Number(m[1]) >= p.o.length) return { result: JSON.stringify({ err: 'unknown' }) };
+      const n = Number(m[1]), before = demoVotes.get(viewer);
+      if (before !== undefined) p.v[before]--;
+      if (before === n) demoVotes.delete(viewer); else { demoVotes.set(viewer, n); p.v[n]++; }
+      p.r = (p.r ?? 0) + 1;
+      return { result: JSON.stringify({ my: demoVotes.get(viewer) ?? -1, v: p.v, r: p.r }), publicData: JSON.stringify(p) };
+    },
+  },
+  rsvp: {
+    title: 'bot-demos rsvp: rsvp:in / rsvp:may / rsvp:out (the same again clears); chatData {in, may, out}, publicData {t, w, p, max, n}',
+    initial: {
+      chatData: '{"in":[[101,"Bob"],[102,"Eve"],[103,"Max"],[104,"Kim"],[105,"Leo"]],"may":[[106,"Zoe"]],"out":[[107,"Ian"]]}',
+      publicData: '{"t":"Friday football","w":"Fri, Nov 6 · 19:00","p":"Central Park, field 3","max":10,"n":5}',
+    },
+    answer(data, { viewer, name, data: d }) {
+      const m = /^rsvp:(in|may|out)$/.exec(data);
+      if (!m) return { result: JSON.stringify({ err: 'unknown' }) };
+      const c = json(d.chatData, { in: [], may: [], out: [] }), p = json(d.publicData, {});
+      const was = (['in', 'may', 'out'] as const).find((k) => c[k].some((e: [number, string]) => e[0] === viewer));
+      for (const k of ['in', 'may', 'out']) c[k] = c[k].filter((e: [number, string]) => e[0] !== viewer);
+      const me = was === m[1] ? null : m[1];
+      if (me === 'in' && c.in.length >= p.max) return { result: JSON.stringify({ err: 'Full', me: was ?? null }) };
+      if (me) c[me].push([viewer, name]);
+      p.n = c.in.length;
+      return { result: JSON.stringify({ me }), chatData: JSON.stringify(c), publicData: JSON.stringify(p) };
+    },
+  },
+  duel: {
+    title: 'bot-demos duel: ttt:N, ttt:new; the mock plays O as Bob after your X so one person can try it',
+    initial: { chatData: '{"b":"---------","x":null,"o":null,"t":"x","w":null,"l":null,"s":[0,0]}', publicData: null },
+    answer(data, { viewer, name, data: d }) {
+      const g = json(d.chatData, { b: '---------', x: null, o: null, t: 'x', w: null, l: null, s: [0, 0] });
+      const err = (e: string) => ({ result: JSON.stringify({ err: e }) });
+      const snap = () => JSON.stringify({ b: g.b, x: g.x?.[1] ?? null, o: g.o?.[1] ?? null, w: g.w, s: g.s, bot: 'examplebot' });
+      const play = (mark: 'x' | 'o', i: number) => {
+        g.b = g.b.slice(0, i) + mark + g.b.slice(i + 1);
+        const line = LINES.find(([a, c, e]) => g.b[a] !== '-' && g.b[a] === g.b[c] && g.b[a] === g.b[e]);
+        if (line) { g.w = mark; g.l = line; g.s[mark === 'x' ? 0 : 1]++; } else if (!g.b.includes('-')) g.w = 'd';
+        g.t = mark === 'x' ? 'o' : 'x';
+      };
+      if (data === 'ttt:new') {
+        if (!g.w) return err('Game on');
+        const loserStarts = g.w === 'x' ? 'o' : 'x';
+        Object.assign(g, { b: '---------', t: loserStarts, w: null, l: null });
+        // Bob lost or drew as O and starts the rematch: he moves at once.
+        if (g.t === 'o' && g.o?.[0] === 2002) play('o', botMove(g.b));
+        return { result: '{"ok":1}', chatData: JSON.stringify(g), publicData: snap() };
+      }
+      const m = /^ttt:([0-8])$/.exec(data);
+      if (!m) return err('unknown');
+      if (g.w) return err('Game over');
+      if (!g.x) g.x = [viewer, name];
+      const mark = g.x[0] === viewer ? 'x' : g.o?.[0] === viewer ? 'o' : g.o ? null : 'o';
+      if (!mark) return err('Full');
+      if (mark === 'o' && !g.o) g.o = [viewer, name];
+      if (g.t !== mark) return err('Not your turn');
+      if (g.b[Number(m[1])] !== '-') return err('Taken');
+      play(mark, Number(m[1]));
+      // One person in the dev app: Bob answers as O.
+      if (!g.w && mark === 'x' && (!g.o || g.o[0] === 2002)) { g.o = [2002, 'Bob']; play('o', botMove(g.b)); }
+      return { result: '{"ok":1}', chatData: JSON.stringify(g), publicData: snap() };
+    },
+  },
+  quote: {
+    title: 'bot-demos ticker: no requests; push a new publicData with __tw.bot.edit or the panel to animate it',
+    initial: { chatData: null, publicData: '{"s":"TON","n":"Toncoin","c":"$","p":5.4321,"o":5.31,"h":[5.31,5.29,5.33,5.36,5.34,5.38,5.41,5.39,5.37,5.4,5.44,5.42,5.45,5.43,5.41,5.39,5.42,5.46,5.44,5.47,5.45,5.43,5.44,5.4321],"t":"21:59:30"}' },
+    answer: () => ({ result: JSON.stringify({ err: 'no requests' }) }),
+  },
+  reaction: {
+    title: 'bot-demos reaction: score:N (100–2000 ms) → the shared top (8 rows, also in the answer) and the chat\'s best',
+    initial: { chatData: '{"best":243}', publicData: '{"top":[["Max",171],["Eve",188],["Bob",203],["Kim",219],["Leo",240],["Zoe",262]],"plays":42}' },
+    answer(data, { viewer, name, data: d }) {
+      const m = /^score:(\d{3,4})$/.exec(data), ms = m ? Number(m[1]) : 0;
+      if (!(ms >= 100 && ms <= 2000)) return { result: JSON.stringify({ err: 'Not a human time' }) };
+      const p = json(d.publicData, { top: [], plays: 0 }), c = json(d.chatData, {});
+      const mine = p.top.find((r: [string, number]) => r[0] === name);
+      if (mine) mine[1] = Math.min(mine[1], ms); else p.top.push([name, ms]);
+      p.top.sort((a: [string, number], b: [string, number]) => a[1] - b[1]);
+      p.top = p.top.slice(0, 8);
+      p.plays++;
+      p.r = (p.r ?? 0) + 1;
+      const best = Math.min(c.best ?? ms, ms), rank = p.top.findIndex((r: [string, number]) => r[0] === name) + 1;
+      return { result: JSON.stringify({ rank, best: mine ? mine[1] : ms, top: p.top, plays: p.plays, r: p.r }), chatData: JSON.stringify({ best }), publicData: JSON.stringify(p) };
+    },
+  },
 };
+
+/** The bot-demos poll's votes by viewer (the mock keeps no per-viewer state in the message). */
+const demoVotes = new Map<number, number>();
 
 /** How the mock bot answers: with the selected bot, or as a client's failures; `manual` keeps the request until a button answers it. */
 export const MODES = ['bot', 'manual', 'TIMEOUT', 'RATE_LIMITED', 'FAILED'] as const;
@@ -235,7 +350,7 @@ export class MockBot {
     const settle = this.pending.get(rec);
     if (!settle) return;
     const data = this.dataFor(rec.file);
-    const reply = BOTS[this.bot].answer(rec.data, { viewer: this.context.viewer ?? 0, data });
+    const reply = BOTS[this.bot].answer(rec.data, { viewer: this.context.viewer ?? 0, name: this.context.profile.split(',')[0] || `User ${this.context.viewer}`, data });
     if ('chatData' in reply || 'publicData' in reply) {
       this.edit(rec.file, { chatData: 'chatData' in reply ? reply.chatData || null : data.chatData, publicData: 'publicData' in reply ? reply.publicData || null : data.publicData });
     }

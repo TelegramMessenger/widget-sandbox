@@ -345,6 +345,39 @@ state at once returns it in `result`.
 **Old clients.** Below layer 233: `messageMediaUnsupported` with the caption,
 as for any widget, and no widget results in inline lists.
 
+## The Bot API (10.4)
+
+Bots see the same widget under Bot API names (checked against the beta,
+`https://api.telegram.org/beta/bot<token>/test/<method>`, on 2026-10-28;
+`scripts/conformance/test-bot.ts` speaks it):
+
+| Layer 233 (this document) | Bot API 10.4 |
+|---|---|
+| `inputMediaWidget` | `sendWidget`; in inline mode an article with `InputWidgetMessageContent` |
+| `allow_queries` | `allow_queries` |
+| `shared_widget` | `is_shared` (the sent `Widget` has `id`) |
+| `fwd_allow_queries` | none of its own: a widget sent with `is_shared` and `allow_queries` is one whose forwards may ask |
+| `inputMediaWidgetId`, `inputBotInlineMessageWidgetId` | `sendSharedWidget`, `InputSharedWidgetMessageContent` |
+| `messageMediaWidget`: `is_copy`, `can_query`, `background_query` | `Widget`: `is_copy`, `can_send_queries`, `can_send_background_queries` |
+| the request from an original (also via the bot) | update `widget_query`: `id`, `from`, `chat` and `message_id` or `inline_message_id`, `chat_instance`, `chat_type` (via the bot), `data`, `widget_id` (a shared widget's) |
+| the request from a copy of a shared widget | update `shared_widget_query`: `id`, `from`, `data`, `widget_id` |
+| `result` | `answerWidgetQuery`'s `data` |
+| the message's state edit | `editMessageWidgetData` (`chat_id` + `message_id` or `inline_message_id`) |
+| `messages.editWidgetData` | `editSharedWidgetData` (`widget_id`, `public_data`, `cache_time`) |
+
+What the beta does: the HTML is refused past 32768 bytes or past 4096 bytes of
+PHP `gzcompress($html, 9)` (`INPUT_MEDIA_WIDGET_TOO_LARGE`; a Node build's own
+zlib compresses random text about 18 bytes tighter, `src/shared/widget-size.ts`);
+`chat_data`, `public_data` and the answer's `data` take 1024 bytes each, counted
+in bytes; `cache_time` is clamped to 3600 above but 4 is refused; `copyMessage`
+of a widget is refused; a forward carries `is_copy` and the `public_data` of the
+moment, no `chat_data`; a forward of a shared widget keeps its `id` and
+`can_send_queries`. `can_send_background_queries` was not set on any message
+yet, the private chat with `allow_queries` included. An `editMessageWidgetData`
+that changes nothing is refused with `message is not modified`, as
+`editMessageText` is; a bot takes it as done and still answers the query (a
+query left unanswered ends in the widget as `TIMEOUT`).
+
 ## Caption, preview, old clients
 
 The message's ordinary media caption is the text for the preview, the chat

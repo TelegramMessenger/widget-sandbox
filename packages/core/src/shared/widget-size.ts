@@ -1,9 +1,10 @@
 // A widget's size as the server counts it (docs/tgw-format.md): mini-HTML is at most 32 768 bytes of HTML and
 // 4096 bytes after zlib compression at level 9 (PHP gzcompress($html, 9), RFC 1950: a 2-byte header and a 4-byte
 // Adler-32 around the deflate stream); past either the server refuses the widget with INPUT_MEDIA_WIDGET_TOO_LARGE.
-// 3800 B is the margin the conformance set keeps (scripts/conformance/build.ts): another zlib can differ by a few bytes,
-// and the dev app's CompressionStream compresses at level 6, a few bytes more than level 9 on real widgets, so these
-// numbers err on the safe side. Shared by the harness and the dev app.
+// 3800 B is the margin the conformance set keeps (scripts/conformance/build.ts): another zlib can differ by a few bytes
+// (Node's bundled zlib, Chromium's fork, compresses random text about 18 bytes tighter than the server's PHP at the
+// 4096 B boundary: measured on the beta, 2026-10-28), and the dev app's CompressionStream compresses at level 6, a few
+// bytes more than level 9 on real widgets. Shared by the harness and the dev app.
 
 export const MINI_HTML = { zlib: 4096, raw: 32768, warnZlib: 3800 } as const;
 

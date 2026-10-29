@@ -91,9 +91,10 @@ export interface MessageSpec {
 }
 
 /**
- * What the test bot does on a widget_query with exactly this data (scripts/conformance/test-bot.ts): edit the
- * message's state (editMessageWidgetData, or editInlineBotMessageWidgetData for a via-bot message), edit the shared
- * widget (editWidgetData by widget_id, with cache_time), then answer with `result`. `repeat` runs the edits again
+ * What the test bot does on a widget_query or shared_widget_query with exactly this data
+ * (scripts/conformance/test-bot.ts, Bot API 10.4): edit the message's state (editMessageWidgetData, by chat and
+ * message_id or by inline_message_id for a via-bot message), edit the shared widget (editSharedWidgetData by
+ * widget_id, with cache_time), then answer with `result` (answerWidgetQuery's data). `repeat` runs the edits again
  * every `every` s, `times` times in all (a ticker). Templates in the strings: {n} counts the requests with this data
  * per message (per widget_id for a copy), {from} is who pressed (first_name), {time} the bot's HH:MM:SS.
  */

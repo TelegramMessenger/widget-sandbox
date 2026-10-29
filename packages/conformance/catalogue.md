@@ -63,8 +63,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `svg.shapes` | Inline <svg>: rect, circle, ellipse, line, polyline, polygon, path with presentation attributes | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
-| `svg.structure` | g, defs, symbol, use (fragment href), transform attribute, viewBox/preserveAspectRatio | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
+| `svg.shapes` | Inline <svg>: rect, circle, ellipse, line, polyline, polygon, path with presentation attributes | in | D3a | kept |  | auto/13-svg-a, auto/30-svg-fill-box, visual/09-svg-a |
+| `svg.structure` | g, defs, symbol, use (fragment href), transform attribute, viewBox/preserveAspectRatio | in | D3a | kept |  | auto/13-svg-a, auto/30-svg-fill-box, visual/09-svg-a |
 | `svg.text` | SVG text, tspan | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
 | `svg.gradients` | linearGradient, radialGradient, stop; fill="url(#id)" | in | P1 | kept |  | auto/13-svg-a, visual/09-svg-a |
 | `svg.css` | CSS on inline SVG: fill/stroke from a stylesheet rule, :hover, CSS animation of SVG properties<br><sub>Blitz and the litehtml prototype ignore SVG CSS (probe svg-css).</sub> | in | P1 | kept |  | auto/13-svg-a, visual/09-svg-b |
@@ -81,15 +81,15 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.display.basic` | display: block, inline, inline-block, none | in | D3a | kept |  | auto/03-layout-a |
 | `css.display.flex` | Flexbox: display flex/inline-flex, direction, wrap, justify-content, align-items/self/content, flex grow/shrink/basis, order | in | D3a | kept |  | auto/03-layout-a, visual/04-layout |
 | `css.gap.flex` | gap / row-gap / column-gap in flex containers<br><sub>Missing in the litehtml prototype (probe flex-gap).</sub> | in | D3a | kept |  | auto/03-layout-a, visual/04-layout |
-| `css.display.grid` | CSS grid: display grid, grid-template-*, grid-area/column/row, auto-flow, place-* | in | P1-grid | kept |  | auto/03-layout-a, visual/04-layout |
+| `css.display.grid` | CSS grid: display grid, grid-template-*, grid-area/column/row, auto-flow, place-* | in | P1-grid | kept |  | auto/03-layout-a, auto/28-grid-percent-fill, auto/29-grid-svg-marks, visual/04-layout |
 | `css.display.table` | display: table / table-row / table-cell | in | D3a | kept |  | auto/03-layout-c |
 | `css.display.other` | display: flow-root, contents, list-item | out | P1 | stripped | the declaration is dropped | auto/03-layout-c |
-| `css.box.size` | width, height, min-/max-width/height (px, %, auto, fit-content, min/max-content) | in | D3a | kept |  | auto/03-layout-b |
+| `css.box.size` | width, height, min-/max-width/height (px, %, auto, fit-content, min/max-content) | in | D3a | kept |  | auto/03-layout-b, auto/28-grid-percent-fill, auto/29-grid-svg-marks |
 | `css.box.spacing` | margin, padding (incl. auto margins and negative margins) | in | D3a | kept |  | auto/03-layout-b |
 | `css.box.border` | border width/style/colour (solid, dashed, dotted, double) | in | D3a | kept |  | auto/03-layout-b, visual/01-boxes |
 | `css.box.radius` | border-radius, including clipping of the background | in | D3a | kept |  | auto/03-layout-c, visual/01-boxes |
 | `css.box.sizing` | box-sizing: border-box / content-box | in | D3a | kept |  | auto/03-layout-b |
-| `css.box.aspect-ratio` | aspect-ratio<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/03-layout-b |
+| `css.box.aspect-ratio` | aspect-ratio<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/03-layout-b, auto/29-grid-svg-marks |
 | `css.box.logical` | Logical properties: margin-inline, padding-block, inset-inline, inline-size, …<br><sub>Used by LLM widgets (15 % of generated); missing in the litehtml prototype.</sub> | out | P1 | stripped | the declaration is dropped | auto/03-layout-b |
 | `css.box.outline` | outline (width, style, colour, offset) | in | D3a | kept |  | auto/03-layout-b, auto/05-colour-backgrounds-b, visual/01-boxes |
 | `css.box.shadow` | box-shadow (outer, inset, spread, several layers) | in | D3a | kept |  | auto/05-colour-backgrounds-b, visual/01-boxes |
@@ -134,7 +134,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.text.rtl` | Right-to-left and bidi text (direction, unicode-bidi, Hebrew/Arabic shaping) | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
 | `css.text.emoji` | Colour emoji glyphs (system emoji font)<br><sub>Blitz on iOS had blank emoji on the vello backend.</sub> | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
 | `css.text.selection` | Text selection: not selectable by default; user-select: text (or -webkit-user-select) enables it (none \| text \| auto)<br><sub>user-select: all and contain, and ::selection, stay out. A native renderer that cannot select text yet keeps it unselectable: the widget still works (an accepted exception to 'every client draws it', like :hover).</sub> | in | D18 | kept |  | auto/06-text-fonts-c, visual/16-selection |
-| `css.transform.2d` | 2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
+| `css.transform.2d` | 2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/09-transforms-effects-a, auto/30-svg-fill-box, visual/05-transforms-effects-a |
 | `css.transform.3d` | 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility | out | D3a | stripped | a transform with a 3D function is dropped; perspective, transform-style and backface-visibility are dropped | auto/09-transforms-effects-a, visual/05-transforms-effects-a, visual/13-out-of-profile |
 | `css.filter.blur-brightness-drop-shadow` | filter: blur(), brightness(), drop-shadow()<br><sub>Not drawn by Blitz or the litehtml prototype today (probe filter).</sub> | in* | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
 | `css.filter.other` | filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() | out | P1 | stripped | the function is removed from the filter list; an empty list drops the declaration | auto/09-transforms-effects-a, visual/05-transforms-effects-b |
@@ -195,8 +195,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `anim.transition` | CSS transitions (property, duration, delay incl. negative, timing functions) | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
-| `anim.keyframes` | CSS animations: animation-name/duration/delay/iteration-count/direction/fill-mode/timing-function<br><sub>Not driven by Blitz or the litehtml prototype.</sub> | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
+| `anim.transition` | CSS transitions (property, duration, delay incl. negative, timing functions) | in | D3a | kept |  | auto/10-css-animations, auto/28-grid-percent-fill, visual/06-css-animations |
+| `anim.keyframes` | CSS animations: animation-name/duration/delay/iteration-count/direction/fill-mode/timing-function<br><sub>Not driven by Blitz or the litehtml prototype.</sub> | in | D3a | kept |  | auto/10-css-animations, auto/30-svg-fill-box, visual/06-css-animations |
 | `anim.play-state` | animation-play-state: paused (and negative delays) freeze a frame | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
 | `anim.easing` | Timing functions: ease*, linear, cubic-bezier(), steps(), linear() stops | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
 | `anim.events` | animationstart/end/iteration and transitionend events reach the widget | in | D3a | kept |  | auto/10-css-animations |
@@ -374,7 +374,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D4**: Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)
 - **D5**: strict policy everywhere; webAnimations and morphUpdates from the profile
 - **D6**: 3D (__tw3d) cut from the release
-- **D8**: SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage
+- **D8**: SDK outward: openLink (confirmed with the full URL) and openTelegramLink (no confirmation of its own, 2026-10-29) on a tap, haptics; no sendMessage
 - **SDK**: SDK v1 (docs/sdk-v1.md), with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble (replaced by G1 in v0.1.2)
 - **D11**: One widget model: classic DOM in the sandbox
 - **D12a**: Above the cap: hard clip, no fullscreen

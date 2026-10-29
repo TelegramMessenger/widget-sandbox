@@ -7877,6 +7877,303 @@
    "zlib": 2182
   },
   {
+   "id": "auto/28-grid-percent-fill",
+   "set": "auto",
+   "file": "auto/28-grid-percent-fill.html",
+   "title": "A grid row with a percentage fill (a poll's options): a <button> grid 52px 1fr auto, a bar across columns 2–3 whose fill a width transition takes to 100 %",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "anim.transition",
+    "css.box.size",
+    "css.display.grid"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "css.box.size",
+     "name": "at load: every row is as wide as its container (width: 100%)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.grid",
+     "name": "at load: each count ends at the row's end (the auto column fits the count)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.box.size",
+     "name": "at 100 %: every row is as wide as its container (width: 100%)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.grid",
+     "name": "at 100 %: each count ends at the row's end (the auto column fits the count)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.grid",
+     "name": "the bar spans columns 2–3, from 52 px to the row's end (grid-column: 2/4)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.box.size",
+     "name": "no fill runs past its bar's right edge",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "anim.transition",
+     "name": "after the width transition each fill is its percentage of the bar",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 7932,
+   "zlib": 3629
+  },
+  {
+   "id": "auto/29-grid-svg-marks",
+   "set": "auto",
+   "file": "auto/29-grid-svg-marks.html",
+   "title": "A 3×3 board with SVG marks (a game board): nine <button>s in a grid on an aspect-ratio box, an SVG mark at 58 % put into a cell by innerHTML after load",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "css.box.aspect-ratio",
+    "css.box.size",
+    "css.display.grid"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "css.box.aspect-ratio",
+     "name": "the board is square at its max-width (aspect-ratio: 1, max-width: 264px)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.grid",
+     "name": "nine buttons take equal thirds of the board (grid-template: repeat(3,1fr)/repeat(3,1fr))",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.grid",
+     "name": "after a mark in cell 4: the cells keep equal thirds",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.grid",
+     "name": "after marks in cells 4 and 5: the cells keep equal thirds",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.display.grid",
+     "name": "each mark is centred in its own cell (place-items: center)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.box.size",
+     "name": "each mark is 58 % of its cell (width/height: 58% of the button)",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 7300,
+   "zlib": 3468
+  },
+  {
+   "id": "auto/30-svg-fill-box",
+   "set": "auto",
+   "file": "auto/30-svg-fill-box.html",
+   "title": "transform-box: fill-box on an SVG circle (a chart's end dot): scale(3) and a running pulse about its centre, before and after cx/cy move, measured and drawn (stages)",
+   "kind": [
+    "self",
+    "pixel"
+   ],
+   "covers": [
+    "anim.keyframes",
+    "css.transform.2d",
+    "svg.shapes",
+    "svg.structure"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "svg.structure",
+     "name": "the dot sits at its cx/cy (a viewBox the element's width, preserveAspectRatio none)",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.transform.2d",
+     "name": "scale(3) with transform-box: fill-box, transform-origin: center: centred on the dot, 3× its size",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.transform.2d",
+     "name": "the running pulse (scale 1 → 3) stays centred on the dot",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "svg.shapes",
+     "name": "after cx/cy move: the dot sits at its cx/cy",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.transform.2d",
+     "name": "after cx/cy move: scale(3) with transform-box: fill-box, transform-origin: center: centred on the dot, 3× its size",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "css.transform.2d",
+     "name": "after cx/cy move: the running pulse (scale 1 → 3) stays centred on the dot",
+     "native": {
+      "chromium": "pass"
+     }
+    }
+   ],
+   "stages": [
+    {
+     "name": "scale",
+     "rect": [
+      8,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.transform.2d"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/30-svg-fill-box/scale.chromium.png"
+     },
+     "nativeVsTemplate": 0
+    },
+    {
+     "name": "animated",
+     "rect": [
+      96,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.transform.2d",
+      "anim.keyframes"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/30-svg-fill-box/animated.chromium.png"
+     },
+     "nativeVsTemplate": 0
+    },
+    {
+     "name": "moved",
+     "rect": [
+      184,
+      8,
+      80,
+      60
+     ],
+     "size": [
+      80,
+      60
+     ],
+     "covers": [
+      "css.transform.2d",
+      "anim.keyframes"
+     ],
+     "themes": [
+      "light"
+     ],
+     "reftest": true,
+     "refs": {
+      "chromium": "refs/auto/30-svg-fill-box/moved.chromium.png"
+     },
+     "nativeVsTemplate": 0
+    }
+   ],
+   "bytes": 8867,
+   "zlib": 3615
+  },
+  {
    "id": "auto/31-stop-text",
    "set": "auto",
    "file": "auto/31-stop-text.html",

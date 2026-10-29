@@ -10,7 +10,7 @@ You need three things: the framework tag, your own host and renderer, and Node �
 
 | | |
 |---|---|
-| `auto/*.html` | The automatic set: 51 widgets that check themselves. Required. |
+| `auto/*.html` | The automatic set: 54 widgets that check themselves. Required. |
 | `visual/*.html` | The visual set: 20 widgets for people (the test channel). Optional in a runner, where it is only a load check. |
 | `channel.json` | The test channel in posting order: per message the widget, its size anchors, the caption and the reference photos. |
 | `manifest.json` | One entry per widget: scripted `actions`, `host` checks, pixel `stages` (`rect`, `themes`, `refs`), `themes`. |
@@ -162,6 +162,8 @@ How to read them by status:
 - **out**: ✅ means the feature is neutralised as the profile says.
 
 Send `<platform>-<renderer>.json` and `summary.md` to the widget-sandbox maintainers, or open a PR adding them to `packages/conformance/results/`.
+
+**Patterns from real widgets.** `auto/28-grid-percent-fill`, `29-grid-svg-marks` and `30-svg-fill-box` copy the layout of bot widgets that the Telegram iOS and Android clients drew wrong while Chromium drew them right: a poll's row (a `<button>` grid with a bar whose fill a transition takes to 100 %), a 3×3 board of buttons with SVG marks put in after load, and a chart's end dot scaled with `transform-box: fill-box`. All of it is profile 1, so widgets keep these patterns: a failure here is your renderer's to fix (or your theme tokens', if your `--tg-button-*` values change the layout), not the widget's. Each check's detail gives the measured boxes. The iOS and Android renderers ignored `transform-box: fill-box` (an SVG shape scaled about the view box), which `30-svg-fill-box` measures; its three pixel stages draw the same shape static, animated and moved, for a renderer that paints other than it answers: crop them while the widget runs, as step 7 says. The patterns and what was seen: `README.md`, "Patterns from real widgets".
 
 ## The client SDK group (`visual/sdk/`)
 

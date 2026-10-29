@@ -67,6 +67,33 @@ no longer answers `BUSY` itself: it forwards every request and keeps the unanswe
 the only judge of what is in flight, so a refused request never makes the next one `BUSY` (`BUSY` now arrives a task
 later, with a `request-blocked` diag). The harness gains `--offscreen` (boot hidden, then appear, as the clients do).
 
+**Telegram links open without a confirmation** (docs only; `docs/sdk-v1.md` §1 and §5.2, `docs/decisions.md`
+"Telegram links open without a confirmation"). On `openTelegramLink(url)` the client opens the link as a tapped `t.me`
+link in a message, with no confirmation of its own; its `t.me` handling keeps the confirmations it already has (joining a
+chat, a proxy, a login). `openLink` keeps the confirmation with the full URL. Decision D8's wording in `profile.json`
+says so (`docs/profile-v1.md` and the conformance catalogue regenerated); the framework's checks are unchanged.
+
+**The authors' guide catches up with the Bot API and the bot demos** (docs only; `docs/widget-runtime-profile.md`).
+A new section, "The bot's side (Bot API 10.4)": `sendWidget` and its fields, `sendSharedWidget`, the inline contents,
+`widget_query` / `shared_widget_query` and `answerWidgetQuery` (answer every one, or the widget sees `TIMEOUT`),
+`editMessageWidgetData` / `editSharedWidgetData` (an edit that changes nothing fails with `message is not modified`;
+take it as done). The size is measured as the server does (Python's `zlib.compress(html, 9)` equals PHP's
+`gzcompress`; the harness's Node count is a few dozen bytes off either way), instead of a 3800-byte margin. Two
+lessons from the demos, also in the agent block: keep a revision in a shared state and ignore older polls, and draw a
+forward of a widget that is not shared as a snapshot. `openTelegramLink` opens without a confirmation in the human
+part too; testing on clients points to `corpus/bot-demos` and `scripts/bot-demos.ts`.
+
+**Conformance: patterns the clients drew wrong** (`packages/conformance/auto/28-grid-percent-fill`, `29-grid-svg-marks`,
+`30-svg-fill-box`; with the stop cases `auto/31`–`35` the set has 59 automatic widgets). Three bot demos drew wrong on the Telegram iOS and Android clients
+and right in Chromium: a poll's 100 % row grew wider than the bubble with its count mid-row, a tic-tac-toe board broke up
+after two marks, a chart's end dot's pulse shot off the chart. Their layouts are profile 1, so the widgets keep them and the set
+gets a case per pattern, built as the demo builds it and measured with layout queries the client's renderer answers: a
+`<button>` grid with a fill transitioned to 100 %, nine grid buttons with SVG marks put in after load, a circle scaled with
+`transform-box: fill-box` before and after `cx`/`cy` move, with pixel stages of it static, animated and moved (the
+clients' own renderers ignore `fill-box` and scale the shape about the view box, as a probe on both showed). They pass
+on the web renderers (checks and stages), their checks also in macOS WebKit; `packages/conformance/README.md`,
+"Patterns from real widgets", has what each checks.
+
 **The authors' guide's agent block stands alone** (docs only; `docs/widget-runtime-profile.md`, `sandbox-node.ts
 --guide`). The block for a model's system prompt was a 400-word summary that pointed to the repository's documents, which a
 bot's model or a cloud agent never sees. It now carries what a widget needs (about 4K tokens): the bubble, the defaults

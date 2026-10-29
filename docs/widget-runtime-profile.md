@@ -23,12 +23,13 @@ it.
 ## Size: mini-HTML
 
 - At most **32 768 bytes of HTML** and **4096 bytes compressed**. The server
-  compresses with zlib at level 9 and refuses anything larger with
-  `INPUT_MEDIA_WIDGET_TOO_LARGE`. Keep a margin: aim for 3800 B.
-- Measure: `python3 -c 'import sys,zlib; print(len(zlib.compress(sys.stdin.buffer.read(), 9)))' < widget.html`
-  (`gzip -9 -n` counts about 12 bytes more), or let the harness print it
-  (`sandbox-node.ts widget.html`, the line `size:`), or read the dev app's
-  stats panel.
+  compresses with zlib at level 9 (PHP `gzcompress($html, 9)`) and refuses
+  anything larger with `INPUT_MEDIA_WIDGET_TOO_LARGE`.
+- Measure as the server does: `python3 -c 'import sys,zlib; print(len(zlib.compress(sys.stdin.buffer.read(), 9)))' < widget.html`
+  gives the same number (`gzip -9 -n` counts 12 bytes more). The harness
+  (`sandbox-node.ts widget.html`, the line `size:`) and the dev app's stats
+  panel count with Node's zlib, a few dozen bytes off the server's either way:
+  near 4096, trust the Python number.
 - What costs bytes: `data:` images barely compress; repeated inline styles and
   long class names compress well; SVG paths are cheap until they are long.
 
@@ -167,7 +168,7 @@ TelegramWidget.colorScheme;                  // 'light' | 'dark', the chat's
 TelegramWidget.themeParams.bg_color;         // the palette, '#rrggbb' (Mini Apps keys)
 TelegramWidget.onEvent('themeChanged', fn);  // also 'activated' / 'deactivated'; isActive
 TelegramWidget.openLink('https://…');        // in a tap handler: the user confirms the full URL
-TelegramWidget.openTelegramLink('https://t.me/…');
+TelegramWidget.openTelegramLink('https://t.me/…'); // in a tap handler: opens inside Telegram, no confirmation
 TelegramWidget.HapticFeedback.impactOccurred('light'); // notificationOccurred, selectionChanged
 TelegramWidget.ready();                      // optional: first state drawn
 TelegramWidget.setResizeAnchor('bottom');    // v0.1.3: grow upward ('top', the default: downward)
@@ -181,9 +182,11 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
 - **Links:** `https:` only, at most 256 characters, one call per tap, only in
   the handler of a real tap (not from a timer or a promise; nor from a finger's
   `pointerdown`, which may still become the chat's scroll: use `click` or
-  `pointerup`); a bad URL throws
-  `TypeError`. A tapped `<a href="https://…">` does the same. The widget is not
-  told whether the user opened it.
+  `pointerup`); a bad URL throws `TypeError`. A tapped `<a href="https://…">`
+  does the same. `openLink` shows the user the full URL to confirm;
+  `openTelegramLink` opens the `t.me` link inside Telegram without a
+  confirmation, as a link in a message does. The widget is not told whether the
+  user opened it.
 - **Storage:** `localStorage` is kept for this message on this device, there
   from the first line of script, 4 KB per area (`QuotaExceededError` past
   it: catch it); `sessionStorage` until the app restarts. A forwarded copy
@@ -204,15 +207,23 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   (votes, a board, a score) and draw it per `viewer.id`; when the bot changes it
   you get `chatDataChanged` / `publicDataChanged`: redraw, nothing restarts.
 - **Live shared state**: call `TelegramWidget.watchPublicData()` if the bot
-  sent the widget as a shared one and keeps changing its shared state (a ticker,
-  a poll others vote in): only then does the client poll it while the widget is
-  on screen, at the server's period (5–3600 s, 30 s by default). Without it you
-  get the shared state with the message and the bot's edits of this message
-  only.
+  sent the widget as a shared one (`is_shared`) and keeps changing its shared
+  state (a ticker, a poll others vote in): only then does the client poll it
+  while the widget is on screen, at the server's period (5–3600 s, 30 s by
+  default). Without it you get the shared state with the message and the bot's
+  edits of this message only.
+- **Keep the newest state.** A poll can bring the shared state back older than
+  what you already drew from a `result` or an earlier poll, and the counts would
+  jump back and forth. Have the bot put a revision in the shared state (`"r":
+  41`, raised on every edit, and in `result` too) and ignore anything older than
+  the newest you have seen.
+- **A forward of a widget that is not shared never changes**: it keeps the
+  shared state as it was when forwarded. Draw it as a snapshot ("Cooking, as of
+  19:40"), not as live progress the reader would wait on.
 - **Requests**: `request(data)` is a callback button inside the widget: `data`
   1–64 bytes; the promise resolves with `{ result }` (the bot's answer for you,
   up to 1024 bytes, or `null`) or rejects with `error.code`: `NOT_ALLOWED` (no
-  tap, a widget the bot did not allow to ask, a forward that may not ask), `BUSY` (one at a time), `RATE_LIMITED`,
+  tap, a widget the bot did not allow to ask (`allow_queries`), a forward that may not ask), `BUSY` (one at a time), `RATE_LIMITED`,
   `TIMEOUT` (the bot did not answer), `FAILED`, `INVALID_ANSWER`. Call it in a
   tap handler (one call per tap, shared with links and `copyText`). The answer
   does not change the state: the bot's edits arrive as the events; if you need
@@ -225,7 +236,8 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   "sending…" and handle every code.
 - **A forward** (`isForward`) has no chat state (`chatData` is `null`) and no
   `chatType` (a copy is told nothing about its chat). It can ask on a tap only
-  if the bot let forwards ask; otherwise it has no `viewer` either and every
+  if the bot let forwards ask (a shared widget sent with `allow_queries`);
+  otherwise it has no `viewer` either and every
   request is `NOT_ALLOWED`: show the shared state and point to the bot
   (`openTelegramLink('https://t.me/<bot>?start=…')`).
 - **copyText**: `copyText(text)`, 1–256 characters, in a tap handler; the
@@ -276,6 +288,39 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
 - Keep the first render synchronous and fast; animate with
   `requestAnimationFrame`, never read layout in every frame.
 
+## The bot's side (Bot API 10.4)
+
+The names a bot uses; the whole mapping and what the beta does are in
+`docs/tgw-format.md`, "The Bot API (10.4)".
+
+- **Send:** `sendWidget` with `html`, `width`, `height` (`0` or none = auto),
+  `chat_data`, `public_data`, `caption`, `allow_queries` (taps may ask, and in
+  the private chat with the bot the widget may ask in the background),
+  `is_shared` (one shared state for every copy; the sent `Widget` has an `id`;
+  with `allow_queries` forwards may ask too) and `reply_markup` (an inline
+  keyboard under the widget). `sendSharedWidget(widget_id, chat_data)` posts the
+  same shared widget again. In inline mode: an article with
+  `InputWidgetMessageContent` (the same fields) or
+  `InputSharedWidgetMessageContent` (`widget_id`). `copyMessage` of a widget is
+  refused; a forward is the way to pass it on.
+- **Answer:** a request from an original arrives as the update `widget_query`
+  (`from`, `chat` and `message_id` or `inline_message_id`, `data`, and
+  `widget_id` for a shared widget); one from a copy of a shared widget as
+  `shared_widget_query` (`from`, `data`, `widget_id`). Answer every one with
+  `answerWidgetQuery(widget_query_id, data)` (`data` = `result`, at most 1024
+  bytes), also when something failed: an unanswered request ends in the widget
+  as `TIMEOUT`.
+- **Change the state:** `editMessageWidgetData` (`chat_id` and `message_id`, or
+  `inline_message_id`; `chat_data`, `public_data`) for this message;
+  `editSharedWidgetData(widget_id, public_data, cache_time)` for a shared
+  widget's state everywhere (`cache_time`: the clients' poll period, 5–3600 s).
+  An edit that changes nothing fails with `message is not modified`: take it as
+  done. Put the user's move into your own state only once the edit went
+  through, so a failed edit does not take a turn away.
+- **Examples:** `corpus/bot-demos` (an order, a shared poll, who's in, a duel,
+  a live quote, a shared leaderboard; the protocol of each in its README) and
+  the bot that sends them, `scripts/bot-demos.ts`.
+
 ## How to test
 
 - **The harness** (no browser window, prints text for people and agents):
@@ -303,8 +348,10 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   forward, a preview), the chat type, the viewer, the chat state, the shared
   state and the bot's edit of them, how it answers (a built-in bot, manual, or a
   failure); `corpus/interactive` has a poll, tic-tac-toe, a live ticker and a
-  promo code that use it.
-- **On clients:** a test bot sends the widget to your private chat.
+  promo code that use it, and `corpus/bot-demos` the six demos of the real bot.
+- **On clients:** send it with your bot (`sendWidget`, above) to your private
+  chat, a group and through inline mode, and forward it: each place gives the
+  widget different rights. `scripts/bot-demos.ts` is a bot to start from.
 
 ## Agent block
 
@@ -321,14 +368,14 @@ You write Telegram widgets. A widget is one self-contained HTML document (or a
 fragment) with inline <style> and <script>, sent by a bot in a message and drawn
 inside the chat bubble on every Telegram client (iOS, Android, desktop, web).
 Every client silently removes what is outside the widget profile below and runs
-the rest, so an out feature is a bug you will not see: stay inside the profile.
-Full docs: {docs}/guide (the guide), {docs}/sdk (the API), {docs}/profile (every
-feature).
+the rest: an out feature is a bug you will not see. Docs: {docs}/guide,
+{docs}/sdk (the API), {docs}/profile (every feature).
 
 SIZE
 - At most 32768 bytes of HTML and 4096 bytes after zlib level 9; the server
-  refuses anything bigger. Aim for 3800. Repeated CSS and markup compress well;
-  data: images and long unique text do not. No comments, no dead code.
+  refuses anything bigger. Python's zlib.compress(html, 9) counts as the server
+  does; if you cannot measure, aim for 3800. Repeated CSS and markup compress
+  well; data: images and long unique text do not. No comments, no dead code.
 
 THE BUBBLE
 - 200-600 px wide (phones about 320-430: design for 320), as tall as the
@@ -351,7 +398,7 @@ THE BUBBLE
   --tg-theme-section-bg-color, --tg-theme-section-header-text-color,
   --tg-theme-section-separator-color; --tg-color-scheme is light or dark.
   prefers-color-scheme, color-scheme and light-dark() follow the chat's theme,
-  live. Build colours on these so light and dark both work.
+  live. Build colours on these so both themes work.
 - Fonts: system-ui, sans-serif, serif, monospace, ui-sans-serif, ui-serif,
   ui-monospace, ui-rounded only; font names and @font-face are removed.
 - Text is not selectable unless you set user-select:text and
@@ -405,9 +452,9 @@ More: {docs}/profile
 
 INPUT
 - Taps (click) and pointer events (pointerdown/move/up/cancel, enter/leave,
-  setPointerCapture), with the mouse events; coalesced moves keep the latest
-  coordinates and the summed movementX/movementY. No touch events (use pointer
-  events), no keyboard, no focus, no text input, no wheel or scroll events.
+  setPointerCapture), with the mouse events (a coalesced move sums
+  movementX/Y). No touch events (use pointer events), no keyboard, no focus, no
+  text input, no wheel or scroll events.
 - A double tap is always the widget's: two clicks, then dblclick.
 - Vertical drags always scroll the chat: nothing can be dragged up or down (no
   vertical sliders, wheel pickers, joysticks, drawing or map panning); use
@@ -419,8 +466,8 @@ INPUT
   (sliders, carousels, paddles). none: horizontal drags and holds, plus
   contextmenu (held game buttons). pan-x claims nothing. Keep auto everywhere
   else. On pointercancel undo what pointerdown started.
-- The leading 20 px of the widget never take a claim (the system back
-  gesture): keep controls 20 px from the left edge (the right in RTL).
+- The leading 20 px never take a claim (the system back gesture): keep
+  controls 20 px from the left edge (the right in RTL).
 - A hold is 500 ms within 10 px; a double tap is two taps within 300 ms and
   40 px.
 More: {docs}/guide#input
@@ -432,15 +479,16 @@ TELEGRAMWIDGET (window.TelegramWidget; undefined outside Telegram: check it)
 - onEvent(type, fn) / offEvent(type, fn), type: 'themeChanged', 'activated' /
   'deactivated' (on and off screen; isActive), 'chatDataChanged',
   'publicDataChanged'.
-- ready(): optional, when the first state is drawn.
+- ready(): optional, once the first state is drawn.
 - openLink(url): https only, at most 256 characters; the client shows the full
-  URL and the user confirms. openTelegramLink(url): https://t.me/... A tapped
+  URL and the user confirms. openTelegramLink(url): https://t.me/..., opens
+  inside Telegram without a confirmation, as a t.me link in a message. A tapped
   <a href="https://..."> does the same. A bad URL throws TypeError.
 - copyText(text): 1-256 characters; the client copies it and shows a toast.
 - openLink, openTelegramLink, copyText and request need a real tap: call them
   synchronously in a click (or pointerup) handler, not after await, a timer or
-  a promise; one of them per tap. Otherwise they are refused. A finger's
-  pointerdown is no tap (it may still become the chat's scroll).
+  a promise, nor a finger's pointerdown (it may still become the chat's
+  scroll); one of them per tap. Otherwise they are refused.
 - HapticFeedback.impactOccurred('light'|'medium'|'heavy'|'rigid'|'soft'),
   .notificationOccurred('error'|'success'|'warning'), .selectionChanged():
   only on screen, free during a touch and 5 s after it; without a touch one
@@ -458,20 +506,23 @@ THE WIDGET'S STATE AND REQUESTS (only the bot writes the state)
   chatData and publicData are strings of up to 1024 bytes, or null:
   JSON.parse them yourself (in try/catch) and draw from them.
   chatData is the chat state: this message in its chat, the same for every
-  member of a group (a board, whose turn). publicData is the shared state: the
-  same wherever the widget is shown, forwards included (poll results, prices).
-  When the bot changes one you get chatDataChanged / publicDataChanged: read
-  it again and redraw; nothing restarts.
+  member of a group (a board, whose turn). publicData is the shared state,
+  the same wherever the widget is shown, forwards included (poll results).
+  A change of either fires chatDataChanged / publicDataChanged: redraw from
+  it; nothing restarts.
 - watchPublicData(): the client polls the shared state live while the widget
   is on screen (a ticker, a poll others vote in); unwatchPublicData() stops.
+  A poll may bring a state older than a result gave you: keep a revision in
+  the state (the bot raises it per edit and returns it in result) and ignore
+  older ones.
 - request(data): ask the bot, like a callback button; data is 1-64 bytes.
   Resolves with { result }: the bot's text for this user (up to 1024 bytes) or
   null. Rejects with an error whose code is 'NOT_ALLOWED' (no tap, requests not
   allowed here, a forward, a preview), 'BUSY' (one request at a time),
-  'RATE_LIMITED', 'TIMEOUT', 'FAILED' or 'INVALID_ANSWER'. Show a pending state,
-  catch every failure and say what happened. The answer does not change the
-  state: the bot's edit arrives as the change events; if you need the new
-  state at once, have the bot return it in result.
+  'RATE_LIMITED', 'TIMEOUT', 'FAILED' or 'INVALID_ANSWER'. Show a pending state
+  and every failure. The answer does not change the state: the bot's edit
+  arrives as the change events; for the new state at once, have the bot
+  return it in result.
 - Without a tap request works only in the private chat with the bot: once
   when the widget appears on screen, then at most once per 5 s while visible.
   One made off screen (at start: the client creates the bubble before showing
@@ -481,7 +532,9 @@ THE WIDGET'S STATE AND REQUESTS (only the bot writes the state)
   with the ids in the state (my turn, my vote).
 - isForward: a forwarded copy. chatData is null and chatType too; it may ask
   only if the bot allowed forwards to (otherwise viewer is null and every
-  request is NOT_ALLOWED): show the shared state read-only.
+  request is NOT_ALLOWED): show the shared state read-only. A forward of a
+  widget that is not shared never changes: draw a snapshot ("as of 19:40"),
+  not live progress.
 - chatType: 'private' | 'group' | 'supergroup' | 'channel', or null.
 - isPreview: shown in the bot's inline results before it is sent: no taps, no
   requests, links, copy or storage, viewer null. Draw the state as it will be
@@ -495,19 +548,18 @@ STORAGE, LIFECYCLE, LIMITS
   everyone sees belongs in the bot's state.
 - The widget can be destroyed and recreated at any time: restore from
   localStorage and the state on load, and draw the first frame synchronously.
-- Off screen: document.hidden, no animation frames, timers at most once a
-  second.
+- Off screen: document.hidden, no animation frames, timers at most 1 Hz.
 - CPU: 300 ms per second (timers and frames wait beyond it); the first run
   may take 500 ms, a later task what is left of the 300 ms (at least 50 ms).
-  Layout reads may hold one task 100 ms; layout reads plus about 25 µs per DOM
-  change sent may cost the client 100 ms per second (frames wait beyond it).
+  Layout reads may hold one task 100 ms; they plus about 25 µs per DOM change
+  cost the client at most 100 ms per second (frames wait beyond it).
 - Memory 8 MB; 64 live timers and 2 000 canvas commands per canvas per task
   (RangeError past them); 50 000 nodes; one text value 32 K characters, all
   text 48 K, an attribute 8 K; 10 000 DOM changes per task; 400 CSS rules, 32
   @keyframes; 64 script animations; 2048 x 2048 canvas pixels together; a
   data: image at most 1024 x 1024 pixels (larger: a placeholder). Past the
-  others, or the CPU or memory limit, the widget stops on its last frame with
-  a "Widget stopped" badge.
+  others, or the CPU or memory limit, the widget stops on its last frame
+  ("Widget stopped").
 - Animate with CSS or requestAnimationFrame; change only what moved, do not
   rebuild the DOM every frame.
 
