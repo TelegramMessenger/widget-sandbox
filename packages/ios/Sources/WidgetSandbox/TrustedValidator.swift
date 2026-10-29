@@ -41,17 +41,38 @@ public final class TrustedValidator {
     public var onDiag: (String, String) -> Void
     private var icons: IconExpansion?
 
+    /// `icon:` tokens become stand-ins before validation and the host's URLs after it (`IconExpansion`): the strict caps
+    /// count what the widget sent, never the host's icon bytes.
     public func setAssetResolver(_ resolver: WidgetAssetResolver?) {
         thread.async { [self] in
-            icons = resolver.map { IconExpansion(resolver: $0) { [weak self] k, d in self?.onDiag(k, d) } }
+            icons = resolver.map { resolver in
+                IconExpansion(resolver: resolver, imageTypes: { [weak self] in self?.loadTables()?.mime ?? [] }) { [weak self] k, d in self?.onDiag(k, d) }
+            }
         }
     }
 
+    /// On the validator's thread, before validation.
     private func expandIcons(_ json: String) -> String {
         guard let icons else { return json }
         icons.beginBatch()
         return icons.expand(json)
     }
+
+    /// On the validator's thread: validated ops with the host's URLs in place of the stand-ins.
+    private func restoreIcons(_ json: String) -> String {
+        guard let icons else { return json }
+        return icons.restore(json)
+    }
+
+    private func restoreIcons(_ batch: RenderBatch) -> RenderBatch {
+        guard let icons else { return batch }
+        switch batch {
+        case .empty: return batch
+        case .json(let json): return .json(icons.restore(json))
+        case .ops(let ops): return .ops(icons.restore(ops))
+        }
+    }
+
     /// Set once the bundle is evaluated: from the precompiled blob or from source.
     public private(set) var bundleSource = "pending"
 
@@ -265,7 +286,7 @@ public final class TrustedValidator {
                 onDiag("protocol-violation", "malformed binary ops batch (\(failure))")
                 return .empty
             case .success(let decoded):
-                return Self.render(native.process(decoded, canvas: canvas), typed: typed)
+                return restoreIcons(Self.render(native.process(decoded, canvas: canvas), typed: typed))
             }
         }
     }
@@ -294,20 +315,21 @@ public final class TrustedValidator {
     }
 
     /// Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived).
+    /// One turn of the validator's thread: the stand-ins of a batch are the expansion's of that batch.
     public func processOps(_ json: String) -> String {
-        let json = thread.sync { [self] in expandIcons(json) }
-        if let native = thread.sync({ [self] in self.native }) {
-            return thread.sync { [self] in
+        thread.sync { [self] in
+            let json = expandIcons(json)
+            if let native {
                 guard let value = JSONText.parse(json) else {
                     onDiag("protocol-violation", "ops batch is not valid JSON")
                     return "[]"
                 }
                 let ops = native.process(json: value)
-                return ops.isEmpty ? "[]" : WidgetOp.json(ops)
+                return ops.isEmpty ? "[]" : restoreIcons(WidgetOp.json(ops))
             }
+            let out = str("__v_processOps", [json])
+            return out.isEmpty ? "[]" : restoreIcons(out)
         }
-        let out = str("__v_processOps", [json])
-        return out.isEmpty ? "[]" : out
     }
 
     /// What a renderer gets for one ops batch: nothing, the JSON array, or typed ops for a renderer that takes them.
@@ -377,12 +399,13 @@ public final class TrustedValidator {
         }
         return str("__v_validateAnim", [json]).nilIfEmpty ?? "[]"
     }
+    /// The stylesheets again, sanitized for the scheme: the validator keeps them with the stand-ins.
     public func setTheme(_ theme: String) -> String {
         thread.sync { [self] in
             let fromJS = str("__v_setTheme", [theme]).nilIfEmpty ?? "[]"
-            guard let native else { return fromJS }
+            guard let native else { return restoreIcons(fromJS) }
             let ops = native.setTheme()
-            return ops.isEmpty ? "[]" : WidgetOp.json(ops)
+            return ops.isEmpty ? "[]" : restoreIcons(WidgetOp.json(ops))
         }
     }
     public func rewriteMediaQuery(_ query: String) -> String { str("__v_rewriteMediaQuery", [query]) }

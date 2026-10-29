@@ -239,8 +239,16 @@ JSON string or a CSS `url()`. A batch expands at most 1024 tokens and 2 MB
 (`icon-limit`, once per batch). A widget asks the resolver about at most 256
 distinct tokens and keeps at most 2 MB of its answers; past that, new tokens stay
 unresolved (`icon-limit`, once per widget) while the known ones keep expanding.
-The result is validated like any other `data:` image. Without a resolver `icon:`
-URLs are blocked like every other non-`data:` URL. Widgets can read the answers
+An answer must also be one of the profile's image types (the validator's `tables.mime`).
+The validator never sees the answer: each token goes in as a stand-in, a 2×2 PNG `data:`
+URL whose fragment carries a random nonce of this widget and the icon's index
+(`#tw<nonce><index>`, about 140 characters), so the strict caps (an attribute 8 K, the
+text budget, the image pixels) count what the widget sent, not the host's icon; after
+validation `restore` puts the answer back in the validated ops, on the JSON, the binary
+and the typed outputs and in stylesheets re-sent on a theme change. A stand-in the widget
+writes itself (another nonce, an index it never had) stays the 2×2 image. At most 2 MB of
+answers are restored per validated batch (`icon-limit`); past that the rest stay the
+stand-in. Without a resolver `icon:` URLs are blocked like every other non-`data:` URL. Widgets can read the answers
 back (computed style, canvas), so a resolver hands out public icons only.
 
 ## Sync queries

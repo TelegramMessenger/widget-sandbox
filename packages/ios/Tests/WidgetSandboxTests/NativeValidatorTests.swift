@@ -254,8 +254,8 @@ final class NativeValidatorDifferentialTests: XCTestCase {
     }
 
     func testIconExpansionOfFieldsMatchesTheJSONText() {
-        let icons = IconExpansion(resolver: IconExpansionTests.stubResolver) { _, _ in }
-        XCTAssertNotNil(icons.dataURL("icon:airplane"))
+        let icons = IconExpansion(resolver: IconExpansionTests.stubResolver, imageTypes: IconExpansionTests.profileImages) { _, _ in }
+        XCTAssertNotNil(icons.standIn("icon:airplane"))
         let values = ["icon:airplane", "icon:airplane?weight=bold", "icon:nope", "x icon:airplane", "url(icon:airplane)", "url('icon:airplane')", "url(\"icon:airplane\")", "url(\u{a0}icon:airplane)",
                       "url(\u{2003}icon:airplane)", "url(\ticon:airplane)", "url(\nicon:airplane)", "URL(ICON:airplane)", "URL(icon:airplane)", "url(Icon:airplane)", "ICON:airplane", "url( icon:airplane ) url(icon:airplane)", "url(\\\"icon:airplane)", "icon:airplane\n",
                       "a:url(icon:airplane);b:url(icon:airplane)", "icon:" + String(repeating: "a", count: 97), "url(icon:airplane?x=" + String(repeating: "1", count: 401) + ")"]
@@ -279,7 +279,7 @@ final class NativeValidatorDifferentialTests: XCTestCase {
             icons.beginBatch()
             guard case .success(let decoded) = BinaryOps.decode(encoder.finish(), table: BinaryInternTable(), icons: icons) else { return XCTFail(value) }
             XCTAssertEqual(BinaryOps.json(decoded.ops, canvas: [:]), expected, value)
-            if expected.contains("data:image") { replaced += 1 }
+            if expected.contains(icons.standInPrefix) { replaced += 1 }
         }
         XCTAssertGreaterThan(replaced, 6)
     }
