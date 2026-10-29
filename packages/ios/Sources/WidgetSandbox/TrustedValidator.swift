@@ -91,7 +91,11 @@ public final class TrustedValidator {
         js.registerFunction("__diag") { [weak self] args in
             guard let self else { return .undefined }
             self.oracleDiagnostics += 1
-            self.onDiag(args.first ?? "", args.count > 1 ? args[1] : "")
+            let kind = args.first ?? "", detail = args.count > 1 ? args[1] : ""
+            // `limit` is fatal: a counted cap was passed under strict; the bundle refuses every later batch and the
+            // host stops the widget with the reason once the call returns (`stopped`).
+            if kind == "limit", self.scriptStop == nil { self.scriptStop = detail }
+            self.onDiag(kind, detail)
             return .undefined
         }
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
@@ -158,6 +162,7 @@ public final class TrustedValidator {
             native = nil
             icons = nil
             policy = .compat
+            scriptStop = nil
         }
         _ = str("__v_create", [theme])
         thread.sync { [self] in js?.collectGarbage() }
@@ -178,6 +183,12 @@ public final class TrustedValidator {
 
     /// The node model kept in Swift for a widget whose sandbox sends binary ops; nil: the JS validator owns it.
     private var native: NativeValidator?
+    /// The script validator's stop (diagnostic `limit`): the widget's model in JS, or the canvas commands it checks for the native model.
+    private var scriptStop: String?
+
+    /// Set once a counted cap was passed under strict (validator.ts `stopped`, diagnostic `limit`): the reason the host
+    /// stops the widget with, as for memory or CPU. Every later batch comes back empty.
+    public var stopped: String? { thread.sync { [self] in native?.stopReason ?? scriptStop } }
     var nativeModel: NativeValidator? { native }
     fileprivate var oracleDiagnostics = 0
     private static let tablesLock = NSLock()
@@ -317,6 +328,9 @@ public final class TrustedValidator {
     public func processOpsForRenderer(_ json: String, canvas: [Int: WidgetCanvasBatch] = [:], typed: Bool) -> RenderBatch {
         thread.sync { [self] in
             guard let js else { return .empty }
+            // A stopped widget gets nothing; the shortcut takes payloads within the strict caps only (2000 commands, 32 KB
+            // strings: `CanvasBatchFastPath`), anything bigger goes through the validator, which stops the widget there.
+            if (native?.stopReason ?? scriptStop) != nil { return .empty }
             if typed, !canvas.isEmpty, let list = CanvasWords.only(json, canvas),
                list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch) && (policy != .strict || CanvasWords.textCharges($0.batch).isEmpty) }) {
                 nativeCanvasBatches += 1
@@ -382,6 +396,8 @@ public final class TrustedValidator {
 
 extension TrustedValidator: NativeValidatorOracle {
     var diagnostics: Int { oracleDiagnostics }
+    /// On the validator's thread, from the native model's calls.
+    var limitStop: String? { scriptStop }
 
     func styleProperty(_ name: String, _ value: String) -> String? {
         let r = str("__v_cssProp", [name, value])

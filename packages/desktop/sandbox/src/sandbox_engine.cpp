@@ -62,12 +62,45 @@ static int countOccurrences(const std::string& text, const char* needle) {
     return count;
 }
 
+/// Commands in the canvas ops of an ops batch (JSON): the elements of each `"cmds":[…]` array. Like `"op":` the key
+/// cannot occur inside a JSON string (a quote there is always `\"`); the strings inside the array are skipped.
+static int countCanvasCommands(const std::string& json) {
+    static constexpr const char* kKey = "\"cmds\":[";
+    const size_t keyLength = std::strlen(kKey);
+    int count = 0;
+    for (size_t pos = json.find(kKey); pos != std::string::npos; pos = json.find(kKey, pos)) {
+        size_t i = pos + keyLength;
+        int depth = 1;
+        bool any = false;
+        for (; i < json.size() && depth > 0; i++) {
+            char c = json[i];
+            if (c == '"') {
+                for (i++; i < json.size() && json[i] != '"'; i++) if (json[i] == '\\') i++;
+                any = true;
+            } else if (c == '[' || c == '{') {
+                any = true;
+                depth++;
+            } else if (c == ']' || c == '}') {
+                depth--;
+            } else if (c == ',') {
+                if (depth == 1) count++;
+            } else if (c != ' ' && c != '\n' && c != '\r' && c != '\t') {
+                any = true;
+            }
+        }
+        if (any) count++; // n elements are n - 1 commas
+        pos = i;
+    }
+    return count;
+}
+
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
 SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
     : thread_("widget.sandbox"), html_(std::move(html)), config_(config), resources_(std::move(resources)),
       intl_(intl ? std::move(intl) : std::make_shared<BasicIntl>()), visible_(config.visible),
-      budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs) {
+      budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs),
+      mainBudget_(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0) {
     liveness_->engine = this;
     // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16). Fixed from
     // here on, so other threads may read config_ without a lock.
@@ -93,6 +126,18 @@ void SandboxEngine::start() {
 
 void SandboxEngine::terminate() {
     thread_.async([this] { kill("terminated"); });
+}
+
+void SandboxEngine::stop(const std::string& reason) {
+    auto body = [this, reason] {
+        if (dead_) return;
+        kill(reason);
+        // The task that sent the batch is still on the stack: interrupt it at the next poll (uncatchable, as the
+        // layout-query limit does); hostCall forwards nothing more meanwhile.
+        if (js_) js_->cpuDeadline = -kInf;
+    };
+    if (thread_.isCurrent()) body();
+    else thread_.async(body);
 }
 
 void SandboxEngine::boot() {
@@ -139,7 +184,10 @@ void SandboxEngine::boot() {
         config.set("cpuQuotaMs", config_.cpuQuotaMs);
         config.set("cpuQuotaWindowMs", config_.cpuQuotaWindowMs);
         config.set("cpuKillAfterMs", config_.cpuKillAfterMs);
+        config.set("mainThreadQuotaMs", config_.mainThreadQuotaMs);
         config.set("maxTimers", config_.maxTimers);
+        // The shim refuses at the validator's counted caps under strict (canvas commands per task, live script animations).
+        config.set("policy", isStrictPolicy(config_.policy) ? "strict" : "compat");
         config.set("visible", visible_);
         Json viewport = Json::object();
         viewport.set("innerWidth", config_.innerWidth);
@@ -301,8 +349,8 @@ void SandboxEngine::input(const std::string& kind, const std::string& arg) {
     dispatch(kind, arg);
 }
 
-/// Runs one task for an input (event, timer, frame, …) if the CPU quota
-/// allows, otherwise defers it (returns false). Events and visibility always run.
+/// Runs one task for an input (event, timer, frame, …) if the CPU quota and the
+/// main-thread window allow, otherwise defers it (returns false). Events and visibility always run.
 bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
     if (dead_) return true;
     if (kind.rfind(kActivationPrefix, 0) == 0) {
@@ -313,8 +361,10 @@ bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
         return ran;
     }
     double now = nowMs();
-    CpuDecision d = budget_.decide(kind, now);
-    if (!d.run) {
+    // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
+    CpuDecision js = budget_.decide(kind, now);
+    CpuDecision main = mainBudget_.decide(kind, now);
+    if (!js.run || !main.run) {
         if (budget_.shouldKill(now)) {
             char buf[256];
             snprintf(buf, sizeof buf, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget_.throttledFor(now) / 1000,
@@ -333,13 +383,17 @@ bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
                 parts += std::to_string(n) + " " + k + (n == 1 ? "" : "s");
             }
             throttledSinceDiag_.clear();
-            if (delegate_) delegate_->onDiag(*this, "cpu-throttled", "deferred " + parts + ": " + std::to_string(int(budget_.used(now))) + " ms of the " +
-                                                                        std::to_string(int(config_.cpuQuotaMs)) + " ms per " + std::to_string(int(config_.cpuQuotaWindowMs)) + " ms budget used");
+            std::string window = js.run
+                ? std::to_string(int(mainBudget_.used(now))) + " ms of the " + std::to_string(int(config_.mainThreadQuotaMs)) + " ms per " +
+                      std::to_string(int(config_.cpuQuotaWindowMs)) + " ms main-thread budget used by layout queries and ops"
+                : std::to_string(int(budget_.used(now))) + " ms of the " + std::to_string(int(config_.cpuQuotaMs)) + " ms per " +
+                      std::to_string(int(config_.cpuQuotaWindowMs)) + " ms budget used";
+            if (delegate_) delegate_->onDiag(*this, "cpu-throttled", "deferred " + parts + ": " + window);
         }
-        scheduleWake(d.retryAt / 1000);
+        scheduleWake(std::max(js.run ? 0 : js.retryAt, main.run ? 0 : main.retryAt) / 1000);
         return false;
     }
-    task(kind, d.sliceMs, [&] { callTw(kind, arg); });
+    task(kind, js.sliceMs, [&] { callTw(kind, arg); });
     return true;
 }
 
@@ -398,8 +452,13 @@ static Json answerEvent(int64_t id) {
 // MARK: the single capability
 
 HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& arg) {
+    // Stopped by the host (`stop`) from inside this task: until the interrupt lands, nothing more reaches the delegate.
+    if (dead_) return HostReturn::undefined();
     if (kind == "ops") {
-        stats_.ops += countOccurrences(arg, "\"op\":");
+        int ops = countOccurrences(arg, "\"op\":");
+        stats_.ops += ops;
+        // What the batch costs the host's main thread (the validator, the renderer), charged to the main-thread window.
+        taskOpsCostMs_ += CpuBudget::opsCostMs(ops, countCanvasCommands(arg));
         if (delegate_) delegate_->onOps(*this, arg);
         return HostReturn::undefined();
     }
@@ -798,13 +857,15 @@ void SandboxEngine::resetDeadline() {
     js_->deadline = nowSeconds() + std::max(currentSliceMs_ * kWallBackstopFactor, kWallBackstopMinMs) / 1000;
 }
 
-/// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
+/// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota, its layout
+/// queries and the modelled cost of its ops against the main-thread window.
 void SandboxEngine::task(const std::string& kind, double sliceMs, const std::function<void()>& body) {
     if (dead_) return;
     currentKind_ = kind;
     currentSliceMs_ = sliceMs;
     excludeMs_ = 0;
     taskQueryMs_ = 0;
+    taskOpsCostMs_ = 0;
     queryLimitHit_ = false;
     double c0 = QuickJSContext::threadCpuTime();
     resetDeadline();
@@ -814,8 +875,10 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     stats_.tasks++;
     double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;
-    budget_.record(kind, cpuMs + taskQueryMs_, nowMs()); // layout queries count toward the quota: they cost the host as much as JS
-    stats_.cpuWindowMs = budget_.used(nowMs());
+    double end = nowMs();
+    budget_.record(kind, cpuMs, end);
+    mainBudget_.record(kind, taskQueryMs_ + taskOpsCostMs_, end); // what the task cost the host's main thread
+    stats_.cpuWindowMs = budget_.used(end);
     double now = nowSeconds();
     if (now - lastMemCheck_ > 1 && !dead_) {
         lastMemCheck_ = now;

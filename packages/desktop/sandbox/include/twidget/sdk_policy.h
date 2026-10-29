@@ -130,8 +130,9 @@ struct WidgetRequestOutcome {
 namespace sdk {
 
 inline constexpr int MAX_LINK_LENGTH = 256;
-/// Bytes of keys and values (UTF-8) per storage area and message.
-inline constexpr int STORAGE_QUOTA_BYTES = 16384;
+/// Bytes of keys and values (UTF-8) per storage area and message (4 KB: a 50-item to-do list; docs/decisions.md,
+/// "Strict limits from the start").
+inline constexpr int STORAGE_QUOTA_BYTES = 4096;
 inline constexpr int MAX_LOCALE_LENGTH = 35;
 inline constexpr std::string_view DEFAULT_LOCALE = "en-US";
 inline constexpr int HAPTIC_BURST = 5;

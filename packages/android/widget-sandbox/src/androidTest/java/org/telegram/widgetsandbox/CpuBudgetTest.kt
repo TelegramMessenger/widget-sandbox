@@ -9,7 +9,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** CpuBudget.kt against the fixture shared with cpu-budget.ts and CpuBudget.swift (tests/fixtures/cpu-budget.json, copied to androidTest/assets by `pnpm build:android`). */
+/** CpuBudget.kt against the fixture shared with cpu-budget.ts, CpuBudget.swift and cpu_budget.cpp (tests/fixtures/cpu-budget.json, copied to androidTest/assets by `pnpm build:android`). */
 @RunWith(AndroidJUnit4::class)
 class CpuBudgetTest {
     @Test
@@ -36,6 +36,10 @@ class CpuBudgetTest {
                     step.has("record") -> b.record(step.getString("record"), step.getDouble("cpuMs"), at)
                     step.has("kill") -> assertEquals(where, step.getBoolean("kill"), b.shouldKill(at))
                     step.has("queryBudget") -> assertEquals(where, step.getDouble("expect"), CpuBudget.queryBudgetMs(step.getDouble("queryBudget")), 0.0)
+                    step.has("opsCost") -> {
+                        val args = step.getJSONArray("opsCost")
+                        assertEquals(where, step.getDouble("expect"), CpuBudget.opsCostMs(args.getInt(0), args.getInt(1)), 1e-9)
+                    }
                     else -> fail("$where: unknown step")
                 }
             }

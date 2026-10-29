@@ -67,7 +67,7 @@ interface Timer { fn: any; args: any[]; interval: boolean; delay: number }
 const timers = new Map<number, Timer>();
 let timerSeq = 1;
 /** Live timers allowed (from `config.maxTimers` at boot). The glue enforces the same cap as a backstop; this one gives the widget an error instead of a silent hang. */
-let maxTimers = 256;
+let maxTimers = 64;
 let timerLimitReported = false;
 
 export function configureLimits(limits: { maxTimers?: number }) {

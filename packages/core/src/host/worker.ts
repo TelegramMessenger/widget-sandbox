@@ -12,8 +12,8 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 // QuickJS built from the TelegramMessenger/quickjs fork (packages/quickjs-wasm, decisions.md).
 import baseVariant from '@telegram/widget-sandbox-quickjs';
 import wasmUrl from '@telegram/widget-sandbox-quickjs/wasm?url';
-import { CpuBudget, queryBudgetMs } from './cpu-budget';
-import { MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
+import { CpuBudget, opsCostMs, queryBudgetMs } from './cpu-budget';
+import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
 
 import { STORAGE_QUOTA_BYTES } from '../shared/sdk-policy';
 import { formatIntl } from '../shared/intl';
@@ -41,11 +41,16 @@ let interrupted = false;
 let deadline = 0;
 /** Wall time this task's layout queries have blocked for, and whether that passed the task's query budget (docs/decisions.md, Runtime limits). */
 let taskQueryMs = 0;
+/** Modelled main-thread cost of the ops this task sent (cpu-budget.ts `opsCostMs`). */
+let taskOpsCostMs = 0;
 let queryLimitHit = false;
 /** Slice given to the running task (for the kill message); the boot task gets cpuLimitMs. */
 let currentSliceMs = 0;
 let currentKind = 'boot';
 let budget: CpuBudget;
+/** The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota. */
+let mainBudget: CpuBudget;
+const newMainBudget = (c: SandboxConfig) => new CpuBudget({ cpuLimitMs: c.cpuLimitMs, cpuQuotaMs: c.mainThreadQuotaMs ?? LIMIT_DEFAULTS.mainThreadQuotaMs, cpuQuotaWindowMs: c.cpuQuotaWindowMs, cpuKillAfterMs: 0 });
 /** JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle). */
 let excludeMs = 0;
 let lastThrottleDiag = -Infinity;
@@ -174,7 +179,12 @@ function hostCall(kind: string, arg: string): string | number | undefined {
     case 'ops': {
       let ops: unknown;
       try { ops = JSON.parse(arg); } catch { return; }
-      if (Array.isArray(ops)) stats.ops += ops.length;
+      if (Array.isArray(ops)) {
+        stats.ops += ops.length;
+        let commands = 0;
+        for (const op of ops) if (op && op.op === 'canvas' && Array.isArray(op.cmds)) commands += op.cmds.length;
+        taskOpsCostMs += opsCostMs(ops.length, commands);
+      }
       post({ type: 'ops', ops });
       return;
     }
@@ -378,6 +388,7 @@ function task(kind: string, sliceMs: number, fn: () => void) {
   currentSliceMs = sliceMs;
   excludeMs = 0;
   taskQueryMs = 0;
+  taskOpsCostMs = 0;
   queryLimitHit = false;
   const t0 = performance.now();
   const q0 = stats.queryMs;
@@ -394,7 +405,8 @@ function task(kind: string, sliceMs: number, fn: () => void) {
   const now = performance.now();
   const cpuMs = now - t0 - (stats.queryMs - q0) - excludeMs;
   stats.jsMs += cpuMs;
-  budget.record(kind, cpuMs + taskQueryMs, now); // layout queries count toward the quota: they cost the host as much as JS
+  budget.record(kind, cpuMs, now);
+  mainBudget.record(kind, taskQueryMs + taskOpsCostMs, now); // what the task cost the host's main thread
   stats.cpuWindowMs = budget.used(now);
   if (now - lastMemCheck > 1000 && !dead) {
     lastMemCheck = now;
@@ -417,8 +429,10 @@ function task(kind: string, sliceMs: number, fn: () => void) {
 function dispatch(kind: string, arg: unknown): boolean {
   if (dead) return true;
   const now = performance.now();
-  const d = budget.decide(kind, now);
-  if (!d.run) {
+  // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
+  const js = budget.decide(kind, now);
+  const main = mainBudget.decide(kind, now);
+  if (!js.run || !main.run) {
     if (budget.shouldKill(now)) {
       kill(`CPU quota: throttled for ${(budget.throttledFor(now) / 1000).toFixed(1)} s (${config.cpuQuotaMs} ms per ${config.cpuQuotaWindowMs} ms, cpuKillAfterMs=${config.cpuKillAfterMs})`);
       return true;
@@ -430,12 +444,15 @@ function dispatch(kind: string, arg: unknown): boolean {
       lastThrottleDiag = now;
       const parts = Object.entries(throttledSinceDiag).map(([k, n]) => `${n} ${k}${n === 1 ? '' : 's'}`);
       for (const k of Object.keys(throttledSinceDiag)) delete throttledSinceDiag[k];
-      post({ type: 'diag', kind: 'cpu-throttled', detail: `deferred ${parts.join(', ')}: ${budget.used(now).toFixed(0)} ms of the ${config.cpuQuotaMs} ms per ${config.cpuQuotaWindowMs} ms budget used` });
+      const window = js.run
+        ? `${mainBudget.used(now).toFixed(0)} ms of the ${config.mainThreadQuotaMs ?? LIMIT_DEFAULTS.mainThreadQuotaMs} ms per ${config.cpuQuotaWindowMs} ms main-thread budget used by layout queries and ops`
+        : `${budget.used(now).toFixed(0)} ms of the ${config.cpuQuotaMs} ms per ${config.cpuQuotaWindowMs} ms budget used`;
+      post({ type: 'diag', kind: 'cpu-throttled', detail: `deferred ${parts.join(', ')}: ${window}` });
     }
-    scheduleWake(d.retryAt);
+    scheduleWake(Math.max(js.run ? 0 : js.retryAt, main.run ? 0 : main.retryAt));
     return false;
   }
-  task(kind, d.sliceMs, () => callTw(kind, JSON.stringify(arg)));
+  task(kind, js.sliceMs, () => callTw(kind, JSON.stringify(arg)));
   return true;
 }
 
@@ -450,6 +467,7 @@ async function warm(msg: Extract<HostToWorker, { type: 'warm' | 'init' }>) {
   config = withWebFeatures(msg.config);
   visible = config.visible !== false;
   budget = new CpuBudget(config);
+  mainBudget = newMainBudget(config);
   header = new Int32Array(msg.sab, 0, SAB_HEADER / 4);
   payload = new Uint8Array(msg.sab, SAB_HEADER);
 
@@ -532,6 +550,7 @@ function start(msg: Extract<HostToWorker, { type: 'start' | 'init' }>) {
   config = withWebFeatures({ ...msg.config, memoryLimitBytes: Math.min(msg.config.memoryLimitBytes, warmedMemoryLimitBytes) });
   visible = config.visible !== false;
   budget = new CpuBudget(config);
+  mainBudget = newMainBudget(config);
   rt.setMemoryLimit(config.memoryLimitBytes);
   task('boot', config.cpuLimitMs, () => callTw('boot', JSON.stringify({ html: msg.html, config })));
   // `task` has run all scripts by now.

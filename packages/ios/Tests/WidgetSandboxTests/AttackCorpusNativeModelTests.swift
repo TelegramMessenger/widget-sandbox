@@ -43,14 +43,15 @@ final class AttackCorpusNativeModelTests: XCTestCase {
     }
 
     /// Canvas words and binary batches through the native model give the renderer exactly
-    /// what the JSON path through the script validator gives it, under the strict budgets.
+    /// what the JSON path through the script validator gives it, under the strict budgets
+    /// (a canvas string just under the 32 KB cap; past it the widget stops: StrictLimitsTests).
     func testCanvasWordsAndStrictBudgetsMatchTheScriptValidator() {
         let html = """
             <canvas id="c" width="200" height="100"></canvas><p id="p" data-x="\(String(repeating: "\u{4E2D}", count: 6000))"></p><p id="q"></p><script>
             var c = document.getElementById('c').getContext('2d');
             var g = c.createLinearGradient(0, 0, 100, 0); g.addColorStop(0, 'red'); g.addColorStop(1, 'blue');
             c.fillStyle = g; c.fillRect(0, 0, 50, 50); c.font = '12px sans-serif';
-            c.fillText('h\\u00e9llo \\ud83d\\ude00', 5, 80); c.fillText('x'.repeat(70000), 0, 0); c.strokeText('\\u4e2d'.repeat(100), 0, 20);
+            c.fillText('h\\u00e9llo \\ud83d\\ude00', 5, 80); c.fillText('x'.repeat(30000), 0, 0); c.strokeText('\\u4e2d'.repeat(100), 0, 20);
             c.setLineDash([2, 3.25]); c.arc(50, 50, 10, 0, Math.PI * 2, false); c.stroke();
             var q = document.getElementById('q');
             q.setAttribute('data-y', '\\u4e2d'.repeat(4000)); q.style.setProperty('--s', '"' + '\\u4e2d'.repeat(100) + '"');

@@ -75,7 +75,7 @@ static SandboxConfig testConfig() {
 struct Run {
     RecordingHost host;
     SandboxEngine engine;
-    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true) : host("light", RES), engine(html, cfg, RES) {
+    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true) : host("light", RES, false, cfg.policy), engine(html, cfg, RES) {
         engine.setDelegate(&host);
         if (start) { engine.start(); host.waitLoaded(20); }
     }
@@ -174,13 +174,15 @@ TEST(json_numbers_ignore_lc_numeric) {
     setlocale(LC_NUMERIC, saved.c_str());
 }
 
-/// CpuBudget against the fixture shared with cpu-budget.ts, CpuBudget.swift and CpuBudget.kt.
+/// CpuBudget against the fixture shared with cpu-budget.ts, CpuBudget.swift and CpuBudget.kt (the JS quota and the
+/// main-thread window are two budgets of the same policy; opsCostMs is the window's model of the ops).
 TEST(cpu_budget_shared_fixture) {
     auto root = Json::parse(readFile(std::string(TW_FIXTURES) + "/cpu-budget.json"));
     CHECK_MSG(root.has_value(), "fixture missing — run pnpm build:desktop");
     if (!root) return;
     const auto& cases = (*root)["cases"].arr();
     CHECK(cases.size() > 5);
+    int costSteps = 0;
     for (const auto& c : cases) {
         const std::string& name = c["name"].asString();
         const Json& cfg = c["config"];
@@ -200,11 +202,17 @@ TEST(cpu_budget_shared_fixture) {
                 CHECK_MSG(b.shouldKill(at) == kill->asBool(), where);
             } else if (const Json* slice = step.find("queryBudget")) {
                 CHECK_MSG(CpuBudget::queryBudgetMs(slice->asNumber()) == step["expect"].asNumber(), where);
+            } else if (const Json* cost = step.find("opsCost")) {
+                costSteps++;
+                double got = CpuBudget::opsCostMs((*cost)[0].asNumber(), (*cost)[1].asNumber());
+                CHECK_MSG(std::fabs(got - step["expect"].asNumber()) < 1e-9, where + " got " + std::to_string(got));
             } else {
                 CHECK_MSG(false, where + ": unknown step");
             }
         }
     }
+    // The strict-limits fixture (the main-thread window) or later: a stale copy fails here.
+    CHECK_MSG(costSteps >= 6, std::to_string(costSteps) + " opsCost steps — run pnpm build:desktop");
 }
 
 /// Deep equality of JSON values, object members in any order (what node:assert's deepEqual compares).
@@ -709,8 +717,17 @@ TEST(memory_limit_kills_allocation_flood) {
     cfg.cpuLimitMs = 10000;
     Run r("<script>var a = []; for (;;) a.push(new Array(100000).fill(1.5));</script>", cfg);
     r.barrier();
-    auto l = r.host.lock();
-    CHECK_MSG(r.host.died && r.host.died->find("Memory limit") != std::string::npos, r.host.died.value_or("alive: " + r.logsText()));
+    {
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.died && r.host.died->find("Memory limit exceeded (16 MB)") != std::string::npos, r.host.died.value_or("alive: " + r.logsText()));
+    }
+    // The default is 8 MB of QuickJS heap (docs/decisions.md, "Strict limits from the start").
+    auto byDefault = testConfig();
+    byDefault.cpuLimitMs = 10000;
+    Run d("<script>var a = []; for (;;) a.push(new Array(100000).fill(1.5));</script>", byDefault);
+    d.barrier();
+    auto l = d.host.lock();
+    CHECK_MSG(d.host.died && d.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, d.host.died.value_or("alive: " + d.logsText()));
 }
 
 TEST(layout_query_round_trip) {
@@ -807,6 +824,8 @@ TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     auto l = r.host.lock();
     CHECK_MSG(r.host.died.has_value(), "alive after " + std::to_string(seconds) + " s, " + std::to_string(r.host.queries.size()) + " queries");
     CHECK_MSG(r.host.died && r.host.died->rfind("Layout query limit exceeded", 0) == 0, r.host.died.value_or("alive"));
+    // 100 ms whatever the slice (CpuBudget::kQueryBudgetMs), the boot task's included.
+    CHECK_MSG(r.host.died && r.host.died->find("more than 100 ms in one boot task") != std::string::npos, r.host.died.value_or("alive"));
     CHECK_MSG(seconds < 5, std::to_string(seconds) + " s");
     CHECK_MSG(r.host.queries.size() < 120, std::to_string(r.host.queries.size()) + " queries");
 }
@@ -1056,6 +1075,140 @@ TEST(gestures_need_the_renderers_trusted_flag) {
     CHECK(host.diagnostics().countDiag("activation-blocked") == 8);
 }
 
+// ───────────── strict limits (docs/decisions.md, "Strict limits from the start") ─────────────
+
+/// The defaults every host shares (LIMIT_DEFAULTS in protocol.ts, STORAGE_QUOTA_BYTES in sdk-policy.ts).
+TEST(strict_limit_defaults) {
+    SandboxConfig c;
+    WidgetHostOptions o;
+    CHECK(c.memoryLimitBytes == size_t(8) * 1024 * 1024 && o.memoryLimitBytes == c.memoryLimitBytes);
+    CHECK(c.maxTimers == 64 && o.maxTimers == 64);
+    CHECK(c.mainThreadQuotaMs == 100 && o.mainThreadQuotaMs == 100);
+    CHECK(c.cpuQuotaMs == 300 && o.cpuQuotaMs == 300 && c.cpuQuotaWindowMs == 1000);
+    CHECK(CpuBudget::queryBudgetMs(500) == 100 && CpuBudget::queryBudgetMs(10) == 100);
+    CHECK(sdk::STORAGE_QUOTA_BYTES == 4096);
+}
+
+/// The default timer cap reaches the shim: the 65th live timer throws RangeError in the widget.
+TEST(default_timer_cap_throws_at_the_65th) {
+    Run r("<script>var n = 0; try { for (; n < 100; n++) setTimeout(function () {}, 60000); } catch (e) { console.log(e.name + ' at ' + n); }</script>");
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.hasLog("RangeError at 64"), r.logsText());
+    CHECK_MSG(!r.host.hasDiag("timer-limit-enforced"), r.diagsText());
+    CHECK(!r.host.died);
+}
+
+/// The policy reaches the shim in the boot config: under strict a canvas takes 2000 commands in one task and the next
+/// throws RangeError in the widget (the validator's per-send cap, so the host does not have to stop it); compat draws all.
+TEST(shim_refuses_canvas_commands_at_the_validators_cap) {
+    const std::string html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d');"
+                             "try { for (var i = 0; i < 2001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
+    Run strict(html);
+    strict.barrier();
+    {
+        auto l = strict.host.lock();
+        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 2000 commands for one canvas in one task (max 2000)"), strict.logsText());
+        CHECK_MSG(!strict.host.died, strict.host.died.value_or(""));
+        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",1999,") != std::string::npos, "the 2000 commands before it are drawn");
+    }
+    SandboxConfig cfg = testConfig();
+    cfg.policy = "compat";
+    Run compat(html, cfg);
+    compat.barrier();
+    auto l = compat.host.lock();
+    CHECK_MSG(compat.host.hasLog("drew all"), compat.logsText());
+    CHECK(!compat.host.died);
+}
+
+/// A text node over 32 KB made by the widget stops it under strict, through the real engine and WidgetHost: the
+/// validator's `limit` is fatal (`dead` with its reason, the runtime gone, the renderer frozen on its last render) and
+/// nothing after it reaches the renderer. compat draws it (its cap is 2 MB) and never stops.
+TEST(text_over_the_cap_stops_the_widget) {
+    const std::string html = "<p id=p>start</p><script>"
+                             "setTimeout(function () { document.getElementById('p').textContent = 'x'.repeat(40000); }, 10);"
+                             "setTimeout(function () { document.getElementById('p').textContent = 'never'; }, 60);</script>";
+    const std::string x64(64, 'x');
+    {
+        ScriptedRenderer* renderer = nullptr;
+        WidgetHost host(html, WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+        std::mutex m;
+        std::string rendered;
+        host.onRenderOps = [&](const std::string& ops) { std::lock_guard<std::mutex> l(m); rendered += ops; };
+        host.start();
+        CHECK(host.waitLoaded(20));
+        CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.dead.has_value(); }, 5));
+        sleepMs(150); // the second timer would have fired by now
+        WidgetDiagnostics d = host.diagnostics();
+        CHECK_MSG(d.dead == std::optional<std::string>("Text limit exceeded: a text value of 40000 characters (max 32768)"), d.dead.value_or("alive"));
+        CHECK_MSG(d.countDiag("limit") == 1, std::to_string(d.countDiag("limit")));
+        CHECK(host.probe("1") == "ERROR no runtime");
+        std::vector<Json> frozen = renderer->sent("frozen");
+        CHECK_MSG(frozen.size() == 1 && frozen[0]["fatal"].asBool() && frozen[0]["reason"].asString() == host.stoppedLabel, std::to_string(frozen.size()) + " frozen messages");
+        std::lock_guard<std::mutex> l(m);
+        CHECK_MSG(rendered.find("start") != std::string::npos, rendered);
+        CHECK(rendered.find(x64) == std::string::npos);
+        CHECK(rendered.find("never") == std::string::npos);
+    }
+    WidgetHostOptions compat;
+    compat.policy = "compat";
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host(html, WidgetTheme{}, 300, compat, RES, scripted(renderer));
+    std::mutex m;
+    std::string rendered;
+    host.onRenderOps = [&](const std::string& ops) { std::lock_guard<std::mutex> l(m); rendered += ops; };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    for (int i = 0; i < 100; i++) {
+        { std::lock_guard<std::mutex> l(m); if (rendered.find("never") != std::string::npos) break; }
+        sleepMs(20);
+    }
+    WidgetDiagnostics d = host.diagnostics();
+    CHECK_MSG(!d.dead, d.dead.value_or(""));
+    CHECK(d.countDiag("limit") == 0);
+    std::lock_guard<std::mutex> l(m);
+    CHECK(rendered.find(x64) != std::string::npos);
+    CHECK(rendered.find("never") != std::string::npos);
+}
+
+/// The main-thread window (mainThreadQuotaMs): the modelled cost of what a task sent (25 µs per op, 2 µs per canvas
+/// command) plus its layout queries, apart from the JS quota. Past it frames are deferred and `cpu-throttled` names the
+/// main-thread budget; with the default 100 ms the same frames all run. The canvas widget sends one op per frame, so
+/// only its commands (counted in the JSON's `cmds` arrays) can spend the window.
+TEST(main_thread_window_defers_frames) {
+    const std::string dom = "<div id=list></div><script>var list = document.getElementById('list'), drawn = 0;"
+                            "for (var i = 0; i < 50; i++) list.appendChild(document.createElement('span'));"
+                            "function frame() { drawn++; for (var s of list.children) s.textContent = String(Math.random()); requestAnimationFrame(frame); }"
+                            "requestAnimationFrame(frame);</script>";
+    const std::string canvas = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d'), drawn = 0;"
+                               "function frame() { drawn++; for (var i = 0; i < 1500; i++) x.fillRect(i % 300, 0, 1, 1); requestAnimationFrame(frame); }"
+                               "requestAnimationFrame(frame);</script>";
+    auto run = [](const std::string& html, double quota, int& frames, std::string& throttled) {
+        SandboxConfig cfg = testConfig();
+        cfg.mainThreadQuotaMs = quota;
+        Run r(html, cfg);
+        for (int i = 1; i <= 10; i++) {
+            r.engine.frame(i * 16);
+            r.barrier();
+        }
+        frames = std::atoi(r.engine.probe("drawn").c_str());
+        auto l = r.host.lock();
+        CHECK_MSG(!r.host.died, r.host.died.value_or(""));
+        throttled.clear();
+        for (auto& [k, d] : r.host.diags) if (k == "cpu-throttled") throttled += d + "\n";
+    };
+    for (const std::string* html : {&dom, &canvas}) {
+        const char* which = html == &dom ? "dom" : "canvas";
+        int frames = 0;
+        std::string throttled;
+        run(*html, 100, frames, throttled);
+        CHECK_MSG(frames == 10 && throttled.empty(), std::string(which) + ": " + std::to_string(frames) + " frames; " + throttled);
+        run(*html, 2, frames, throttled);
+        CHECK_MSG(frames < 3, std::string(which) + ": " + std::to_string(frames) + " frames under a 2 ms window");
+        CHECK_MSG(throttled.find("main-thread budget used by layout queries and ops") != std::string::npos, std::string(which) + ": " + throttled);
+    }
+}
+
 /// Any pointerdown begins a press, trusted or not: a second finger's is neither trusted (it may become the chat's scroll)
 /// nor claimed (`gesture` is the primary pointer's), so its release is a new gesture, not the one before it, spent.
 TEST(an_untrusted_pointerdown_begins_a_new_gesture) {
@@ -1200,10 +1353,10 @@ TEST(sdk_storage_preload_and_commits) {
         }
         CHECK(!r.host.hasDiag("storage-rejected"));
     }
-    // 16 KB of UTF-8 per area: the shim throws past it, what it commits is within the glue's quota.
-    Run q("<script>var out = []; localStorage.setItem('k', 'x'.repeat(16383));"
+    // 4 KB of UTF-8 per area: the shim throws past it, what it commits is within the glue's quota.
+    Run q("<script>var out = []; localStorage.setItem('k', 'x'.repeat(4095));"
           "try { localStorage.setItem('k2', 'y'); } catch (e) { out.push(e.name, e.code, e instanceof DOMException); }"
-          "sessionStorage.setItem('w', '\xD0\xB6'.repeat(8000)); sessionStorage.setItem('\\ud800', 'x\\udc00');</script>");
+          "sessionStorage.setItem('w', '\xD0\xB6'.repeat(2000)); sessionStorage.setItem('\\ud800', 'x\\udc00');</script>");
     CHECK(q.engine.probe("out.join()") == "QuotaExceededError,22,true");
     q.barrier();
     StorageArea session;
@@ -1211,16 +1364,16 @@ TEST(sdk_storage_preload_and_commits) {
         auto l = q.host.lock();
         CHECK_MSG(q.host.storageCommits.size() == 2 && !q.host.hasDiag("storage-rejected"), q.diagsText());
         if (q.host.storageCommits.size() == 2) {
-            CHECK(sdk::storageBytes(q.host.storageCommits[0].second) == 16384);
+            CHECK(sdk::storageBytes(q.host.storageCommits[0].second) == 4096);
             session = q.host.storageCommits[1].second;
             CHECK(session.count("\xED\xA0\x80") && session["\xED\xA0\x80"] == "x\xED\xB0\x80");
-            CHECK(sdk::storageBytes(session) == 1 + 2 * 8000 + 3 + 4);
+            CHECK(sdk::storageBytes(session) == 1 + 2 * 2000 + 3 + 4);
         }
     }
     SandboxConfig again = testConfig();
     again.storage.session = session;
     Run back("<p>x</p>", again);
-    CHECK_MSG(back.engine.probe("sessionStorage.getItem('\\ud800') === 'x\\udc00' && sessionStorage.getItem('w').length") == "8000", back.diagsText());
+    CHECK_MSG(back.engine.probe("sessionStorage.getItem('\\ud800') === 'x\\udc00' && sessionStorage.getItem('w').length") == "2000", back.diagsText());
 }
 
 TEST(sdk_storage_preload_over_quota_is_rejected) {

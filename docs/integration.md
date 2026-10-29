@@ -7,8 +7,12 @@ callbacks. The HTML you pass is the whole widget (inline CSS and JS); nothing
 in it can reach the network.
 
 The same `Options` exist everywhere with the same defaults (`memoryLimitBytes`
-64 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000,
-`maxTimers` 256, `visible`, `policy` `strict`), see `packages/core/src/shared/protocol.ts`.
+8 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000,
+`mainThreadQuotaMs` 100 (the host's main-thread work for the widget: its layout
+queries and the modelled cost of its ops), `maxTimers` 64, `visible`, `policy`
+`strict`), see `packages/core/src/shared/protocol.ts` and `docs/decisions.md`,
+"Strict limits from the start". Keep the defaults in a product build; `policy`
+`compat` and wider quotas are for tests and the stress kit's measuring runs.
 Call `setVisible(false)` when the bubble leaves the screen (frames stop, timers
 drop to 1 Hz), `setTheme` when the chat theme changes, `destroy()` when the
 bubble is recycled. A widget that exceeds its limits is killed; the renderer
@@ -330,7 +334,7 @@ host's `storage` at creation and keep what `onStorageCommit(area, values)`
 hands you — `local` on disk (with a short delay, and at once when the widget
 is hidden or destroyed and when the app goes to the background), `session` in
 memory — and delete both with the message, the chat, the account and on "Clear
-cache" (`docs/sdk-v1.md` §5.4). The framework enforces the 16 KB quota.
+cache" (`docs/sdk-v1.md` §5.4). The framework enforces the 4 KB quota.
 
 **Theme and language.** Pass the chat's theme as a `WidgetTheme` (colour
 scheme, the Mini Apps palette keys as `#rrggbb`, your button's tokens, your

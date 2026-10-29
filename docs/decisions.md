@@ -523,7 +523,7 @@ information.
 
 ### Strict-policy text limits
 
-Strict validators allow at most 64 Ki UTF-16 units per text value, 256 Ki units across tracked text and comment nodes, and 8192 complex-script units across text nodes. Removal and shrinking release the document budget; resetting a pooled native validator clears it. Since the pre-release hardening the budgets also charge `data-*` / `aria-*` values and the strings of sanitized CSS (see "Strict budgets reach attributes and CSS strings").
+Strict validators allow at most 32 Ki UTF-16 units per text value and 48 Ki units across tracked text and comment nodes (64 Ki and 256 Ki until the strict limits; past either the widget now stops, "Strict limits from the start"), and 8192 complex-script units across text nodes. Removal and shrinking release the document budget; resetting a pooled native validator clears it. Since the pre-release hardening the budgets also charge `data-*` / `aria-*` values and the strings of sanitized CSS (see "Strict budgets reach attributes and CSS strings").
 
 Text mutations longer than 256 UTF-16 units, or containing complex-script, CJK, Kana, Hangul or fullwidth characters, also consume a shared token bucket with an 8192-work-unit burst and a 1024-unit-per-second refill; short Latin, digit and symbol text such as ticker cells is never charged, so a 400-cell ticker updating every frame keeps all its updates. Work counts words separated by whitespace, hyphens, question marks, slashes, or zero-width spaces, and counts CJK, Kana, Hangul, fullwidth and supplementary characters individually. Long unbroken runs cost at least one unit per 1024 UTF-16 units. Creating, replacing, splitting, or removing nodes cannot refund mutation work. Rejected mutations preserve the last accepted text. Compatibility policy keeps its existing limits.
 
@@ -555,15 +555,17 @@ kept the renderer answering forever: the host was busy, the widget alive. Found
 by Misha on the macOS client (54bdfa5); now the rule on every host:
 
 - the wall time of a task's queries is summed (`taskQueryMs`); past
-  `queryBudgetMs(slice) = max(slice, 100 ms)` (`cpu-budget.ts` and its three
-  twins, checked against `tests/fixtures/cpu-budget.json`) the task is
+  `queryBudgetMs = 100 ms` (`cpu-budget.ts` and its three twins, checked against
+  `tests/fixtures/cpu-budget.json`; `max(slice, 100 ms)` until the strict limits, so up to
+  500 ms at boot) the task is
   interrupted at the next poll (the CPU deadline is moved into the past) and
   killed with "Layout query limit exceeded: host queries blocked the renderer
   for more than N ms in one <kind> task"; any further query of that task is
   answered `{"error":"query budget exceeded"}`;
-- the query time is charged to the CPU quota together with the task's CPU
-  (`budget.record(kind, cpuMs + taskQueryMs)`): a layout-heavy widget pays for
-  what it costs the host, and the quota throttles it like a busy one;
+- the query time is charged to the host's main-thread window (with the modelled
+  cost of the task's ops; it was charged to the CPU quota with the task's CPU
+  until the strict limits): a layout-heavy widget pays for what it costs the host,
+  and the window throttles it like a busy one;
 - both counters reset at the start of each task.
 
 The budget is per task, not per widget, so an ordinary widget that measures a
@@ -572,11 +574,12 @@ while a forced-layout loop reaches it within the first task. The Node harness
 keeps the same accounting (its answers are in-process, so only a slow `answer`
 callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
 
-### 256 timers, and an error instead of a hang
+### 64 timers, and an error instead of a hang
 
 - Telegram allows 16 timers; browsers have no limit. D3 transitions and
-  staggered animations put dozens of timers in flight, so 256 is the default,
-  configurable (`maxTimers`).
+  staggered animations put dozens of timers in flight, so 256 was the default,
+  configurable (`maxTimers`); 64 since the strict limits (the busiest widget of
+  the corpora holds 31).
 - The cap used to be 2000 and silent: the glue dropped the timer and the shim
   returned an id whose callback never came — a hang with no error. Now the
   shim throws `RangeError('too many timers (max N)')` (reported once as
@@ -624,7 +627,8 @@ callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
   `JS_SetMemoryLimit` throws natively; the glue keeps working at the cap
   (host → VM strings, calls) and memory is reusable after the widget frees it.
   `setMemoryLimit` stays as the cheap first check for one huge allocation.
-  The footprint of a worker is therefore bounded by 80 MB; a polling or
+  The footprint of a worker is therefore bounded by 16 MB + the limit (24 MB at
+  the 8 MB default of the strict limits, 80 MB at the 64 MB it was); a polling or
   interrupt-handler guard was rejected because quickjs polls interrupts every
   10 000 back-edges, i.e. gigabytes of 1 MB allocations between polls.
 - Semantics match native: a widget that catches the error lives on at the cap
@@ -635,6 +639,49 @@ callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
   steady growth capped at 62 MB, burst refused, arrays capped. Android uses
   bionic `malloc_usable_size` through the `__linux__` branch. Swift, Kotlin and
   the C++ core need nothing extra.
+
+### Strict limits from the start (2026-10-29)
+
+Widgets are not launched yet. A limit can be loosened later without breaking anything; tightening it breaks widgets
+that worked, and with honest strict limits bots adapt to them (Artem, 2026-10-28: "лучше посильнее зарезать на старте").
+So every count and size limit was re-measured over 346 widgets of the corpora and the conformance set (5 s each in the
+dev app, a tap on the first button; memory also in the native C++ harness) and set to about twice the largest real use:
+
+| Limit | Largest real use | Limit | Past it |
+|---|---|---|---|
+| QuickJS heap | 3.1 MB (1.9 MB of it the runtime and the shim) | 8 MB (was 64) | stops |
+| Live timers | 31 | 64 (was 256) | `RangeError` |
+| Live script animations | 4 | 64 (was 1024) | not rendered |
+| One text value | 12.9 K (a stylesheet) | 32 K (was 64 K) | stops |
+| The document's text | 21.7 K | 48 K (was 256 K) | stops |
+| An attribute value | 1 066 (an inline style) | 8 K (was 4 MB) | stops |
+| Ops in one batch | 2 700 | 10 000 (was 200 000) | stops |
+| CSS rules / `@keyframes` | 167 / 12 | 400 / 32 (no cap) | stops |
+| Canvas commands per canvas and task | 237 | 2 000 (was 400 000 buffered) | `RangeError`; stops past it in a batch |
+| Web Storage per area | 585 characters | 4 KB (was 16 KB) | `QuotaExceededError` |
+| Layout queries per task | 14.6 ms over a whole run | 100 ms (was the slice, up to 500 ms) | stops |
+
+- **Stop, not drop.** A counted cap used to drop the op with a diagnostic and the widget went on with a hole in its
+  document, whose look depended on what had passed. Now the validator (`validator.ts`, the same bundle on every native
+  host, and Swift's `NativeValidator`) sets `stopped`, reports the `limit` diagnostic with the reason and refuses that
+  batch whole and every later one; the host stops the widget with that reason, as for memory or CPU, and the bubble
+  keeps its last render. The author sees the cause at once. The complex-script budget and text churn still drop:
+  a widget in those scripts needs all of its budget, and the numbers did not change.
+- **The shim refuses at the same numbers**, so the author gets an error inside the widget where the host would stop it:
+  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 2001st command for
+  one canvas in one task throws `RangeError`; the validator stops a batch with more, i.e. a tampered shim).
+- **The main-thread window.** The JS quota (300 ms per second, unchanged: a widget's JS runs on its own thread, and the
+  busiest widgets on a weak phone are already throttled by it) no longer pays for what the widget costs the client's main
+  thread. That is a second `CpuBudget` in the glue, `mainThreadQuotaMs` = 100 ms per `cpuQuotaWindowMs`: the wall time of
+  the widget's layout queries plus a modelled, deterministic cost of the ops the glue forwards (25 µs per op, 2 µs per
+  canvas command; `opsCostMs` in `cpu-budget.ts` and its twins). A deferrable task waits while either window is spent.
+  The busiest widget of the corpora (`htmlbubbles-ported/06-trip-lisbon/10-ana-bare`, a list redrawn whole) costs
+  82 ms per second; 1000 elements moved every frame get about 6 frames a second instead of 60.
+- **compat keeps the old caps** and never stops: tests, tooling, and the measuring runs of the stress kit
+  (`packages/stress`), which must see the cost past the limits.
+- Not in this change: the count of heavy boxes (shadows, filters, opacity) and the renderer's frame cost of the
+  paint-limits draft, and a lower node cap. They depend on the client renderers, so they wait for the stress kit's
+  numbers from the clients.
 
 ### Off-screen pause mirrors a background tab
 

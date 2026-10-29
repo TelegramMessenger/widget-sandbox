@@ -1,6 +1,6 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 267 features: 188 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 273 features: 194 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
@@ -14,9 +14,9 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | js | 34 | 25 | 9 | 0 | 34 |
 | sdk | 17 | 16 | 1 | 0 | 17 |
 | input | 14 | 9 | 5 | 0 | 14 |
-| limit | 11 | 11 | 0 | 0 | 7 |
+| limit | 17 | 17 | 0 | 0 | 11 |
 | behaviour | 16 | 16 | 0 | 0 | 16 |
-| **all** | 267 | 188 | 79 | 0 | 263 |
+| **all** | 273 | 194 | 79 | 0 | 267 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the pipeline of the tag does with it under `strict`: profile 1 enforced, SDK v1; legend below), **tests** (conformance widgets that judge it).
 
@@ -250,7 +250,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `js.timers` | setTimeout / setInterval / clear*, ordering, clamped delays | in | P1 | kept |  | auto/15-js-runtime-a |
 | `js.raf` | requestAnimationFrame / cancelAnimationFrame (frames from the renderer) | in | P1 | kept |  | auto/15-js-runtime-a |
 | `js.microtasks` | Promise, async/await, queueMicrotask | in | P1 | kept |  | auto/15-js-runtime-a |
-| `js.storage.local` | localStorage: per (account, chat, message), preloaded, 16 KB, QuotaExceededError past it<br><sub>The shim keeps the map (16 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.</sub> | in | D17 | host |  | auto/15-js-runtime-a, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
+| `js.storage.local` | localStorage: per (account, chat, message), preloaded, 4 KB, QuotaExceededError past it<br><sub>The shim keeps the map (4 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.</sub> | in | D17 | host |  | auto/15-js-runtime-a, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
 | `js.storage.session` | sessionStorage: same key, in memory until app restart | in | D17 | host |  | auto/15-js-runtime-a, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
 | `js.intl` | Intl.NumberFormat, DateTimeFormat, PluralRules, RelativeTimeFormat, ListFormat, Collator (host ICU) | in | P1 | host |  | auto/15-js-runtime-b |
 | `js.intl.format-to-parts` | Intl.NumberFormat/DateTimeFormat formatToParts<br><sub>Numbers and dates, in every glue copy.</sub> | in | P1 | host |  | auto/15-js-runtime-b |
@@ -314,13 +314,19 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `limit.text-node` | Text values (text node, string property) up to 64 KB (strict) | in | D5 | kept |  | auto/19-limits |
-| `limit.text-budget` | Document text budget 256 K units, complex-script text 8192 units (strict) | in | D5 | kept |  | auto/19-limits |
+| `limit.text-node` | Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict) | in | D5 | kept |  | auto/19-limits, auto/31-stop-text |
+| `limit.text-budget` | Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict) | in | D5 | kept |  | auto/19-limits |
 | `limit.nodes` | At most 50 000 nodes | in | P1 | kept |  |  |
-| `limit.timers` | At most 256 live timers (RangeError past it) | in | P1 | kept |  | auto/19-limits |
-| `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task | in | P1 | kept |  |  |
-| `limit.memory` | QuickJS heap 64 MB | in | P1 | kept |  |  |
-| `limit.storage` | localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing | in | D17 | kept |  | auto/15-js-runtime-a, visual/sdk/10-storage-quota |
+| `limit.timers` | At most 64 live timers (RangeError past it) | in | P1 | kept |  | auto/19-limits |
+| `limit.cpu` | CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task | in | P1 | kept |  |  |
+| `limit.memory` | QuickJS heap 8 MB | in | P1 | kept |  |  |
+| `limit.storage` | localStorage and sessionStorage: 4 KB per area and message (4096 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing | in | D17 | kept |  | auto/15-js-runtime-a, visual/sdk/10-storage-quota |
+| `limit.attribute` | Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict) | in | L1 | kept |  | auto/19-limits, auto/32-stop-attribute |
+| `limit.batch` | At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict) | in | L1 | kept |  | auto/33-stop-batch |
+| `limit.css-rules` | At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict) | in | L1 | kept |  | auto/34-stop-css-rules |
+| `limit.canvas-commands` | At most 2000 canvas commands per canvas in one task (RangeError past it; strict) | in | L1 | kept |  | auto/19-limits |
+| `limit.animations` | At most 64 running script animations (further ones are not rendered; strict) | in | L1 | kept |  |  |
+| `limit.main-thread` | The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it) | in | L1 | host |  |  |
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | kept |  | auto/16-sdk-taps-a, visual/sdk/03-link-rejected |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in | SDK | kept |  | auto/20-client-behaviour |
 | `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit) | in | SDK | kept |  | auto/16-sdk-taps-c, auto/27-haptics-no-touch, visual/sdk/06-haptics-rate, visual/sdk/26-haptics-no-touch |
@@ -371,7 +377,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D11**: One widget model: classic DOM in the sandbox
 - **D12a**: Above the cap: hard clip, no fullscreen
 - **D14**: Theme: themeParams + --tg-theme-*, theme change event
-- **D17**: State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 16 KB, QuotaExceededError; sessionStorage in memory
+- **D17**: State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory
+- **L1**: Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)
 - **D18**: Text is not selectable by default; a widget enables selection with user-select: text (2026-10-20, replaces "Text selection forbidden")
 - **D20**: Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits
 - **D21**: No accessibility in v1

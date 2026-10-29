@@ -2,9 +2,12 @@
 import Foundation
 
 enum CanvasBatchFastPath {
-    static let maxOps = 200_000
-    static let maxCmdsPerOp = 500_000
-    static let maxStringBytes = 64 * 1024
+    // The validator's strict caps (validator.ts: 10 000 ops per batch, 2000 canvas commands per send, 32 768 characters
+    // per text value; a UTF-8 byte count bounds the UTF-16 length): a batch past one takes the general path, which
+    // applies the policy's caps and, under strict, stops the widget.
+    static let maxOps = 10_000
+    static let maxCmdsPerOp = 2_000
+    static let maxStringBytes = 32 * 1024
     static let maxDistinctIds = 16
     static let maxBatchBytes = 4 << 20
 

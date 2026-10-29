@@ -8,6 +8,8 @@ protocol NativeValidatorOracle: AnyObject {
     func stylesheet(_ text: String) -> String
     func canvasCommands(_ json: String) -> String
     var diagnostics: Int { get }
+    /// The reason the script validator stopped the widget (a canvas string past the cap in `canvasCommands`), or nil.
+    var limitStop: String? { get }
 }
 
 struct NativeValidatorTables {
@@ -33,13 +35,19 @@ struct NativeValidatorTables {
     var mime: Set<String> = []
     var placeholder = ""
     var maxNodes = 50_000
-    var maxText = 64 * 1024
+    var maxText = 2 * 1024 * 1024
     var maxAttr = 4 * 1024 * 1024
     var maxOps = 200_000
     var maxCanvasCommands = 500_000
     var limbo = 0
     var complexTextBudget = 0
     var textBudget = 0
+    /// CSS rules and `@keyframes` over the document's stylesheets (validator.ts `countCssRules`); 0 = no cap.
+    var maxCssRules = 0
+    var maxKeyframes = 0
+    var maxLiveAnims = 1024
+    /// Strict: a counted cap stops the widget (diagnostic `limit`) instead of rejecting the op.
+    var stop = false
     /// Attributes whose values count against the strict text budgets (css-sanitizer.ts `isTextAttr`).
     var textAttributes: Set<String> = ["value", "placeholder", "alt", "label", "title"]
     var textAttributePrefixes: [String] = ["data-", "aria-"]
@@ -108,6 +116,10 @@ struct NativeValidatorTables {
         limbo = Int(numbers[5])
         complexTextBudget = Int(root["complexTextBudget"]?.number ?? 0)
         textBudget = Int(root["textBudget"]?.number ?? 0)
+        maxCssRules = Int(root["cssRules"]?.number ?? 0)
+        maxKeyframes = Int(root["keyframes"]?.number ?? 0)
+        maxLiveAnims = Int(root["liveAnims"]?.number ?? 1024)
+        if case .bool(let on)? = root["stop"] { stop = on }
         if let names = strings("textAttrs") { textAttributes = Set(names) }
         if let prefixes = strings("textAttrPrefixes") { textAttributePrefixes = prefixes }
     }
@@ -138,6 +150,9 @@ final class NativeValidator {
         var attached = false
         var complex = 0
         var textSlots: [String: (length: Int, complex: Int)] = [:]
+        /// A `<style>` element: the rules and `@keyframes` of its sanitized sheet, counted against the document's caps.
+        var cssRules = 0
+        var cssKeyframes = 0
         let seq: Int
 
         init(id: Int, kind: Kind, tag: String = "", svg: Bool = false, rendered: Bool = true, isStyle: Bool = false, adopted: Bool = false, data: String = "", seq: Int) {
@@ -186,6 +201,9 @@ final class NativeValidator {
         churnAt = nil
         complexText = 0
         totalText = 0
+        cssRules = 0
+        cssKeyframes = 0
+        stopReason = nil
         intern.reset()
         nodeSeq = 0
         nodes[Self.documentId] = Node(id: Self.documentId, kind: .document, rendered: false, seq: nextSeq())
@@ -218,30 +236,96 @@ final class NativeValidator {
 
     @inline(__always) private func fits(_ s: BinaryString, _ max: Int) -> Bool { s.units <= max }
 
+    /// UTF-16 length of `s` when it is longer than `max` (validator.ts compares `.length`), else nil.
+    private func over(_ s: String, _ max: Int) -> Int? {
+        if s.utf8.count <= max { return nil }
+        let units = s.utf16.count
+        return units > max ? units : nil
+    }
+
+    // MARK: strict caps (validator.ts `stop`)
+
+    /// Set once a counted cap was passed under strict: the reason the host stops the widget with, as it does for memory
+    /// or CPU. From then on every batch is refused whole, so the renderer keeps the last render that fit.
+    private(set) var stopReason: String?
+    private var cssRules = 0
+    private var cssKeyframes = 0
+
+    /// A cap passed: strict stops the widget (diagnostic `limit`, the host acts on it); compat only rejects the op.
+    @discardableResult
+    private func stop(_ reason: String) -> Bool {
+        guard tables.stop else { return false }
+        if stopReason == nil {
+            stopReason = reason
+            diag("limit", reason)
+        }
+        return false
+    }
+
+    private func tooLongText(_ length: Int) -> Bool {
+        stop("Text limit exceeded: a text value of \(length) characters (max \(tables.maxText))")
+    }
+
+    private func tooLongAttribute(_ length: Int) -> Bool {
+        stop("Attribute limit exceeded: a value of \(length) characters (max \(tables.maxAttr))")
+    }
+
+    private func overDocumentText() -> Bool {
+        stop("Text limit exceeded: the document's text is over \(tables.textBudget) characters")
+    }
+
+    private func tooManyCanvasCommands(_ count: Int) -> Bool {
+        stop("Canvas limit exceeded: \(count) commands in one send (max \(tables.maxCanvasCommands))")
+    }
+
+    /// The script validator stopped while checking canvas commands for this model (`canvasCommands`): the same stop,
+    /// its `limit` diagnostic already reported.
+    private func adoptOracleStop() -> Bool {
+        guard stopReason == nil, let reason = oracle?.limitStop else { return stopReason != nil }
+        stopReason = reason
+        return true
+    }
+
     // MARK: batches
 
     func process(_ decoded: BinaryOps.Decoded, canvas: [Int: WidgetCanvasBatch]) -> [WidgetOp] {
         out = []
-        if decoded.tooMany {
+        if stopReason != nil { return [] }
+        if decoded.count > tables.maxOps, tables.stop {
+            stop("Ops limit exceeded: \(decoded.count) operations in one batch (max \(tables.maxOps))")
+            return []
+        }
+        if decoded.tooMany || decoded.count > tables.maxOps {
             diag("protocol-violation", "ops batch is not an array or too large")
             return []
         }
         for op in decoded.ops {
             if !apply(op, canvas: canvas) {
+                if stopReason != nil { break }
                 diag("protocol-violation", "rejected op " + JSONText.safe(BinaryOps.json(op, canvas: canvas)))
             }
+            if stopReason != nil { break }
         }
         return finish()
     }
 
     func process(json value: JSONValue) -> [WidgetOp] {
         out = []
+        if stopReason != nil { return [] }
+        if case .array(let list) = value, list.count > tables.maxOps, tables.stop {
+            stop("Ops limit exceeded: \(list.count) operations in one batch (max \(tables.maxOps))")
+            return []
+        }
         guard case .array(let list) = value, list.count <= tables.maxOps else {
             diag("protocol-violation", "ops batch is not an array or too large")
             return []
         }
         for item in list {
-            if case .object(let o) = item, apply(o) { continue }
+            if case .object(let o) = item, apply(o) {
+                if stopReason != nil { break }
+                continue
+            }
+            if stopReason != nil { break }
             var text: [UInt8] = []
             JSONText.write(item, to: &text)
             diag("protocol-violation", "rejected op " + JSONText.safe(text))
@@ -252,13 +336,15 @@ final class NativeValidator {
     private func finish() -> [WidgetOp] {
         if !dirtyStyles.isEmpty {
             for (id, _) in dirtyStyles.sorted(by: { $0.value < $1.value }) {
+                if stopReason != nil { break }
                 if let style = nodes[id] { out.append(WidgetOp(css: id, text: styleText(style))) }
             }
             dirtyStyles.removeAll()
         }
         let result = out
         out = []
-        return result
+        // A stopped widget's last batch is refused whole: the renderer keeps the last render that fit.
+        return stopReason != nil ? [] : result
     }
 
     func setTheme() -> [WidgetOp] {
@@ -278,7 +364,99 @@ final class NativeValidator {
             releaseTextSlot(style, key: "sheet")
             return ""
         }
+        if tables.maxCssRules > 0 || tables.maxKeyframes > 0 {
+            let counted = Self.countCssRules(text)
+            cssRules += counted.rules - style.cssRules
+            cssKeyframes += counted.keyframes - style.cssKeyframes
+            style.cssRules = counted.rules
+            style.cssKeyframes = counted.keyframes
+            if tables.maxCssRules > 0, cssRules > tables.maxCssRules {
+                stop("CSS limit exceeded: \(cssRules) rules in the document's stylesheets (max \(tables.maxCssRules))")
+                return ""
+            }
+            if tables.maxKeyframes > 0, cssKeyframes > tables.maxKeyframes {
+                stop("CSS limit exceeded: \(cssKeyframes) @keyframes in the document's stylesheets (max \(tables.maxKeyframes))")
+                return ""
+            }
+        }
         return text
+    }
+
+    /// validator.ts `countCssRules`: style rules and `@keyframes` blocks in a sanitized stylesheet, over UTF-16 units; a
+    /// rule inside `@media` / `@supports` / `@container` / `@layer` counts, the keyframe selectors inside `@keyframes`
+    /// do not; strings and comments are skipped.
+    static func countCssRules(_ css: String) -> (rules: Int, keyframes: Int) {
+        enum Block { case rule, at, keyframes, frame }
+        let u = Array(css.utf16)
+        let n = u.count
+        var rules = 0, keyframes = 0
+        var stack: [Block] = []
+        var prelude = 0
+        var i = 0
+        while i < n {
+            let c = u[i]
+            if c == 0x22 || c == 0x27 { // a string: skip to its end
+                i += 1
+                while i < n && u[i] != c {
+                    if u[i] == 0x5c { i += 1 }
+                    i += 1
+                }
+            } else if c == 0x2f && i + 1 < n && u[i + 1] == 0x2a { // a comment
+                var end = i + 2
+                while end + 1 < n && !(u[end] == 0x2a && u[end + 1] == 0x2f) { end += 1 }
+                i = end + 1 < n ? end + 1 : n
+            } else if c == 0x7b { // {
+                let kind: Block
+                if stack.last == .keyframes {
+                    kind = .frame
+                } else {
+                    let head = Self.cssPreludeHead(u, prelude, i)
+                    if Self.isKeyframesPrelude(head) { kind = .keyframes } else if head.first == 0x40 { kind = .at } else { kind = .rule }
+                }
+                if kind == .keyframes { keyframes += 1 } else if kind == .rule { rules += 1 }
+                stack.append(kind)
+                prelude = i + 1
+            } else if c == 0x7d { // }
+                _ = stack.popLast()
+                prelude = i + 1
+            } else if c == 0x3b { // ;
+                prelude = i + 1
+            }
+            i += 1
+        }
+        return (rules, keyframes)
+    }
+
+    /// The start of `u[from..<to]` with leading whitespace trimmed (String.prototype.trim) and lowercased: enough to
+    /// tell `@keyframes` / `@-webkit-keyframes` and other at-rules from style rules.
+    private static func cssPreludeHead(_ u: [UInt16], _ from: Int, _ to: Int) -> [UInt16] {
+        var start = from
+        while start < to, isJSWhitespace(u[start]) { start += 1 }
+        guard start < to else { return [] }
+        let prefix = String(decoding: u[start..<min(to, start + 24)], as: UTF16.self)
+        return Array(prefix.lowercased().utf16)
+    }
+
+    /// `/^@(-webkit-)?keyframes\b/` on the lowercased prelude.
+    private static func isKeyframesPrelude(_ head: [UInt16]) -> Bool {
+        for name in ["@keyframes", "@-webkit-keyframes"] {
+            let k = Array(name.utf16)
+            guard head.count >= k.count, Array(head[0..<k.count]) == k else { continue }
+            guard head.count > k.count else { return true }
+            let next = head[k.count]
+            let word = (next >= 0x30 && next <= 0x39) || (next >= 0x41 && next <= 0x5a) || (next >= 0x61 && next <= 0x7a) || next == 0x5f
+            return !word
+        }
+        return false
+    }
+
+    /// WhiteSpace and LineTerminator of ECMAScript (what `trim()` removes).
+    private static func isJSWhitespace(_ c: UInt16) -> Bool {
+        switch c {
+        case 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0xa0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff: return true
+        case 0x2000...0x200a: return true
+        default: return false
+        }
     }
 
     private var budgeted: Bool { tables.textBudget > 0 || tables.complexTextBudget > 0 }
@@ -323,21 +501,23 @@ final class NativeValidator {
         switch op {
         case .element(let id, let tag, let svg, let attributes):
             guard isId(id), fits(tag, 64) else { return false }
-            let list = BinaryOps.normalizedAttributes(attributes).map { pair -> (String, String?) in
-                (pair.0.s, fits(pair.1, tables.maxAttr) ? pair.1.s : nil)
-            }
+            let list = BinaryOps.normalizedAttributes(attributes).map { pair -> (String, String?) in (pair.0.s, pair.1.s) }
             return element(id, tag: tag.s, svg: svg, attributes: list)
         case .text(let id, let data):
-            guard isId(id), fits(data, tables.maxText) else { return false }
+            guard isId(id) else { return false }
+            if !fits(data, tables.maxText) { return tooLongText(data.units) }
             return characterData(id, data.s, text: true)
         case .comment(let id, let data):
-            guard isId(id), fits(data, tables.maxText) else { return false }
+            guard isId(id) else { return false }
+            if !fits(data, tables.maxText) { return tooLongText(data.units) }
             return characterData(id, data.s, text: false)
         case .data(let id, let data):
-            guard isId(id), fits(data, tables.maxText) else { return false }
+            guard isId(id) else { return false }
+            if !fits(data, tables.maxText) { return tooLongText(data.units) }
             return setData(id, data.s)
         case .attribute(let id, let name, let value):
-            guard isId(id), fits(name, 128), fits(value, tables.maxAttr) else { return false }
+            guard isId(id), fits(name, 128) else { return false }
+            if !fits(value, tables.maxAttr) { return tooLongAttribute(value.units) }
             return attribute(id, name.s, value.s)
         case .removeAttribute(let id, let name):
             guard isId(id), fits(name, 128) else { return false }
@@ -349,7 +529,8 @@ final class NativeValidator {
             guard isId(id) else { return false }
             return remove(id)
         case .style(let id, let name, let value, let important):
-            guard isId(id), fits(name, 128), fits(value, tables.maxAttr) else { return false }
+            guard isId(id), fits(name, 128) else { return false }
+            if !fits(value, tables.maxAttr) { return tooLongAttribute(value.units) }
             return style(id, name.s, value.s, important: important)
         case .canvas(let id, let key):
             guard let batch = canvas[key] else { return false }
@@ -375,20 +556,23 @@ final class NativeValidator {
             var list: [(String, String?)] = []
             if let attrs = o["attrs"] {
                 guard case .object(let a) = attrs else { return false }
-                list = a.entries.map { ($0.0, isStr($0.1, tables.maxAttr)) }
+                list = a.entries.map { ($0.0, $0.1.string) }
             }
             return element(id, tag: tag, svg: svg, attributes: list)
         case "text", "comment":
-            guard let id = isId(o["id"]), let data = isStr(o["data"], tables.maxText) else { return false }
+            guard let id = isId(o["id"]), case .string(let data)? = o["data"] else { return false }
+            if let length = over(data, tables.maxText) { return tooLongText(length) }
             return characterData(id, data, text: kind == "text")
         case "attr":
-            guard let id = isId(o["id"]), let name = isStr(o["name"], 128), let value = isStr(o["value"], tables.maxAttr) else { return false }
+            guard let id = isId(o["id"]), let name = isStr(o["name"], 128), case .string(let value)? = o["value"] else { return false }
+            if let length = over(value, tables.maxAttr) { return tooLongAttribute(length) }
             return attribute(id, name, value)
         case "rattr":
             guard let id = isId(o["id"]), let name = isStr(o["name"], 128) else { return false }
             return removeAttribute(id, name)
         case "data":
-            guard let id = isId(o["id"]), let data = isStr(o["data"], tables.maxText) else { return false }
+            guard let id = isId(o["id"]), case .string(let data)? = o["data"] else { return false }
+            if let length = over(data, tables.maxText) { return tooLongText(length) }
             return setData(id, data)
         case "ins":
             guard let id = isId(o["id"]) else { return false }
@@ -406,7 +590,8 @@ final class NativeValidator {
             guard let id = isId(o["id"]) else { return false }
             return remove(id)
         case "style":
-            guard let id = isId(o["id"]), let name = isStr(o["name"], 128), let value = isStr(o["value"], tables.maxAttr) else { return false }
+            guard let id = isId(o["id"]), let name = isStr(o["name"], 128), case .string(let value)? = o["value"] else { return false }
+            if let length = over(value, tables.maxAttr) { return tooLongAttribute(length) }
             var important = false
             if case .bool(true)? = o["important"] { important = true }
             return style(id, name, value, important: important)
@@ -415,12 +600,12 @@ final class NativeValidator {
         case "call":
             return call(o)
         case "canvas":
-            guard let id = isId(o["id"]), case .array(let cmds)? = o["cmds"], cmds.count <= tables.maxCanvasCommands else { return false }
+            guard let id = isId(o["id"]), case .array(let cmds)? = o["cmds"] else { return false }
+            if cmds.count > tables.maxCanvasCommands { return tooManyCanvasCommands(cmds.count) }
             guard let node = nodes[id], node.kind == .element, node.tag == "canvas" else { return false }
             var text: [UInt8] = []
             JSONText.write(.array(cmds), to: &text)
-            canvasJSON(id, String(decoding: text, as: UTF8.self))
-            return true
+            return canvasJSON(id, String(decoding: text, as: UTF8.self))
         default:
             return false
         }
@@ -518,6 +703,10 @@ final class NativeValidator {
         var attrs = extra
         for (name, value) in attributes {
             guard let value else { continue }
+            if let length = over(value, tables.maxAttr) {
+                if tables.stop { return tooLongAttribute(length) }
+                continue
+            }
             for pair in sanitizeAttribute(node, name, value) {
                 if let text = attrText(pair.name, pair.value), !updateTextSlot(node, key: "attr:" + pair.name, text: text) { continue }
                 attrs.append(pair)
@@ -597,10 +786,7 @@ final class NativeValidator {
     private func characterData(_ id: Int, _ data: String, text: Bool) -> Bool {
         guard nodes[id] == nil, nodes.count < tables.maxNodes else { return false }
         let length = data.utf16.count
-        if tables.textBudget > 0, totalText + length > tables.textBudget {
-            diag("text-budget", "document text over \(tables.textBudget) units")
-            return false
-        }
+        if tables.textBudget > 0, totalText + length > tables.textBudget { return overDocumentText() }
         let units = text ? Self.complexUnits(data) : 0
         if units > 0, tables.complexTextBudget > 0, complexText + units > tables.complexTextBudget { return overTextBudget() }
         if tables.textBudget > 0, Self.chargesChurn(data), !takeChurn(Self.textWork(data)) { return overChurn() }
@@ -616,10 +802,7 @@ final class NativeValidator {
     private func setData(_ id: Int, _ data: String) -> Bool {
         guard let node = nodes[id], node.kind != .element, node.kind != .document else { return false }
         let textDelta = data.utf16.count - node.data.utf16.count
-        if textDelta > 0, tables.textBudget > 0, totalText + textDelta > tables.textBudget {
-            diag("text-budget", "document text over \(tables.textBudget) units")
-            return false
-        }
+        if textDelta > 0, tables.textBudget > 0, totalText + textDelta > tables.textBudget { return overDocumentText() }
         let units = node.kind == .text ? Self.complexUnits(data) : 0
         let delta = units - node.complex
         if delta > 0, tables.complexTextBudget > 0, complexText + delta > tables.complexTextBudget { return overTextBudget() }
@@ -707,6 +890,8 @@ final class NativeValidator {
         while let n = stack.popLast() {
             complexText -= n.complex
             totalText -= n.data.utf16.count
+            cssRules -= n.cssRules
+            cssKeyframes -= n.cssKeyframes
             for charge in n.textSlots.values {
                 totalText -= charge.length
                 complexText -= charge.complex
@@ -891,7 +1076,6 @@ final class NativeValidator {
         switch value {
         case .string(let s)?:
             type = "string"
-            if s.utf8.count > tables.maxText, s.utf16.count > tables.maxText { return false }
             any = s
         case .number(let n)?:
             guard n.isFinite else { return false } // validator.ts opProp: 1e999 parses as Infinity
@@ -904,6 +1088,7 @@ final class NativeValidator {
             return false
         }
         guard type == spec.type else { return false }
+        if case .string(let s)? = value, let length = over(s, tables.maxText) { return tooLongText(length) }
         if !node.rendered || (spec.tags.map { !$0.contains(node.tag) } ?? false) { return true }
         if case .string(let text)? = value, !updateTextSlot(node, key: "prop:" + name, text: text) { return false }
         out.append(WidgetOp(["op": "prop", "id": id, "name": name, "value": any]))
@@ -913,16 +1098,10 @@ final class NativeValidator {
     private func updateTextSlot(_ node: Node, key: String, text: String) -> Bool {
         guard tables.textBudget > 0 || tables.complexTextBudget > 0 else { return true }
         let length = text.utf16.count
-        if length > tables.maxText {
-            diag("text-budget", "visible text over \(tables.maxText) units")
-            return false
-        }
+        if length > tables.maxText { return tooLongText(length) }
         let previous = node.textSlots[key]
         let lengthDelta = length - (previous?.length ?? 0)
-        if lengthDelta > 0, tables.textBudget > 0, totalText + lengthDelta > tables.textBudget {
-            diag("text-budget", "document text over \(tables.textBudget) units")
-            return false
-        }
+        if lengthDelta > 0, tables.textBudget > 0, totalText + lengthDelta > tables.textBudget { return overDocumentText() }
         let complex = Self.complexUnits(text)
         let complexDelta = complex - (previous?.complex ?? 0)
         if complexDelta > 0, tables.complexTextBudget > 0, complexText + complexDelta > tables.complexTextBudget { return overTextBudget() }
@@ -971,18 +1150,24 @@ final class NativeValidator {
     }
 
     private func canvasWords(_ id: Int, _ batch: WidgetCanvasBatch) -> Bool {
-        guard isId(id), let node = nodes[id], node.kind == .element, node.tag == "canvas" else { return false }
+        guard isId(id) else { return false }
+        // As the JSON op the payload stands for (`{"op":"canvas","id":N,"cmds":[...]}`): the count comes before the element.
+        guard let count = CanvasWords.commandCount(batch) else { return false }
+        if count > tables.maxCanvasCommands { return tooManyCanvasCommands(count) }
+        guard let node = nodes[id], node.kind == .element, node.tag == "canvas" else { return false }
         if CanvasWords.envelope(batch) {
             if let accepted = limitCanvasText(batch) { out.append(WidgetOp(canvas: id, batch: accepted)) }
             return true
         }
         guard let json = CanvasWords.commandsJSON(batch) else { return false }
-        canvasJSON(id, json)
-        return true
+        return canvasJSON(id, json)
     }
 
-    private func canvasJSON(_ id: Int, _ json: String) {
-        guard let clean = oracle?.canvasCommands(json), clean != "[]", let cmds = (try? JSONSerialization.jsonObject(with: Data(clean.utf8))) as? [Any], !cmds.isEmpty else { return }
+    /// The commands through the script validator; false when it stopped the widget on one of them (a string past the cap).
+    private func canvasJSON(_ id: Int, _ json: String) -> Bool {
+        let clean = oracle?.canvasCommands(json)
+        if adoptOracleStop() { return false }
+        guard let clean, clean != "[]", let cmds = (try? JSONSerialization.jsonObject(with: Data(clean.utf8))) as? [Any], !cmds.isEmpty else { return true }
         let accepted = cmds.filter { value in
             guard tables.textBudget > 0, let cmd = value as? [Any], cmd.count >= 3, cmd[0] as? String == "c",
                   cmd[1] as? String == "fillText" || cmd[1] as? String == "strokeText",
@@ -990,6 +1175,7 @@ final class NativeValidator {
             return takeChurn(Self.textWork(text)) || overChurn()
         }
         if !accepted.isEmpty { out.append(WidgetOp(["op": "canvas", "id": id, "cmds": accepted])) }
+        return true
     }
 
     private func limitCanvasText(_ batch: WidgetCanvasBatch) -> WidgetCanvasBatch? {

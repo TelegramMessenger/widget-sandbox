@@ -114,8 +114,8 @@ test.describe('last render as fallback', () => {
 test.describe('timer limit', () => {
   test('a 100 000-timer flood is refused past maxTimers with a RangeError; the widget stays alive and bounded', async ({ page }) => {
     const f = await openAttack(page, 'timer-flood.html');
-    await expect(f.locator('#status')).toHaveText('done: RangeError: too many timers (max 256)');
-    await expect(f.locator('#count')).toHaveText('256 accepted, 99744 refused');
+    await expect(f.locator('#status')).toHaveText('done: RangeError: too many timers (max 64)');
+    await expect(f.locator('#count')).toHaveText('64 accepted, 99936 refused');
     await page.waitForTimeout(1500);
     const s = await twState(page);
     expect(s.dead).toBeNull();
@@ -240,16 +240,16 @@ test.describe('memory limit', () => {
   // worker caps the wasm Memory at INITIAL + memoryLimitBytes; the engine then throws the same catchable
   // `InternalError: out of memory` as the native builds do at JS_SetMemoryLimit. tests/unit/memory-limit.test.ts
   // covers the harness; this is the real worker, with the kill, the frozen fallback and the stats.
-  const FOOTPRINT_MB = 16 + 64;
+  const FOOTPRINT_MB = 16 + 8;
 
   test('steady growth without a try/catch is killed with "Memory limit exceeded" and the last render stays frozen', async ({ page }) => {
     const f = await openAttack(page, 'mem-uncaught-growth.html');
     await waitDead(page);
     const s = await twState(page);
-    expect(s.dead).toMatch(/^Memory limit exceeded \(64 MB\)/);
+    expect(s.dead).toMatch(/^Memory limit exceeded \(8 MB\)/);
     // The render before the fatal tick is still there: a count in MB, below the cap.
     const reached = parseInt(await f.locator('#mb').textContent() ?? '', 10);
-    expect(reached).toBeGreaterThanOrEqual(8);
+    expect(reached).toBeGreaterThanOrEqual(4);
     expect(reached).toBeLessThanOrEqual(FOOTPRINT_MB);
     await expect(f.locator('html')).toHaveAttribute('data-tw-frozen', 'fatal');
     await expect(f.locator('[data-tw-badge]')).toHaveText('Widget stopped');
@@ -263,7 +263,7 @@ test.describe('memory limit', () => {
     const s = await twState(page);
     expect(s.dead).toMatch(/^Memory limit exceeded/);
     const reached = parseInt(await f.locator('#mb').textContent() ?? '', 10);
-    expect(reached).toBeGreaterThanOrEqual(8);
+    expect(reached).toBeGreaterThanOrEqual(4);
     expect(reached).toBeLessThanOrEqual(FOOTPRINT_MB);
     await expect(f.locator('#mb')).not.toHaveText(/alloc refused/);
     await expect(f.locator('html')).toHaveAttribute('data-tw-frozen', 'fatal');

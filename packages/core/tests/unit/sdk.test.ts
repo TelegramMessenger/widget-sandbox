@@ -131,19 +131,19 @@ describe('SDK v1: storage', () => {
     assert.deepEqual(r.storageCommits, [{ local: { count: '42', extra: '7' } }, { session: { s: 'tapped' } }], 'one commit per task; an unchanged value is no change');
   });
 
-  it('16 KB of UTF-8 per area: setItem past it throws QuotaExceededError and stores nothing', async () => {
+  it('4 KB of UTF-8 per area: setItem past it throws QuotaExceededError and stores nothing', async () => {
     const r = await runWidget(`<script>
       var out = [];
-      localStorage.setItem('k', 'x'.repeat(16383));
+      localStorage.setItem('k', 'x'.repeat(4095));
       try { localStorage.setItem('k2', 'y'); } catch (e) { out.push(e.name, e.code, e instanceof DOMException, localStorage.getItem('k2')); }
-      try { localStorage.big = 'ж'.repeat(9000); } catch (e) { out.push(e.name); }
-      sessionStorage.setItem('k', 'x'.repeat(16000));
-      localStorage.removeItem('k'); localStorage.setItem('w', 'ж'.repeat(8191));
+      try { localStorage.big = 'ж'.repeat(2300); } catch (e) { out.push(e.name); }
+      sessionStorage.setItem('k', 'x'.repeat(4000));
+      localStorage.removeItem('k'); localStorage.setItem('w', 'ж'.repeat(2047));
     </script>`, { probes: ['out.join()', 'localStorage.length', 'sessionStorage.getItem("k").length'] });
-    assert.deepEqual(r.probes, ['QuotaExceededError,22,true,,QuotaExceededError', '1', '16000']);
+    assert.deepEqual(r.probes, ['QuotaExceededError,22,true,,QuotaExceededError', '1', '4000']);
     assert.equal(r.storageCommits.length, 1);
     assert.deepEqual(Object.keys(r.storageCommits[0].local!), ['w']);
-    assert.equal(r.storageCommits[0].session!.k.length, 16000);
+    assert.equal(r.storageCommits[0].session!.k.length, 4000);
   });
 
   it('a preload over the quota is dropped whole: storage-rejected, the widget starts empty', async () => {

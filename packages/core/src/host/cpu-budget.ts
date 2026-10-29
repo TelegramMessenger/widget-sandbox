@@ -4,8 +4,14 @@
 // postponed to the moment the oldest busy bucket leaves the window — they are
 // never dropped or killed. Events always run, with a floor of EVENT_FLOOR_MS.
 //
+// The glue keeps two of them (docs/decisions.md, "Strict limits from the start"):
+// the JS quota (`cpuQuotaMs`, JS time only) and the main-thread window
+// (`mainThreadQuotaMs`): the host's own work for the widget, its layout queries
+// and the modelled cost of the ops it forwards (`opsCostMs`). A deferrable task
+// waits while either window is spent.
+//
 // Pure and side-effect free: the glue (worker.ts, the Node harness,
-// CpuBudget.swift, CpuBudget.kt) feeds it `now` and task durations and acts on
+// CpuBudget.swift, CpuBudget.kt, cpu_budget.cpp) feeds it `now` and task durations and acts on
 // the decisions. All four copies are checked against tests/fixtures/cpu-budget.json.
 
 export type TaskKind = 'boot' | 'event' | 'visibility' | 'timer' | 'frame' | 'viewport' | 'resize' | 'theme' | 'bridge';
@@ -26,11 +32,19 @@ export const BUCKETS = 10;
 export const FLOOR_MS = 50;
 /** Kinds that may be postponed. `boot`, `event` and `visibility` always run. */
 export const DEFERRABLE: ReadonlySet<string> = new Set(['timer', 'frame', 'viewport', 'resize', 'theme', 'bridge']);
-/** A task's layout queries may block the host for at most this much, or the task's slice if that is longer. */
-export const QUERY_BUDGET_MIN_MS = 100;
-/** Layout-query budget of one task with `sliceMs` of CPU: the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU; past this the task is interrupted and killed. */
-export function queryBudgetMs(sliceMs: number): number {
-  return Math.max(sliceMs, QUERY_BUDGET_MIN_MS);
+/** A task's layout queries may block the host for at most this much, whatever its slice (boot included). */
+export const QUERY_BUDGET_MS = 100;
+/** Layout-query budget of one task: the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU; past this the task is interrupted and killed. */
+export function queryBudgetMs(_sliceMs: number): number {
+  return QUERY_BUDGET_MS;
+}
+
+/** Modelled main-thread cost of one op the glue forwards to the validator, and of one canvas command in it. */
+export const OP_COST_MS = 0.025;
+export const CANVAS_COMMAND_COST_MS = 0.002;
+/** What a batch of `ops` ops with `canvasCommands` canvas commands costs the host's main thread: deterministic, from what the widget sent. */
+export function opsCostMs(ops: number, canvasCommands: number): number {
+  return ops * OP_COST_MS + canvasCommands * CANVAS_COMMAND_COST_MS;
 }
 
 export class CpuBudget {

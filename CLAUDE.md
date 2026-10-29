@@ -36,8 +36,8 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
-  framework tag: `catalogue.json` (267 profile features, statuses synced from `profile.json`), `auto/`
-  (51 self-checking widgets; `auto/26-context-*` per message context), `visual/` (20 widgets for people + `visual/sdk`, 26 client-SDK cases),
+  framework tag: `catalogue.json` (273 profile features, statuses synced from `profile.json`), `auto/`
+  (55 self-checking widgets; `auto/26-context-*` per message context; `auto/31`–`34` must be stopped by the host, `"stops"` in the header), `visual/` (20 widgets for people + `visual/sdk`, 26 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B after zlib at level 9) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
@@ -79,9 +79,15 @@ pnpm workspace). A framework change touches `packages/` only.
    through Shadow DOM").
 
 Policy: `strict` is the default on every host (gesture gate for privileged
-bridge calls, 64 KB text caps, text budgets over text nodes, visible and
+bridge calls, the counted caps of "Strict limits from the start" in `docs/decisions.md`:
+32 K per text value, 48 K of document text, 8 K per attribute, 10 000 ops per batch, 2 000
+canvas commands per op, 400 CSS rules / 32 `@keyframes`, past which the validator's fatal
+`limit` diagnostic stops the widget; text budgets over text nodes, visible and
 `data-*`/`aria-*` attributes and CSS strings); anything but exactly `compat`
-is strict, `compat` is for tests and tooling (`docs/changes.md`).
+is strict, `compat` (the old caps, nothing stops) is for tests, tooling and the stress kit's
+measuring runs (`docs/changes.md`). Defaults on every host: 8 MB heap, 64 timers, CPU quota
+300 ms/s (JS only) and the main-thread window `mainThreadQuotaMs` 100 ms/s (layout queries +
+`opsCostMs`: 25 µs per op, 2 µs per canvas command), 4 KB of Web Storage per area.
 
 **Shadow DOM renderer** (`packages/core/src/host/shadow-renderer.ts`, `docs/shadow-dom-renderer.md`,
 the **shadow** toggle / `?shadow=1`, `TW_RENDERER=shadow` for the Playwright suites):
@@ -200,10 +206,10 @@ corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetS
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 71 tests; 110 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 74 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
+cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 75 tests; 105 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 78 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
 TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile --blitz --dpr 2 --png-dir /tmp/gen-cg   # Blitz laid out by Rust, painted by CoreGraphics/CoreText (apps/renderer-blitz/src/cg.rs, Apple only; twb_set_backend in the C ABI); three-way gallery: corepack pnpm tsx scripts/blitz-experiment/gallery-native.mts reports/blitz-experiment/native/generated vello=DIR:TABLE cg=DIR:TABLE litehtml=DIR:TABLE --strips 20; on the simulator: SIMCTL_CHILD_TWB_BACKEND=cg xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz (iOS emoji paint only on this backend); Android twin: apps/renderer-blitz/src/dl.rs records the scene as a display list, CanvasScene.kt replays it with Canvas.drawGlyphs — `--es renderer blitz_canvas` in the demo (Blitz·Canvas in the picker)
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 77 tests with both; the same flags as --blitz
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 81 tests with both; the same flags as --blitz
 corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscripten) → apps/renderer-litehtml/pkg-web; the dev UI's litehtml toggle / ?litehtml=1, TW_RENDERER=litehtml pnpm test:generated, apps/web/tests/unit/litehtml-wasm.test.ts
 # dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
 corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md + the out lists in docs/widget-runtime-profile.md (the guide's and its agent block's) (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
@@ -211,7 +217,7 @@ corepack pnpm tsx packages/core/scripts/intl-cases.ts   # after adding an Intl c
 corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance; starts a dev server (or --origin) for the automatic set's heights and the picture check (picture-check.ts: each visual picture against the widget drawn through the sandbox, diffs in reports/conformance/pictures)
 corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
 corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage behind the historical draft docs/widget-profile-draft.md and widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
-cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 28 JVM + 106 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)
+cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 26 JVM + 113 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose   # also prints the widget's size as the server counts it (zlib -9 / raw, limits 4096 / 32768, src/shared/widget-size.ts) and the resize anchor when the widget set one with a warning or an error line
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts --guide   # the agent block of the authors' guide (docs/widget-runtime-profile.md): the standalone system prompt for a model writing widgets (a bot's model sees only it; its out list is generated by profile-build.ts)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts widget.html --width 360 --hold 120,40 --double-tap 120,40 --swipe 60,80,120,0 --tap x,y --right-click x,y [--desktop] [--json]   # the real renderer core in headless Chromium at that bubble width (content height) and the presses on a phone's bubble: per press the element, its touch-action claim, the policy's outcome, the events the widget received, a hint
@@ -249,7 +255,7 @@ Done: phases 0–6 (spike, shim, compat 22 widgets, attacks 82, iOS port with
 device install, generated corpus 40/40 web + iOS), the Android port
 (emulator: 45 instrumented tests, 82 attacks with 0 canary hits, compat and
 generated corpora load; the same on a real phone), the runtime limits (`docs/decisions.md`, Runtime limits)
-on all three platforms (CPU quota 300 ms/s with deferral, 256-timer cap,
+on all three platforms (CPU quota 300 ms/s with deferral, timer cap (64 since 2026-10-29),
 last render kept as a frozen fallback, off-screen pause; attacks 93, incl. the memory cap:
 on the web the wasm `Memory.maximum` is the limit, `setMemoryLimit` alone is not) and the
 macOS port (same Swift package on AppKit, demo with autorun: attacks 0 hits,
@@ -383,6 +389,9 @@ background request made off screen (with `backgroundQuery`) is now held in the g
 (`RequestGate` verdict `held`, `show(now)` → whether it goes out; `hidden` is gone), and the shim no longer answers `BUSY`
 itself: it forwards every request and the glue's gate alone decides (`docs/sdk-v1.md` §2.14); the harness's
 `--offscreen`, the dev app's `?offscreen=1`.
+2026-10-29: strict limits from the start (`docs/decisions.md`, `docs/changes.md` "Next release"): §9 of the
+paint-limits draft, every count and size limit at about twice the largest real widget; past a counted cap the widget
+stops instead of losing the op; the main-thread window as a second `CpuBudget`; `compat` keeps the old caps.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.

@@ -128,6 +128,11 @@ export interface WidgetMeta {
   tall?: boolean;
   /** No harness CSS (the harness script and the stage geometry only): the widget tests the renderer's own defaults (the UA layer). */
   bare?: boolean;
+  /**
+   * The host must stop this widget (a counted limit under strict, docs/decisions.md "Strict limits from the start"): its
+   * covers pass when the runtime dies with a reason that starts with this text, and fail on any other end.
+   */
+  stops?: string;
 }
 
 export interface StageInfo {

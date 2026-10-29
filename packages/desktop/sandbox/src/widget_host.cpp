@@ -55,6 +55,7 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
     c.cpuQuotaMs = o.cpuQuotaMs;
     c.cpuQuotaWindowMs = o.cpuQuotaWindowMs;
     c.cpuKillAfterMs = o.cpuKillAfterMs;
+    c.mainThreadQuotaMs = o.mainThreadQuotaMs;
     c.maxTimers = o.maxTimers;
     c.visible = o.visible;
     c.innerWidth = width;
@@ -205,9 +206,12 @@ bool WidgetHost::waitUntil(const std::function<bool(const WidgetDiagnostics&)>& 
 
 // ───────────── engine → host (engine thread) ─────────────
 
-void WidgetHost::onOps(SandboxEngine&, const std::string& json) {
+void WidgetHost::onOps(SandboxEngine& engine, const std::string& json) {
     // Validation on the validator's thread (synchronous from here), the renderer call on the host thread.
     std::string clean = validator_.processOps(json);
+    // A counted cap passed under strict (the validator's `limit`): the widget stops as it does for memory or CPU
+    // (onDied: the reason in the diagnostics, the renderer frozen on its last render; this batch came back empty).
+    if (std::optional<std::string> reason = validator_.stopped()) return engine.stop(*reason);
     int nodes = validator_.nodeCount();
     host([this, clean = std::move(clean), nodes] {
         if (destroyed_) return;

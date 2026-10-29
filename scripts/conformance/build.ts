@@ -396,6 +396,7 @@ async function main() {
       ...(refImages ? { refImages } : {}),
       ...(height !== undefined ? { height } : {}),
       ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending } : {}),
+      ...(w.meta.stops ? { stops: w.meta.stops } : {}),
       ...(w.meta.message ? { message: w.meta.message } : {}),
       ...(w.meta.bot ? { bot: w.meta.bot } : {}),
     });

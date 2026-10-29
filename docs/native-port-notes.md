@@ -212,7 +212,7 @@ implementation" section of `docs/decisions.md` and in `packages/android/README.m
   levels.
 - CPU limit: `JS_SetInterruptHandler` with a deadline from
   `SystemClock.elapsedRealtime()`; 500 ms per continuous run, 5 s for boot.
-  Memory: `JS_SetMemoryLimit`, 64 MB. Both are `SandboxConfig` fields, keep them
+  Memory: `JS_SetMemoryLimit`, 8 MB (64 MB until the strict limits). Both are `SandboxConfig` fields, keep them
   configurable from the public host API (the iOS `WidgetHost.init` does not yet
   expose them, only `SandboxEngine` does).
 - Buffer inputs that arrive before the runtime has booted (the renderer sends

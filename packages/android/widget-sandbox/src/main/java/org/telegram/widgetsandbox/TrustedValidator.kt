@@ -54,12 +54,23 @@ class TrustedValidator private constructor(
     @Volatile var bundleSource = "pending"
         private set
 
+    /**
+     * Set once a counted cap was passed under strict (the bundle's fatal diagnostic `limit`): the reason the host stops
+     * the widget with; from then on every batch comes back empty. Seen by the caller when the validator call that
+     * passed it returns (the diagnostic arrives on the validator's thread during it); null again after [reset].
+     */
+    @Volatile var stopped: String? = null
+        private set
+
     /** On the validator's thread. */
     private fun build(theme: String, resources: SandboxResources) {
         val ctx = QuickJSContext(256L shl 20, JSThread.JS_STACK_LIMIT)
         try {
             ctx.registerFunction("__diag") { args ->
-                onDiag(args.getOrElse(0) { "" }, args.getOrElse(1) { "" })
+                val kind = args.getOrElse(0) { "" }
+                val detail = args.getOrElse(1) { "" }
+                if (kind == "limit" && stopped == null) stopped = detail
+                onDiag(kind, detail)
                 HostReturn.Undefined
             }
             // Precompiled when shipped and matching the source, else the source (same rule as the engine).
@@ -102,6 +113,7 @@ class TrustedValidator private constructor(
     /** A fresh validator instance in the same context (the previous widget's node model is gone). */
     fun reset(theme: String) {
         str("__v_create", listOf(theme))
+        stopped = null
     }
 
     /** Runs `block` on the validator's thread after everything queued before it; the validator's methods are inline there. */

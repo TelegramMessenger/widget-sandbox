@@ -26,8 +26,8 @@ attributes on its own (defense in depth).
 
 ## Sandbox → host: `ops` (mutation batch)
 
-`{ type: 'ops', ops: SandboxOp[] }` — applied in order, at most 200 000 per
-batch. The sandbox flushes a batch at the end of every task (event, timer,
+`{ type: 'ops', ops: SandboxOp[] }` — applied in order, at most 10 000 per
+batch under `strict` (past it the widget stops), 200 000 under `compat`. The sandbox flushes a batch at the end of every task (event, timer,
 frame, script) and *before* every sync query.
 
 | op | fields | meaning |
@@ -211,8 +211,13 @@ unaffected.
   fonts) and unknown at-rules dropped; `url()`, `image-set()`, `image()`,
   `src()`, `cross-fade()` only with `data:` images or a fragment;
   `var()`/`env()`/`attr()` inside URL-taking functions rejected.
-- Sizes: ≤ 50 000 nodes, text ≤ 2 MB, attribute ≤ 4 MB (data: URLs), batch ≤
-  200 000 ops, canvas ≤ 500 000 commands.
+- Sizes under `strict`: ≤ 50 000 nodes, a text value ≤ 32 K and the document's
+  text ≤ 48 K UTF-16 units, an attribute ≤ 8 K, a batch ≤ 10 000 ops, a canvas op
+  ≤ 2 000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`;
+  past one the validator reports the fatal `limit` diagnostic (the reason), refuses
+  the batch and every later one, and the host stops the widget (`docs/decisions.md`,
+  "Strict limits from the start"). Under `compat`: text ≤ 2 MB, attribute ≤ 4 MB,
+  batch ≤ 200 000 ops, canvas ≤ 500 000 commands, no rule cap, nothing stops.
 
 ### `icon:` images (Swift hosts, `WidgetHost.Options.assetResolver`)
 
@@ -498,8 +503,8 @@ shim is not waiting for is ignored.
 
 `__host('storage', JSON {local?, session?})`: the full areas of Web Storage a
 task changed, sent once at the end of that task. The glue checks the commit
-whole (only those two keys, objects of strings, 16384 bytes of UTF-8 per area;
-an argument longer than 2 × 12 × 16384 + 64 characters is refused unparsed) and
+whole (only those two keys, objects of strings, 4096 bytes of UTF-8 per area;
+an argument longer than 2 × 12 × 4096 + 64 characters is refused unparsed) and
 hands each area to the client (`onStorageCommit(area, values)`), or drops it with
 `storage-rejected` (at most 20).
 
@@ -512,19 +517,20 @@ client's duties are in docs/sdk-v1.md.
 
 | field | default | meaning |
 |---|---|---|
-| `memoryLimitBytes` | 64 MB | QuickJS heap limit; exceeding it kills the runtime |
+| `memoryLimitBytes` | 8 MB | QuickJS heap limit; exceeding it kills the runtime |
 | `cpuLimitMs` | 500 | longest continuous run of widget JS in one task (interrupt handler); exceeding it kills |
 | `cpuQuotaMs` / `cpuQuotaWindowMs` | 300 / 1000 | JS time the widget may spend per sliding window (ten buckets); beyond it timers, frames, resize/viewport/theme/bridge tasks are **deferred**, never killed; events always run with at least 50 ms |
 | `cpuKillAfterMs` | 0 (off) | kill once throttling has lasted this long without a gap longer than one window |
-| `maxTimers` | 256 | live `setTimeout` + `setInterval` slots; the shim throws `RangeError` past it, the glue refuses as a backstop; timer delays are clamped to 24 h |
+| `mainThreadQuotaMs` | 100 | the host's main-thread work for the widget per `cpuQuotaWindowMs`: the wall time its layout queries block the renderer plus 25 µs per op and 2 µs per canvas command the glue forwards (`opsCostMs`); beyond it the same tasks are deferred, apart from the JS quota (which counts JS time only) |
+| `maxTimers` | 64 | live `setTimeout` + `setInterval` slots; the shim throws `RangeError` past it, the glue refuses as a backstop; timer delays are clamped to 24 h |
 | `visible` | true | initial visibility (see `visibility` below) |
-| `policy` | `strict` | `strict`: privileged bridge calls need a user gesture, text values are capped at 64 KB, visible text is budgeted (text nodes, visible and `data-*` / `aria-*` attributes, strings in CSS), `attr()` reads only budgeted attributes. `compat`: the limits before that hardening, for tests and tooling. Anything but exactly `compat` is `strict` |
+| `policy` | `strict` | `strict`: privileged bridge calls need a user gesture, the counted caps above stop the widget (text values 32 K, document text 48 K, attributes 8 K, 10 000 ops per batch, 2 000 canvas commands per op, 400 CSS rules / 32 `@keyframes`), the shim caps canvas commands per canvas and task (2 000, `RangeError`) and script animations (64), visible text is budgeted (text nodes, visible and `data-*` / `aria-*` attributes, strings in CSS), `attr()` reads only budgeted attributes. `compat`: the limits before that hardening, for tests and tooling. Anything but exactly `compat` is `strict` |
 | `features` | `[]` | opt-in wire forms (see "Features"); each glue drops the ones it does not implement |
 | `viewport`, `theme` | | as before |
 | `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |
 | `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
 | `profile` | 1 | the widget profile the glue enforces; the shim reports `profile-mismatch` when its bundle's differs |
-| `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (16384 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
+| `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (4096 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
 | `chatData`, `publicData` | `null` | the chat state and the shared state, which only the bot writes, checked by the glue (text of 1–1024 bytes of UTF-8 without a NUL, else `null` and `data-rejected`); a copy's `chatData` is `null` |
 | `isCopy` | `false` | a forwarded copy (the server's `is_copy`; the widget's `isForward`) |
 | `canQuery` | `false` | the server's `can_query`: the shim refuses a request at once without it |

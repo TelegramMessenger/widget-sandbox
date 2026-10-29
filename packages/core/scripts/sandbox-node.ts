@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { CpuBudget, queryBudgetMs } from '../src/host/cpu-budget.ts';
+import { CpuBudget, opsCostMs, queryBudgetMs } from '../src/host/cpu-budget.ts';
 import { GestureCounter } from '../src/host/user-activation.ts';
 import type { GestureClaim } from '../src/shared/gesture-policy.ts';
 import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
@@ -69,8 +69,12 @@ export interface RunResult {
   copiedTexts: string[];
   timers: number;
   probes: string[];
-  /** Tasks the CPU quota deferred (the harness drops them instead of retrying). */
+  /** Tasks the CPU quota or the main-thread window deferred (the harness drops them instead of retrying). */
   throttled: number;
+  /** What the run cost the host's main thread: layout-query time plus the modelled cost of the ops sent (cpu-budget.ts `opsCostMs`), ms. */
+  mainThreadMs: number;
+  /** Set when a counted cap stopped the widget (strict: the validator's `limit`): the reason, as a host's `onDead` gets it. */
+  stopped?: string;
   /** The most layout queries any one task made, and their summed answer time (ms): how close a widget comes to the layout-query budget. */
   maxTaskQueries: number;
   maxTaskQueryMs: number;
@@ -190,6 +194,8 @@ export interface RunOptions {
   onRequest?: (request: WidgetRequest) => WidgetRequestAnswer | Promise<WidgetRequestAnswer>;
   /** CPU quota per second (default: effectively unlimited, like the harness's 10 s cpuLimitMs; wasm under Node is slow). */
   cpuQuotaMs?: number;
+  /** Main-thread window per second (default: effectively unlimited too: the harness runs frames back to back, faster than a clock). */
+  mainThreadQuotaMs?: number;
   /** Validator CSS scope: 'shadow' for ops meant for the Shadow DOM renderer (css-sanitizer.ts). */
   cssScope?: 'document' | 'shadow';
   /** Runtime heap cap (default LIMIT_DEFAULTS.memoryLimitBytes), enforced like the worker does: wasm Memory maximum + setMemoryLimit. */
@@ -260,8 +266,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null };
   res.diags.push(...dataDiags.splice(0));
   if (opts.storage !== undefined && !preview) {
     const preload = checkStorageCommit(opts.storage);
@@ -276,6 +282,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   /** Answers on their way into the widget, delivered in order at the next step of the run. */
   const answers: Promise<BridgeEvent>[] = [];
   const budget = new CpuBudget(config);
+  const mainBudget = new CpuBudget({ ...config, cpuQuotaMs: config.mainThreadQuotaMs, cpuKillAfterMs: 0 });
+  let taskOpsCostMs = 0;
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const policy = opts.policy === 'compat' ? 'compat' : 'strict';
   validator.setPolicy(policy);
@@ -443,7 +451,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     canvasPayloads.length = 0;
     res.ops.push(ops);
     res.stream.push({ kind: 'ops', json: JSON.stringify(ops) });
+    if (Array.isArray(ops)) taskOpsCostMs += opsCostMs(ops.length, ops.reduce((n, op) => n + (op && op.op === 'canvas' && Array.isArray(op.cmds) ? op.cmds.length : 0), 0));
     const out = validator.processOps(ops);
+    if (validator.stopped && res.stopped === undefined) {
+      res.stopped = validator.stopped;
+      log('STOPPED', validator.stopped);
+    }
     res.renderOps.push(...out);
     log(`ops (${ops.length}) →`, JSON.stringify(out).slice(0, 2000));
   };
@@ -552,19 +565,25 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   };
   /** Same policy as the worker: decide → run with the slice → record. A deferred task is dropped and counted. */
   const task = (kind: string, fn: () => void) => {
+    if (res.stopped !== undefined) return; // the host stopped the widget
     const now = performance.now();
     const d = budget.decide(kind, now);
     if (!d.run) { res.throttled++; res.diags.push({ kind: 'cpu-throttled', detail: `${kind} deferred until ${d.retryAt.toFixed(0)}` }); return; }
+    const main = mainBudget.decide(kind, now);
+    if (!main.run) { res.throttled++; res.diags.push({ kind: 'cpu-throttled', detail: `${kind} deferred until ${main.retryAt.toFixed(0)} (main-thread window: layout queries and ops)` }); return; }
     deadline = Date.now() + d.sliceMs;
     currentSliceMs = d.sliceMs;
     currentKind = kind;
     taskQueryMs = 0;
     taskQueries = 0;
+    taskOpsCostMs = 0;
     queryLimitHit = false;
     fn(); settle(); pump();
     res.maxTaskQueries = Math.max(res.maxTaskQueries, taskQueries);
     res.maxTaskQueryMs = Math.max(res.maxTaskQueryMs, taskQueryMs);
-    budget.record(kind, performance.now() - now, performance.now()); // wall time: includes the queries, as the worker's cpuMs + taskQueryMs does
+    budget.record(kind, performance.now() - now - taskQueryMs, performance.now());
+    mainBudget.record(kind, taskQueryMs + taskOpsCostMs, performance.now());
+    res.mainThreadMs += taskQueryMs + taskOpsCostMs;
   };
 
   task('boot', () => tw('boot', JSON.stringify({ html, config })));
@@ -826,7 +845,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const size = sizeVerdict(r.size);
   console.log(sizeLine(r.size));
   if (size.message) console.log(size.message);
-  console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
+  console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}; main thread ${r.mainThreadMs.toFixed(1)} ms (layout queries + 25 µs per op + 2 µs per canvas command; a host allows ${LIMIT_DEFAULTS.mainThreadQuotaMs} ms per second)`);
+  if (r.stopped) console.log(`STOPPED: ${r.stopped} (a host stops the widget here, the bubble keeps its last render)`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
   if (r.publicDataWatches.length) console.log(`public data: ${r.watchesPublicData ? 'watched' : 'not watched'} (watchPublicData: ${r.publicDataWatches.join(' → ')}): a client polls a shared widget's public_data only while it watches`);
   if (r.resizeAnchors.length) console.log(`resize anchor: ${r.resizeAnchor} (setResizeAnchor: ${r.resizeAnchors.join(' → ')}): the ${r.resizeAnchor} edge of the bubble stays put when the height changes`);

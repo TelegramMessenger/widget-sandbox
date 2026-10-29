@@ -17,8 +17,8 @@ import Foundation
 
 public enum SdkPolicy {
     public static let maxLinkLength = 256
-    /// Bytes of keys and values (UTF-8) per storage area and message.
-    public static let storageQuotaBytes = 16384
+    /// Bytes of keys and values (UTF-8) per storage area and message (4 KB: a 50-item to-do list; docs/decisions.md, "Strict limits from the start").
+    public static let storageQuotaBytes = 4096
     public static let maxLocaleLength = 35
     public static let defaultLocale = "en-US"
     public static let hapticBurst = 5.0

@@ -4,6 +4,7 @@ import WidgetSandboxProtocol
 enum ElementBatchFastPath {
     static let maxCanvasIds = 16
     static let maxElementIds = 4096
+    /// A style or class value: under the validator's 8 KB attribute cap, so nothing here can pass it.
     static let maxValueBytes = 4096
 
     struct Plan {
@@ -83,7 +84,7 @@ enum ElementBatchFastPath {
                     elementIds.append(id)
                 }
             } else if s.literal("{\"op\":\"attr\",\"id\":") {
-                guard let id = s.nodeId(), s.literal(",\"name\":\"class\",\"value\":"), let value = s.plainString(), s.eat(UInt8(ascii: "}")) else { return nil }
+                guard let id = s.nodeId(), s.literal(",\"name\":\"class\",\"value\":"), let value = s.plainString(), value.count <= maxValueBytes, s.eat(UInt8(ascii: "}")) else { return nil }
                 out.append(contentsOf: b[start..<s.i])
                 if typed { typedOps.append(WidgetOp(attribute: id, name: "class", value: String(decoding: value, as: UTF8.self))) }
                 if seenElements.insert(id).inserted {

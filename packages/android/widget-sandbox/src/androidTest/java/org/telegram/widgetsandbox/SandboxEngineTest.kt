@@ -68,9 +68,10 @@ class SandboxEngineTest {
     private val canary = "http://10.0.2.2:9999/hit/android-unit"
     private val resources = SandboxResources.get(InstrumentationRegistry.getInstrumentation().targetContext)
 
-    private fun run(html: String, cpuLimitMs: Double = 2000.0, memoryLimitBytes: Long = 64L shl 20, timeoutS: Long = 20, configure: (SandboxConfig) -> Unit = {}): Pair<RecordingDelegate, SandboxEngine> {
+    /** The product's memory limit (8 MB) unless [configure] changes it. */
+    private fun run(html: String, cpuLimitMs: Double = 2000.0, timeoutS: Long = 20, configure: (SandboxConfig) -> Unit = {}): Pair<RecordingDelegate, SandboxEngine> {
         val d = RecordingDelegate()
-        val config = SandboxConfig(innerWidth = 400.0, innerHeight = 300.0, devicePixelRatio = 2.0, theme = "light", memoryLimitBytes = memoryLimitBytes, cpuLimitMs = cpuLimitMs)
+        val config = SandboxConfig(innerWidth = 400.0, innerHeight = 300.0, devicePixelRatio = 2.0, theme = "light", cpuLimitMs = cpuLimitMs)
         configure(config)
         val engine = SandboxEngine(html, config, resources)
         engine.delegate = d
@@ -130,11 +131,21 @@ class SandboxEngineTest {
 
     @Test
     fun memoryLimitKillsAllocationLoop() {
-        val (d, engine) = run("<p>mem</p><script>var a = []; for (;;) a.push(new Array(100000).fill(1));</script>", memoryLimitBytes = 24L shl 20, cpuLimitMs = 10_000.0)
+        val (d, engine) = run("<p>mem</p><script>var a = []; for (;;) a.push(new Array(100000).fill(1));</script>", cpuLimitMs = 10_000.0) { it.memoryLimitBytes = 24L shl 20 }
         engine.thread.sync {}
         assertTrue("bundle should have booted: ${d.diags}", d.diags.any { it.first == "boot" })
         assertNotNull("widget should be dead: ${d.logs}", d.died)
         assertTrue(d.died ?: "", d.died!!.contains("Memory limit"))
+        engine.terminate()
+    }
+
+    /** The default heap (8 MB) boots the bundle and a widget, and stops an allocation loop at the cap (docs/decisions.md, "Strict limits from the start"). */
+    @Test
+    fun defaultMemoryLimitIsEightMegabytes() {
+        val (d, engine) = run("<p>mem</p><script>var a = []; for (;;) a.push(new Array(10000).fill(1));</script>", cpuLimitMs = 10_000.0)
+        engine.thread.sync {}
+        assertTrue("bundle should have booted: ${d.diags}", d.diags.any { it.first == "boot" })
+        assertEquals("${d.logs}", "Memory limit exceeded (8 MB)", d.died)
         engine.terminate()
     }
 
@@ -312,6 +323,82 @@ class SandboxEngineTest {
         assertEquals("${d.logs}", listOf("0", "10", "20"), order)
         assertNull(d.died)
         engine.terminate()
+    }
+
+    /** The 65th live timer throws RangeError with the default `maxTimers` (64). */
+    @Test
+    fun sixtyFifthTimerThrowsByDefault() {
+        val (d, engine) = run("<script>var n = 0; try { for (; n < 100; n++) setTimeout(function () {}, 60000); } catch (e) { console.log(e.name + ' at ' + n); }</script>")
+        engine.thread.sync {}
+        assertTrue("${d.logs}", d.logs.any { it.second == "RangeError at 64" })
+        assertFalse("the engine backstop must not be needed: ${d.diags}", d.diags.any { it.first == "timer-limit-enforced" })
+        assertNull(d.died)
+        engine.terminate()
+    }
+
+    /** The boot config carries the policy: under strict the shim refuses the 2001st canvas command of a task with RangeError (the validator's per-send cap), under compat it draws on. */
+    @Test
+    fun canvasCommandCapReachesTheShim() {
+        val html = "<canvas id=\"c\"></canvas><script>var x = document.getElementById('c').getContext('2d');" +
+            "try { for (var i = 0; i < 2001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>"
+        val (d, engine) = run(html)
+        engine.thread.sync {}
+        assertTrue("${d.logs}", d.logs.any { it.second == "RangeError: Canvas limit exceeded: more than 2000 commands for one canvas in one task (max 2000)" })
+        assertNull(d.died)
+        engine.terminate()
+        val (c, compat) = run(html) { it.policy = "compat" }
+        compat.thread.sync {}
+        assertTrue("${c.logs}", c.logs.any { it.second == "drew all" })
+        compat.terminate()
+    }
+
+    /**
+     * The main-thread window (`mainThreadQuotaMs`): every op the engine forwards costs the host 25 µs, so 40 text
+     * updates per frame cost 1 ms of it. At 0.5 ms per second the boot's ops have spent the window and frames are
+     * deferred (`cpu-throttled`, the main-thread budget), the JS quota untouched; at the default 100 ms they all run.
+     */
+    @Test
+    fun mainThreadWindowDefersFrames() {
+        val html = "<div id=\"list\"></div><script>var list = document.getElementById('list'); for (var i = 0; i < 40; i++) list.appendChild(document.createElement('span'));" +
+            "var frames = 0; function frame() { frames++; for (var i = 0; i < list.children.length; i++) list.children[i].textContent = String(frames * 100 + i); console.log('frame ' + frames); requestAnimationFrame(frame); } requestAnimationFrame(frame);</script>"
+        /** The recorder, the frames the widget ran and the seconds the 60 frames took to send. */
+        fun frames(quotaMs: Double): Triple<RecordingDelegate, Int, Double> {
+            val (d, engine) = run(html) { it.mainThreadQuotaMs = quotaMs }
+            val t0 = System.nanoTime()
+            for (i in 0 until 60) {
+                engine.frame(i * 25.0)
+                Thread.sleep(25)
+            }
+            engine.thread.sync {}
+            val seconds = (System.nanoTime() - t0) / 1e9
+            val n = d.logs.count { it.second.startsWith("frame ") }
+            assertNull(d.died)
+            engine.terminate()
+            return Triple(d, n, seconds)
+        }
+        // About one frame per second: each one spends the window until its bucket leaves it.
+        val (tight, tightFrames, seconds) = frames(0.5)
+        assertTrue("$tightFrames frames in $seconds s: ${tight.diags}", tightFrames <= seconds.toInt() + 2)
+        assertTrue("${tight.diags}", tight.diags.any { it.first == "cpu-throttled" && it.second.contains("main-thread budget used by layout queries and ops") })
+        val (open, openFrames, _) = frames(100.0)
+        assertTrue("$openFrames frames: ${open.diags}", openFrames >= 20)
+        assertFalse("${open.diags}", open.diags.any { it.first == "cpu-throttled" && it.second.contains("main-thread") })
+    }
+
+    /** The strict limits' defaults (docs/decisions.md, "Strict limits from the start"), the same in the engine's config and the host's options. */
+    @Test
+    fun strictLimitDefaults() {
+        val config = SandboxConfig(innerWidth = 1.0, innerHeight = 1.0, devicePixelRatio = 1.0, theme = "light")
+        assertEquals(8L * 1024 * 1024, config.memoryLimitBytes)
+        assertEquals(64, config.maxTimers)
+        assertEquals(100.0, config.mainThreadQuotaMs, 0.0)
+        assertEquals(300.0, config.cpuQuotaMs, 0.0)
+        val options = WidgetHost.Options()
+        assertEquals(config.memoryLimitBytes, options.memoryLimitBytes)
+        assertEquals(config.maxTimers, options.maxTimers)
+        assertEquals(config.mainThreadQuotaMs, options.mainThreadQuotaMs, 0.0)
+        assertEquals(4096, SdkPolicy.STORAGE_QUOTA_BYTES)
+        assertEquals(100.0, CpuBudget.queryBudgetMs(500.0), 0.0)
     }
 
     @Test

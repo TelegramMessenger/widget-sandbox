@@ -3,6 +3,11 @@
 // runtime that never executes widget code. One instance per widget. Calls are
 // synchronous from the caller's point of view but execute on the validator's
 // own JSThread (css-tree needs the 8 MB stack). Input and output are JSON.
+//
+// Diagnostic `limit` is fatal (validator-bundle.ts): a counted cap was passed
+// under strict, the batch came back empty and every later one does too. The
+// owner stops the widget with `stopped()` as the reason, as it does for memory
+// or CPU (WidgetHost::onOps → SandboxEngine::stop).
 #pragma once
 
 #include "twidget/js_thread.h"
@@ -11,6 +16,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -36,6 +42,10 @@ public:
     std::string setTheme(const std::string& theme);
     std::string rewriteMediaQuery(const std::string& query);
     int nodeCount();
+    /// Set once a counted cap was passed under strict (the first `limit` diagnostic's detail, e.g. `Text limit exceeded:
+    /// a text value of 40000 characters (max 32768)`): the reason the owner stops the widget with. Read it after the call
+    /// that passed the cap returns, never from inside the diag sink.
+    std::optional<std::string> stopped() const;
 
 private:
     std::string str(const char* name, const std::vector<std::string>& args);
@@ -43,6 +53,8 @@ private:
     JSThread thread_;
     std::unique_ptr<QuickJSContext> js_;
     DiagSink onDiag_;
+    mutable std::mutex stoppedMutex_;
+    std::optional<std::string> stopped_;
 };
 
 } // namespace twidget

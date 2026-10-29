@@ -27,7 +27,10 @@ class WidgetDiagnostics(
     var stats: SandboxStats = SandboxStats(),
     var nodes: Int = 0,
     var loaded: Boolean = false,
-    /** Fatal: the runtime is gone. The renderer keeps the last state (frozen); the owner removes the view with `destroy()`. */
+    /**
+     * Fatal: the runtime is gone (memory, CPU, layout queries, or a counted cap passed under strict: `Text limit exceeded: …`,
+     * `Ops limit exceeded: …`, …). The renderer keeps the last state (frozen); the owner removes the view with `destroy()`.
+     */
     var dead: String? = null,
     /** Document height in CSS px (= dp). */
     var height: Double = 0.0,
@@ -206,14 +209,16 @@ class WidgetHost(
         rendererFactory: RendererFactory? = null,
     ) : this(context, html, WidgetTheme(theme), widthDp, options, resources, rendererFactory)
 
-    /** Limits for the widget's QuickJS runtime (see SandboxConfig). */
+    /** Limits for the widget's QuickJS runtime (see SandboxConfig; docs/decisions.md, "Strict limits from the start"). */
     data class Options(
-        val memoryLimitBytes: Long = 64L shl 20,
+        val memoryLimitBytes: Long = 8L shl 20,
         val cpuLimitMs: Double = 500.0,
         val cpuQuotaMs: Double = 300.0,
         val cpuQuotaWindowMs: Double = 1000.0,
         val cpuKillAfterMs: Double = 0.0,
-        val maxTimers: Int = 256,
+        /** The host's main-thread work for this widget per window (layout queries + 25 µs per op + 2 µs per canvas command); timers and frames wait beyond it. */
+        val mainThreadQuotaMs: Double = 100.0,
+        val maxTimers: Int = 64,
         /** Initial visibility; change it later with `setVisible`. */
         val visible: Boolean = true,
         /** The bubble height bounds in dp; 50 and 600 are the shared v0.1.0 values (docs/integration.md, "Bubble sizing"). */
@@ -225,13 +230,13 @@ class WidgetHost(
         val sharedValidatorThread: Boolean = false,
         /** Take a prewarmed validator from ValidatorPool when it has one, and recycle it on destroy (implies the shared thread). */
         val pools: Boolean = false,
-        /** "strict" (default; anything but "compat") or "compat": the gesture gate, 64 KB text caps and the text budgets. */
+        /** "strict" (default; anything but "compat") or "compat": the gesture gate, the text budgets and the counted caps past which the widget stops (32 KB of text, …). */
         val policy: String = "strict",
         /** Opt-in sandbox features, e.g. "webAnimations"; see [SandboxConfig.features]. */
         val features: Set<String> = emptySet(),
         /** The client's UI language, BCP 47 (`ru`, `pt-BR`): `navigator.language` and the Intl default; `en-US` when malformed. */
         val locale: String = SdkPolicy.DEFAULT_LOCALE,
-        /** Web Storage of this message as the client keeps it (the preload); over the 16 KB quota it is dropped whole (`storage-rejected`). */
+        /** Web Storage of this message as the client keeps it (the preload); over the 4 KB quota it is dropped whole (`storage-rejected`). */
         val storage: WidgetStorage = WidgetStorage(),
         /** The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`. */
         val data: WidgetData = WidgetData(),
@@ -322,7 +327,7 @@ class WidgetHost(
             innerWidth = viewport.first, innerHeight = viewport.second, devicePixelRatio = viewport.third, theme = scheme,
             memoryLimitBytes = options.memoryLimitBytes, cpuLimitMs = options.cpuLimitMs,
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
-            maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
+            mainThreadQuotaMs = options.mainThreadQuotaMs, maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
             themeParams = this.theme.params, locale = options.locale, storage = options.storage,
             data = options.data, context = options.context,
         )
@@ -354,6 +359,7 @@ class WidgetHost(
         this.theme = checkedTheme(theme)
         toRenderer(themeMessage())
         toRenderer("{\"type\":\"ops\",\"ops\":${validator.setTheme(scheme)}}")
+        if (stopOverLimit()) return // a sheet re-sanitized for the scheme passed a cap
         engine.theme(scheme, this.theme.params)
     }
 
@@ -419,8 +425,9 @@ class WidgetHost(
 
     override fun onOps(engine: SandboxEngine, json: String) {
         main.post {
-            if (destroyed) return@post
+            if (destroyed || diagnostics.dead != null) return@post
             val clean = validator.processOps(json)
+            if (stopOverLimit()) return@post
             if (clean != "[]") {
                 toRenderer("{\"type\":\"ops\",\"ops\":$clean}")
                 opsSent += 1
@@ -495,7 +502,7 @@ class WidgetHost(
     }
     override fun onAction(engine: SandboxEngine, action: WidgetAction) {
         main.post {
-            if (destroyed) return@post
+            if (destroyed || diagnostics.dead != null) return@post
             if (diagnostics.actions.size < 1000) diagnostics.actions.add(action)
             onAction?.invoke(action)
             changed()
@@ -510,7 +517,7 @@ class WidgetHost(
         }
     }
     override fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) {
-        main.post { if (!destroyed) onStorageCommit?.invoke(area, values) }
+        main.post { if (!destroyed && diagnostics.dead == null) onStorageCommit?.invoke(area, values) }
     }
     /**
      * `onRequest` is read here, on the main thread at delivery, not when the widget asked: a client that sets it after the
@@ -519,7 +526,7 @@ class WidgetHost(
      */
     override fun onRequest(engine: SandboxEngine, request: WidgetRequest, respond: (Result<WidgetRequestAnswer>) -> Unit) {
         main.post {
-            if (destroyed) return@post
+            if (destroyed || diagnostics.dead != null) return@post
             val handler = onRequest ?: return@post respond(Result.failure(WidgetRequestUnsupported()))
             try {
                 handler(request, respond)
@@ -529,7 +536,7 @@ class WidgetHost(
         }
     }
     override fun onCopyText(engine: SandboxEngine, text: String) {
-        main.post { if (!destroyed) onCopyText?.invoke(text) }
+        main.post { if (!destroyed && diagnostics.dead == null) onCopyText?.invoke(text) }
     }
     /**
      * The latest anchor goes into the state next to the height (no callback of its own: `onChange`, coalesced). Posted
@@ -564,14 +571,29 @@ class WidgetHost(
         }
     }
     override fun onDied(engine: SandboxEngine, reason: String) {
-        main.post {
-            if (diagnostics.dead != null) return@post
-            diagnostics.dead = reason
-            changed()
-            resolveQuery("{\"error\":\"dead\"}", null)
-            // The WebView stays: last render as fallback, badge from the renderer, no more events or frames.
-            toRenderer(JSONObject().put("type", "frozen").put("reason", options.stoppedLabel).put("fatal", true).toString())
-        }
+        main.post { die(reason) }
+    }
+
+    /** The widget is gone for good (memory, CPU, layout queries, a counted cap); main thread. */
+    private fun die(reason: String) {
+        if (diagnostics.dead != null) return
+        diagnostics.dead = reason
+        changed()
+        resolveQuery("{\"error\":\"dead\"}", null)
+        // The WebView stays: last render as fallback, badge from the renderer, no more events or frames.
+        toRenderer(JSONObject().put("type", "frozen").put("reason", options.stoppedLabel).put("fatal", true).toString())
+    }
+
+    /**
+     * After a validator call: a counted cap passed under strict (the validator's `limit`; its batch and every later one
+     * came back empty) stops the widget like memory or CPU does, with the cap as the reason. The engine refuses the
+     * widget's next host call and frees the runtime; what it sent after the batch is dropped here.
+     */
+    private fun stopOverLimit(): Boolean {
+        val reason = validator.stopped ?: return false
+        die(reason)
+        engine.stop(reason)
+        return true
     }
 
     // MARK: renderer → host (main thread)

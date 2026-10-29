@@ -190,8 +190,8 @@ class RequestGate {
 
 object SdkPolicy {
     const val MAX_LINK_LENGTH = 256
-    /** Bytes of keys and values (UTF-8) per storage area and message. */
-    const val STORAGE_QUOTA_BYTES = 16384
+    /** Bytes of keys and values (UTF-8) per storage area and message (4 KB: a 50-item to-do list; docs/decisions.md, "Strict limits from the start"). */
+    const val STORAGE_QUOTA_BYTES = 4096
     const val MAX_LOCALE_LENGTH = 35
     const val DEFAULT_LOCALE = "en-US"
     const val HAPTIC_BURST = 5

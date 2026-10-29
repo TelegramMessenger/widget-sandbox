@@ -57,7 +57,7 @@ describe('canvas gradient lifetime', () => {
       try { for (let i = 0; i < 4097; i++) keep.push(x.createLinearGradient(0, 0, 1, 1)); }
       catch (error) { console.log(error.name + ':' + keep.length); }
       x.fillStyle = 'red'; x.fillRect(0, 0, 1, 1);
-    </script>`);
+    </script>`, { policy: 'compat' }); // compat: 4097 gradients in one task are past the strict 2000 commands per send
     assert.ok(result.logs.some(log => log.text === 'RangeError:4096'));
     const commands = result.renderOps.flat().filter((op: any) => op.op === 'canvas').flatMap((op: any) => op.cmds);
     assert.equal(commands.filter(cmd => cmd[0] === 'g').length, 4096);

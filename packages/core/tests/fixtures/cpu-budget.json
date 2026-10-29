@@ -1,5 +1,5 @@
 {
-  "_": "Shared fixture for src/host/cpu-budget.ts, ios CpuBudget.swift and android CpuBudget.kt (copies made by scripts/build-native-bundles.ts). Steps run in order on one budget: decide {kind} → expect, record {kind, cpuMs}, kill → expect boolean, queryBudget {sliceMs} → expect ms (the layout-query budget of a task, max(slice, 100)). Times in ms.",
+  "_": "Shared fixture for src/host/cpu-budget.ts, ios CpuBudget.swift, android CpuBudget.kt and desktop cpu_budget.cpp (copies made by scripts/build-native-bundles.ts). Steps run in order on one budget: decide {kind} → expect, record {kind, cpuMs}, kill → expect boolean, queryBudget {sliceMs} → expect ms (the layout-query budget of a task: 100 ms, whatever the slice), opsCost [ops, canvasCommands] → expect ms (the modelled main-thread cost: 0.025 ms per op, 0.002 ms per canvas command; compare within 1e-9). Times in ms.",
   "cases": [
     {
       "name": "fresh window: the full quota, capped by cpuLimitMs",
@@ -567,7 +567,7 @@
       ]
     },
     {
-      "name": "layout-query budget: the task's slice, at least 100 ms",
+      "name": "layout-query budget: 100 ms, whatever the slice",
       "config": {
         "cpuLimitMs": 500,
         "cpuQuotaMs": 300,
@@ -578,12 +578,12 @@
         {
           "at": 0,
           "queryBudget": 500,
-          "expect": 500
+          "expect": 100
         },
         {
           "at": 0,
           "queryBudget": 300,
-          "expect": 300
+          "expect": 100
         },
         {
           "at": 0,
@@ -599,6 +599,86 @@
           "at": 0,
           "queryBudget": 0,
           "expect": 100
+        }
+      ]
+    },
+    {
+      "name": "main-thread window: the modelled cost of the ops a task sent",
+      "config": {
+        "cpuLimitMs": 500,
+        "cpuQuotaMs": 100,
+        "cpuQuotaWindowMs": 1000,
+        "cpuKillAfterMs": 0
+      },
+      "steps": [
+        {
+          "at": 0,
+          "opsCost": [
+            0,
+            0
+          ],
+          "expect": 0
+        },
+        {
+          "at": 0,
+          "opsCost": [
+            1,
+            0
+          ],
+          "expect": 0.025
+        },
+        {
+          "at": 0,
+          "opsCost": [
+            40,
+            0
+          ],
+          "expect": 1
+        },
+        {
+          "at": 0,
+          "opsCost": [
+            4000,
+            0
+          ],
+          "expect": 100
+        },
+        {
+          "at": 0,
+          "opsCost": [
+            1,
+            2000
+          ],
+          "expect": 4.025
+        },
+        {
+          "at": 0,
+          "opsCost": [
+            0,
+            500
+          ],
+          "expect": 1
+        },
+        {
+          "at": 0,
+          "record": "frame",
+          "cpuMs": 100
+        },
+        {
+          "at": 10,
+          "decide": "frame",
+          "expect": {
+            "run": false,
+            "retryAt": 1000
+          }
+        },
+        {
+          "at": 10,
+          "decide": "event",
+          "expect": {
+            "run": true,
+            "sliceMs": 50
+          }
         }
       ]
     }

@@ -6,8 +6,8 @@
 // so a rule change goes to the four copies and the fixture together.
 
 export const MAX_LINK_LENGTH = 256;
-/** Bytes of keys and values (UTF-8) per storage area and message. */
-export const STORAGE_QUOTA_BYTES = 16384;
+/** Bytes of keys and values (UTF-8) per storage area and message (4 KB: a 50-item to-do list; docs/decisions.md, "Strict limits from the start"). */
+export const STORAGE_QUOTA_BYTES = 4096;
 export const MAX_LOCALE_LENGTH = 35;
 export const DEFAULT_LOCALE = 'en-US';
 export const HAPTIC_BURST = 5;

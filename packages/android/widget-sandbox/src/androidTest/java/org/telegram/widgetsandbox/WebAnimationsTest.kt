@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,6 +70,17 @@ class WebAnimationsTest {
         }
     }
 
+    /** Strict (every host's default): 64 live script animations, the shim's own cap; further ones are dropped, the widget is not stopped. */
+    @Test
+    fun liveAnimationsAreCappedAtSixtyFourUnderStrict() = withValidator { v, diags ->
+        v.setPolicy("strict")
+        val batch = "[" + (1..80).joinToString(",") { record(aid = it) } + "]"
+        assertEquals(64, JSONArray(v.validateAnim(batch)).length())
+        assertTrue(diags.any { it.startsWith("animation-limit|") })
+        assertNull(v.stopped)
+    }
+
+    /** Compat (the validator's own default): 1024. */
     @Test
     fun liveAnimationsAreCappedAndRemovalsForwardedOnce() = withValidator { v, diags ->
         val batch = "[" + (1..1100).joinToString(",") { record(aid = it) } + "]"

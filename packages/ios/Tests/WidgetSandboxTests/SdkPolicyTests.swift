@@ -321,10 +321,10 @@ final class SdkPolicyTests: XCTestCase {
         XCTAssertEqual(WidgetChatType.allCases.map(\.rawValue), ["private", "group", "supergroup", "channel"])
         XCTAssertEqual(SdkPolicy.RequestError.allCases.map(\.rawValue), ["NOT_ALLOWED", "BUSY", "RATE_LIMITED", "TIMEOUT", "FAILED", "INVALID_ANSWER"])
         XCTAssertEqual(SdkPolicy.maxLinkLength, 256)
-        XCTAssertEqual(SdkPolicy.storageQuotaBytes, 16384)
+        XCTAssertEqual(SdkPolicy.storageQuotaBytes, 4096)
         XCTAssertEqual(SdkPolicy.maxLocaleLength, 35)
         XCTAssertEqual(SdkPolicy.defaultLocale, "en-US")
         XCTAssertEqual(SdkPolicy.profileVersion, 1)
-        XCTAssertEqual(SandboxEngine.maxStorageCommitChars, 2 * 12 * 16384 + 64)
+        XCTAssertEqual(SandboxEngine.maxStorageCommitChars, 2 * 12 * 4096 + 64)
     }
 }

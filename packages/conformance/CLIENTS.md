@@ -52,6 +52,9 @@ Build it as a test target or a debug mode in your client. For every entry of `ma
 2. **Focus the chat input**, or a stand-in text field, before loading the widget.
 3. **Load the widget HTML** and observe the validated ops. Every platform has the same renderer seam, so wrap your renderer: see "Reading the ops" below.
 4. **Wait** for `status` `done`, or `awaiting` when the test has `actions`. Give up after 20 s and record what you have.
+   A test with `stops` in the manifest (`auto/31-stop-*`…`34`) passes a counted limit on purpose: your host must stop it
+   (`onDead` / the diagnostics' reason) with a reason that starts with `stops`, e.g. `Text limit exceeded`. Wait for the
+   death instead of `done` and record the reason in `dead`; the report passes the test only on that stop.
 5. **Record `chatFocused`**: does the chat input still have the keyboard focus? The profile has no keyboard (D4), so a widget must never take the focus.
 6. **Perform the `actions`**, if any, in order, with real input. Coordinates are widget CSS px from the widget's top-left. A target name means the centre of `targets[name]` in the **latest** published value, because the widget re-measures after every update. Leave about 350 ms between actions. Then wait up to 10 s for `done`.
 
@@ -165,7 +168,7 @@ Send `<platform>-<renderer>.json` and `summary.md` to the widget-sandbox maintai
 Twenty-six small widgets test what **your client** implements on its side of SDK v1 (`docs/sdk-v1.md`, §5):
 - links (the confirmation with the full URL, t.me inside the client, rejected and over-long URLs, no link from a timer);
 - haptics of each kind, the rate limit, and that without a touch a widget gets one second of them, then none for nine (`26-haptics-no-touch`; `auto/27-haptics-no-touch` counts them on the bridge);
-- storage (re-creation, app restart, deletion with the message, the 16 KB quota);
+- storage (re-creation, app restart, deletion with the message, the 4 KB quota);
 - stopping after 2 consecutive crashes;
 - who gets a press (`12-drag-gestures`): double taps are always the widget's; horizontal drags and holds on `touch-action: none` are the widget's, on `auto` the bubble's (menu, swipe-to-reply); a vertical drag is always the chat's scroll, over `none` too; a drag from the leading 20 px is back;
 - the hard clip at the maximum height (600 px, the shared v0.1.0 value);

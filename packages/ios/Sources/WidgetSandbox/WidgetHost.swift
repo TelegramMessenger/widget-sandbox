@@ -32,7 +32,8 @@ public struct WidgetDiagnostics {
     /// bubbles out from remembered heights trusts a new height only once this is set.
     public var rendered = false
     public var renderedMs: Double?
-    /// Fatal: the runtime is gone. The renderer keeps the last state (frozen); the owner removes the view with `destroy()`.
+    /// Fatal: the runtime is gone (memory, CPU, or a counted cap passed under strict: the validator's `limit`, docs/decisions.md
+    /// "Strict limits from the start"). The renderer keeps the last state (frozen); the owner removes the view with `destroy()`.
     public var dead: String?
     /// Last uncaught widget error (non-fatal), cleared once a later task completes without one.
     public var lastError: String?
@@ -56,12 +57,14 @@ public struct WidgetDiagnostics {
 public final class WidgetHost: SandboxEngineDelegate {
     /// Limits for the widget's QuickJS runtime (see SandboxConfig); mirrors WidgetHost.Options on Android.
     public struct Options {
-        public var memoryLimitBytes = 64 << 20
+        public var memoryLimitBytes = 8 << 20
         public var cpuLimitMs = 500.0
         public var cpuQuotaMs = 300.0
         public var cpuQuotaWindowMs = 1000.0
         public var cpuKillAfterMs = 0.0
-        public var maxTimers = 256
+        /// The host's main-thread work for this widget per window (layout queries + 25 µs per op + 2 µs per canvas command).
+        public var mainThreadQuotaMs = 100.0
+        public var maxTimers = 64
         /// The bubble's maximum height in points; 600 is the shared v0.1.0 value (docs/integration.md, "Bubble sizing").
         public var maximumHeight: CGFloat = 600
         /// Initial visibility; change it later with `setVisible`.
@@ -232,6 +235,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.cpuQuotaMs = options.cpuQuotaMs
         config.cpuQuotaWindowMs = options.cpuQuotaWindowMs
         config.cpuKillAfterMs = options.cpuKillAfterMs
+        config.mainThreadQuotaMs = options.mainThreadQuotaMs
         config.maxTimers = options.maxTimers
         config.features = options.features
         config.visible = options.visible
@@ -499,7 +503,10 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
+            let stopped = validator.stopped
             deliver {
+                // A counted cap passed under strict: the widget stops like it does for memory or CPU (the renderer keeps its last render).
+                if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
@@ -519,7 +526,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let batch = validator.processBinary(binaryOps, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
+            let stopped = validator.stopped
             deliver {
+                if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
@@ -616,6 +625,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
     public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) {
         inOrder {
+            guard self.state.dead == nil else { return }
             if self.state.bridge.count >= WidgetDiagnostics.maxActions { self.state.bridge.removeFirst(WidgetDiagnostics.maxActions / 2) }
             self.state.bridge.append((method, argsJson))
             self.changed()
@@ -624,6 +634,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
     public func engine(_ engine: SandboxEngine, action: WidgetAction) {
         inOrder {
+            guard self.state.dead == nil else { return } // the rest of the task in which the validator stopped the widget
             if self.state.actions.count >= WidgetDiagnostics.maxActions { self.state.actions.removeFirst(WidgetDiagnostics.maxActions / 2) }
             self.state.actions.append(action)
             self.changed()
@@ -655,6 +666,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// The engine honours the first call of `respond` only.
     public func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) {
         inOrder {
+            guard self.state.dead == nil else { return }
             self.onMain {
                 guard let onRequest = self.onRequest else { return respond.unsupported() }
                 onRequest(request) { respond($0) }
@@ -664,11 +676,13 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// Not an action: the client copies the text and shows what it copied.
     public func engine(_ engine: SandboxEngine, copyText: String) {
         inOrder {
+            guard self.state.dead == nil else { return }
             self.onMain { self.onCopyText?(copyText) }
         }
     }
     public func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {
         inOrder {
+            guard self.state.dead == nil else { return }
             self.onMain {
                 if let local = storageCommit.local { self.onStorageCommit?(.local, local) }
                 if let session = storageCommit.session { self.onStorageCommit?(.session, session) }
@@ -699,14 +713,19 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
     }
     public func engine(_ engine: SandboxEngine, died reason: String) {
-        executor.paced {
-            if self.state.dead != nil { return }
-            self.state.dead = reason
-            self.changed()
-            self.resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
-            // The renderer stays: last render as fallback, badge from the renderer, no more events or frames.
-            self.toRenderer(Self.json(["type": "frozen", "reason": self.stoppedLabel, "fatal": true]))
-        }
+        executor.paced { self.die(reason) }
+    }
+
+    /// The runtime is gone (memory, CPU, a counted cap): the reason goes into the diagnostics, the renderer keeps the last
+    /// render frozen, the engine is stopped (a no-op when it died by itself). Executor.
+    private func die(_ reason: String) {
+        if state.dead != nil { return }
+        state.dead = reason
+        changed()
+        resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
+        // The renderer stays: last render as fallback, badge from the renderer, no more events or frames.
+        toRenderer(Self.json(["type": "frozen", "reason": stoppedLabel, "fatal": true]))
+        engine.stop(reason: reason)
     }
 
     /// Trusted script evaluated in the renderer (tests and diagnostics only); "null" from a renderer without script.

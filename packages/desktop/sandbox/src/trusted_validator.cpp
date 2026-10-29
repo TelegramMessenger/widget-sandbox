@@ -7,7 +7,13 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
     thread_.sync([&] {
         js_ = std::make_unique<QuickJSContext>(size_t(256) << 20, JSThread::kJSStackLimit);
         js_->registerFunction("__diag", [this](const std::vector<std::string>& args) {
-            if (onDiag_) onDiag_(args.empty() ? "" : args[0], args.size() > 1 ? args[1] : "");
+            std::string kind = args.empty() ? "" : args[0], detail = args.size() > 1 ? args[1] : "";
+            if (kind == "limit") {
+                // Fatal: the owner reads it once the call returns and stops the widget (the bundle reports it once).
+                std::lock_guard<std::mutex> l(stoppedMutex_);
+                if (!stopped_) stopped_ = detail;
+            }
+            if (onDiag_) onDiag_(kind, detail);
             return HostReturn::undefined();
         });
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
@@ -67,6 +73,12 @@ std::string TrustedValidator::validatePreventDefault(const std::string& json) { 
 std::string TrustedValidator::validateAnim(const std::string& json) { auto s = str("__v_validateAnim", {json}); return s.empty() ? "[]" : s; }
 std::string TrustedValidator::setTheme(const std::string& theme) { auto s = str("__v_setTheme", {theme}); return s.empty() ? "[]" : s; }
 std::string TrustedValidator::rewriteMediaQuery(const std::string& query) { return str("__v_rewriteMediaQuery", {query}); }
+
+std::optional<std::string> TrustedValidator::stopped() const {
+    std::lock_guard<std::mutex> l(stoppedMutex_);
+    return stopped_;
+}
+
 int TrustedValidator::nodeCount() {
     return thread_.sync([&]() -> int {
         try { return int(js_->call("__v_nodeCount").number.value_or(0)); } catch (const JSError&) { return 0; }

@@ -324,25 +324,45 @@ describe('css sanitizer: shadow scope (ShadowDomRenderer prototype)', () => {
   });
 });
 
-describe('validator: 64 KB text budget', () => {
-  it('caps text nodes, text data, string properties and canvas strings at 64 KB', () => {
-    const ok = 'a'.repeat(64 * 1024);
-    const big = 'b'.repeat(64 * 1024 + 1);
-    const diags: string[] = [];
-    const out = json(run([
-      { op: 'text', id: 20, data: ok }, { op: 'ins', parent: 3, id: 20, before: null },
-      { op: 'text', id: 21, data: big }, { op: 'ins', parent: 3, id: 21, before: null },
-      { op: 'el', id: 22, tag: 'input' }, { op: 'ins', parent: 3, id: 22, before: null },
-      { op: 'prop', id: 22, name: 'value', value: big },
-      { op: 'data', id: 20, data: big },
-      { op: 'el', id: 23, tag: 'canvas' }, { op: 'ins', parent: 3, id: 23, before: null },
-      { op: 'canvas', id: 23, cmds: [['c', 'fillText', big, 0, 0], ['c', 'fillText', 'short', 0, 0]] },
-    ], diags, 'strict'));
+/** A strict validator with the document skeleton applied, for batches one at a time and `stopped`. */
+function strictValidator(diags: string[] = []): Validator {
+  const v = new Validator((kind, detail) => diags.push(`${kind}: ${detail}`));
+  v.setPolicy('strict');
+  v.processOps([
+    { op: 'el', id: 2, tag: 'html' }, { op: 'ins', parent: 1, id: 2, before: null },
+    { op: 'el', id: 3, tag: 'body' }, { op: 'ins', parent: 2, id: 3, before: null },
+  ]);
+  return v;
+}
+
+describe('validator: 32 KB text values (strict stops the widget past one)', () => {
+  const ok = 'a'.repeat(32 * 1024);
+  const big = 'b'.repeat(32 * 1024 + 1);
+  const canvas = [{ op: 'el', id: 23, tag: 'canvas' }, { op: 'ins', parent: 3, id: 23, before: null }];
+  it('a text node, text data and a canvas string of 32 KB pass', () => {
+    const v = strictValidator();
+    const out = json(v.processOps([
+      { op: 'text', id: 20, data: 'x' }, { op: 'ins', parent: 3, id: 20, before: null }, { op: 'data', id: 20, data: ok },
+      ...canvas, { op: 'canvas', id: 23, cmds: [['c', 'fillText', 'c'.repeat(16 * 1024), 0, 0]] },
+    ]));
     assert.ok(out.includes(ok));
-    assert.ok(!out.includes(big));
-    assert.ok(out.includes('short'));
-    assert.ok(diags.length > 0);
+    assert.equal(v.stopped, null);
   });
+  for (const [what, ops] of [
+    ['a text node', [{ op: 'text', id: 21, data: big }]],
+    ['text data', [{ op: 'text', id: 21, data: 'x' }, { op: 'data', id: 21, data: big }]],
+    ['a canvas string', [...canvas, { op: 'canvas', id: 23, cmds: [['c', 'fillText', 'short', 0, 0], ['c', 'fillText', big, 0, 0]] }]],
+    ['Path2D data', [...canvas, { op: 'canvas', id: 23, cmds: [['pn', 1, big]] }]],
+  ] as [string, unknown[]][]) {
+    it(`${what} of 32 KB + 1 stops the widget and its batch is refused whole`, () => {
+      const diags: string[] = [];
+      const v = strictValidator(diags);
+      assert.deepEqual(v.processOps([{ op: 'text', id: 30, data: 'before' }, ...ops]), []);
+      assert.equal(v.stopped, 'Text limit exceeded: a text value of 32769 characters (max 32768)');
+      assert.ok(diags.some((d) => d.startsWith('limit: Text limit exceeded')));
+      assert.deepEqual(v.processOps([{ op: 'text', id: 31, data: 'after' }]), [], 'a stopped validator refuses every batch');
+    });
+  }
 
   it('keeps the 2 MB text and 4 MB canvas string limits under the default compat policy', () => {
     const big = 'b'.repeat(2 * 1024 * 1024);
@@ -396,30 +416,43 @@ describe('validator: complex-script text budget', () => {
 });
 
 describe('validator: visible attribute text budgets', () => {
-  it('rejects oversized visible text attributes on creation and mutation', () => {
-    const big = 'x'.repeat(64 * 1024 + 1);
-    const out = run([
-      { op: 'el', id: 20, tag: 'button', attrs: { value: big, title: big } },
-      { op: 'el', id: 21, tag: 'img', attrs: { alt: big } },
+  it('an attribute value over 8 KB stops the widget, on creation and on mutation', () => {
+    const fits = 'x'.repeat(8 * 1024);
+    const big = 'x'.repeat(8 * 1024 + 1);
+    const v = strictValidator();
+    const out = v.processOps([
+      { op: 'el', id: 20, tag: 'button', attrs: { value: fits.slice(4000), title: fits.slice(5000) } },
+      { op: 'el', id: 21, tag: 'img', attrs: { src: 'data:image/png;base64,' + 'A'.repeat(8000) } },
+    ]);
+    assert.equal(out.filter(o => o.op === 'el').length, 2);
+    assert.equal(v.stopped, null);
+    for (const op of [
       { op: 'el', id: 22, tag: 'div', attrs: { 'data-label': big } },
       { op: 'attr', id: 20, name: 'VALUE', value: big },
-    ], [], 'strict');
-    assert.ok(!json(out).includes(big));
-    assert.equal(out.filter(o => o.op === 'el').length, 3);
+      { op: 'style', id: 20, name: '--x', value: big },
+    ]) {
+      const w = strictValidator();
+      w.processOps([{ op: 'el', id: 20, tag: 'button' }]);
+      assert.deepEqual(w.processOps([op]), []);
+      assert.equal(w.stopped, 'Attribute limit exceeded: a value of 8193 characters (max 8192)');
+    }
   });
 
-  it('shares the document budget with visible attributes and refunds removals', () => {
-    const chunk = 'a'.repeat(64 * 1024);
-    const out = run([
-      ...[20, 21, 22].map(id => ({ op: 'text', id, data: chunk })),
-      { op: 'el', id: 30, tag: 'div', attrs: { title: chunk } },
-      { op: 'text', id: 23, data: 'overflow' },
+  it('shares the 48 KB document budget with visible attributes and refunds removals', () => {
+    const chunk = 'a'.repeat(16 * 1024);
+    const v = strictValidator();
+    const out = v.processOps([
+      ...[20, 21].map(id => ({ op: 'text', id, data: chunk })),
+      { op: 'el', id: 30, tag: 'div', attrs: { title: chunk.slice(0, 8192) } },
+      { op: 'text', id: 22, data: chunk.slice(0, 8192) },
       { op: 'rm', id: 30 },
-      { op: 'text', id: 24, data: chunk },
-    ], [], 'strict');
-    assert.equal(attrsOf(out, 30).title, chunk);
-    assert.ok(!out.some(o => o.op === 'text' && o.id === 23));
-    assert.ok(out.some(o => o.op === 'text' && o.id === 24));
+      { op: 'text', id: 24, data: chunk.slice(0, 8192) },
+    ]);
+    assert.equal(attrsOf(out, 30).title, chunk.slice(0, 8192));
+    assert.ok(out.some(o => o.op === 'text' && o.id === 24), 'the removed title was refunded');
+    assert.equal(v.stopped, null);
+    assert.deepEqual(v.processOps([{ op: 'text', id: 25, data: 'overflow' }]), []);
+    assert.equal(v.stopped, "Text limit exceeded: the document's text is over 49152 characters");
   });
 
   it('shares complex text budgets across attributes and text nodes', () => {
@@ -470,7 +503,7 @@ describe('validator: strict budgets for text reached through attributes and CSS'
       { op: 'el', id: 21, tag: 'p', attrs: { 'aria-label': cjk(3000) } },
       { op: 'el', id: 22, tag: 'p' },
       { op: 'attr', id: 22, name: 'data-y', value: cjk(3000) },
-      { op: 'attr', id: 22, name: 'class', value: 'x'.repeat(100_000) },
+      { op: 'attr', id: 22, name: 'class', value: 'x'.repeat(8000) },
     ], diags, 'strict');
     assert.equal(attrsOf(out, 20)['data-x'], cjk(6000));
     assert.equal(attrsOf(out, 21)['aria-label'], undefined);
@@ -479,11 +512,10 @@ describe('validator: strict budgets for text reached through attributes and CSS'
     assert.ok(diags.some((d) => d.startsWith('text-budget')));
   });
 
-  it('the 60 000-ideograph data attribute from the branch review is rejected', () => {
-    const diags: string[] = [];
-    const out = run([{ op: 'el', id: 20, tag: 'p', attrs: { 'data-x': cjk(60_000) } }], diags, 'strict');
-    assert.equal(attrsOf(out, 20)['data-x'], undefined);
-    assert.ok(diags.some((d) => d.startsWith('text-budget')));
+  it('the 60 000-ideograph data attribute from the branch review stops the widget (past the 8 KB attribute cap)', () => {
+    const v = strictValidator();
+    assert.deepEqual(v.processOps([{ op: 'el', id: 20, tag: 'p', attrs: { 'data-x': cjk(60_000) } }]), []);
+    assert.match(v.stopped ?? '', /^Attribute limit exceeded/);
   });
 
   it('attr() may only read budgeted attributes under strict', () => {

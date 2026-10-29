@@ -99,15 +99,17 @@ describe('hostile text floods', () => {
     });
   }
 
-  it('caps total text, refunds removals, and does not charge rejected duplicate ids', () => {
+  it('caps total text at 48 KB (past it the widget stops), refunds removals, and does not charge rejected duplicate ids', () => {
     const r = rig();
-    const data = 'x'.repeat(65536);
-    for (let id = 20; id < 24; id++) assert.equal(r.v.processOps([{ op: 'text', id, data }]).length, 1);
-    assert.equal(r.v.processOps([{ op: 'text', id: 24, data: 'a' }]).length, 0);
+    const data = 'x'.repeat(16384);
+    for (let id = 20; id < 23; id++) assert.equal(r.v.processOps([{ op: 'text', id, data }]).length, 1);
     r.v.processOps([{ op: 'rm', id: 20 }]);
-    assert.equal(r.v.processOps([{ op: 'text', id: 24, data }]).length, 1);
-    assert.equal(r.v.processOps([{ op: 'data', id: 24, data: '' }]).length, 1);
-    for (let i = 0; i < 100; i++) r.v.processOps([{ op: 'text', id: 24, data }]);
-    assert.equal(r.v.processOps([{ op: 'data', id: 24, data }]).length, 1);
+    assert.equal(r.v.processOps([{ op: 'text', id: 23, data }]).length, 1);
+    assert.equal(r.v.processOps([{ op: 'data', id: 23, data: '' }]).length, 1);
+    for (let i = 0; i < 100; i++) r.v.processOps([{ op: 'text', id: 23, data }]);
+    assert.equal(r.v.processOps([{ op: 'data', id: 23, data }]).length, 1);
+    assert.equal(r.v.stopped, null);
+    assert.equal(r.v.processOps([{ op: 'text', id: 30, data: 'a' }]).length, 0);
+    assert.equal(r.v.stopped, "Text limit exceeded: the document's text is over 49152 characters");
   });
 });

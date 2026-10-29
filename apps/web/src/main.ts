@@ -96,7 +96,7 @@ function clearStorage(file: string | null) {
 }
 let tasksAtError = 0;
 /** Runtime limits overridable from the URL for the Playwright suites (?cpuQuotaMs=…&cpuKillAfterMs=…&maxTimers=…). */
-const LIMIT_PARAMS = ['cpuLimitMs', 'cpuQuotaMs', 'cpuQuotaWindowMs', 'cpuKillAfterMs', 'maxTimers'] as const;
+const LIMIT_PARAMS = ['cpuLimitMs', 'cpuQuotaMs', 'cpuQuotaWindowMs', 'cpuKillAfterMs', 'mainThreadQuotaMs', 'maxTimers', 'memoryLimitBytes'] as const;
 const limits: Partial<Record<(typeof LIMIT_PARAMS)[number], number>> = {};
 let host: WidgetHost | null = null;
 /** `?pool=N`: sandbox workers from a pool of N warmed ones (worker-pool.ts), as a feed would do; prewarmed at init. */

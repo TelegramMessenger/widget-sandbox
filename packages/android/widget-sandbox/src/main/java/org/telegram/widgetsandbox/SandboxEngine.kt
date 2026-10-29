@@ -15,14 +15,14 @@ import org.json.JSONTokener
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts. */
+/** Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start"). */
 data class SandboxConfig(
     var innerWidth: Double,
     var innerHeight: Double,
     var devicePixelRatio: Double,
     var theme: String,
     /** QuickJS heap limit (JS_SetMemoryLimit); exceeding it terminates the widget. */
-    var memoryLimitBytes: Long = 64L shl 20,
+    var memoryLimitBytes: Long = 8L shl 20,
     /** Longest continuous run of widget JS (one task) before the widget is terminated. */
     var cpuLimitMs: Double = 500.0,
     /** JS time the widget may use per `cpuQuotaWindowMs` (sliding window); beyond it timers and frames are deferred, never killed. */
@@ -30,13 +30,20 @@ data class SandboxConfig(
     var cpuQuotaWindowMs: Double = 1000.0,
     /** Kill after this long of uninterrupted throttling; 0 disables (default). */
     var cpuKillAfterMs: Double = 0.0,
+    /**
+     * The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+     * queries block the renderer and the modelled cost of the ops it sends ([CpuBudget.opsCostMs]). Beyond it timers
+     * and frames are deferred like under the JS quota.
+     */
+    var mainThreadQuotaMs: Double = 100.0,
     /** Live timers a widget may hold; the shim throws RangeError beyond it, the engine refuses as a backstop. */
-    var maxTimers: Int = 256,
+    var maxTimers: Int = 64,
     /** Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz. */
     var visible: Boolean = true,
     /**
-     * "strict" (default): privileged bridge calls need a user gesture, text values are capped at 64 KB
-     * and visible text is budgeted. "compat": the behaviour before that hardening, for tests and tooling.
+     * "strict" (default): privileged bridge calls need a user gesture, text values are capped at 32 KB,
+     * visible text is budgeted, and past a counted cap (text, attributes, ops, canvas commands, CSS rules)
+     * the widget stops. "compat": the behaviour before that hardening, for tests and tooling.
      * Anything but exactly "compat" is strict ([isStrictPolicy]), so a typo never weakens the sandbox.
      */
     var policy: String = "strict",
@@ -72,7 +79,7 @@ data class SandboxStats(
     var queryMs: Double = 0.0,
     var queryCacheHits: Int = 0,
     var missedMutations: Int = 0,
-    /** Tasks deferred by the CPU quota. */
+    /** Tasks deferred by the CPU quota or the main-thread window. */
     var throttledTasks: Int = 0,
     /** JS time used in the current quota window at the time of the report. */
     var cpuWindowMs: Double = 0.0,
@@ -94,6 +101,8 @@ private const val UNSUPPORTED_DETAIL = "request refused: the client handles no r
 
 /** Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets. */
 internal fun coarseNowMs(ms: Double): Double = kotlin.math.floor(ms / 0.1) * 0.1
+/** The key of a canvas op's commands in an ops batch (JSON): outside a string only, inside one a quote is `\"`. */
+private const val CMDS_KEY = "\"cmds\":["
 private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
 private const val WALL_BACKSTOP_FACTOR = 10.0
 private const val WALL_BACKSTOP_MIN_MS = 5000.0
@@ -184,11 +193,17 @@ class SandboxEngine(
 
     // CPU quota (mirrors worker.ts): decide before a task, record after it. Times in ms of nowNs().
     private val budget = CpuBudget(config)
+    /** The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota. */
+    private val mainBudget = CpuBudget(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0.0)
     /** Slice given to the running task in ms (for the kill message); the boot task gets cpuLimitMs. */
     private var currentSliceMs = 0.0
     /** Wall time this task's layout queries have blocked for, and whether that passed the task's query budget. */
     private var taskQueryMs = 0.0
+    /** Modelled main-thread cost of the ops this task sent ([CpuBudget.opsCostMs]). */
+    private var taskOpsCostMs = 0.0
     private var queryLimitHit = false
+    /** Set from any thread by [stop]: the host stopped the widget; the engine dies at the widget's next host call or task. */
+    @Volatile private var stopReason: String? = null
     private var currentKind = "boot"
     /** JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms. */
     private var excludeMs = 0.0
@@ -208,14 +223,24 @@ class SandboxEngine(
         thread.post { boot() }
     }
 
-    /** Kills the widget, frees the runtime and stops the thread. */
-    fun terminate() {
+    /** Kills the widget, frees the runtime and stops the thread; `onDied` gets [reason] when the widget was still alive. */
+    fun terminate(reason: String = "terminated") {
         thread.post {
-            kill("terminated")
+            kill(reason)
             js?.close()
             js = null
             thread.stop()
         }
+    }
+
+    /**
+     * The host stopped the widget (WidgetHost: the validator's `limit`, a counted cap passed under strict), from any
+     * thread: the widget's next host call is refused and interrupts its JS, then the engine dies with [reason] and
+     * frees the runtime and the thread, as [terminate] does.
+     */
+    fun stop(reason: String) {
+        stopReason = reason
+        terminate(reason)
     }
 
     private fun boot() {
@@ -265,7 +290,10 @@ class SandboxEngine(
                         .put("cpuQuotaMs", config.cpuQuotaMs)
                         .put("cpuQuotaWindowMs", config.cpuQuotaWindowMs)
                         .put("cpuKillAfterMs", config.cpuKillAfterMs)
+                        .put("mainThreadQuotaMs", config.mainThreadQuotaMs)
                         .put("maxTimers", config.maxTimers)
+                        // The shim caps canvas commands and script animations from it (anything but compat is strict).
+                        .put("policy", if (isStrictPolicy(config.policy)) "strict" else "compat")
                         .put("visible", visible)
                         .put("viewport", JSONObject().put("innerWidth", config.innerWidth).put("innerHeight", config.innerHeight).put("dpr", config.devicePixelRatio))
                         .put("theme", config.theme)
@@ -382,7 +410,7 @@ class SandboxEngine(
         dispatch(kind, arg)
     }
 
-    /** Runs one task for an input (event, timer, frame, …) if the CPU quota allows, otherwise defers it (returns false). Events and visibility always run. */
+    /** Runs one task for an input (event, timer, frame, …) if the CPU quota and the main-thread window allow, otherwise defers it (returns false). Events and visibility always run. */
     private fun dispatch(kind: String, arg: String): Boolean {
         if (dead) return true
         if (kind.startsWith(ACTIVATION_PREFIX)) {
@@ -394,29 +422,34 @@ class SandboxEngine(
             }
         }
         val now = nowMs()
-        when (val d = budget.decide(kind, now)) {
-            is CpuDecision.Defer -> {
-                if (budget.shouldKill(now)) {
-                    kill(String.format(java.util.Locale.ROOT, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, config.cpuQuotaMs.toInt(), config.cpuQuotaWindowMs.toInt(), config.cpuKillAfterMs.toInt()))
-                    return true
-                }
-                defer(kind, arg)
-                stats.throttledTasks += 1
-                throttledSinceDiag[kind] = (throttledSinceDiag[kind] ?: 0) + 1
-                if (now - lastThrottleDiagMs >= 1000) {
-                    lastThrottleDiagMs = now
-                    val parts = throttledSinceDiag.entries.sortedBy { it.key }.map { "${it.value} ${it.key}${if (it.value == 1) "" else "s"}" }
-                    throttledSinceDiag.clear()
-                    delegate?.onDiag(this, "cpu-throttled", "deferred ${parts.joinToString(", ")}: ${budget.used(now).toInt()} ms of the ${config.cpuQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms budget used")
-                }
-                scheduleWake((d.retryAt * 1e6).toLong())
-                return false
-            }
-            is CpuDecision.Run -> {
-                task(kind, d.sliceMs) { callTw(kind, arg) }
-                return true
-            }
+        // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
+        val js = budget.decide(kind, now)
+        val main = mainBudget.decide(kind, now)
+        if (js is CpuDecision.Run && main is CpuDecision.Run) {
+            task(kind, js.sliceMs) { callTw(kind, arg) }
+            return true
         }
+        if (budget.shouldKill(now)) {
+            kill(String.format(java.util.Locale.ROOT, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, config.cpuQuotaMs.toInt(), config.cpuQuotaWindowMs.toInt(), config.cpuKillAfterMs.toInt()))
+            return true
+        }
+        defer(kind, arg)
+        stats.throttledTasks += 1
+        throttledSinceDiag[kind] = (throttledSinceDiag[kind] ?: 0) + 1
+        if (now - lastThrottleDiagMs >= 1000) {
+            lastThrottleDiagMs = now
+            val parts = throttledSinceDiag.entries.sortedBy { it.key }.map { "${it.value} ${it.key}${if (it.value == 1) "" else "s"}" }
+            throttledSinceDiag.clear()
+            val window = if (js is CpuDecision.Run) {
+                "${mainBudget.used(now).toInt()} ms of the ${config.mainThreadQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms main-thread budget used by layout queries and ops"
+            } else {
+                "${budget.used(now).toInt()} ms of the ${config.cpuQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms budget used"
+            }
+            delegate?.onDiag(this, "cpu-throttled", "deferred ${parts.joinToString(", ")}: $window")
+        }
+        val retryAt = maxOf((js as? CpuDecision.Defer)?.retryAt ?: 0.0, (main as? CpuDecision.Defer)?.retryAt ?: 0.0)
+        scheduleWake((retryAt * 1e6).toLong())
+        return false
     }
 
     private fun defer(kind: String, arg: String) {
@@ -466,10 +499,19 @@ class SandboxEngine(
     // MARK: the single capability
 
     private fun hostCall(kind: String, arg: String): HostReturn {
+        // Stopped by the host: nothing more leaves the widget, its JS is interrupted at the next poll.
+        stopReason?.let { reason ->
+            kill(reason)
+            js?.cpuDeadlineNanos = Long.MIN_VALUE
+            return HostReturn.Undefined
+        }
         val delegate = delegate
         when (kind) {
             "ops" -> {
-                stats.ops += countOccurrences("\"op\":", arg)
+                // Exact: inside a JSON string a quote is always `\"`.
+                val ops = countOccurrences("\"op\":", arg)
+                stats.ops += ops
+                taskOpsCostMs += CpuBudget.opsCostMs(ops, countCanvasCommands(arg))
                 delegate?.onOps(this, arg)
             }
             "query" -> return HostReturn.Str(syncQuery(arg))
@@ -866,13 +908,15 @@ class SandboxEngine(
         ctx.deadlineNanos = nowNs() + (maxOf(currentSliceMs * WALL_BACKSTOP_FACTOR, WALL_BACKSTOP_MIN_MS) * 1e6).toLong()
     }
 
-    /** One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota. */
+    /** One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota, its layout queries and ops against the main-thread window. */
     private fun task(kind: String, sliceMs: Double, body: () -> Unit) {
+        stopReason?.let { kill(it) }
         if (dead) return
         currentKind = kind
         currentSliceMs = sliceMs
         excludeMs = 0.0
         taskQueryMs = 0.0
+        taskOpsCostMs = 0.0
         queryLimitHit = false
         val c0 = js?.threadCpuNanos() ?: 0L
         resetDeadline()
@@ -882,7 +926,8 @@ class SandboxEngine(
         stats.tasks += 1
         val cpuMs = ((js?.threadCpuNanos() ?: c0) - c0) / 1e6 - excludeMs
         stats.jsMs += cpuMs
-        budget.record(kind, cpuMs + taskQueryMs, nowMs()) // layout queries count toward the quota: they cost the host as much as JS
+        budget.record(kind, cpuMs, nowMs())
+        mainBudget.record(kind, taskQueryMs + taskOpsCostMs, nowMs()) // what the task cost the host's main thread
         stats.cpuWindowMs = budget.used(nowMs())
         val now = nowNs()
         if (now - lastMemCheck > 1_000_000_000L && !dead) {
@@ -915,6 +960,39 @@ class SandboxEngine(
     private fun splitPrefix(s: String): Pair<String, String> {
         val i = s.indexOf(':')
         return if (i < 0) s to "" else s.substring(0, i) to s.substring(i + 1)
+    }
+
+    /**
+     * Commands in the canvas ops of an ops batch (JSON): the elements of each `"cmds":[...]` array, counted at its
+     * depth with strings skipped (the cost model's canvas commands, [CpuBudget.opsCostMs]).
+     */
+    private fun countCanvasCommands(json: String): Int {
+        var total = 0
+        var i = json.indexOf(CMDS_KEY)
+        while (i >= 0) {
+            var j = i + CMDS_KEY.length
+            var depth = 0
+            var elements = 0
+            var empty = true
+            scan@ while (j < json.length) {
+                when (json[j]) {
+                    '"' -> {
+                        j++
+                        while (j < json.length && json[j] != '"') j += if (json[j] == '\\') 2 else 1
+                        empty = false
+                    }
+                    '[', '{' -> { depth++; empty = false }
+                    ']', '}' -> { if (depth == 0) break@scan; depth-- }
+                    ',' -> if (depth == 0) elements++
+                    ' ', '\n', '\r', '\t' -> {}
+                    else -> empty = false
+                }
+                j++
+            }
+            if (!empty) total += elements + 1
+            i = json.indexOf(CMDS_KEY, j)
+        }
+        return total
     }
 
     private fun countOccurrences(needle: String, text: String): Int {

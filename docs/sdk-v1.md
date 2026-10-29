@@ -355,8 +355,8 @@ out of v1 (§6).
   bot or the server.
 - `sessionStorage` has the same key and lives in the client's memory until the
   app restarts.
-- Quota: 16 KB per area and message (16384 bytes of keys and values counted in
-  UTF-8). `setItem` that would exceed it throws a `DOMException` named
+- Quota: 4 KB per area and message (4096 bytes of keys and values counted in
+  UTF-8; 16 KB until the strict limits, `docs/decisions.md` "Strict limits from the start"). `setItem` that would exceed it throws a `DOMException` named
   `QuotaExceededError` (the shim provides `DOMException`) and stores nothing.
   Keys and values are converted to strings, as in browsers.
 - The data is in the widget at start (synchronous reads from the first line of
@@ -397,7 +397,7 @@ missing or malformed locale is `en-US` (before v1: always `en-US`).
 |---|---|---|---|
 | `openLink`, `openTelegramLink` | `TypeError` | dropped, `activation-blocked` (no press, hidden, press used) | 256 characters; one call per press |
 | haptics | `TypeError` | dropped, `haptic-limit` (hidden, over the bucket, outside a touch after the series) | bucket 5, 10 per second; outside a touch (a press and 5 s after it) one 1 s series, the next after a touch or 10 s later |
-| `localStorage`, `sessionStorage` | — | `QuotaExceededError` | 16 KB per area |
+| `localStorage`, `sessionStorage` | — | `QuotaExceededError` | 4 KB per area |
 | `isProfileAtLeast` | `false` | — | — |
 | `onEvent`, `offEvent` | ignored (unknown type or non-function) | — | 16 handlers per type; further ones are ignored |
 | `ready` | — | — | — |
@@ -412,11 +412,15 @@ request, at most 20 per widget), `answer-rejected` (an answer whose `result`
 broke the limits) and `data-rejected` (a chat state or shared state the client
 passed that is over 1024 bytes or not text).
 
-A widget is killed, and its last frame kept (§5.7), for one of three reasons the
+A widget is killed, and its last frame kept (§5.7), for one of these reasons the
 host sees in `died` / `onDead`: `CPU limit exceeded` (more than the task's slice
 of continuous JS), `Layout query limit exceeded` (its synchronous layout queries
-blocked the renderer for more than max(slice, 100 ms) in one task; the queries
-also count toward the CPU quota) and `Memory limit exceeded (64 MB)`.
+blocked the renderer for more than 100 ms in one task; the queries also count
+toward the host's main-thread window), `Memory limit exceeded (8 MB)`, and, under
+`strict`, a counted cap of the validator (`Text limit exceeded`, `Attribute limit
+exceeded`, `Ops limit exceeded`, `Canvas limit exceeded`, `CSS limit exceeded`; the
+validator's `limit` diagnostic carries the same reason; `docs/decisions.md`, "Strict
+limits from the start").
 
 ### 2.12 Resize anchor (v0.1.3)
 
@@ -710,7 +714,7 @@ Record<string, string> }`, the full content of each area that changed in the
 task. The shim sends it once the task is over (after the MutationObserver
 callbacks, when the glue's last `endTick` of the task returns). The glue
 refuses an argument longer than any commit within the quota can be (2 × 12 ×
-16384 + 64 characters) before parsing it, checks that the commit has only
+4096 + 64 characters) before parsing it, checks that the commit has only
 `local` / `session`, each an object of strings within the quota, and hands
 each area to the client (`onStorageCommit(area, values)`, `local` first); a
 commit that fails is dropped whole with `storage-rejected` (at most 20
@@ -1007,7 +1011,7 @@ ignore them.
 - Delete both areas with the message, with the chat or its history, with the
   account, and on "Clear cache". There are no per-bot quotas and no age-based
   eviction.
-- The framework enforces the 16 KB quota; the client stores what it gets.
+- The framework enforces the 4 KB quota; the client stores what it gets.
 
 ### 5.5 Gestures and drag (D4)
 

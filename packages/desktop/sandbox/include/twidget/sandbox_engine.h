@@ -30,9 +30,9 @@
 
 namespace twidget {
 
-/// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts.
+/// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start").
 struct SandboxConfig {
-    size_t memoryLimitBytes = size_t(64) << 20;
+    size_t memoryLimitBytes = size_t(8) << 20;
     /// Longest continuous run of widget JS in one task before the runtime is killed.
     double cpuLimitMs = 500;
     /// JS time the widget may use per `cpuQuotaWindowMs` (sliding window); beyond it timers and frames are deferred, never killed.
@@ -40,8 +40,12 @@ struct SandboxConfig {
     double cpuQuotaWindowMs = 1000;
     /// Kill after this long of uninterrupted throttling; 0 disables (default).
     double cpuKillAfterMs = 0;
+    /// The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+    /// queries block the renderer and the modelled cost of the ops it sends (CpuBudget::opsCostMs: 25 µs per op, 2 µs per
+    /// canvas command). Beyond it timers and frames are deferred like under the JS quota.
+    double mainThreadQuotaMs = 100;
     /// Live timers a widget may hold; the shim throws RangeError beyond it, the engine refuses as a backstop.
-    int maxTimers = 256;
+    int maxTimers = 64;
     /// Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz.
     bool visible = true;
     double innerWidth = 400;
@@ -63,8 +67,9 @@ struct SandboxConfig {
     /// (docs/sdk-v1.md §4.4). All false: no requests.
     WidgetContext context;
     /// "strict" (default): privileged bridge calls need a user gesture, text values are capped at
-    /// 64 KB and visible text is budgeted. "compat": the behaviour before that hardening, for tests
-    /// and tooling. Anything but exactly "compat" is strict (isStrictPolicy).
+    /// 32 KB and visible text is budgeted, and the shim refuses at the validator's counted caps (2000 canvas
+    /// commands per canvas per task, 64 live script animations). "compat": the behaviour before that hardening,
+    /// for tests and tooling. Anything but exactly "compat" is strict (isStrictPolicy); the shim gets it in its boot config.
     std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
     /// This runtime honours webAnimations, noInPlaceText, noAttrFast and noCanvasRect and drops the rest.
@@ -83,7 +88,7 @@ struct SandboxStats {
     double queryMs = 0;
     int queryCacheHits = 0;
     int missedMutations = 0;
-    /// Tasks deferred by the CPU quota; JS time used in the current quota window at the time of the report.
+    /// Tasks deferred by the CPU quota or the main-thread window; JS time used in the current quota window at the time of the report.
     int throttledTasks = 0;
     double cpuWindowMs = 0;
 };
@@ -168,6 +173,11 @@ public:
 
     void start();
     void terminate();
+    /// The host stops the widget (a counted cap of the validator passed under strict, its diagnostic `limit`): the
+    /// runtime dies with `reason` as it does for memory or CPU (`onDied(reason)`). From the engine thread (a delegate
+    /// callback such as `onOps`) at once, and the task that is still on the stack is interrupted; from any other
+    /// thread asynchronously.
+    void stop(const std::string& reason);
 
     // Inputs from the host (all asynchronous). A preview (`WidgetContext::preview`) takes no input: events are dropped.
     void event(const std::string& json);
@@ -268,11 +278,15 @@ private:
 
     // CPU quota: decide before a task, record after it.
     CpuBudget budget_;
+    /// The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota.
+    CpuBudget mainBudget_;
     double currentSliceMs_ = 0;
     std::string currentKind_ = "boot";
     double excludeMs_ = 0;
     /// Wall time this task's layout queries have blocked for, and whether that passed the task's query budget.
     double taskQueryMs_ = 0;
+    /// Modelled main-thread cost of the ops this task sent (CpuBudget::opsCostMs).
+    double taskOpsCostMs_ = 0;
     bool queryLimitHit_ = false;
     double lastThrottleDiag_ = -1e300;
     std::map<std::string, int> throttledSinceDiag_;

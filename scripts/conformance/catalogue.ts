@@ -291,7 +291,7 @@ js('focus', 'element.focus() / blur() / select(), document.activeElement: the wi
 js('timers', 'setTimeout / setInterval / clear*, ordering, clamped delays', 'in', 'today', 'kept', { match: { apis: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] } });
 js('raf', 'requestAnimationFrame / cancelAnimationFrame (frames from the renderer)', 'in', 'today', 'kept', { match: { apis: ['requestAnimationFrame', 'cancelAnimationFrame'] } });
 js('microtasks', 'Promise, async/await, queueMicrotask', 'in', 'today', 'kept', { match: { apis: ['Promise', 'queueMicrotask'] } });
-js('storage.local', 'localStorage: per (account, chat, message), preloaded, 16 KB, QuotaExceededError past it', 'in', 'D17', 'host', { match: { apis: ['localStorage'] }, note: 'The shim keeps the map (16 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.' });
+js('storage.local', 'localStorage: per (account, chat, message), preloaded, 4 KB, QuotaExceededError past it', 'in', 'D17', 'host', { match: { apis: ['localStorage'] }, note: 'The shim keeps the map (4 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.' });
 js('storage.session', 'sessionStorage: same key, in memory until app restart', 'in', 'D17', 'host', { match: { apis: ['sessionStorage'] } });
 js('intl', 'Intl.NumberFormat, DateTimeFormat, PluralRules, RelativeTimeFormat, ListFormat, Collator (host ICU)', 'in', 'today', 'host', { match: { apis: ['Intl.NumberFormat', 'Intl.DateTimeFormat', 'Intl.PluralRules', 'Intl.RelativeTimeFormat', 'Intl.ListFormat', 'Intl.Collator'] } });
 js('intl.format-to-parts', 'Intl.NumberFormat/DateTimeFormat formatToParts', 'candidate', 'proposed', 'host', { match: { apis: ['formatToParts'] }, note: 'Numbers and dates, in every glue copy.' });
@@ -349,13 +349,19 @@ inp('prevent-default', 'preventDefault on pointer events keeps the gesture in th
 
 // ───────────── Limits ─────────────
 const lim = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('limit', 'limit.' + id, title, st, d, t, x);
-lim('text-node', 'Text values (text node, string property) up to 64 KB (strict)', 'in', 'D5', 'kept');
-lim('text-budget', 'Document text budget 256 K units, complex-script text 8192 units (strict)', 'in', 'D5', 'kept');
+lim('text-node', 'Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict)', 'in', 'D5', 'kept');
+lim('text-budget', 'Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict)', 'in', 'D5', 'kept');
 lim('nodes', 'At most 50 000 nodes', 'in', 'today', 'kept');
-lim('timers', 'At most 256 live timers (RangeError past it)', 'in', 'today', 'kept');
-lim('cpu', 'CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task', 'in', 'today', 'kept');
-lim('memory', 'QuickJS heap 64 MB', 'in', 'today', 'kept');
-lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'kept');
+lim('timers', 'At most 64 live timers (RangeError past it)', 'in', 'today', 'kept');
+lim('cpu', 'CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task', 'in', 'today', 'kept');
+lim('memory', 'QuickJS heap 8 MB', 'in', 'today', 'kept');
+lim('storage', 'localStorage and sessionStorage: 4 KB per area and message (4096 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'kept');
+lim('attribute', 'Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict)', 'in', 'L1', 'kept');
+lim('batch', "At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict)", 'in', 'L1', 'kept');
+lim('css-rules', "At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict)", 'in', 'L1', 'kept');
+lim('canvas-commands', 'At most 2000 canvas commands per canvas in one task (RangeError past it; strict)', 'in', 'L1', 'kept');
+lim('animations', 'At most 64 running script animations (further ones are not rendered; strict)', 'in', 'L1', 'kept');
+lim('main-thread', "The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it)", 'in', 'L1', 'host');
 lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'kept');
 lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'kept');
 lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit)', 'in', 'SDK', 'kept');
@@ -514,7 +520,8 @@ export const DECISIONS: Record<string, string> = {
   D11: 'One widget model: classic DOM in the sandbox',
   D12a: 'Above the cap: hard clip, no fullscreen',
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',
-  D17: 'State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 16 KB, QuotaExceededError; sessionStorage in memory',
+  D17: 'State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory',
+  L1: 'Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)',
   D18: 'Text is not selectable by default; user-select: text enables it (2026-10-20)',
   D20: 'Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits',
   D21: 'No accessibility in v1',

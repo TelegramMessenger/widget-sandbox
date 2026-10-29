@@ -90,7 +90,7 @@ final class SdkTests: XCTestCase {
     func testPreloadIsReadableFromTheFirstLineAndEachTaskCommits() {
         var options = WidgetHost.Options()
         options.storage = WidgetStorage(local: ["count": "41"], session: ["s": "kept"])
-        let h = Harness("<button id='b'>b</button><script>console.log('seen='+localStorage.getItem('count')+'/'+sessionStorage.getItem('s')+'/'+localStorage.length);localStorage.setItem('count',String(Number(localStorage.getItem('count'))+1));localStorage.extra=7;document.getElementById('b').onclick=function(){sessionStorage.setItem('s','tapped');localStorage.setItem('count',localStorage.count);localStorage.setItem('w','ж'.repeat(8185));};</script>", options: options)
+        let h = Harness("<button id='b'>b</button><script>console.log('seen='+localStorage.getItem('count')+'/'+sessionStorage.getItem('s')+'/'+localStorage.length);localStorage.setItem('count',String(Number(localStorage.getItem('count'))+1));localStorage.extra=7;document.getElementById('b').onclick=function(){sessionStorage.setItem('s','tapped');localStorage.setItem('count',localStorage.count);localStorage.setItem('w','ж'.repeat(2041));};</script>", options: options)
         h.pump { !h.commits.isEmpty }
         XCTAssertTrue(h.logs.contains("seen=41/kept/1"), "\(h.logs)")
         XCTAssertEqual(h.commits.map(\.area), [.local])
@@ -99,7 +99,7 @@ final class SdkTests: XCTestCase {
         h.pump { h.commits.count >= 3 }
         h.settle(0.1)
         XCTAssertEqual(h.commits.map(\.area), [.local, .local, .session], "one commit per task, local first; an unchanged value is no change")
-        XCTAssertEqual(h.commits[1].values["w"]?.count, 8185, "count=42, extra=7 and w = 13 + 1 + 16370 bytes: exactly the quota, by the shim's count and the glue's")
+        XCTAssertEqual(h.commits[1].values["w"]?.count, 2041, "count=42, extra=7 and w = 13 + 1 + 4082 bytes: exactly the quota, by the shim's count and the glue's")
         XCTAssertEqual(h.commits[2].values, ["s": "tapped"])
         XCTAssertEqual(h.count("storage-rejected"), 0)
     }
@@ -114,7 +114,7 @@ final class SdkTests: XCTestCase {
     }
 
     func testSetItemPastTheQuotaThrowsAndCommitsNothing() {
-        let h = Harness("<script>var out=[];localStorage.setItem('k','x'.repeat(16383));try{localStorage.setItem('k2','y');}catch(e){out.push(e.name);}console.log('out='+out.join());</script>")
+        let h = Harness("<script>var out=[];localStorage.setItem('k','x'.repeat(4095));try{localStorage.setItem('k2','y');}catch(e){out.push(e.name);}console.log('out='+out.join());</script>")
         h.pump { !h.commits.isEmpty }
         XCTAssertTrue(h.logs.contains("out=QuotaExceededError"), "\(h.logs)")
         XCTAssertEqual(h.commits.count, 1)

@@ -206,6 +206,12 @@ export interface SandboxConfig {
   cpuQuotaWindowMs: number;
   /** Kill after this long of uninterrupted throttling; 0 disables (default). */
   cpuKillAfterMs: number;
+  /**
+   * The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+   * queries block the renderer and the modelled cost of the ops it sends (`opsCostMs` in cpu-budget.ts). Beyond it
+   * timers and frames are deferred like under the JS quota. Optional for older configs (LIMIT_DEFAULTS).
+   */
+  mainThreadQuotaMs?: number;
   /** Live timers (setTimeout + setInterval) a widget may hold; the shim throws RangeError beyond it, the glue refuses as a backstop. */
   maxTimers: number;
   /** Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz. */
@@ -254,14 +260,16 @@ export function resolvePolicy(policy: unknown): SandboxPolicy {
   return policy === 'compat' ? 'compat' : 'strict';
 }
 
-/** Defaults shared by every host (the native configs repeat them). */
+/** Defaults shared by every host (the native configs repeat them; docs/decisions.md, "Strict limits from the start"). */
 export const LIMIT_DEFAULTS = {
-  memoryLimitBytes: 64 * 1024 * 1024,
+  memoryLimitBytes: 8 * 1024 * 1024,
   cpuLimitMs: 500,
   cpuQuotaMs: 300,
   cpuQuotaWindowMs: 1000,
   cpuKillAfterMs: 0,
-  maxTimers: 256,
+  /** The host's main-thread work for the widget per `cpuQuotaWindowMs`: layout queries and the modelled cost of its ops. */
+  mainThreadQuotaMs: 100,
+  maxTimers: 64,
 } as const;
 
 /** Timer delays are clamped to this on every platform (24 h, like Telegram). */

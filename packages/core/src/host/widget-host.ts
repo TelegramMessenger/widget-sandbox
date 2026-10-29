@@ -14,7 +14,7 @@ import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate } from './user-activation';
 import {
   DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, allowedInPreview, checkBridgeCall, checkChatType, checkLocale, checkRequestAnswer,
-  checkStorageCommit, checkViewer, checkWidgetData, requestFailure, requestRefusal, toWidgetTheme, viewerUser, VIEWER_FIELD_RULES,
+  checkStorageCommit, checkViewer, checkWidgetData, requestFailure, requestRefusal, STORAGE_QUOTA_BYTES, toWidgetTheme, viewerUser, VIEWER_FIELD_RULES,
   type RequestVerdict, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
   type WidgetUser, type WidgetViewer,
 } from '../shared/sdk-policy';
@@ -69,6 +69,8 @@ export interface WidgetHostOptions {
   cpuQuotaMs?: number;
   cpuQuotaWindowMs?: number;
   cpuKillAfterMs?: number;
+  /** The host's main-thread work for this widget per window (layout queries + 25 µs per op + 2 µs per canvas command); default 100 ms. */
+  mainThreadQuotaMs?: number;
   maxTimers?: number;
   policy?: SandboxPolicy;
   /** Initial visibility; change it later with `setVisible`. */
@@ -211,6 +213,7 @@ export class WidgetHost {
       cpuQuotaMs: opts.cpuQuotaMs ?? LIMIT_DEFAULTS.cpuQuotaMs,
       cpuQuotaWindowMs: opts.cpuQuotaWindowMs ?? LIMIT_DEFAULTS.cpuQuotaWindowMs,
       cpuKillAfterMs: opts.cpuKillAfterMs ?? LIMIT_DEFAULTS.cpuKillAfterMs,
+      mainThreadQuotaMs: opts.mainThreadQuotaMs ?? LIMIT_DEFAULTS.mainThreadQuotaMs,
       maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers,
       visible: opts.visible ?? true,
       policy: this.policy,
@@ -353,7 +356,7 @@ export class WidgetHost {
   private preload(storage: unknown): StorageCommit {
     if (storage === undefined) return {};
     const checked = checkStorageCommit(storage);
-    if (checked === null) this.opts.onDiag?.('storage-rejected', `the preload is not { local, session } objects of strings within 16384 bytes each; the widget starts with empty storage`);
+    if (checked === null) this.opts.onDiag?.('storage-rejected', `the preload is not { local, session } objects of strings within ${STORAGE_QUOTA_BYTES} bytes each; the widget starts with empty storage`);
     return checked ?? {};
   }
 
@@ -411,6 +414,8 @@ export class WidgetHost {
     switch (msg.type) {
       case 'ops': {
         const ops = this.validator.processOps(msg.ops);
+        // A counted cap passed under strict: the widget stops like it does for memory or CPU (the renderer keeps its last render).
+        if (this.validator.stopped) return this.die(this.validator.stopped);
         if (ops.length) this.toRenderer({ type: 'ops', ops });
         break;
       }
@@ -514,7 +519,7 @@ export class WidgetHost {
         if (!commit || (!commit.local && !commit.session)) {
           if (this.rejectedStorageReported < 20) {
             this.rejectedStorageReported++;
-            this.opts.onDiag?.('storage-rejected', 'a storage commit that is not { local?, session? } objects of strings within 16384 bytes each; the client keeps the previous content');
+            this.opts.onDiag?.('storage-rejected', `a storage commit that is not { local?, session? } objects of strings within ${STORAGE_QUOTA_BYTES} bytes each; the client keeps the previous content`);
           }
           break;
         }

@@ -146,6 +146,40 @@ enum CanvasWords {
         return charges
     }
 
+    /// The commands in a payload (the validator's per-send cap, the engine's main-thread cost), nil when it is malformed
+    /// (`WidgetCanvasBatch.forEach`'s rules, without building the values).
+    static func commandCount(_ batch: WidgetCanvasBatch) -> Int? {
+        let w = batch.words
+        let strings = Double(batch.strings.count)
+        let n = w.count
+        var i = 0
+        var count = 0
+        while i < n {
+            guard n - i >= 4 else { return nil }
+            let kind = w[i], name = w[i + 1], argc = w[i + 3]
+            guard kind >= 0, kind < 7, kind == kind.rounded(), name >= -1, name < strings, name == name.rounded(), argc >= 0, argc <= 64, argc == argc.rounded() else { return nil }
+            i += 4
+            for _ in 0..<Int(argc) {
+                guard i + 1 < n else { return nil }
+                let tag = w[i], payload = w[i + 1]
+                i += 2
+                switch tag {
+                case 0, 2, 3, 4, 6, 7:
+                    break
+                case 1:
+                    guard payload >= 0, payload < strings, payload == payload.rounded() else { return nil }
+                case 5:
+                    guard payload >= 0, payload == payload.rounded(), Double(n - i) >= payload else { return nil }
+                    i += Int(payload)
+                default:
+                    return nil
+                }
+            }
+            count += 1
+        }
+        return count
+    }
+
     static func commandsJSON(_ batch: WidgetCanvasBatch) -> String? {
         batch.json(number: JSNumberText.string)
     }

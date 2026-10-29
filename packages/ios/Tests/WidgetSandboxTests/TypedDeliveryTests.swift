@@ -32,7 +32,7 @@ final class TypedDeliveryTests: XCTestCase {
         function frame() {
           c.clearRect(0, 0, 100, 50); c.fillStyle = f % 2 ? g : 'blue'; c.fillRect(f, 0, 10.5, 1e21); c.lineWidth = NaN;
           c.fillText('h\\u00e9 \\ud83d\\ude00 ' + f, 1, 2); c.setLineDash([1, 2]); if (f === 0) c.font = '10px "A B"';
-          if (f === 2) c.fillText('x'.repeat(70000), 0, 0);
+          if (f === 2) c.fillText('x'.repeat(30000), 0, 0);
           if (f % 2 === 0) { d.style.opacity = String(f / 10); d.textContent = 'n' + f; }
           if (++f < 6) requestAnimationFrame(frame);
         }
@@ -83,6 +83,8 @@ final class TypedDeliveryTests: XCTestCase {
         XCTAssertGreaterThan(typed.typedBatches, 3)
         XCTAssertGreaterThan(typed.nativeCanvas, 0, "canvas word batches were validated natively")
         XCTAssertEqual(normalized(typed.messages), normalized(json.messages))
-        XCTAssertFalse(json.messages.joined().contains(String(repeating: "x", count: 70000)), "the 64 KB text cap holds on both paths")
+        // A canvas string just under the 32 KB cap reaches the renderer on both paths (past it the widget stops: StrictLimitsTests).
+        XCTAssertTrue(json.messages.joined().contains(String(repeating: "x", count: 30000)))
+        XCTAssertTrue(typed.messages.joined().contains(String(repeating: "x", count: 30000)))
     }
 }

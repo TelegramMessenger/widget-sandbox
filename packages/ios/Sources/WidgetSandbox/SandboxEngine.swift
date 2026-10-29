@@ -12,7 +12,9 @@ import QuartzCore
 
 /// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): the link calls and copyText
 /// (`SdkPolicy.privilegedMethods`) need a user gesture, a request one unless the context allows background requests;
-/// text values are capped at 64 KB and visible text is budgeted.
+/// visible text is budgeted, and past a counted cap (32 KB per text value, 48 KB of document text, 8 KB per attribute,
+/// 10 000 ops per batch, 2000 canvas commands per send, 400 CSS rules, 32 `@keyframes`) the widget stops
+/// (docs/decisions.md, "Strict limits from the start").
 /// `compat`: the behaviour before that hardening, for tests and tooling.
 public enum SandboxPolicy: String {
     case compat
@@ -20,7 +22,7 @@ public enum SandboxPolicy: String {
 }
 
 public struct SandboxConfig {
-    public var memoryLimitBytes = 64 << 20
+    public var memoryLimitBytes = 8 << 20
     /// Longest continuous run of widget JS in one task before the runtime is killed.
     public var cpuLimitMs = 500.0
     /// JS time the widget may use per `cpuQuotaWindowMs` (sliding window); beyond it timers and frames are deferred, never killed.
@@ -28,8 +30,12 @@ public struct SandboxConfig {
     public var cpuQuotaWindowMs = 1000.0
     /// Kill after this long of uninterrupted throttling; 0 disables (default).
     public var cpuKillAfterMs = 0.0
+    /// The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+    /// queries block the renderer and the modelled cost of the ops it sends (`CpuBudget.opsCostMs`); beyond it timers and
+    /// frames are deferred like under the JS quota.
+    public var mainThreadQuotaMs = 100.0
     /// Live timers a widget may hold; the shim throws RangeError beyond it, the engine refuses as a backstop.
-    public var maxTimers = 256
+    public var maxTimers = 64
     /// Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz.
     public var visible = true
     public var innerWidth: Double
@@ -193,12 +199,19 @@ public final class SandboxEngine {
 
     // CPU quota (mirrors worker.ts): decide before a task, record after it.
     private var budget: CpuBudget
+    /// The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota.
+    private var mainBudget: CpuBudget
+    private static func mainBudget(_ c: SandboxConfig) -> CpuBudget {
+        CpuBudget(cpuLimitMs: c.cpuLimitMs, cpuQuotaMs: c.mainThreadQuotaMs, cpuQuotaWindowMs: c.cpuQuotaWindowMs, cpuKillAfterMs: 0)
+    }
     /// Slice given to the running task in ms (for the kill message); the boot task gets cpuLimitMs.
     private var currentSliceMs = 0.0
     private var currentKind = "boot"
     /// JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms.
     private var excludeMs = 0.0
     private var taskQueryMs = 0.0
+    /// Modelled main-thread cost of the ops this task sent (`CpuBudget.opsCostMs`).
+    private var taskOpsCostMs = 0.0
     private var queryLimitHit = false
     private var lastThrottleDiag = -Double.infinity
     private var throttledSinceDiag: [String: Int] = [:]
@@ -238,6 +251,7 @@ public final class SandboxEngine {
         self.resources = resources
         visible = config.visible
         budget = CpuBudget(config: config)
+        mainBudget = Self.mainBudget(config)
     }
 
     /// An engine without a widget yet: `prewarm()` builds the runtime and
@@ -252,6 +266,7 @@ public final class SandboxEngine {
         config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
         visible = true
         budget = CpuBudget(config: config)
+        mainBudget = Self.mainBudget(config)
     }
 
     deinit { queue.stop() }
@@ -323,12 +338,19 @@ public final class SandboxEngine {
             self.config = config
             self.visible = config.visible
             self.budget = CpuBudget(config: config)
+            self.mainBudget = Self.mainBudget(config)
             self.boot()
         }
     }
 
     public func terminate() {
         queue.async { self.kill("terminated") }
+    }
+
+    /// Stops the widget for `reason` the way a memory or CPU death does (`engine(_:died:)` with it): the host's answer to
+    /// the validator's `limit` (a counted cap passed under strict). The running task, if any, ends first.
+    public func stop(reason: String) {
+        queue.async { self.kill(reason) }
     }
 
     /// The runtime, the two host functions and the sandbox bundle (ours, so its time is excluded from the widget's quota).
@@ -346,6 +368,7 @@ public final class SandboxEngine {
                 stagedCanvas = [:]
                 stagedWords = 0
                 stats.ops += Int(words[1])
+                taskOpsCostMs += CpuBudget.opsCostMs(ops: max(0, Int(words[1])), canvasCommands: Self.canvasCommands(in: canvas))
                 binaryBatches += 1
                 delegate?.engine(self, binaryOps: BinaryOpsPayload(words: Array(words), strings: Array(strings)), canvas: canvas)
             }
@@ -401,7 +424,9 @@ public final class SandboxEngine {
             var bootConfig: [String: Any] = [
                 "memoryLimitBytes": self.config.memoryLimitBytes, "cpuLimitMs": self.config.cpuLimitMs,
                 "cpuQuotaMs": self.config.cpuQuotaMs, "cpuQuotaWindowMs": self.config.cpuQuotaWindowMs, "cpuKillAfterMs": self.config.cpuKillAfterMs,
-                "maxTimers": self.config.maxTimers, "visible": self.visible,
+                "mainThreadQuotaMs": self.config.mainThreadQuotaMs, "maxTimers": self.config.maxTimers, "visible": self.visible,
+                // The shim caps canvas commands per task and live script animations from it, as the validator does (anything but compat is strict).
+                "policy": self.config.policy.rawValue,
                 "viewport": ["innerWidth": self.config.innerWidth, "innerHeight": self.config.innerHeight, "dpr": self.config.devicePixelRatio],
                 "theme": self.config.theme,
                 "themeParams": SdkPolicy.checkThemeParams(self.config.themeParams),
@@ -589,27 +614,37 @@ public final class SandboxEngine {
             return dispatch("event", arg)
         }
         let now = Self.nowMs()
-        switch budget.decide(kind, now: now) {
-        case .defer_(let retryAt):
-            if budget.shouldKill(now) {
-                kill(String(format: "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, Int(config.cpuQuotaMs), Int(config.cpuQuotaWindowMs), Int(config.cpuKillAfterMs)))
-                return true
-            }
-            defer_(kind, arg)
-            stats.throttledTasks += 1
-            throttledSinceDiag[kind, default: 0] += 1
-            if now - lastThrottleDiag >= 1000 {
-                lastThrottleDiag = now
-                let parts = throttledSinceDiag.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)\($0.value == 1 ? "" : "s")" }
-                throttledSinceDiag.removeAll()
-                delegate?.engine(self, diag: "cpu-throttled", detail: "deferred \(parts.joined(separator: ", ")): \(Int(budget.used(now))) ms of the \(Int(config.cpuQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms budget used")
-            }
-            scheduleWake(at: retryAt / 1000)
-            return false
-        case .run(let sliceMs):
+        // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
+        let js = budget.decide(kind, now: now)
+        let main = mainBudget.decide(kind, now: now)
+        if case .run(let sliceMs) = js, case .run = main {
             task(kind, sliceMs: sliceMs) { self.callTw(kind, arg) }
             return true
         }
+        if budget.shouldKill(now) {
+            kill(String(format: "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, Int(config.cpuQuotaMs), Int(config.cpuQuotaWindowMs), Int(config.cpuKillAfterMs)))
+            return true
+        }
+        defer_(kind, arg)
+        stats.throttledTasks += 1
+        throttledSinceDiag[kind, default: 0] += 1
+        if now - lastThrottleDiag >= 1000 {
+            lastThrottleDiag = now
+            let parts = throttledSinceDiag.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)\($0.value == 1 ? "" : "s")" }
+            throttledSinceDiag.removeAll()
+            let window: String
+            if case .run = js {
+                window = "\(Int(mainBudget.used(now))) ms of the \(Int(config.mainThreadQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms main-thread budget used by layout queries and ops"
+            } else {
+                window = "\(Int(budget.used(now))) ms of the \(Int(config.cpuQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms budget used"
+            }
+            delegate?.engine(self, diag: "cpu-throttled", detail: "deferred \(parts.joined(separator: ", ")): \(window)")
+        }
+        var retryAt = 0.0
+        if case .defer_(let at) = js { retryAt = max(retryAt, at) }
+        if case .defer_(let at) = main { retryAt = max(retryAt, at) }
+        scheduleWake(at: retryAt / 1000)
+        return false
     }
 
     private func defer_(_ kind: String, _ arg: String) {
@@ -657,10 +692,12 @@ public final class SandboxEngine {
     private func hostCall(kind: String, arg: String) -> HostReturn {
         switch kind {
         case "ops":
-            stats.ops += Self.countOccurrences(of: "\"op\":", in: arg)
+            let ops = Self.countOccurrences(of: "\"op\":", in: arg)
+            stats.ops += ops
             let canvas = stagedCanvas
             stagedCanvas = [:]
             stagedWords = 0
+            taskOpsCostMs += CpuBudget.opsCostMs(ops: ops, canvasCommands: Self.countCanvasCommands(inJSON: arg) + Self.canvasCommands(in: canvas))
             delegate?.engine(self, ops: arg, canvas: canvas)
             return .undefined
         case "query":
@@ -1043,6 +1080,7 @@ public final class SandboxEngine {
         currentSliceMs = sliceMs
         excludeMs = 0
         taskQueryMs = 0
+        taskOpsCostMs = 0
         queryLimitHit = false
         let c0 = QuickJSContext.threadCPUTime()
         resetDeadline()
@@ -1052,8 +1090,10 @@ public final class SandboxEngine {
         stats.tasks += 1
         let cpuMs = (QuickJSContext.threadCPUTime() - c0) * 1000 - excludeMs
         stats.jsMs += cpuMs
-        budget.record(kind, cpuMs: cpuMs + taskQueryMs, now: Self.nowMs()) // layout queries count toward the quota: they cost the host as much as JS
-        stats.cpuWindowMs = budget.used(Self.nowMs())
+        let end = Self.nowMs()
+        budget.record(kind, cpuMs: cpuMs, now: end)
+        mainBudget.record(kind, cpuMs: taskQueryMs + taskOpsCostMs, now: end) // what the task cost the host's main thread
+        stats.cpuWindowMs = budget.used(end)
         let now = CACurrentMediaTime()
         if now - lastMemCheck > 1, !dead {
             lastMemCheck = now
@@ -1097,6 +1137,61 @@ public final class SandboxEngine {
         guard let i = s.firstIndex(of: ":") else { return (s, "") }
         return (String(s[..<i]), String(s[s.index(after: i)...]))
     }
+    /// Canvas commands in an ops batch's JSON (the main-thread cost): the elements of each `"cmds":[...]` array; strings
+    /// are skipped (inside one a quote is always `\"`), as is anything nested in a command.
+    static func countCanvasCommands(inJSON json: String) -> Int {
+        var json = json
+        return json.withUTF8 { b -> Int in
+            let needle = Array("\"cmds\":[".utf8)
+            let n = b.count
+            var count = 0
+            var i = 0
+            var inString = false
+            var depth = 0 // inside a cmds array: 1 = its elements, more = inside one
+            var expecting = false
+            while i < n {
+                let c = b[i]
+                if inString {
+                    if c == 0x5c { i += 2; continue }
+                    if c == 0x22 { inString = false }
+                    i += 1
+                    continue
+                }
+                if depth == 0 {
+                    if c == 0x22 {
+                        if n - i >= needle.count, needle.indices.allSatisfy({ b[i + $0] == needle[$0] }) {
+                            i += needle.count
+                            depth = 1
+                            expecting = true
+                            continue
+                        }
+                        inString = true
+                    }
+                    i += 1
+                    continue
+                }
+                if depth == 1, expecting, c != 0x2c, c != 0x5d, c != 0x20, c != 0x0a, c != 0x0d, c != 0x09 {
+                    count += 1
+                    expecting = false
+                }
+                switch c {
+                case 0x5b, 0x7b: depth += 1
+                case 0x5d, 0x7d: depth -= 1
+                case 0x2c: if depth == 1 { expecting = true }
+                case 0x22: inString = true
+                default: break
+                }
+                i += 1
+            }
+            return count
+        }
+    }
+
+    /// Commands in the canvas word payloads staged for a batch.
+    private static func canvasCommands(in canvas: [Int: WidgetCanvasBatch]) -> Int {
+        canvas.values.reduce(0) { $0 + (CanvasWords.commandCount($1) ?? 0) }
+    }
+
     private static func countOccurrences(of needle: String, in text: String) -> Int {
         var count = 0
         var range = text.startIndex..<text.endIndex

@@ -8,9 +8,10 @@ final class WebAnimationsTests: XCTestCase {
         var diags: [String] = []
     }
 
-    private func validator(native: Bool = false, box: Box = Box()) throws -> TrustedValidator {
+    private func validator(native: Bool = false, box: Box = Box(), policy: SandboxPolicy = .compat) throws -> TrustedValidator {
         let v = try TrustedValidator(theme: "light") { _, _ in }
         v.onDiag = { k, d in box.diags.append(k + "|" + d) }
+        v.setPolicy(policy)
         if native { v.useNativeModel(true) }
         _ = v.processOps(Self.skeleton)
         return v
@@ -128,6 +129,18 @@ final class WebAnimationsTests: XCTestCase {
         }
         let batch = "[" + (1...1100).map { record(aid: $0) }.joined(separator: ",") + "]"
         XCTAssertEqual(native.validateAnim(batch), js.validateAnim(batch))
+    }
+
+    /// Strict: 64 live script animations (dropped past it with `animation-limit`, not a stop), on both validator paths.
+    func testStrictCapsLiveAnimationsAt64() throws {
+        for native in [false, true] {
+            let box = Box()
+            let v = try validator(native: native, box: box, policy: .strict)
+            let batch = "[" + (1...74).map { record(aid: $0) }.joined(separator: ",") + "]"
+            XCTAssertEqual(parse(v.validateAnim(batch)).count, 64, "native \(native)")
+            XCTAssertTrue(v.thread.sync { box.diags.contains("animation-limit|more than 64 live script animations") }, "native \(native)")
+            XCTAssertNil(v.stopped)
+        }
     }
 
     func testValidatorCapsLiveAnimationsAndForwardsRemovals() throws {

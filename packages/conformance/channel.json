@@ -299,11 +299,11 @@
    "widget": "visual/sdk/10-storage-quota.html",
    "width": 0,
    "height": 0,
-   "caption": "visual/sdk/10-storage-quota · QuotaExceededError at 16 KB. Tap Fill: it writes 1 KB values until the client refuses; the line must say QuotaExceededError at 16 KB, for local and for session. The client must: 16384 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
+   "caption": "visual/sdk/10-storage-quota · QuotaExceededError at 4 KB. Tap Fill: it writes 1 KB values until the client refuses; the line must say QuotaExceededError at 4 KB, for local and for session. The client must: 4096 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
    "photos": [
     "refs/visual/sdk/10-storage-quota.png"
    ],
-   "zlib": 1653
+   "zlib": 1652
   },
   {
    "widget": "visual/sdk/11-crash-restart.html",
@@ -796,9 +796,9 @@
    "widget": "auto/15-js-runtime-a.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/15-js-runtime-a · JS runtime: timers, frames, microtasks, storage (16 KB quota). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/15-js-runtime-a · JS runtime: timers, frames, microtasks, storage (4 KB quota). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 3053
+   "zlib": 3052
   },
   {
    "widget": "auto/15-js-runtime-b.html",
@@ -860,9 +860,9 @@
    "widget": "auto/19-limits.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/19-limits · Strict limits: 64 KB text values, the complex-script budget, the 256-timer cap, budgets over data-* attributes, attr() under strict. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/19-limits · Strict limits: a 30 K text value and a 6 K data-* attribute render, the complex-script budget, the 64-timer cap, 2000 canvas commands per canvas and task, attr() under strict (past a counted limit the widget stops: auto/31–34). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 2803
+   "zlib": 2949
   },
   {
    "widget": "auto/20-client-behaviour.html",
@@ -1029,6 +1029,38 @@
    "caption": "auto/27-haptics-no-touch · Haptics without a touch (v0.2.2): a timer's haptics get one series, the first second's, then none until a touch or 10 s later. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
    "zlib": 2182
+  },
+  {
+   "widget": "auto/31-stop-text.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/31-stop-text · Strict limits: a text value over 32 K characters stops the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2053
+  },
+  {
+   "widget": "auto/32-stop-attribute.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/32-stop-attribute · Strict limits: an attribute over 8 K characters stops the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2046
+  },
+  {
+   "widget": "auto/33-stop-batch.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/33-stop-batch · Strict limits: more than 10 000 DOM changes in one task stop the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2109
+  },
+  {
+   "widget": "auto/34-stop-css-rules.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/34-stop-css-rules · Strict limits: more than 400 CSS rules in the document's stylesheets stop the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2122
   }
  ],
  "bot": {

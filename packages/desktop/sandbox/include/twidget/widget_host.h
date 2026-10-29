@@ -67,24 +67,28 @@ struct WidgetTheme {
 
 /// Limits for the widget's QuickJS runtime (see SandboxConfig); mirrors WidgetHost.Options on iOS/Android.
 struct WidgetHostOptions {
-    size_t memoryLimitBytes = size_t(64) << 20;
+    size_t memoryLimitBytes = size_t(8) << 20;
     double cpuLimitMs = 500;
     double cpuQuotaMs = 300;
     double cpuQuotaWindowMs = 1000;
     double cpuKillAfterMs = 0;
-    int maxTimers = 256;
+    /// The host's main-thread work for this widget per window (layout queries + 25 µs per op + 2 µs per canvas command).
+    double mainThreadQuotaMs = 100;
+    int maxTimers = 64;
     /// Initial visibility; change it later with `setVisible`.
     bool visible = true;
     /// Device pixel ratio the engine boots with; the renderer's `size` report overrides it.
     double devicePixelRatio = 1;
-    /// "strict" (default; anything but "compat") or "compat": the gesture gate, 64 KB text caps and the text budgets.
+    /// "strict" (default; anything but "compat") or "compat": the gesture gate, the 32 KB text caps and the text budgets,
+    /// and the validator's counted caps, past which the widget stops (`diagnostics().dead` with the cap's reason, such
+    /// as `Ops limit exceeded: 12000 operations in one batch (max 10000)`; docs/decisions.md, "Strict limits from the start").
     std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
     std::vector<std::string> features;
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
     /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); an area over the
-    /// 16 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
+    /// 4 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
     /// The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later
     /// edits go through `setData`. A field over 1024 bytes, with a NUL or malformed is null for the widget (`data-rejected`).
@@ -115,7 +119,8 @@ struct WidgetDiagnostics {
     /// `loaded`: the widget's scripts ran; `rendered`: the renderer applied every op sent up to that point.
     bool rendered = false;
     std::optional<double> renderedMs;
-    /// Fatal: the runtime is gone. The renderer keeps the last state (frozen).
+    /// Fatal: the runtime is gone (memory, CPU, or a counted cap of the validator under strict). The renderer keeps the
+    /// last state (frozen).
     std::optional<std::string> dead;
     /// Last uncaught widget error (non-fatal), cleared once a later task completes without one.
     std::optional<std::string> lastError;

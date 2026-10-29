@@ -13,7 +13,8 @@
     "D11": "One widget model: classic DOM in the sandbox",
     "D12a": "Above the cap: hard clip, no fullscreen",
     "D14": "Theme: themeParams + --tg-theme-*, theme change event",
-    "D17": "State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 16 KB, QuotaExceededError; sessionStorage in memory",
+    "D17": "State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory",
+    "L1": "Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)",
     "D18": "Text is not selectable by default; a widget enables selection with user-select: text (2026-10-20, replaces \"Text selection forbidden\")",
     "D20": "Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits",
     "D21": "No accessibility in v1",
@@ -3219,7 +3220,7 @@
     {
       "id": "js.storage.local",
       "area": "js",
-      "title": "localStorage: per (account, chat, message), preloaded, 16 KB, QuotaExceededError past it",
+      "title": "localStorage: per (account, chat, message), preloaded, 4 KB, QuotaExceededError past it",
       "status": "in",
       "decision": "D17",
       "today": "host",
@@ -3228,7 +3229,7 @@
           "localStorage"
         ]
       },
-      "note": "The shim keeps the map (16 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message."
+      "note": "The shim keeps the map (4 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message."
     },
     {
       "id": "js.storage.session",
@@ -3967,7 +3968,7 @@
     {
       "id": "limit.text-node",
       "area": "limit",
-      "title": "Text values (text node, string property) up to 64 KB (strict)",
+      "title": "Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict)",
       "status": "in",
       "decision": "D5",
       "today": "kept"
@@ -3975,7 +3976,7 @@
     {
       "id": "limit.text-budget",
       "area": "limit",
-      "title": "Document text budget 256 K units, complex-script text 8192 units (strict)",
+      "title": "Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict)",
       "status": "in",
       "decision": "D5",
       "today": "kept"
@@ -3991,7 +3992,7 @@
     {
       "id": "limit.timers",
       "area": "limit",
-      "title": "At most 256 live timers (RangeError past it)",
+      "title": "At most 64 live timers (RangeError past it)",
       "status": "in",
       "decision": "P1",
       "today": "kept"
@@ -3999,7 +4000,7 @@
     {
       "id": "limit.cpu",
       "area": "limit",
-      "title": "CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task",
+      "title": "CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task",
       "status": "in",
       "decision": "P1",
       "today": "kept"
@@ -4007,7 +4008,7 @@
     {
       "id": "limit.memory",
       "area": "limit",
-      "title": "QuickJS heap 64 MB",
+      "title": "QuickJS heap 8 MB",
       "status": "in",
       "decision": "P1",
       "today": "kept"
@@ -4015,10 +4016,58 @@
     {
       "id": "limit.storage",
       "area": "limit",
-      "title": "localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing",
+      "title": "localStorage and sessionStorage: 4 KB per area and message (4096 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing",
       "status": "in",
       "decision": "D17",
       "today": "kept"
+    },
+    {
+      "id": "limit.attribute",
+      "area": "limit",
+      "title": "Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict)",
+      "status": "in",
+      "decision": "L1",
+      "today": "kept"
+    },
+    {
+      "id": "limit.batch",
+      "area": "limit",
+      "title": "At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict)",
+      "status": "in",
+      "decision": "L1",
+      "today": "kept"
+    },
+    {
+      "id": "limit.css-rules",
+      "area": "limit",
+      "title": "At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict)",
+      "status": "in",
+      "decision": "L1",
+      "today": "kept"
+    },
+    {
+      "id": "limit.canvas-commands",
+      "area": "limit",
+      "title": "At most 2000 canvas commands per canvas in one task (RangeError past it; strict)",
+      "status": "in",
+      "decision": "L1",
+      "today": "kept"
+    },
+    {
+      "id": "limit.animations",
+      "area": "limit",
+      "title": "At most 64 running script animations (further ones are not rendered; strict)",
+      "status": "in",
+      "decision": "L1",
+      "today": "kept"
+    },
+    {
+      "id": "limit.main-thread",
+      "area": "limit",
+      "title": "The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it)",
+      "status": "in",
+      "decision": "L1",
+      "today": "host"
     },
     {
       "id": "limit.url-length",

@@ -23,9 +23,9 @@
   }
  },
  "coverage": {
-  "auto": 253,
+  "auto": 257,
   "visual": 126,
-  "catalogue": 267,
+  "catalogue": 273,
   "external": {
    "limit.nodes": "corpus/attacks (pnpm test:attacks): node flood",
    "limit.cpu": "corpus/attacks and tests/lifecycle.spec.ts: CPU quota, deferral, kill",
@@ -43,7 +43,10 @@
    "behaviour.resize-anchor": "visual/sdk/18-resize-anchor (client behaviour)",
    "behaviour.size-hint": "visual/sdk/17-size-hint (client behaviour)"
   },
-  "notInAuto": [],
+  "notInAuto": [
+   "limit.animations",
+   "limit.main-thread"
+  ],
   "outNotInAuto": []
  },
  "tests": [
@@ -5216,7 +5219,7 @@
    "id": "auto/15-js-runtime-a",
    "set": "auto",
    "file": "auto/15-js-runtime-a.html",
-   "title": "JS runtime: timers, frames, microtasks, storage (16 KB quota)",
+   "title": "JS runtime: timers, frames, microtasks, storage (4 KB quota)",
    "kind": [
     "self"
    ],
@@ -5297,14 +5300,14 @@
     },
     {
      "id": "js.storage.local",
-     "name": "10 KB fits",
+     "name": "3 KB fits",
      "native": {
       "chromium": "pass"
      }
     },
     {
      "id": "limit.storage",
-     "name": "over 16 KB per message: setItem throws QuotaExceededError",
+     "name": "over 4 KB per message: setItem throws QuotaExceededError",
      "native": {
       "chromium": "skip"
      }
@@ -5318,7 +5321,7 @@
     },
     {
      "id": "limit.storage",
-     "name": "sessionStorage has the same 16 KB quota",
+     "name": "sessionStorage has the same 4 KB quota",
      "native": {
       "chromium": "skip"
      }
@@ -5332,8 +5335,8 @@
     }
    ],
    "stages": [],
-   "bytes": 7159,
-   "zlib": 3053
+   "bytes": 7151,
+   "zlib": 3052
   },
   {
    "id": "auto/15-js-runtime-b",
@@ -6494,12 +6497,14 @@
    "id": "auto/19-limits",
    "set": "auto",
    "file": "auto/19-limits.html",
-   "title": "Strict limits: 64 KB text values, the complex-script budget, the 256-timer cap, budgets over data-* attributes, attr() under strict",
+   "title": "Strict limits: a 30 K text value and a 6 K data-* attribute render, the complex-script budget, the 64-timer cap, 2000 canvas commands per canvas and task, attr() under strict (past a counted limit the widget stops: auto/31–34)",
    "kind": [
     "self"
    ],
    "covers": [
     "behaviour.policy-strict",
+    "limit.attribute",
+    "limit.canvas-commands",
     "limit.text-budget",
     "limit.text-node",
     "limit.timers"
@@ -6517,16 +6522,9 @@
    "checks": [
     {
      "id": "limit.text-node",
-     "name": "a 60 KB text node renders",
+     "name": "a 30 K text node renders",
      "native": {
       "chromium": "pass"
-     }
-    },
-    {
-     "id": "limit.text-node",
-     "name": "a text node over 64 KB is refused",
-     "native": {
-      "chromium": "skip"
      }
     },
     {
@@ -6544,10 +6542,10 @@
      }
     },
     {
-     "id": "behaviour.policy-strict",
-     "name": "a 300 KB data-* attribute does not reach the renderer",
+     "id": "limit.attribute",
+     "name": "a 6 K data-* attribute reaches the renderer",
      "native": {
-      "chromium": "skip"
+      "chromium": "pass"
      }
     },
     {
@@ -6566,15 +6564,22 @@
     },
     {
      "id": "limit.timers",
-     "name": "the 257th live timer throws RangeError",
+     "name": "the 65th live timer throws RangeError",
+     "native": {
+      "chromium": "skip"
+     }
+    },
+    {
+     "id": "limit.canvas-commands",
+     "name": "the 2001st command for one canvas in one task throws RangeError",
      "native": {
       "chromium": "skip"
      }
     }
    ],
    "stages": [],
-   "bytes": 6014,
-   "zlib": 2803
+   "bytes": 6259,
+   "zlib": 2949
   },
   {
    "id": "auto/20-client-behaviour",
@@ -7855,6 +7860,150 @@
    "stages": [],
    "bytes": 4103,
    "zlib": 2182
+  },
+  {
+   "id": "auto/31-stop-text",
+   "set": "auto",
+   "file": "auto/31-stop-text.html",
+   "title": "Strict limits: a text value over 32 K characters stops the widget",
+   "hint": "The host must stop this widget: it passes a counted limit on purpose (strict). A browser has no such limit, so natively the check is skipped.",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.text-node"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "limit.text-node",
+     "name": "a 40 000-character text node stops the widget (the reason starts with “Text limit exceeded”)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 3868,
+   "zlib": 2053,
+   "stops": "Text limit exceeded"
+  },
+  {
+   "id": "auto/32-stop-attribute",
+   "set": "auto",
+   "file": "auto/32-stop-attribute.html",
+   "title": "Strict limits: an attribute over 8 K characters stops the widget",
+   "hint": "The host must stop this widget: it passes a counted limit on purpose (strict). A browser has no such limit, so natively the check is skipped.",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.attribute"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "limit.attribute",
+     "name": "a 9000-character data-* attribute stops the widget (“Attribute limit exceeded”)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 3871,
+   "zlib": 2046,
+   "stops": "Attribute limit exceeded"
+  },
+  {
+   "id": "auto/33-stop-batch",
+   "set": "auto",
+   "file": "auto/33-stop-batch.html",
+   "title": "Strict limits: more than 10 000 DOM changes in one task stop the widget",
+   "hint": "The host must stop this widget: it passes a counted limit on purpose (strict). A browser has no such limit, so natively the check is skipped.",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.batch"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "limit.batch",
+     "name": "5001 elements appended in one task (10 002 operations) stop the widget (“Ops limit exceeded”)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 3948,
+   "zlib": 2109,
+   "stops": "Ops limit exceeded"
+  },
+  {
+   "id": "auto/34-stop-css-rules",
+   "set": "auto",
+   "file": "auto/34-stop-css-rules.html",
+   "title": "Strict limits: more than 400 CSS rules in the document's stylesheets stop the widget",
+   "hint": "The host must stop this widget: it passes a counted limit on purpose (strict). A browser has no such limit, so natively the check is skipped.",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.css-rules"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "limit.css-rules",
+     "name": "400 more rules on top of the harness stylesheet stop the widget (“CSS limit exceeded”)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 4001,
+   "zlib": 2122,
+   "stops": "CSS limit exceeded"
   },
   {
    "id": "visual/01-boxes",
@@ -9144,7 +9293,7 @@
      "refs": {
       "chromium": "refs/visual/09-svg-b/smil.chromium.png"
      },
-     "nativeVsTemplate": 0.7179
+     "nativeVsTemplate": 0.717
     }
    ],
    "bytes": 5218,
@@ -9985,8 +10134,8 @@
    "id": "visual/sdk/10-storage-quota",
    "set": "visual",
    "file": "visual/sdk/10-storage-quota.html",
-   "title": "QuotaExceededError at 16 KB",
-   "hint": "Tap Fill: it writes 1 KB values until the client refuses; the line must say QuotaExceededError at 16 KB, for local and for session.",
+   "title": "QuotaExceededError at 4 KB",
+   "hint": "Tap Fill: it writes 1 KB values until the client refuses; the line must say QuotaExceededError at 4 KB, for local and for session.",
    "kind": [
     "self",
     "interactive"
@@ -10028,14 +10177,14 @@
     }
    ],
    "stages": [],
-   "bytes": 3357,
-   "zlib": 1653,
+   "bytes": 3351,
+   "zlib": 1652,
    "refImages": {
     "light": "refs/visual/sdk/10-storage-quota.png"
    },
    "height": 121,
    "group": "sdk",
-   "expect": "16384 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
+   "expect": "4096 bytes of keys and values per area; the refused setItem throws a DOMException named QuotaExceededError and stores nothing.",
    "contract": "docs/sdk-v1.md §2.8"
   },
   {

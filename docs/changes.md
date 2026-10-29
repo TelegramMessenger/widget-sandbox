@@ -5,6 +5,39 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Next release (unreleased)
 
+**Strict limits from the start** (default, every host; `docs/decisions.md`, "Strict limits from the start"). Widgets are
+not launched yet, and a limit is easy to loosen later but breaks widgets when it is tightened, so every count and size
+limit is now about twice what the largest real widget uses (measured over 346 widgets of the corpora and the
+conformance set). Under `strict` (the default):
+
+| Limit | Was | Now | Past it |
+|---|---|---|---|
+| QuickJS heap (`memoryLimitBytes`) | 64 MB | 8 MB | stops (as before) |
+| Live timers (`maxTimers`) | 256 | 64 | `RangeError` in the widget (as before) |
+| Live script animations | 1024 | 64 | not rendered (as before) |
+| One text value (text node, canvas string, Path2D data) | 64 K | 32 K | **stops** (was: the op dropped) |
+| The document's text (text, visible attributes, CSS strings) | 256 K | 48 K | **stops** (was: dropped) |
+| An attribute or inline-style value | 4 MB | 8 K | **stops** (was: dropped) |
+| Ops in one batch | 200 000 | 10 000 | **stops** (was: the batch dropped) |
+| CSS rules / `@keyframes` in the document's stylesheets | none | 400 / 32 | **stops** |
+| Canvas commands per canvas in one task | 400 000 | 2 000 | `RangeError` in the widget; the host stops a batch with more |
+| Web Storage per area and message | 16 KB | 4 KB | `QuotaExceededError` (as before) |
+| Layout queries of one task | the task's slice, at least 100 ms (500 at boot) | 100 ms | stops (as before) |
+| The host's main-thread work for the widget (`mainThreadQuotaMs`, new) | in the JS quota | 100 ms per second, apart from the JS quota | timers and frames deferred |
+
+A counted cap that is passed stops the widget like an infinite loop or running out of memory: the validator reports the
+`limit` diagnostic with the reason (`Text limit exceeded: a text value of 40000 characters (max 32768)`, `Ops limit
+exceeded: …`, `CSS limit exceeded: …`), refuses that batch whole and every later one, and the host dies with that
+reason, so the bubble keeps its last render instead of a document with holes. The new main-thread window is a second
+`CpuBudget` in the glue: the time the widget's layout queries block the renderer plus a modelled cost of the ops it sends
+(25 µs per op, 2 µs per canvas command, `opsCostMs` in `cpu-budget.ts` and its twins), at most 100 ms per second; past it
+deferrable tasks wait as under the JS quota (300 ms per second, unchanged, which now counts JS time only). `compat` keeps
+the old caps and never stops (tests, tooling and the stress kit's measuring runs). A client using the framework's glue
+only updates; hosts get the new option `mainThreadQuotaMs` next to `cpuQuotaMs`, and the harness prints the run's main-thread
+cost and `STOPPED: <reason>`. CPU quota, the 500 ms task slice, the 50 000-node cap and the complex-script budget are
+unchanged; the heavy-box count and the frame cost of the paint-limits draft wait for the stress kit's numbers from the
+clients.
+
 **A background request made off screen waits for the widget to appear** (default, every host; `docs/sdk-v1.md` §2.14).
 On 2026-10-28 Telegram's iOS and Android clients turned out to create the host off screen (`isActive` false at boot), so
 a background request in a widget's first lines, the natural way to fetch fresh state, was refused (`NOT_ALLOWED`,

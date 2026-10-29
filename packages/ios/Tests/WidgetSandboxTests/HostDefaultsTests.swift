@@ -131,6 +131,10 @@ final class HostDefaultsTests: XCTestCase {
         var options = WidgetHost.Options()
         options.asyncValidation = asyncValidation
         options.sharedValidatorThread = asyncValidation
+        // 3000 styled elements in one task (a batch that takes a while to validate) are past the strict caps (10 000 ops
+        // per batch, the 8 MB heap); this test is about the order of what follows them.
+        options.policy = .compat
+        options.memoryLimitBytes = 64 << 20
         var opsAtBridge: Bool?
         var opsAtLog: Bool?
         let host = try! WidgetHost(html: Self.orderedWidget, options: options, rendererFactory: { _, _, _ in renderer })

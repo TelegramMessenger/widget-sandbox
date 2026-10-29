@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-/// CpuBudget.swift against the fixture shared with cpu-budget.ts and CpuBudget.kt
+/// CpuBudget.swift against the fixture shared with cpu-budget.ts, CpuBudget.kt and cpu_budget.cpp
 /// (tests/fixtures/cpu-budget.json, copied here by `pnpm build:ios`).
 final class CpuBudgetTests: XCTestCase {
     func testSharedFixture() throws {
@@ -26,6 +26,8 @@ final class CpuBudgetTests: XCTestCase {
                     XCTAssertEqual(b.shouldKill(at), kill, where_)
                 } else if let slice = step["queryBudget"] as? NSNumber {
                     XCTAssertEqual(CpuBudget.queryBudgetMs(sliceMs: slice.doubleValue), (step["expect"] as! NSNumber).doubleValue, where_)
+                } else if let cost = step["opsCost"] as? [NSNumber] {
+                    XCTAssertEqual(CpuBudget.opsCostMs(ops: cost[0].intValue, canvasCommands: cost[1].intValue), (step["expect"] as! NSNumber).doubleValue, accuracy: 1e-9, where_)
                 } else {
                     XCTFail("\(where_): unknown step")
                 }
