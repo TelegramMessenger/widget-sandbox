@@ -55,7 +55,7 @@ nothing from the previous frame. Static loads keep only the measuring loop and t
 | `css-rules` | CSS rules: N descendant style rules in stylesheets of 200 rules each; 8 containers change class every frame, so 64 boxes match against all N again | 50, 200, 400, **800**, **1600**, **3200** rules |  |
 <!-- /stress:loads -->
 
-`over` marks the levels the manifest expects over a strict limit (`limits` in the manifest: 16 heavy boxes, 2 with
+`over` marks the levels the manifest expects over a strict limit, in force or proposed (`limits` in the manifest: 16 heavy boxes, 2 with
 backdrop-filter, 2000 nodes, 10 000 ops per batch, 400 CSS rules, 2000 canvas commands per send, 48 K of document text,
 32 K per text value, 8 K per attribute, 8192 units of complex-script text). The counts are estimates from the load's
 shape; `measured` in the manifest has the real nodes and largest batch.

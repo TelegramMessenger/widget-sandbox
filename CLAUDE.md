@@ -47,6 +47,15 @@ pnpm workspace). A framework change touches `packages/` only.
   run it on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`;
   `publish-channel.ts` fills the Telegram test group through a test bot; `test-bot.ts` is the reference bot for the cases
   that talk to it (sends them with their layer-233 fields, answers their requests, edits their state; `--self-test`).
+- `packages/stress` — the renderer stress kit that ships with the framework tag: 127 widgets in 19 load ladders
+  (`widgets/<load>/<value>.html`: paint effects, document size, churn, text, canvas, SVG, layout queries, CSS rules; the
+  ladders cross every strict limit, in force or proposed, `crosses` in `manifest.json`), each publishing its own frame rate
+  in `data-stress`; `CLIENTS.md` is the runner spec the client teams implement around their real renderer (measure pass:
+  `compat`, `cpuQuotaMs` 10000 / window 1000, `mainThreadQuotaMs` 10000, `maxTimers` 256, 64 MB; production pass: strict),
+  `run.schema.json`, `tools/report.mjs` (run files → `summary.md` / `.json`: per-load tables, µs per changed box for the
+  WebView cost model's A/B, the full-rate level, where strict stops). Built by `scripts/stress/build.ts` (size ≤ 3800 B;
+  through the sandbox: boots, inside profile 1, ≤ 560 px at 320 px), reference runner `scripts/stress/run-web.ts` (iframe,
+  shadow → `reports/stress/`).
 - `apps/web` — the dev app, chat feed demo, bench pages and the Playwright
   harness page (`src/main.ts` exposes `window.__tw`); `apps/ios/DemoApp`,
   `apps/macos/DemoApp`, `apps/android` (demo + the renderer modules, a second
@@ -216,6 +225,8 @@ corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packa
 corepack pnpm tsx packages/core/scripts/intl-cases.ts   # after adding an Intl case (or an ICU update of Node): rewrites packages/core/tests/fixtures/intl-cases.json with V8's answers (--check: exit 1 when stale; intl-cases.test.ts runs it); then pnpm build:ios|android|desktop copy it to the native tests
 corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance; starts a dev server (or --origin) for the automatic set's heights and the picture check (picture-check.ts: each visual picture against the widget drawn through the sandbox, diffs in reports/conformance/pictures)
 corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
+corepack pnpm tsx scripts/stress/build.ts   # rebuild the stress kit (packages/stress) after editing scripts/stress/loads.ts: widgets, manifest, README table; gates: size, and through the sandbox boots/profile/height (starts a dev server, or --origin; --sizes: sizes only)
+corepack pnpm tsx scripts/stress/run-web.ts --origin http://127.0.0.1:5173 && node packages/stress/tools/report.mjs --out reports/stress/summary reports/stress/*.json   # the stress kit on the web renderers (iframe, shadow; --pass production = strict, where each ladder stops; --warmup/--measure) → summary.md
 corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage behind the historical draft docs/widget-profile-draft.md and widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
 cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 26 JVM + 113 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose   # also prints the widget's size as the server counts it (zlib -9 / raw, limits 4096 / 32768, src/shared/widget-size.ts) and the resize anchor when the widget set one with a warning or an error line

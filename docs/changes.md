@@ -38,6 +38,14 @@ cost and `STOPPED: <reason>`. CPU quota, the 500 ms task slice, the 50 000-node 
 unchanged; the heavy-box count and the frame cost of the paint-limits draft wait for the stress kit's numbers from the
 clients.
 
+**Stress kit** (`packages/stress`, ships with the tag like the conformance set). 127 widgets in 19 load ladders that cross
+every strict limit, in force or proposed, each reporting its own frame rate in `data-stress`; `CLIENTS.md`, the runner the
+client teams write around their own renderer and run on a weak Android, an iPhone and a desktop (a measure pass with the
+quotas out of the way, `compat`, and a production pass that records where each ladder stops); `run.schema.json`;
+`tools/report.mjs`. The run files set the WebView cost model's A and B and decide the limits still proposed (16 heavy
+boxes, 2000 nodes, the renderer's frame cost). Reference runner on the web renderers: `scripts/stress/run-web.ts`; the dev
+app takes `mainThreadQuotaMs` and `memoryLimitBytes` from the URL for it.
+
 **A background request made off screen waits for the widget to appear** (default, every host; `docs/sdk-v1.md` §2.14).
 On 2026-10-28 Telegram's iOS and Android clients turned out to create the host off screen (`isActive` false at boot), so
 a background request in a widget's first lines, the natural way to fetch fresh state, was refused (`NOT_ALLOWED`,
