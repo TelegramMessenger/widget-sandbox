@@ -154,7 +154,7 @@ anchor to `SandboxEngine.Delegate.onResizeAnchor`, and `WidgetHost` keeps the la
 `WidgetDiagnostics.resizeAnchor` ("top" until the widget calls it) next to `height`, set before the size
 report of the content its task changed; the client keeps that edge of the bubble in place when the height
 changes (the demo's lists: `WidgetView(scroll = …)`).
-The client's time over a widget without a caption (`docs/sdk-v1.md` §2.17, §5.12): `Options(contentSafeArea =
+The client's time over a widget with no caption below it (`docs/sdk-v1.md` §2.17, §5.12): `Options(contentSafeArea =
 WidgetContentSafeArea(bottom, cornerRight, cornerLeft))` at creation and `setContentSafeArea` with the bubble's layout
 (dp = CSS px, 0 by default); the renderer core sets the `--tg-content-safe-area-*` variables, the engine passes
 `contentSafeArea` at boot and the `safeArea` dispatch (`SandboxEngine.contentSafeArea`).

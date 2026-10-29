@@ -8324,7 +8324,7 @@
    "id": "auto/36-safe-area",
    "set": "auto",
    "file": "auto/36-safe-area.html",
-   "title": "The client's time over a widget without a caption: env(safe-area-inset-*) with and without a fallback, other env() names, CSS.supports, the --tg-content-safe-area-* variables and TelegramWidget.contentSafeAreaInset agree, the corner on its side",
+   "title": "The client's time over a widget with no caption below it: env(safe-area-inset-*) with and without a fallback, other env() names, CSS.supports, the --tg-content-safe-area-* variables and TelegramWidget.contentSafeAreaInset agree, the corner on its side",
    "kind": [
     "self"
    ],
@@ -8443,8 +8443,8 @@
     }
    ],
    "stages": [],
-   "bytes": 7464,
-   "zlib": 3044,
+   "bytes": 7471,
+   "zlib": 3052,
    "safeArea": {
     "bottom": 24,
     "cornerLeft": 64
@@ -10184,8 +10184,8 @@
    "id": "visual/17-time-corner",
    "set": "visual",
    "file": "visual/17-time-corner.html",
-   "title": "The client's time over the bottom corner of a widget without a caption: the widget keeps clear of it with env(safe-area-inset-bottom) and --tg-content-safe-area-corner-*",
-   "hint": "This message has no caption: the time with its ticks sits over the bottom right corner (bottom left in a right-to-left interface) on a dark backing, inside the lighter corner box. The blue footer reaches the bubble's bottom edge; its last line runs beside the time, never under it. A tap on the time does nothing in the widget.",
+   "title": "The client's time over the bottom corner of a widget with no caption below it: the widget keeps clear of it with env(safe-area-inset-bottom) and --tg-content-safe-area-corner-*",
+   "hint": "No caption below this widget (none, or one above it): the time with its ticks sits over the bottom right corner (bottom left in a right-to-left interface) on a dark backing, inside the lighter corner box. The blue footer reaches the bubble's bottom edge; its last line runs beside the time, never under it. A tap on the time does nothing in the widget.",
    "kind": [],
    "covers": [
     "behaviour.time-corner",
@@ -10204,12 +10204,12 @@
    "host": [],
    "checks": [],
    "stages": [],
-   "bytes": 5127,
-   "zlib": 2406,
+   "bytes": 5167,
+   "zlib": 2423,
    "refImages": {
     "light": "refs/visual/17-time-corner.png"
    },
-   "height": 270,
+   "height": 288,
    "safeArea": {
     "bottom": 24,
     "cornerRight": 64

@@ -203,7 +203,7 @@ fun WidgetView(model: WidgetModel, widthDp: Int = 360, bubble: Boolean = false, 
 
 /**
  * The widget in a chat bubble; `scroll`: the list it sits in, for the resize anchor (WidgetView). `timeOverCorner`: a
- * message without a caption, the time drawn over the widget's bottom right corner on a backing (docs/sdk-v1.md §2.17;
+ * message with no caption below the widget, the time drawn over the widget's bottom right corner on a backing (docs/sdk-v1.md §2.17;
  * the host got the band as `contentSafeArea`); a view over the widget, so its taps are the bubble's.
  */
 @Composable

@@ -1,6 +1,6 @@
 # Compat report — safe-area on the Shadow DOM renderer (no iframe)
 
-Generated 2026-10-29T21:45:08.367Z by `TW_RENDERER=shadow CORPUS_GROUP=safe-area pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-29T22:36:17.047Z by `TW_RENDERER=shadow CORPUS_GROUP=safe-area pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 Both sides are drawn as a client without a caption draws them: a 24 px band with the time over a 64 px right corner (the dev app's `?time=corner`; Chromium's env() override for the reference frame).
 

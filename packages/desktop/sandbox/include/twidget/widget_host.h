@@ -87,8 +87,8 @@ struct WidgetHostOptions {
     std::vector<std::string> features;
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
-    /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget without a caption the band of
-    /// the message time at the bottom and its corner; zero (the default) with a caption. Pass it here, before the first
+    /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
+    /// the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
     /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
     WidgetContentSafeArea contentSafeArea;
     /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); an area over the

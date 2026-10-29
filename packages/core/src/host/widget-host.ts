@@ -47,9 +47,9 @@ export interface WidgetHostOptions {
   /** The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when absent or malformed. */
   locale?: string;
   /**
-   * What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12): for a widget without a caption,
+   * What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it,
    * `bottom` = the height of the band the message time is drawn in over its bottom corner and `cornerRight` (or
-   * `cornerLeft` in a right-to-left interface) = the width of that corner; omitted fields and a widget with a caption
+   * `cornerLeft` in a right-to-left interface) = the width of that corner; omitted fields and a widget with a caption below
    * are 0. Pass it here, before the first render, so the first height already has the band; later only with the
    * bubble's layout (`setContentSafeArea`), never per frame. Out of range (insets 0–64, corners 0–200) is 0.
    */

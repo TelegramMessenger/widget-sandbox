@@ -1986,12 +1986,17 @@ them by default and a change is not checked on them (Artem, 2026-10-30).
   drawing by the conformance set, cost by the stress kit. Their renderer-side defences (no network attempt, `trusted`
   only for a real press) have no shared check yet.
 
-## The client's time over a widget without a caption: the content safe area (2026-10-29)
+## The client's time over a widget with no caption below it: the content safe area (2026-10-29)
 
 Artem's decision (`P1-safe-area` in `profile.json`; `docs/sdk-v1.md` §2.17, §5.12): a message with a widget and no
 caption gets its time and status drawn by the client over the widget's bottom corner, on a backing, as on a photo;
-with a caption the time is in the caption's line and nothing covers the widget. The widget is told what is covered so
-it can keep clear of it.
+with a caption below the widget the time is in the caption's line and nothing covers the widget. The widget is told
+what is covered so it can keep clear of it.
+
+**A caption above the widget** (`invert_media`, Bot API `show_caption_above_media`; Artem's follow-up of 2026-10-30,
+**an assumption still to be confirmed**): as no caption. The time is drawn over the widget's bottom corner again, as on
+a photo whose caption is moved up, so the client passes the same band and corner; only a caption below gives 0. An
+edit that moves the caption above or below the widget is a layout change like adding or removing it.
 
 **Why `env()`, rewritten.** `env(safe-area-inset-bottom)` is what web code and models already write
 (`padding-bottom: max(12px, env(safe-area-inset-bottom))`), and it means the right thing: keep this band clear. But the
@@ -2014,14 +2019,14 @@ change, and `contentSafeAreaChanged`; Artem: one object, no separate members), f
 own controls: `getComputedStyle` on the variables would be a layout query.
 
 **Static, never per frame.** The client passes the band at creation, so the first height already has it, and changes
-it only with the bubble's layout (a caption added or removed by an edit, "edited"). The floating date pill moves
+it only with the bubble's layout (a caption added, removed or moved above or below by an edit, "edited"). The floating date pill moves
 relative to the bubble every frame; passing it would restyle every visible bubble on every frame and lag behind it, so
 it has no contract and is drawn over the widget as over a photo. Taps on the time are the client's (a view over the
 widget); nothing changes in the gesture policy.
 
 **The UA layer pads the body.** `:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`: an
 unstyled widget (and one that only sets `body { margin: 0 }`, as most do) stays clear of the time; a widget that sets
-the body's padding handles the band itself. The price: a widget without a caption is that much taller.
+the body's padding handles the band itself. The price: a widget with no caption below it is that much taller.
 
 **A clarification of profile 1, not profile 2.** `css.value.env` moved from out to in on 2026-10-29, before widgets
 launched, as the UA layer was clarified in v0.1.1 (`P1-safe-area`, like `P1-ua`): `TelegramWidget.profile` stays 1. A

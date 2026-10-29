@@ -73,13 +73,13 @@ let gestures: GestureMode = gestureMode(new URLSearchParams(location.search).get
 const WIDTH_PRESETS = [200, 320, 360, 390, 430, 600];
 let bubbleWidth = 0;
 /**
- * Where the client draws the message time (docs/sdk-v1.md §2.17, `?time=`): `caption` (in the caption's line: nothing
- * over the widget, the safe area is 0), `corner` (over the widget's bottom right corner, a left-to-right client) or
- * `corner-rtl` (the left one). `__tw.setSafeArea(area)` passes any other numbers (the conformance runners).
+ * Where the client draws the message time (docs/sdk-v1.md §2.17, `?time=`): `caption` (a caption below the widget: the
+ * time in its line, nothing over the widget, the safe area is 0), `corner` (no caption, or one shown above the widget:
+ * the time over its bottom right corner, a left-to-right client) or `corner-rtl` (the left one). `__tw.setSafeArea(area)` passes any other numbers (the conformance runners).
  */
 const TIME_MODES = [
-  { mode: 'caption', label: 'in the caption', title: 'a widget with a caption: the time is in the caption\'s line, nothing over the widget' },
-  { mode: 'corner', label: 'over the corner', title: 'a widget without a caption: the time over its bottom right corner' },
+  { mode: 'caption', label: 'in the caption', title: 'a widget with a caption below it: the time is in the caption\'s line, nothing over the widget' },
+  { mode: 'corner', label: 'over the corner', title: 'a widget without a caption, or with its caption above it (invert_media): the time over its bottom right corner' },
   { mode: 'corner-rtl', label: 'over the corner, RTL', title: 'a right-to-left client: the time over the bottom left corner' },
 ] as const;
 type TimeMode = (typeof TIME_MODES)[number]['mode'];

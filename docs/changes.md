@@ -11,11 +11,12 @@ nothing until the host lists them; "default" items apply to every host.
   (`TW_NATIVE_RENDERERS=1`) and the default renderers of the web conformance runner and the feed's benches; the demos
   no longer need rustup or the litehtml CMake build.
 
-**The client's time over a widget without a caption: the content safe area** (`docs/sdk-v1.md` §2.17, §5.12;
-`docs/decisions.md`, "The client's time over a widget without a caption"; a clarification of profile 1, `P1-safe-area`).
-A message with a widget and no caption gets its time and status drawn by the client over the widget's bottom corner,
-as on a photo; with a caption nothing covers the widget. Every host passes nothing by default, so a client that does
-not draw the time keeps v0.3.0's layout.
+**The client's time over a widget with no caption below it: the content safe area** (`docs/sdk-v1.md` §2.17, §5.12;
+`docs/decisions.md`, "The client's time over a widget with no caption below it"; a clarification of profile 1,
+`P1-safe-area`). A message with a widget and no caption gets its time and status drawn by the client over the widget's
+bottom corner, as on a photo; so does one whose caption is shown above the widget (`invert_media`: an assumption still to
+be confirmed); with a caption below nothing covers the widget. Every host passes nothing by default, so a client that
+does not draw the time keeps v0.3.0's layout.
 
 - Widgets: `env(safe-area-inset-top|right|bottom|left[, fallback])` is in. The validator (`css-sanitizer.ts`, which the
   Swift `NativeValidator` runs as its CSS oracle) rewrites it to `var(--tg-content-safe-area-inset-…[, fallback])` in
@@ -39,22 +40,25 @@ not draw the time keeps v0.3.0's layout.
   bottom[,cornerRight[,cornerLeft]]`. New messages: the renderer's `safeArea` and the shim's `safeArea` dispatch, and
   `contentSafeArea` in the boot config (`docs/sdk-v1.md` §3). A client with its own renderer sets the six variables;
   one with its own glue passes the boot field and the dispatch.
-- Clients: draw the time on a backing over the corner of a widget without a caption and pass the band and its corner
-  before the first render; change them only with the bubble's layout, never per frame; taps on the time are yours.
+- Clients: draw the time on a backing over the corner of a widget with no caption below it (none, or one shown above
+  it) and pass the band and its corner before the first render; change them only with the bubble's layout (a caption
+  added, removed or moved above or below by an edit, "edited"), never per frame; taps on the time are yours.
 - Dev app: the **time** control (`?time=corner|corner-rtl`) draws the time over the bubble and passes the reference
   band (24 px, a 64 px corner; `REFERENCE_TIME_CORNER` in `reference.ts`); `__tw.setSafeArea(area)` for any other.
 - Conformance: `auto/36-safe-area` (env() with and without a fallback, other names, CSS.supports, the variables and
   `contentSafeAreaInset` agree, the corner's side, the UA layer's body padding) and `visual/17-time-corner` with its
   picture (the reference time drawn over the corner); a header's `safeArea` is the band the reference runner and the
-  pictures use, and `channel.json` marks such posts `withoutCaption` (the test group posts them without a caption, so
-  a client draws its own time). New catalogue features `tw.content-safe-area` and `behaviour.time-corner`.
+  pictures use, and `channel.json` has two posts of each: `withoutCaption` and `captionAbove` (the test group posts
+  them without a caption, then with the caption above the widget, `show_caption_above_media`, so a client draws its own
+  time). New catalogue features `tw.content-safe-area` and `behaviour.time-corner`.
 - Examples for the client teams: `corpus/safe-area` (README there), seven widgets that show what a client passed: a
   diagnostic of the six numbers with the band and the corner drawn from the variables, full-bleed cards whose bottom row
   runs into the band beside the time (one right-to-left: the corner is the interface's side), an unstyled note on the
   renderer's defaults, CSS as models write it, a canvas chart laid out from `contentSafeAreaInset`, and a widget posted
-  twice, without a caption and with one. `pnpm test:safe-area-corpus` (`docs/compat-report-safe-area.md`, both sides with
-  the band), the feed's `corpus=safe-area`, the test group's **Safe area** topic (`publish-channel.ts --topic safe-area`,
-  every post without a caption, the pair once more with one), and the iOS/macOS and Android demos list the group and
+  three times: without a caption, with one below and with one above. `pnpm test:safe-area-corpus`
+  (`docs/compat-report-safe-area.md`, both sides with the band), the feed's `corpus=safe-area`, the test group's **Safe
+  area** topic (`publish-channel.ts --topic safe-area`, every post without a caption, the triple once more with a caption
+  below and once with one above), and the iOS/macOS and Android demos list the group and
   pass the band with the time over the bubble. The dev app's reference column gets the band too (`?safeArea=` on the
   reference page). A pitfall they show: a widget that pads for the band itself sets `body { padding: 0 }`, or the
   renderer's default bottom padding comes on top of its own.

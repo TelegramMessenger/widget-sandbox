@@ -630,8 +630,8 @@ function installBridge() {
     get isActive() { return !hidden; },
     /**
      * What the client draws over the widget, in CSS px (the `--tg-content-safe-area-*` root variables, `env(safe-area-inset-*)`):
-     * `bottom` is the band of the message time over a widget without a caption, `cornerLeft` / `cornerRight` the
-     * client's corner in it; 0 with a caption. A fresh frozen object per change, then `contentSafeAreaChanged`.
+     * `bottom` is the band of the message time over a widget with no caption below it, `cornerLeft` / `cornerRight` the
+     * client's corner in it; 0 with a caption below. A fresh frozen object per change, then `contentSafeAreaChanged`.
      */
     get contentSafeAreaInset() { return contentSafeArea; },
     onEvent(type: unknown, handler: unknown) {

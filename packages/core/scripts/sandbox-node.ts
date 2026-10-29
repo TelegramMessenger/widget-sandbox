@@ -801,7 +801,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.
   --offscreen: the widget boots off screen and then appears, as Telegram's clients create it (a background request
   made at boot waits for that and goes out then).
-  --safe-area: what the client draws over a widget without a caption (docs/sdk-v1.md §2.17), in CSS px: the band of the
+  --safe-area: what the client draws over a widget with no caption below it (docs/sdk-v1.md §2.17), in CSS px: the band of the
   message time at the bottom and its corner on the right (a left-to-right interface), or on the left as the third number
   (right-to-left: 24,0,72); env(safe-area-inset-bottom), the --tg-content-safe-area-* variables and
   TelegramWidget.contentSafeAreaInset get them, and the UA layer adds the band to an unstyled body's bottom padding.`);

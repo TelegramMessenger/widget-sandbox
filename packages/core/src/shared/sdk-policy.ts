@@ -716,11 +716,12 @@ const TEXT_VARS: [keyof TextTokens, string, (v: unknown) => string | null][] = [
 // ── what the client draws over the widget (docs/sdk-v1.md §2.17) ──
 
 /**
- * The client's chrome over the widget, in logical px (docs/sdk-v1.md §2.17): a widget without a caption gets the
+ * The client's chrome over the widget, in logical px (docs/sdk-v1.md §2.17): a widget with no caption below it gets the
  * message time and status drawn over its bottom corner, as on a photo. `bottom` is the height of the time's band;
  * `cornerLeft` / `cornerRight` the width of the client's corner in that band, on a physical side (right in a
  * left-to-right interface, left in a right-to-left one, the other 0); `top`, `left` and `right` are 0. All 0 with a
- * caption (the time is in the caption's line) and on a client that draws nothing over the widget.
+ * caption below it (the time is in the caption's line; a caption shown above it, `invert_media`, is as none) and on a
+ * client that draws nothing over the widget.
  */
 export interface ContentSafeArea {
   top: number;

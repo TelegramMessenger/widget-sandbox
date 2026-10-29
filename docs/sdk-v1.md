@@ -69,7 +69,7 @@ laid over the same calls later (D19).
 | `colorScheme` | `'light' \| 'dark'`, read-only | before v1: `theme` |
 | `themeParams` | `ThemeParams`, read-only, a fresh frozen object per change | |
 | `isActive` | `boolean`, read-only (`!document.hidden`) | |
-| `contentSafeAreaInset` | `{ top, right, bottom, left, cornerLeft, cornerRight }` in CSS px, read-only, a fresh frozen object per change | §2.17: the client's time over the bottom corner of a widget without a caption; detect it with `TelegramWidget.contentSafeAreaInset !== undefined` |
+| `contentSafeAreaInset` | `{ top, right, bottom, left, cornerLeft, cornerRight }` in CSS px, read-only, a fresh frozen object per change | §2.17: the client's time over the bottom corner of a widget with no caption below it; detect it with `TelegramWidget.contentSafeAreaInset !== undefined` |
 | `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated' \| 'chatDataChanged' \| 'publicDataChanged' \| 'contentSafeAreaChanged'` (`chatDataChanged`, `publicDataChanged`: §2.13; `contentSafeAreaChanged`: §2.17); the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
 | `openLink(url)` | `(url: string) => void` | before v1 without the checks below |
 | `openTelegramLink(url)` | `(url: string) => void` | |
@@ -625,12 +625,15 @@ user is about to send.
 
 ### 2.17 The client's time over the widget: the content safe area
 
-A message with a widget and **no caption** gets its time and status (the ticks,
+A message with a widget and **no caption below it** (no caption, or a caption
+shown above the media, `invert_media`) gets its time and status (the ticks,
 "edited", a channel's views) drawn by the client **over the widget's bottom
 corner**, on a backing, as over a photo: the right corner in a left-to-right
 interface, the left one in a right-to-left one (a physical side: an English widget
-in an Arabic client has the time on its left). With a caption the time is in the
-caption's line and nothing is drawn over the widget. Taps on the time are the
+in an Arabic client has the time on its left). With a caption below the widget the
+time is in the caption's line and nothing is drawn over the widget: everything is
+0. A caption above the widget is as no caption: the time is over the corner
+again, as on a photo whose caption is moved up. Taps on the time are the
 client's (a view over the widget), never the widget's: put nothing a user taps
 under it. The floating date pill of a chat that scrolls past the widget has no
 contract: it is drawn over the widget like over a photo and moves every frame.
@@ -652,7 +655,7 @@ the client gives the numbers:
   and CSSOM writes alike, to `var(--tg-content-safe-area-inset-…[, fallback])`: the
   engine's own `env()` belongs to the document (on the web, to the chat page) and
   comes from the view's system insets, so it never reaches the renderer. The
-  variables are always set (0 with a caption), so a fallback applies only where a
+  variables are always set (0 with a caption below), so a fallback applies only where a
   client sets nothing. Any other `env()` name (`keyboard-inset-*`, `titlebar-area-*`)
   resolves to its fallback, or drops the declaration without one; `env()` inside
   `url()` and the other URL-taking functions is rejected like `var()`. `CSS.supports`
@@ -675,8 +678,8 @@ the client gives the numbers:
 - `TelegramWidget.contentSafeAreaInset`, `{ top, right, bottom, left, cornerLeft,
   cornerRight }` in CSS px, has the same numbers for script (a canvas widget lays
   its own controls out with them; `getComputedStyle` on the variables would be a
-  layout query). A change (a caption added or removed by an edit, an "edited" mark
-  that widens the time) gives a fresh frozen object and fires
+  layout query). A change (a caption added, removed or moved above or below the widget
+  by an edit, an "edited" mark that widens the time) gives a fresh frozen object and fires
   `contentSafeAreaChanged`, in one task, with the variables already set. It never
   changes per frame.
 
@@ -841,7 +844,7 @@ public enum WidgetResizeAnchor: String { case top, bottom }   // v0.1.3: WidgetD
 
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
 // Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload),
-//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget without a caption, §2.17, §5.12)
+//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
 public struct WidgetContentSafeArea { var top, right, bottom, left, cornerLeft, cornerRight: Double }   // points = CSS px, 0 by default
 var onChange: ((WidgetDiagnostics) -> Void)?           // height, resizeAnchor (v0.1.3), watchesPublicData, loaded, rendered, dead, diags, actions
 var onWatchPublicData: ((Bool) -> Void)?                // the widget started or stopped watching its shared state (§5.11): on a change
@@ -850,7 +853,7 @@ var onAction: ((WidgetAction) -> Void)?
 var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?   // local before session
 var onGestureClaim: ((WidgetGestureClaim) -> Void)?   // every primary pointerdown; drive the bubble's recognizers with GestureArbiter (§5.5)
 func setTheme(_ theme: WidgetTheme)
-func setContentSafeArea(_ area: WidgetContentSafeArea)   // only with the bubble's layout (a caption edit), never per frame
+func setContentSafeArea(_ area: WidgetContentSafeArea)   // only with the bubble's layout (a caption edit or move), never per frame
 func setVisible(_ visible: Bool); func snapshot(completion:); func destroy()
 ```
 
@@ -888,7 +891,7 @@ sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(
 
 WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
 // Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload),
-//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget without a caption, §2.17, §5.12)
+//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
 data class WidgetContentSafeArea(val top: Double = 0.0, val right: Double = 0.0, val bottom: Double = 0.0, val left: Double = 0.0, val cornerLeft: Double = 0.0, val cornerRight: Double = 0.0)   // dp = CSS px
 var onChange: ((WidgetDiagnostics) -> Unit)?               // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions
 var onWatchPublicData: ((Boolean) -> Unit)?                 // the widget started or stopped watching its shared state (§5.11): on a change
@@ -933,7 +936,7 @@ struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } ki
 
 WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
 // WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload),
-//                    WidgetContentSafeArea contentSafeArea (the client's time over a widget without a caption, §2.17, §5.12)
+//                    WidgetContentSafeArea contentSafeArea (the client's time over a widget with no caption below it, §2.17, §5.12)
 struct WidgetContentSafeArea { double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0; };   // CSS px
 std::function<void(const WidgetDiagnostics&)> onChange;           // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions, storageCommits (first 1000)
 std::function<void(bool)> onWatchPublicData;                      // the widget started or stopped watching its shared state (§5.11): on a change
@@ -978,7 +981,7 @@ type WidgetAction =
 new WidgetHost(container, html, {
   theme,                                   // WidgetTheme, or a plain 'light' | 'dark'
   locale, storage: { local, session },     // the client's language and Web Storage preload
-  contentSafeArea: { bottom, cornerRight, cornerLeft },   // the client's time over a widget without a caption (§2.17, §5.12); 0 by default
+  contentSafeArea: { bottom, cornerRight, cornerLeft },   // the client's time over a widget with no caption below it (§2.17, §5.12); 0 by default
   onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y, hold }),
   bubbleGestures, onBubbleGesture({ action, gesture, x, y, edge }),   // v0.1.2: the renderer plays the bubble (§5.5)
   onResize(height, anchor),                // anchor: 'top' | 'bottom', the widget's setResizeAnchor (v0.1.3)
@@ -1247,8 +1250,8 @@ goes to the background, `setVisible(true)` when it is back.
   below layer 233 (`messageMediaUnsupported`), the message shows as
   unsupported media with its caption. Keep that fallback.
 - The media caption is the preview and search text; without one, the localized
-  "Widget" stub. A widget without a caption gets the message time over its
-  bottom corner (§5.12).
+  "Widget" stub. A widget with no caption below it (none, or one shown above it)
+  gets the message time over its bottom corner (§5.12).
 - Test with a test bot in a tester's private chat and forward into the shared
   test channel (a bot sends widgets to its private chats, to the basic groups
   and supergroups it is a member of, and via its inline mode; the channel gets
@@ -1335,11 +1338,13 @@ shared state (`public_data`).
   server keeps the forward header anyway), so a widget always shows which bot it
   is from.
 
-### 5.12 The time over a widget without a caption (§2.17)
+### 5.12 The time over a widget with no caption below it (§2.17)
 
-- With a caption, draw the time in the caption's line as for any media and pass
-  nothing (the content safe area stays 0). Without one, draw the message time and
-  its status (ticks, "edited", views) over the widget's bottom corner, on a
+- With a caption below the widget, draw the time in the caption's line as for any
+  media and pass nothing (the content safe area stays 0). Without a caption, and
+  with a caption shown above the widget (`invert_media`, as on a photo), draw the
+  message time and its status (ticks, "edited", views) over the widget's bottom
+  corner, on a
   backing as over a photo or a video (the widget's background can be any colour):
   the right corner in a left-to-right interface, the left one in a right-to-left
   one.
@@ -1351,15 +1356,15 @@ shared state (`public_data`).
   creation**, before the first render, so the first height the host reports
   already has the band.
 - Change them with `setContentSafeArea` only when the bubble's layout changes: a
-  caption added or removed by an edit, "edited" appearing, a views counter that
-  grows wider. Never per frame and never for the chat's scroll: the floating date
+  caption added or removed by an edit, or moved above or below the widget,
+  "edited" appearing, a views counter that grows wider. Never per frame and never for the chat's scroll: the floating date
   pill has no contract (draw it over the widget like over a photo).
 - The time is a view over the widget: taps on it are the client's (its own
   hit test; on the web an element over the renderer), never forwarded to the
   widget. Nothing in the gesture policy changes.
 - What the widget sees and how a widget handles it: §2.17. The renderer's UA
   layer pads an unstyled body by the band, so such a widget is that much taller
-  without a caption.
+  with no caption below it.
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 

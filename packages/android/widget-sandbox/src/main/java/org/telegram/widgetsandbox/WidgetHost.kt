@@ -113,10 +113,10 @@ data class WidgetTextTokens(
 )
 
 /**
- * What the client draws over the widget, in dp = CSS px (docs/sdk-v1.md §2.17, §5.12). A widget without a caption gets
+ * What the client draws over the widget, in dp = CSS px (docs/sdk-v1.md §2.17, §5.12). A widget with no caption below it gets
  * the message time and status over its bottom corner, as on a photo: `bottom` is the height of that band and
  * `cornerRight` (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in
- * it; with a caption everything is 0 (the time is in the caption's line). The widget sees it as `env(safe-area-inset-*)`,
+ * it; with a caption below it everything is 0 (the time is in the caption's line; a caption shown above it, `invert_media`, is as none). The widget sees it as `env(safe-area-inset-*)`,
  * the `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
  * and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
  */
@@ -269,8 +269,8 @@ class WidgetHost(
         /** The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer (docs/sdk-v1.md §4.4); without `canQuery` every request is refused. */
         val context: WidgetContext = WidgetContext(),
         /**
-         * What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget without a caption the band of
-         * the message time at the bottom and its corner; zero (the default) with a caption. Pass it here, before the first
+         * What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
+         * the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
          * render, so the first height already has the band; later only with the bubble's layout ([setContentSafeArea]).
          */
         val contentSafeArea: WidgetContentSafeArea = WidgetContentSafeArea(),

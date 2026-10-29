@@ -47,7 +47,7 @@ const CORPORA: { kind: FeedCorpus; title: string }[] = [
   { kind: 'common', title: 'corpus/common: the 32 widgets on the profile every renderer shares, for like-for-like renderer timings' },
   { kind: 'gestures', title: 'corpus/gestures: what the horizontal-only rule removed (v0.1.3: games on touch-action none and the same games on pan-y, joystick and 2048, now alike; a wheel picker that no longer turns) and what is fine with horizontal only (paddle, card carousel, range slider)' },
   { kind: 'resize', title: 'corpus/resize: one widget per resize anchor (setResizeAnchor, v0.1.3): an FAQ that grows downward (the default, top), a support thread that grows upward (bottom), results that grow downward (top)' },
-  { kind: 'safe-area', title: 'corpus/safe-area: the client\'s time over the bottom corner of a widget without a caption (docs/sdk-v1.md §2.17): every bubble gets the reference band and the time drawn over it; a diagnostic, full-bleed cards (one right-to-left), an unstyled note, CSS as models write it, a canvas chart, the caption pair' },
+  { kind: 'safe-area', title: 'corpus/safe-area: the client\'s time over the bottom corner of a widget with no caption below it (docs/sdk-v1.md §2.17): every bubble gets the reference band and the time drawn over it; a diagnostic, full-bleed cards (one right-to-left), an unstyled note, CSS as models write it, a canvas chart, the caption pair' },
 ];
 const BATCH_ORDER: Record<FeedCorpus, string[]> = {
   showcase: ['travel', 'commerce', 'life', 'work'], common: ['cards', 'interactive', 'live', 'heavy'], gestures: ['1-pairs', '2-horizontal', '3-vertical'],
@@ -510,7 +510,7 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
       rendererFactory: timedFactory(FACTORIES[renderer], rec),
       workerPool: pool ?? undefined,
       visible: b.visible,
-      // corpus/safe-area: messages without a caption, the client's time over their corner.
+      // corpus/safe-area: messages with no caption below the widget, the client's time over their corner.
       ...(corpus === 'safe-area' ? { contentSafeArea: referenceSafeArea() } : {}),
       bubbleGestures: bubbleGesturesOption(gestures),
       onBubbleGesture: (g) => { if (b.wrap.parentElement) showBubbleGesture(b.wrap.parentElement, g); },
@@ -667,7 +667,7 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     wrap.className = 'frame-wrap feed-wrap';
     bubble.appendChild(wrap);
     if (corpus === 'safe-area') {
-      // The client's time over a widget without a caption: a view over the widget, its taps the client's.
+      // The client's time over a widget with no caption below it: a view over the widget, its taps the client's.
       const time = document.createElement('div');
       time.setAttribute('style', timeCornerStyle(referenceSafeArea()));
       time.textContent = REFERENCE_TIME_LABEL;

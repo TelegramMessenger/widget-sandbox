@@ -61,7 +61,8 @@ it.
   `color-scheme: light dark` and `light-dark()` follow the **chat** theme, live.
 - **Text is not selectable** unless you say `user-select: text` (and
   `-webkit-user-select: text`) on what a user may want to copy.
-- **The time in the corner.** Without a caption the client draws the message
+- **The time in the corner.** Unless the message has a caption below the widget
+  (none, or one shown above it), the client draws the message
   time over the widget's bottom corner (right, or left in a right-to-left
   client), on a backing, as on a photo; taps on it are the client's. Keep
   `env(safe-area-inset-bottom)` clear at the bottom (`padding-bottom:
@@ -69,7 +70,7 @@ it.
   it, so when you pad for it yourself set `body { padding: 0 }` too, or you get
   two bands). Only the corner of that band is covered,
   `--tg-content-safe-area-corner-right` (or `-left`) wide, so content may run
-  into the band on the other side. With a caption all of it is 0. In JS:
+  into the band on the other side. With a caption below, all of it is 0. In JS:
   `TelegramWidget.contentSafeAreaInset` (`docs/sdk-v1.md` §2.17); examples in
   `corpus/safe-area`.
 
@@ -415,7 +416,7 @@ THE BUBBLE
   ui-monospace, ui-rounded only; font names and @font-face are removed.
 - Text is not selectable unless you set user-select:text and
   -webkit-user-select:text on what a user may want to copy.
-- Without a caption the client draws the message time in the bottom corner:
+- Unless a caption is below, the client draws the message time in the bottom corner:
   keep env(safe-area-inset-bottom) clear at the bottom (the defaults pad an
   unstyled body; if you pad for it, set body{padding:0}); only
   --tg-content-safe-area-corner-left|right of it is

@@ -188,7 +188,7 @@ struct WidgetScreen: View {
             let storageKey = group + "/" + file
             var options = WidgetModel.defaultOptions
             options.storage = DemoStorage.preload(storageKey)
-            // corpus/safe-area: a message without a caption, the time over its corner (docs/sdk-v1.md §2.17).
+            // corpus/safe-area: a message with no caption below the widget, the time over its corner (docs/sdk-v1.md §2.17).
             if Corpus.isSafeArea(group) { options.contentSafeArea = Corpus.timeCorner }
             let made = try WidgetModel(html: sourceHtml, theme: DemoTheme.make(dark: dark), width: 360, options: options, rendererFactory: DemoRenderer.factory)
             made.host.onStorageCommit = DemoStorage.commit(storageKey)
@@ -251,7 +251,7 @@ struct ChatBubble: View {
     @ObservedObject var model: WidgetModel
     /// Size of the enclosing scroll view (coordinate space "scroll"), to tell whether the bubble is on screen.
     var viewport: CGSize = .zero
-    /// A message without a caption: the time over the widget's bottom right corner on a backing (docs/sdk-v1.md §2.17;
+    /// A message with no caption below the widget: the time over the widget's bottom right corner on a backing (docs/sdk-v1.md §2.17;
     /// the host got the band as `contentSafeArea`); a view over the widget, so its taps are the bubble's.
     var timeOverCorner = false
     /// Called when the bubble enters or leaves the screen (the owner's side of the off-screen pause).

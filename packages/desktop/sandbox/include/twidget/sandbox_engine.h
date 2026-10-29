@@ -30,7 +30,7 @@
 
 namespace twidget {
 
-/// What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12). A widget without a caption gets the
+/// What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12). A widget with no caption below it gets the
 /// message time and status over its bottom corner, as on a photo: `bottom` is the height of that band and `cornerRight`
 /// (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in it; with a
 /// caption everything is 0 (the time is in the caption's line). The widget sees it as `env(safe-area-inset-*)`, the

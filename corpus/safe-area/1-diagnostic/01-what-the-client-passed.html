@@ -1,6 +1,6 @@
 <!--
   safe-area: the diagnostic: the six numbers and the band and corner drawn from them (corpus/safe-area/README.md)
-  idea: what your client passed for this bubble. The table shows TelegramWidget.contentSafeAreaInset, the striped strip at the bottom is the band (env(safe-area-inset-bottom)) and the red box is the corner (--tg-content-safe-area-corner-right or -left), all live: your time must sit inside the red box, over the stripes, and nothing else. Posted without a caption: a band and a corner on your interface's side. With a caption every number is 0 and there is no strip.
+  idea: what your client passed for this bubble. The table shows TelegramWidget.contentSafeAreaInset, the striped strip at the bottom is the band (env(safe-area-inset-bottom)) and the red box is the corner (--tg-content-safe-area-corner-right or -left), all live: your time must sit inside the red box, over the stripes, and nothing else. Posted without a caption: a band and a corner on your interface's side (the same with a caption above the widget). With a caption below every number is 0 and there is no strip.
 -->
 <title>What the client passed</title>
 <style>
@@ -18,7 +18,7 @@
   .c.r { right: 0; width: var(--tg-content-safe-area-corner-right) }
   .c.l { left: 0; width: var(--tg-content-safe-area-corner-left) }
 </style>
-<div class="an"><b>What your client passed.</b> Without a caption your time must sit in the red box over the striped band, and cover nothing else. With a caption: all 0, no band.</div>
+<div class="an"><b>What your client passed.</b> With no caption below, your time must sit in the red box over the striped band, and cover nothing else. With a caption below: all 0, no band.</div>
 <table id="t"></table>
 <div class="ft" id="ft"></div>
 <div class="band"></div><div class="c r"></div><div class="c l"></div>
@@ -38,7 +38,7 @@
       return '<tr><td>' + k[0] + '</td><td' + (a[k[0]] ? '' : ' class="z"') + '>' + a[k[0]] + ' px</td></tr>';
     }).join('');
     var side = a.cornerRight ? 'right' : a.cornerLeft ? 'left' : '';
-    document.getElementById('ft').textContent = (a.bottom ? 'A ' + a.bottom + ' px band' + (side ? ', the time over the ' + side + ' corner' : ', no corner') : 'No band: the time is in the caption') + ' · changes: ' + changes;
+    document.getElementById('ft').textContent = (a.bottom ? 'A ' + a.bottom + ' px band' + (side ? ', the time over the ' + side + ' corner' : ', no corner') : 'No band: the time is in the caption below') + ' · changes: ' + changes;
   }
   if (TW && TW.onEvent) TW.onEvent('contentSafeAreaChanged', function () { changes++; draw(); });
   draw();

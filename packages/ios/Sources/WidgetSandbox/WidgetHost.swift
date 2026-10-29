@@ -97,8 +97,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var policy: SandboxPolicy = .strict
         /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
         public var locale = SdkPolicy.defaultLocale
-        /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget without a caption the band of
-        /// the message time at the bottom and its corner; zero (the default) with a caption. Pass it here, before the first
+        /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
+        /// the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
         /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
         public var contentSafeArea = WidgetContentSafeArea()
         /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`).

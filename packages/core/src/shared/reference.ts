@@ -21,7 +21,7 @@ export const REFERENCE_STYLESHEET =
   `${PROFILE_UA_STYLESHEET}:root{${rootVars('light')}}@media (prefers-color-scheme: dark){:root{${rootVars('dark')}}}`;
 
 /**
- * The reference chrome over a widget without a caption (docs/sdk-v1.md §2.17): the band of the message time at the
+ * The reference chrome over a widget with no caption below it (docs/sdk-v1.md §2.17): the band of the message time at the
  * bottom and the corner it takes, in CSS px, as the dev app's "time" control and the conformance pictures draw it. A
  * client passes its own numbers; these are what Telegram's time over a photo takes, about.
  */

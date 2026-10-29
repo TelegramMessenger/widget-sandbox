@@ -67,7 +67,8 @@ const CONFIG_DIR = path.join(os.homedir(), '.config', 'widget-sandbox');
  * `corpus`: every widget of a corpus directory that fits a mini-widget, in file
  * order, with no picture. `default: false` topics go out only when --topic names them (its name in lower case,
  * spaces as hyphens: `--topic safe-area`). `withoutCaption`: its widgets go out without a caption, so a client draws
- * its time over them (docs/sdk-v1.md §2.17); a file whose header says `caption: both` goes out once more with one.
+ * its time over them (docs/sdk-v1.md §2.17); a file whose header says `caption: none, below, above` goes out once per
+ * placement: without a caption, with one below the widget (0: the time in the caption's line), with one above it.
  * icon colours: the six Telegram allows for a forum topic.
  */
 interface TopicSpec { name: string; channel?: string; corpus?: string; default: boolean; color: number; withoutCaption?: boolean }
@@ -231,6 +232,11 @@ interface Post {
   hash: Hashes;
   /** Sent without a caption: the client draws its time over the widget (channel.json `withoutCaption`). */
   withoutCaption?: boolean;
+  /**
+   * Sent with the caption above the widget (`show_caption_above_media`, layer 233's `invert_media`; channel.json
+   * `captionAbove`): the client draws its time over the widget as without a caption (docs/sdk-v1.md §2.17).
+   */
+  captionAbove?: boolean;
 }
 
 const sha = (...parts: (string | Buffer)[]) => {
@@ -242,9 +248,11 @@ const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 const zlibSize = (b: Buffer) => zlib.deflateSync(b, { level: 9 }).length;
 /**
  * The widget's message caption: its key, which the forwarded copy keeps; none for a case of the client's time over the
- * widget (docs/sdk-v1.md §2.17), which a caption would move into its own line.
+ * widget (docs/sdk-v1.md §2.17), which a caption below would move into its own line; above the widget for
+ * `captionAbove` (the Bot API's show_caption_above_media, layer 233's invert_media).
  */
-const docCaption = (p: Post) => (p.withoutCaption ? {} : { caption: p.key.replace('@', ' · ') });
+const docCaption = (p: Post): { caption?: string; show_caption_above_media?: string } =>
+  p.withoutCaption ? {} : { caption: p.key.replace('@', ' · '), ...(p.captionAbove ? { show_caption_above_media: 'true' } : {}) };
 const baseKey = (key: string) => key.replace(/@.*/, '');
 /** The document's file name, which carries the size anchors for the test bot. */
 const docName = (p: Post) => path.basename(p.file, '.html') + (p.width || p.height ? `-${p.width}x${p.height}` : '') + '.html';
@@ -276,7 +284,7 @@ function photo(file: string, key: string): Photo {
 
 function channelPosts(): Post[] {
   const channel = JSON.parse(fs.readFileSync(path.join(CONF, 'channel.json'), 'utf8')) as {
-    posts: { widget: string; width: number; height: number; caption: string; photos: string[]; variant?: string; message?: Record<string, unknown>; withoutCaption?: boolean }[];
+    posts: { widget: string; width: number; height: number; caption: string; photos: string[]; variant?: string; message?: Record<string, unknown>; withoutCaption?: boolean; captionAbove?: boolean }[];
   };
   const prefixes = TOPICS.filter((t) => t.channel).sort((a, b) => b.channel!.length - a.channel!.length);
   const out: Post[] = [];
@@ -299,6 +307,7 @@ function channelPosts(): Post[] {
       key: (p.width || p.height ? `${id}@${p.width}x${p.height}` : id) + (p.variant ? `@${p.variant}` : ''), topic: topic.name, file, width: p.width, height: p.height, html, zlib: zlibSize(html),
       text: body, photos: p.photos.map((f) => photo(path.join(CONF, f), id)), hash: { widget: '', description: '', photos: '' },
       ...(p.withoutCaption ? { withoutCaption: true } : {}),
+      ...(p.captionAbove ? { captionAbove: true } : {}),
     });
   }
   if (special.length) console.log(`${special.length} posts need layer-233 fields (flags, state, a group, inline results) and are left to the test bot: corepack pnpm tsx scripts/conformance/test-bot.ts --post <id> [--variant <kind>]\n  ${special.join('\n  ')}`);
@@ -326,9 +335,15 @@ function corpusPosts(t: TopicSpec, skipped: string[]): Post[] {
     const src = html.toString('utf8');
     const idea = /^\s*idea:\s*(.+)$/m.exec(src)?.[1] ?? /<title>([^<]*)<\/title>/i.exec(src)?.[1] ?? '';
     const post = { key, topic: t.name, file, width: 0, height: 0, html, zlib: packed, text: idea.trim(), photos: [], hash: { widget: '', description: '', photos: '' } };
-    out.push(t.withoutCaption ? { ...post, withoutCaption: true, text: `${post.text} Posted without a caption.` } : post);
-    // The same widget with a caption: nothing over it, every value 0 (the pair of corpus/safe-area).
-    if (t.withoutCaption && /^\s*caption:\s*both\s*$/m.test(src)) out.push({ ...post, key: `${key}@caption`, text: `${post.text} Posted with a caption.`, hash: { ...post.hash } });
+    if (!t.withoutCaption) { out.push(post); continue; }
+    // `caption: none, below, above`: one post per placement (the triple of corpus/safe-area); else without a caption.
+    const placements = /^\s*caption:\s*(.+)$/m.exec(src)?.[1].split(',').map((s) => s.trim()) ?? ['none'];
+    for (const at of placements) {
+      if (at === 'none') out.push({ ...post, withoutCaption: true, text: `${post.text} Posted without a caption.` });
+      else if (at === 'below') out.push({ ...post, key: `${key}@caption-below`, text: `${post.text} Posted with a caption below the widget.` });
+      else if (at === 'above') out.push({ ...post, key: `${key}@caption-above`, captionAbove: true, text: `${post.text} Posted with a caption above the widget (invert_media).` });
+      else die(`${key}: unknown caption placement "${at}" (none, below, above)`);
+    }
   }
   return out;
 }
@@ -337,7 +352,7 @@ function finish(p: Post): Post {
   const anchors = p.width || p.height ? `width ${p.width}, height ${p.height}` : '';
   p.text = description(baseKey(p.key), anchors, p.text);
   p.hash = {
-    widget: sha(p.html, docName(p), docCaption(p).caption ?? '', DIRECT ? 'direct' : 'forward'),
+    widget: sha(p.html, docName(p), docCaption(p).caption ?? '', ...(p.captionAbove ? ['caption above'] : []), DIRECT ? 'direct' : 'forward'),
     description: sha(p.text),
     photos: sha(...p.photos.flatMap((f) => [fs.readFileSync(f.file), f.label, f.asDocument ? 'document' : 'photo'])),
   };
@@ -577,7 +592,7 @@ async function check() {
 
 function describeSend(p: Post) {
   const pics = p.photos.map((f) => `${f.w}×${f.h}${f.asDocument ? ` as a document: ${f.asDocument}` : ''}`);
-  return `widget ${p.zlib} B zlib${p.withoutCaption ? ' without a caption' : ''}${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
+  return `widget ${p.zlib} B zlib${p.withoutCaption ? ' without a caption' : p.captionAbove ? ' with the caption above' : ''}${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
 }
 
 async function main() {

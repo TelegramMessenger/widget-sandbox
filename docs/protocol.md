@@ -545,7 +545,7 @@ client's duties are in docs/sdk-v1.md.
 | `viewport`, `theme` | | as before |
 | `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |
 | `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
-| `contentSafeArea` | all 0 | the client's time over a widget without a caption (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left, cornerLeft, cornerRight}`; the shim checks it (an inset 0–64, a corner 0–200, else 0): `TelegramWidget.contentSafeAreaInset` |
+| `contentSafeArea` | all 0 | the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left, cornerLeft, cornerRight}`; the shim checks it (an inset 0–64, a corner 0–200, else 0): `TelegramWidget.contentSafeAreaInset` |
 | `profile` | 1 | the widget profile the glue enforces; the shim reports `profile-mismatch` when its bundle's differs |
 | `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (4096 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
 | `chatData`, `publicData` | `null` | the chat state and the shared state, which only the bot writes, checked by the glue (text of 1–1024 bytes of UTF-8 without a NUL, else `null` and `data-rejected`); a copy's `chatData` is `null` |

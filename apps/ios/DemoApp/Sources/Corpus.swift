@@ -14,9 +14,9 @@ enum Corpus {
     static let commonGroups = subGroups(of: "common")
     /// The showcase: interactive, animated demos on the full web profile, one group per batch (corpus/showcase/README.md).
     static let showcaseGroups = subGroups(of: "showcase")
-    /// The client's time over the corner of a widget without a caption, one group per batch (corpus/safe-area/README.md).
+    /// The client's time over the corner of a widget with no caption below it, one group per batch (corpus/safe-area/README.md).
     static let safeAreaGroups = subGroups(of: "safe-area")
-    /// What the demo passes for a corpus/safe-area widget: a message without a caption, the time over its right corner
+    /// What the demo passes for a corpus/safe-area widget: a message with no caption below the widget, the time over its right corner
     /// (reference.ts `REFERENCE_TIME_CORNER`).
     static let timeCorner = WidgetContentSafeArea(bottom: 24, cornerRight: 64)
     static func isSafeArea(_ group: String) -> Bool { group.hasPrefix("safe-area/") }

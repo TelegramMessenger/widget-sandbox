@@ -134,7 +134,7 @@ fun WidgetScreen(group: String, file: String) {
     // Restart = a new WidgetHost from the same HTML; the previous one is destroyed by the DisposableEffect.
     var generation by remember { mutableStateOf(0) }
     val html = remember(group, file) { Corpus.html(context, group, file) }
-    // corpus/safe-area: a message without a caption, the time over its corner (docs/sdk-v1.md §2.17).
+    // corpus/safe-area: a message with no caption below the widget, the time over its corner (docs/sdk-v1.md §2.17).
     val model = remember(generation, renderer) {
         WidgetModel(context, html, demoTheme(dark), 360.0, if (Corpus.isSafeArea(group)) WidgetHost.Options(contentSafeArea = Corpus.timeCorner) else WidgetHost.Options(), renderer = renderer)
     }

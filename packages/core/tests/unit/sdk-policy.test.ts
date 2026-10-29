@@ -194,7 +194,7 @@ describe('sdk-policy (TS only)', () => {
     for (const v of ['--tg-theme-text-color', '--tg-theme-link-color', '--tg-text-font-size', '--tg-text-line-height', '--tg-text-padding']) assert.ok(layer.includes(`var(${v}`), v);
     // the bubble's fill is the canvas behind the renderer: no root background, so a body background reaches the canvas
     assert.ok(!/:where\(html\)\{[^}]*background/.test(layer));
-    // The body pads for the client's time over a widget without a caption (docs/sdk-v1.md §2.17), 0 with a caption.
+    // The body pads for the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17), 0 with a caption below.
     assert.match(layer, /:where\(body\)\{margin:var\(--tg-text-padding,8px 12px\);padding:0;padding-bottom:var\(--tg-content-safe-area-inset-bottom,0px\)\}/);
     // selection off on the root only: user-select is not inherited, so an element's `auto` follows its parent and
     // `user-select: text` on a container reaches its children
