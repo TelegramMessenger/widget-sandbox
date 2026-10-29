@@ -75,8 +75,11 @@ const OUT_OF_PROFILE = Symbol('out of profile');
 /** An attribute (or inline style) value: the largest `data:` image a 4 KB message can carry fits. */
 const MAX_ATTR = 8 * 1024;
 const MAX_OPS_PER_BATCH = 10_000;
-/** Canvas commands in one `canvas` op (one canvas, one task). */
-const MAX_CANVAS_CMDS = 2_000;
+/**
+ * Canvas commands in one `canvas` op (one canvas, one task). Provisional: the corpora's widgets send at most 237, the
+ * projected 3D showcase up to 9 510 a frame; the stress kit's canvas ladder (200 to 16 000) sets the final number.
+ */
+const MAX_CANVAS_CMDS = 10_000;
 const MAX_CSS_RULES = 400;
 const MAX_KEYFRAMES = 32;
 const MAX_LIVE_ANIMS = 64;

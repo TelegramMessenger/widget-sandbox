@@ -277,7 +277,7 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   and frames wait. 8 MB of memory; 64 live timers (`RangeError` past it);
   50 000 nodes; one text value 32 K characters, the document's text 48 K, an
   attribute 8 K; 10 000 DOM changes in one task; 400 CSS rules and 32
-  `@keyframes`; 2 000 canvas commands per canvas in one task (the next throws
+  `@keyframes`; 10 000 canvas commands per canvas in one task (the next throws
   `RangeError`); 64 running script animations; 2048 × 2048 pixels for all of
   a widget's canvases together (a canvas is 300 × 150 until you size it). Past a
   count or size limit the widget stops, as past the CPU or memory limit: a
@@ -553,7 +553,7 @@ STORAGE, LIFECYCLE, LIMITS
   may take 500 ms, a later task what is left of the 300 ms (at least 50 ms).
   Layout reads may hold one task 100 ms; they plus about 25 µs per DOM change
   cost the client at most 100 ms per second (frames wait beyond it).
-- Memory 8 MB; 64 live timers and 2 000 canvas commands per canvas per task
+- Memory 8 MB; 64 live timers and 10 000 canvas commands per canvas per task
   (RangeError past them); 50 000 nodes; one text value 32 K characters, all
   text 48 K, an attribute 8 K; 10 000 DOM changes per task; 400 CSS rules, 32
   @keyframes; 64 script animations; 2048 x 2048 canvas pixels together; a

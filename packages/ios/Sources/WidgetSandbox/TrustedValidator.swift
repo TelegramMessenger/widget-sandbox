@@ -350,7 +350,7 @@ public final class TrustedValidator {
     public func processOpsForRenderer(_ json: String, canvas: [Int: WidgetCanvasBatch] = [:], typed: Bool) -> RenderBatch {
         thread.sync { [self] in
             guard let js else { return .empty }
-            // A stopped widget gets nothing; the shortcut takes payloads within the strict caps only (2000 commands, 32 KB
+            // A stopped widget gets nothing; the shortcut takes payloads within the strict caps only (10 000 commands, 32 KB
             // strings: `CanvasBatchFastPath`), anything bigger goes through the validator, which stops the widget there.
             // Under strict a payload that resizes its canvas (`r`) goes there too: the validator counts the widget's canvas
             // pixels and stops it past 2048².

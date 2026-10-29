@@ -20,7 +20,7 @@ conformance set). Under `strict` (the default):
 | An attribute or inline-style value | 4 MB | 8 K | **stops** (was: dropped) |
 | Ops in one batch | 200 000 | 10 000 | **stops** (was: the batch dropped) |
 | CSS rules / `@keyframes` in the document's stylesheets | none | 400 / 32 | **stops** |
-| Canvas commands per canvas in one task | 400 000 | 2 000 | `RangeError` in the widget; the host stops a batch with more |
+| Canvas commands per canvas in one task | 400 000 | 10 000 for now (the stress kit's canvas ladder sets it) | `RangeError` in the widget; the host stops a batch with more |
 | Web Storage per area and message | 16 KB | 4 KB | `QuotaExceededError` (as before) |
 | Layout queries of one task | the task's slice, at least 100 ms (500 at boot) | 100 ms | stops (as before) |
 | The host's main-thread work for the widget (`mainThreadQuotaMs`, new) | in the JS quota | 100 ms per second, apart from the JS quota | timers and frames deferred |

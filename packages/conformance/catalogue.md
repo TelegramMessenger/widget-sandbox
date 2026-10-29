@@ -324,7 +324,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `limit.attribute` | Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict) | in | L1 | kept |  | auto/19-limits, auto/32-stop-attribute |
 | `limit.batch` | At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict) | in | L1 | kept |  | auto/33-stop-batch |
 | `limit.css-rules` | At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict) | in | L1 | kept |  | auto/34-stop-css-rules |
-| `limit.canvas-commands` | At most 2000 canvas commands per canvas in one task (RangeError past it; strict) | in | L1 | kept |  | auto/19-limits |
+| `limit.canvas-commands` | At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers) | in | L1 | kept |  | auto/19-limits |
 | `limit.animations` | At most 64 running script animations (further ones are not rendered; strict) | in | L1 | kept |  |  |
 | `limit.main-thread` | The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it) | in | L1 | host |  |  |
 | `limit.canvas-pixels` | A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096) | in | L1 | kept |  | auto/35-stop-canvas-pixels |

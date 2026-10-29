@@ -91,8 +91,8 @@ pnpm workspace). A framework change touches `packages/` only.
 
 Policy: `strict` is the default on every host (gesture gate for privileged
 bridge calls, the counted caps of "Strict limits from the start" in `docs/decisions.md`:
-32 K per text value, 48 K of document text, 8 K per attribute, 10 000 ops per batch, 2 000
-canvas commands per op, 400 CSS rules / 32 `@keyframes`, 2048² canvas pixels together, past which the validator's fatal
+32 K per text value, 48 K of document text, 8 K per attribute, 10 000 ops per batch, 10 000
+canvas commands per op (provisional), 400 CSS rules / 32 `@keyframes`, 2048² canvas pixels together, past which the validator's fatal
 `limit` diagnostic stops the widget; text budgets over text nodes, visible and
 `data-*`/`aria-*` attributes and CSS strings); anything but exactly `compat`
 is strict, `compat` (the old caps, nothing stops) is for tests, tooling and the stress kit's

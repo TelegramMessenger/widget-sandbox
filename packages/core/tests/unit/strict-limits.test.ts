@@ -86,19 +86,19 @@ describe('strict limits: ops per batch and canvas commands per send', () => {
 
   const canvas = [{ op: 'el', id: 9, tag: 'canvas' }, { op: 'ins', parent: 3, id: 9, before: null }];
   const cmds = (n: number) => Array.from({ length: n }, (_, i) => ['c', 'fillRect', i, 0, 1, 1]);
-  it('2000 canvas commands in one send pass; 2001 stop the widget (compat: no stop)', () => {
+  it('10 000 canvas commands in one send pass; 10 001 stop the widget (compat: no stop)', () => {
     const v = validator();
     v.processOps(canvas);
-    assert.equal((v.processOps([{ op: 'canvas', id: 9, cmds: cmds(2000) }])[0] as any).cmds.length, 2000);
-    assert.deepEqual(v.processOps([{ op: 'canvas', id: 9, cmds: cmds(2001) }]), []);
-    assert.equal(v.stopped, 'Canvas limit exceeded: 2001 commands in one send (max 2000)');
+    assert.equal((v.processOps([{ op: 'canvas', id: 9, cmds: cmds(10_000) }])[0] as any).cmds.length, 10_000);
+    assert.deepEqual(v.processOps([{ op: 'canvas', id: 9, cmds: cmds(10_001) }]), []);
+    assert.equal(v.stopped, 'Canvas limit exceeded: 10001 commands in one send (max 10000)');
     assert.deepEqual(v.canvasCommands(cmds(1)), [], 'the native canvas-words path is refused too once stopped');
     const w = validator();
-    assert.deepEqual(w.canvasCommands(cmds(2001)), []);
+    assert.deepEqual(w.canvasCommands(cmds(10_001)), []);
     assert.match(w.stopped ?? '', /^Canvas limit exceeded/);
     const c = validator('compat');
     c.processOps(canvas);
-    assert.equal((c.processOps([{ op: 'canvas', id: 9, cmds: cmds(2001) }])[0] as any).cmds.length, 2001);
+    assert.equal((c.processOps([{ op: 'canvas', id: 9, cmds: cmds(10_001) }])[0] as any).cmds.length, 10_001);
   });
 });
 
@@ -164,14 +164,14 @@ describe('strict limits: script animations', () => {
 });
 
 describe('strict limits: the shim refuses at the same numbers', () => {
-  it('a canvas takes 2000 commands in one task; the next throws RangeError in the widget (compat: no throw)', async () => {
+  it('a canvas takes 10 000 commands in one task; the next throws RangeError in the widget (compat: no throw)', async () => {
     const html = `<canvas id=c></canvas><script>
       const x = document.getElementById('c').getContext('2d');
-      try { for (let i = 0; i < 2001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); }
+      try { for (let i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); }
       catch (e) { console.log(e.name + ': ' + e.message); }
     </script>`;
     const strict = await runWidget(html);
-    assert.ok(strict.logs.some((l) => l.text === 'RangeError: Canvas limit exceeded: more than 2000 commands for one canvas in one task (max 2000)'), JSON.stringify(strict.logs));
+    assert.ok(strict.logs.some((l) => l.text === 'RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)'), JSON.stringify(strict.logs));
     assert.equal(strict.stopped, undefined, 'the shim stopped short of the cap, so the host did not stop the widget');
     const compat = await runWidget(html, { policy: 'compat' });
     assert.ok(compat.logs.some((l) => l.text === 'drew all'));

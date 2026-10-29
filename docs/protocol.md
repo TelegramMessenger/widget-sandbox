@@ -213,7 +213,7 @@ unaffected.
   `var()`/`env()`/`attr()` inside URL-taking functions rejected.
 - Sizes under `strict`: ≤ 50 000 nodes, a text value ≤ 32 K and the document's
   text ≤ 48 K UTF-16 units, an attribute ≤ 8 K, a batch ≤ 10 000 ops, a canvas op
-  ≤ 2 000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`,
+  ≤ 10 000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`,
   the widget's canvases ≤ 2048² pixels together (a new canvas 300 × 150, then its
   `width` / `height` and the `r` command); past one the validator reports the fatal `limit` diagnostic (the reason), refuses
   the batch and every later one, and the host stops the widget (`docs/decisions.md`,
@@ -536,7 +536,7 @@ client's duties are in docs/sdk-v1.md.
 | `mainThreadQuotaMs` | 100 | the host's main-thread work for the widget per `cpuQuotaWindowMs`: the wall time its layout queries block the renderer plus 25 µs per op and 2 µs per canvas command the glue forwards (`opsCostMs`); beyond it the same tasks are deferred, apart from the JS quota (which counts JS time only) |
 | `maxTimers` | 64 | live `setTimeout` + `setInterval` slots; the shim throws `RangeError` past it, the glue refuses as a backstop; timer delays are clamped to 24 h |
 | `visible` | true | initial visibility (see `visibility` below) |
-| `policy` | `strict` | `strict`: privileged bridge calls need a user gesture, the counted caps above stop the widget (text values 32 K, document text 48 K, attributes 8 K, 10 000 ops per batch, 2 000 canvas commands per op, 400 CSS rules / 32 `@keyframes`, 2048² canvas pixels together), the shim caps canvas commands per canvas and task (2 000, `RangeError`) and script animations (64), visible text is budgeted (text nodes, visible and `data-*` / `aria-*` attributes, strings in CSS), `attr()` reads only budgeted attributes. `compat`: the limits before that hardening, for tests and tooling. Anything but exactly `compat` is `strict` |
+| `policy` | `strict` | `strict`: privileged bridge calls need a user gesture, the counted caps above stop the widget (text values 32 K, document text 48 K, attributes 8 K, 10 000 ops per batch, 10 000 canvas commands per op, 400 CSS rules / 32 `@keyframes`, 2048² canvas pixels together), the shim caps canvas commands per canvas and task (10 000, `RangeError`) and script animations (64), visible text is budgeted (text nodes, visible and `data-*` / `aria-*` attributes, strings in CSS), `attr()` reads only budgeted attributes. `compat`: the limits before that hardening, for tests and tooling. Anything but exactly `compat` is `strict` |
 | `features` | `[]` | opt-in wire forms (see "Features"); each glue drops the ones it does not implement |
 | `viewport`, `theme` | | as before |
 | `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |

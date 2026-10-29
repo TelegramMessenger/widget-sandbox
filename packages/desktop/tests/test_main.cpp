@@ -1099,18 +1099,18 @@ TEST(default_timer_cap_throws_at_the_65th) {
     CHECK(!r.host.died);
 }
 
-/// The policy reaches the shim in the boot config: under strict a canvas takes 2000 commands in one task and the next
+/// The policy reaches the shim in the boot config: under strict a canvas takes 10 000 commands in one task and the next
 /// throws RangeError in the widget (the validator's per-send cap, so the host does not have to stop it); compat draws all.
 TEST(shim_refuses_canvas_commands_at_the_validators_cap) {
     const std::string html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d');"
-                             "try { for (var i = 0; i < 2001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
+                             "try { for (var i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
     Run strict(html);
     strict.barrier();
     {
         auto l = strict.host.lock();
-        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 2000 commands for one canvas in one task (max 2000)"), strict.logsText());
+        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)"), strict.logsText());
         CHECK_MSG(!strict.host.died, strict.host.died.value_or(""));
-        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",1999,") != std::string::npos, "the 2000 commands before it are drawn");
+        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",9999,") != std::string::npos, "the 10 000 commands before it are drawn");
     }
     SandboxConfig cfg = testConfig();
     cfg.policy = "compat";

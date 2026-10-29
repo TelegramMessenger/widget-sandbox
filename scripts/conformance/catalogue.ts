@@ -359,7 +359,7 @@ lim('storage', 'localStorage and sessionStorage: 4 KB per area and message (4096
 lim('attribute', 'Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict)', 'in', 'L1', 'kept');
 lim('batch', "At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict)", 'in', 'L1', 'kept');
 lim('css-rules', "At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict)", 'in', 'L1', 'kept');
-lim('canvas-commands', 'At most 2000 canvas commands per canvas in one task (RangeError past it; strict)', 'in', 'L1', 'kept');
+lim('canvas-commands', "At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers)", 'in', 'L1', 'kept');
 lim('animations', 'At most 64 running script animations (further ones are not rendered; strict)', 'in', 'L1', 'kept');
 lim('main-thread', "The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it)", 'in', 'L1', 'host');
 lim('canvas-pixels', "A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096)", 'in', 'L1', 'kept');

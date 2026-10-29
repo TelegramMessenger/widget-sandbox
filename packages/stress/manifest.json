@@ -6,7 +6,7 @@
   "nodes": 2000,
   "opsPerBatch": 10000,
   "cssRules": 400,
-  "canvasPerSend": 2000,
+  "canvasPerSend": 10000,
   "docText": 49152,
   "textValue": 32768,
   "attr": 8192,
@@ -3176,9 +3176,7 @@
     "canvasPerSend": 2001,
     "nodes": 10
    },
-   "crosses": [
-    "canvasPerSend 2001 > 2000"
-   ],
+   "crosses": [],
    "size": {
     "raw": 1820,
     "zlib": 1043
@@ -3202,9 +3200,7 @@
     "canvasPerSend": 4001,
     "nodes": 10
    },
-   "crosses": [
-    "canvasPerSend 4001 > 2000"
-   ],
+   "crosses": [],
    "size": {
     "raw": 1820,
     "zlib": 1044
@@ -3228,9 +3224,7 @@
     "canvasPerSend": 8001,
     "nodes": 10
    },
-   "crosses": [
-    "canvasPerSend 8001 > 2000"
-   ],
+   "crosses": [],
    "size": {
     "raw": 1820,
     "zlib": 1044
@@ -3255,7 +3249,7 @@
     "nodes": 10
    },
    "crosses": [
-    "canvasPerSend 16001 > 2000"
+    "canvasPerSend 16001 > 10000"
    ],
    "size": {
     "raw": 1826,

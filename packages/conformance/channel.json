@@ -860,9 +860,9 @@
    "widget": "auto/19-limits.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/19-limits · Strict limits: a 30 K text value and a 6 K data-* attribute render, the complex-script budget, the 64-timer cap, 2000 canvas commands per canvas and task, a data: image up to 1024 × 1024 pixels, attr() under strict (past a counted limit the widget stops: auto/31–35). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/19-limits · Strict limits: a 30 K text value and a 6 K data-* attribute render, the complex-script budget, the 64-timer cap, 10 000 canvas commands per canvas and task, a data: image up to 1024 × 1024 pixels, attr() under strict (past a counted limit the widget stops: auto/31–35). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 3601
+   "zlib": 3606
   },
   {
    "widget": "auto/20-client-behaviour.html",

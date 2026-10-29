@@ -156,7 +156,7 @@ What it is on this platform:
   25 µs per op and 2 µs per canvas command it sent; past it, as past the JS
   quota, timers and frames wait. Under `strict` a counted cap of the validator
   (32 KB per text value, 48 KB of document text, 8 KB per attribute, 10 000 ops
-  per batch, 2000 canvas commands per send, 400 CSS rules, 32 `@keyframes`)
+  per batch, 10 000 canvas commands per send, 400 CSS rules, 32 `@keyframes`)
   stops the widget: `diagnostics().dead` carries the reason
   (`TrustedValidator::stopped()`, `SandboxEngine::stop`), as for memory or CPU.
   `setVisible(false)` when the bubble leaves the screen.

@@ -13,7 +13,7 @@ import QuartzCore
 /// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): the link calls and copyText
 /// (`SdkPolicy.privilegedMethods`) need a user gesture, a request one unless the context allows background requests;
 /// visible text is budgeted, and past a counted cap (32 KB per text value, 48 KB of document text, 8 KB per attribute,
-/// 10 000 ops per batch, 2000 canvas commands per send, 400 CSS rules, 32 `@keyframes`) the widget stops
+/// 10 000 ops per batch, 10 000 canvas commands per send, 400 CSS rules, 32 `@keyframes`) the widget stops
 /// (docs/decisions.md, "Strict limits from the start").
 /// `compat`: the behaviour before that hardening, for tests and tooling.
 public enum SandboxPolicy: String {

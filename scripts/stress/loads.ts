@@ -12,7 +12,7 @@ export const STRICT_LIMITS = {
   nodes: 2000, // elements, text and comments in the document
   opsPerBatch: 10_000, // validated ops in one batch
   cssRules: 400, // style rules in the document
-  canvasPerSend: 2000, // canvas commands in one send
+  canvasPerSend: 10_000, // canvas commands in one send (provisional; this ladder sets it)
   docText: 49_152, // text of the document (text, styles, visible attributes)
   textValue: 32_768, // one text value (a text node, a stylesheet, an attribute's text)
   attr: 8192, // one attribute value

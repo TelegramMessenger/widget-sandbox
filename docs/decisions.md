@@ -657,7 +657,7 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
 | An attribute value | 1 066 (an inline style) | 8 K (was 4 MB) | stops |
 | Ops in one batch | 2 700 | 10 000 (was 200 000) | stops |
 | CSS rules / `@keyframes` | 167 / 12 | 400 / 32 (no cap) | stops |
-| Canvas commands per canvas and task | 237 | 2 000 (was 400 000 buffered) | `RangeError`; stops past it in a batch |
+| Canvas commands per canvas and task | 237 (the projected 3D showcase: 9 510 a frame) | 10 000 for now (was 400 000 buffered) | `RangeError`; stops past it in a batch |
 | Web Storage per area | 585 characters | 4 KB (was 16 KB) | `QuotaExceededError` |
 | Layout queries per task | 14.6 ms over a whole run | 100 ms (was the slice, up to 500 ms) | stops |
 | Canvas pixels, all of a widget's canvases | 0.41 M (736 × 560) | 2048² = 4.2 M (the audit's 4096²) | stops |
@@ -670,8 +670,13 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   keeps its last render. The author sees the cause at once. The complex-script budget and text churn still drop:
   a widget in those scripts needs all of its budget, and the numbers did not change.
 - **The shim refuses at the same numbers**, so the author gets an error inside the widget where the host would stop it:
-  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 2001st command for
+  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 10 001st command for
   one canvas in one task throws `RangeError`; the validator stops a batch with more, i.e. a tampered shim).
+- **Canvas commands: 10 000 for now.** The paint-limits draft put 2 000 per send, twice the old corpora's 237; the
+  projected 3D showcase that tmacos added on 2026-10-29 (`corpus/showcase/3d`) draws 1 247 to 9 510 commands a frame, so
+  the cap is 10 000 until the stress kit's canvas ladder (200 to 16 000 commands a frame on the clients' renderers) gives
+  the number. The main-thread window already charges 2 µs a command: 9 510 a frame is about 19 ms, so such a widget
+  turns at a few frames a second under the 100 ms window, and the demos want lighter meshes anyway.
 - **The main-thread window.** The JS quota (300 ms per second, unchanged: a widget's JS runs on its own thread, and the
   busiest widgets on a weak phone are already throttled by it) no longer pays for what the widget costs the client's main
   thread. That is a second `CpuBudget` in the glue, `mainThreadQuotaMs` = 100 ms per `cpuQuotaWindowMs`: the wall time of
