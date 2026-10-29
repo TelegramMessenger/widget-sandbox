@@ -191,7 +191,7 @@ corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://1
 corepack pnpm test:defaults           # 6 widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults, README there; the test group's Defaults topic) → docs/compat-report-defaults.md
 corepack pnpm test:gesture-corpus     # what the horizontal-only rule (v0.1.3) removed (corpus/gestures, README there): joystick and 2048 each on touch-action none (-xy) and pan-y (-x), now alike, a wheel picker (pan-x) that no longer turns, and fine with horizontal only (pan-y): paddle game, card carousel, range slider → docs/compat-report-gestures.md; the feed's corpus=gestures; the test group's Gestures topic, --topic gestures
 corepack pnpm test:resize-corpus      # one widget per resize anchor (corpus/resize, README there): an FAQ on the default (top), a support thread that grows upward (bottom), results that grow downward (top) → docs/compat-report-resize.md; the test group's Resize topic, --topic resize
-corepack pnpm test:showcase           # 21 interactive demos on the full web profile (corpus/showcase, README there; the web feed's content) → docs/compat-report-showcase.md; in the iOS/macOS demo: the showcase/<batch> sections, --autorun showcase, and the iOS chat feed's Widgets picker (showcase by default; --feed-set corpus=showcase from a shell)
+corepack pnpm test:showcase           # 27 interactive demos on widget profile 1 (corpus/showcase, README there; the web feed's content) → docs/compat-report-showcase.md; in the iOS/macOS demo: the showcase/<batch> sections, --autorun showcase, and the iOS chat feed's Widgets picker (showcase by default; --feed-set corpus=showcase from a shell)
 corepack pnpm test:common             # 32 widgets on the common WebView/Blitz/litehtml profile (corpus/common, README there) → docs/compat-report-common.md; the same files run on every renderer: --autorun common [--blitz|--litehtml] in the iOS/macOS demo, --es autorun common on Android, CORPUS=common scripts/android-bench.sh <renderer> 20
 corepack pnpm build:blitz-web         # Blitz renderer for the web dev app: cargo (wasm32, rustup) + wasm-bindgen-cli (version from apps/renderer-blitz/Cargo.lock) → apps/renderer-blitz/pkg-web (gitignored, served at /blitz/); then the Blitz toggle / ?blitz=1, apps/web/tests/unit/blitz-wasm.test.ts stops skipping
 TW_RENDERER=blitz corepack pnpm test:generated   # generated corpus on the Blitz wasm renderer → docs/compat-report-generated-blitz.md + reports/generated-blitz (pixel diff informational, no clicks: a canvas)
@@ -231,6 +231,15 @@ editing `packages/core/src` or `apps/web` during a Playwright run reloads Vite a
 the run; `tests/global-setup.ts` wipes `reports/` so a `-g` partial run yields a
 partial report; macOS has no `timeout`. On Windows `build:*` needs a C compiler for qjsc in `CC` (Visual
 Studio's `VC\Tools\Llvm\x64\bin\clang.exe`): its bundles and `.qbc` are byte-identical to the macOS ones.
+
+### Projected 3D showcase checks
+
+`corepack pnpm exec tsx --test packages/core/tests/unit/showcase-3d.test.ts`
+runs 32 tests for the six `corpus/showcase/3d` widgets: payload limits,
+strict validation and finite canvas output in both themes, model/zoom persistence,
+reset, canceled-pointer rollback, query-free redraws and live theme changes. `corepack pnpm test:showcase --grep '3d/'`
+runs the five sandbox/reference comparisons; repeat with `TW_RENDERER=shadow`.
+These widgets use canvas 2D projection, without the experimental 3D channel.
 
 ## Status (Oct 2026)
 
