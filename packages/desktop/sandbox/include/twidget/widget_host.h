@@ -87,6 +87,10 @@ struct WidgetHostOptions {
     std::vector<std::string> features;
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
+    /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget without a caption the band of
+    /// the message time at the bottom and its corner; zero (the default) with a caption. Pass it here, before the first
+    /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
+    WidgetContentSafeArea contentSafeArea;
     /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); an area over the
     /// 4 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
@@ -188,6 +192,10 @@ public:
     /// widget gets `chatDataChanged`, then `publicDataChanged`, for each that differs; a copy keeps no `chatData` (its
     /// publicData can change); a field over the limit is null (`data-rejected`).
     void setData(const WidgetData& data);
+    /// What the client draws over the widget changed with the bubble's layout (docs/sdk-v1.md §2.17, §5.12): a caption
+    /// added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
+    /// widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
+    void setContentSafeArea(const WidgetContentSafeArea& area);
     /// A DOM event for the widget that did not come from the renderer (the harness's `--events`).
     void event(const std::string& json);
     /// Trusted diagnostic code evaluated in the widget context (tests / harness only).
@@ -291,6 +299,8 @@ private:
     void toRenderer(const std::string& json);
     /// `{"type":"theme","theme":{"colorScheme","params","button"}}` of the current theme (docs/sdk-v1.md §3.4).
     std::string themeMessage() const;
+    /// `{"type":"safeArea","inset":{…}}` (docs/sdk-v1.md §3.4).
+    static std::string safeAreaMessage(const WidgetContentSafeArea& area);
     void resolveQuery(const std::string& json, std::optional<std::vector<uint8_t>> binary);
     void diag(const std::string& kind, const std::string& detail);
     void changed();

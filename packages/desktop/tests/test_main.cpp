@@ -1478,6 +1478,43 @@ TEST(sdk_widget_host_theme_locale_and_gestures) {
     CHECK(commits.size() == 1 && commits[0].first == "local" && commits[0].second == StorageArea({{"k", "w"}}));
 }
 
+/// The client's chrome over the widget (docs/sdk-v1.md §2.17): the option reaches the renderer right after the theme and
+/// the widget from its first line (checked by the shim: out of range is 0); setContentSafeArea sends the variables and
+/// one contentSafeAreaChanged with a fresh frozen object; the same value fires nothing; NaN reaches nobody as NaN.
+TEST(sdk_content_safe_area_reaches_the_renderer_and_the_widget) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHostOptions options;
+    options.contentSafeArea.bottom = 24;
+    options.contentSafeArea.cornerRight = 72;
+    options.contentSafeArea.top = 99; // over 64: 0 for the widget
+    WidgetHost host("<script>var log = [], first = TelegramWidget.contentSafeAreaInset;"
+                    "TelegramWidget.onEvent('contentSafeAreaChanged', function () { var a = TelegramWidget.contentSafeAreaInset;"
+                    " log.push([a.bottom, a.cornerLeft, a.cornerRight, Object.isFrozen(a), a !== first, this === TelegramWidget].join(':')); });</script>",
+                    WidgetTheme{}, 300, options, RES, scripted(renderer));
+    host.start();
+    CHECK(host.waitLoaded(20));
+    {
+        std::lock_guard<std::mutex> l(renderer->mutex);
+        CHECK_MSG(renderer->messages.size() > 1 && renderer->messages[1] == "{\"type\":\"safeArea\",\"inset\":{\"top\":99,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}",
+                  renderer->messages.size() > 1 ? renderer->messages[1] : "nothing sent");
+    }
+    CHECK_MSG(host.probe("JSON.stringify(first)") == "{\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}", host.probe("JSON.stringify(first)"));
+    WidgetContentSafeArea rtl;
+    rtl.bottom = 26.5;
+    rtl.cornerLeft = 80;
+    host.setContentSafeArea(rtl);
+    host.setContentSafeArea(rtl);
+    WidgetContentSafeArea broken;
+    broken.bottom = std::nan("");
+    host.setContentSafeArea(broken);
+    host.onHostThread([] {});
+    CHECK_MSG(host.probe("log.join('|')") == "26.5:80:0:true:true:true|0:0:0:true:true:true", host.probe("log.join('|')"));
+    auto sent = renderer->sent("safeArea");
+    CHECK_MSG(sent.size() == 4 && sent[3].dump() == "{\"type\":\"safeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0,\"cornerLeft\":0,\"cornerRight\":0}}",
+              sent.empty() ? "none" : sent.back().dump());
+    host.destroy();
+}
+
 /// The API before SDK v1 still compiles and forwards: a string theme, setTheme(string), the raw onBridgeCall; and the
 /// one before v0.1.2: onGestureClaim gets the claim's x and y right after onGesture.
 TEST(sdk_deprecated_host_api_forwards) {

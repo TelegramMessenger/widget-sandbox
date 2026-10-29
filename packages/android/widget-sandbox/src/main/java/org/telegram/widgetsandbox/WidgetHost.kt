@@ -112,6 +112,32 @@ data class WidgetTextTokens(
     val padding: String? = null,
 )
 
+/**
+ * What the client draws over the widget, in dp = CSS px (docs/sdk-v1.md §2.17, §5.12). A widget without a caption gets
+ * the message time and status over its bottom corner, as on a photo: `bottom` is the height of that band and
+ * `cornerRight` (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in
+ * it; with a caption everything is 0 (the time is in the caption's line). The widget sees it as `env(safe-area-inset-*)`,
+ * the `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
+ * and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+ */
+data class WidgetContentSafeArea(
+    val top: Double = 0.0,
+    val right: Double = 0.0,
+    val bottom: Double = 0.0,
+    val left: Double = 0.0,
+    val cornerLeft: Double = 0.0,
+    val cornerRight: Double = 0.0,
+) {
+    /** The TS `ContentSafeArea` shape; a value that is not finite is 0 (JSON has no NaN). */
+    internal fun json(): JSONObject {
+        val out = JSONObject()
+        for ((k, v) in listOf("top" to top, "right" to right, "bottom" to bottom, "left" to left, "cornerLeft" to cornerLeft, "cornerRight" to cornerRight)) {
+            out.put(k, if (v.isFinite()) v else 0.0)
+        }
+        return out
+    }
+}
+
 /** Web Storage of the message as the client keeps it (docs/sdk-v1.md §2.8, §5.4): the stored `local` area and the in-memory `session` one. */
 data class WidgetStorage(val local: Map<String, String> = emptyMap(), val session: Map<String, String> = emptyMap())
 
@@ -242,6 +268,12 @@ class WidgetHost(
         val data: WidgetData = WidgetData(),
         /** The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer (docs/sdk-v1.md §4.4); without `canQuery` every request is refused. */
         val context: WidgetContext = WidgetContext(),
+        /**
+         * What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget without a caption the band of
+         * the message time at the bottom and its corner; zero (the default) with a caption. Pass it here, before the first
+         * render, so the first height already has the band; later only with the bubble's layout ([setContentSafeArea]).
+         */
+        val contentSafeArea: WidgetContentSafeArea = WidgetContentSafeArea(),
     )
 
     val view: View get() = renderer.view
@@ -328,7 +360,7 @@ class WidgetHost(
             memoryLimitBytes = options.memoryLimitBytes, cpuLimitMs = options.cpuLimitMs,
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
             mainThreadQuotaMs = options.mainThreadQuotaMs, maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
-            themeParams = this.theme.params, locale = options.locale, storage = options.storage,
+            themeParams = this.theme.params, locale = options.locale, contentSafeArea = options.contentSafeArea, storage = options.storage,
             data = options.data, context = options.context,
         )
         if (isStrictPolicy(options.policy)) validator.setPolicy("strict")
@@ -344,6 +376,7 @@ class WidgetHost(
         })
         // The theme goes first (queued until `ready`, which flushes it before the engine starts).
         toRenderer(themeMessage())
+        toRenderer(safeAreaMessage(options.contentSafeArea))
         // The engine starts once the renderer announced itself, so the very first
         // layout queries have something to measure.
         renderer.load()
@@ -365,6 +398,20 @@ class WidgetHost(
 
     @Deprecated("Since SDK v1: setTheme(WidgetTheme)", ReplaceWith("setTheme(WidgetTheme(theme))"))
     fun setTheme(theme: String) = setTheme(WidgetTheme(theme))
+
+    /**
+     * What the client draws over the widget changed with the bubble's layout (docs/sdk-v1.md §2.17, §5.12): a caption
+     * added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
+     * widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
+     */
+    fun setContentSafeArea(area: WidgetContentSafeArea) {
+        if (destroyed) return
+        toRenderer(safeAreaMessage(area))
+        engine.contentSafeArea(area)
+    }
+
+    /** `{type:'safeArea', inset}` (docs/sdk-v1.md §3.4): the renderer core checks the values and sets the `--tg-content-safe-area-*` variables. */
+    private fun safeAreaMessage(area: WidgetContentSafeArea) = JSONObject().put("type", "safeArea").put("inset", area.json()).toString()
 
     /**
      * The bot's data changed (an edit the client got from the server): the full state of both strings. The widget gets

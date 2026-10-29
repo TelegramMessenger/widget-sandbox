@@ -192,6 +192,9 @@ private:
     std::string html_;
     /// The host's theme variables (theme.h), written first and !important into <html>'s style.
     std::vector<std::pair<std::string, std::string>> theme_vars_;
+    /// The host's last theme message and content safe area (docs/sdk-v1.md §2.17), both in theme_vars_.
+    twidget::Json theme_;
+    std::vector<std::pair<std::string, std::string>> safe_area_vars_;
     BuildStats stats_;
     std::vector<std::string> pending_violations_;
 

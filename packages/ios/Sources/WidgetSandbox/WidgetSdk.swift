@@ -112,6 +112,39 @@ public struct WidgetTheme: Equatable {
     }
 }
 
+/// What the client draws over the widget, in points = CSS px (docs/sdk-v1.md §2.17, §5.12). A widget without a caption
+/// gets the message time and status over its bottom corner, as on a photo: `bottom` is the height of that band and
+/// `cornerRight` (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes
+/// in it; with a caption everything is 0 (the time is in the caption's line). The widget sees it as
+/// `env(safe-area-inset-*)`, the `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed
+/// as given: the renderer core and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+public struct WidgetContentSafeArea: Equatable {
+    public var top: Double
+    public var right: Double
+    public var bottom: Double
+    public var left: Double
+    public var cornerLeft: Double
+    public var cornerRight: Double
+
+    public init(top: Double = 0, right: Double = 0, bottom: Double = 0, left: Double = 0, cornerLeft: Double = 0, cornerRight: Double = 0) {
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+        self.left = left
+        self.cornerLeft = cornerLeft
+        self.cornerRight = cornerRight
+    }
+
+    /// The TS `ContentSafeArea` shape; a value that is not finite is 0 (JSON has no NaN).
+    var json: [String: Any] {
+        let finite = { (v: Double) -> Double in v.isFinite ? v : 0 }
+        return ["top": finite(top), "right": finite(right), "bottom": finite(bottom), "left": finite(left), "cornerLeft": finite(cornerLeft), "cornerRight": finite(cornerRight)]
+    }
+
+    /// The host → renderer message (docs/sdk-v1.md §3.4); the renderer core sets the `--tg-content-safe-area-*` variables.
+    var rendererMessage: String { SandboxEngine.json(["type": "safeArea", "inset": json]) }
+}
+
 /// Web Storage of one message as the client keeps it (docs/sdk-v1.md §2.8, §5.4), passed as the preload.
 public struct WidgetStorage: Equatable {
     public var local: [String: String]

@@ -11,6 +11,44 @@ nothing until the host lists them; "default" items apply to every host.
   (`TW_NATIVE_RENDERERS=1`) and the default renderers of the web conformance runner and the feed's benches; the demos
   no longer need rustup or the litehtml CMake build.
 
+**The client's time over a widget without a caption: the content safe area** (`docs/sdk-v1.md` §2.17, §5.12;
+`docs/decisions.md`, "The client's time over a widget without a caption"; a clarification of profile 1, `P1-safe-area`).
+A message with a widget and no caption gets its time and status drawn by the client over the widget's bottom corner,
+as on a photo; with a caption nothing covers the widget. Every host passes nothing by default, so a client that does
+not draw the time keeps v0.3.0's layout.
+
+- Widgets: `env(safe-area-inset-top|right|bottom|left[, fallback])` is in. The validator (`css-sanitizer.ts`, which the
+  Swift `NativeValidator` runs as its CSS oracle) rewrites it to `var(--tg-content-safe-area-inset-…[, fallback])` in
+  stylesheets, `style` attributes, CSSOM writes and SVG presentation attributes; any other `env()` name resolves to its
+  fallback or drops the declaration without one (before: every declaration with `env()` was dropped, fallback or not;
+  conformance `auto/04-values-units` now expects the client's inset); `env()` inside `url()` stays rejected.
+  `CSS.supports` / `@supports` answer `true` for the safe-area insets only.
+- The renderer core sets `--tg-content-safe-area-inset-top|right|bottom|left` and `--tg-content-safe-area-corner-left|right`
+  on the root, like the theme's (always set, 0 until the host says; an inset 0–64 px, a corner 0–200 px; the widget
+  cannot replace them); the litehtml prototype's twin is `theme::safe_area_variables`. The UA layer adds the band to the
+  body's bottom padding (`:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`).
+- `TelegramWidget.contentSafeAreaInset` (`{ top, right, bottom, left, cornerLeft, cornerRight }`, frozen, a fresh object
+  per change) and the event `contentSafeAreaChanged`, in one task with the variables; the shim drops its cached layout
+  answers on a change.
+- Hosts, every copy: an option at creation and a setter. Web `WidgetHostOptions.contentSafeArea`,
+  `setContentSafeArea`, `contentSafeArea`; Swift `WidgetHost.Options.contentSafeArea` (`WidgetContentSafeArea`),
+  `setContentSafeArea(_:)`, `SandboxEngine.contentSafeArea(_:)`; Kotlin `WidgetHost.Options.contentSafeArea`
+  (`WidgetContentSafeArea`), `setContentSafeArea`, `SandboxEngine.contentSafeArea`; C++
+  `WidgetHostOptions::contentSafeArea` (`twidget::WidgetContentSafeArea`), `WidgetHost::setContentSafeArea`,
+  `SandboxEngine::contentSafeArea`; the Node harness's `contentSafeArea`, `{ safeArea }` steps and `--safe-area
+  bottom[,cornerRight[,cornerLeft]]`. New messages: the renderer's `safeArea` and the shim's `safeArea` dispatch, and
+  `contentSafeArea` in the boot config (`docs/sdk-v1.md` §3). A client with its own renderer sets the six variables;
+  one with its own glue passes the boot field and the dispatch.
+- Clients: draw the time on a backing over the corner of a widget without a caption and pass the band and its corner
+  before the first render; change them only with the bubble's layout, never per frame; taps on the time are yours.
+- Dev app: the **time** control (`?time=corner|corner-rtl`) draws the time over the bubble and passes the reference
+  band (24 px, a 64 px corner; `REFERENCE_TIME_CORNER` in `reference.ts`); `__tw.setSafeArea(area)` for any other.
+- Conformance: `auto/36-safe-area` (env() with and without a fallback, other names, CSS.supports, the variables and
+  `contentSafeAreaInset` agree, the corner's side, the UA layer's body padding) and `visual/17-time-corner` with its
+  picture (the reference time drawn over the corner); a header's `safeArea` is the band the reference runner and the
+  pictures use, and `channel.json` marks such posts `withoutCaption` (the test group posts them without a caption, so
+  a client draws its own time). New catalogue features `tw.content-safe-area` and `behaviour.time-corner`.
+
 ## v0.3.0 — release notes (2026-10-29)
 
 Strict limits from the start, the renderer stress kit for the client teams, the tweb audit's five fixes completed on

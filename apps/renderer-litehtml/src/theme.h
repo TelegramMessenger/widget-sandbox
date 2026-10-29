@@ -16,6 +16,11 @@ namespace twlite::theme {
 /// `--tg-theme-*` (15, always), `--tg-color-scheme`, the `--tg-button-*` the client passed, `--tg-text-*` (3, always).
 std::vector<std::pair<std::string, std::string>> variables(const twidget::Json& theme);
 
+/// `--tg-content-safe-area-inset-top|right|bottom|left` and `--tg-content-safe-area-corner-left|right` (6, always; the
+/// twin of `contentSafeAreaVariables`, docs/sdk-v1.md §2.17): the host's `{type:'safeArea', inset:{top, right, bottom,
+/// left, cornerLeft, cornerRight}}` in px, an inset in 0–64 and a corner in 0–200 with at most two decimals, else 0px.
+std::vector<std::pair<std::string, std::string>> safe_area_variables(const twidget::Json& inset);
+
 /// A name of the fixed list: the widget's own style ops on <html> cannot set it.
 bool is_variable(const std::string& name);
 

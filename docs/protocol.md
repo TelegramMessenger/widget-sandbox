@@ -4,8 +4,8 @@ Three trust domains exchange plain JSON messages:
 
 ```
 sandbox (QuickJS, UNTRUSTED) ──ops / queries / listen / pd / raf / log / diag / bridge / storage──▶ host (trusted)
-sandbox ◀── events / timer & frame ticks / query results / viewport / theme / visibility ──── host
-host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
+sandbox ◀── events / timer & frame ticks / query results / viewport / theme / safeArea / visibility ──── host
+host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / safeArea / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
 host ◀── events / query results / size / resize / frame / media / gesture / bubble / violation ──── renderer
 ```
 
@@ -382,6 +382,8 @@ a phone; `rtl`: the leading edge strip is the right one. `{ bubble: false }`
 
 Host → worker: `init {html, sab, config, sandboxBundle}`, `event {ev}`,
 `frame {time}`, `viewport`, `resize {entries}`, `theme {theme, themeParams}`,
+`safeArea {inset}` (the client's time over the widget, docs/sdk-v1.md §2.17: the shim's `safeArea` dispatch with
+`{top, right, bottom, left, cornerLeft, cornerRight}`; not deferred under the CPU quota),
 `visibility {visible}`, `bridge {event}` (a change of the widget's state, a request's answer;
 see "Bridge calls and storage commits" below). (The profile-0
 `bridge {event, data}` message, host → widget events for `sendMessage`, went
@@ -395,7 +397,9 @@ docs/sdk-v1.md §2.3–§2.4 from it (`themeVariables` in
 checked against their grammar) and sets them inline and `!important` on the
 widget's root, ignoring style ops of the widget that would set those names
 there and re-applying them when the widget replaces the root's `style`
-attribute — and `frozen {reason, fatal}` — the runtime is gone
+attribute — `safeArea {inset}` — the six `--tg-content-safe-area-*` variables
+(`contentSafeAreaVariables`, docs/sdk-v1.md §2.17), set and protected the same
+way, `0px` until the first one; hosts send it right after `theme` — and `frozen {reason, fatal}` — the runtime is gone
 (or paused): the renderer keeps the DOM as it is, cancels the pending frame,
 stops forwarding events, sets `data-tw-frozen="fatal"|"paused"` on `<html>`
 (`pointer-events: none`, a slight grayscale when fatal) and shows a small badge
@@ -541,6 +545,7 @@ client's duties are in docs/sdk-v1.md.
 | `viewport`, `theme` | | as before |
 | `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |
 | `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
+| `contentSafeArea` | all 0 | the client's time over a widget without a caption (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left, cornerLeft, cornerRight}`; the shim checks it (an inset 0–64, a corner 0–200, else 0): `TelegramWidget.contentSafeAreaInset` |
 | `profile` | 1 | the widget profile the glue enforces; the shim reports `profile-mismatch` when its bundle's differs |
 | `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (4096 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
 | `chatData`, `publicData` | `null` | the chat state and the shared state, which only the bot writes, checked by the glue (text of 1–1024 bytes of UTF-8 without a NUL, else `null` and `data-rejected`); a copy's `chatData` is `null` |

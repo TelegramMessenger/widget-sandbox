@@ -1985,3 +1985,45 @@ them by default and a change is not checked on them (Artem, 2026-10-30).
   seam on our WebView renderer, which stands in for a client's. The clients' renderers are checked by the clients:
   drawing by the conformance set, cost by the stress kit. Their renderer-side defences (no network attempt, `trusted`
   only for a real press) have no shared check yet.
+
+## The client's time over a widget without a caption: the content safe area (2026-10-29)
+
+Artem's decision (`P1-safe-area` in `profile.json`; `docs/sdk-v1.md` §2.17, §5.12): a message with a widget and no
+caption gets its time and status drawn by the client over the widget's bottom corner, on a backing, as on a photo;
+with a caption the time is in the caption's line and nothing covers the widget. The widget is told what is covered so
+it can keep clear of it.
+
+**Why `env()`, rewritten.** `env(safe-area-inset-bottom)` is what web code and models already write
+(`padding-bottom: max(12px, env(safe-area-inset-bottom))`), and it means the right thing: keep this band clear. But the
+engine's own `env()` cannot carry it: its values belong to the document (in the shadow renderer, to the whole chat
+page), come from the system insets of the view on WKWebView and Android WebView, and do not exist in Blitz or
+litehtml. So the validator rewrites `env(safe-area-inset-{top,right,bottom,left}[, fb])` to
+`var(--tg-content-safe-area-inset-…[, fb])`, root variables the renderer sets like the theme's (inline, `!important`,
+names from a fixed list, values checked: an inset 0–64 px, a corner 0–200 px). Every renderer then draws the same, and
+the names are Mini Apps', so `var(--tg-content-safe-area-inset-bottom)` from Mini Apps code works too. Before this the
+validator dropped every declaration with `env()`, fallback or not: `padding: 12px 12px calc(12px +
+env(safe-area-inset-bottom))` lost the whole padding. Another `env()` name now resolves to its fallback (dropped without
+one); none inside `url()`.
+
+**Why a corner as well.** CSS has no cut-outs: a safe area is four edge lengths. One number would leave the whole band
+empty, while the time takes only one corner of it, and its width varies (12- or 24-hour time, "edited", ticks, views).
+`--tg-content-safe-area-corner-left|right` gives that width on its physical side (right in a left-to-right interface,
+left in a right-to-left one, whatever the widget's own direction), so content may enter the band on the other side.
+Script gets the same numbers as `TelegramWidget.contentSafeAreaInset` (one frozen object of six numbers, a fresh one per
+change, and `contentSafeAreaChanged`; Artem: one object, no separate members), for a canvas widget that lays out its
+own controls: `getComputedStyle` on the variables would be a layout query.
+
+**Static, never per frame.** The client passes the band at creation, so the first height already has it, and changes
+it only with the bubble's layout (a caption added or removed by an edit, "edited"). The floating date pill moves
+relative to the bubble every frame; passing it would restyle every visible bubble on every frame and lag behind it, so
+it has no contract and is drawn over the widget as over a photo. Taps on the time are the client's (a view over the
+widget); nothing changes in the gesture policy.
+
+**The UA layer pads the body.** `:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`: an
+unstyled widget (and one that only sets `body { margin: 0 }`, as most do) stays clear of the time; a widget that sets
+the body's padding handles the band itself. The price: a widget without a caption is that much taller.
+
+**A clarification of profile 1, not profile 2.** `css.value.env` moved from out to in on 2026-10-29, before widgets
+launched, as the UA layer was clarified in v0.1.1 (`P1-safe-area`, like `P1-ua`): `TelegramWidget.profile` stays 1. A
+client that passes no safe area keeps v0.3.0's layout, except that a declaration with `env(safe-area-inset-*)` now
+applies with 0 where it used to be dropped, and another `env()` name with a fallback now takes its fallback.

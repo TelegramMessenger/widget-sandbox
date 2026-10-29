@@ -713,12 +713,78 @@ const TEXT_VARS: [keyof TextTokens, string, (v: unknown) => string | null][] = [
   ['padding', '--tg-text-padding', padding],
 ];
 
-/** Every variable name the renderer may set on the widget's root. */
+// ── what the client draws over the widget (docs/sdk-v1.md §2.17) ──
+
+/**
+ * The client's chrome over the widget, in logical px (docs/sdk-v1.md §2.17): a widget without a caption gets the
+ * message time and status drawn over its bottom corner, as on a photo. `bottom` is the height of the time's band;
+ * `cornerLeft` / `cornerRight` the width of the client's corner in that band, on a physical side (right in a
+ * left-to-right interface, left in a right-to-left one, the other 0); `top`, `left` and `right` are 0. All 0 with a
+ * caption (the time is in the caption's line) and on a client that draws nothing over the widget.
+ */
+export interface ContentSafeArea {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  cornerLeft: number;
+  cornerRight: number;
+}
+export const CONTENT_SAFE_AREA_FIELDS = ['top', 'right', 'bottom', 'left', 'cornerLeft', 'cornerRight'] as const;
+/** The largest inset (`top`, `right`, `bottom`, `left`) and corner a client may pass; a value outside 0…max is 0. */
+export const MAX_SAFE_AREA_INSET = 64;
+export const MAX_SAFE_AREA_CORNER = 200;
+/** No chrome over the widget: what every host has until the client passes its own. */
+export const NO_CONTENT_SAFE_AREA: Readonly<ContentSafeArea> = Object.freeze({ top: 0, right: 0, bottom: 0, left: 0, cornerLeft: 0, cornerRight: 0 });
+
+/** Every field a finite number of logical px in its range (insets 0–64, corners 0–200), at most two decimals; anything else is 0. */
+export function checkContentSafeArea(area: unknown): ContentSafeArea {
+  const a = (typeof area === 'object' && area !== null ? area : {}) as Record<string, unknown>;
+  const out = { ...NO_CONTENT_SAFE_AREA };
+  for (const field of CONTENT_SAFE_AREA_FIELDS) {
+    const v = a[field];
+    const max = field.startsWith('corner') ? MAX_SAFE_AREA_CORNER : MAX_SAFE_AREA_INSET;
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max) out[field] = Math.round(v * 100) / 100;
+  }
+  return out;
+}
+
+/** The root variables of the content safe area, by field. */
+const SAFE_AREA_VARS: [keyof ContentSafeArea, string][] = [
+  ['top', '--tg-content-safe-area-inset-top'],
+  ['right', '--tg-content-safe-area-inset-right'],
+  ['bottom', '--tg-content-safe-area-inset-bottom'],
+  ['left', '--tg-content-safe-area-inset-left'],
+  ['cornerLeft', '--tg-content-safe-area-corner-left'],
+  ['cornerRight', '--tg-content-safe-area-corner-right'],
+];
+
+/**
+ * The `env()` names the validator rewrites to the root variable the renderer sets (docs/sdk-v1.md §2.17):
+ * `env(safe-area-inset-bottom, 8px)` → `var(--tg-content-safe-area-inset-bottom, 8px)`. Exact names, as in CSS.
+ */
+export const SAFE_AREA_ENV_VARIABLES: Readonly<Record<string, string>> = Object.freeze({
+  'safe-area-inset-top': '--tg-content-safe-area-inset-top',
+  'safe-area-inset-right': '--tg-content-safe-area-inset-right',
+  'safe-area-inset-bottom': '--tg-content-safe-area-inset-bottom',
+  'safe-area-inset-left': '--tg-content-safe-area-inset-left',
+});
+
+/** The CSS variables of a content safe area (checked; every one always set, `0px` for none). */
+export function contentSafeAreaVariables(area: unknown): Record<string, string> {
+  const a = checkContentSafeArea(area);
+  const vars: Record<string, string> = {};
+  for (const [field, name] of SAFE_AREA_VARS) vars[name] = a[field] + 'px';
+  return vars;
+}
+
+/** Every variable name the renderer may set on the widget's root: the theme's and the content safe area's. */
 export const THEME_VARIABLES: readonly string[] = [
   ...THEME_KEYS.map((k) => '--tg-theme-' + k.replace(/_/g, '-')),
   '--tg-color-scheme',
   ...BUTTON_VARS.map(([, name]) => name),
   ...TEXT_VARS.map(([, name]) => name),
+  ...SAFE_AREA_VARS.map(([, name]) => name),
 ];
 
 /**

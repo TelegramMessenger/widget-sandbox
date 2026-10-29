@@ -61,6 +61,15 @@ it.
   `color-scheme: light dark` and `light-dark()` follow the **chat** theme, live.
 - **Text is not selectable** unless you say `user-select: text` (and
   `-webkit-user-select: text`) on what a user may want to copy.
+- **The time in the corner.** Without a caption the client draws the message
+  time over the widget's bottom corner (right, or left in a right-to-left
+  client), on a backing, as on a photo; taps on it are the client's. Keep
+  `env(safe-area-inset-bottom)` clear at the bottom (`padding-bottom:
+  max(12px, env(safe-area-inset-bottom))`; the defaults pad an unstyled body for
+  it). Only the corner of that band is covered,
+  `--tg-content-safe-area-corner-right` (or `-left`) wide, so content may run
+  into the band on the other side. With a caption all of it is 0. In JS:
+  `TelegramWidget.contentSafeAreaInset` (`docs/sdk-v1.md` §2.17).
 
 ## Input: who gets a press
 
@@ -144,20 +153,20 @@ stylesheets, fonts and images are never loaded. The full list, generated
 from the profile:
 
 <!-- profile:summary -->
-*Generated from `packages/core/profile.json` (profile 1): 275 features, 196 in, 79 out; each one with how it is removed in `docs/profile-v1.md`.*
+*Generated from `packages/core/profile.json` (profile 1): 277 features, 199 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
 
 - **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> (any non-data: URL) · Form controls: form, input, select, option, optgroup, textarea, label, fieldset, legend, datalist, output · progress, meter · dialog, popover attribute · audio, video, source, track · script, iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, … · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
-- **CSS** (54 in, 22 out): display: flow-root, contents, list-item · Logical properties: margin-inline, padding-block, inset-inline, inline-size, … · Multi-column layout · position: sticky · overflow: auto / scroll · Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color() · color-mix() · background-clip: text · url() / image-set() with anything but a data: image or #fragment · font-family naming a font · @font-face · -webkit-line-clamp / line-clamp · text-shadow · writing-mode, text-orientation · 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility · filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() · filter: url(#svg-filter) · mix-blend-mode, isolation, background-blend-mode · clip-path: inset(), circle(), ellipse(), polygon() · mask / -webkit-mask with gradients or data: images · vh / dvh / svh / vb: height-relative units · env()
+- **CSS** (55 in, 21 out): display: flow-root, contents, list-item · Logical properties: margin-inline, padding-block, inset-inline, inline-size, … · Multi-column layout · position: sticky · overflow: auto / scroll · Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color() · color-mix() · background-clip: text · url() / image-set() with anything but a data: image or #fragment · font-family naming a font · @font-face · -webkit-line-clamp / line-clamp · text-shadow · writing-mode, text-orientation · 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility · filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() · filter: url(#svg-filter) · mix-blend-mode, isolation, background-blend-mode · clip-path: inset(), circle(), ellipse(), polygon() · mask / -webkit-mask with gradients or data: images · vh / dvh / svh / vb: height-relative units
 - **Selectors** (7 in, 6 out): :has() · ::first-letter, ::first-line, ::marker · :focus, :focus-visible, :focus-within · :checked, :disabled, :enabled, :valid, :invalid, :placeholder-shown, ::placeholder · :host, :host-context(), ::slotted(), ::part(), :scope · :target
 - **At-rules** (5 in, 8 out): @media (hover: hover), (pointer: fine/coarse) · @media print, resolution, other media features · @import, @namespace · @container queries · @layer cascade layers · @property · @counter-style, @starting-style, @scope, @page, @font-feature-values, @font-palette-values, @position-try · CSS nesting
 - **Animation** (7 in, 1 out): Magic move
 - **Canvas 2D** (13 in, 8 out): createConicGradient · createPattern from a canvas or image · globalCompositeOperation · shadowBlur, shadowColor, shadowOffsetX/Y · ctx.filter · getImageData / putImageData / createImageData · toDataURL, toBlob, captureStream · WebGL, OffscreenCanvas, bitmaprenderer contexts
 - **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open, form submission · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
-- **TelegramWidget (SDK v1)** (16 in, 1 out): TelegramWidget.sendMessage
+- **TelegramWidget (SDK v1)** (17 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
 - **Limits** (19 in, 0 out)
-- **Client behaviour** (16 in, 0 out)
+- **Client behaviour** (17 in, 0 out)
 <!-- /profile:summary -->
 
 ## `TelegramWidget` in brief
@@ -172,6 +181,7 @@ TelegramWidget.openTelegramLink('https://t.me/…'); // in a tap handler: opens 
 TelegramWidget.HapticFeedback.impactOccurred('light'); // notificationOccurred, selectionChanged
 TelegramWidget.ready();                      // optional: first state drawn
 TelegramWidget.setResizeAnchor('bottom');    // v0.1.3: grow upward ('top', the default: downward)
+TelegramWidget.contentSafeAreaInset;         // { bottom, cornerLeft, cornerRight, … } px: the client's time over the corner; 'contentSafeAreaChanged'
 TelegramWidget.chatData;                     // the chat state (this message, this chat), or null; publicData: the shared state
 TelegramWidget.onEvent('chatDataChanged', fn); // and 'publicDataChanged': the bot changed the state: redraw from it
 TelegramWidget.request('vote:2').then((a) => a.result, (e) => e.code); // ask the bot, in a tap handler
@@ -403,6 +413,10 @@ THE BUBBLE
   ui-monospace, ui-rounded only; font names and @font-face are removed.
 - Text is not selectable unless you set user-select:text and
   -webkit-user-select:text on what a user may want to copy.
+- Without a caption the client draws the message time in the bottom corner:
+  keep env(safe-area-inset-bottom) clear at the bottom (the defaults do it for
+  an unstyled body); only --tg-content-safe-area-corner-left|right of it is
+  covered, so content may enter the band on the other side.
 More: {docs}/guide#the-bubble
 
 WHAT WORKS
@@ -439,7 +453,7 @@ OUT OF THE PROFILE (removed by every client; the rest of the widget still runs)
 <!-- profile:agent -->
 - HTML: ruby, rt, rp, bdi, bdo; Legacy presentational elements: center, font, big, tt, strike, nobr; <img src="data:image/svg+xml">; <img> with data: AVIF, BMP, ICO; <img src="https://…"> (any non-data: URL); Form controls: form, input (all types), select, option, optgroup, textarea, label, fieldset, legend, datalist, output; progress, meter (native gauges); dialog (show/showModal), popover attribute; audio, video, source, track; script (as DOM), iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, …; align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap; contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize; draggable (HTML drag and drop); tabindex, autofocus, accesskey (keyboard focus and shortcuts).
 - SVG: clipPath, mask, pattern, marker; SVG filter primitives (fe*); SMIL animation: animate, animateTransform, animateMotion; foreignObject (HTML inside SVG); <image href="data:…"> inside SVG.
-- CSS: display: flow-root, contents, list-item; Logical properties: margin-inline, padding-block, inset-inline, inline-size, …; Multi-column layout (columns, column-count, column-gap); position: sticky; overflow: auto / scroll (scrolling inside the widget); Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color(); color-mix(); background-clip: text (gradient text); url() / image-set() with anything but a data: image or #fragment; font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …); @font-face (web fonts); -webkit-line-clamp / line-clamp (multi-line ellipsis); text-shadow; writing-mode, text-orientation (vertical text); 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility; filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity(); filter: url(#svg-filter); mix-blend-mode, isolation, background-blend-mode; clip-path: inset(), circle(), ellipse(), polygon(); mask / -webkit-mask with gradients or data: images; vh / dvh / svh / vb: height-relative units; env() (safe-area-inset-*, …).
+- CSS: display: flow-root, contents, list-item; Logical properties: margin-inline, padding-block, inset-inline, inline-size, …; Multi-column layout (columns, column-count, column-gap); position: sticky; overflow: auto / scroll (scrolling inside the widget); Colour functions: hwb(), lab(), lch(), oklab(), oklch(), color(); color-mix(); background-clip: text (gradient text); url() / image-set() with anything but a data: image or #fragment; font-family naming a font ("Helvetica", "Courier New", "Comic Sans MS", …); @font-face (web fonts); -webkit-line-clamp / line-clamp (multi-line ellipsis); text-shadow; writing-mode, text-orientation (vertical text); 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility; filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity(); filter: url(#svg-filter); mix-blend-mode, isolation, background-blend-mode; clip-path: inset(), circle(), ellipse(), polygon(); mask / -webkit-mask with gradients or data: images; vh / dvh / svh / vb: height-relative units.
 - Selectors: :has(); ::first-letter, ::first-line, ::marker; :focus, :focus-visible, :focus-within; :checked, :disabled, :enabled, :valid, :invalid, :placeholder-shown, ::placeholder; :host, :host-context(), ::slotted(), ::part(), :scope; :target.
 - At-rules: @media (hover: hover), (pointer: fine|coarse); @media print, resolution, other media features; @import, @namespace; @container queries (container-type in the widget); @layer cascade layers; @property (typed custom properties); @counter-style, @starting-style, @scope, @page, @font-feature-values, @font-palette-values, @position-try; CSS nesting (.a { .b { } }, &).
 - Animation: Magic move (shared-element morph between renders).

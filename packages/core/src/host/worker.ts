@@ -588,6 +588,7 @@ function handle(msg: HostToWorker) {
     case 'viewport': dispatch('viewport', msg.viewport); return;
     case 'resize': dispatch('resize', msg.entries); return;
     case 'theme': dispatch('theme', { theme: msg.theme, themeParams: msg.themeParams }); return;
+    case 'safeArea': dispatch('safeArea', msg.inset); return;
     case 'visibility': setVisible(!!msg.visible); return;
     // The bot's data or a request's answer, checked by WidgetHost; deferred under the CPU quota like a theme change, in order.
     case 'bridge': dispatch('bridge', msg.event); return;

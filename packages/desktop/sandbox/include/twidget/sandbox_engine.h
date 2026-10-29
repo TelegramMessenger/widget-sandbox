@@ -30,6 +30,18 @@
 
 namespace twidget {
 
+/// What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12). A widget without a caption gets the
+/// message time and status over its bottom corner, as on a photo: `bottom` is the height of that band and `cornerRight`
+/// (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in it; with a
+/// caption everything is 0 (the time is in the caption's line). The widget sees it as `env(safe-area-inset-*)`, the
+/// `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
+/// and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+struct WidgetContentSafeArea {
+    double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0;
+    /// The TS `ContentSafeArea` shape; a value that is not finite is 0 (JSON has no NaN).
+    Json json() const;
+};
+
 /// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start").
 struct SandboxConfig {
     size_t memoryLimitBytes = size_t(8) << 20;
@@ -57,6 +69,8 @@ struct SandboxConfig {
     std::map<std::string, std::string> themeParams;
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
+    /// What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes go through `contentSafeArea`.
+    WidgetContentSafeArea contentSafeArea;
     /// Web Storage of this message as the client keeps it; an area over the quota drops the whole
     /// preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
@@ -189,6 +203,9 @@ public:
     /// The chat's theme changed: the colour scheme and the palette (checked here, as at boot) in one task;
     /// the shim updates `colorScheme` and `themeParams`, then fires `themeChanged`.
     void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams = {});
+    /// What the client draws over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.contentSafeAreaInset` and
+    /// `contentSafeAreaChanged` in one task; the shim checks the values. Before boot it only replaces the config's.
+    void contentSafeArea(const WidgetContentSafeArea& area);
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);
     /// The renderer's primary press began / ended (pointerdown; pointerup or pointercancel), trusted input only, never the

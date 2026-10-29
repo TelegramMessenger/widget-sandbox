@@ -189,6 +189,27 @@ class SdkTest {
         engine2.terminate()
     }
 
+    /**
+     * The client's time over the widget (docs/sdk-v1.md §2.17): the boot value from the first line (checked by the shim:
+     * out of range is 0), then one contentSafeAreaChanged with a fresh frozen object per change, nothing for the same
+     * value, and a value set before boot replaces the config's.
+     */
+    @Test
+    fun contentSafeAreaReachesTheWidget() {
+        val html = "<script>var first = TelegramWidget.contentSafeAreaInset; console.log('first=' + JSON.stringify(first));" +
+            "TelegramWidget.onEvent('contentSafeAreaChanged', function () { var a = TelegramWidget.contentSafeAreaInset;" +
+            " console.log('changed=' + [a.bottom, a.cornerLeft, a.cornerRight, Object.isFrozen(a), a !== first, this === TelegramWidget].join(':')); });</script>"
+        val (d, engine) = run(html) { it.contentSafeArea = WidgetContentSafeArea(top = 99.0, bottom = 24.0, cornerRight = 72.0) }
+        assertTrue("${d.logs}", d.logged().contains("first={\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}"))
+        val rtl = WidgetContentSafeArea(bottom = 26.5, cornerLeft = 80.0)
+        engine.contentSafeArea(rtl)
+        engine.contentSafeArea(rtl)
+        engine.contentSafeArea(WidgetContentSafeArea(bottom = Double.NaN))
+        engine.thread.sync {}
+        assertEquals(listOf("changed=26.5:80:0:true:true:true", "changed=0:0:0:true:true:true"), d.logged().filter { it.startsWith("changed=") })
+        engine.terminate()
+    }
+
     /** `setResizeAnchor` (v0.1.3): the shim sends only changes, the glue takes them with no gesture and hidden, never as an action. */
     @Test
     fun resizeAnchorIsNoAction() {
@@ -752,6 +773,20 @@ class SdkTest {
             val dark = "#101010|#ffffff|dark|10px|0.7|17px|4px 6px|17px|0px"
             assertTrue(waitFor(5) { eval() == dark })
             assertEquals(dark, eval())
+
+            // The client's time over the widget (docs/sdk-v1.md §2.17): the variables on the root, the UA layer's body padding.
+            val safeArea = "(function(){ var s = getComputedStyle(document.documentElement); return ['--tg-content-safe-area-inset-bottom', '--tg-content-safe-area-corner-right', '--tg-content-safe-area-corner-left'].map(function (n) { return s.getPropertyValue(n).trim(); }).concat([getComputedStyle(document.body).paddingBottom]).join('|'); })()"
+            fun evalSafeArea(): String {
+                val done = CountDownLatch(1)
+                val out = AtomicReference("")
+                instrumentation.runOnMainSync { host.evaluateInRenderer(safeArea) { out.set(it); done.countDown() } }
+                assertTrue(done.await(5, TimeUnit.SECONDS))
+                return out.get().trim('"')
+            }
+            assertEquals("0 until the client passes a band", "0px|0px|0px|0px", evalSafeArea())
+            instrumentation.runOnMainSync { host.setContentSafeArea(WidgetContentSafeArea(bottom = 24.0, cornerLeft = 64.0)) }
+            assertTrue(waitFor(5) { evalSafeArea() == "24px|0px|64px|24px" })
+            assertEquals("24px|0px|64px|24px", evalSafeArea())
             assertEquals("callbacks run on the main thread", emptyList<String>(), offMain.toList())
             assertNull(latest.get().dead)
             instrumentation.runOnMainSync { host.destroy() }

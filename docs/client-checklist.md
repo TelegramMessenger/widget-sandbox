@@ -33,6 +33,11 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 - [ ] A killed widget keeps its last frame with the "Widget stopped" badge; the
       bubble does not collapse ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
 - [ ] Caption as the preview text; the localized "Widget" stub without one.
+- [ ] Without a caption, the message time over the widget's bottom corner on a backing (right, or left in
+      a right-to-left interface), taps on it yours; its band and corner as the host's `contentSafeArea`
+      at creation, `setContentSafeArea` only when the bubble's layout changes; with a caption all 0
+      ([integration.md, "The time over a widget without a caption"](integration.md#the-time-over-a-widget-without-a-caption),
+      [sdk-v1.md §5.12](sdk-v1.md#512-the-time-over-a-widget-without-a-caption-217)). `visual/17-time-corner`.
 - [ ] A test bot sends widgets (≤ 4 KB compressed, every conformance widget included) to a
       tester's private chat; forward them into the shared test channel (bots may send
       widgets only to private chats).
