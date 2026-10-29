@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { PNG } from 'pngjs';
+import type { ContentSafeArea } from '../../packages/core/src/shared/sdk-policy.ts';
 
 /** path.relative with / separators: what the manifest and the channel table store, on every OS. */
 export const posixRelative = (from: string, to: string) => path.relative(from, to).split(path.sep).join('/');
@@ -129,6 +130,13 @@ export interface WidgetMeta {
   tall?: boolean;
   /** No harness CSS (the harness script and the stage geometry only): the widget tests the renderer's own defaults (the UA layer). */
   bare?: boolean;
+  /**
+   * What the client draws over this widget (docs/sdk-v1.md §2.17): a content safe area, in CSS px (the band of the message
+   * time at the bottom, its corner). The test bot sends the widget without a caption, so a client draws its own time over
+   * it and passes its own numbers; the reference runner gives the dev app these, and the reference picture is drawn with
+   * them and the reference time over the corner. The widget's checks compare with what its host passed, never with these.
+   */
+  safeArea?: Partial<ContentSafeArea>;
   /**
    * The host must stop this widget (a counted limit under strict, docs/decisions.md "Strict limits from the start"): its
    * covers pass when the runtime dies with a reason that starts with this text, and fail on any other end.

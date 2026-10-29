@@ -69,7 +69,7 @@ async function setup(page: Page, renderer: string, theme: string) {
 
 /** Load the widget into the dev app and tap the renderer's ops for the result attribute. */
 async function load(page: Page, w: Widget, width: number) {
-  await page.evaluate(({ html, name, width, message }) => {
+  await page.evaluate(({ html, name, width, message, safeArea }) => {
     const wrap = document.querySelector('#sandbox-wrap') as HTMLElement;
     const chat = wrap.closest('.chat') as HTMLElement;
     const bubble = wrap.closest('.bubble') as HTMLElement;
@@ -93,6 +93,8 @@ async function load(page: Page, w: Widget, width: number) {
     // the server's flags) and the state the test bot sends with; the private chat with no state otherwise.
     Object.assign(tw.bot.context, { message: message?.kind ?? 'private', chatType: null, viewer: 1001 });
     tw.bot.edit(name, { chatData: message?.chat_data ?? null, publicData: message?.public_data ?? null });
+    // The header's content safe area (lib.ts WidgetMeta.safeArea): the time over the corner, as a client without a caption draws it.
+    tw.setSafeArea(safeArea);
     tw.load(html, name);
     tw.host.element.setAttribute('data-conf-el', '');
     const r = tw.host.renderer;
@@ -109,7 +111,7 @@ async function load(page: Page, w: Widget, width: number) {
       }
       return send(m);
     };
-  }, { html: w.html, name: `conformance/${w.id}.html`, width, message: w.meta.message?.[0] ?? null });
+  }, { html: w.html, name: `conformance/${w.id}.html`, width, message: w.meta.message?.[0] ?? null, safeArea: w.meta.safeArea ?? null });
 }
 
 async function published(page: Page): Promise<Published | null> {

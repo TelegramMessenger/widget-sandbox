@@ -223,6 +223,8 @@ interface Post {
   text: string;
   photos: Photo[];
   hash: Hashes;
+  /** Sent without a caption: the client draws its time over the widget (channel.json `withoutCaption`). */
+  withoutCaption?: boolean;
 }
 
 const sha = (...parts: (string | Buffer)[]) => {
@@ -232,8 +234,11 @@ const sha = (...parts: (string | Buffer)[]) => {
 };
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const zlibSize = (b: Buffer) => zlib.deflateSync(b, { level: 9 }).length;
-/** The widget's message caption: its key, which the forwarded copy keeps. */
-const docCaption = (p: Post) => p.key.replace('@', ' · ');
+/**
+ * The widget's message caption: its key, which the forwarded copy keeps; none for a case of the client's time over the
+ * widget (docs/sdk-v1.md §2.17), which a caption would move into its own line.
+ */
+const docCaption = (p: Post) => (p.withoutCaption ? {} : { caption: p.key.replace('@', ' · ') });
 const baseKey = (key: string) => key.replace(/@.*/, '');
 /** The document's file name, which carries the size anchors for the test bot. */
 const docName = (p: Post) => path.basename(p.file, '.html') + (p.width || p.height ? `-${p.width}x${p.height}` : '') + '.html';
@@ -265,7 +270,7 @@ function photo(file: string, key: string): Photo {
 
 function channelPosts(): Post[] {
   const channel = JSON.parse(fs.readFileSync(path.join(CONF, 'channel.json'), 'utf8')) as {
-    posts: { widget: string; width: number; height: number; caption: string; photos: string[]; variant?: string; message?: Record<string, unknown> }[];
+    posts: { widget: string; width: number; height: number; caption: string; photos: string[]; variant?: string; message?: Record<string, unknown>; withoutCaption?: boolean }[];
   };
   const prefixes = TOPICS.filter((t) => t.channel).sort((a, b) => b.channel!.length - a.channel!.length);
   const out: Post[] = [];
@@ -287,6 +292,7 @@ function channelPosts(): Post[] {
     out.push({
       key: (p.width || p.height ? `${id}@${p.width}x${p.height}` : id) + (p.variant ? `@${p.variant}` : ''), topic: topic.name, file, width: p.width, height: p.height, html, zlib: zlibSize(html),
       text: body, photos: p.photos.map((f) => photo(path.join(CONF, f), id)), hash: { widget: '', description: '', photos: '' },
+      ...(p.withoutCaption ? { withoutCaption: true } : {}),
     });
   }
   if (special.length) console.log(`${special.length} posts need layer-233 fields (flags, state, a group, inline results) and are left to the test bot: corepack pnpm tsx scripts/conformance/test-bot.ts --post <id> [--variant <kind>]\n  ${special.join('\n  ')}`);
@@ -322,7 +328,7 @@ function finish(p: Post): Post {
   const anchors = p.width || p.height ? `width ${p.width}, height ${p.height}` : '';
   p.text = description(baseKey(p.key), anchors, p.text);
   p.hash = {
-    widget: sha(p.html, docName(p), docCaption(p), DIRECT ? 'direct' : 'forward'),
+    widget: sha(p.html, docName(p), docCaption(p).caption ?? '', DIRECT ? 'direct' : 'forward'),
     description: sha(p.text),
     photos: sha(...p.photos.flatMap((f) => [fs.readFileSync(f.file), f.label, f.asDocument ? 'document' : 'photo'])),
   };
@@ -412,8 +418,8 @@ async function sendWidget(p: Post, thread?: number) {
   const m = await api<Message>(
     'sendDocument',
     thread === undefined
-      ? { chat_id: cfg.user, caption: docCaption(p), disable_notification: 'true' }
-      : { chat_id: cfg.group, message_thread_id: String(thread), caption: docCaption(p), disable_notification: 'true' },
+      ? { chat_id: cfg.user, ...docCaption(p), disable_notification: 'true' }
+      : { chat_id: cfg.group, message_thread_id: String(thread), ...docCaption(p), disable_notification: 'true' },
     { document: { file: p.file, name: docName(p), type: 'text/html' } },
   );
   if (VERBOSE) console.log(`    sendDocument → ${brief(m)}`);
