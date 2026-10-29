@@ -102,6 +102,49 @@ describe('strict limits: ops per batch and canvas commands per send', () => {
   });
 });
 
+describe('strict limits: canvas and data: image pixels', () => {
+  const canvasEl = (id: number, attrs: Record<string, string> = {}) => [{ op: 'el', id, tag: 'canvas', attrs }, { op: 'ins', parent: 3, id, before: null }];
+  it("2048² pixels over the widget's canvases draw; one more stops the widget, by attribute or by the shim's r; removing a canvas refunds it", () => {
+    const v = validator();
+    v.processOps([...canvasEl(10, { width: '2048', height: '1024' }), ...canvasEl(11)]);
+    assert.equal(v.stopped, null);
+    // 2048 × 1024 + 2048 × 1024 = 2048²: still fits (the second canvas was 300 × 150)
+    assert.equal(v.processOps([{ op: 'canvas', id: 11, cmds: [['r', 2048, 1024]] }]).length, 1);
+    assert.equal(v.stopped, null);
+    v.processOps([{ op: 'rm', id: 11 }]);
+    v.processOps(canvasEl(12, { width: '2048', height: '1024' }));
+    assert.equal(v.stopped, null, 'the removed canvas was refunded');
+    assert.deepEqual(v.processOps(canvasEl(13)), []);
+    assert.equal(v.stopped, 'Canvas limit exceeded: canvases of 4239304 pixels together (max 4194304)');
+    const w = validator();
+    w.processOps(canvasEl(10));
+    assert.deepEqual(w.processOps([{ op: 'attr', id: 10, name: 'width', value: '30000' }]), []);
+    assert.match(w.stopped ?? '', /^Canvas limit exceeded: canvases of 4500000 pixels/);
+    const c = validator('compat');
+    c.processOps(canvasEl(10, { width: '8192', height: '8192' }));
+    assert.equal(c.stopped, null, 'compat leaves canvas sizes to the renderer');
+    // a size past 2147483647 is the default, so 0 × 1e310 cannot make the sum NaN and switch the cap off
+    const n = validator();
+    n.processOps(canvasEl(10, { width: '0', height: '1' + '0'.repeat(310) }));
+    assert.equal(n.stopped, null);
+    n.processOps(canvasEl(11, { width: '4096', height: '2048' }));
+    assert.match(n.stopped ?? '', /^Canvas limit exceeded: canvases of 8388608 pixels together/);
+  });
+
+  it('a data: image past 1024² pixels becomes the placeholder, and the widget goes on', () => {
+    const chunk = (type: string, data: Buffer) => Buffer.concat([Buffer.alloc(4), Buffer.from(type, 'latin1'), data, Buffer.alloc(4)]);
+    const png = (w: number, h: number) => {
+      const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
+      return 'data:image/png;base64,' + Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', ihdr)]).toString('base64');
+    };
+    const v = validator();
+    const src = (w: number, h: number) => ((v.processOps([{ op: 'el', id: 20 + w, tag: 'img', attrs: { src: png(w, h) } }])[0] as any).attrs as [string, string][]).find(([n]) => n === 'src')![1];
+    assert.equal(src(1024, 1024), png(1024, 1024));
+    assert.notEqual(src(1025, 1024), png(1025, 1024));
+    assert.equal(v.stopped, null);
+  });
+});
+
 describe('strict limits: script animations', () => {
   const record = (aid: number) => ({
     aid, target: 7, keyframes: [{ offset: 0, easing: 'linear', composite: null, values: { opacity: '0' } }, { offset: 1, easing: 'linear', composite: null, values: { opacity: '1' } }],

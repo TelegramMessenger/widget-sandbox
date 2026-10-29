@@ -101,26 +101,33 @@ final class DataImageTests: XCTestCase {
 
     private var bundle: Rig!
     private var native: Rig!
+    /// For a URL past strict's 8 KB attribute cap, which stops the widget before the URL is looked at
+    /// (StrictLimitsTests): compat takes it, and the image check is the same under both policies.
+    private var bundleCompat: Rig!
+    private var nativeCompat: Rig!
     private var nextId = 10
 
     override func setUp() {
         super.setUp()
         bundle = Rig(native: false, policy: .strict)
         native = Rig(native: true, policy: .strict)
+        bundleCompat = Rig(native: false, policy: .compat)
+        nativeCompat = Rig(native: true, policy: .compat)
         let setup = "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\",\"attrs\":{}},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"el\",\"id\":4,\"tag\":\"svg\",\"ns\":\"svg\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null},{\"op\":\"ins\",\"parent\":3,\"id\":4,\"before\":null}]"
-        _ = bundle.json(setup)
-        _ = native.json(setup)
+        for rig in [bundle, native, bundleCompat, nativeCompat] { _ = rig!.json(setup) }
     }
 
     override func tearDown() {
         bundle = nil
         native = nil
+        bundleCompat = nil
+        nativeCompat = nil
         super.tearDown()
     }
 
     /// `url` as an `<img src>`, set when the element is made and again by an `attr` op, and as an SVG `<image href>`,
-    /// through the script validator and the native model: the same ops and diagnostics out. Returns the `src` the
-    /// native model gave the `<img>`.
+    /// through the script validator and the native model (strict; compat for a URL past strict's attribute cap): the
+    /// same ops and diagnostics out. Returns the `src` the native model gave the `<img>`.
     @discardableResult
     private func sameVerdict(_ url: String, _ label: String = "", file: StaticString = #filePath, line: UInt = #line) -> String? {
         let img = nextId, image = nextId + 1
@@ -133,7 +140,9 @@ final class DataImageTests: XCTestCase {
             ["op": "ins", "parent": 4, "id": image, "before": NSNull()],
         ]
         let batch = String(decoding: try! JSONSerialization.data(withJSONObject: ops), as: UTF8.self)
-        let expected = bundle.json(batch), got = native.json(batch)
+        let strict = url.utf16.count <= 8192
+        let expected = (strict ? bundle : bundleCompat).json(batch), got = (strict ? native : nativeCompat).json(batch)
+        XCTAssertNil(native.validator.stopped, file: file, line: line)
         let name = label.isEmpty ? String(url.prefix(60)) : label
         XCTAssertEqual(got.0, expected.0, "ops: \(name)", file: file, line: line)
         XCTAssertEqual(got.2, expected.2, "diagnostics: \(name)", file: file, line: line)
@@ -167,6 +176,14 @@ final class DataImageTests: XCTestCase {
         // the conformance set's broken image (auto/02-attributes-images-b), which has to fire error
         XCTAssertEqual(Self.check("data:image/png;base64,AAAA"), URLPolicy.brokenImage)
         urls.remove("data:image/png;base64,AAAA")
+        // and its image one pixel past the cap (auto/19-limits), which has to be the placeholder: the bundle's verdict too
+        let limits = try String(contentsOf: Self.repo.appendingPathComponent("packages/conformance/auto/19-limits.html"), encoding: .utf8)
+        let big = try XCTUnwrap(try NSRegularExpression(pattern: "id=\"img-big\"[^>]*src=\"([^\"]+)\"").firstMatch(in: limits, range: NSRange(limits.startIndex..., in: limits))
+            .flatMap { Range($0.range(at: 1), in: limits) }.map { String(limits[$0]) })
+        XCTAssertEqual(Self.size(big), [1025, 1024])
+        XCTAssertNil(Self.check(big))
+        XCTAssertNotEqual(sameVerdict(big, "auto/19-limits img-big"), big)
+        urls.remove(big)
         XCTAssertGreaterThan(urls.count, 3, "\(urls.count) images")
         for url in urls.sorted() {
             let size = Self.size(url)
@@ -179,18 +196,23 @@ final class DataImageTests: XCTestCase {
     }
 
     func testRefusesAnImageWhoseHeaderClaimsMorePixelsThanABitmapMayHold() {
+        XCTAssertEqual(URLPolicy.maxImagePixels, 1024 * 1024)
         XCTAssertEqual(Self.size(Self.pngHeader(4096, 4096)), [4096, 4096])
-        XCTAssertNotNil(Self.check(Self.pngHeader(4096, 4096)))
-        XCTAssertNil(Self.check(Self.pngHeader(4097, 4096)))
+        XCTAssertNotNil(Self.check(Self.pngHeader(1024, 1024)))
+        XCTAssertNotNil(Self.check(Self.pngHeader(4096, 256)))
+        XCTAssertNil(Self.check(Self.pngHeader(1025, 1024)))
+        XCTAssertNil(Self.check(Self.pngHeader(4096, 4096)))
         XCTAssertNil(Self.check(Self.pngHeader(65535, 65535)))
         // no overflow: a header may claim 2³² - 1 on each side
         XCTAssertNil(Self.check(Self.pngHeader(0xffff_ffff, 0xffff_ffff)))
         // GIF's logical screen, which every frame is drawn in
         XCTAssertNil(Self.check(Self.gif((65535, 65535), [0, 0, 1, 1])))
-        for url in [Self.pngHeader(4096, 4096), Self.pngHeader(4097, 4096), Self.pngHeader(65535, 65535), Self.pngHeader(0xffff_ffff, 0xffff_ffff), Self.pngHeader(0, 7), Self.gif((65535, 65535), [0, 0, 1, 1])] {
+        for url in [Self.pngHeader(1024, 1024), Self.pngHeader(4096, 256), Self.pngHeader(1025, 1024), Self.pngHeader(1024, 1025), Self.pngHeader(4096, 4096), Self.pngHeader(4097, 4096),
+                    Self.pngHeader(65535, 65535), Self.pngHeader(0xffff_ffff, 0xffff_ffff), Self.pngHeader(0, 7), Self.gif((65535, 65535), [0, 0, 1, 1]), Self.gif((1024, 1024), [0, 0, 1, 1]), Self.gif((1, 1), [1000, 0, 25, 1024])] {
             sameVerdict(url)
         }
-        XCTAssertNotEqual(sameVerdict(Self.pngHeader(4097, 4096)), Self.pngHeader(4097, 4096), "the placeholder, as for a refused URL")
+        XCTAssertEqual(sameVerdict(Self.pngHeader(1024, 1024)), Self.pngHeader(1024, 1024))
+        XCTAssertNotEqual(sameVerdict(Self.pngHeader(1025, 1024)), Self.pngHeader(1025, 1024), "the placeholder, as for a refused URL")
     }
 
     func testBoundsAGIFByItsFirstFrameTooWhereThatFrameReachesPastTheLogicalScreen() {

@@ -24,6 +24,8 @@ conformance set). Under `strict` (the default):
 | Web Storage per area and message | 16 KB | 4 KB | `QuotaExceededError` (as before) |
 | Layout queries of one task | the task's slice, at least 100 ms (500 at boot) | 100 ms | stops (as before) |
 | The host's main-thread work for the widget (`mainThreadQuotaMs`, new) | in the JS quota | 100 ms per second, apart from the JS quota | timers and frames deferred |
+| A widget's canvases together, in pixels | none (the tweb audit: 4096² in the renderer) | 2048² | **stops**; the renderer still refuses past 4096² |
+| A data: image, in pixels as its bytes say | none (the tweb audit: 4096²) | 1024² | the placeholder, as a refused URL |
 
 A counted cap that is passed stops the widget like an infinite loop or running out of memory: the validator reports the
 `limit` diagnostic with the reason (`Text limit exceeded: a text value of 40000 characters (max 32768)`, `Ops limit
@@ -34,7 +36,10 @@ reason, so the bubble keeps its last render instead of a document with holes. Th
 deferrable tasks wait as under the JS quota (300 ms per second, unchanged, which now counts JS time only). `compat` keeps
 the old caps and never stops (tests, tooling and the stress kit's measuring runs). A client using the framework's glue
 only updates; hosts get the new option `mainThreadQuotaMs` next to `cpuQuotaMs`, and the harness prints the run's main-thread
-cost and `STOPPED: <reason>`. CPU quota, the 500 ms task slice, the 50 000-node cap and the complex-script budget are
+cost and `STOPPED: <reason>` (and takes `dpr`, the widget's devicePixelRatio). The canvas cap counts what the validator
+sees (a new canvas is 300 × 150; its `width` / `height` attributes and the shim's `r` command size it; removing it
+refunds it) and stops with `Canvas limit exceeded: canvases of N pixels together (max 4194304)`; the image cap is
+`MAX_IMAGE_PIXELS` in `url-policy.ts` and Swift's `URLPolicy.maxImagePixels`. CPU quota, the 500 ms task slice, the 50 000-node cap and the complex-script budget are
 unchanged; the heavy-box count and the frame cost of the paint-limits draft wait for the stress kit's numbers from the
 clients.
 
@@ -115,7 +120,8 @@ historical corpus inputs. Commands are in `CLAUDE.md`.
   to its first frame where that frame reaches past it, as decoders grow the image; WebP's first chunk; JPEG's first
   frame header; a GIF's descriptor and a JPEG's header within 64 KB), decoding the body as fetch does (without the
   URL's `#fragment`), and refuses more than 4096²
-  pixels (the placeholder, as for a refused URL): a few hundred bytes can claim 65535². The browser picks a decoder by
+  pixels (the placeholder, as for a refused URL): a few hundred bytes can claim 65535². With strict limits (above) the
+  image cap is 1024² and the validator stops a widget whose canvases hold more than 2048² together. The browser picks a decoder by
   the bytes, not by the declared type, so bytes of none of the profile's formats (BMP, ICO or AVIF behind `image/png`,
   or no image at all) become `BROKEN_IMAGE` (`data:image/png;base64,`), which fires `error` as a broken image does
   (conformance `auto/02` checks that). The check runs for every element and style that names an image, and URLs that

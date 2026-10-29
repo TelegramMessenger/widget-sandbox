@@ -660,6 +660,8 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
 | Canvas commands per canvas and task | 237 | 2 000 (was 400 000 buffered) | `RangeError`; stops past it in a batch |
 | Web Storage per area | 585 characters | 4 KB (was 16 KB) | `QuotaExceededError` |
 | Layout queries per task | 14.6 ms over a whole run | 100 ms (was the slice, up to 500 ms) | stops |
+| Canvas pixels, all of a widget's canvases | 0.41 M (736 × 560) | 2048² = 4.2 M (the audit's 4096²) | stops |
+| A data: image's pixels | 800 (40 × 20) | 1024² = 1 M (the audit's 4096²) | the placeholder |
 
 - **Stop, not drop.** A counted cap used to drop the op with a diagnostic and the widget went on with a hole in its
   document, whose look depended on what had passed. Now the validator (`validator.ts`, the same bundle on every native
@@ -677,6 +679,17 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   canvas command; `opsCostMs` in `cpu-budget.ts` and its twins). A deferrable task waits while either window is spent.
   The busiest widget of the corpora (`htmlbubbles-ported/06-trip-lisbon/10-ana-bare`, a list redrawn whole) costs
   82 ms per second; 1000 elements moved every frame get about 6 frames a second instead of 60.
+- **Bitmaps.** The tweb audit (`docs/changes.md`, "Bitmaps a widget makes the page hold are bounded") found that
+  nothing bounded the bitmaps a widget makes the page hold: four canvases of 16384² grew a browser by ~16 GB, and a
+  data: image is decoded at the size its header claims (2 KB of a one-colour PNG is a real 4096², 64 MB; the attribute
+  cap bounds the bytes, not the pixels). The audit capped both at 4096² (64 MB) in the renderer and in `checkUrl`; by
+  the rule above they are lower. The corpora's canvases, run at a devicePixelRatio of 3, hold at most 0.41 M pixels
+  together, but the guide tells authors to scale a canvas by devicePixelRatio, and one across a whole 430 px bubble at
+  3× is 2.3 M: so the validator stops a widget whose canvases would hold more than 2048² together (a new canvas is
+  300 × 150; its `width` and `height` attributes and the shim's `r` command size it; removing it refunds it). The
+  renderer keeps the audit's 4096² as its own backstop for compat and for any path past the validator. A data: image
+  is a URL, so past 1024² it gets the placeholder as a refused URL does, and the widget goes on: the corpora's largest
+  is 40 × 20, and an image across a 320 px bubble at 3× fits.
 - **compat keeps the old caps** and never stops: tests, tooling, and the measuring runs of the stress kit
   (`packages/stress`), which must see the cost past the limits.
 - Not in this change: the count of heavy boxes (shadows, filters, opacity) and the renderer's frame cost of the

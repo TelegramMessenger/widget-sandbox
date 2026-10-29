@@ -23,9 +23,9 @@
   }
  },
  "coverage": {
-  "auto": 257,
+  "auto": 259,
   "visual": 126,
-  "catalogue": 273,
+  "catalogue": 275,
   "external": {
    "limit.nodes": "corpus/attacks (pnpm test:attacks): node flood",
    "limit.cpu": "corpus/attacks and tests/lifecycle.spec.ts: CPU quota, deferral, kill",
@@ -6497,7 +6497,7 @@
    "id": "auto/19-limits",
    "set": "auto",
    "file": "auto/19-limits.html",
-   "title": "Strict limits: a 30 K text value and a 6 K data-* attribute render, the complex-script budget, the 64-timer cap, 2000 canvas commands per canvas and task, attr() under strict (past a counted limit the widget stops: auto/31–34)",
+   "title": "Strict limits: a 30 K text value and a 6 K data-* attribute render, the complex-script budget, the 64-timer cap, 2000 canvas commands per canvas and task, a data: image up to 1024 × 1024 pixels, attr() under strict (past a counted limit the widget stops: auto/31–35)",
    "kind": [
     "self"
    ],
@@ -6505,6 +6505,7 @@
     "behaviour.policy-strict",
     "limit.attribute",
     "limit.canvas-commands",
+    "limit.image-pixels",
     "limit.text-budget",
     "limit.text-node",
     "limit.timers"
@@ -6520,6 +6521,20 @@
    "actions": [],
    "host": [],
    "checks": [
+    {
+     "id": "limit.image-pixels",
+     "name": "a 1024 × 1024 data: image decodes",
+     "native": {
+      "chromium": "pass"
+     }
+    },
+    {
+     "id": "limit.image-pixels",
+     "name": "a 1025 × 1024 data: image is the 48 px placeholder",
+     "native": {
+      "chromium": "skip"
+     }
+    },
     {
      "id": "limit.text-node",
      "name": "a 30 K text node renders",
@@ -6578,8 +6593,8 @@
     }
    ],
    "stages": [],
-   "bytes": 6259,
-   "zlib": 2949
+   "bytes": 8029,
+   "zlib": 3601
   },
   {
    "id": "auto/20-client-behaviour",
@@ -8004,6 +8019,42 @@
    "bytes": 4001,
    "zlib": 2122,
    "stops": "CSS limit exceeded"
+  },
+  {
+   "id": "auto/35-stop-canvas-pixels",
+   "set": "auto",
+   "file": "auto/35-stop-canvas-pixels.html",
+   "title": "Strict limits: canvases over 2048 × 2048 pixels together stop the widget",
+   "hint": "The host must stop this widget: it passes a counted limit on purpose (strict). A browser has no such limit, so natively the check is skipped.",
+   "kind": [
+    "self"
+   ],
+   "covers": [
+    "limit.canvas-pixels"
+   ],
+   "themes": [
+    "light"
+   ],
+   "widths": [
+    360,
+    390,
+    430
+   ],
+   "actions": [],
+   "host": [],
+   "checks": [
+    {
+     "id": "limit.canvas-pixels",
+     "name": "a second canvas of 2048 × 2048 next to one of 1024 × 1024 stops the widget (the reason starts with “Canvas limit exceeded”)",
+     "native": {
+      "chromium": "skip"
+     }
+    }
+   ],
+   "stages": [],
+   "bytes": 4080,
+   "zlib": 2143,
+   "stops": "Canvas limit exceeded: canvases of"
   },
   {
    "id": "visual/01-boxes",

@@ -46,6 +46,8 @@ struct NativeValidatorTables {
     var maxCssRules = 0
     var maxKeyframes = 0
     var maxLiveAnims = 1024
+    /// The widget's canvases together, in bitmap pixels (validator.ts `MAX_CANVAS_PIXELS`); 0 = no cap (compat).
+    var maxCanvasPixels = 0
     /// Strict: a counted cap stops the widget (diagnostic `limit`) instead of rejecting the op.
     var stop = false
     /// Attributes whose values count against the strict text budgets (css-sanitizer.ts `isTextAttr`).
@@ -119,6 +121,7 @@ struct NativeValidatorTables {
         maxCssRules = Int(root["cssRules"]?.number ?? 0)
         maxKeyframes = Int(root["keyframes"]?.number ?? 0)
         maxLiveAnims = Int(root["liveAnims"]?.number ?? 1024)
+        maxCanvasPixels = Int(root["canvasPixels"]?.number ?? 0)
         if case .bool(let on)? = root["stop"] { stop = on }
         if let names = strings("textAttrs") { textAttributes = Set(names) }
         if let prefixes = strings("textAttrPrefixes") { textAttributePrefixes = prefixes }
@@ -153,6 +156,10 @@ final class NativeValidator {
         /// A `<style>` element: the rules and `@keyframes` of its sanitized sheet, counted against the document's caps.
         var cssRules = 0
         var cssKeyframes = 0
+        /// An HTML `<canvas>`: its bitmap (300 × 150 when made, then its `width` / `height` and the shim's `r`), counted
+        /// against the widget's canvas pixels. Doubles, as validator.ts keeps them: a product is rounded as JS rounds it
+        /// (2147483647² is 4611686014132420600 there).
+        var canvasSize: (width: Double, height: Double)?
         let seq: Int
 
         init(id: Int, kind: Kind, tag: String = "", svg: Bool = false, rendered: Bool = true, isStyle: Bool = false, adopted: Bool = false, data: String = "", seq: Int) {
@@ -203,6 +210,7 @@ final class NativeValidator {
         totalText = 0
         cssRules = 0
         cssKeyframes = 0
+        canvasPixels = 0
         stopReason = nil
         intern.reset()
         nodeSeq = 0
@@ -250,6 +258,8 @@ final class NativeValidator {
     private(set) var stopReason: String?
     private var cssRules = 0
     private var cssKeyframes = 0
+    /// The pixels of the widget's canvases together (each canvas's in `Node.canvasSize`): the strict cap is on the sum.
+    private var canvasPixels = 0.0
 
     /// A cap passed: strict stops the widget (diagnostic `limit`, the host acts on it); compat only rejects the op.
     @discardableResult
@@ -276,6 +286,114 @@ final class NativeValidator {
 
     private func tooManyCanvasCommands(_ count: Int) -> Bool {
         stop("Canvas limit exceeded: \(count) commands in one send (max \(tables.maxCanvasCommands))")
+    }
+
+    // MARK: canvas pixels (validator.ts `sizeCanvas`, `sizeCanvasAttr`)
+
+    /// Canvas `node` takes the bitmap `width` × `height` (an attribute, its removal, the shim's `r`, a new canvas's
+    /// 300 × 150); false when the widget's canvases would hold more pixels together than strict allows (the widget stops).
+    private func sizeCanvas(_ node: Node, _ width: Double, _ height: Double) -> Bool {
+        let total = canvasPixels - (node.canvasSize.map { $0.width * $0.height } ?? 0) + width * height
+        // NaN-safe: no size may slip past as a comparison that is false both ways
+        if tables.maxCanvasPixels > 0, !(total <= Double(tables.maxCanvasPixels)) { return tooManyCanvasPixels(total) }
+        node.canvasSize = (width, height)
+        canvasPixels = total
+        return true
+    }
+
+    private func tooManyCanvasPixels(_ total: Double) -> Bool {
+        stop("Canvas limit exceeded: canvases of \(Self.jsNumber(total)) pixels together (max \(tables.maxCanvasPixels))")
+    }
+
+    /// A number as a JS template literal prints it (`NaN` and `Infinity` too, should a size ever be one).
+    private static func jsNumber(_ value: Double) -> String {
+        if value.isNaN { return "NaN" }
+        if value.isInfinite { return value < 0 ? "-Infinity" : "Infinity" }
+        return JSNumberText.string(value)
+    }
+
+    /// A canvas's `width` or `height` attribute set to `value` (nil: removed), by HTML's rules for non-negative integers.
+    private func sizeCanvasAttribute(_ node: Node, _ name: String, _ value: String?) -> Bool {
+        guard node.tag == "canvas", !node.svg else { return true }
+        // `name.toLowerCase()`: no character outside ASCII lowercases to a letter of these two names
+        let isWidth: Bool
+        if Self.isASCIICaseless(name, "width") { isWidth = true } else if Self.isASCIICaseless(name, "height") { isWidth = false } else { return true }
+        // past 2147483647 it is no unsigned long and the canvas takes the default, as the browser does (0 × 1e310 is NaN)
+        let n = value.flatMap(Self.canvasDimension).flatMap { $0 <= 2147483647 ? $0 : nil } ?? (isWidth ? 300 : 150)
+        let size = node.canvasSize ?? (300, 150)
+        return sizeCanvas(node, isWidth ? n : size.width, isWidth ? size.height : n)
+    }
+
+    private static func isASCIICaseless(_ name: String, _ lower: StaticString) -> Bool {
+        var name = name
+        return name.withUTF8 { b in
+            guard b.count == lower.utf8CodeUnitCount else { return false }
+            let p = lower.utf8Start
+            for k in 0..<b.count where (b[k] >= 0x41 && b[k] <= 0x5a ? b[k] | 0x20 : b[k]) != p[k] { return false }
+            return true
+        }
+    }
+
+    /// `/^[\t\n\f\r ]*\+?(\d+)/` and `Number` of its digits, or nil when the value has none there (the default size).
+    static func canvasDimension(_ value: String) -> Double? {
+        var value = value
+        return value.withUTF8 { b -> Double? in
+            var i = 0
+            while i < b.count, b[i] == 0x09 || b[i] == 0x0a || b[i] == 0x0c || b[i] == 0x0d || b[i] == 0x20 { i += 1 }
+            if i < b.count, b[i] == 0x2b { i += 1 }
+            let start = i
+            while i < b.count, b[i] >= 0x30, b[i] <= 0x39 { i += 1 }
+            guard i > start else { return nil }
+            // strtod rounds as `Number` does, and overflows to infinity as it does
+            return Double(String(decoding: UnsafeBufferPointer(rebasing: b[start..<i]), as: UTF8.self))
+        }
+    }
+
+    /// A send's `r` commands: the command's index and word offset (canvas words), and the size `opCanvas` gives the canvas.
+    struct Resize {
+        var index: Int
+        var offset = 0
+        var width: Double
+        var height: Double
+    }
+
+    /// The `r`s of a send that validator.ts `canvasCmd` takes (`['r', w, h, …]`, 2 to 16 items, w and h finite numbers
+    /// in 0...16384), with the size truncated as `opCanvas` does.
+    static func resizes(_ cmds: [JSONValue]) -> [Resize] {
+        var out: [Resize] = []
+        for (index, cmd) in cmds.enumerated() {
+            guard case .array(let a) = cmd, a.count >= 3, a.count <= 16, case .string("r") = a[0], case .number(let w) = a[1], case .number(let h) = a[2],
+                  w.isFinite, h.isFinite, w >= 0, h >= 0, w <= 16384, h <= 16384 else { continue }
+            out.append(Resize(index: index, width: w.rounded(.towardZero), height: h.rounded(.towardZero)))
+        }
+        return out
+    }
+
+    /// validator.ts `opCanvas` sizes the canvas at each `r` as it comes: the first of a send's resizes that takes the
+    /// widget's canvases past the strict cap, and the sum it would have made, or nil when they all fit.
+    private func overflowingResize(_ node: Node, _ resizes: [Resize]) -> (resize: Resize, total: Double)? {
+        guard tables.maxCanvasPixels > 0 else { return nil }
+        var sum = canvasPixels, current = node.canvasSize.map { $0.width * $0.height } ?? 0
+        for r in resizes {
+            let total = sum - current + r.width * r.height
+            if !(total <= Double(tables.maxCanvasPixels)) { return (r, total) }
+            sum = total
+            current = r.width * r.height
+        }
+        return nil
+    }
+
+    /// A send whose resize passes the cap: the commands before it are checked as `opCanvas` checks them (a string past
+    /// the cap there stops the widget first, their diagnostics are reported), then the widget stops.
+    private func stopAtResize(_ total: Double, before json: String?) -> Bool {
+        if let json, checkedCanvasCommands(json) == nil { return false }
+        return tooManyCanvasPixels(total)
+    }
+
+    /// The resizes of a send that went through, in order (none passes the cap: `overflowingResize` came first).
+    private func applyResizes(_ node: Node, _ resizes: [Resize]) -> Bool {
+        for r in resizes where !sizeCanvas(node, r.width, r.height) { return false }
+        return true
     }
 
     /// The script validator stopped while checking canvas commands for this model (`canvasCommands`): the same stop,
@@ -603,9 +721,14 @@ final class NativeValidator {
             guard let id = isId(o["id"]), case .array(let cmds)? = o["cmds"] else { return false }
             if cmds.count > tables.maxCanvasCommands { return tooManyCanvasCommands(cmds.count) }
             guard let node = nodes[id], node.kind == .element, node.tag == "canvas" else { return false }
-            var text: [UInt8] = []
-            JSONText.write(.array(cmds), to: &text)
-            return canvasJSON(id, String(decoding: text, as: UTF8.self))
+            func json(_ list: ArraySlice<JSONValue>) -> String {
+                var text: [UInt8] = []
+                JSONText.write(.array(Array(list)), to: &text)
+                return String(decoding: text, as: UTF8.self)
+            }
+            let resizes = Self.resizes(cmds)
+            if let over = overflowingResize(node, resizes) { return stopAtResize(over.total, before: over.resize.index > 0 ? json(cmds[..<over.resize.index]) : nil) }
+            return canvasJSON(id, json(cmds[...])) && applyResizes(node, resizes)
         default:
             return false
         }
@@ -700,6 +823,8 @@ final class NativeValidator {
         let seq = nextSeq()
         guard let node = newNode(id, { Node(id: id, kind: .element, tag: outTag ?? "", svg: svg, rendered: outTag != nil, isStyle: isStyle, adopted: adopt != nil, seq: seq) }) else { return false }
         guard let rendered = outTag else { return true }
+        // a canvas is born 300 × 150
+        if rendered == "canvas", !svg, !sizeCanvas(node, 300, 150) { return false }
         var attrs = extra
         for (name, value) in attributes {
             guard let value else { continue }
@@ -707,6 +832,7 @@ final class NativeValidator {
                 if tables.stop { return tooLongAttribute(length) }
                 continue
             }
+            if !sizeCanvasAttribute(node, name, value) { return false }
             for pair in sanitizeAttribute(node, name, value) {
                 if let text = attrText(pair.name, pair.value), !updateTextSlot(node, key: "attr:" + pair.name, text: text) { continue }
                 attrs.append(pair)
@@ -892,6 +1018,7 @@ final class NativeValidator {
             totalText -= n.data.utf16.count
             cssRules -= n.cssRules
             cssKeyframes -= n.cssKeyframes
+            if let size = n.canvasSize { canvasPixels -= size.width * size.height }
             for charge in n.textSlots.values {
                 totalText -= charge.length
                 complexText -= charge.complex
@@ -911,6 +1038,7 @@ final class NativeValidator {
     private func attribute(_ id: Int, _ name: String, _ value: String) -> Bool {
         guard let node = nodes[id], node.kind == .element else { return false }
         if !node.rendered { return true }
+        if !sizeCanvasAttribute(node, name, value) { return false }
         let pairs = sanitizeAttribute(node, name, value)
         if pairs.isEmpty {
             if let canon = canonicalAttributeName(node, name) {
@@ -930,6 +1058,7 @@ final class NativeValidator {
         guard let node = nodes[id], node.kind == .element else { return false }
         if !node.rendered { return true }
         guard let canon = canonicalAttributeName(node, name) else { return true }
+        if !sizeCanvasAttribute(node, canon, nil) { return false }
         releaseTextSlot(node, key: "attr:" + canon)
         out.append(WidgetOp(removeAttribute: id, name: canon))
         if node.tag == "a" && (canon == "href" || canon == "xlink:href") { out.append(WidgetOp(removeAttribute: id, name: "data-tg-link")) }
@@ -1155,27 +1284,38 @@ final class NativeValidator {
         guard let count = CanvasWords.commandCount(batch) else { return false }
         if count > tables.maxCanvasCommands { return tooManyCanvasCommands(count) }
         guard let node = nodes[id], node.kind == .element, node.tag == "canvas" else { return false }
+        let resizes = CanvasWords.resizes(batch).map { Resize(index: $0.index, offset: $0.offset, width: $0.width.rounded(.towardZero), height: $0.height.rounded(.towardZero)) }
+        if let over = overflowingResize(node, resizes) {
+            let before = over.resize.index > 0 ? CanvasWords.commandsJSON(WidgetCanvasBatch(words: Array(batch.words[..<over.resize.offset]), strings: batch.strings)) : nil
+            return stopAtResize(over.total, before: before)
+        }
         if CanvasWords.envelope(batch) {
             if let accepted = limitCanvasText(batch) { out.append(WidgetOp(canvas: id, batch: accepted)) }
-            return true
+            return applyResizes(node, resizes)
         }
         guard let json = CanvasWords.commandsJSON(batch) else { return false }
-        return canvasJSON(id, json)
+        return canvasJSON(id, json) && applyResizes(node, resizes)
     }
 
     /// The commands through the script validator; false when it stopped the widget on one of them (a string past the cap).
     private func canvasJSON(_ id: Int, _ json: String) -> Bool {
+        guard let accepted = checkedCanvasCommands(json) else { return false }
+        if !accepted.isEmpty { out.append(WidgetOp(["op": "canvas", "id": id, "cmds": accepted])) }
+        return true
+    }
+
+    /// The commands the script validator keeps, less the text over the strict churn budget; nil when it stopped the
+    /// widget on one of them (a string past the cap).
+    private func checkedCanvasCommands(_ json: String) -> [Any]? {
         let clean = oracle?.canvasCommands(json)
-        if adoptOracleStop() { return false }
-        guard let clean, clean != "[]", let cmds = (try? JSONSerialization.jsonObject(with: Data(clean.utf8))) as? [Any], !cmds.isEmpty else { return true }
-        let accepted = cmds.filter { value in
+        if adoptOracleStop() { return nil }
+        guard let clean, clean != "[]", let cmds = (try? JSONSerialization.jsonObject(with: Data(clean.utf8))) as? [Any], !cmds.isEmpty else { return [] }
+        return cmds.filter { value in
             guard tables.textBudget > 0, let cmd = value as? [Any], cmd.count >= 3, cmd[0] as? String == "c",
                   cmd[1] as? String == "fillText" || cmd[1] as? String == "strokeText",
                   let text = cmd[2] as? String, Self.chargesChurn(text) else { return true }
             return takeChurn(Self.textWork(text)) || overChurn()
         }
-        if !accepted.isEmpty { out.append(WidgetOp(["op": "canvas", "id": id, "cmds": accepted])) }
-        return true
     }
 
     private func limitCanvasText(_ batch: WidgetCanvasBatch) -> WidgetCanvasBatch? {
@@ -1280,14 +1420,15 @@ enum URLPolicy {
 //
 // The same check as the validator bundle's `checkUrl`, step for step, so that the native model and the script give one
 // verdict for every URL: an image's size read from its bytes as a decoder would (the browser sniffs the format: the
-// declared type does not pick the decoder), more than 4096² pixels refused, bytes of none of the profile's formats
+// declared type does not pick the decoder), more than 1024² pixels refused, bytes of none of the profile's formats
 // broken. The body is read as fetch decodes it (without the URL's `#fragment`, percent-decoded, forgiving base64), in
 // place and by the same windows, and the scans take the same bounded number of steps.
 
 extension URLPolicy {
     /// The most pixels a data: image may have. A decoder takes the size from the image's header and holds a bitmap
-    /// of it whatever the bytes are: a few hundred bytes of PNG can claim 65535² (16 GB as RGBA). 4096² is 64 MB.
-    static let maxImagePixels = 4096 * 4096
+    /// of it whatever the bytes are: a few hundred bytes of PNG can claim 65535² (16 GB as RGBA), and 2 KB of a one-colour
+    /// PNG is a real 4096² (64 MB). 1024² is 4 MB, an image across a 320 px bubble at 3× (url-policy.ts `MAX_IMAGE_PIXELS`).
+    static let maxImagePixels = 1024 * 1024
     /// An image no decoder takes: it fires `error` and has no size, as a broken one does.
     static let brokenImage = "data:image/png;base64,"
     /// How far into an image what gives its size is looked for: a JPEG's frame header past the segments before it, a

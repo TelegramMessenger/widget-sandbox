@@ -63,10 +63,12 @@ final class StrictLimitsTests: XCTestCase {
         let strict = try XCTUnwrap(NativeValidatorTables(json: Rig(native: true, policy: .strict).validator.tablesJSON()))
         XCTAssertEqual([strict.maxText, strict.maxAttr, strict.maxOps, strict.maxCanvasCommands], [32768, 8192, 10_000, 2000])
         XCTAssertEqual([strict.textBudget, strict.maxCssRules, strict.maxKeyframes, strict.maxLiveAnims], [49152, 400, 32, 64])
+        XCTAssertEqual(strict.maxCanvasPixels, 2048 * 2048)
         XCTAssertTrue(strict.stop)
         let compat = try XCTUnwrap(NativeValidatorTables(json: Rig(native: true, policy: .compat).validator.tablesJSON()))
         XCTAssertEqual([compat.maxText, compat.maxAttr, compat.maxOps, compat.maxCanvasCommands], [2 << 20, 4 << 20, 200_000, 500_000])
         XCTAssertEqual([compat.textBudget, compat.maxCssRules, compat.maxKeyframes, compat.maxLiveAnims], [0, 0, 0, 1024])
+        XCTAssertEqual(compat.maxCanvasPixels, 0)
         XCTAssertFalse(compat.stop)
     }
 
@@ -247,6 +249,234 @@ final class StrictLimitsTests: XCTestCase {
             _ = script.json(json(Self.canvas))
             guard case .empty = script.validator.processOpsForRenderer("[{\"op\":\"canvas\",\"id\":9,\"bin\":7}]", canvas: [7: batch], typed: true) else { return XCTFail("a 32 KB + 1 string reached the renderer") }
             XCTAssertEqual(script.validator.stopped, "Text limit exceeded: a text value of 32769 characters (max 32768)")
+        }
+    }
+
+    // MARK: canvas pixels
+
+    /// A `<canvas>` `id` in the body with these attributes, in this order (the bundle reads an object's keys in order).
+    private func canvasEl(_ id: Int, _ attrs: KeyValuePairs<String, String> = [:]) -> String {
+        let list = attrs.map { "\"\($0.key)\":\"\($0.value)\"" }.joined(separator: ",")
+        return "{\"op\":\"el\",\"id\":\(id),\"tag\":\"canvas\",\"attrs\":{\(list)}},{\"op\":\"ins\",\"parent\":3,\"id\":\(id),\"before\":null}"
+    }
+
+    /// The shim's `r` (`canvas.width = …`) as a canvas word payload, after `fillRects` fillRect commands.
+    private func resize(_ w: Double, _ h: Double, after fillRects: Int = 0) -> WidgetCanvasBatch {
+        var words: [Double] = []
+        for i in 0..<fillRects { words += [0, 0, 0, 4, 0, Double(i), 0, 0, 0, 1, 0, 1] }
+        return WidgetCanvasBatch(words: words + [2, -1, 0, 2, 0, w, 0, h], strings: fillRects > 0 ? ["fillRect"] : [])
+    }
+
+    /// strict-limits.test.ts, "2048² pixels over the widget's canvases draw; one more stops the widget, by attribute or
+    /// by the shim's r; removing a canvas refunds it", on the script validator and the native model: the same ops, the
+    /// same diagnostics, the same reason.
+    func testCanvasPixelsStopOnBothValidatorPaths() {
+        let steps: [(String, String?)] = [
+            ("[" + canvasEl(10, ["width": "2048", "height": "1024"]) + "," + canvasEl(11) + "]", nil),
+            // 2048 × 1024 + 2048 × 1024 = 2048²: still fits (the second canvas was 300 × 150)
+            ("[{\"op\":\"canvas\",\"id\":11,\"cmds\":[[\"r\",2048,1024]]}]", nil),
+            ("[{\"op\":\"rm\",\"id\":11}]", nil),
+            ("[" + canvasEl(12, ["width": "2048", "height": "1024"]) + "]", nil),
+            ("[" + canvasEl(13) + "]", "Canvas limit exceeded: canvases of 4239304 pixels together (max 4194304)"),
+        ]
+        var results: [[(NSArray, Int, [String])]] = []
+        var nanSteps: [[(NSArray, Int, [String])]] = []
+        for native in [false, true] {
+            let v = rig(native: native)
+            var outs: [(NSArray, Int, [String])] = []
+            for (k, (batch, stop)) in steps.enumerated() {
+                let out = v.json(batch)
+                XCTAssertEqual(v.validator.stopped, stop, "step \(k) (native \(native))")
+                if let stop {
+                    XCTAssertEqual(out.0.count, 0)
+                    XCTAssertEqual(out.2, ["limit|" + stop], "native \(native)")
+                } else {
+                    XCTAssertGreaterThan(out.0.count, 0, "step \(k) (native \(native))")
+                }
+                outs.append(out)
+            }
+            XCTAssertEqual(v.json("[{\"op\":\"rm\",\"id\":12}," + canvasEl(14) + "]").0.count, 0, "a stopped validator refuses every batch (native \(native))")
+            results.append(outs)
+
+            let w = rig(native: native)
+            _ = w.json("[" + canvasEl(10) + "]")
+            XCTAssertEqual(w.json("[{\"op\":\"attr\",\"id\":10,\"name\":\"width\",\"value\":\"30000\"}]").0.count, 0)
+            XCTAssertEqual(w.validator.stopped, "Canvas limit exceeded: canvases of 4500000 pixels together (max 4194304)", "native \(native)")
+
+            // a size past 2147483647 is the default, so 0 × 1e310 cannot make the sum NaN and switch the cap off
+            let n = rig(native: native)
+            let nan = n.json("[" + canvasEl(10, ["width": "0", "height": "1" + String(repeating: "0", count: 310)]) + "]")
+            XCTAssertNil(n.validator.stopped, "native \(native)")
+            let past = n.json("[" + canvasEl(11, ["width": "4096", "height": "2048"]) + "]")
+            XCTAssertEqual(past.0.count, 0)
+            XCTAssertTrue(n.validator.stopped?.hasPrefix("Canvas limit exceeded: canvases of 8388608 pixels together") ?? false, "native \(native): \(String(describing: n.validator.stopped))")
+            nanSteps.append([nan, past])
+
+            let c = rig(native: native, policy: .compat)
+            XCTAssertEqual(c.json("[" + canvasEl(10, ["width": "8192", "height": "8192"]) + "]").0.count, 2)
+            XCTAssertEqual(c.json("[{\"op\":\"canvas\",\"id\":10,\"cmds\":[[\"r\",16384,16384]]}]").0.count, 1)
+            XCTAssertNil(c.validator.stopped, "compat leaves canvas sizes to the renderer (native \(native))")
+        }
+        for k in steps.indices {
+            XCTAssertEqual(results[1][k].0, results[0][k].0, "step \(k)")
+            XCTAssertEqual(results[1][k].2, results[0][k].2, "step \(k)")
+        }
+        for k in 0..<2 {
+            XCTAssertEqual(nanSteps[1][k].0, nanSteps[0][k].0, "0 × 1e310, batch \(k)")
+            XCTAssertEqual(nanSteps[1][k].2, nanSteps[0][k].2, "0 × 1e310, batch \(k)")
+        }
+    }
+
+    /// A canvas's size by HTML's rules for non-negative integers (`width` / `height` on creation, `attr`, `rattr` back to
+    /// 300 × 150), a removed subtree refunding its canvases, a send's `r`s in order, and the reason's number as JS
+    /// prints it: the native model gives what the script validator gives, op for op.
+    func testCanvasSizesMatchTheScriptValidator() {
+        XCTAssertEqual(NativeValidator.canvasDimension(" \t\n\u{c}\r+2048xx"), 2048)
+        XCTAssertEqual(NativeValidator.canvasDimension("007"), 7)
+        for value in ["", "-5", "+", "++5", " + 5", "\u{a0}12", "\u{b}12", "\u{FF11}\u{FF12}", "x12"] { XCTAssertNil(NativeValidator.canvasDimension(value), value) }
+        XCTAssertEqual(NativeValidator.canvasDimension("1" + String(repeating: "0", count: 320)), .infinity)
+
+        let huge = "1" + String(repeating: "0", count: 320)
+        let rm = { (id: Int, name: String) in "{\"op\":\"rattr\",\"id\":\(id),\"name\":\"\(name)\"}" }
+        let attr = { (id: Int, name: String, value: String) in "{\"op\":\"attr\",\"id\":\(id),\"name\":\"\(name)\",\"value\":\"\(value)\"}" }
+        let canvasOp = { (id: Int, cmds: String) in "{\"op\":\"canvas\",\"id\":\(id),\"cmds\":\(cmds)}" }
+        let big = String(repeating: "b", count: 32 * 1024 + 1)
+        let scripts: [(String, [String], String?)] = [
+            ("parsing", ["[" + canvasEl(10, ["width": " \\t+2048xx", "height": "-5"]) + "]", "[" + canvasEl(11, ["width": "2048", "height": "1975"]) + "]"],
+             "Canvas limit exceeded: canvases of 4352000 pixels together (max 4194304)"),
+            ("names in any case", ["[" + canvasEl(10, ["WIDTH": "2048", "Height": "2048"]) + "]", "[" + attr(10, "HEIGHT", "2049") + "]"],
+             "Canvas limit exceeded: canvases of 4196352 pixels together (max 4194304)"),
+            ("rattr back to 300 × 150", ["[" + canvasEl(10, ["width": "2048", "height": "2048"]) + "]", "[" + rm(10, "Height") + "," + canvasEl(11, ["width": "2048", "height": "1898"]) + "]",
+                                         "[" + rm(11, "width") + "," + attr(10, "data-x", "1") + "," + rm(10, "title") + "]", "[" + attr(11, "width", "2048") + "," + attr(10, "height", "151") + "]"],
+             "Canvas limit exceeded: canvases of 4196352 pixels together (max 4194304)"),
+            ("a removed subtree", ["[{\"op\":\"el\",\"id\":20,\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":3,\"id\":20,\"before\":null},{\"op\":\"el\",\"id\":21,\"tag\":\"canvas\",\"attrs\":{\"width\":\"2048\",\"height\":\"2048\"}},{\"op\":\"ins\",\"parent\":20,\"id\":21,\"before\":null}]",
+                                   "[{\"op\":\"rm\",\"id\":20}," + canvasEl(22, ["width": "2048", "height": "2048"]) + "]", "[" + canvasEl(23) + "]"],
+             "Canvas limit exceeded: canvases of 4239304 pixels together (max 4194304)"),
+            ("SVG has no canvas", ["[{\"op\":\"el\",\"id\":20,\"tag\":\"canvas\",\"ns\":\"svg\",\"attrs\":{\"width\":\"99999\",\"height\":\"99999\"}}]", "[" + canvasEl(10, ["width": "2048", "height": "2048"]) + "]"], nil),
+            ("r in order", ["[" + canvasEl(10) + "]", "[" + canvasOp(10, "[[\"r\",4096,4096],[\"r\",1,1]]") + "]"],
+             "Canvas limit exceeded: canvases of 16777216 pixels together (max 4194304)"),
+            ("r shrinks first", ["[" + canvasEl(10, ["width": "2048", "height": "2048"]) + "]", "[" + canvasOp(10, "[[\"r\",1,1],[\"c\",\"fillRect\",0,0,1,1]]") + "," + canvasEl(11, ["width": "2047", "height": "2048"]) + "]",
+                                 "[" + canvasOp(10, "[[\"r\",2.9,1.9],[\"r\",-1,5],[\"r\",5],[\"r\",16385,1],[\"r\",\"9\",9],[\"c\",\"save\"],[\"r\",4,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[\"r\",3,1,0,0,0,0,0,0,0,0,0,0,0,0,0]]") + "]",
+                                 "[" + canvasOp(10, "[[\"r\",1,2049]]") + "]"],
+             "Canvas limit exceeded: canvases of 4194305 pixels together (max 4194304)"),
+            ("a string before the r stops first", ["[" + canvasEl(10) + "]", "[" + canvasOp(10, "[[\"c\",\"fillRect\",0,0,1,1],[\"c\",\"fillText\",\"\(big)\",0,0],[\"r\",16384,16384]]") + "]"],
+             "Text limit exceeded: a text value of 32769 characters (max 32768)"),
+            ("the r before a string stops first", ["[" + canvasEl(10) + "]", "[" + canvasOp(10, "[[\"x\"],[\"s\",\"filter\",\"blur(1px)\"],[\"r\",16384,16384],[\"c\",\"fillText\",\"\(big)\",0,0]]") + "]"],
+             "Canvas limit exceeded: canvases of 268435456 pixels together (max 4194304)"),
+            ("digits past a double are the default", ["[" + canvasEl(10, ["width": "0", "height": huge]) + "," + canvasEl(11, ["width": huge, "height": "0"]) + "]",
+                                                      "[" + attr(10, "width", "2048") + "," + attr(11, "height", "2048") + "]", "[" + canvasEl(12, ["width": "2048", "height": "2048"]) + "]"],
+             "Canvas limit exceeded: canvases of 5115904 pixels together (max 4194304)"),
+            ("past 2147483647 is the default", ["[" + canvasEl(10, ["width": "2147483648", "height": "99999999999"]) + "]", "[" + attr(10, "width", "2147483647") + "]"],
+             "Canvas limit exceeded: canvases of 322122547050 pixels together (max 4194304)"),
+            ("2147483647² as JS sums it", ["[" + canvasEl(10, ["width": "0", "height": "2147483647"]) + "]", "[" + attr(10, "width", "2147483647") + "]"],
+             "Canvas limit exceeded: canvases of 4611686014132420600 pixels together (max 4194304)"),
+        ]
+        for (what, batches, stop) in scripts {
+            var results: [[(NSArray, Int, [String])]] = []
+            for native in [false, true] {
+                let v = rig(native: native)
+                results.append(batches.map { v.json($0) })
+                XCTAssertEqual(v.validator.stopped, stop, "\(what) (native \(native))")
+            }
+            for k in batches.indices {
+                XCTAssertEqual(results[1][k].0, results[0][k].0, "\(what): batch \(k)")
+                XCTAssertEqual(results[1][k].1, results[0][k].1, "\(what): batch \(k) nodes")
+                XCTAssertEqual(results[1][k].2, results[0][k].2, "\(what): batch \(k) diagnostics")
+            }
+        }
+    }
+
+    /// The shim's `r` as canvas words through the native model (binary ops): the envelope's shortcut and the general
+    /// path size the canvas as the script validator does with the same commands as JSON, and stop at the same `r`.
+    func testCanvasWordResizesStopWhereTheScriptValidatorDoes() {
+        let big = String(repeating: "b", count: 32 * 1024 + 1)
+        let cases: [(String, WidgetCanvasBatch, String, String?)] = [
+            ("fits", resize(2048, 1024), "[[\"r\",2048,1024]]", nil),
+            ("one row more", resize(2048, 1025), "[[\"r\",2048,1025]]", "Canvas limit exceeded: canvases of 4196352 pixels together (max 4194304)"),
+            ("after commands", resize(16384, 16384, after: 3), "[[\"c\",\"fillRect\",0,0,1,1],[\"c\",\"fillRect\",1,0,1,1],[\"c\",\"fillRect\",2,0,1,1],[\"r\",16384,16384]]",
+             "Canvas limit exceeded: canvases of 270532608 pixels together (max 4194304)"),
+            ("truncated", WidgetCanvasBatch(words: [2, -1, 0, 2, 0, 2048.99, 0, 1024.99], strings: []), "[[\"r\",2048.99,1024.99]]", nil),
+            ("not an r the validator takes", WidgetCanvasBatch(words: [2, -1, 0, 2, 0, 16385, 0, 1, 2, -1, 0, 2, 1, 0, 0, 9, 2, -1, 0, 1, 0, 9000], strings: ["9000"]),
+             "[[\"r\",16385,1],[\"r\",\"9000\",9],[\"r\",9000]]", nil),
+            ("past the envelope", WidgetCanvasBatch(words: [2, -1, 0, 2, 0, 4096, 0, 4096, 0, 0, 0, 3, 1, 1, 0, 0, 0, 0], strings: ["fillText", big]),
+             "[[\"r\",4096,4096],[\"c\",\"fillText\",\"\(big)\",0,0]]", "Canvas limit exceeded: canvases of 18874368 pixels together (max 4194304)"),
+            ("a string before the r", WidgetCanvasBatch(words: [0, 0, 0, 3, 1, 1, 0, 0, 0, 0, 2, -1, 0, 2, 0, 4096, 0, 4096], strings: ["fillText", big]),
+             "[[\"c\",\"fillText\",\"\(big)\",0,0],[\"r\",4096,4096]]", "Text limit exceeded: a text value of 32769 characters (max 32768)"),
+        ]
+        for (what, batch, json, stop) in cases {
+            XCTAssertEqual(CanvasWords.commandsJSON(batch).map { Rig.normalized($0) }, Rig.normalized(json), what)
+            let script = rig(native: false)
+            _ = script.json("[" + canvasEl(10, ["width": "2048", "height": "1024"]) + "," + canvasEl(11) + "]")
+            let expected = script.json("[{\"op\":\"canvas\",\"id\":11,\"cmds\":\(json)}]")
+            XCTAssertEqual(script.validator.stopped, stop, what)
+
+            let native = rig(native: true)
+            var encoder = BinaryOpsEncoder()
+            encoder.begin(reset: true)
+            encoder.element(10, tag: "canvas", svg: false, attributes: [("width", "2048"), ("height", "1024")])
+            encoder.insert(parent: 3, 10, before: 0)
+            encoder.element(11, tag: "canvas", svg: false, attributes: [])
+            encoder.insert(parent: 3, 11, before: 0)
+            XCTAssertEqual(native.binary(encoder.finish()).0.count, 4)
+            encoder.begin(reset: false)
+            encoder.canvas(11, key: 7)
+            let got = native.binary(encoder.finish(), canvas: [7: batch])
+            XCTAssertEqual(native.validator.stopped, stop, what)
+            XCTAssertEqual(got.0, expected.0, what)
+            XCTAssertEqual(got.2, expected.2, what)
+            // what the canvas holds now, seen by the next canvas: 45 000 pixels more
+            let next = "[" + canvasEl(12) + "]"
+            XCTAssertEqual(native.json(next).2, script.json(next).2, what)
+            XCTAssertEqual(native.validator.stopped, script.validator.stopped, what)
+        }
+    }
+
+    /// The script validator's host sends canvas words straight to the renderer when they pass the envelope; under strict
+    /// a payload with an `r` goes through the validator instead, which counts the canvas pixels and stops past 2048².
+    func testTheCanvasWordShortcutLeavesResizesToTheValidatorUnderStrict() {
+        let send = "[{\"op\":\"canvas\",\"id\":9,\"bin\":7}]"
+        let v = rig(native: false)
+        _ = v.json(json(Self.canvas))
+        guard case .ops = v.validator.processOpsForRenderer(send, canvas: [7: fillRects(1)], typed: true) else { return XCTFail("expected the shortcut") }
+        XCTAssertEqual(v.validator.nativeCanvasBatches, 1)
+        guard case .ops(let fits) = v.validator.processOpsForRenderer(send, canvas: [7: resize(2048, 2048)], typed: true) else { return XCTFail("2048² fits") }
+        XCTAssertEqual(fits.count, 1)
+        XCTAssertEqual(v.validator.nativeCanvasBatches, 1, "through the validator")
+        guard case .empty = v.validator.processOpsForRenderer(send, canvas: [7: resize(2048, 2049, after: 2)], typed: true) else { return XCTFail("2048 × 2049 reached the renderer") }
+        XCTAssertEqual(v.validator.stopped, "Canvas limit exceeded: canvases of 4196352 pixels together (max 4194304)")
+        XCTAssertEqual(v.validator.nativeCanvasBatches, 1)
+
+        let compat = rig(native: false, policy: .compat)
+        _ = compat.json(json(Self.canvas))
+        guard case .ops = compat.validator.processOpsForRenderer(send, canvas: [7: resize(16384, 16384)], typed: true) else { return XCTFail("compat takes the shortcut") }
+        XCTAssertEqual(compat.validator.nativeCanvasBatches, 1)
+        XCTAssertNil(compat.validator.stopped)
+    }
+
+    /// A widget whose canvases pass 2048² pixels together is stopped with the validator's reason, through the real engine
+    /// and host, on the script validator and on the native model with canvas words.
+    func testCanvasPixelsPast2048SquaredStopTheWidget() {
+        let html = "<canvas id=a width=2048 height=1024></canvas><canvas id=b></canvas><p id=p>first</p><script>var b = document.getElementById('b'); b.getContext('2d').fillRect(0, 0, 1, 1);" +
+            "setTimeout(function () { b.width = 2048; b.height = 1024; b.getContext('2d').fillRect(0, 0, 1, 1); document.getElementById('p').textContent = 'second'; }, 10);" +
+            "setTimeout(function () { document.body.appendChild(document.createElement('canvas')); document.getElementById('p').textContent = 'never'; }, 40);</script>"
+        let reason = "Canvas limit exceeded: canvases of 4239304 pixels together (max 4194304)"
+        for features in [Set<String>(), ["binaryOps", "canvasWords"]] {
+            let renderer = RecordingRenderer()
+            var options = WidgetHost.Options()
+            options.cpuLimitMs = 2000
+            options.features = features
+            let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+            defer { host.destroy() }
+            let deadline = Date().addingTimeInterval(10)
+            while host.diagnostics.dead == nil && Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            XCTAssertEqual(host.diagnostics.dead, reason, "\(features)")
+            XCTAssertEqual(host.diagnostics.diags["limit"]?.details, [reason], "\(features)")
+            let all = renderer.messages.joined()
+            XCTAssertTrue(all.contains("second"), "the canvases that fit drew (\(features))")
+            XCTAssertFalse(all.contains("never"), "\(features)")
         }
     }
 

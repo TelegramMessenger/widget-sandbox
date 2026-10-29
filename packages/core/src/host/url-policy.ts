@@ -36,9 +36,11 @@ function dataMime(url: string): string | null {
 
 /**
  * The most pixels a data: image may have. A decoder takes the size from the image's header and holds a bitmap
- * of it whatever the bytes are: a few hundred bytes of PNG can claim 65535² (16 GB as RGBA). 4096² is 64 MB.
+ * of it whatever the bytes are: a few hundred bytes of PNG can claim 65535² (16 GB as RGBA), and 2 KB of a one-colour
+ * PNG is a real 4096² (64 MB). 1024² is 4 MB, an image across a 320 px bubble at 3×; the corpora's largest is 40 × 20
+ * (docs/decisions.md, "Strict limits from the start").
  */
-export const MAX_IMAGE_PIXELS = 4096 * 4096;
+export const MAX_IMAGE_PIXELS = 1024 * 1024;
 /** An image no decoder takes: it fires `error` and has no size, as a broken one does. */
 export const BROKEN_IMAGE = 'data:image/png;base64,';
 /**

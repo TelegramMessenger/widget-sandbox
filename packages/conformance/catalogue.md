@@ -1,6 +1,6 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 273 features: 194 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 275 features: 196 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
@@ -14,9 +14,9 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | js | 34 | 25 | 9 | 0 | 34 |
 | sdk | 17 | 16 | 1 | 0 | 17 |
 | input | 14 | 9 | 5 | 0 | 14 |
-| limit | 17 | 17 | 0 | 0 | 11 |
+| limit | 19 | 19 | 0 | 0 | 13 |
 | behaviour | 16 | 16 | 0 | 0 | 16 |
-| **all** | 273 | 194 | 79 | 0 | 267 |
+| **all** | 275 | 196 | 79 | 0 | 269 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the pipeline of the tag does with it under `strict`: profile 1 enforced, SDK v1; legend below), **tests** (conformance widgets that judge it).
 
@@ -327,6 +327,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `limit.canvas-commands` | At most 2000 canvas commands per canvas in one task (RangeError past it; strict) | in | L1 | kept |  | auto/19-limits |
 | `limit.animations` | At most 64 running script animations (further ones are not rendered; strict) | in | L1 | kept |  |  |
 | `limit.main-thread` | The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it) | in | L1 | host |  |  |
+| `limit.canvas-pixels` | A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096) | in | L1 | kept |  | auto/35-stop-canvas-pixels |
+| `limit.image-pixels` | A data: image of at most 1024 × 1024 pixels, as its bytes say (larger: the placeholder); bytes of none of the profile's image formats are a broken image | in | L1 | kept |  | auto/19-limits |
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | kept |  | auto/16-sdk-taps-a, visual/sdk/03-link-rejected |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in | SDK | kept |  | auto/20-client-behaviour |
 | `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit) | in | SDK | kept |  | auto/16-sdk-taps-c, auto/27-haptics-no-touch, visual/sdk/06-haptics-rate, visual/sdk/26-haptics-no-touch |

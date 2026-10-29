@@ -2,7 +2,7 @@
 
 For client teams (iOS, Android, macOS, desktop, web). The widget limits are strict from the start (`docs/decisions.md`,
 "Strict limits from the start"). In force: 10 000 ops per batch, 400 CSS rules, 2000 canvas commands per canvas in one
-task, 48 K of document text, and the main-thread window (layout queries plus 25 µs per op and 2 µs per canvas command, at
+task, 48 K of document text, 2048² pixels of canvases together and 1024² per data: image, and the main-thread window (layout queries plus 25 µs per op and 2 µs per canvas command, at
 most 100 ms per second). Proposed, and waiting for this kit's numbers: at most 16 boxes with a blurred shadow, a filter, a
 backdrop filter or transparency (2 of them with a backdrop filter), 2000 nodes, and a renderer's own frame cost charged to
 the widget. We chose those numbers on Chrome on a fast Mac and one iPhone measurement. They have to hold on **your renderer on a weak phone**, and only you

@@ -137,8 +137,16 @@ test.describe('timer limit', () => {
 
 test.describe('bitmaps', () => {
   const claimed = fs.readFileSync(path.join(attacksDir, 'mem-huge-bitmaps.html'), 'utf8').match(/id="claims" alt="" src="data:image\/png;base64,([^"]+)"/)![1];
-  test('images and canvases past 4096 × 4096 pixels never reach the page at their size', async ({ page }) => {
-    const f = await openAttack(page, 'mem-huge-bitmaps.html');
+  test('strict: canvases past 2048² pixels together stop the widget before they reach the page', async ({ page }) => {
+    await openAttack(page, 'mem-huge-bitmaps.html');
+    await waitDead(page);
+    expect((await twState(page)).dead).toMatch(/^Canvas limit exceeded: canvases of \d+ pixels together \(max 4194304\)$/);
+    const sizes = await widgetDom(page).locator('canvas').evaluateAll((cs) => cs.map((c) => (c as HTMLCanvasElement).width * (c as HTMLCanvasElement).height));
+    expect(sizes.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(2048 * 2048);
+  });
+
+  test('compat: the renderer itself never applies a canvas size past 4096 × 4096, and images past 1024² are the placeholder', async ({ page }) => {
+    const f = await openAttack(page, 'mem-huge-bitmaps.html', '&policy=compat');
     await expect(f.locator('#log')).toHaveText('drawn');
     const image = (id: string) => f.locator(id).evaluate(async (el: HTMLImageElement) => {
       await el.decode().catch(() => {});
@@ -147,7 +155,7 @@ test.describe('bitmaps', () => {
     const canvas = (id: string) => f.locator(id).evaluate((el: HTMLCanvasElement) => [el.width, el.height]);
     const pixels = ([w, h]: number[]) => w * h;
     await expect.poll(() => image('#small')).toEqual([40, 20]);
-    for (const id of ['#claims', '#past']) expect(pixels(await image(id)), id).toBeLessThanOrEqual(4096 * 4096);
+    for (const id of ['#claims', '#past']) expect(pixels(await image(id)), id).toBeLessThanOrEqual(1024 * 1024);
     for (const id of ['#attr', '#scripted']) expect(pixels(await canvas(id)), id).toBeLessThanOrEqual(4096 * 4096);
     expect(await canvas('#plain')).toEqual([300, 150]);
     expect(await f.locator('#css').evaluate((el) => getComputedStyle(el).backgroundImage)).not.toContain(claimed.slice(0, 40));

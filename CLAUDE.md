@@ -36,8 +36,8 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
-  framework tag: `catalogue.json` (273 profile features, statuses synced from `profile.json`), `auto/`
-  (55 self-checking widgets; `auto/26-context-*` per message context; `auto/31`–`34` must be stopped by the host, `"stops"` in the header), `visual/` (20 widgets for people + `visual/sdk`, 26 client-SDK cases),
+  framework tag: `catalogue.json` (275 profile features, statuses synced from `profile.json`), `auto/`
+  (56 self-checking widgets; `auto/26-context-*` per message context; `auto/31`–`35` must be stopped by the host, `"stops"` in the header), `visual/` (20 widgets for people + `visual/sdk`, 26 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B after zlib at level 9) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
@@ -90,7 +90,7 @@ pnpm workspace). A framework change touches `packages/` only.
 Policy: `strict` is the default on every host (gesture gate for privileged
 bridge calls, the counted caps of "Strict limits from the start" in `docs/decisions.md`:
 32 K per text value, 48 K of document text, 8 K per attribute, 10 000 ops per batch, 2 000
-canvas commands per op, 400 CSS rules / 32 `@keyframes`, past which the validator's fatal
+canvas commands per op, 400 CSS rules / 32 `@keyframes`, 2048² canvas pixels together, past which the validator's fatal
 `limit` diagnostic stops the widget; text budgets over text nodes, visible and
 `data-*`/`aria-*` attributes and CSS strings); anything but exactly `compat`
 is strict, `compat` (the old caps, nothing stops) is for tests, tooling and the stress kit's
@@ -215,10 +215,10 @@ corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetS
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 75 tests; 105 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 78 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
+cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 77 tests; 110 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 80 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
 TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile --blitz --dpr 2 --png-dir /tmp/gen-cg   # Blitz laid out by Rust, painted by CoreGraphics/CoreText (apps/renderer-blitz/src/cg.rs, Apple only; twb_set_backend in the C ABI); three-way gallery: corepack pnpm tsx scripts/blitz-experiment/gallery-native.mts reports/blitz-experiment/native/generated vello=DIR:TABLE cg=DIR:TABLE litehtml=DIR:TABLE --strips 20; on the simulator: SIMCTL_CHILD_TWB_BACKEND=cg xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz (iOS emoji paint only on this backend); Android twin: apps/renderer-blitz/src/dl.rs records the scene as a display list, CanvasScene.kt replays it with Canvas.drawGlyphs — `--es renderer blitz_canvas` in the demo (Blitz·Canvas in the picker)
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 81 tests with both; the same flags as --blitz
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 83 tests with both; the same flags as --blitz
 corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscripten) → apps/renderer-litehtml/pkg-web; the dev UI's litehtml toggle / ?litehtml=1, TW_RENDERER=litehtml pnpm test:generated, apps/web/tests/unit/litehtml-wasm.test.ts
 # dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
 corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md + the out lists in docs/widget-runtime-profile.md (the guide's and its agent block's) (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
@@ -228,7 +228,7 @@ corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 
 corepack pnpm tsx scripts/stress/build.ts   # rebuild the stress kit (packages/stress) after editing scripts/stress/loads.ts: widgets, manifest, README table; gates: size, and through the sandbox boots/profile/height (starts a dev server, or --origin; --sizes: sizes only)
 corepack pnpm tsx scripts/stress/run-web.ts --origin http://127.0.0.1:5173 && node packages/stress/tools/report.mjs --out reports/stress/summary reports/stress/*.json   # the stress kit on the web renderers (iframe, shadow; --pass production = strict, where each ladder stops; --warmup/--measure) → summary.md
 corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage behind the historical draft docs/widget-profile-draft.md and widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
-cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 26 JVM + 113 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)
+cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 28 JVM + 115 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose   # also prints the widget's size as the server counts it (zlib -9 / raw, limits 4096 / 32768, src/shared/widget-size.ts) and the resize anchor when the widget set one with a warning or an error line
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts --guide   # the agent block of the authors' guide (docs/widget-runtime-profile.md): the standalone system prompt for a model writing widgets (a bot's model sees only it; its out list is generated by profile-build.ts)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts widget.html --width 360 --hold 120,40 --double-tap 120,40 --swipe 60,80,120,0 --tap x,y --right-click x,y [--desktop] [--json]   # the real renderer core in headless Chromium at that bubble width (content height) and the presses on a phone's bubble: per press the element, its touch-action claim, the policy's outcome, the events the widget received, a hint
@@ -403,6 +403,12 @@ itself: it forwards every request and the glue's gate alone decides (`docs/sdk-v
 2026-10-29: strict limits from the start (`docs/decisions.md`, `docs/changes.md` "Next release"): §9 of the
 paint-limits draft, every count and size limit at about twice the largest real widget; past a counted cap the widget
 stops instead of losing the op; the main-thread window as a second `CpuBudget`; `compat` keeps the old caps.
+2026-10-29: Eduard's tweb audit (`tweb-audit-fixes`, `docs/changes.md` "Fixes from the tweb audit") merged into `main`
+and completed on every platform: pointer capture only of the widget's own presses, a finger's press counts from its
+release, canvas and data: image bitmaps bounded, `light-dark()` branches checked, a reused timer id replaces its timer
+(and a cancelled timer leaves the engine thread's queue); five attack widgets, real CDP touch input in `test:attacks`.
+Under strict limits the bitmap caps follow the rule: 2048² canvas pixels together (stops; the renderer keeps 4096² as
+its own backstop) and 1024² per data: image (the placeholder); `auto/35-stop-canvas-pixels`.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.

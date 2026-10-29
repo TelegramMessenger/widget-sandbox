@@ -330,9 +330,12 @@ public final class TrustedValidator {
             guard let js else { return .empty }
             // A stopped widget gets nothing; the shortcut takes payloads within the strict caps only (2000 commands, 32 KB
             // strings: `CanvasBatchFastPath`), anything bigger goes through the validator, which stops the widget there.
+            // Under strict a payload that resizes its canvas (`r`) goes there too: the validator counts the widget's canvas
+            // pixels and stops it past 2048².
             if (native?.stopReason ?? scriptStop) != nil { return .empty }
             if typed, !canvas.isEmpty, let list = CanvasWords.only(json, canvas),
-               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch) && (policy != .strict || CanvasWords.textCharges($0.batch).isEmpty) }) {
+               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch)
+                   && (policy != .strict || (CanvasWords.textCharges($0.batch).isEmpty && CanvasWords.resizes($0.batch).isEmpty)) }) {
                 nativeCanvasBatches += 1
                 return .ops(list.map { WidgetOp(canvas: $0.id, batch: $0.batch) })
             }

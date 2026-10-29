@@ -143,7 +143,7 @@ stylesheets, fonts and images are never loaded. The full list, generated
 from the profile:
 
 <!-- profile:summary -->
-*Generated from `packages/core/profile.json` (profile 1): 273 features, 194 in, 79 out; each one with how it is removed in `docs/profile-v1.md`.*
+*Generated from `packages/core/profile.json` (profile 1): 275 features, 196 in, 79 out; each one with how it is removed in `docs/profile-v1.md`.*
 
 - **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> (any non-data: URL) · Form controls: form, input, select, option, optgroup, textarea, label, fieldset, legend, datalist, output · progress, meter · dialog, popover attribute · audio, video, source, track · script, iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, … · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
@@ -155,7 +155,7 @@ from the profile:
 - **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open, form submission · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
 - **TelegramWidget (SDK v1)** (16 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
-- **Limits** (17 in, 0 out)
+- **Limits** (19 in, 0 out)
 - **Client behaviour** (16 in, 0 out)
 <!-- /profile:summary -->
 
@@ -266,13 +266,13 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   50 000 nodes; one text value 32 K characters, the document's text 48 K, an
   attribute 8 K; 10 000 DOM changes in one task; 400 CSS rules and 32
   `@keyframes`; 2 000 canvas commands per canvas in one task (the next throws
-  `RangeError`); 64 running script animations. Past a count or size limit the
-  widget stops, as past the CPU or memory limit: a widget over a limit or
-  crashed keeps its last frame with a "Widget stopped" badge.
-- Canvases: 4096 × 4096 pixels for all of a widget's canvases together (a size
-  past it is not applied). A `data:` image: PNG, JPEG, GIF or WebP of at most
-  4096 × 4096 pixels (larger: the placeholder); other bytes behind an image type
-  are a broken image.
+  `RangeError`); 64 running script animations; 2048 × 2048 pixels for all of
+  a widget's canvases together (a canvas is 300 × 150 until you size it). Past a
+  count or size limit the widget stops, as past the CPU or memory limit: a
+  widget over a limit or crashed keeps its last frame with a "Widget stopped"
+  badge.
+- A `data:` image: PNG, JPEG, GIF or WebP of at most 1024 × 1024 pixels (larger:
+  the placeholder); other bytes behind an image type are a broken image.
 - Keep the first render synchronous and fast; animate with
   `requestAnimationFrame`, never read layout in every frame.
 
@@ -504,10 +504,10 @@ STORAGE, LIFECYCLE, LIMITS
 - Memory 8 MB; 64 live timers and 2 000 canvas commands per canvas per task
   (RangeError past them); 50 000 nodes; one text value 32 K characters, all
   text 48 K, an attribute 8 K; 10 000 DOM changes per task; 400 CSS rules, 32
-  @keyframes; 64 script animations; canvases 4096 x 4096 pixels together (a
-  larger size is not applied); a data: image at most 4096 x 4096 pixels
-  (larger: a placeholder). Past the others, or the CPU or memory limit, the
-  widget stops on its last frame with a "Widget stopped" badge.
+  @keyframes; 64 script animations; 2048 x 2048 canvas pixels together; a
+  data: image at most 1024 x 1024 pixels (larger: a placeholder). Past the
+  others, or the CPU or memory limit, the widget stops on its last frame with
+  a "Widget stopped" badge.
 - Animate with CSS or requestAnimationFrame; change only what moved, do not
   rebuild the DOM every frame.
 

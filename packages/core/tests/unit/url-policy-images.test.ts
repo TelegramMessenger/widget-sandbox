@@ -87,6 +87,9 @@ describe('url policy: data: images', () => {
     }
     // the conformance set's broken image (auto/02-attributes-images-b), which has to fire error
     urls.delete('data:image/png;base64,AAAA');
+    // and its image one pixel past the cap (auto/19-limits), which has to be the placeholder
+    const limits = fs.readFileSync(path.join(repo, 'packages/conformance/auto/19-limits.html'), 'utf8');
+    urls.delete(/id="img-big"[^>]*src="([^"]+)"/.exec(limits)![1]);
     assert.ok(urls.size > 3, `${urls.size} images`);
     for (const url of urls) {
       const size = dataImageSize(url);
@@ -97,8 +100,10 @@ describe('url policy: data: images', () => {
 
   it('refuses an image whose header claims more pixels than a bitmap may hold', () => {
     assert.deepEqual(dataImageSize(pngHeader(4096, 4096)), [4096, 4096]);
-    assert.notEqual(checkUrl(pngHeader(4096, 4096), 'image'), null);
-    assert.equal(checkUrl(pngHeader(4097, 4096), 'image'), null);
+    assert.notEqual(checkUrl(pngHeader(1024, 1024), 'image'), null);
+    assert.notEqual(checkUrl(pngHeader(4096, 256), 'image'), null);
+    assert.equal(checkUrl(pngHeader(1025, 1024), 'image'), null);
+    assert.equal(checkUrl(pngHeader(4096, 4096), 'image'), null);
     assert.equal(checkUrl(pngHeader(65535, 65535), 'image'), null);
     // GIF's logical screen, which every frame is drawn in
     assert.equal(checkUrl(gif([65535, 65535], [0, 0, 1, 1]), 'image'), null);

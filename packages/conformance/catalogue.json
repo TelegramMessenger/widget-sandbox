@@ -4070,6 +4070,22 @@
       "today": "host"
     },
     {
+      "id": "limit.canvas-pixels",
+      "area": "limit",
+      "title": "A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096)",
+      "status": "in",
+      "decision": "L1",
+      "today": "kept"
+    },
+    {
+      "id": "limit.image-pixels",
+      "area": "limit",
+      "title": "A data: image of at most 1024 × 1024 pixels, as its bytes say (larger: the placeholder); bytes of none of the profile's image formats are a broken image",
+      "status": "in",
+      "decision": "L1",
+      "today": "kept"
+    },
+    {
       "id": "limit.url-length",
       "area": "limit",
       "title": "openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)",
