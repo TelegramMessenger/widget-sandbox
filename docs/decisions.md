@@ -1993,8 +1993,8 @@ caption gets its time and status drawn by the client over the widget's bottom co
 with a caption below the widget the time is in the caption's line and nothing covers the widget. The widget is told
 what is covered so it can keep clear of it.
 
-**A caption above the widget** (`invert_media`, Bot API `show_caption_above_media`; Artem's follow-up of 2026-10-30,
-**an assumption still to be confirmed**): as no caption. The time is drawn over the widget's bottom corner again, as on
+**A caption above the widget** (`invert_media`, Bot API `show_caption_above_media`; Artem's decision of
+2026-10-30): as no caption. The time is drawn over the widget's bottom corner again, as on
 a photo whose caption is moved up, so the client passes the same band and corner; only a caption below gives 0. An
 edit that moves the caption above or below the widget is a layout change like adding or removing it.
 

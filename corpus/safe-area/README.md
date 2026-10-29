@@ -8,8 +8,8 @@ left-to-right interface, the left one in a right-to-left one. The widget
 gets the band at the bottom as `env(safe-area-inset-bottom)` (the validator rewrites it to
 `--tg-content-safe-area-inset-bottom`), the corner's width as
 `--tg-content-safe-area-corner-right` / `-left`, and both in script as
-`TelegramWidget.contentSafeAreaInset`. With a caption below the widget every value is 0. (A
-caption above as no caption is the assumption of 2026-10-30, still to be confirmed.)
+`TelegramWidget.contentSafeAreaInset`. With a caption below the widget every value is 0; a
+caption above counts as none (Artem's decision of 2026-10-30).
 
 Post them without a caption (the test group's **Safe area** topic does): each one then shows
 whether your client passed a band and a corner, and drew its time where it said. Each file's

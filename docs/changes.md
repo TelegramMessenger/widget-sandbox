@@ -14,8 +14,8 @@ nothing until the host lists them; "default" items apply to every host.
 **The client's time over a widget with no caption below it: the content safe area** (`docs/sdk-v1.md` §2.17, §5.12;
 `docs/decisions.md`, "The client's time over a widget with no caption below it"; a clarification of profile 1,
 `P1-safe-area`). A message with a widget and no caption gets its time and status drawn by the client over the widget's
-bottom corner, as on a photo; so does one whose caption is shown above the widget (`invert_media`: an assumption still to
-be confirmed); with a caption below nothing covers the widget. Every host passes nothing by default, so a client that
+bottom corner, as on a photo; so does one whose caption is shown above the widget (`invert_media`, Artem's decision of
+2026-10-30); with a caption below nothing covers the widget. Every host passes nothing by default, so a client that
 does not draw the time keeps v0.3.0's layout.
 
 - Widgets: `env(safe-area-inset-top|right|bottom|left[, fallback])` is in. The validator (`css-sanitizer.ts`, which the
