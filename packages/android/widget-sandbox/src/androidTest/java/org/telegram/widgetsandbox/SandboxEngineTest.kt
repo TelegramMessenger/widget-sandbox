@@ -1,5 +1,7 @@
 package org.telegram.widgetsandbox
 
+import android.os.Looper
+import android.util.Printer
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -175,6 +177,58 @@ class SandboxEngineTest {
         assertTrue("${d.logs}", d.logs.any { it.second == "fired=8" })
         assertTrue("${d.diags}", d.diags.count { it.first == "timer-limit" } == 1)
         assertFalse("the engine backstop must not be needed: ${d.diags}", d.diags.any { it.first == "timer-limit-enforced" })
+        assertNull(d.died)
+        engine.terminate()
+    }
+
+    /**
+     * A `timer` host call with an id that already has a timer replaces it (worker.ts, sandbox_engine.cpp). The widget replaces
+     * JSON.stringify, which the shim builds the call with (`[id, delay]`), so 1000 timers all ask for the id of its one
+     * interval: only that interval runs (one tick, not one per timer), a replaced id does not count against `maxTimers` (no
+     * `timer-limit-enforced` with the glue's map full), and the engine thread's queue holds no more than `maxTimers` timers:
+     * a replaced or cleared one leaves it at once, not at its time (up to 24 h).
+     */
+    @Test
+    fun aTimerIdAskedForAgainReplacesItsTimer() {
+        val html = """
+            <script>
+            var S = JSON.stringify, to = 0, ticks = 0, noop = function () {};
+            var K = setInterval(function () { console.log('tick ' + (++ticks)); }, 1000);
+            // 1000 timers set and cleared as usual, with the longest delay
+            for (var i = 0; i < 1000; i++) clearTimeout(setTimeout(noop, 86400000));
+            // the shim's timer call with the id `to`, whatever the shim's own id
+            JSON.stringify = function (v) {
+              return Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number' ? S([to, v[1]]) : S.apply(JSON, arguments);
+            };
+            // 1000 timers on K's id; the shim clears each by its own id, which the glue does not know
+            to = K;
+            for (var j = 0; j < 1000; j++) clearTimeout(setTimeout(noop, 1000));
+            // the glue's map full: K and 7 ids the shim does not know; then K's id once more, at the cap
+            for (var f = 1; f < 8; f++) { to = 100000 + f; clearTimeout(setTimeout(noop, 60000)); }
+            to = K;
+            clearTimeout(setTimeout(noop, 1000));
+            JSON.stringify = S;
+            console.log('set');
+            </script>
+        """.trimIndent()
+        val (d, engine) = run(html) { it.maxTimers = 8 }
+        fun ticks() = d.logs.count { it.second.startsWith("tick ") }
+        assertTrue("${d.logs}", d.logs.any { it.second == "set" })
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (System.nanoTime() < deadline && ticks() == 0) Thread.sleep(20)
+        // The next tick is 1 s away; every timer replaced on K's id was due with the first one.
+        Thread.sleep(400)
+        val (ticked, dump) = engine.thread.sync {
+            val lines = ArrayList<String>()
+            Looper.myLooper()!!.dump(Printer { lines.add(it) }, "")
+            ticks() to lines.joinToString("\n")
+        }
+        assertEquals("one interval, one tick: ${d.logs.filter { it.second.startsWith("tick ") }.takeLast(3)}", 1, ticked)
+        assertFalse("a replaced id does not count against maxTimers: ${d.diags}", d.diags.any { it.first == "timer-limit-enforced" || it.first == "timer-limit" })
+        // K's next tick and the 7 ids at 60 s; nothing else is pending on the engine thread between two tasks.
+        val queued = Regex("Total messages: (\\d+)").find(dump)?.groupValues?.get(1)?.toInt()
+        assertNotNull("Looper.dump has no message count:\n$dump", queued)
+        assertTrue("$queued messages queued, more than maxTimers=8:\n${dump.take(2000)}", queued!! <= 8)
         assertNull(d.died)
         engine.terminate()
     }

@@ -734,6 +734,9 @@ public final class WidgetHost: SandboxEngineDelegate {
             // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
             if options.context.preview { return }
             if let ev = msg["ev"] {
+                // Any pointerdown begins a press, trusted or not: a second finger's is neither trusted nor claimed (`gesture`
+                // is the primary pointer's), and without this its release continued the press before it.
+                if ((ev as? [String: Any])?["type"] as? String) == "pointerdown" { pressBegan() }
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
                 if (msg["trusted"] as? Bool) == true, let gesture = gesture(for: ev) {
                     engine.activationEvent(json: Self.json(ev), gesture: gesture)
@@ -784,6 +787,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s
             // after. Before the preview check: harmless, a preview plays no haptics anyway.
             engine.pressBegan()
+            pressBegan()
             if options.context.preview { return }
             // The renderer core sends x, y and hold (`wants` is y, always false since v0.1.3). Vertical drags are the
             // chat's: the claim the client gets has `y` false whatever the renderer says. A renderer that sends only
@@ -890,6 +894,16 @@ public final class WidgetHost: SandboxEngineDelegate {
         pressOpen = type != "click" && type != "dblclick"
         lastActivationType = type
         return gestureNumber
+    }
+
+    /// A primary press began: the renderer's `gesture` claim, sent for every one, whether the widget listens or not, and
+    /// before the press's own events; or any forwarded `pointerdown`, trusted or not (a second finger's has no claim).
+    /// What follows is a new gesture, not the end of an open one: a finger's pointerdown is not `trusted` (it may become
+    /// the chat's scroll), so without this its release continued a press that had ended without a click (a drag), whose
+    /// gesture was spent. Twin of `GestureCounter.pressBegan` in user-activation.ts, UserActivation.kt and widget_host.h.
+    private func pressBegan() {
+        pressOpen = false
+        lastActivationType = ""
     }
 
     /// A pointer press or release, or a click with a click count (`detail` > 0). Keys never count.

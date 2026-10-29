@@ -174,7 +174,9 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
 ```
 
 - **Links:** `https:` only, at most 256 characters, one call per tap, only in
-  the handler of a real tap (not from a timer or a promise); a bad URL throws
+  the handler of a real tap (not from a timer or a promise; nor from a finger's
+  `pointerdown`, which may still become the chat's scroll: use `click` or
+  `pointerup`); a bad URL throws
   `TypeError`. A tapped `<a href="https://…">` does the same. The widget is not
   told whether the user opened it.
 - **Storage:** `localStorage` is kept for this message on this device, there
@@ -251,6 +253,10 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   the second's 300 ms (an event gets at least 50 ms), and one that runs past
   its share stops the widget. 64 MB of memory; 256 live timers; 50 000 nodes. A widget over a limit
   or crashed keeps its last frame with a "Widget stopped" badge.
+- Canvases: 4096 × 4096 pixels for all of a widget's canvases together (a size
+  past it is not applied). A `data:` image: PNG, JPEG, GIF or WebP of at most
+  4096 × 4096 pixels (larger: the placeholder); other bytes behind an image type
+  are a broken image.
 - Keep the first render synchronous and fast; animate with
   `requestAnimationFrame`, never read layout in every frame.
 

@@ -34,6 +34,120 @@ historical corpus inputs. Commands are in `CLAUDE.md`.
   five documents satisfy 32,767-byte raw and 4,096-byte zlib limits.
   No renderer, profile, SDK, library or native side-channel changes.
 
+- Bitmaps a widget makes the page hold are bounded. The shared renderer holds a widget's canvases to 4096 × 4096 pixels
+  together (64 MB as RGBA), whether a size comes as an attribute or as the shim's `r` command: past it the size is not
+  applied (the canvas keeps the one it had, a new one is 0 × 0) and a `violation` says so; four canvases of 16384² grew
+  a browser by ~16 GB. `checkUrl` reads a `data:` image's size from its bytes (PNG's IHDR; GIF's logical screen, grown
+  to its first frame where that frame reaches past it, as decoders grow the image; WebP's first chunk; JPEG's first
+  frame header; a GIF's descriptor and a JPEG's header within 64 KB), decoding the body as fetch does (without the
+  URL's `#fragment`), and refuses more than 4096²
+  pixels (the placeholder, as for a refused URL): a few hundred bytes can claim 65535². The browser picks a decoder by
+  the bytes, not by the declared type, so bytes of none of the profile's formats (BMP, ICO or AVIF behind `image/png`,
+  or no image at all) become `BROKEN_IMAGE` (`data:image/png;base64,`), which fires `error` as a broken image does
+  (conformance `auto/02` checks that). The check runs for every element and style that names an image, and URLs that
+  differ in their fragment alone are checked anew, so it reads no more than it needs, in place: a plain base64 body by
+  windows of at least 4096 characters from where a read lands, any other decoded once from its start, a body that is
+  no base64 tried once, the last image remembered; and a scan takes at most 1024 steps to a JPEG's frame header (a
+  fill byte, a standalone marker or a segment each), 256 extensions and 4096 sub-blocks to a GIF's first frame (an
+  image has tens; past them it is broken).
+  Its worst bytes cost about one parse of the message that brings them: 64 KB of a JPEG's fill bytes took 4.5 ms an
+  URL (500 of them ~2.9 s of `Validator.processOps`), restart markers 2.2 ms, empty segments 1.1 ms, 32 000 one-byte
+  GIF sub-blocks 0.53 ms, 20 000 empty GIF extensions ~13 ms; now each is 0.02–0.06 ms, a frame header past
+  62 KB of segments 0.015 ms (Node, the scan alone). A WebP's size is read where
+  its chunk keeps it (a whole lossless 1 × 1 image is 28 bytes). The validator JS runs in QuickJS on native hosts, so it
+  uses `atob` and `unescape`, not `TextEncoder`. Swift's `NativeValidator` (opt-in `binaryOps` on iOS and macOS), whose
+  `URLPolicy.check` took an image attribute by its type alone (CSS goes through this JS), has the same check
+  (`URLPolicy.checkedImage`: the same constants, scans and step caps, the body read as the bundle reads it, by UTF-16
+  units, so its windows and parts fall on the same characters; the last image remembered behind a lock, validators run
+  on several threads); the host's `icon:` expansion, whose data: URLs go in before validation, gets it too. Regression:
+  `DataImageTests.swift` (every case of `url-policy-images.test.ts`, each URL also through the bundle's validator and
+  the native model as `<img src>`, an `attr` op and an SVG `<image href>`, with the same ops and diagnostics; the
+  corpora's images; `atob`'s edge cases). Not in `profile.json` (profile 1 is
+  frozen): the two limits are in the authors' guide; rows in the profile tables are a maintainers' call. Shared renderer and validator JS: the iOS,
+  Android and desktop bundles are rebuilt. Regression: `packages/core/tests/unit/renderer-canvas.test.ts`,
+  `url-policy-images.test.ts` (every image of the corpora and the conformance set at its size, headers past the cap, a
+  GIF's first frame past its screen and its extensions, a short lossless WebP, every encoding of the body, a fragment, a
+  JPEG's offsets; each scan's worst bytes — a JPEG's fill bytes, restart markers and empty segments, a GIF's sub-blocks,
+  a PNG or WebP with 64 KB after its header, a body that is no base64 — with the steps' cap, the characters decoded and the time against a parse of
+  the message), and `validator.test.ts` now passes real images where it means an
+  allowed one. Attack widget: `corpus/attacks/mem-huge-bitmaps.html` (a 69-byte PNG claiming 65535², a 2 KB one-colour
+  PNG of 4100², the same header in a CSS `url()`, canvases of 8192² by their attributes and by the shim's `r`, each drawn
+  on; `test:attacks` checks on both renderers that none reaches the page at its size and a 40 × 20 image and a
+  300 × 150 canvas still do).
+
+- A `timer` host call with an id that already has a timer replaces it: the glue cancels the old one first. It kept it
+  running and overwrote its handle, so a shim told to reuse an id (its `JSON.stringify` replaced) kept native timers past
+  `maxTimers`, still queued after `destroy()`. Changed in the web worker (`host/worker.ts`), the Node harness
+  (`scripts/sandbox-node.ts`: a replaced id no longer counts against the cap) and the desktop core
+  (`sandbox_engine.cpp`: dropping the `shared_ptr` did not cancel the `JSThread` timer), Swift (`SandboxEngine.swift`)
+  and Kotlin (`SandboxEngine.kt`). A cancelled timer also leaves the engine thread's queue at once, whatever its id:
+  Kotlin's `JSThread.Scheduled.cancel()` removes its callback from the `Handler`, and the C++ `JSThread` sweeps cancelled
+  timers out once its queue has doubled since the last sweep; both kept them until their time, up to 24 h, so a plain
+  `setTimeout` / `clearTimeout` loop grew the queue without bound (Swift's `Timer.invalidate` and the web's `clearTimeout`
+  let go already). Regression: `shim.test.ts` (an id asked for again is not refused at `maxTimers`), the desktop
+  `a_timer_id_asked_for_again_replaces_its_timer` and `pinned_thread_gives_deep_recursion` (10 000 timers of 24 h set
+  and cancelled leave at most 128 queued, not 10 001), Swift `testATimerIdAskedForAgainReplacesItsTimer` and
+  `testAReplacedTimerIdDoesNotCountAgainstTheCap`, Kotlin `SandboxEngineTest.aTimerIdAskedForAgainReplacesItsTimer`
+  (one tick, not 1001; at most 8 messages queued, not 1008), and `corpus/attacks/timer-id-reuse.html` in `test:attacks`
+  (1000 forged calls on one interval's id fire its callback once; `main`'s web worker fired it 1000 times).
+
+- A finger's or a pen's press is a gesture from its `pointerup` on, not from its `pointerdown`: that press may still
+  become the chat's scroll (it then ends in `pointercancel`), and a swipe that started on a widget let it call
+  `copyText` and send a request from a `pointerdown` handler. The shared renderer marks such a `pointerdown` not
+  `trusted`, nor a mouse event of a finger or a pen still down: the compatibility `mousedown` a pen's contact makes at
+  once, its barrel button pressed or let go with the tip down (by the pointer whose buttons changed last, through
+  `pointerdown`, a chorded `pointermove` or `pointerup`: a mouse pressed while a finger is held keeps its own
+  `mousedown`); by the input's own `pointerType` (a mouse playing a finger keeps its press). The gesture counters no
+  longer see that `pointerdown`, so a host starts a new gesture at the renderer's `gesture` claim and at any forwarded
+  `pointerdown`, trusted or not (a second finger's has no claim) (`GestureCounter.pressBegan`), or a finger's release
+  and click after a press that ended without a click (a drag) continued its spent gesture (`docs/decisions.md`, "User
+  activation"). Changed in
+  the web host, the Node harness, the desktop core, Swift (`WidgetHost.swift`: `pressBegan()` resets the state of
+  `gesture(for:)` on the renderer's `gesture` message and on every forwarded `pointerdown`) and Kotlin
+  (`GestureCounter.pressBegan()` in `UserActivation.kt`, called the same way from `WidgetHost.kt`), each with its tests:
+  Swift `UserActivationTests` (a claim after a finger's drag begins a new gesture; a second finger's two taps open two
+  links), Kotlin `UserActivationTest` (the counter) and `SdkTest.hostAnUntrustedPointerdownBeginsANewGesture` (through
+  the real `WidgetHost` and WebView renderer). Known limitation, for
+  the maintainers: the counters number presses, not pointers, so another pointer's `pointerdown` while a press is open
+  starts a new gesture that press then continues. A mouse press that spent its gesture in its `pointerdown` handler, with
+  a finger put down on the widget before the mouse is let go, gets a fresh one at its `pointerup`: two calls from one
+  mouse press, both from the user's own input. `main` did the same (every trusted `pointerdown`, a second finger's too,
+  opened a gesture that the mouse's release then continued); this change keeps it. A counter per pointer would close it
+  (compatibility mouse events, which carry no `pointerId`, mapped to the pointer whose buttons changed last, as the
+  renderer core does): a change of the model in all four counters and their tests. Authors: call privileged methods from `click` (or `pointerup`); the conformance
+  set and the corpora already do. Regression: `packages/core/tests/unit/renderer-presses.test.ts` (a CDP touch tap, a
+  pen press, a mouse pressed while a finger is held, a pen's barrel button pressed and let go after a mouse click while
+  the pen is held, a mouse press), `user-activation.test.ts` and the desktop `user_gestures_are_numbered_per_physical_press`
+  (a press after a drag) and `an_untrusted_pointerdown_begins_a_new_gesture` (a second finger's taps).
+  Real touch input in the attack suite: `corpus/attacks/activation-touch-swipe.html` with CDP touch events
+  (`test:attacks`, "a finger's press", both renderers: a vertical swipe that starts on the widget sends no request and
+  copies nothing from its `pointerdown`, a tap still gets its `click`; on `main` the swipe did both). The dev app's phone
+  mode and Playwright's clicks play a finger with the mouse, so the other suites never see a finger's `pointerdown`.
+
+- The shared renderer lets a widget capture only a pointer whose trusted press began on it, and a press begun elsewhere
+  and let go over the widget reaches it untrusted, so its release is no gesture. The shim checks that a pointer is
+  pressed, but in the VM, which the widget can lie to: on the Shadow DOM renderer, where the widget shares its document
+  with the chat, `setPointerCapture` took a pointer pressed on the chat's own control, which lost its click, and the
+  widget got the release as a gesture (the same for a drag from the chat let go over it). The iframe and the WebViews
+  never routed such a press to the widget; the bundles change for every platform all the same. A release is that of the
+  pointer whose buttons changed last: a `pointerup`, or a button let go while another is held (a chorded release: a
+  `pointermove` and a `mouseup`, no `pointerup`). A widget capturing its own press (`auto/23-gestures-b`) is unaffected. Regression: `packages/core/tests/unit/renderer-presses.test.ts` (the
+  Shadow DOM renderer next to a control of the page, trusted mouse input, a chorded release). Attack widget:
+  `corpus/attacks/activation-pointer-capture.html` (it tells the shim's check that the mouse is pressed on it and asks
+  for it every frame; `test:attacks` presses a control of the page, which keeps its click, and nothing is copied; the
+  widget's own press is still its own; on `main`'s Shadow DOM renderer the control lost its click and the widget copied).
+
+- The CSS sanitizer checks the `light-dark()` branch it picks for the host theme. It put the branch in the function's
+  place behind its own walk, which never visited it, so a `url()` there reached the renderer unchecked
+  (`light-dark(url(/x.png), red)` became `url(/x.png)`): invariant 4 then rested on the renderer's own defences (the
+  frame's and the WebViews' CSP; on the shadow renderer, the page's CSP). A nested `light-dark()` in the branch is
+  resolved too. Shared validator JS: the iOS, macOS, Android and desktop bundles are rebuilt. Regression:
+  `packages/core/tests/unit/validator.test.ts` ("checks the light-dark() branch it picks…"). Attack widget:
+  `corpus/attacks/css-light-dark-url.html` (both branches, in a stylesheet, nested, under `@media`, `@supports` and
+  `@keyframes`, through `var()`, `image-set()` and an escape, in a style attribute and as style properties set by script;
+  `test:attacks` runs it in the light and the dark theme on both renderers; on `main` it fails on both, and the Shadow
+  DOM renderer of the dev app, whose page has no closing CSP, fetched the canary).
+
 - The `auto/23-gestures-b` conformance widget captures each pressed pointer, so its mouse-drag
   checks receive the release after leaving the small target instead of remaining pending. Gesture
   ownership rules are unchanged.

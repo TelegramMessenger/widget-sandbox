@@ -90,6 +90,18 @@ describe('shim: runtime limits', () => {
       assert.equal(r.probes[0], '0,10,20', visible ? 'visible' : 'hidden');
     }
   });
+  it('a timer id asked for again replaces its timer and is not refused at maxTimers', async () => {
+    // The widget's JSON.stringify writes the shim's timer calls: two ids the shim never made fill the glue to maxTimers,
+    // then one of them is asked for again, which replaces it (no backstop refusal); the shim's own timer fires once.
+    const r = await runWidget(`<script>var fired = 0, ids = [1001, 1002, 1001];
+      setTimeout(function () { fired++; }, 1);
+      var orig = JSON.stringify;
+      JSON.stringify = function (v) { return Array.isArray(v) && v.length === 2 && ids.length ? '[' + ids.shift() + ',1]' : orig(v); };
+      for (var i = 0; i < 3; i++) clearTimeout(setTimeout(function () {}, 1));
+      JSON.stringify = orig;</script>`, { maxTimers: 3, timerRounds: 1, probes: ['fired'] });
+    assert.equal(r.diags.filter((d) => d.kind === 'timer-limit-enforced').length, 0, JSON.stringify(r.diags));
+    assert.equal(r.probes[0], '1');
+  });
   it('frees a slot when a timer fires or is cleared', async () => {
     const r = await runWidget(`<script>var ok = 0; var a = setTimeout(function () {}, 1); var b = setTimeout(function () {}, 1); clearTimeout(a);
       try { setTimeout(function () { ok++; }, 1); } catch (e) { ok = -1; }</script>`, { maxTimers: 2, timerRounds: 1, probes: ['ok'] });

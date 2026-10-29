@@ -749,6 +749,67 @@ class SdkTest {
         }
     }
 
+    /** The renderer with a hand on its messages: `inject` hands WidgetHost one as if the renderer sent it, `sent` keeps what WidgetHost sent the renderer. */
+    private class Injector(private val inner: Renderer) : Renderer by inner {
+        val sent: MutableList<String> = Collections.synchronizedList(ArrayList())
+        override var onMessage: ((String) -> Unit)? = null
+            set(value) {
+                field = value
+                inner.onMessage = value
+            }
+        override fun send(json: String) {
+            sent.add(json)
+            inner.send(json)
+        }
+        fun inject(json: String) { onMessage?.invoke(json) }
+    }
+
+    /**
+     * Any pointerdown begins a press, trusted or not (desktop `an_untrusted_pointerdown_begins_a_new_gesture`): a second
+     * finger's is neither trusted (it may become the chat's scroll) nor claimed (`gesture` is the primary pointer's), so each
+     * of its taps opens a link from its pointerup handler; without WidgetHost's `pressBegan` the second release continued the
+     * first press, whose gesture was spent.
+     */
+    @Test
+    fun hostAnUntrustedPointerdownBeginsANewGesture() {
+        val html = "<button id='b'>go</button><script>TelegramWidget.ready(); var n = 0;" +
+            "document.getElementById('b').addEventListener('pointerup', function () { TelegramWidget.openLink('https://example.com/up-' + (++n)); });</script>"
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            lateinit var host: WidgetHost
+            lateinit var renderer: Injector
+            val latest = AtomicReference(WidgetDiagnostics())
+            val links = Collections.synchronizedList(ArrayList<String>())
+            scenario.onActivity { activity ->
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0, rendererFactory = { context, res, theme, _ ->
+                    Injector(RendererWebView(context, res.rendererBundle, theme)).also { renderer = it }
+                })
+                host.onChange = { latest.set(it) }
+                host.onAction = { if (it is WidgetAction.OpenLink) links.add(it.url) }
+                activity.show(host.view)
+            }
+            assertTrue("widget never loaded", waitFor(15) { latest.get().loaded })
+            Thread.sleep(300)
+            val button = renderer.sent.toList().firstNotNullOfOrNull { json ->
+                val ops = runCatching { JSONObject(json) }.getOrNull()?.takeIf { it.optString("type") == "ops" }?.optJSONArray("ops") ?: return@firstNotNullOfOrNull null
+                (0 until ops.length()).mapNotNull { ops.optJSONObject(it) }.firstOrNull { it.optString("op") == "el" && it.optString("tag") == "button" }?.getInt("id")
+            } ?: throw AssertionError("no <button> in the ops sent to the renderer")
+            fun event(type: String, trusted: Boolean) = instrumentation.runOnMainSync {
+                renderer.inject("{\"type\":\"event\",\"ev\":{\"type\":\"$type\",\"targetId\":$button,\"pointerId\":2,\"pointerType\":\"touch\",\"isPrimary\":false},\"trusted\":$trusted}")
+            }
+            // a second finger's tap, its gesture spent in its pointerup handler; then another tap of it
+            event("pointerdown", false)
+            event("pointerup", true)
+            event("pointerdown", false)
+            event("pointerup", true)
+            waitFor { links.size >= 2 }
+            Thread.sleep(100)
+            assertEquals("${latest.get().diags.mapValues { it.value.details }}", listOf("https://example.com/up-1", "https://example.com/up-2"), links.toList())
+            assertNull("${latest.get().diags.mapValues { it.value.details }}", latest.get().diags["activation-blocked"])
+            assertNull(latest.get().dead)
+            instrumentation.runOnMainSync { host.destroy() }
+        }
+    }
+
     /** The renderer with a look at each `size` report just before WidgetHost handles it. */
     private class SizeProbe(private val inner: Renderer, private val onSize: (JSONObject) -> Unit) : Renderer by inner {
         override var onMessage: ((String) -> Unit)? = null

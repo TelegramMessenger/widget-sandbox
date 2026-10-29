@@ -1061,8 +1061,10 @@ enum URLPolicy {
         }
         if !image { return nil }
         if hasPrefixIgnoringASCIICase(url, "data:") {
-            guard let mime = dataMime(url) else { return nil }
-            return allowed.contains(mime) ? url : nil
+            guard let mime = dataMime(url), allowed.contains(mime) else { return nil }
+            // An image of the profile's formats of a size its bitmap can be held in; bytes of none of them are broken, as
+            // the browser would find them — unless a decoder outside the profile takes them, which they never reach
+            return checkedImage(url)
         }
         return nil
     }
@@ -1086,4 +1088,378 @@ enum URLPolicy {
 
     private static func isLineTerminator(_ v: UInt32) -> Bool { v == 0x0a || v == 0x0d || v == 0x2028 || v == 0x2029 }
     private static func isZs(_ s: Unicode.Scalar) -> Bool { s.properties.generalCategory == .spaceSeparator }
+}
+
+// MARK: data: images (url-policy.ts `dataImageSize`, `MAX_IMAGE_PIXELS`, `BROKEN_IMAGE`)
+//
+// The same check as the validator bundle's `checkUrl`, step for step, so that the native model and the script give one
+// verdict for every URL: an image's size read from its bytes as a decoder would (the browser sniffs the format: the
+// declared type does not pick the decoder), more than 4096² pixels refused, bytes of none of the profile's formats
+// broken. The body is read as fetch decodes it (without the URL's `#fragment`, percent-decoded, forgiving base64), in
+// place and by the same windows, and the scans take the same bounded number of steps.
+
+extension URLPolicy {
+    /// The most pixels a data: image may have. A decoder takes the size from the image's header and holds a bitmap
+    /// of it whatever the bytes are: a few hundred bytes of PNG can claim 65535² (16 GB as RGBA). 4096² is 64 MB.
+    static let maxImagePixels = 4096 * 4096
+    /// An image no decoder takes: it fires `error` and has no size, as a broken one does.
+    static let brokenImage = "data:image/png;base64,"
+    /// How far into an image what gives its size is looked for: a JPEG's frame header past the segments before it, a
+    /// GIF's first image descriptor past its extensions.
+    static let headerScanBytes = 64 * 1024
+    /// The least of a plain base64 body decoded at once (4096 characters), from where a read leaves the last window.
+    static let blockBytes = 3072
+
+    /// The last data: image checked, and the answer: elements in a row often show one image (a list's icon). Validators
+    /// on several threads share it, as the bundle's module shares its own.
+    private static let lastImageLock = NSLock()
+    private static var lastImage: (url: String, checked: String?)?
+
+    /// `checkUrl`'s data: image branch, past the type check: the URL, the broken image, or nil (refused).
+    static func checkedImage(_ url: String) -> String? {
+        lastImageLock.lock()
+        if let last = lastImage, sameCodeUnits(last.url, url) {
+            lastImageLock.unlock()
+            return last.checked
+        }
+        lastImageLock.unlock()
+        let checked: String?
+        if let size = dataImageSize(url) {
+            let (pixels, overflow) = size.width.multipliedReportingOverflow(by: size.height)
+            checked = !overflow && pixels <= maxImagePixels ? url : nil
+        } else {
+            checked = brokenImage
+        }
+        lastImageLock.lock()
+        lastImage = (url, checked)
+        lastImageLock.unlock()
+        return checked
+    }
+
+    /// The same characters, as the bundle's `===` compares them: Swift's `==` takes canonically equivalent strings for
+    /// equal, whose bytes (and so whose images) differ.
+    private static func sameCodeUnits(_ a: String, _ b: String) -> Bool {
+        var a = a, b = b
+        return a.withUTF8 { x in b.withUTF8 { y in x.count == y.count && (x.isEmpty || memcmp(x.baseAddress!, y.baseAddress!, x.count) == 0) } }
+    }
+
+    /// The size a decoder would give a data: image, by its signature, or nil for none of the profile's formats — BMP,
+    /// ICO or AVIF bytes behind an image/png type could reach decoders the profile keeps out.
+    static func dataImageSize(_ url: String) -> (width: Int, height: Int)? {
+        imageSize(DataBytes(url))
+    }
+
+    /// `dataImageSize` and how many characters it had decoded as base64 (the bundle's `atob` calls), for the tests.
+    static func dataImageScan(_ url: String) -> (size: (width: Int, height: Int)?, decodedCharacters: Int) {
+        let bytes = DataBytes(url)
+        let size = imageSize(bytes)
+        return (size, bytes.decodedCharacters)
+    }
+
+    private static let pngSignature: [UInt8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+    private static func ascii(_ text: String) -> [UInt8] { Array(text.utf8) }
+    private static let ihdr = ascii("IHDR"), gif87a = ascii("GIF87a"), gif89a = ascii("GIF89a"), riff = ascii("RIFF"), webp = ascii("WEBP")
+    private static let vp8x = ascii("VP8X"), vp8l = ascii("VP8L"), vp8 = ascii("VP8 ")
+    private static let jpegStart: [UInt8] = [0xff, 0xd8]
+
+    private static func imageSize(_ bytes: DataBytes) -> (width: Int, height: Int)? {
+        // The scans read the bytes in place, a step a comparison or two whatever the bytes are (64 KB of a JPEG's fill
+        // bytes, 32 000 one-byte GIF sub-blocks), and take a bounded number of steps: a check is paid for every element.
+        func has(_ from: Int, _ to: Int) -> Bool { bytes.has(from, to) }
+        func at(_ i: Int) -> Int { bytes.at(i) }
+        func u16be(_ i: Int) -> Int { (at(i) << 8) | at(i + 1) }
+        func le16(_ i: Int) -> Int { at(i) | (at(i + 1) << 8) }
+        func u24le(_ i: Int) -> Int { at(i) | (at(i + 1) << 8) | (at(i + 2) << 16) }
+        /// Whether the bytes at i are those of `magic`.
+        func `is`(_ i: Int, _ magic: [UInt8]) -> Bool {
+            if !has(i, i + magic.count) { return false }
+            for k in 0..<magic.count where at(i + k) != Int(magic[k]) { return false }
+            return true
+        }
+        // PNG: the signature, then IHDR's width and height
+        if `is`(0, pngSignature) && `is`(12, ihdr) && has(0, 24) { return (u16be(16) * 65536 + u16be(18), u16be(20) * 65536 + u16be(22)) }
+        // GIF: the logical screen, grown to the first frame where that frame reaches past it, as decoders grow the image
+        // (Wuffs without its strict-bounds quirk, Chromium's GIF reader before it); later frames are clipped to it
+        if (`is`(0, gif87a) || `is`(0, gif89a)) && has(0, 13) {
+            let screen = (le16(6), le16(8))
+            // past the global colour table, extensions until the first image descriptor (an image has a few: frame
+            // control, NETSCAPE looping, a comment), in at most 4096 sub-blocks (an XMP packet, read as sub-blocks, takes
+            // one for every 30 to 120 bytes)
+            var blocks = 0, extensions = 0
+            var i = 13 + (at(10) & 0x80 != 0 ? 3 << ((at(10) & 7) + 1) : 0)
+            while i < headerScanBytes && extensions < 256 {
+                if !has(i, i + 2) { return nil }
+                if at(i) == 0x2c { return has(i, i + 9) ? (max(screen.0, le16(i + 1) + le16(i + 5)), max(screen.1, le16(i + 3) + le16(i + 7))) : nil }
+                // an extension (introducer, label, its sub-blocks up to the empty one); anything else, the trailer
+                // included: no frame
+                if at(i) != 0x21 { return nil }
+                i += 2
+                while true {
+                    if i >= headerScanBytes { return nil }
+                    blocks += 1
+                    if blocks > 4096 || !has(i, i + 1) { return nil }
+                    let n = at(i)
+                    i += 1 + n
+                    if n == 0 { break }
+                }
+                extensions += 1
+            }
+            return nil
+        }
+        // WebP: its first chunk, the canvas of an extended one
+        if `is`(0, riff) && `is`(8, webp) {
+            // each chunk's size ends where it ends: a whole lossless 1 × 1 image is 28 bytes
+            if `is`(12, vp8x) && has(0, 30) { return (1 + u24le(24), 1 + u24le(27)) }
+            if `is`(12, vp8l) && has(0, 25) && at(20) == 0x2f {
+                return (1 + (at(21) | ((at(22) & 0x3f) << 8)), 1 + ((at(22) >> 6) | (at(23) << 2) | ((at(24) & 0x0f) << 10)))
+            }
+            if `is`(12, vp8) && has(0, 30) { return ((at(26) | (at(27) << 8)) & 0x3fff, (at(28) | (at(29) << 8)) & 0x3fff) }
+            return nil
+        }
+        // JPEG: the first frame header (SOFn) past the segments before it, in at most 1024 steps (an image takes tens:
+        // its APPn and tables; a fill byte or a standalone marker is a step)
+        if `is`(0, jpegStart) && has(0, 4) {
+            var i = 2, steps = 0
+            while i + 9 <= headerScanBytes && steps < 1024 {
+                steps += 1
+                if !has(i, i + 4) || at(i) != 0xff { return nil }
+                let marker = at(i + 1)
+                if marker == 0xff { i += 1; continue }
+                if marker == 0x01 || (marker >= 0xd0 && marker <= 0xd8) { i += 2; continue }
+                if marker >= 0xc0 && marker <= 0xcf && marker != 0xc4 && marker != 0xc8 && marker != 0xcc { return has(i, i + 9) ? (u16be(i + 7), u16be(i + 5)) : nil }
+                if marker == 0xd9 || marker == 0xda { return nil }
+                i += 2 + u16be(i + 2)
+            }
+        }
+        return nil
+    }
+
+    /// The white space fetch's forgiving base64 skips and the `;base64` parameter may carry (`[\t\n\f\r ]`).
+    fileprivate static func isBodySpace<T: BinaryInteger>(_ c: T) -> Bool { c == 0x20 || c == 0x09 || c == 0x0a || c == 0x0c || c == 0x0d }
+    private static func isHexDigit<T: BinaryInteger>(_ c: T) -> Bool { (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x46) || (c >= 0x61 && c <= 0x66) }
+    private static func hexValue(_ c: UInt8) -> UInt8 { c <= 0x39 ? c - 0x30 : (c | 0x20) - 0x61 + 10 }
+
+    /// A data: URL's body as fetch decodes it (percent-decoding, then forgiving base64), read without a copy: a read
+    /// inside the bytes decoded last costs a comparison, and those are decoded again only where a read leaves them. A
+    /// plain base64 body (the usual one: no escapes, no white space) is decoded by windows, byte i lying in the four
+    /// characters of group i / 3, from where the read starts and at least `blockBytes` on, and is only checked to be
+    /// plain up to them; any other is decoded once from its start, as far as the reads go (`BodyDecoder`). The body is
+    /// kept as UTF-16 code units, as the bundle's string: the windows fall on the same characters.
+    final class DataBytes {
+        private let body: [UInt16]
+        private let base64: Bool
+        /// The characters known to be plain base64 from the start; -1 once one is not.
+        private var plain: Int
+        /// The bytes decoded last, from byte `start`, to the body's end if `toEnd`.
+        private var start = 0
+        private var text: [UInt8] = []
+        private var toEnd = false
+        /// Once part of the body is no base64, none of it is: the browser decodes nothing, and each scan that probes the
+        /// signatures after the first asks again.
+        private var failed = false
+        private var decoder: BodyDecoder?
+        private var windowCharacters = 0
+
+        /// Characters given to the base64 decoder so far (the bundle's `atob`).
+        var decodedCharacters: Int { windowCharacters + (decoder?.decodedCharacters ?? 0) }
+
+        init(_ url: String) {
+            var units = Array(url.utf16)
+            // the fragment is the URL's, not the body's: fetch decodes the body without it
+            if let hash = units.firstIndex(of: 0x23) { units.removeSubrange(hash...) }
+            guard let comma = units.firstIndex(of: 0x2c) else {
+                body = []
+                base64 = false
+                plain = -1
+                return
+            }
+            // `;[\t\n\f\r ]*base64` at the end of the type and its parameters (ASCII case-insensitive), white space after
+            var end = comma
+            while end > 0 && URLPolicy.isBodySpace(units[end - 1]) { end -= 1 }
+            var isBase64 = false
+            let word = Array("base64".utf16)
+            if end >= word.count && (0..<word.count).allSatisfy({ k in
+                let c = units[end - word.count + k]
+                return (c >= 0x41 && c <= 0x5a ? c | 0x20 : c) == word[k]
+            }) {
+                var k = end - word.count
+                while k > 0 && URLPolicy.isBodySpace(units[k - 1]) { k -= 1 }
+                isBase64 = k > 0 && units[k - 1] == 0x3b
+            }
+            body = Array(units[(comma + 1)...])
+            base64 = isBase64
+            plain = isBase64 ? 0 : -1
+        }
+
+        /// Makes bytes from…to readable by `at`: false past the end (or for a body that is no base64).
+        @inline(__always) func has(_ from: Int, _ to: Int) -> Bool {
+            (from >= start && to <= start + text.count) || load(from, to)
+        }
+
+        @inline(__always) func at(_ i: Int) -> Int {
+            let k = i - start
+            return k >= 0 && k < text.count ? Int(text[k]) : 0
+        }
+
+        /// Decodes the bytes from…to where the last ones do not hold them: whether the body has them.
+        private func load(_ from: Int, _ to: Int) -> Bool {
+            if failed || (from >= start && toEnd) { return false }
+            if plain >= 0 {
+                let first = (from / 3) * 3
+                let end = min((max(to, first + URLPolicy.blockBytes) + 2) / 3 * 4, body.count)
+                if end > plain {
+                    plain = body[plain..<end].contains(where: { $0 == 0x25 || URLPolicy.isBodySpace($0) }) ? -1 : end
+                }
+                if plain >= 0 {
+                    // a padding or a character no base64 has on the way (a window starts on a group of four, so it
+                    // decodes as the whole body would)
+                    let lo = min((first / 3) * 4, end)
+                    windowCharacters += end - lo
+                    guard let decoded = URLPolicy.forgivingBase64(body[lo..<end]) else {
+                        failed = true
+                        return false
+                    }
+                    text = decoded
+                    start = first
+                    toEnd = end == body.count
+                    return to <= start + text.count
+                }
+            }
+            if decoder == nil { decoder = BodyDecoder(body, base64: base64) }
+            guard let decoded = decoder!.upTo(to) else {
+                failed = true
+                return false
+            }
+            start = 0
+            text = decoded
+            toEnd = decoded.count < to
+            return !toEnd
+        }
+    }
+
+    /// Decodes a data: URL's body from its start (percent-decoding, then forgiving base64 if `base64`) part by part, into
+    /// bytes it keeps: `upTo(n)` gives them with at least the first n bytes if the body has them, nil if the body is no
+    /// base64. The parts are those of the bundle's decoder, so a part's edge falls where it falls there.
+    final class BodyDecoder {
+        private let body: [UInt16]
+        private let base64: Bool
+        private var decoded: [UInt8] = []
+        private var read = 0
+        private var carry: [UInt8] = []
+        private var failed = false
+        private(set) var decodedCharacters = 0
+
+        init(_ body: [UInt16], base64: Bool) {
+            self.body = body
+            self.base64 = base64
+        }
+
+        func upTo(_ n: Int) -> [UInt8]? {
+            while !failed && decoded.count < n && read < body.count {
+                // parts that grow with what is decoded, so that reading far costs about what is read
+                var end = min(read + max(4096, decoded.count), body.count)
+                let last = end >= body.count
+                // an escape or a surrogate pair cut in two is read with the next part (UTF-8 of half a pair is another
+                // byte count)
+                if !last { end -= URLPolicy.cutTail(body[read..<end]) }
+                let text = URLPolicy.percentDecode(body[read..<end])
+                read = end
+                if !base64 {
+                    decoded += text
+                    continue
+                }
+                var b64 = carry + text.filter { !URLPolicy.isBodySpace($0) }
+                // whole groups only, but at the end, where the decoder takes a short last group and the padding as fetch does
+                carry = last ? [] : Array(b64.suffix(b64.count % 4))
+                b64.removeLast(carry.count)
+                decodedCharacters += b64.count
+                if let bytes = URLPolicy.forgivingBase64(b64) { decoded += bytes } else { failed = true }
+            }
+            return failed ? nil : decoded
+        }
+    }
+
+    /// How many units at the end of `part` start what the next part completes: `%`, `%X`, a high surrogate.
+    fileprivate static func cutTail(_ part: ArraySlice<UInt16>) -> Int {
+        let last = part[part.endIndex - 1]
+        if last == 0x25 || (last >= 0xd800 && last <= 0xdbff) { return 1 }
+        return part.count > 1 && part[part.endIndex - 2] == 0x25 && isHexDigit(last) ? 2 : 0
+    }
+
+    /// Percent-decoding as the URL standard does it, into bytes: a character past ASCII is its UTF-8 bytes, as the URL
+    /// parser encoded it (a lone surrogate as U+FFFD's); `%XX` is a byte, any other `%` (a `%u` too) stays itself.
+    fileprivate static func percentDecode(_ part: ArraySlice<UInt16>) -> [UInt8] {
+        let bytes: [UInt8] = part.contains(where: { $0 > 0x7f })
+            ? Array(String(decoding: part, as: UTF16.self).utf8)
+            : part.map { UInt8(truncatingIfNeeded: $0) }
+        guard bytes.contains(0x25) else { return bytes }
+        var out: [UInt8] = []
+        out.reserveCapacity(bytes.count)
+        var i = 0
+        while i < bytes.count {
+            if bytes[i] == 0x25, i + 2 < bytes.count, isHexDigit(bytes[i + 1]), isHexDigit(bytes[i + 2]) {
+                out.append(hexValue(bytes[i + 1]) << 4 | hexValue(bytes[i + 2]))
+                i += 3
+            } else {
+                out.append(bytes[i])
+                i += 1
+            }
+        }
+        return out
+    }
+
+    /// Forgiving base64 (infra.spec.whatwg.org), as `atob` decodes it in V8 and QuickJS: white space skipped, a short
+    /// last group with or without its padding, nil for anything else (a character past ASCII, a padding in the middle).
+    static func forgivingBase64<C: Collection>(_ text: C) -> [UInt8]? where C.Element: BinaryInteger {
+        var out: [UInt8] = []
+        out.reserveCapacity(text.count / 4 * 3 + 3)
+        var acc: UInt32 = 0, seen = 0
+        var i = text.startIndex
+        while i != text.endIndex {
+            let c = Int(text[i])
+            if c > 0x7f { return nil }
+            if isBodySpace(c) {
+                i = text.index(after: i)
+                continue
+            }
+            let v: Int
+            switch c {
+            case 0x41...0x5a: v = c - 0x41
+            case 0x61...0x7a: v = c - 0x61 + 26
+            case 0x30...0x39: v = c - 0x30 + 52
+            case 0x2b: v = 62
+            case 0x2f: v = 63
+            default: v = -1
+            }
+            if v < 0 { break }
+            acc = acc << 6 | UInt32(v)
+            seen += 1
+            if seen == 4 {
+                out.append(UInt8(truncatingIfNeeded: acc >> 16))
+                out.append(UInt8(truncatingIfNeeded: acc >> 8))
+                out.append(UInt8(truncatingIfNeeded: acc))
+                seen = 0
+                acc = 0
+            }
+            i = text.index(after: i)
+        }
+        if seen != 0 {
+            if seen == 3 {
+                out.append(UInt8(truncatingIfNeeded: acc >> 10))
+                out.append(UInt8(truncatingIfNeeded: acc >> 2))
+            } else if seen == 2 {
+                out.append(UInt8(truncatingIfNeeded: acc >> 4))
+            } else {
+                return nil
+            }
+            var pad = 0
+            while i != text.endIndex {
+                let c = Int(text[i])
+                if pad < 2 && c == 0x3d { pad += 1 } else if !isBodySpace(c) { break }
+                i = text.index(after: i)
+            }
+            if pad != 0 && seen + pad != 4 { return nil }
+        }
+        return i == text.endIndex ? out : nil
+    }
 }

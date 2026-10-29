@@ -28,6 +28,37 @@ class UserActivationTest {
         assertEquals(3, c.gestureFor("click", 1.0))
     }
 
+    /** A press the renderer reports (its `gesture` claim) begins a new gesture: a finger's release after a drag is not the drag's (user-activation.test.ts). */
+    @Test
+    fun aPressTheRendererReportsBeginsANewGesture() {
+        val c = GestureCounter()
+        // a drag's release (its pointerdown not trusted: a finger), no click after it
+        assertEquals(1, c.gestureFor("pointerup"))
+        // the next press: the claim, its pointerdown again not trusted, then its release and its click
+        c.pressBegan()
+        assertEquals(2, c.gestureFor("pointerup"))
+        assertEquals(2, c.gestureFor("click", 1.0))
+        // a mouse's press after a claim is one gesture, as before
+        c.pressBegan()
+        assertEquals(listOf(3, 3, 3, 3, 3), listOf("pointerdown", "mousedown", "pointerup", "mouseup", "click").map { c.gestureFor(it, 1.0) })
+    }
+
+    /**
+     * A second finger's pointerdown is neither trusted (it may become the chat's scroll) nor claimed (`gesture` is the primary
+     * pointer's): WidgetHost calls `pressBegan` for every forwarded pointerdown, so each of its taps is a gesture of its own,
+     * not the spent one before it (desktop `an_untrusted_pointerdown_begins_a_new_gesture`).
+     */
+    @Test
+    fun anUntrustedPointerdownBeginsANewGesture() {
+        val c = GestureCounter()
+        c.pressBegan() // the second finger's pointerdown, not trusted: no gestureFor
+        assertEquals(1, c.gestureFor("pointerup"))
+        c.pressBegan() // its next pointerdown
+        assertEquals(2, c.gestureFor("pointerup"))
+        // without it the release continues the open press, whose gesture the first pointerup handler spent
+        assertEquals(2, c.gestureFor("pointerup"))
+    }
+
     @Test
     fun keysAndKeyboardClicksAreNeverAGesture() {
         val c = GestureCounter()

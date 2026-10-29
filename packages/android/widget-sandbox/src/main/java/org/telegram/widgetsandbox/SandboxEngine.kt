@@ -481,7 +481,13 @@ class SandboxEngine(
                 // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
                 // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
                 if (!visible) delayMs = maxOf(delayMs, 1000.0 + delayMs / 10)
-                if (timers.size >= config.maxTimers) {
+                // An id that has a timer replaces it, and does not count against the cap: overwriting the handle left the old
+                // one running outside the map, past maxTimers and out of kill()'s reach (a shim told to reuse an id, its
+                // JSON.stringify replaced; worker.ts, sandbox_engine.cpp).
+                val replaced = timers.remove(id)
+                if (replaced != null) {
+                    replaced.cancel()
+                } else if (timers.size >= config.maxTimers) {
                     // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
                     if (!timerLimitReported) {
                         timerLimitReported = true
