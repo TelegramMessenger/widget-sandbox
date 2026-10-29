@@ -668,7 +668,11 @@ public final class SandboxEngine {
             // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
             // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
             if !visible { delay = max(delay, 1 + delay / 10) }
-            guard timers.count < config.maxTimers else {
+            // An id that has a timer replaces it: overwriting the handle did not cancel the old one (the thread keeps
+            // the timer), so a shim told to reuse an id ran timers past maxTimers, still queued after destroy.
+            if let replaced = timers.removeValue(forKey: id) {
+                replaced.cancel()
+            } else if timers.count >= config.maxTimers {
                 // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
                 if !timerLimitReported {
                     timerLimitReported = true

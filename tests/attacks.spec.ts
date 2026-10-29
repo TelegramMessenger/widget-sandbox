@@ -125,6 +125,114 @@ test.describe('timer limit', () => {
     await f.locator('#btn').click();
     await expect(f.locator('#clicks')).toHaveText('1');
   });
+
+  test('a timer id the shim asks for again replaces its timer: 1000 forged calls on one id fire its callback once', async ({ page }) => {
+    const f = await openAttack(page, 'timer-id-reuse.html');
+    await expect(f.locator('#p')).toHaveText('fired 1', { timeout: 10_000 });
+    const s = await twState(page);
+    expect(s.dead).toBeNull();
+    expect(s.diags['timer-limit-enforced']).toBeUndefined();
+  });
+});
+
+test.describe('bitmaps', () => {
+  const claimed = fs.readFileSync(path.join(attacksDir, 'mem-huge-bitmaps.html'), 'utf8').match(/id="claims" alt="" src="data:image\/png;base64,([^"]+)"/)![1];
+  test('images and canvases past 4096 × 4096 pixels never reach the page at their size', async ({ page }) => {
+    const f = await openAttack(page, 'mem-huge-bitmaps.html');
+    await expect(f.locator('#log')).toHaveText('drawn');
+    const image = (id: string) => f.locator(id).evaluate(async (el: HTMLImageElement) => {
+      await el.decode().catch(() => {});
+      return [el.naturalWidth, el.naturalHeight];
+    });
+    const canvas = (id: string) => f.locator(id).evaluate((el: HTMLCanvasElement) => [el.width, el.height]);
+    const pixels = ([w, h]: number[]) => w * h;
+    await expect.poll(() => image('#small')).toEqual([40, 20]);
+    for (const id of ['#claims', '#past']) expect(pixels(await image(id)), id).toBeLessThanOrEqual(4096 * 4096);
+    for (const id of ['#attr', '#scripted']) expect(pixels(await canvas(id)), id).toBeLessThanOrEqual(4096 * 4096);
+    expect(await canvas('#plain')).toEqual([300, 150]);
+    expect(await f.locator('#css').evaluate((el) => getComputedStyle(el).backgroundImage)).not.toContain(claimed.slice(0, 40));
+    const s = await twState(page);
+    expect(s.dead).toBeNull();
+    expect(s.diags['renderer-violation']?.count).toBeGreaterThanOrEqual(1);
+  });
+});
+
+test.describe('pointers', () => {
+  test('a widget that asks for the mouse every frame never takes a press on the page; its own press is its own', async ({ page }) => {
+    const f = await openAttack(page, 'activation-pointer-capture.html');
+    await page.evaluate(() => {
+      const b = document.createElement('button');
+      b.textContent = 'app';
+      b.style.cssText = 'position:fixed;left:0;top:0;width:120px;height:40px;z-index:99999';
+      (window as any).__appClicks = 0;
+      b.addEventListener('click', () => (window as any).__appClicks++);
+      document.body.appendChild(b);
+    });
+    await page.waitForTimeout(300);
+    await page.mouse.move(60, 20);
+    await page.mouse.down();
+    await page.waitForTimeout(200);
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as any).__appClicks)).toBe(1);
+    expect(await page.evaluate(() => (window as any).__tw.state.copiedTexts)).toEqual([]);
+    await f.locator('#t').click();
+    // the dev app's phone mode plays a finger with the mouse: the widget sees pointerType touch
+    await expect.poll(() => page.evaluate(() => (window as any).__tw.state.copiedTexts)).toEqual([expect.stringMatching(/^captured-(mouse|touch)$/)]);
+  });
+});
+
+test.describe("a finger's press", () => {
+  // Real touch input (CDP touch events): the dev app's phone mode and Playwright's clicks play a finger with the mouse,
+  // whose pointerdown is a gesture.
+  test.use({ hasTouch: true });
+  const touches = async (page: Page) => {
+    const cdp = await page.context().newCDPSession(page);
+    const box = (await page.locator(RENDERER_SEL).boundingBox())!;
+    const x = box.x + box.width / 2, y = box.y + 60;
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((p) => ({ ...p, id: 1 })) });
+    return {
+      async swipe(dy: number) {
+        await touch('touchStart', [{ x, y }]);
+        for (let i = 1; i <= 10; i++) { await touch('touchMove', [{ x, y: y + (dy * i) / 10 }]); await page.waitForTimeout(16); }
+        await touch('touchEnd', []);
+      },
+      async tap() {
+        await touch('touchStart', [{ x, y }]);
+        await page.waitForTimeout(60);
+        await touch('touchEnd', []);
+      },
+    };
+  };
+  const seen = (page: Page) => page.evaluate(() => ({ requests: (window as any).__tw.bot.requests.map((r: any) => r.data as string), copied: (window as any).__tw.state.copiedTexts as string[] }));
+
+  test('a swipe that starts on the widget is the chat\'s scroll: no request and no copyText from its pointerdown; a tap still gets its click', async ({ page }) => {
+    await resetCanary();
+    await openAttack(page, 'activation-touch-swipe.html', '&message=group');
+    await page.waitForTimeout(300);
+    const t = await touches(page);
+    await t.swipe(160);
+    await page.waitForTimeout(800);
+    expect(await seen(page)).toEqual({ requests: [], copied: [] });
+    await t.tap();
+    await expect.poll(async () => (await seen(page)).copied).toEqual(['click']);
+    await page.waitForTimeout(300);
+    expect((await seen(page)).requests).toEqual([]);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+});
+
+test.describe('light-dark()', () => {
+  test('no branch of light-dark() fetches anything in the dark theme either', async ({ page }) => {
+    await resetCanary();
+    const outside = watchRequests(page);
+    await page.goto(`/?file=attacks/css-light-dark-url.html&theme=dark${RENDERER_PARAM}`);
+    await page.waitForFunction(() => (window as any).__tw?.state?.loaded, null, { timeout: 60_000 });
+    await page.waitForTimeout(1500);
+    expect(await canaryHits()).toHaveLength(0);
+    expect(outside).toHaveLength(0);
+    expect((await twState(page)).diags['url-blocked']?.count).toBeGreaterThan(0);
+  });
 });
 
 test.describe('memory limit', () => {

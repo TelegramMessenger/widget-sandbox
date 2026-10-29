@@ -49,6 +49,17 @@ class GestureCounter {
         lastType = type
         return number
     }
+
+    /**
+     * A press began: the renderer's `gesture` claim (sent for every primary press, whether the widget listens or not, and
+     * before the press's own events) or any forwarded `pointerdown`, trusted or not. What follows is a new gesture, not
+     * the end of an open one: a finger's pointerdown is not `trusted` (it may become the chat's scroll), so without this
+     * its release continued a press that had ended without a click (a drag), whose gesture was spent (user-activation.ts).
+     */
+    fun pressBegan() {
+        pressOpen = false
+        lastType = ""
+    }
 }
 
 /** Engine side: the gesture whose event task runs, and the last one a privileged call consumed. */

@@ -591,13 +591,18 @@ class WidgetHost(
             }
             // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
             "event" -> if (!preview) (msg.opt("ev") as? JSONObject)?.let { ev ->
+                // Any pointerdown begins a press, trusted or not: a second finger's is neither trusted nor claimed (`gesture`
+                // is the primary pointer's), and without this its release continued the press before it.
+                if (ev.optString("type") == "pointerdown") gestures.pressBegan()
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
                 val gesture = if (msg.opt("trusted") == true) gestures.gestureFor(ev.optString("type"), ev.optDouble("detail", 0.0)) else 0
                 if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
             }
             "gesture" -> {
                 // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s after.
+                // Before the preview check: harmless, a preview gets no input and no haptics anyway.
                 engine.press()
+                gestures.pressBegan()
                 if (preview) return
                 // A preview claims nothing (no onGesture / onGestureClaim); its renderer already leaves every press to the client.
                 // Vertical drags are the chat's (v0.1.3): the claim's `y` is false whatever the renderer sends. The renderer

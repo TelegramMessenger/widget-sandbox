@@ -80,6 +80,8 @@ describe('url policy: data: images', () => {
     const urls = new Set<string>();
     for (const dir of ['corpus', 'packages/conformance']) {
       for (const file of htmlFiles(path.join(repo, dir))) {
+        // the attacks' images are past the cap on purpose (mem-huge-bitmaps)
+        if (file.startsWith(path.join(repo, 'corpus', 'attacks') + path.sep)) continue;
         for (const [url] of fs.readFileSync(file, 'utf8').matchAll(/data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+/g)) urls.add(url);
       }
     }

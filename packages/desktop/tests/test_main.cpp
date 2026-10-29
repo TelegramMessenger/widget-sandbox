@@ -639,6 +639,12 @@ TEST(pinned_thread_gives_deep_recursion) {
     CHECK(f.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     CHECK(f.get());
     CHECK(!cancelledRan);
+    // A cancelled timer leaves the queue before its time: 10 000 timers of 24 h set and cancelled (a widget's
+    // setTimeout / clearTimeout loop) leave at most twice the live ones, not 10 000.
+    auto live = t.after(86400, [] {});
+    for (int i = 0; i < 10000; i++) t.after(86400, [] {})->cancel();
+    CHECK_MSG(t.queuedTimers() <= 128, std::to_string(t.queuedTimers()) + " timers queued");
+    live->cancel();
     t.stop();
 }
 
@@ -742,6 +748,21 @@ TEST(timer_limit_is_enforced) {
     CHECK_MSG(r.host.hasLog("fired=8"), r.logsText());
     CHECK_MSG(r.host.countDiag("timer-limit") == 1, r.diagsText());
     CHECK_MSG(!r.host.hasDiag("timer-limit-enforced"), "the engine backstop must not be needed: " + r.diagsText());
+    CHECK(!r.host.died);
+}
+
+/// A timer id the shim asks for again replaces its timer: a widget that replaces JSON.stringify makes the shim's 200
+/// timer calls arrive as one long interval's id, due in 20 ms. The engine kept every handle's timer running (dropping
+/// the shared_ptr did not cancel it) and each fired the interval's callback; now the old one is cancelled, once.
+TEST(a_timer_id_asked_for_again_replaces_its_timer) {
+    Run r("<script>var fired = 0; var id = setInterval(function () { fired++; }, 10000000); var orig = JSON.stringify;"
+          "JSON.stringify = function (v) { return Array.isArray(v) && v.length === 2 ? '[' + id + ',20]' : orig(v); };"
+          "for (var i = 0; i < 200; i++) clearTimeout(setTimeout(function () {}, 1)); JSON.stringify = orig;"
+          "setTimeout(function () { console.log('fired=' + fired); console.log('done'); }, 500);</script>", testConfig());
+    r.host.waitUntil([&] { return r.host.hasLog("done"); }, 5);
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.hasLog("fired=1"), r.logsText());
+    CHECK_MSG(!r.host.hasDiag("timer-limit-enforced"), r.diagsText());
     CHECK(!r.host.died);
 }
 
