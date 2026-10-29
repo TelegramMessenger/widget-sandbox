@@ -194,7 +194,7 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
 git submodule update --init           # QuickJS (TelegramMessenger/quickjs fork) in packages/ios/Sources/CQuickJS/quickjs
 corepack pnpm install                 # pnpm is not on PATH here
 corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "dev")
-corepack pnpm test:unit               # 775 core tests, including coalesced move deltas and projected 3D showcase checks; binary ops corpus uses a fixed Date
+corepack pnpm test:unit               # 805 core tests, including coalesced move deltas and projected 3D showcase checks (06-cat's size check counts zlib with this machine's Node: 3835 B here, 3786 B with the server's zlib); binary ops corpus uses a fixed Date
 corepack pnpm test:attacks            # 110 files (5 request-* on the bot's requests; haptic-timer-buzz: haptics need a touch, v0.2.2; activation-pointer-capture, activation-touch-swipe with CDP touch input, css-light-dark-url in both themes, mem-huge-bitmaps, timer-id-reuse: the tweb audit), canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
 corepack pnpm test:gestures           # who gets a press (docs/sdk-v1.md §5.5, gesture-policy.ts): the dev app's bubble in phone mode cancels a hold / swipe on touch-action: auto, none gets contextmenu, a vertical drag is the chat's on none and pan-x too, the engine's widened touch-action, a double tap is always the widget's (dblclick), the leading 20 px, desktop and off modes, the width control and the size row; iframe + shadow
@@ -236,12 +236,12 @@ corepack pnpm tsx packages/core/scripts/sandbox-node.ts --guide   # the agent bl
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts widget.html --width 360 --hold 120,40 --double-tap 120,40 --swipe 60,80,120,0 --tap x,y --right-click x,y [--desktop] [--json]   # the real renderer core in headless Chromium at that bubble width (content height) and the presses on a phone's bubble: per press the element, its touch-action claim, the policy's outcome, the events the widget received, a hint
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/interactive/01-poll.html --message private --public-data '{"v":[3,5,1]}' --viewer 1001,Ann,Lee,ann_lee --width 360 --tap 60,50 --answer '{"result":"{\"voted\":0}"}' [--message group|via-bot|no-queries|live-copy|copy|preview] [--chat-data s] [--answer-error TIMEOUT] [--set-data json] [--offscreen]   # the widget's state (chat state, shared state) and the server's flags for a kind of message, every request answered (or failed); a `request` line per request (sent by a tap / in the background / held off screen / refused and why, what came back), a `copyText` line per copy; `--offscreen` boots the widget hidden and then shows it, as Telegram's clients do
 scripts/android-bench.sh webview|blitz|litehtml|none 20 [prewarm]   # renderer start-up/memory bench in the Android demo (needs installDebug + emulator); POOLS=1 = validator pool; python3 -I scripts/android-bench-print.py --table <names>; docs/android-renderer-bench.md
-xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # 295 discovered tests, including 8 task-boundary regressions (the test scheme SwiftPM generates; on the iOS 27 simulator IntlBridgeTests.testPluralRulesMatchICU fails on es/bg ordinals, an ICU difference of the OS, older than this code); corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # 325 discovered tests, including 8 task-boundary regressions (the test scheme SwiftPM generates; on the iOS 27 simulator IntlBridgeTests.testPluralRulesMatchICU fails on es/bg ordinals, an ICU difference of the OS, older than this code); corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
 cd apps/ios/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemo -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' CODE_SIGNING_ALLOWED=NO -derivedDataPath /tmp/twidget-sim && xcrun simctl install booted /tmp/twidget-sim/Build/Products/Debug-iphonesimulator/TwidgetDemo.app && xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz   # demo on the Blitz renderer (--litehtml: litehtml); the pre-build phases run apps/renderer-blitz/build-apple.sh (rustup cargo) and apps/renderer-litehtml/build-apple.sh (cmake + ninja)
 cd apps/renderer-litehtml && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-litehtml-tests && ./build/twidget-litehtml-run msgs.json out.png --width 360 --dpr 2   # litehtml core on the host: 7 tests; msgs.json (the theme message, then the ops) from `pnpm tsx packages/core/scripts/sandbox-node.ts <widget> --ops-file msgs.json [--dark] [--font-size 17]`
 xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --autorun feed --feed max --feed-count 40 --feed-scroll step   # chat feed (iOS only): scripted scroll, feed-report.json in the app container; `--feed baseline`, `--feed-set pools=false,…`; build with -configuration Release for numbers (docs/chat-feed-ios.md); the feed has the web feed's bar: renderer WebView | Blitz | litehtml switched live, pool on/off, hostile bubble, corpus, count, reset, ▶ scroll (`--feed-set renderer=blitz,hostile=cpu-raf-burn,corpus=showcase`)
 swift test --filter TaskRendererHostTests   # 8 Swift host regressions: task/ops/query ordering, JSON/binary, startup buffering, exceptions, CPU stops, destroy, plain-renderer parity; Debug, no WebView or native renderer needed
-xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # 294 discovered tests, including 8 task-boundary regressions (testPluralRulesMatchICU as on iOS 27 on macOS 27); the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # 324 discovered tests, including 8 task-boundary regressions (testPluralRulesMatchICU as on iOS 27 on macOS 27); the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
 cd apps/macos/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemoMac -destination 'platform=macOS' -derivedDataPath /tmp/twidget-mac && /tmp/twidget-mac/Build/Products/Debug/TwidgetDemoMac.app/Contents/MacOS/TwidgetDemoMac --autorun attacks   # also generated|compat|pause; --features binaryOps,canvasWords runs the attacks through the Swift native node model (NativeValidator), which Playwright never exercises; reports in ~/Library/Application Support/org.telegram.widgetsandbox.TwidgetDemoMac
 ```
 
@@ -397,12 +397,12 @@ renderer's `release`, `docs/decisions.md` "Haptics need a touch").
 `new Image()` loads before it is inserted; the tooling builds on Windows), conformance pictures checked against the sandbox
 (`scripts/conformance/picture-check.ts`), and `nativeScrolling` (Swift, tmacos) honoured only in DEBUG or
 `TWIDGET_EXPERIMENTAL_SCROLLING` builds (`docs/decisions.md`, "Native scrolling: an experiment").
-2026-10-28 (unreleased, `docs/changes.md`): Telegram's iOS and Android clients create the host off screen, so a
+2026-10-28 (in v0.3.0, `docs/changes.md`): Telegram's iOS and Android clients create the host off screen, so a
 background request made off screen (with `backgroundQuery`) is now held in the glue and goes out when the widget appears
 (`RequestGate` verdict `held`, `show(now)` → whether it goes out; `hidden` is gone), and the shim no longer answers `BUSY`
 itself: it forwards every request and the glue's gate alone decides (`docs/sdk-v1.md` §2.14); the harness's
 `--offscreen`, the dev app's `?offscreen=1`.
-2026-10-29: strict limits from the start (`docs/decisions.md`, `docs/changes.md` "Next release"): §9 of the
+2026-10-29: strict limits from the start (`docs/decisions.md`, `docs/changes.md` v0.3.0): §9 of the
 paint-limits draft, every count and size limit at about twice the largest real widget; past a counted cap the widget
 stops instead of losing the op; the main-thread window as a second `CpuBudget`; `compat` keeps the old caps.
 2026-10-29: Eduard's tweb audit (`tweb-audit-fixes`, `docs/changes.md` "Fixes from the tweb audit") merged into `main`
@@ -411,6 +411,10 @@ release, canvas and data: image bitmaps bounded, `light-dark()` branches checked
 (and a cancelled timer leaves the engine thread's queue); five attack widgets, real CDP touch input in `test:attacks`.
 Under strict limits the bitmap caps follow the rule: 2048² canvas pixels together (stops; the renderer keeps 4096² as
 its own backstop) and 1024² per data: image (the placeholder); `auto/35-stop-canvas-pixels`.
+2026-10-29: v0.3.0 (`docs/changes.md`): the strict limits and the stress kit for the client teams' measurements, the
+tweb audit, the bot demos on Bot API 10.4 (`corpus/bot-demos`, `scripts/bot-demos.ts`), `openTelegramLink` without a
+confirmation, conformance `auto/28`–`35`; the paint limits of the draft (heavy boxes, frame cost, node cap) wait for
+the clients' stress-kit runs.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
 WebView blockers on both platforms.

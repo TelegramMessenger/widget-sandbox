@@ -3,7 +3,19 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release (unreleased)
+## v0.3.0 — release notes (2026-10-29)
+
+Strict limits from the start, the renderer stress kit for the client teams, the tweb audit's five fixes completed on
+every platform, Telegram links without a confirmation, and the bot demos on Bot API 10.4. Widgets meet harder limits:
+every count and size limit is about twice what the largest real widget uses, and past a counted cap a widget stops on
+its last render with the badge instead of losing the op (the table below). A client that uses the framework's glue and
+renderer only updates; one with its own glue ports the stop (the validator's `limit` diagnostic is fatal), the
+main-thread window (`mainThreadQuotaMs`) and the new defaults; one with its own renderer gets the finger rule
+(a touch or pen `pointerdown` is no gesture) and the bitmap caps from the shared renderer core. The stress kit
+(`packages/stress`, `CLIENTS.md`) is for the client teams: run it on your renderer on weak phones and send the run files
+back; the paint limits of the next release (heavy boxes, the renderer's frame cost, the node cap) are set from them.
+New conformance cases: `auto/28`–`30` (layouts the clients drew wrong) and `auto/31`–`35` (stop tests, judged by the
+stop's reason); five new attack widgets, one of them with real touch input.
 
 **Strict limits from the start** (default, every host; `docs/decisions.md`, "Strict limits from the start"). Widgets are
 not launched yet, and a limit is easy to loosen later but breaks widgets when it is tightened, so every count and size
@@ -39,7 +51,12 @@ only updates; hosts get the new option `mainThreadQuotaMs` next to `cpuQuotaMs`,
 cost and `STOPPED: <reason>` (and takes `dpr`, the widget's devicePixelRatio). The canvas cap counts what the validator
 sees (a new canvas is 300 × 150; its `width` / `height` attributes and the shim's `r` command size it; removing it
 refunds it) and stops with `Canvas limit exceeded: canvases of N pixels together (max 4194304)`; the image cap is
-`MAX_IMAGE_PIXELS` in `url-policy.ts` and Swift's `URLPolicy.maxImagePixels`. CPU quota, the 500 ms task slice, the 50 000-node cap and the complex-script budget are
+`MAX_IMAGE_PIXELS` in `url-policy.ts` and Swift's `URLPolicy.maxImagePixels`. The Swift host's `icon:` images
+(`WidgetHost.Options.assetResolver`) are the host's, not the widget's: the validator sees a 140-character stand-in for
+each token (a 2×2 PNG with this widget's nonce in its fragment) and the answer replaces it in the validated ops, so an
+icon of 20 KB in an `<img src>`, a style or a stylesheet no longer stops the widget at the 8 K attribute cap; an answer
+must be one of the profile's image types, and at most 2 MB of answers are restored per batch (`docs/protocol.md`,
+`icon:` images; `IconExpansionTests`). CPU quota, the 500 ms task slice, the 50 000-node cap and the complex-script budget are
 unchanged; the heavy-box count and the frame cost of the paint-limits draft wait for the stress kit's numbers from the
 clients.
 
@@ -166,7 +183,7 @@ historical corpus inputs. Commands are in `CLAUDE.md`.
   `URLPolicy.check` took an image attribute by its type alone (CSS goes through this JS), has the same check
   (`URLPolicy.checkedImage`: the same constants, scans and step caps, the body read as the bundle reads it, by UTF-16
   units, so its windows and parts fall on the same characters; the last image remembered behind a lock, validators run
-  on several threads); the host's `icon:` expansion, whose data: URLs go in before validation, gets it too. Regression:
+  on several threads). Regression:
   `DataImageTests.swift` (every case of `url-policy-images.test.ts`, each URL also through the bundle's validator and
   the native model as `<img src>`, an `attr` op and an SVG `<image href>`, with the same ops and diagnostics; the
   corpora's images; `atob`'s edge cases). Not in `profile.json` (profile 1 is
