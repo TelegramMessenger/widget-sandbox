@@ -102,6 +102,26 @@ describe('projected 3D showcase widgets', () => {
       assert.deepEqual(result.diags, []);
     });
 
+    if (file === '06-cat.html') it('cat: restores the full vertical mouse rotation after recreation', async () => {
+      const initial = await runWidget(html);
+      const canvas = initial.renderOps.find(op => op.op === 'el' && op.attrs.some(([key, value]) => key === 'id' && value === 'view'));
+      assert.ok(canvas);
+      const pointer = { targetId: canvas.id, pointerId: 1, pointerType: 'mouse', button: 0 };
+      for (const clientY of [-100, 300]) {
+        const changed = await runWidget(html, { timerRounds: 0, events: [
+          { ...pointer, type: 'pointerdown', clientX: 100, clientY: 100 },
+          { ...pointer, type: 'pointermove', clientX: 100, clientY },
+          { ...pointer, type: 'pointerup', clientX: 100, clientY },
+        ], probes: [state] });
+        const modified = JSON.parse(changed.probes[0]);
+        assert.equal(modified.pitch, clientY < 100 ? -1.3 : 1.3);
+        const storage = Object.assign({}, ...changed.storageCommits);
+        const restored = await runWidget(html, { storage, probes: [state] });
+        assert.deepEqual(JSON.parse(restored.probes[0]), modified);
+        assert.deepEqual(restored.diags, []);
+      }
+    });
+
     it(`${file}: rolls back an orbit when the host cancels a pointer`, async () => {
       const initial = await runWidget(html);
       const canvas = initial.renderOps.find(op => op.op === 'el' && op.attrs.some(([key, value]) => key === 'id' && value === 'view'));

@@ -176,7 +176,7 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
 git submodule update --init           # QuickJS (TelegramMessenger/quickjs fork) in packages/ios/Sources/CQuickJS/quickjs
 corepack pnpm install                 # pnpm is not on PATH here
 corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "dev")
-corepack pnpm test:unit               # 723 core tests, including coalesced move deltas; binary ops corpus uses a fixed Date
+corepack pnpm test:unit               # 756 core tests, including coalesced move deltas and projected 3D showcase checks; binary ops corpus uses a fixed Date
 corepack pnpm test:attacks            # 105 files (5 request-* on the bot's requests; haptic-timer-buzz: haptics need a touch, v0.2.2), canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
 corepack pnpm test:gestures           # who gets a press (docs/sdk-v1.md §5.5, gesture-policy.ts): the dev app's bubble in phone mode cancels a hold / swipe on touch-action: auto, none gets contextmenu, a vertical drag is the chat's on none and pan-x too, the engine's widened touch-action, a double tap is always the widget's (dblclick), the leading 20 px, desktop and off modes, the width control and the size row; iframe + shadow
@@ -235,10 +235,10 @@ Studio's `VC\Tools\Llvm\x64\bin\clang.exe`): its bundles and `.qbc` are byte-ide
 ### Projected 3D showcase checks
 
 `corepack pnpm exec tsx --test packages/core/tests/unit/showcase-3d.test.ts`
-runs 32 tests for the six `corpus/showcase/3d` widgets: payload limits,
+runs 33 tests for the six `corpus/showcase/3d` widgets: payload limits,
 strict validation and finite canvas output in both themes, model/zoom persistence,
-reset, canceled-pointer rollback, query-free redraws and live theme changes. `corepack pnpm test:showcase --grep '3d/'`
-runs the five sandbox/reference comparisons; repeat with `TW_RENDERER=shadow`.
+reset, full cat mouse-pitch restoration, canceled-pointer rollback, query-free redraws and live theme changes. `corepack pnpm test:showcase --grep '3d/'`
+runs the six sandbox/reference comparisons; repeat with `TW_RENDERER=shadow`.
 These widgets use canvas 2D projection, without the experimental 3D channel.
 
 ## Status (Oct 2026)

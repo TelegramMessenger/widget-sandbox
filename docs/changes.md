@@ -5,6 +5,11 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+- The sculpted cat restores the full vertical angle saved by a mouse drag (−1.3 to
+  1.3 radians) when its host recreates it. Previously reload clamped that angle to
+  the narrower elevation-button range. This corrects the example only; the shared
+  runtime, profile, SDK, native glue and generated bundles are unchanged.
+
 - A profile-1 sculpted cat example adds X/Y mouse-drag rotation, zoom and tail pose.
   Cached camera trigonometry, adaptive mesh detail and throttled redraws keep the
   model within the widget CPU budget. Vertical touch gestures still belong to chat.

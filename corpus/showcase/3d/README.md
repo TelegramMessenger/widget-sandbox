@@ -22,17 +22,18 @@ and model selection are saved only on completed interactions in per-message
 `localStorage`, with corrupt or unavailable storage tolerated. Reset restores the
 initial model, angle and zoom and saves that state.
 
-Drawing happens on load, resize, a theme change or an interaction, coalesced to one
-animation frame. The color scheme is cached and updated by media-query change
-events, so redraws do not query the host for it. There is no idle timer,
+Drawing happens on load, resize, a theme change or an interaction. The robot,
+camera, island and molecules coalesce redraws to one animation frame. The color
+scheme is cached and updated by media-query change events, so redraws do not query the host for it. There is no idle timer,
 animation loop or layout read per frame.
 Mesh canvas backing resolution follows the box and device pixel ratio, capped
-at 2x. The planet has a fixed 128×128 backing, throttles active redraws to 250 ms,
-and uses no pixel read-back/image-data APIs.
+at 2x. The cat coalesces active redraws with a 200 ms timer; its full mouse-controlled
+vertical angle survives recreation. The planet has a fixed 128×128 backing,
+throttles active redraws to 250 ms, and uses no pixel read-back/image-data APIs.
 Both chat themes and widths 200–600 px are supported; the 200 px layout uses a
 shorter viewport. Controls keep a 20 px inset from the leading edge.
 
-## Run after applying the patch
+## Run the checks
 
 From the widget-sandbox root:
 
