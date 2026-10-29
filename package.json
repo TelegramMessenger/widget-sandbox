@@ -18,6 +18,7 @@
     "test:defaults": "CORPUS_GROUP=defaults playwright test tests/generated.spec.ts",
     "test:gesture-corpus": "CORPUS_GROUP=gestures playwright test tests/generated.spec.ts",
     "test:resize-corpus": "CORPUS_GROUP=resize playwright test tests/generated.spec.ts",
+    "test:safe-area-corpus": "CORPUS_GROUP=safe-area playwright test tests/generated.spec.ts",
     "test:lifecycle": "playwright test tests/lifecycle.spec.ts",
     "test:activation": "playwright test tests/activation.spec.ts",
     "test:sdk": "playwright test tests/sdk.spec.ts",

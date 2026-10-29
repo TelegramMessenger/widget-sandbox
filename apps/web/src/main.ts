@@ -26,7 +26,7 @@ const el = {
   status: $('#status'), stats: $('#stats'), diags: $('#diags'), bridge: $('#bridge'), console: $('#console'),
   widgetError: $('#widget-error'), width: $<HTMLSelectElement>('#width'), widthValue: $('#width-value'), gestureMode: $<HTMLSelectElement>('#gesture-mode'),
   chatSandbox: $('#chat-sandbox'), bubble: $('#chat-sandbox .bubble'), gestures: $('#gestures'), botPanel: $('#bot-panel'),
-  netMarker: $('#net-marker'), timeCorner: $<HTMLSelectElement>('#time-corner'), timeCornerView: $('#time-corner-view'),
+  netMarker: $('#net-marker'), timeCorner: $<HTMLSelectElement>('#time-corner'), timeCornerView: $('#time-corner-view'), timeCornerRef: $('#time-corner-ref'),
 };
 
 export interface TwState {
@@ -432,7 +432,10 @@ async function openFile(rel: string) {
 /**
  * The dev app's theme in the reference frame: the palette of the toggle (the reference stylesheet alone follows the
  * browser's prefers-color-scheme), and the frame's root in the same scheme as its element, or the frame gets an opaque
- * canvas over the bubble, as the renderer's frame would (core.ts frameColorScheme).
+ * canvas over the bubble, as the renderer's frame would (core.ts frameColorScheme). The time control's content safe
+ * area comes with the frame's URL (`?safeArea=`, vite.config.ts) as the root variables; the frame's
+ * `env(safe-area-inset-*)` stays the browser's own (0, unless the page runs with Chromium's safe-area override, as
+ * `pnpm test:safe-area-corpus` does).
  */
 function referenceScheme(f: HTMLIFrameElement, theme: 'light' | 'dark') {
   try {
@@ -459,7 +462,8 @@ function updateReference() {
   f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
   f.style.colorScheme = state.theme;
   f.addEventListener('load', () => referenceScheme(f, state.theme));
-  f.src = '/reference/' + state.file;
+  const a = safeArea();
+  f.src = '/reference/' + state.file + (a.bottom || a.cornerLeft || a.cornerRight ? `?safeArea=${a.bottom},${a.cornerRight},${a.cornerLeft}` : '');
   el.referenceWrap.replaceChildren(f);
   referenceFrame = f;
   const size = () => {
@@ -548,6 +552,12 @@ function setTimeCorner(mode: TimeMode | null, area: Partial<ContentSafeArea> | n
   el.timeCornerView.classList.toggle('hidden', !style);
   el.timeCornerView.setAttribute('style', style);
   el.timeCornerView.textContent = REFERENCE_TIME_LABEL;
+  // The reference column is a client's bubble too: the same time over it and the same variables in its frame.
+  el.timeCornerRef.classList.toggle('hidden', !style);
+  el.timeCornerRef.setAttribute('style', style);
+  el.timeCornerRef.textContent = REFERENCE_TIME_LABEL;
+  // The reference frame reads the band from its URL before its scripts run: a new one.
+  if (referenceFrame) updateReference();
   for (const h of [host, ...compareHosts]) h?.setContentSafeArea(safeArea());
   syncUrl();
 }

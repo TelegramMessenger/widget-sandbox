@@ -65,7 +65,7 @@ pnpm workspace). A framework change touches `packages/` only.
   Gradle build with `includeBuild("../../packages/android")`);
   `apps/renderer-blitz`, `apps/renderer-litehtml` — the native renderer prototypes, frozen since 2026-10-30 (below).
 - Shared data at the root: `corpus/` (attacks, compat, generated, common,
-  showcase, defaults, gestures, resize, interactive, htmlbubbles*), `tests/` (the Playwright suites, run against
+  showcase, defaults, gestures, resize, safe-area, interactive, htmlbubbles*), `tests/` (the Playwright suites, run against
   `apps/web`), `docs/`, `scripts/` (repo tooling: corpus generation, benches,
   profiling, `sync-demo-corpus.ts`).
 
@@ -216,6 +216,7 @@ corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://1
 corepack pnpm test:defaults           # 6 widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults, README there; the test group's Defaults topic) → docs/compat-report-defaults.md
 corepack pnpm test:gesture-corpus     # what the horizontal-only rule (v0.1.3) removed (corpus/gestures, README there): joystick and 2048 each on touch-action none (-xy) and pan-y (-x), now alike, a wheel picker (pan-x) that no longer turns, and fine with horizontal only (pan-y): paddle game, card carousel, range slider → docs/compat-report-gestures.md; the feed's corpus=gestures; the test group's Gestures topic, --topic gestures
 corepack pnpm test:resize-corpus      # one widget per resize anchor (corpus/resize, README there): an FAQ on the default (top), a support thread that grows upward (bottom), results that grow downward (top) → docs/compat-report-resize.md; the test group's Resize topic, --topic resize
+corepack pnpm test:safe-area-corpus   # the client's time over a widget without a caption (corpus/safe-area, README there): 7 widgets (a diagnostic of the six numbers, full-bleed cards LTR and RTL, an unstyled note, CSS as models write it, a canvas chart, the caption pair), both sides with the band (?time=corner; Chromium's env() override for the reference) → docs/compat-report-safe-area.md; the feed's corpus=safe-area; the test group's Safe area topic without captions, --topic safe-area; the native demos list it with the band
 corepack pnpm test:showcase           # 27 interactive demos on widget profile 1 (corpus/showcase, README there; the web feed's content) → docs/compat-report-showcase.md; in the iOS/macOS demo: the showcase/<batch> sections, --autorun showcase, and the iOS chat feed's Widgets picker (showcase by default; --feed-set corpus=showcase from a shell)
 corepack pnpm test:common             # 32 widgets on the common WebView/Blitz/litehtml profile (corpus/common, README there) → docs/compat-report-common.md; --autorun common in the iOS/macOS demo, --es autorun common on Android, CORPUS=common scripts/android-bench.sh <renderer> 20 (the frozen prototypes: their opt-in builds)
 corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetSandbox/WidgetJS, corpus → apps/ios/DemoApp/Corpus
@@ -438,7 +439,8 @@ the plain litehtml core stay in `apps/` but leave the demos' default builds (iOS
 validator to `--tg-content-safe-area-inset-*` root variables the renderer sets like the theme's, plus
 `--tg-content-safe-area-corner-left|right`; the UA layer pads the body by the band; `TelegramWidget.contentSafeAreaInset`
 and `contentSafeAreaChanged`; `contentSafeArea` / `setContentSafeArea` on every host (0 by default); the dev app's **time**
-control (`?time=corner|corner-rtl`); `auto/36-safe-area`, `visual/17-time-corner`.
+control (`?time=corner|corner-rtl`); `auto/36-safe-area`, `visual/17-time-corner`; `corpus/safe-area` (7 examples, the
+test group's Safe area topic without captions, `test:safe-area-corpus`).
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), device pentest of the
 WebView blockers on both platforms.

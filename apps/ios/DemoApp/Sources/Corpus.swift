@@ -1,4 +1,5 @@
 import Foundation
+import WidgetSandbox
 
 /// Corpus files copied into the app bundle by `pnpm build:ios`
 /// (Corpus/compat, Corpus/attacks, Corpus/generated/{with,without}-profile,
@@ -13,6 +14,12 @@ enum Corpus {
     static let commonGroups = subGroups(of: "common")
     /// The showcase: interactive, animated demos on the full web profile, one group per batch (corpus/showcase/README.md).
     static let showcaseGroups = subGroups(of: "showcase")
+    /// The client's time over the corner of a widget without a caption, one group per batch (corpus/safe-area/README.md).
+    static let safeAreaGroups = subGroups(of: "safe-area")
+    /// What the demo passes for a corpus/safe-area widget: a message without a caption, the time over its right corner
+    /// (reference.ts `REFERENCE_TIME_CORNER`).
+    static let timeCorner = WidgetContentSafeArea(bottom: 24, cornerRight: 64)
+    static func isSafeArea(_ group: String) -> Bool { group.hasPrefix("safe-area/") }
 
     private static func subGroups(of parent: String) -> [String] {
         guard let dir = Bundle.main.resourceURL?.appendingPathComponent("Corpus/\(parent)"),

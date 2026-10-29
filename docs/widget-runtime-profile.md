@@ -66,10 +66,12 @@ it.
   client), on a backing, as on a photo; taps on it are the client's. Keep
   `env(safe-area-inset-bottom)` clear at the bottom (`padding-bottom:
   max(12px, env(safe-area-inset-bottom))`; the defaults pad an unstyled body for
-  it). Only the corner of that band is covered,
+  it, so when you pad for it yourself set `body { padding: 0 }` too, or you get
+  two bands). Only the corner of that band is covered,
   `--tg-content-safe-area-corner-right` (or `-left`) wide, so content may run
   into the band on the other side. With a caption all of it is 0. In JS:
-  `TelegramWidget.contentSafeAreaInset` (`docs/sdk-v1.md` §2.17).
+  `TelegramWidget.contentSafeAreaInset` (`docs/sdk-v1.md` §2.17); examples in
+  `corpus/safe-area`.
 
 ## Input: who gets a press
 
@@ -414,8 +416,9 @@ THE BUBBLE
 - Text is not selectable unless you set user-select:text and
   -webkit-user-select:text on what a user may want to copy.
 - Without a caption the client draws the message time in the bottom corner:
-  keep env(safe-area-inset-bottom) clear at the bottom (the defaults do it for
-  an unstyled body); only --tg-content-safe-area-corner-left|right of it is
+  keep env(safe-area-inset-bottom) clear at the bottom (the defaults pad an
+  unstyled body; if you pad for it, set body{padding:0}); only
+  --tg-content-safe-area-corner-left|right of it is
   covered, so content may enter the band on the other side.
 More: {docs}/guide#the-bubble
 

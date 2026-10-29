@@ -65,6 +65,11 @@ struct ContentView: View {
                     ForEach(Corpus.files(in: g), id: \.self) { f in NavigationLink(f) { WidgetScreen(group: g, file: f) } }
                 }
             }
+            ForEach(Corpus.safeAreaGroups, id: \.self) { g in
+                Section(g) {
+                    ForEach(Corpus.files(in: g), id: \.self) { f in NavigationLink(f) { WidgetScreen(group: g, file: f) } }
+                }
+            }
         }
         .navigationTitle("Widget sandbox")
     }
@@ -159,7 +164,7 @@ struct WidgetScreen: View {
 
     private func sandboxColumn(_ model: WidgetModel, viewport: CGSize) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            ChatBubble(model: model, viewport: viewport) { onScreen = $0; pushVisibility() }
+            ChatBubble(model: model, viewport: viewport, timeOverCorner: Corpus.isSafeArea(group)) { onScreen = $0; pushVisibility() }
             DiagnosticsPanel(model: model)
         }
         #if os(macOS)
@@ -183,6 +188,8 @@ struct WidgetScreen: View {
             let storageKey = group + "/" + file
             var options = WidgetModel.defaultOptions
             options.storage = DemoStorage.preload(storageKey)
+            // corpus/safe-area: a message without a caption, the time over its corner (docs/sdk-v1.md §2.17).
+            if Corpus.isSafeArea(group) { options.contentSafeArea = Corpus.timeCorner }
             let made = try WidgetModel(html: sourceHtml, theme: DemoTheme.make(dark: dark), width: 360, options: options, rendererFactory: DemoRenderer.factory)
             made.host.onStorageCommit = DemoStorage.commit(storageKey)
             model = made
@@ -244,6 +251,9 @@ struct ChatBubble: View {
     @ObservedObject var model: WidgetModel
     /// Size of the enclosing scroll view (coordinate space "scroll"), to tell whether the bubble is on screen.
     var viewport: CGSize = .zero
+    /// A message without a caption: the time over the widget's bottom right corner on a backing (docs/sdk-v1.md §2.17;
+    /// the host got the band as `contentSafeArea`); a view over the widget, so its taps are the bubble's.
+    var timeOverCorner = false
     /// Called when the bubble enters or leaves the screen (the owner's side of the off-screen pause).
     var onScreenChange: (Bool) -> Void = { _ in }
     @StateObject private var gestures = BubbleGestures()
@@ -269,6 +279,13 @@ struct ChatBubble: View {
             WidgetView(host: model.host)
                 .frame(width: 360, height: max(model.diagnostics.height, 24))
                 .background(DemoColor.bubble)
+                .overlay(alignment: .bottomTrailing) {
+                    if timeOverCorner {
+                        Text("12:00 ✓✓").font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
+                            .frame(width: 52, height: 18).background(Capsule().fill(Color.black.opacity(0.35)))
+                            .padding(.trailing, 6).padding(.bottom, 3)
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .onScreen(viewport: viewport, onScreenChange)
                 .onAppear { gestures.attach(to: model.host) }

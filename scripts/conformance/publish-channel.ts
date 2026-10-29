@@ -65,10 +65,12 @@ const CONFIG_DIR = path.join(os.homedir(), '.config', 'widget-sandbox');
  * The topics, in the order they are filled. `channel`: the posts of
  * channel.json under this widget-path prefix (the longest prefix wins).
  * `corpus`: every widget of a corpus directory that fits a mini-widget, in file
- * order, with no picture. `default: false` topics go out only when --topic names them.
+ * order, with no picture. `default: false` topics go out only when --topic names them (its name in lower case,
+ * spaces as hyphens: `--topic safe-area`). `withoutCaption`: its widgets go out without a caption, so a client draws
+ * its time over them (docs/sdk-v1.md §2.17); a file whose header says `caption: both` goes out once more with one.
  * icon colours: the six Telegram allows for a forum topic.
  */
-interface TopicSpec { name: string; channel?: string; corpus?: string; default: boolean; color: number }
+interface TopicSpec { name: string; channel?: string; corpus?: string; default: boolean; color: number; withoutCaption?: boolean }
 const TOPICS: TopicSpec[] = [
   { name: 'Visual', channel: 'visual/', default: true, color: 0x6fb9f0 },
   { name: 'Client SDK', channel: 'visual/sdk/', default: true, color: 0xffd67e },
@@ -79,6 +81,8 @@ const TOPICS: TopicSpec[] = [
   { name: 'Gestures', corpus: 'corpus/gestures', default: false, color: 0x6fb9f0 },
   // One widget per resize anchor: the default, growing up, growing down (corpus/resize/README.md); --topic resize.
   { name: 'Resize', corpus: 'corpus/resize', default: false, color: 0x8eee98 },
+  // The client's time over the corner of a widget without a caption (corpus/safe-area/README.md); --topic safe-area.
+  { name: 'Safe area', corpus: 'corpus/safe-area', default: false, color: 0xffd67e, withoutCaption: true },
   { name: 'Showcase', corpus: 'corpus/showcase', default: false, color: 0xcb86db },
   { name: 'Common', corpus: 'corpus/common', default: false, color: 0xff93b2 },
   { name: 'Generated', corpus: 'corpus/generated/with-profile', default: false, color: 0xfb6f5f },
@@ -116,9 +120,11 @@ const LIMIT = opt('--limit') !== undefined ? Number(opt('--limit')) : Infinity;
 if (!(LIMIT >= 0)) die('--limit takes a number');
 if (DELETE_TOPICS && !RESET) die('--delete-topics goes with --reset');
 if (REBUILD && (RESET || ONLY)) die('--rebuild works on whole topics: not with --reset or --only');
-const topicNames = opt('--topic')?.split(',').map((s) => s.trim().toLowerCase());
-for (const n of topicNames ?? []) if (!TOPICS.some((t) => t.name.toLowerCase() === n)) die(`no topic "${n}" (${TOPICS.map((t) => t.name).join(', ')})`);
-const SELECTED = TOPICS.filter((t) => (topicNames ? topicNames.includes(t.name.toLowerCase()) : t.default));
+/** A topic as --topic names it: `Safe area` is `safe-area`. */
+const topicArg = (name: string) => name.toLowerCase().replace(/\s+/g, '-');
+const topicNames = opt('--topic')?.split(',').map((s) => topicArg(s.trim()));
+for (const n of topicNames ?? []) if (!TOPICS.some((t) => topicArg(t.name) === n)) die(`no topic "${n}" (${TOPICS.map((t) => topicArg(t.name)).join(', ')})`);
+const SELECTED = TOPICS.filter((t) => (topicNames ? topicNames.includes(topicArg(t.name)) : t.default));
 
 function die(msg: string): never {
   console.error(`publish-channel: ${msg}`);
@@ -319,7 +325,10 @@ function corpusPosts(t: TopicSpec, skipped: string[]): Post[] {
     }
     const src = html.toString('utf8');
     const idea = /^\s*idea:\s*(.+)$/m.exec(src)?.[1] ?? /<title>([^<]*)<\/title>/i.exec(src)?.[1] ?? '';
-    out.push({ key, topic: t.name, file, width: 0, height: 0, html, zlib: packed, text: idea.trim(), photos: [], hash: { widget: '', description: '', photos: '' } });
+    const post = { key, topic: t.name, file, width: 0, height: 0, html, zlib: packed, text: idea.trim(), photos: [], hash: { widget: '', description: '', photos: '' } };
+    out.push(t.withoutCaption ? { ...post, withoutCaption: true, text: `${post.text} Posted without a caption.` } : post);
+    // The same widget with a caption: nothing over it, every value 0 (the pair of corpus/safe-area).
+    if (t.withoutCaption && /^\s*caption:\s*both\s*$/m.test(src)) out.push({ ...post, key: `${key}@caption`, text: `${post.text} Posted with a caption.`, hash: { ...post.hash } });
   }
   return out;
 }
@@ -568,7 +577,7 @@ async function check() {
 
 function describeSend(p: Post) {
   const pics = p.photos.map((f) => `${f.w}×${f.h}${f.asDocument ? ` as a document: ${f.asDocument}` : ''}`);
-  return `widget ${p.zlib} B zlib${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
+  return `widget ${p.zlib} B zlib${p.withoutCaption ? ' without a caption' : ''}${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
 }
 
 async function main() {

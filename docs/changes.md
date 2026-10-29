@@ -48,6 +48,16 @@ not draw the time keeps v0.3.0's layout.
   picture (the reference time drawn over the corner); a header's `safeArea` is the band the reference runner and the
   pictures use, and `channel.json` marks such posts `withoutCaption` (the test group posts them without a caption, so
   a client draws its own time). New catalogue features `tw.content-safe-area` and `behaviour.time-corner`.
+- Examples for the client teams: `corpus/safe-area` (README there), seven widgets that show what a client passed: a
+  diagnostic of the six numbers with the band and the corner drawn from the variables, full-bleed cards whose bottom row
+  runs into the band beside the time (one right-to-left: the corner is the interface's side), an unstyled note on the
+  renderer's defaults, CSS as models write it, a canvas chart laid out from `contentSafeAreaInset`, and a widget posted
+  twice, without a caption and with one. `pnpm test:safe-area-corpus` (`docs/compat-report-safe-area.md`, both sides with
+  the band), the feed's `corpus=safe-area`, the test group's **Safe area** topic (`publish-channel.ts --topic safe-area`,
+  every post without a caption, the pair once more with one), and the iOS/macOS and Android demos list the group and
+  pass the band with the time over the bubble. The dev app's reference column gets the band too (`?safeArea=` on the
+  reference page). A pitfall they show: a widget that pads for the band itself sets `body { padding: 0 }`, or the
+  renderer's default bottom padding comes on top of its own.
 
 ## v0.3.0 — release notes (2026-10-29)
 

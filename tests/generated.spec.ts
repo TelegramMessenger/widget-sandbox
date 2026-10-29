@@ -10,7 +10,9 @@
 // docs/blitz-experiment.md), the gallery is. TW_RENDERER=shadow runs it on the
 // Shadow DOM renderer (no iframe, docs/shadow-dom-renderer.md): the same engine,
 // so clicks and the pixel threshold apply as for the iframe; report
-// docs/compat-report-<group>-shadow.md.
+// docs/compat-report-<group>-shadow.md. CORPUS_GROUP=safe-area (pnpm test:safe-area-corpus) draws both sides as a client
+// without a caption: the dev app's time control (?time=corner: the reference band and the time over both columns) and,
+// for the reference frame, Chromium's own env(safe-area-inset-*) through its safe-area override.
 
 import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
 import fs from 'node:fs';
@@ -18,6 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
+import { REFERENCE_TIME_CORNER } from '../packages/core/src/shared/reference.ts';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GROUP = process.env.CORPUS_GROUP ?? 'generated';
@@ -27,6 +30,8 @@ const NATIVE = ['blitz', 'litehtml', 'shadow'].includes(process.env.TW_RENDERER 
 const BLITZ = NATIVE === 'blitz' || NATIVE === 'litehtml';
 const SHADOW = NATIVE === 'shadow';
 const SUFFIX = NATIVE ? `-${NATIVE}` : '';
+/** corpus/safe-area: the client's time over the corner (docs/sdk-v1.md §2.17), on both sides. */
+const SAFE_AREA = GROUP === 'safe-area';
 const genDir = path.join(root, 'corpus', GROUP);
 const outDir = path.join(root, 'reports', GROUP + SUFFIX); // outside test-results/, see compat.spec.ts
 fs.mkdirSync(outDir, { recursive: true });
@@ -63,7 +68,12 @@ async function poke(frame: FrameLocator | Locator, page: Page): Promise<number> 
 async function run(page: Page, file: string, mode: 'sandbox' | 'reference') {
   const blitz = BLITZ && mode === 'sandbox';
   const shadow = SHADOW && mode === 'sandbox';
-  await page.goto(`/?file=${GROUP}/${file}${mode === 'reference' ? '&reference=1' : ''}${blitz || shadow ? `&${NATIVE}=1` : ''}`);
+  if (SAFE_AREA) {
+    // The reference frame is the browser's own: its env() gets the band from Chromium (the sandbox's is rewritten to the host's variables).
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setSafeAreaInsetsOverride' as any, { insets: { top: 0, right: 0, bottom: REFERENCE_TIME_CORNER.bottom, left: 0 } });
+  }
+  await page.goto(`/?file=${GROUP}/${file}${mode === 'reference' ? '&reference=1' : ''}${blitz || shadow ? `&${NATIVE}=1` : ''}${SAFE_AREA ? '&time=corner' : ''}`);
   await waitReady(page);
   if (mode === 'reference') await page.waitForTimeout(800);
   if (blitz) {
@@ -118,7 +128,8 @@ test.afterAll(() => {
   const cmd = (NATIVE ? `TW_RENDERER=${NATIVE} ` : '') + (GROUP === 'generated' ? 'pnpm test:generated' : `CORPUS_GROUP=${GROUP} pnpm test:generated`);
   const lines = [`# Compat report — ${GROUP === 'generated' ? 'generated widgets' : GROUP}${BLITZ ? ` on the ${NATIVE} wasm renderer` : SHADOW ? ' on the Shadow DOM renderer (no iframe)' : ''}`, '',
     BLITZ ? `Generated ${new Date().toISOString()} by \`${cmd}\`. Pass = loaded without JS errors on the ${NATIVE} renderer (no clicks: a canvas). The pixel diff against the native reference is informational — another rasterizer, see docs/blitz-experiment.md and docs/litehtml-renderer.md; judge by reports/${GROUP}${SUFFIX}/.`
-          : `Generated ${new Date().toISOString()} by \`${cmd}\`. Pass = loaded without JS errors and screenshot within ${TOLERANCE * 100}% of the native reference after clicking up to 4 buttons.`, ''];
+          : `Generated ${new Date().toISOString()} by \`${cmd}\`. Pass = loaded without JS errors and screenshot within ${TOLERANCE * 100}% of the native reference after clicking up to 4 buttons.`, '',
+    ...(SAFE_AREA ? [`Both sides are drawn as a client without a caption draws them: a ${REFERENCE_TIME_CORNER.bottom} px band with the time over a ${REFERENCE_TIME_CORNER.corner} px right corner (the dev app's \`?time=corner\`; Chromium's env() override for the reference frame).`, ''] : [])];
   for (const b of batches) {
     const rs = results.filter((r) => r.batch === b);
     const passed = rs.filter((r) => r.pass).length;

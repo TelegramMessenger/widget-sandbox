@@ -669,7 +669,9 @@ the client gives the numbers:
   (`:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`), so
   an unstyled widget (and one that sets only `body { margin: 0 }`) stays clear of
   the time and is that much taller. A widget that sets the body's padding, or resets
-  every padding (`* { padding: 0 }`), handles the band itself.
+  every padding (`* { padding: 0 }`), handles the band itself. The converse: a widget that
+  pads for the band itself must set the body's padding too (`body { margin: 0; padding: 0 }`),
+  or the default bottom padding comes on top of its own (`corpus/safe-area`, README).
 - `TelegramWidget.contentSafeAreaInset`, `{ top, right, bottom, left, cornerLeft,
   cornerRight }` in CSS px, has the same numbers for script (a canvas widget lays
   its own controls out with them; `getComputedStyle` on the variables would be a

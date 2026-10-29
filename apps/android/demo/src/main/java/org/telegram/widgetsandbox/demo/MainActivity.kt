@@ -1,5 +1,6 @@
 package org.telegram.widgetsandbox.demo
 
+import org.telegram.widgetsandbox.WidgetHost
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -97,7 +98,8 @@ fun HomeScreen(nav: NavHostController) {
             Corpus.generatedGroups.map { it to Corpus.files(context, it) } +
             listOf("attacks" to Corpus.files(context, "attacks")) +
             Corpus.htmlbubblesGroups(context).map { it to Corpus.files(context, it) } +
-            Corpus.commonGroups(context).map { it to Corpus.files(context, it) }
+            Corpus.commonGroups(context).map { it to Corpus.files(context, it) } +
+            Corpus.safeAreaGroups(context).map { it to Corpus.files(context, it) }
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Widget sandbox") }) }) { padding ->
         LazyColumn(modifier = Modifier.padding(padding)) {
@@ -132,7 +134,10 @@ fun WidgetScreen(group: String, file: String) {
     // Restart = a new WidgetHost from the same HTML; the previous one is destroyed by the DisposableEffect.
     var generation by remember { mutableStateOf(0) }
     val html = remember(group, file) { Corpus.html(context, group, file) }
-    val model = remember(generation, renderer) { WidgetModel(context, html, demoTheme(dark), 360.0, renderer = renderer) }
+    // corpus/safe-area: a message without a caption, the time over its corner (docs/sdk-v1.md §2.17).
+    val model = remember(generation, renderer) {
+        WidgetModel(context, html, demoTheme(dark), 360.0, if (Corpus.isSafeArea(group)) WidgetHost.Options(contentSafeArea = Corpus.timeCorner) else WidgetHost.Options(), renderer = renderer)
+    }
     DisposableEffect(model) { onDispose { model.destroy() } }
     // The reference page follows `prefers-color-scheme` of its WebView context, so a theme change reloads it.
     val reference = remember(generation, dark, showReference && referenceAllowed) {
@@ -162,7 +167,7 @@ fun WidgetScreen(group: String, file: String) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 RendererPicker(renderer) { renderer = it; prefs.edit().putString(DemoRenderer.PREF, it.name).apply() }
-                ChatBubble(model, scroll)
+                ChatBubble(model, scroll, timeOverCorner = Corpus.isSafeArea(group))
                 DiagnosticsPanel(model)
                 if (reference != null) ReferenceBubble(reference)
             }
