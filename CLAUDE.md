@@ -36,10 +36,11 @@ pnpm workspace). A framework change touches `packages/` only.
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
 - `packages/tools/qjsc` — the bytecode compiler built from the vendored quickjs-ng.
 - `packages/conformance` — the widget profile conformance set that ships with the
-  framework tag: `catalogue.json` (275 profile features, statuses synced from `profile.json`), `auto/`
-  (59 self-checking widgets; `auto/26-context-*` per message context; `auto/28`–`30` widget patterns the iOS/Android clients drew
+  framework tag: `catalogue.json` (277 profile features, statuses synced from `profile.json`), `auto/`
+  (60 self-checking widgets; `auto/26-context-*` per message context; `auto/28`–`30` widget patterns the iOS/Android clients drew
   wrong, a grid row with a % fill, a 3×3 board with SVG marks, `transform-box: fill-box`: a client's renderer fixes them, not the widget;
-  `auto/31`–`35` must be stopped by the host, `"stops"` in the header), `visual/` (20 widgets for people + `visual/sdk`, 26 client-SDK cases),
+  `auto/31`–`35` must be stopped by the host, `"stops"` in the header; `auto/36` and `visual/17` are drawn with the client's time over
+  the corner, `"safeArea"` in the header, sent without a caption and with one above), `visual/` (21 widgets for people + `visual/sdk`, 26 client-SDK cases),
   `refs/` (reference pictures posted next to the visual widgets), `manifest.json`, `channel.json`
   (the test-channel posts), `tools/report.mjs`; every widget fits a mini-widget (`build.ts --sizes`
   gates 3800 B after zlib at level 9) and a bubble (at most 560 px tall at 320 px wide, under the 600 px cap: `build.ts`
@@ -47,7 +48,7 @@ pnpm workspace). A framework change touches `packages/` only.
   (`picture-check.ts`: the build fails when one differs from the widget drawn through the sandbox, so an out-of-profile
   feature is neutralised in reference mode by a template or `T.mode == 'ref'`). `CLIENTS.md` tells a client team how to
   run it on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`;
-  `publish-channel.ts` fills the Telegram test group through a test bot; `test-bot.ts` is the reference bot for the cases
+  `publish-channel.ts` fills the Telegram test group through a test bot (`sendWidget` on the beta Bot API); `test-bot.ts` is the reference bot for the cases
   that talk to it (sends them with their layer-233 fields, answers their requests, edits their state; `--self-test`).
 - `packages/stress` — the renderer stress kit that ships with the framework tag: 127 widgets in 19 load ladders
   (`widgets/<load>/<value>.html`: paint effects, document size, churn, text, canvas, SVG, layout queries, CSS rules; the
@@ -62,9 +63,9 @@ pnpm workspace). A framework change touches `packages/` only.
   harness page (`src/main.ts` exposes `window.__tw`); `apps/ios/DemoApp`,
   `apps/macos/DemoApp`, `apps/android` (demo + the renderer modules, a second
   Gradle build with `includeBuild("../../packages/android")`);
-  `apps/renderer-blitz`, `apps/renderer-litehtml` — the native renderer prototypes.
+  `apps/renderer-blitz`, `apps/renderer-litehtml` — the native renderer prototypes, frozen since 2026-10-30 (below).
 - Shared data at the root: `corpus/` (attacks, compat, generated, common,
-  showcase, defaults, gestures, resize, interactive, htmlbubbles*), `tests/` (the Playwright suites, run against
+  showcase, defaults, gestures, resize, safe-area, interactive, htmlbubbles*), `tests/` (the Playwright suites, run against
   `apps/web`), `docs/`, `scripts/` (repo tooling: corpus generation, benches,
   profiling, `sync-demo-corpus.ts`).
 
@@ -131,7 +132,13 @@ sources, not in the package; the **Ref** toggle and `ReferenceWebView.kt` in the
 Android demo, not in `widget-sandbox`) is native rendering of the same file:
 dev-only tooling, never a product path, never for `attacks/`.
 
-The native renderer prototypes replace only the renderer: the sandbox and
+**The native renderer prototypes are frozen** (2026-10-30, `docs/decisions.md`, "The renderer prototypes are
+frozen"): no client draws with them (every client has a renderer of its own; the clients' litehtml is their own
+extended one), so nothing builds or runs them by default and a change is not checked on them: "not checked on
+Blitz/litehtml" is no gap. Opt in: `TW_NATIVE_RENDERERS=YES` on the iOS/macOS demo's `xcodebuild` (builds and links
+the engines, shows the picker), `-Ptw.nativeRenderers=true` for the Android demo, `TW_NATIVE_RENDERERS=1` for their
+wasm unit tests, naming them in `--renderers` / `--combos` for the web runners, `-DTW_BLITZ` / `-DTW_LITEHTML` for the
+desktop core; the commands are under "Frozen renderer prototypes" below. They replace only the renderer: the sandbox and
 validator are the same, the native side gets validated ops only. **Blitz**
 (`apps/renderer-blitz/`, Rust; `docs/blitz-experiment.md`) and **litehtml**
 (`apps/renderer-litehtml/`, C++ core + vendored litehtml; `docs/litehtml-renderer.md`),
@@ -194,7 +201,7 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
 git submodule update --init           # QuickJS (TelegramMessenger/quickjs fork) in packages/ios/Sources/CQuickJS/quickjs
 corepack pnpm install                 # pnpm is not on PATH here
 corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "dev")
-corepack pnpm test:unit               # 805 core tests, including coalesced move deltas and projected 3D showcase checks (06-cat's size check counts zlib with this machine's Node: 3835 B here, 3786 B with the server's zlib); binary ops corpus uses a fixed Date
+corepack pnpm test:unit               # 820 core tests, including the content safe area (safe-area.test.ts), coalesced move deltas and projected 3D showcase checks (06-cat's size check counts zlib with this machine's Node: 3835 B here, 3786 B with the server's zlib); binary ops corpus uses a fixed Date
 corepack pnpm test:attacks            # 110 files (5 request-* on the bot's requests; haptic-timer-buzz: haptics need a touch, v0.2.2; activation-pointer-capture, activation-touch-swipe with CDP touch input, css-light-dark-url in both themes, mem-huge-bitmaps, timer-id-reuse: the tweb audit), canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
 corepack pnpm test:gestures           # who gets a press (docs/sdk-v1.md §5.5, gesture-policy.ts): the dev app's bubble in phone mode cancels a hold / swipe on touch-action: auto, none gets contextmenu, a vertical drag is the chat's on none and pan-x too, the engine's widened touch-action, a double tap is always the widget's (dblclick), the leading 20 px, desktop and off modes, the width control and the size row; iframe + shadow
@@ -202,47 +209,56 @@ corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md):
 corepack pnpm test:compat             # → docs/compat-report.md
 corepack pnpm test:generated          # → docs/compat-report-generated.md
 corepack pnpm test:lifecycle          # off-screen pause (frames stop, timers 1 Hz, visibilitychange)
-corepack pnpm test:htmlbubbles        # 116 Telegram demos ported to classic widgets (corpus/htmlbubbles-ported) → docs/compat-report-htmlbubbles-ported.md; 107–110/116: 6–9 known screenshot-only or timing failures (see corpus/htmlbubbles-ported/README.md)
+corepack pnpm test:htmlbubbles        # 116 Telegram demos ported to classic widgets (corpus/htmlbubbles-ported) → docs/compat-report-htmlbubbles-ported.md; 107–110/116: 6–9 known screenshot-only or timing failures (see corpus/htmlbubbles-ported/README.md); with TW_RENDERER=shadow also 06-trip-lisbon/12-ana and 09-code-review/07-leo-bare (as at v0.3.0)
 TW_RENDERER=shadow corepack pnpm test:attacks   # the same suite on the Shadow DOM renderer (no iframe): must stay at 0 hits / 0 requests; also test:generated / test:common → docs/compat-report-<group>-shadow.md
 corepack pnpm tsx scripts/feed-bench.ts --counts 50,200 --mode ops,host --cv --pool 8,32 --out docs/feed-bench-web.md   # iframe vs shadow renderer in a feed of N bubbles (needs pnpm dev); ops = renderer only, host = full WidgetHost per bubble, --pool = also with a warmed worker pool
-corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://127.0.0.1:5173   # the feed's bench headless (6 renderer × pool cells × 5 passes × 60 bubbles, ~30 min; --combos iframe:on,blitz:off,…) → docs/feed-report-web.json + .md; needs pnpm dev and the two wasm builds
+corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://127.0.0.1:5173   # the feed's bench headless (iframe and shadow × pool on/off × 5 passes × 60 bubbles; --combos iframe:on,shadow:off,…) → docs/feed-report-web.json + .md; needs pnpm dev
 corepack pnpm test:defaults           # 6 widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults, README there; the test group's Defaults topic) → docs/compat-report-defaults.md
 corepack pnpm test:gesture-corpus     # what the horizontal-only rule (v0.1.3) removed (corpus/gestures, README there): joystick and 2048 each on touch-action none (-xy) and pan-y (-x), now alike, a wheel picker (pan-x) that no longer turns, and fine with horizontal only (pan-y): paddle game, card carousel, range slider → docs/compat-report-gestures.md; the feed's corpus=gestures; the test group's Gestures topic, --topic gestures
 corepack pnpm test:resize-corpus      # one widget per resize anchor (corpus/resize, README there): an FAQ on the default (top), a support thread that grows upward (bottom), results that grow downward (top) → docs/compat-report-resize.md; the test group's Resize topic, --topic resize
+corepack pnpm test:safe-area-corpus   # the client's time over a widget with no caption below it (corpus/safe-area, README there): 7 widgets (a diagnostic of the six numbers, full-bleed cards LTR and RTL, an unstyled note, CSS as models write it, a canvas chart, the caption pair), both sides with the band (?time=corner; Chromium's env() override for the reference) → docs/compat-report-safe-area.md; the feed's corpus=safe-area; the test group's Safe area topic without captions, --topic safe-area; the native demos list it with the band
 corepack pnpm test:showcase           # 27 interactive demos on widget profile 1 (corpus/showcase, README there; the web feed's content) → docs/compat-report-showcase.md; in the iOS/macOS demo: the showcase/<batch> sections, --autorun showcase, and the iOS chat feed's Widgets picker (showcase by default; --feed-set corpus=showcase from a shell)
-corepack pnpm test:common             # 32 widgets on the common WebView/Blitz/litehtml profile (corpus/common, README there) → docs/compat-report-common.md; the same files run on every renderer: --autorun common [--blitz|--litehtml] in the iOS/macOS demo, --es autorun common on Android, CORPUS=common scripts/android-bench.sh <renderer> 20
-corepack pnpm build:blitz-web         # Blitz renderer for the web dev app: cargo (wasm32, rustup) + wasm-bindgen-cli (version from apps/renderer-blitz/Cargo.lock) → apps/renderer-blitz/pkg-web (gitignored, served at /blitz/); then the Blitz toggle / ?blitz=1, apps/web/tests/unit/blitz-wasm.test.ts stops skipping
-TW_RENDERER=blitz corepack pnpm test:generated   # generated corpus on the Blitz wasm renderer → docs/compat-report-generated-blitz.md + reports/generated-blitz (pixel diff informational, no clicks: a canvas)
+corepack pnpm test:common             # 32 widgets on the common WebView/Blitz/litehtml profile (corpus/common, README there) → docs/compat-report-common.md; --autorun common in the iOS/macOS demo, --es autorun common on Android, CORPUS=common scripts/android-bench.sh <renderer> 20 (the frozen prototypes: their opt-in builds)
 corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetSandbox/WidgetJS, corpus → apps/ios/DemoApp/Corpus
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 77 tests; 110 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 80 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
-TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile --blitz --dpr 2 --png-dir /tmp/gen-cg   # Blitz laid out by Rust, painted by CoreGraphics/CoreText (apps/renderer-blitz/src/cg.rs, Apple only; twb_set_backend in the C ABI); three-way gallery: corepack pnpm tsx scripts/blitz-experiment/gallery-native.mts reports/blitz-experiment/native/generated vello=DIR:TABLE cg=DIR:TABLE litehtml=DIR:TABLE --strips 20; on the simulator: SIMCTL_CHILD_TWB_BACKEND=cg xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz (iOS emoji paint only on this backend); Android twin: apps/renderer-blitz/src/dl.rs records the scene as a display list, CanvasScene.kt replays it with Canvas.drawGlyphs — `--es renderer blitz_canvas` in the demo (Blitz·Canvas in the picker)
-cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 83 tests with both; the same flags as --blitz
-corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscripten) → apps/renderer-litehtml/pkg-web; the dev UI's litehtml toggle / ?litehtml=1, TW_RENDERER=litehtml pnpm test:generated, apps/web/tests/unit/litehtml-wasm.test.ts
-# dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
+cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 78 tests; 110 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
 corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md + the out lists in docs/widget-runtime-profile.md (the guide's and its agent block's) (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
 corepack pnpm tsx packages/core/scripts/intl-cases.ts   # after adding an Intl case (or an ICU update of Node): rewrites packages/core/tests/fixtures/intl-cases.json with V8's answers (--check: exit 1 when stale; intl-cases.test.ts runs it); then pnpm build:ios|android|desktop copy it to the native tests
 corepack pnpm tsx scripts/conformance/build.ts   # rebuild the conformance set (catalogue, inlined harness, Chromium refs, manifest) after editing packages/conformance/{auto,visual} or scripts/conformance; starts a dev server (or --origin) for the automatic set's heights and the picture check (picture-check.ts: each visual picture against the widget drawn through the sandbox, diffs in reports/conformance/pictures)
-corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers (needs pnpm dev; blitz/litehtml too when their wasm is built) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
+corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5173 && node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json   # the set on the web renderers, iframe and shadow (needs pnpm dev) → packages/conformance/results/summary.md; the dev app lists it as the conformance/ group
 corepack pnpm tsx scripts/stress/build.ts   # rebuild the stress kit (packages/stress) after editing scripts/stress/loads.ts: widgets, manifest, README table; gates: size, and through the sandbox boots/profile/height (starts a dev server, or --origin; --sizes: sizes only)
 corepack pnpm tsx scripts/stress/run-web.ts --origin http://127.0.0.1:5173 && node packages/stress/tools/report.mjs --out reports/stress/summary reports/stress/*.json   # the stress kit on the web renderers (iframe, shadow; --pass production = strict, where each ladder stops; --warmup/--measure) → summary.md
-corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage behind the historical draft docs/widget-profile-draft.md and widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both), then feature usage over the four corpora → reports/profile/
-cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 28 JVM + 115 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)
+corepack pnpm tsx scripts/profile/probes.ts && corepack pnpm tsx scripts/profile/corpus.ts   # the feature probes and corpus usage behind the historical draft docs/widget-profile-draft.md and widget profile 1 (docs/profile-v1.md): 53 probes through validator + Blitz + litehtml (desktop build with both; historical, the prototypes are frozen), then feature usage over the four corpora → reports/profile/
+cd packages/android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:testDebugUnitTest :widget-sandbox:connectedDebugAndroidTest   # 28 JVM + 116 instrumented tests (the SdkPolicy fixture runs in both); needs a booted emulator (AVD twidget-35)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/compat/tabs.html --verbose   # also prints the widget's size as the server counts it (zlib -9 / raw, limits 4096 / 32768, src/shared/widget-size.ts) and the resize anchor when the widget set one with a warning or an error line
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts --guide   # the agent block of the authors' guide (docs/widget-runtime-profile.md): the standalone system prompt for a model writing widgets (a bot's model sees only it; its out list is generated by profile-build.ts)
 corepack pnpm tsx packages/core/scripts/sandbox-node.ts widget.html --width 360 --hold 120,40 --double-tap 120,40 --swipe 60,80,120,0 --tap x,y --right-click x,y [--desktop] [--json]   # the real renderer core in headless Chromium at that bubble width (content height) and the presses on a phone's bubble: per press the element, its touch-action claim, the policy's outcome, the events the widget received, a hint
-corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/interactive/01-poll.html --message private --public-data '{"v":[3,5,1]}' --viewer 1001,Ann,Lee,ann_lee --width 360 --tap 60,50 --answer '{"result":"{\"voted\":0}"}' [--message group|via-bot|no-queries|live-copy|copy|preview] [--chat-data s] [--answer-error TIMEOUT] [--set-data json] [--offscreen]   # the widget's state (chat state, shared state) and the server's flags for a kind of message, every request answered (or failed); a `request` line per request (sent by a tap / in the background / held off screen / refused and why, what came back), a `copyText` line per copy; `--offscreen` boots the widget hidden and then shows it, as Telegram's clients do
-scripts/android-bench.sh webview|blitz|litehtml|none 20 [prewarm]   # renderer start-up/memory bench in the Android demo (needs installDebug + emulator); POOLS=1 = validator pool; python3 -I scripts/android-bench-print.py --table <names>; docs/android-renderer-bench.md
-xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # 325 discovered tests, including 8 task-boundary regressions (the test scheme SwiftPM generates; on the iOS 27 simulator IntlBridgeTests.testPluralRulesMatchICU fails on es/bg ordinals, an ICU difference of the OS, older than this code); corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
-cd apps/ios/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemo -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' CODE_SIGNING_ALLOWED=NO -derivedDataPath /tmp/twidget-sim && xcrun simctl install booted /tmp/twidget-sim/Build/Products/Debug-iphonesimulator/TwidgetDemo.app && xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz   # demo on the Blitz renderer (--litehtml: litehtml); the pre-build phases run apps/renderer-blitz/build-apple.sh (rustup cargo) and apps/renderer-litehtml/build-apple.sh (cmake + ninja)
-cd apps/renderer-litehtml && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-litehtml-tests && ./build/twidget-litehtml-run msgs.json out.png --width 360 --dpr 2   # litehtml core on the host: 7 tests; msgs.json (the theme message, then the ops) from `pnpm tsx packages/core/scripts/sandbox-node.ts <widget> --ops-file msgs.json [--dark] [--font-size 17]`
+corepack pnpm tsx packages/core/scripts/sandbox-node.ts corpus/interactive/01-poll.html --message private --public-data '{"v":[3,5,1]}' --viewer 1001,Ann,Lee,ann_lee --width 360 --tap 60,50 --answer '{"result":"{\"voted\":0}"}' [--message group|via-bot|no-queries|live-copy|copy|preview] [--chat-data s] [--answer-error TIMEOUT] [--set-data json] [--offscreen] [--safe-area 24,64]   # the widget's state (chat state, shared state) and the server's flags for a kind of message, every request answered (or failed); a `request` line per request (sent by a tap / in the background / held off screen / refused and why, what came back), a `copyText` line per copy; `--offscreen` boots the widget hidden and then shows it, as Telegram's clients do; `--safe-area bottom[,cornerRight[,cornerLeft]]` is the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17)
+scripts/android-bench.sh webview|none 20 [prewarm]   # renderer start-up/memory bench in the Android demo (needs installDebug + emulator; blitz|litehtml need a -Ptw.nativeRenderers=true build); POOLS=1 = validator pool; python3 -I scripts/android-bench-print.py --table <names>; docs/android-renderer-bench.md
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'   # 328 discovered tests, including 8 task-boundary regressions (the test scheme SwiftPM generates; on the iOS 27 simulator IntlBridgeTests.testPluralRulesMatchICU fails on es/bg ordinals, an ICU difference of the OS, older than this code); corpus/attacks also runs through the native node model (AttackCorpusNativeModelTests)
+cd apps/ios/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemo -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' CODE_SIGNING_ALLOWED=NO -derivedDataPath /tmp/twidget-sim && xcrun simctl install booted /tmp/twidget-sim/Build/Products/Debug-iphonesimulator/TwidgetDemo.app && xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo   # the demo on the WebView renderer; with TW_NATIVE_RENDERERS=YES on xcodebuild the pre-build phases also build the frozen prototypes (apps/renderer-blitz/build-apple.sh: rustup cargo; apps/renderer-litehtml/build-apple.sh: cmake + ninja), and --blitz / --litehtml pick them
 xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --autorun feed --feed max --feed-count 40 --feed-scroll step   # chat feed (iOS only): scripted scroll, feed-report.json in the app container; `--feed baseline`, `--feed-set pools=false,…`; build with -configuration Release for numbers (docs/chat-feed-ios.md); the feed has the web feed's bar: renderer WebView | Blitz | litehtml switched live, pool on/off, hostile bubble, corpus, count, reset, ▶ scroll (`--feed-set renderer=blitz,hostile=cpu-raf-burn,corpus=showcase`)
 swift test --filter TaskRendererHostTests   # 8 Swift host regressions: task/ops/query ordering, JSON/binary, startup buffering, exceptions, CPU stops, destroy, plain-renderer parity; Debug, no WebView or native renderer needed
-xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # 324 discovered tests, including 8 task-boundary regressions (testPluralRulesMatchICU as on iOS 27 on macOS 27); the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=macOS'   # 327 discovered tests, including 8 task-boundary regressions (testPluralRulesMatchICU as on iOS 27 on macOS 27); the frame-pause test is iOS-only (xctest windows are never "visible" on macOS)
 cd apps/macos/DemoApp && xcodegen generate && xcodebuild build -scheme TwidgetDemoMac -destination 'platform=macOS' -derivedDataPath /tmp/twidget-mac && /tmp/twidget-mac/Build/Products/Debug/TwidgetDemoMac.app/Contents/MacOS/TwidgetDemoMac --autorun attacks   # also generated|compat|pause; --features binaryOps,canvasWords runs the attacks through the Swift native node model (NativeValidator), which Playwright never exercises; reports in ~/Library/Application Support/org.telegram.widgetsandbox.TwidgetDemoMac
+```
+
+### Frozen renderer prototypes (opt-in only)
+
+Nothing below runs in a check; it is here to revive a prototype (the demos' and unit tests' switches are in the
+paragraph on the prototypes above).
+
+```bash
+corepack pnpm build:blitz-web         # Blitz renderer for the web dev app: cargo (wasm32, rustup) + wasm-bindgen-cli (version from apps/renderer-blitz/Cargo.lock) → apps/renderer-blitz/pkg-web (gitignored, served at /blitz/); then the Blitz toggle / ?blitz=1, TW_NATIVE_RENDERERS=1 runs apps/web/tests/unit/blitz-wasm.test.ts
+TW_RENDERER=blitz corepack pnpm test:generated   # generated corpus on the Blitz wasm renderer → docs/compat-report-generated-blitz.md + reports/generated-blitz (pixel diff informational, no clicks: a canvas)
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --blitz --dpr 2 --png-dir /tmp/compat   # + Blitz renderer (rustup cargo): 80 tests; --attacks --blitz counts renderer fetch attempts as leaks; single file: --blitz --png out.png [--click X,Y]
+TWB_BACKEND=cg ./build/twidget-run --corpus ../../corpus/generated/with-profile --blitz --dpr 2 --png-dir /tmp/gen-cg   # Blitz laid out by Rust, painted by CoreGraphics/CoreText (apps/renderer-blitz/src/cg.rs, Apple only; twb_set_backend in the C ABI); three-way gallery: corepack pnpm tsx scripts/blitz-experiment/gallery-native.mts reports/blitz-experiment/native/generated vello=DIR:TABLE cg=DIR:TABLE litehtml=DIR:TABLE --strips 20; on the simulator: SIMCTL_CHILD_TWB_BACKEND=cg xcrun simctl launch booted org.telegram.widgetsandbox.TwidgetDemo --blitz (iOS emoji paint only on this backend); Android twin: apps/renderer-blitz/src/dl.rs records the scene as a display list, CanvasScene.kt replays it with Canvas.drawGlyphs — `--es renderer blitz_canvas` in the demo (Blitz·Canvas in the picker)
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_BLITZ=ON -DTW_LITEHTML=ON && cmake --build build && ./build/twidget-tests && ./build/twidget-run --corpus ../../corpus/compat --litehtml --dpr 2 --png-dir /tmp/compat   # + litehtml renderer (macOS): 83 tests with both; the same flags as --blitz
+corepack pnpm build:litehtml-web      # litehtml → wasm (brew install emscripten) → apps/renderer-litehtml/pkg-web; the dev UI's litehtml toggle / ?litehtml=1, TW_RENDERER=litehtml pnpm test:generated, TW_NATIVE_RENDERERS=1 for apps/web/tests/unit/litehtml-wasm.test.ts
+# dev UI "compare all" / ?compare=1: iframe, Blitz, litehtml and the reference side by side (one sandbox each, booted one after another)
+cd apps/renderer-litehtml && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-litehtml-tests && ./build/twidget-litehtml-run msgs.json out.png --width 360 --dpr 2   # litehtml core on the host: 7 tests; msgs.json (the theme message, then the ops) from `pnpm tsx packages/core/scripts/sandbox-node.ts <widget> --ops-file msgs.json [--dark] [--font-size 17]`
 ```
 
 Pitfalls: Playwright suites must not run concurrently (shared canary on
@@ -288,7 +304,7 @@ renderer prototype behind the same seam on iOS, macOS, Android, the C++ core
 CoreText/CoreGraphics, JNI/Canvas and canvas-2D backends; macOS autorun
 generated 40/40, desktop compat 21/21 and attacks 0 leaks, host harness + 6
 tests, 3 desktop tests, 3 Node wasm tests; the demos pick WebView | Blitz |
-litehtml — and
+litehtml (all frozen since 2026-10-30, opt-in builds only) — and
 the iOS chat feed (`apps/ios/DemoApp/Sources/ChatFeed`, `docs/chat-feed-ios.md`):
 shared WebKit environment, renderer/engine/validator pools, parallel boot,
 validation off the main thread, snapshot-and-drop in the list — all
@@ -415,6 +431,18 @@ its own backstop) and 1024² per data: image (the placeholder); `auto/35-stop-ca
 tweb audit, the bot demos on Bot API 10.4 (`corpus/bot-demos`, `scripts/bot-demos.ts`), `openTelegramLink` without a
 confirmation, conformance `auto/28`–`35`; the paint limits of the draft (heavy boxes, frame cost, node cap) wait for
 the clients' stress-kit runs.
+2026-10-30: the native renderer prototypes frozen (`docs/decisions.md`, "The renderer prototypes are frozen"): Blitz and
+the plain litehtml core stay in `apps/` but leave the demos' default builds (iOS/macOS `TW_NATIVE_RENDERERS=YES`, Android
+`-Ptw.nativeRenderers=true`), the unit tests (`TW_NATIVE_RENDERERS=1`) and the web runners' and benches' defaults.
+2026-10-30: v0.4.0 (`docs/changes.md`): the client's time over a widget with no caption below it (Artem, 2026-10-29;
+`docs/decisions.md`, a clarification of profile 1, `P1-safe-area`): `env(safe-area-inset-*)` is in, rewritten by the
+validator to `--tg-content-safe-area-inset-*` root variables the renderer sets like the theme's, plus
+`--tg-content-safe-area-corner-left|right`; the UA layer pads the body by the band; `TelegramWidget.contentSafeAreaInset`
+and `contentSafeAreaChanged`; `contentSafeArea` / `setContentSafeArea` on every host (0 by default); the dev app's **time**
+control (`?time=corner|corner-rtl`); `auto/36-safe-area`, `visual/17-time-corner`; `corpus/safe-area` (7 examples, the
+test group's Safe area topic without captions, `test:safe-area-corpus`); a caption above the widget (`invert_media`) is as
+none (Artem, 2026-10-30); `publish-channel.ts` sends through `sendWidget` on the beta Bot API; with the prototypes' freeze
+above.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
-and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), litehtml on the C++ core and the web (wasm) for the full three-way matrix, device pentest of the
+and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), device pentest of the
 WebView blockers on both platforms.

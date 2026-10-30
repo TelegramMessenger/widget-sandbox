@@ -2,8 +2,8 @@
 // Node, with a fake host that logs everything. Layout queries get canned
 // answers. Usage: pnpm tsx scripts/sandbox-node.ts corpus/compat/tabs.html [--ops] [--ops-file msgs.json] [--events]
 // `--ops-file` writes the host → renderer messages a renderer gets (a JSON array: the `theme`
-// message WidgetHost sends first, then the validated ops as one `ops` message) for the native
-// renderer harnesses (renderer-litehtml/tools/run.cpp).
+// and `safeArea` messages WidgetHost sends first, then the validated ops as one `ops` message) for
+// the native renderer harnesses (renderer-litehtml/tools/run.cpp).
 //
 // Mirrors the worker glue (src/host/worker.ts) closely enough to debug the shim
 // and to drive unit tests of the mutation protocol.
@@ -21,10 +21,10 @@ import type { GestureClaim } from '../src/shared/gesture-policy.ts';
 import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
 import { sizeLine, sizeVerdict, type WidgetSize } from '../src/shared/widget-size.ts';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, checkBridgeCall, checkChatType, checkLocale, checkRequestAnswer, checkStorageCommit,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer, checkStorageCommit,
   allowedInPreview, checkThemeParams, checkViewer, checkWidgetData, requestFailure, requestRefusal, toWidgetTheme, viewerFromList, viewerUser, VIEWER_FIELD_RULES,
   WIDGET_MESSAGE_KINDS, type WidgetMessageKind, type WidgetViewer,
-  type ButtonTokens, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
+  type ButtonTokens, type ContentSafeArea, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
   type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
@@ -39,6 +39,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export interface RunResult {
   /** The theme WidgetHost passes to the renderer at load (`{type:'theme', theme}`, docs/sdk-v1.md §3.4): scheme, checked palette, button and text tokens. */
   theme: WidgetTheme;
+  /** What the client draws over the widget as the renderer and the widget got it last (checked; docs/sdk-v1.md §2.17). */
+  contentSafeArea: ContentSafeArea;
   /** One entry per `morph` script step: whether the shim applied it. */
   morphed: boolean[];
   ops: unknown[][];
@@ -169,7 +171,7 @@ export interface RunOptions {
   /** Initial visibility (default true): a hidden widget gets no frames and cannot use a gesture, as in the worker and the web host. */
   visible?: boolean;
   /** Steps run after the timer rounds: visibility and theme changes and probes, in order (probe results land in RunResult.probes before `probes`). */
-  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> } | { data: WidgetData })[];
+  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> } | { data: WidgetData } | { safeArea: Partial<ContentSafeArea> })[];
   /** The colour scheme at start (default light). */
   theme?: 'light' | 'dark';
   /** The client's palette (checked as WidgetHost does: unknown keys and non-#rrggbb values are dropped). */
@@ -179,6 +181,8 @@ export interface RunOptions {
   text?: TextTokens;
   /** The client's UI language (default en-US). */
   locale?: string;
+  /** What the client draws over the widget (docs/sdk-v1.md §2.17): the time's band and corner, in CSS px; 0 by default. `{ safeArea }` script steps change it. */
+  contentSafeArea?: Partial<ContentSafeArea>;
   /** The client's Web Storage preload; over the quota it is dropped whole (`storage-rejected`). */
   storage?: unknown;
   /** The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13); `{ data }` script steps are the client's `setData`. */
@@ -268,8 +272,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, contentSafeArea: res.contentSafeArea, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null };
   res.diags.push(...dataDiags.splice(0));
   if (opts.storage !== undefined && !preview) {
     const preload = checkStorageCommit(opts.storage);
@@ -648,6 +652,11 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     }
     else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
     else if ('theme' in step) task('theme', () => tw('theme', JSON.stringify({ theme: step.theme, themeParams: checkThemeParams(step.themeParams) })));
+    else if ('safeArea' in step) {
+      res.contentSafeArea = checkContentSafeArea(step.safeArea);
+      const inset = res.contentSafeArea;
+      task('safeArea', () => tw('safeArea', JSON.stringify(inset)));
+    }
     else if ('data' in step) {
       const event: BridgeEvent = { type: 'data', ...checkData(step.data) };
       res.diags.push(...dataDiags.splice(0));
@@ -714,6 +723,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     };
     try {
       r.send({ type: 'theme', theme: res.theme });
+      r.send({ type: 'safeArea', inset: res.contentSafeArea });
       r.send({ type: 'arbitrate', bubble: true, touch: !desktop });
       flush();
       await r.settle();
@@ -777,6 +787,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
        [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
        [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query] [--chat-type t] [--viewer id[,first,last,username,premium]]
        [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json] [--offscreen]
+       [--safe-area bottom[,cornerRight[,cornerLeft]]]
   --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
   the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),
   and each is reported: the element, its touch-action claim, who got the press, the events the widget received, a hint.
@@ -789,7 +800,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   every request gets --answer (the server's answer: {"result":"…"}, default {"result":null}) or fails with
   --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.
   --offscreen: the widget boots off screen and then appears, as Telegram's clients create it (a background request
-  made at boot waits for that and goes out then).`);
+  made at boot waits for that and goes out then).
+  --safe-area: what the client draws over a widget with no caption below it (docs/sdk-v1.md §2.17), in CSS px: the band of the
+  message time at the bottom and its corner on the right (a left-to-right interface), or on the left as the third number
+  (right-to-left: 24,0,72); env(safe-area-inset-bottom), the --tg-content-safe-area-* variables and
+  TelegramWidget.contentSafeAreaInset get them, and the UA layer adds the band to an unstyled body's bottom padding.`);
     process.exit(2);
   }
   const verbose = args.includes('--verbose');
@@ -818,6 +833,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const setData = jsonFlag('--set-data');
   const viewerId = value('--viewer');
   const kind = value('--message') as WidgetMessageKind | undefined;
+  const safeArea = value('--safe-area');
+  const [bottom, cornerRight, cornerLeft] = (safeArea ?? '').split(',').map((n) => (n.trim() === '' ? 0 : Number(n)));
+  if (safeArea !== undefined && ![bottom, cornerRight ?? 0, cornerLeft ?? 0].every((n) => n >= 0 && Number.isFinite(n))) { console.error('--safe-area takes bottom[,cornerRight[,cornerLeft]] in CSS px'); process.exit(2); }
   if (kind !== undefined && !(kind in WIDGET_MESSAGE_KINDS)) { console.error(`--message takes ${Object.keys(WIDGET_MESSAGE_KINDS).join(', ')}`); process.exit(2); }
   const r = await runWidget(fs.readFileSync(file, 'utf8'), {
     data: { chatData: value('--chat-data') ?? null, publicData: value('--public-data') ?? null },
@@ -829,6 +847,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     },
     onRequest: () => (answerError ? Promise.reject(answerError) : answer),
     ...(args.includes('--offscreen') ? { visible: false } : {}),
+    ...(safeArea !== undefined ? { contentSafeArea: { bottom, cornerRight: cornerRight ?? 0, cornerLeft: cornerLeft ?? 0 } } : {}),
     script: [...(args.includes('--offscreen') ? [{ visible: true }] : []), ...(setData !== undefined ? [{ data: setData }] : [])],
     verbose, probes, cssScope: args.includes('--shadow') ? 'shadow' : 'document', theme: args.includes('--dark') ? 'dark' : 'light',
     ...(fontSize >= 0 ? { text: { fontSize: Number(args[fontSize + 1]) } } : {}),
@@ -842,7 +861,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   r.probes.forEach((p, i) => console.log(`probe[${i}] ${probes[i]} → ${p}`));
   if (args.includes('--ops')) console.log(JSON.stringify(r.renderOps, null, 0));
   const opsFile = args.indexOf('--ops-file');
-  if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'ops', ops: r.renderOps }]));
+  if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'safeArea', inset: r.contentSafeArea }, { type: 'ops', ops: r.renderOps }]));
   const tags = r.renderOps.filter((o) => o.op === 'el').length;
   const size = sizeVerdict(r.size);
   console.log(sizeLine(r.size));
@@ -851,6 +870,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (r.stopped) console.log(`STOPPED: ${r.stopped} (a host stops the widget here, the bubble keeps its last render)`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
   if (r.publicDataWatches.length) console.log(`public data: ${r.watchesPublicData ? 'watched' : 'not watched'} (watchPublicData: ${r.publicDataWatches.join(' → ')}): a client polls a shared widget's public_data only while it watches`);
+  const sa = r.contentSafeArea;
+  if (sa.bottom || sa.cornerLeft || sa.cornerRight) console.log(`content safe area: the client's time over the bottom ${sa.bottom} px, its corner ${sa.cornerRight ? `${sa.cornerRight} px on the right` : sa.cornerLeft ? `${sa.cornerLeft} px on the left` : 'none'}`);
   if (r.resizeAnchors.length) console.log(`resize anchor: ${r.resizeAnchor} (setResizeAnchor: ${r.resizeAnchors.join(' → ')}): the ${r.resizeAnchor} edge of the bubble stays put when the height changes`);
   console.log(`listens for: ${r.listens.length ? r.listens.join(', ') : '(no listeners)'}; click, load, error and toggle are always delivered`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);

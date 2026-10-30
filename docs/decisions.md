@@ -971,6 +971,9 @@ patch from the fork's owner.
 
 ## Renderer choice and the core: two tracks, one profile (Oct 2026)
 
+(The record of the three-way comparison; the prototypes it weighs are frozen since 2026-10-30, "The renderer
+prototypes are frozen" below.)
+
 Written after the Android renderer bench (`docs/android-renderer-bench.md`),
 the three-way renderer matrix (`docs/blitz-experiment.md`,
 `docs/litehtml-renderer.md`, `corpus/common`) and the iOS chat feed
@@ -1953,3 +1956,79 @@ it has for the dangerous kinds (joining a chat, a proxy, a login, a language). `
 with the full URL: an external page is where a widget could lead the user somewhere unexpected. Nothing changes in the
 framework: both calls stay privileged (only from a real tap, one per press) and the URL rules stay as they were; the
 confirmation was always the client's.
+
+## The renderer prototypes are frozen (2026-10-30)
+
+Blitz (`apps/renderer-blitz`) and the plain litehtml core (`apps/renderer-litehtml`), with their glue in the demos and
+in `packages/desktop/renderer`, stay in the repository as the record of the comparison above, but nothing builds or runs
+them by default and a change is not checked on them (Artem, 2026-10-30).
+
+- **Why.** Every client draws with a renderer of its own: the web with the Shadow DOM renderer, the native clients with
+  their own engines, and those that use litehtml use their own extended one, not our plain core; no client ships Blitz.
+  A result on the prototypes therefore says nothing about a client: plain litehtml fails where the clients' litehtml is
+  fixed (`auto/19` dies on the 100 ms layout-query window there) and passes where a client may be broken. Their job,
+  the evidence for the decision above and the probes behind profile 1, is done; whether every client draws a feature is
+  answered by the clients' own conformance runs (`packages/conformance/CLIENTS.md`), and what it costs by the stress
+  kit (`packages/stress/CLIENTS.md`). Meanwhile they cost every demo build a Rust and a CMake build and every report a
+  "not checked on Blitz/litehtml" line.
+- **What is off by default.** The demos' builds: the iOS/macOS demo builds, links and compiles them in (Swift condition
+  `TW_NATIVE_RENDERERS`) only with `TW_NATIVE_RENDERERS=YES` on `xcodebuild`, the Android demo includes their modules
+  only with `-Ptw.nativeRenderers=true`; without them no Rust toolchain or extra CMake build is needed and the renderer
+  picker is hidden. Their wasm unit tests run only with `TW_NATIVE_RENDERERS=1`. The default renderers of
+  `scripts/conformance/run-web.ts` and the default cells of `scripts/feed-report.ts` and the feed's bench panel are
+  iframe and shadow. Opt-in already before: the desktop core's `-DTW_BLITZ` / `-DTW_LITEHTML`, the web dev app's
+  toggles (they need `build:blitz-web` / `build:litehtml-web`), `TW_RENDERER=blitz|litehtml` for the Playwright suites.
+- **No obligation.** A framework change is not tested on the prototypes and a report does not list them as a gap. A
+  prototype that breaks stays broken until someone revives it; reviving one means its opt-in build and its checks first.
+- **What our native runs check instead.** The framework without a renderer (QuickJS on its thread, the glue, the
+  validator, the shared policies on their fixtures, the attack corpus through the native node model) and the `Renderer`
+  seam on our WebView renderer, which stands in for a client's. The clients' renderers are checked by the clients:
+  drawing by the conformance set, cost by the stress kit. Their renderer-side defences (no network attempt, `trusted`
+  only for a real press) have no shared check yet.
+
+## The client's time over a widget with no caption below it: the content safe area (2026-10-29)
+
+Artem's decision (`P1-safe-area` in `profile.json`; `docs/sdk-v1.md` §2.17, §5.12): a message with a widget and no
+caption gets its time and status drawn by the client over the widget's bottom corner, on a backing, as on a photo;
+with a caption below the widget the time is in the caption's line and nothing covers the widget. The widget is told
+what is covered so it can keep clear of it.
+
+**A caption above the widget** (`invert_media`, Bot API `show_caption_above_media`; Artem's decision of
+2026-10-30): as no caption. The time is drawn over the widget's bottom corner again, as on
+a photo whose caption is moved up, so the client passes the same band and corner; only a caption below gives 0. An
+edit that moves the caption above or below the widget is a layout change like adding or removing it.
+
+**Why `env()`, rewritten.** `env(safe-area-inset-bottom)` is what web code and models already write
+(`padding-bottom: max(12px, env(safe-area-inset-bottom))`), and it means the right thing: keep this band clear. But the
+engine's own `env()` cannot carry it: its values belong to the document (in the shadow renderer, to the whole chat
+page), come from the system insets of the view on WKWebView and Android WebView, and do not exist in Blitz or
+litehtml. So the validator rewrites `env(safe-area-inset-{top,right,bottom,left}[, fb])` to
+`var(--tg-content-safe-area-inset-…[, fb])`, root variables the renderer sets like the theme's (inline, `!important`,
+names from a fixed list, values checked: an inset 0–64 px, a corner 0–200 px). Every renderer then draws the same, and
+the names are Mini Apps', so `var(--tg-content-safe-area-inset-bottom)` from Mini Apps code works too. Before this the
+validator dropped every declaration with `env()`, fallback or not: `padding: 12px 12px calc(12px +
+env(safe-area-inset-bottom))` lost the whole padding. Another `env()` name now resolves to its fallback (dropped without
+one); none inside `url()`.
+
+**Why a corner as well.** CSS has no cut-outs: a safe area is four edge lengths. One number would leave the whole band
+empty, while the time takes only one corner of it, and its width varies (12- or 24-hour time, "edited", ticks, views).
+`--tg-content-safe-area-corner-left|right` gives that width on its physical side (right in a left-to-right interface,
+left in a right-to-left one, whatever the widget's own direction), so content may enter the band on the other side.
+Script gets the same numbers as `TelegramWidget.contentSafeAreaInset` (one frozen object of six numbers, a fresh one per
+change, and `contentSafeAreaChanged`; Artem: one object, no separate members), for a canvas widget that lays out its
+own controls: `getComputedStyle` on the variables would be a layout query.
+
+**Static, never per frame.** The client passes the band at creation, so the first height already has it, and changes
+it only with the bubble's layout (a caption added, removed or moved above or below by an edit, "edited"). The floating date pill moves
+relative to the bubble every frame; passing it would restyle every visible bubble on every frame and lag behind it, so
+it has no contract and is drawn over the widget as over a photo. Taps on the time are the client's (a view over the
+widget); nothing changes in the gesture policy.
+
+**The UA layer pads the body.** `:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`: an
+unstyled widget (and one that only sets `body { margin: 0 }`, as most do) stays clear of the time; a widget that sets
+the body's padding handles the band itself. The price: a widget with no caption below it is that much taller.
+
+**A clarification of profile 1, not profile 2.** `css.value.env` moved from out to in on 2026-10-29, before widgets
+launched, as the UA layer was clarified in v0.1.1 (`P1-safe-area`, like `P1-ua`): `TelegramWidget.profile` stays 1. A
+client that passes no safe area keeps v0.3.0's layout, except that a declaration with `env(safe-area-inset-*)` now
+applies with 0 where it used to be dropped, and another `env()` name with a fallback now takes its fallback.

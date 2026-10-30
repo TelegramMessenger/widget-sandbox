@@ -97,6 +97,10 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var policy: SandboxPolicy = .strict
         /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
         public var locale = SdkPolicy.defaultLocale
+        /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
+        /// the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
+        /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
+        public var contentSafeArea = WidgetContentSafeArea()
         /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`).
         public var storage = WidgetStorage()
         /// The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`.
@@ -242,6 +246,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.policy = options.policy
         config.themeParams = widgetTheme.params
         config.locale = options.locale
+        config.contentSafeArea = options.contentSafeArea
         config.storage = options.storage
         config.data = options.data
         config.context = options.context
@@ -296,6 +301,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         // The theme variables go first, before the renderer can announce `ready` (a pooled one replays it when onMessage is set).
         toRenderer(widgetTheme.rendererMessage)
+        toRenderer(options.contentSafeArea.rendererMessage)
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
         publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
@@ -372,6 +378,19 @@ public final class WidgetHost: SandboxEngineDelegate {
     @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
     public func setTheme(_ theme: String) {
         setTheme(WidgetTheme(colorScheme: theme))
+    }
+
+    /// What the client draws over the widget changed with the bubble's layout (docs/sdk-v1.md §2.17, §5.12): a caption
+    /// added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
+    /// widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
+    public func setContentSafeArea(_ area: WidgetContentSafeArea) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.setContentSafeArea(area) }
+        }
+        guard !destroyed else { return }
+        config.contentSafeArea = area
+        toRenderer(area.rendererMessage)
+        engine.contentSafeArea(area)
     }
 
     /// The bot's data changed (`updateMessageWidgetData`, or a new `public_data` from polling the shared object;

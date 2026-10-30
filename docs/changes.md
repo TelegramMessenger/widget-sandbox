@@ -3,6 +3,111 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.4.0 — release notes (2026-10-30)
+
+The client's time over a widget. A message with a widget and no caption, or with its caption shown above the widget
+(`invert_media`), gets its time and status drawn by the client over the widget's bottom corner, as on a photo, and the
+widget is told what is covered: `env(safe-area-inset-*)` is in widget profile 1 (a clarification, `P1-safe-area`),
+rewritten by the validator to root variables the renderer sets, and `TelegramWidget.contentSafeAreaInset` gives script
+the same numbers. A client that uses the framework's glue and renderer updates and passes the band and its corner
+(`contentSafeArea` at creation, `setContentSafeArea` when the bubble's layout changes) for such a message; one with its
+own renderer sets the six variables; one with its own glue passes the boot field and the dispatch (`docs/sdk-v1.md`
+§2.17, §3, §5.12; `docs/integration.md`). A client that passes nothing keeps v0.3.0's layout (every value 0). Examples
+for the client teams: `corpus/safe-area` and the test group's **Safe area** topic; conformance `auto/36-safe-area` and
+`visual/17-time-corner`. Also in this release, for the maintainers: the Blitz and litehtml renderer prototypes are
+frozen (below).
+
+**The client's time over a widget with no caption below it: the content safe area** (`docs/sdk-v1.md` §2.17, §5.12;
+`docs/decisions.md`, "The client's time over a widget with no caption below it"; a clarification of profile 1,
+`P1-safe-area`). A message with a widget and no caption gets its time and status drawn by the client over the widget's
+bottom corner, as on a photo; so does one whose caption is shown above the widget (`invert_media`, Artem's decision of
+2026-10-30); with a caption below nothing covers the widget. Every host passes nothing by default, so a client that
+does not draw the time keeps v0.3.0's layout.
+
+- Widgets: `env(safe-area-inset-top|right|bottom|left[, fallback])` is in. The validator (`css-sanitizer.ts`, which the
+  Swift `NativeValidator` runs as its CSS oracle) rewrites it to `var(--tg-content-safe-area-inset-…[, fallback])` in
+  stylesheets, `style` attributes, CSSOM writes and SVG presentation attributes; any other `env()` name resolves to its
+  fallback or drops the declaration without one (before: every declaration with `env()` was dropped, fallback or not;
+  conformance `auto/04-values-units` now expects the client's inset); `env()` inside `url()` stays rejected.
+  `CSS.supports` / `@supports` answer `true` for the safe-area insets only.
+- The renderer core sets `--tg-content-safe-area-inset-top|right|bottom|left` and `--tg-content-safe-area-corner-left|right`
+  on the root, like the theme's (always set, 0 until the host says; an inset 0–64 px, a corner 0–200 px; the widget
+  cannot replace them); the litehtml prototype's twin is `theme::safe_area_variables`. The UA layer adds the band to the
+  body's bottom padding (`:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`).
+- `TelegramWidget.contentSafeAreaInset` (`{ top, right, bottom, left, cornerLeft, cornerRight }`, frozen, a fresh object
+  per change) and the event `contentSafeAreaChanged`, in one task with the variables; the shim drops its cached layout
+  answers on a change.
+- Hosts, every copy: an option at creation and a setter. Web `WidgetHostOptions.contentSafeArea`,
+  `setContentSafeArea`, `contentSafeArea`; Swift `WidgetHost.Options.contentSafeArea` (`WidgetContentSafeArea`),
+  `setContentSafeArea(_:)`, `SandboxEngine.contentSafeArea(_:)`; Kotlin `WidgetHost.Options.contentSafeArea`
+  (`WidgetContentSafeArea`), `setContentSafeArea`, `SandboxEngine.contentSafeArea`; C++
+  `WidgetHostOptions::contentSafeArea` (`twidget::WidgetContentSafeArea`), `WidgetHost::setContentSafeArea`,
+  `SandboxEngine::contentSafeArea`; the Node harness's `contentSafeArea`, `{ safeArea }` steps and `--safe-area
+  bottom[,cornerRight[,cornerLeft]]`. New messages: the renderer's `safeArea` and the shim's `safeArea` dispatch, and
+  `contentSafeArea` in the boot config (`docs/sdk-v1.md` §3). A client with its own renderer sets the six variables;
+  one with its own glue passes the boot field and the dispatch.
+- Clients: draw the time on a backing over the corner of a widget with no caption below it (none, or one shown above
+  it) and pass the band and its corner before the first render; change them only with the bubble's layout (a caption
+  added, removed or moved above or below by an edit, "edited"), never per frame; taps on the time are yours.
+- Dev app: the **time** control (`?time=corner|corner-rtl`) draws the time over the bubble and passes the reference
+  band (24 px, a 64 px corner; `REFERENCE_TIME_CORNER` in `reference.ts`); `__tw.setSafeArea(area)` for any other.
+- Conformance: `auto/36-safe-area` (env() with and without a fallback, other names, CSS.supports, the variables and
+  `contentSafeAreaInset` agree, the corner's side, the UA layer's body padding) and `visual/17-time-corner` with its
+  picture (the reference time drawn over the corner); a header's `safeArea` is the band the reference runner and the
+  pictures use, and `channel.json` has two posts of each: `withoutCaption` and `captionAbove` (the test group posts
+  them without a caption, then with the caption above the widget, `show_caption_above_media`, so a client draws its own
+  time). New catalogue features `tw.content-safe-area` and `behaviour.time-corner`.
+- Examples for the client teams: `corpus/safe-area` (README there), seven widgets that show what a client passed: a
+  diagnostic of the six numbers with the band and the corner drawn from the variables, full-bleed cards whose bottom row
+  runs into the band beside the time (one right-to-left: the corner is the interface's side), an unstyled note on the
+  renderer's defaults, CSS as models write it, a canvas chart laid out from `contentSafeAreaInset`, and a widget posted
+  three times: without a caption, with one below and with one above. `pnpm test:safe-area-corpus`
+  (`docs/compat-report-safe-area.md`, both sides with the band), the feed's `corpus=safe-area`, the test group's **Safe
+  area** topic (`publish-channel.ts --topic safe-area`, every post without a caption, the triple once more with a caption
+  below and once with one above), and the iOS/macOS and Android demos list the group and
+  pass the band with the time over the bubble. The dev app's reference column gets the band too (`?safeArea=` on the
+  reference page). A pitfall they show: a widget that pads for the band itself sets `body { padding: 0 }`, or the
+  renderer's default bottom padding comes on top of its own. `01`, `02`, `03` and `07` keep a plain value before each
+  `env()` declaration and a fallback for each variable (`var(--tg-content-safe-area-corner-right, 0px)`), so they look
+  right on a client before v0.4.0 too, laid out as with a caption below; `05` keeps the CSS models write.
+- `scripts/conformance/publish-channel.ts` sends widgets with `sendWidget` on the beta Bot API
+  (`https://api.telegram.org/beta`, the default `TW_BOT_API` until Bot API 10.4 is released), the size anchors as its
+  `width` and `height`: the regular Bot API took an HTML document the test bot turned into a widget, and dropped
+  `show_caption_above_media` (a caption-above post came out with its caption below).
+
+**For the maintainers:**
+
+- **The renderer prototypes are frozen** (dev tooling only, nothing changes for a client; `docs/decisions.md`, "The
+  renderer prototypes are frozen"): Blitz and the plain litehtml core leave the demos' default builds (iOS/macOS:
+  `TW_NATIVE_RENDERERS=YES` on `xcodebuild`; Android: `-Ptw.nativeRenderers=true`), the unit tests
+  (`TW_NATIVE_RENDERERS=1`) and the default renderers of the web conformance runner and the feed's benches; the demos
+  no longer need rustup or the litehtml CMake build.
+
+**Known issues:**
+
+- A client older than v0.4.0 drops every declaration with `env()` and has none of the variables: a widget that writes
+  `env(safe-area-inset-*)` without a plain value before it, or a variable without a fallback, loses those declarations
+  there (`corpus/safe-area/3-css/05-model-css` on the test group: no side padding, the Pay button at the bubble's edges).
+  Widgets are not launched yet; a client that renders them ships with v0.4.0 or later.
+- On the Shadow DOM renderer, `htmlbubbles-ported` `06-trip-lisbon/12-ana` and `09-code-review/07-leo-bare` differ from
+  the reference (21.8 % and 11.2 %, alone too). They fail the same at v0.3.0 and were never in a committed report (the
+  shadow report of that corpus is committed for the first time): not from this release, not investigated yet.
+- The test group: the **Safe area** topic went out from 6a7f094 (before the rebase onto 9fcb726), with 07's
+  caption-above post sent again through `sendWidget`; `01`, `02`, `03` and `07` changed since (the fallbacks) and wait
+  for a repost, and `visual/17` and `auto/36` are not in the Visual and Auto topics yet. `show_caption_above_media`
+  reaches a widget only through `sendWidget` (checked on the beta Bot API, test environment).
+- The native demos pass the reference band and draw the time over the bubble, but nobody has looked at them on a
+  simulator or an emulator yet.
+- Test matrix: typecheck and unit (`showcase-3d`'s size check of `06-cat` as in v0.3.0) on this tag; on iframe and
+  shadow compat 20, showcase 27, generated 40, common 32, gestures 28, the gesture, resize and safe-area corpora (8, 3,
+  7), lifecycle 6, activation 4, htmlbubbles 108/116 on both (the known rows, plus the two above on shadow), run before
+  the rebase onto 9fcb726 (which changes no code they run) with compat and the safe-area corpus again after it; the
+  conformance set on iframe and shadow, 179 / 3 / 0 in the profile and 77 out neutralised (119 auto runs, light and
+  dark). The native suites ran on this release's glue before the rebase (later commits and 9fcb726 change no framework
+  code): Swift macOS 327 and iOS 27 328 with only `IntlBridgeTests.testPluralRulesMatchICU` failing (the OS's ICU, as
+  before), Kotlin 28 JVM + 116 instrumented, C++ 78 tests and 110 attacks with 0 leaks; the iOS (iPhone 17, iOS 27.0)
+  and Android demos build.
+
 ## v0.3.0 — release notes (2026-10-29)
 
 Strict limits from the start, the renderer stress kit for the client teams, the tweb audit's five fixes completed on

@@ -13,9 +13,9 @@ import sandboxBundle from 'virtual:sandbox-bundle';
 import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate } from './user-activation';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, allowedInPreview, checkBridgeCall, checkChatType, checkLocale, checkRequestAnswer,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, allowedInPreview, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer,
   checkStorageCommit, checkViewer, checkWidgetData, requestFailure, requestRefusal, STORAGE_QUOTA_BYTES, toWidgetTheme, viewerUser, VIEWER_FIELD_RULES,
-  type RequestVerdict, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
+  type ContentSafeArea, type RequestVerdict, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
   type WidgetUser, type WidgetViewer,
 } from '../shared/sdk-policy';
 import { PROFILE_VERSION } from '../shared/profile-tables';
@@ -28,7 +28,7 @@ import {
   type BridgeEvent, type HostToRenderer, type HostToWorker, type RendererToHost, type SandboxConfig, type SandboxPolicy, type Stats, type WorkerToHost, resolvePolicy,
 } from '../shared/protocol';
 
-export type { ChatType, RequestFailure, WidgetAction, WidgetContext, WidgetData, WidgetRequest, WidgetRequestAnswer, WidgetTheme, WidgetUser, WidgetViewer } from '../shared/sdk-policy';
+export type { ChatType, ContentSafeArea, RequestFailure, WidgetAction, WidgetContext, WidgetData, WidgetRequest, WidgetRequestAnswer, WidgetTheme, WidgetUser, WidgetViewer } from '../shared/sdk-policy';
 export type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
 
 /** A press the bubble took (`bubbleGestures`): what the bubble does with it, and where the pointer was, in widget coordinates. */
@@ -46,6 +46,14 @@ export interface WidgetHostOptions {
   theme: 'light' | 'dark' | WidgetTheme;
   /** The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when absent or malformed. */
   locale?: string;
+  /**
+   * What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it,
+   * `bottom` = the height of the band the message time is drawn in over its bottom corner and `cornerRight` (or
+   * `cornerLeft` in a right-to-left interface) = the width of that corner; omitted fields and a widget with a caption below
+   * are 0. Pass it here, before the first render, so the first height already has the band; later only with the
+   * bubble's layout (`setContentSafeArea`), never per frame. Out of range (insets 0–64, corners 0–200) is 0.
+   */
+  contentSafeArea?: Partial<ContentSafeArea>;
   /** Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`). */
   storage?: StorageCommit;
   /** The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`. */
@@ -153,6 +161,8 @@ export class WidgetHost {
   get resizeAnchor(): ResizeAnchor { return this.anchor; }
   /** Whether the widget watches its shared `public_data` (its latest `watchPublicData` / `unwatchPublicData`), false until then. */
   get watchesPublicData(): boolean { return this.watching; }
+  /** What the client draws over the widget as the widget sees it (checked: `contentSafeArea`, `setContentSafeArea`). */
+  get contentSafeArea(): ContentSafeArea { return { ...this.safeArea }; }
   private worker: Worker | null = null;
   private renderer: Renderer;
   private validator: Validator;
@@ -166,6 +176,7 @@ export class WidgetHost {
   private viewport: SandboxConfig['viewport'] | undefined;
   private theme: 'light' | 'dark';
   private widgetTheme: ReturnType<typeof toWidgetTheme>;
+  private safeArea: ContentSafeArea;
   private visible: boolean;
   private policy: SandboxPolicy;
   private gestures = new GestureCounter();
@@ -187,6 +198,7 @@ export class WidgetHost {
     const diag = (kind: string, detail: string) => opts.onDiag?.(kind, detail);
     this.widgetTheme = toWidgetTheme(opts.theme);
     this.theme = this.widgetTheme.colorScheme;
+    this.safeArea = checkContentSafeArea(opts.contentSafeArea);
     this.visible = opts.visible ?? true;
     // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16).
     const preview = opts.context?.preview === true;
@@ -201,6 +213,7 @@ export class WidgetHost {
     this.renderer.onDiag = diag;
     this.renderer.load();
     this.toRenderer({ type: 'theme', theme: this.widgetTheme });
+    this.toRenderer({ type: 'safeArea', inset: this.safeArea });
     if (opts.bubbleGestures && !preview) this.setBubbleGestures(opts.bubbleGestures);
 
     // ── sandbox ──
@@ -222,6 +235,7 @@ export class WidgetHost {
       theme: this.theme,
       themeParams: this.widgetTheme.params,
       locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE,
+      contentSafeArea: this.safeArea,
       profile: PROFILE_VERSION,
       // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
       storage: preview ? {} : this.preload(opts.storage),
@@ -267,6 +281,17 @@ export class WidgetHost {
     const ops = this.validator.setTheme(this.theme);
     if (ops.length) this.toRenderer({ type: 'ops', ops });
     this.toWorker({ type: 'theme', theme: this.theme, themeParams: this.widgetTheme.params });
+  }
+
+  /**
+   * What the client draws over the widget changed with the bubble's layout (docs/sdk-v1.md §2.17, §5.12): a caption
+   * added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
+   * widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from the same call; never per frame.
+   */
+  setContentSafeArea(area: Partial<ContentSafeArea>) {
+    this.safeArea = checkContentSafeArea(area);
+    this.toRenderer({ type: 'safeArea', inset: this.safeArea });
+    this.toWorker({ type: 'safeArea', inset: this.safeArea });
   }
 
   /** Turns the renderer's bubble on or off (`WidgetHostOptions.bubbleGestures`); a preview takes no input at all. */

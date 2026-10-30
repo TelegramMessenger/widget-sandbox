@@ -1,6 +1,6 @@
 # Compat report — gestures on the Shadow DOM renderer (no iframe)
 
-Generated 2026-10-24T11:26:02.671Z by `TW_RENDERER=shadow CORPUS_GROUP=gestures pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-30T01:35:24.911Z by `TW_RENDERER=shadow CORPUS_GROUP=gestures pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## 1-pairs: 4 / 4 pass (100%)
 

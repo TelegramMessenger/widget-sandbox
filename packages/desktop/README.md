@@ -8,7 +8,8 @@ three JS bundles; see `docs/decisions.md` (Desktop C++ core) for why the product
 renderer is not here (tdesktop has no WebView inside the chat) and what the
 product path on tdesktop looks like. The Blitz renderer prototype
 (`-DTW_BLITZ=ON`, below) is dev tooling behind the same `Renderer` seam the
-iOS/macOS and Android demos have.
+iOS/macOS and Android demos have; it and the litehtml one (`-DTW_LITEHTML=ON`) are
+frozen since 2026-10-30 (`docs/decisions.md`, "The renderer prototypes are frozen"): no check builds them.
 
 ```
 packages/desktop/
@@ -187,7 +188,12 @@ What it is on this platform:
   upward and the content above it moves (in a top-down list, add the height
   delta to the scroll offset while the bubble is on screen, and pin the widget
   to the bubble's bottom during the transition). A change reaches `onChange`
-  before the height it anchors; it is not an action.
+  before the height it anchors; it is not an action. With no caption below the
+  widget (none, or one shown above it) the client draws the message time over the widget's bottom corner and passes
+  `WidgetHostOptions::contentSafeArea` (`bottom`, `cornerRight` or
+  `cornerLeft`, CSS px; 0 by default) at creation and `setContentSafeArea` when
+  the bubble's layout changes (`docs/sdk-v1.md` §2.17, §5.12); the renderer gets
+  `{type:'safeArea'}` right after the theme.
   Strings are UTF-8; a widget's lone surrogate arrives in its 3-byte WTF-8
   form. The string-theme constructor, `setTheme(std::string)`, `onBridgeCall`
   and `onGestureClaim(x, y)` are deprecated forwards; the host → widget

@@ -327,9 +327,10 @@ export interface BenchHostOptions {
   onOpen: () => void;
 }
 
+// The product renderer (shadow) and the reference (iframe); the frozen canvas prototypes only through `combos`.
 const DEFAULT_COMBOS: Combo[] = [
-  { renderer: 'iframe', pool: true }, { renderer: 'shadow', pool: true }, { renderer: 'litehtml', pool: true }, { renderer: 'blitz', pool: true },
-  { renderer: 'iframe', pool: false }, { renderer: 'blitz', pool: false },
+  { renderer: 'iframe', pool: true }, { renderer: 'shadow', pool: true },
+  { renderer: 'iframe', pool: false }, { renderer: 'shadow', pool: false },
 ];
 
 function parseCombos(text: string | null, renderers: FeedRenderer[]): Combo[] | null {

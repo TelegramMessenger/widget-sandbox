@@ -69,7 +69,8 @@ laid over the same calls later (D19).
 | `colorScheme` | `'light' \| 'dark'`, read-only | before v1: `theme` |
 | `themeParams` | `ThemeParams`, read-only, a fresh frozen object per change | |
 | `isActive` | `boolean`, read-only (`!document.hidden`) | |
-| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated' \| 'chatDataChanged' \| 'publicDataChanged'` (the last two: §2.13); the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
+| `contentSafeAreaInset` | `{ top, right, bottom, left, cornerLeft, cornerRight }` in CSS px, read-only, a fresh frozen object per change | §2.17: the client's time over the bottom corner of a widget with no caption below it; detect it with `TelegramWidget.contentSafeAreaInset !== undefined` |
+| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated' \| 'chatDataChanged' \| 'publicDataChanged' \| 'contentSafeAreaChanged'` (`chatDataChanged`, `publicDataChanged`: §2.13; `contentSafeAreaChanged`: §2.17); the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
 | `openLink(url)` | `(url: string) => void` | before v1 without the checks below |
 | `openTelegramLink(url)` | `(url: string) => void` | |
 | `HapticFeedback.impactOccurred(style)` | `style`: `'light' \| 'medium' \| 'heavy' \| 'rigid' \| 'soft'` | |
@@ -622,6 +623,66 @@ it is not a message yet and is not the user's:
 Draw the same first state a sent widget would draw: the preview is what the
 user is about to send.
 
+### 2.17 The client's time over the widget: the content safe area
+
+A message with a widget and **no caption below it** (no caption, or a caption
+shown above the media, `invert_media`) gets its time and status (the ticks,
+"edited", a channel's views) drawn by the client **over the widget's bottom
+corner**, on a backing, as over a photo: the right corner in a left-to-right
+interface, the left one in a right-to-left one (a physical side: an English widget
+in an Arabic client has the time on its left). With a caption below the widget the
+time is in the caption's line and nothing is drawn over the widget: everything is
+0. A caption above the widget is as no caption: the time is over the corner
+again, as on a photo whose caption is moved up. Taps on the time are the
+client's (a view over the widget), never the widget's: put nothing a user taps
+under it. The floating date pill of a chat that scrolls past the widget has no
+contract: it is drawn over the widget like over a photo and moves every frame.
+
+The widget gets the band and the corner the way a web page gets the screen's notch;
+the client gives the numbers:
+
+```css
+/* the band the time is drawn in, at the bottom: keep it clear */
+.footer { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+/* only the corner of the band is covered: content may run into the band on the other side */
+.footer { padding-right: max(12px, var(--tg-content-safe-area-corner-right));
+          padding-left: max(12px, var(--tg-content-safe-area-corner-left)); }
+```
+
+- `env(safe-area-inset-top|right|bottom|left[, fallback])` is in profile 1 (a
+  clarification of 2026-10-29, before widgets launched; `P1-safe-area` in
+  `profile.json`). The validator rewrites it, in stylesheets, `style` attributes
+  and CSSOM writes alike, to `var(--tg-content-safe-area-inset-…[, fallback])`: the
+  engine's own `env()` belongs to the document (on the web, to the chat page) and
+  comes from the view's system insets, so it never reaches the renderer. The
+  variables are always set (0 with a caption below), so a fallback applies only where a
+  client sets nothing. Any other `env()` name (`keyboard-inset-*`, `titlebar-area-*`)
+  resolves to its fallback, or drops the declaration without one; `env()` inside
+  `url()` and the other URL-taking functions is rejected like `var()`. `CSS.supports`
+  and `@supports` answer `true` for the safe-area insets only.
+- The root variables, set by the renderer like the theme's (inline and
+  `!important`, names from a fixed list, values checked): `--tg-content-safe-area-inset-top`,
+  `-right`, `-bottom`, `-left` (bottom = the height of the time's band, the rest
+  0; the names are Mini Apps', so `var(--tg-content-safe-area-inset-bottom)` from
+  Mini Apps code works too) and `--tg-content-safe-area-corner-left`, `-right`: the
+  width the client's corner takes in the band, on its physical side (`right` in a
+  left-to-right interface, `left` in a right-to-left one, the other 0). An inset is
+  0–64 px and a corner 0–200 px; a client value outside that is 0.
+- The renderer's UA layer (§2.4) adds the band to the body's bottom padding
+  (`:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`), so
+  an unstyled widget (and one that sets only `body { margin: 0 }`) stays clear of
+  the time and is that much taller. A widget that sets the body's padding, or resets
+  every padding (`* { padding: 0 }`), handles the band itself. The converse: a widget that
+  pads for the band itself must set the body's padding too (`body { margin: 0; padding: 0 }`),
+  or the default bottom padding comes on top of its own (`corpus/safe-area`, README).
+- `TelegramWidget.contentSafeAreaInset`, `{ top, right, bottom, left, cornerLeft,
+  cornerRight }` in CSS px, has the same numbers for script (a canvas widget lays
+  its own controls out with them; `getComputedStyle` on the variables would be a
+  layout query). A change (a caption added, removed or moved above or below the widget
+  by an edit, an "edited" mark that widens the time) gives a fresh frozen object and fires
+  `contentSafeAreaChanged`, in one task, with the variables already set. It never
+  changes per frame.
+
 ## 3. Protocol
 
 What carries the API between the sandbox (QuickJS), the host glue and the
@@ -640,6 +701,7 @@ one policy with a shared JSON fixture, as `cpu-budget` does:
 | `theme` | `'light' \| 'dark'` | client (`colorScheme`) | |
 | `themeParams` | `Record<ThemeKey, '#rrggbb'>` | client | |
 | `locale` | BCP 47 string, at most 35 characters | client | |
+| `contentSafeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }`, CSS px | client (§2.17, §5.12; all 0 when absent); the shim checks it: an inset 0–64, a corner 0–200, two decimals, else 0 | |
 | `profile` | integer | glue (its own constant; `VERSION.json` once it exists) | the shim reports `profile-mismatch` when it differs from the bundle's |
 | `storage` | `{ local: Record<string, string>, session: Record<string, string> }` | client (the preload), glue checks the quota | |
 | `policy` | `'strict'` | glue default | |
@@ -726,6 +788,7 @@ in order.
 | message | payload |
 |---|---|
 | `theme` | `{ theme: 'light' \| 'dark', themeParams }` (before v1: the scheme only) |
+| `safeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }` (§2.17): the shim checks it, and on a change sets a fresh `contentSafeAreaInset`, drops its cached layout answers and fires `contentSafeAreaChanged`, in one task. Not deferred under the CPU quota (it comes from the client, never from the widget, and only with the bubble's layout) |
 | `visibility` | `{ visible }` |
 | `event` | a renderer event, with `gesture: n` for a trusted press |
 | `bridge` | `{ type: 'data', chatData, publicData }` (the full state after a change: the shim fires `chatDataChanged`, then `publicDataChanged`, for each that differs), or `{ type: 'answer', id, result }` / `{ type: 'answer', id, error, reason? }`. Deferred under the CPU quota like `theme`, in order |
@@ -739,12 +802,14 @@ for the widget's state and the answers to `request`.
 | message | payload |
 |---|---|
 | `theme` | `{ type: 'theme', theme: { colorScheme, params, button, text } }`: the renderer core builds the variables of §2.3 and §2.4 (`themeVariables`) and sets them on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer); the colour scheme itself still goes to the renderer element (`color-scheme`, the WebView's appearance) as before. A native renderer does the same with its own copy of `themeVariables` (`apps/renderer-litehtml/src/theme.cpp`) |
+| `safeArea` | `{ type: 'safeArea', inset: { top, right, bottom, left, cornerLeft, cornerRight } }` (§2.17): the renderer core sets the six `--tg-content-safe-area-*` variables (`contentSafeAreaVariables`) on the root next to the theme's, 0 until the first one; hosts send it right after `theme` and on every `setContentSafeArea`. The litehtml prototype's twin is `theme::safe_area_variables`; Blitz ignores it (the fallback of a widget's `env()` then applies) |
 
 | `arbitrate` | `{ type: 'arbitrate', bubble, touch?, rtl? }` (v0.1.2): `bubble` true, the renderer plays the bubble itself with the gesture policy (the web hosts, `bubbleGestures`): a press the bubble takes ends for the widget with `pointercancel` and the host gets `bubble`. `touch`: a mouse's primary button arbitrates as a finger (and the widget sees `pointerType: 'touch'`). `rtl`: the edge strip is on the right. Native hosts leave it off: their own recognizers take the presses |
 
 The renderer takes only variable names from the fixed list above and values
 that match their grammar (`#rrggbb`, CSS lengths, a font shorthand with a
-generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3).
+generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3, a
+safe-area inset of 0–64 px and a corner of 0–200 px).
 
 ### 3.5 Renderer → host
 
@@ -778,7 +843,9 @@ public struct WidgetGestureClaim { var x: Bool; var y: Bool; var hold: Bool }   
 public enum WidgetResizeAnchor: String { case top, bottom }   // v0.1.3: WidgetDiagnostics.resizeAnchor, next to height
 
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
-// Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
+// Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload),
+//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
+public struct WidgetContentSafeArea { var top, right, bottom, left, cornerLeft, cornerRight: Double }   // points = CSS px, 0 by default
 var onChange: ((WidgetDiagnostics) -> Void)?           // height, resizeAnchor (v0.1.3), watchesPublicData, loaded, rendered, dead, diags, actions
 var onWatchPublicData: ((Bool) -> Void)?                // the widget started or stopped watching its shared state (§5.11): on a change
 var onError: ((String) -> Void)?
@@ -786,6 +853,7 @@ var onAction: ((WidgetAction) -> Void)?
 var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?   // local before session
 var onGestureClaim: ((WidgetGestureClaim) -> Void)?   // every primary pointerdown; drive the bubble's recognizers with GestureArbiter (§5.5)
 func setTheme(_ theme: WidgetTheme)
+func setContentSafeArea(_ area: WidgetContentSafeArea)   // only with the bubble's layout (a caption edit or move), never per frame
 func setVisible(_ visible: Bool); func snapshot(completion:); func destroy()
 ```
 
@@ -822,7 +890,9 @@ data class WidgetStorage(val local: Map<String, String> = emptyMap(), val sessio
 sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(kind, value?) }   // kind: impact | notification | selection
 
 WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
-// Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload)
+// Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload),
+//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
+data class WidgetContentSafeArea(val top: Double = 0.0, val right: Double = 0.0, val bottom: Double = 0.0, val left: Double = 0.0, val cornerLeft: Double = 0.0, val cornerRight: Double = 0.0)   // dp = CSS px
 var onChange: ((WidgetDiagnostics) -> Unit)?               // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions
 var onWatchPublicData: ((Boolean) -> Unit)?                 // the widget started or stopped watching its shared state (§5.11): on a change
 var onError: ((String) -> Unit)?
@@ -830,7 +900,7 @@ var onAction: ((WidgetAction) -> Unit)?
 var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   // "local" | "session"
 var onGesture: ((WidgetGestureClaim) -> Unit)?             // v0.1.2: x, y, hold (y always false since v0.1.3); drive the bubble's recognizers with GestureArbiter (§5.5)
 var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)?    // deprecated since v0.1.2: called right after onGesture
-fun setTheme(theme: WidgetTheme); fun setVisible(visible: Boolean); fun destroy()
+fun setTheme(theme: WidgetTheme); fun setContentSafeArea(area: WidgetContentSafeArea); fun setVisible(visible: Boolean); fun destroy()
 ```
 
 The widget's state and requests:
@@ -865,7 +935,9 @@ struct WidgetStorage { std::map<std::string, std::string> local, session; };
 struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } kind; std::string url, hapticKind, hapticValue; };
 
 WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
-// WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload)
+// WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload),
+//                    WidgetContentSafeArea contentSafeArea (the client's time over a widget with no caption below it, §2.17, §5.12)
+struct WidgetContentSafeArea { double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0; };   // CSS px
 std::function<void(const WidgetDiagnostics&)> onChange;           // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions, storageCommits (first 1000)
 std::function<void(bool)> onWatchPublicData;                      // the widget started or stopped watching its shared state (§5.11): on a change
 std::function<void(const std::string&)> onError;
@@ -873,7 +945,7 @@ std::function<void(const WidgetAction&)> onAction;
 std::function<void(const std::string& area, const std::map<std::string, std::string>&)> onStorageCommit;
 std::function<void(const WidgetGestureClaim&)> onGesture;          // v0.1.2: x, y, hold (y always false since v0.1.3; twidget/gesture_policy.h, GestureArbiter)
 std::function<void(bool x, bool y)> onGestureClaim;                 // deprecated since v0.1.2: called right after onGesture
-void start(); void setTheme(const WidgetTheme&); void setVisible(bool); void destroy();
+void start(); void setTheme(const WidgetTheme&); void setContentSafeArea(const WidgetContentSafeArea&); void setVisible(bool); void destroy();
 ```
 
 The widget's state and requests:
@@ -909,6 +981,7 @@ type WidgetAction =
 new WidgetHost(container, html, {
   theme,                                   // WidgetTheme, or a plain 'light' | 'dark'
   locale, storage: { local, session },     // the client's language and Web Storage preload
+  contentSafeArea: { bottom, cornerRight, cornerLeft },   // the client's time over a widget with no caption below it (§2.17, §5.12); 0 by default
   onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y, hold }),
   bubbleGestures, onBubbleGesture({ action, gesture, x, y, edge }),   // v0.1.2: the renderer plays the bubble (§5.5)
   onResize(height, anchor),                // anchor: 'top' | 'bottom', the widget's setResizeAnchor (v0.1.3)
@@ -922,6 +995,7 @@ new WidgetHost(container, html, {
 host.resizeAnchor;                         // v0.1.3: the latest anchor, 'top' until the widget sets one
 host.watchesPublicData;                    // the widget's latest watchPublicData / unwatchPublicData, false until then
 host.setTheme(theme); host.setVisible(visible); host.setBubbleGestures(mode); host.destroy();
+host.setContentSafeArea({ bottom, cornerRight, cornerLeft }); host.contentSafeArea;   // only with the bubble's layout, never per frame
 host.setData({ chatData, publicData });    // the state changed (the server's update, the polled shared state): the full state
 // @telegram/widget-sandbox/shared/gesture-policy: GestureArbiter, claimOf and the thresholds, for a client's own recognizers
 ```
@@ -938,7 +1012,11 @@ For tests and tooling, not for clients. `RunOptions` takes `theme`, `locale`,
 `resizeAnchor` and `resizeAnchors` (the latest anchor and each one the glue
 accepted, v0.1.3; the CLI prints a `resize anchor:` line), `watchesPublicData`
 and `publicDataWatches` (the same for `watchPublicData`; a `public data:` line) and `theme` (the
-renderer's `theme` message, which `--ops-file` writes before the ops).
+renderer's `theme` message, which `--ops-file` writes before the ops, then the
+`safeArea` one). `contentSafeArea` and `script` steps `{ safeArea }` are the client's
+time over the widget (§2.17; `RunResult.contentSafeArea`); from a shell
+`--safe-area bottom[,cornerRight[,cornerLeft]]` (`--safe-area 24,64`, or `24,0,64` for a
+right-to-left client).
 Gestures are injected per event (`gesture: n`). Since v0.1.2 `width` (the bubble's,
 default 400) and `gestures` (`tap`, `hold`, `double-tap`, `swipe`, `right-click`) run the
 widget on the real renderer core in headless Chromium after load: `RunResult.gestures`
@@ -1172,7 +1250,8 @@ goes to the background, `setVisible(true)` when it is back.
   below layer 233 (`messageMediaUnsupported`), the message shows as
   unsupported media with its caption. Keep that fallback.
 - The media caption is the preview and search text; without one, the localized
-  "Widget" stub.
+  "Widget" stub. A widget with no caption below it (none, or one shown above it)
+  gets the message time over its bottom corner (§5.12).
 - Test with a test bot in a tester's private chat and forward into the shared
   test channel (a bot sends widgets to its private chats, to the basic groups
   and supergroups it is a member of, and via its inline mode; the channel gets
@@ -1258,6 +1337,34 @@ shared state (`public_data`).
 - **Forwards.** Forwarding a widget without its author is not offered (the
   server keeps the forward header anyway), so a widget always shows which bot it
   is from.
+
+### 5.12 The time over a widget with no caption below it (§2.17)
+
+- With a caption below the widget, draw the time in the caption's line as for any
+  media and pass nothing (the content safe area stays 0). Without a caption, and
+  with a caption shown above the widget (`invert_media`, as on a photo), draw the
+  message time and its status (ticks, "edited", views) over the widget's bottom
+  corner, on a
+  backing as over a photo or a video (the widget's background can be any colour):
+  the right corner in a left-to-right interface, the left one in a right-to-left
+  one.
+- Pass the band and the corner as the host's `contentSafeArea`, in points / dp /
+  CSS px: `bottom` = the height of the band the time takes at the widget's
+  bottom edge (the backing and its margins), `cornerRight` (or `cornerLeft` in a
+  right-to-left interface) = the width of the corner the time takes in that band,
+  the backing and its margins; `top`, `left` and `right` 0. Give them **at
+  creation**, before the first render, so the first height the host reports
+  already has the band.
+- Change them with `setContentSafeArea` only when the bubble's layout changes: a
+  caption added or removed by an edit, or moved above or below the widget,
+  "edited" appearing, a views counter that grows wider. Never per frame and never for the chat's scroll: the floating date
+  pill has no contract (draw it over the widget like over a photo).
+- The time is a view over the widget: taps on it are the client's (its own
+  hit test; on the web an element over the renderer), never forwarded to the
+  widget. Nothing in the gesture policy changes.
+- What the widget sees and how a widget handles it: §2.17. The renderer's UA
+  layer pads an unstyled body by the band, so such a widget is that much taller
+  with no caption below it.
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 

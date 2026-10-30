@@ -836,6 +836,64 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(second, "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgba(0, 0, 0, 0)|12px|0px")
     }
 
+    // MARK: the client's time over the widget (docs/sdk-v1.md §2.17)
+
+    /// The option reaches the renderer right after the theme and the widget from its first line (checked by the shim:
+    /// out of range is 0); setContentSafeArea sends the variables and one contentSafeAreaChanged with a fresh frozen
+    /// object; the same value fires nothing; NaN reaches nobody as NaN.
+    func testContentSafeAreaReachesTheRendererAndTheWidget() throws {
+        var options = WidgetHost.Options()
+        options.contentSafeArea = WidgetContentSafeArea(top: 99, bottom: 24, cornerRight: 72)
+        let h = Harness("<script>var first=TelegramWidget.contentSafeAreaInset;console.log('first='+JSON.stringify(first));TelegramWidget.onEvent('contentSafeAreaChanged',function(){var a=TelegramWidget.contentSafeAreaInset;console.log('changed='+[a.bottom,a.cornerLeft,a.cornerRight,Object.isFrozen(a),a!==first,this===TelegramWidget].join(':'));});</script>", options: options)
+        h.pump { h.logs.contains { $0.hasPrefix("first=") } }
+        XCTAssertTrue(h.logs.contains("first={\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}"), "\(h.logs)")
+        let messages = h.renderer.messages.compactMap { Self.object($0) }
+        XCTAssertEqual(messages.first?["type"] as? String, "theme")
+        XCTAssertEqual(messages.dropFirst().first?["type"] as? String, "safeArea", "right after the theme, before any op")
+        let inset = try XCTUnwrap(messages.dropFirst().first?["inset"] as? [String: Double])
+        XCTAssertEqual(inset["bottom"], 24)
+        XCTAssertEqual(inset["cornerRight"], 72)
+        XCTAssertEqual(inset["top"], 99, "passed as given: the renderer core checks the range")
+        let rtl = WidgetContentSafeArea(bottom: 26.5, cornerLeft: 80)
+        h.host.setContentSafeArea(rtl)
+        h.host.setContentSafeArea(rtl)
+        h.host.setContentSafeArea(WidgetContentSafeArea(bottom: .nan))
+        h.pump { h.logs.filter { $0.hasPrefix("changed=") }.count >= 2 }
+        XCTAssertEqual(h.logs.filter { $0.hasPrefix("changed=") }, ["changed=26.5:80:0:true:true:true", "changed=0:0:0:true:true:true"])
+        let sent = h.renderer.messages.compactMap { Self.object($0) }.filter { $0["type"] as? String == "safeArea" }
+        XCTAssertEqual(sent.count, 4)
+        XCTAssertEqual((sent.last?["inset"] as? [String: Double])?["bottom"], 0, "NaN goes out as 0")
+    }
+
+    /// The renderer core sets the six variables on the root (the widget's own `:root` rule cannot replace them), the
+    /// validator's `env()` resolves to them, and the UA layer pads the body by the band; a change moves all of it.
+    @MainActor
+    func testContentSafeAreaOnTheRendererRoot() async throws {
+        let window = TestWindow.makeVisible()
+        defer { window.close() }
+        var options = WidgetHost.Options()
+        options.contentSafeArea = WidgetContentSafeArea(bottom: 24, cornerRight: 64)
+        let host = try WidgetHost(html: "<style>:root{--tg-content-safe-area-inset-bottom:50px}</style><p style=\"margin:0;padding-bottom:env(safe-area-inset-bottom, 99px)\">x</p>", width: 300, options: options)
+        defer { host.destroy() }
+        var latest = WidgetDiagnostics()
+        host.onChange = { latest = $0 }
+        window.attach(host.view)
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline, !latest.rendered { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertTrue(latest.rendered, "\(latest.diags)")
+        let probe = "(function(){var s=getComputedStyle(document.documentElement);return ['--tg-content-safe-area-inset-bottom','--tg-content-safe-area-corner-right','--tg-content-safe-area-corner-left'].map(function(n){return s.getPropertyValue(n).trim();}).concat([getComputedStyle(document.body).paddingBottom,getComputedStyle(document.querySelector('p')).paddingBottom]).join('|');})()"
+        let first = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
+        XCTAssertEqual(first, "24px|64px|0px|24px|24px")
+        host.setContentSafeArea(WidgetContentSafeArea(bottom: 20, cornerLeft: 70))
+        var second = ""
+        let changed = Date().addingTimeInterval(5)
+        while Date() < changed, second != "20px|0px|70px|20px|20px" {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            second = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
+        }
+        XCTAssertEqual(second, "20px|0px|70px|20px|20px")
+    }
+
     // MARK: helpers
 
     private static func object(_ json: String) -> [String: Any]? {

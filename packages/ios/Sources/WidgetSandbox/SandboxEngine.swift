@@ -50,6 +50,8 @@ public struct SandboxConfig {
     public var themeParams: [String: String] = [:]
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed (`SdkPolicy.checkLocale`).
     public var locale = SdkPolicy.defaultLocale
+    /// What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes go through `contentSafeArea(_:)`.
+    public var contentSafeArea = WidgetContentSafeArea()
     /// The client's Web Storage preload (docs/sdk-v1.md §2.8); over the quota it is dropped whole at boot (`storage-rejected`).
     public var storage = WidgetStorage()
     /// The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13), checked at boot (`SdkPolicy.checkWidgetData`):
@@ -431,6 +433,7 @@ public final class SandboxEngine {
                 "theme": self.config.theme,
                 "themeParams": SdkPolicy.checkThemeParams(self.config.themeParams),
                 "locale": SdkPolicy.checkLocale(self.config.locale) ?? SdkPolicy.defaultLocale,
+                "contentSafeArea": self.config.contentSafeArea.json,
                 "profile": SdkPolicy.profileVersion,
                 // A preview has no message yet: no storage of its own (it lives in the sandbox for this run only).
                 "storage": self.config.context.preview ? [String: Any]() : self.preload(),
@@ -522,6 +525,16 @@ public final class SandboxEngine {
     /// The chat's theme changed: the colour scheme and the palette (checked here), in one task (docs/sdk-v1.md §3.3).
     public func theme(_ theme: String, params: [String: String] = [:]) {
         enqueue("theme", Self.json(["theme": theme, "themeParams": SdkPolicy.checkThemeParams(params)]))
+    }
+
+    /// What the client draws over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.contentSafeAreaInset` and
+    /// `contentSafeAreaChanged` in one task; the shim checks the values. Before `start` it only replaces `config.contentSafeArea`.
+    public func contentSafeArea(_ area: WidgetContentSafeArea) {
+        queue.async {
+            if self.dead { return }
+            guard self.started else { self.config.contentSafeArea = area; return }
+            self.enqueueNow("safeArea", Self.json(area.json))
+        }
     }
 
     /// The bot's data changed (docs/sdk-v1.md §2.13): the full state of both strings, checked against this engine's

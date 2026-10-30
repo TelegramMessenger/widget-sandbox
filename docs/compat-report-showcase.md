@@ -1,6 +1,17 @@
 # Compat report — showcase
 
-Generated 2026-10-24T23:36:09.130Z by `CORPUS_GROUP=showcase pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-10-30T01:19:36.308Z by `CORPUS_GROUP=showcase pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+
+## 3d: 6 / 6 pass (100%)
+
+| Widget | Pass | Pixel diff | Clicks | Errors | Unsupported / blocked | Other diagnostics |
+|---|---|---|---|---|---|---|
+| 01-robot.html | ✅ | 0.00% | 4 |  |  |  |
+| 02-camera.html | ✅ | 0.00% | 4 |  |  |  |
+| 03-orbits.html | ✅ | 0.00% | 4 |  |  |  |
+| 04-island.html | ✅ | 0.00% | 4 |  |  |  |
+| 05-molecules.html | ✅ | 0.00% | 4 |  |  |  |
+| 06-cat.html | ✅ | 0.00% | 4 |  |  |  |
 
 ## commerce: 5 / 5 pass (100%)
 
@@ -16,7 +27,7 @@ Generated 2026-10-24T23:36:09.130Z by `CORPUS_GROUP=showcase pnpm test:generated
 
 | Widget | Pass | Pixel diff | Clicks | Errors | Unsupported / blocked | Other diagnostics |
 |---|---|---|---|---|---|---|
-| 01-fitness-rings.html | ✅ | 0.43% | 4 |  |  |  |
+| 01-fitness-rings.html | ✅ | 0.48% | 4 |  |  |  |
 | 02-smart-home.html | ✅ | 0.00% | 4 |  |  |  |
 | 03-pomodoro.html | ✅ | 0.00% | 4 |  |  |  |
 | 04-habit-tracker.html | ✅ | 0.00% | 4 |  |  |  |
@@ -39,6 +50,6 @@ Generated 2026-10-24T23:36:09.130Z by `CORPUS_GROUP=showcase pnpm test:generated
 |---|---|---|---|---|---|---|
 | 01-ci-pipeline.html | ✅ | 1.50% | 2 |  |  |  |
 | 02-kanban.html | ✅ | 0.00% | 1 |  |  |  |
-| 03-event-rsvp.html | ✅ | 2.22% | 4 |  |  |  |
+| 03-event-rsvp.html | ✅ | 2.21% | 4 |  |  |  |
 | 04-live-poll.html | ✅ | 0.02% | 4 |  |  |  |
 | 05-stock-card.html | ✅ | 0.00% | 4 |  |  |  |

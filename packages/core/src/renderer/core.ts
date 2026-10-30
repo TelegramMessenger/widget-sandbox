@@ -16,7 +16,7 @@
 
 import { EVENT_TYPES, type CanvasCmd, type HostToRenderer, type Query, type RenderOp, type RendererToHost, type WidgetEvent } from '../shared/protocol';
 import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
-import { THEME_VARIABLES, themeVariables } from '../shared/sdk-policy';
+import { THEME_VARIABLES, contentSafeAreaVariables, themeVariables } from '../shared/sdk-policy';
 import { GestureArbiter, claimOf, type GestureClaim, type GestureVerdict, type PointerKind } from '../shared/gesture-policy';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
 import { TOUCH_ACTION_CLAIM, engineTouchAction } from './touch-action';
@@ -917,19 +917,26 @@ function onMessage(msg: HostToRenderer) {
       canvasDirty = true;
       syncCanvas();
       break;
+    case 'safeArea':
+      // The UA layer's body padding follows the band; the size observers report the new height.
+      safeAreaVars = contentSafeAreaVariables(msg.inset);
+      applyThemeVariables();
+      break;
   }
 }
 
-// ───────────────────────── theme variables (docs/sdk-v1.md §2.3, §2.4, §3.4) ─────────────────────────
+// ───────────────────────── theme and safe-area variables (docs/sdk-v1.md §2.3, §2.4, §2.17, §3.4) ─────────────────────────
 
 let themeVars: Record<string, string> = {};
+/** The client's chrome over the widget (docs/sdk-v1.md §2.17): always set, 0 until the host says otherwise. */
+let safeAreaVars: Record<string, string> = contentSafeAreaVariables(null);
 
 /** The host's variables, inline and important on the widget's root: no widget stylesheet or root style op overrides them. */
 function applyThemeVariables() {
   if (!HTML) return;
   const style = styleOf(HTML);
   for (const name of THEME_VARIABLES) {
-    const v = themeVars[name];
+    const v = themeVars[name] ?? safeAreaVars[name];
     if (v === undefined) style.removeProperty(name);
     else style.setProperty(name, v, 'important');
   }

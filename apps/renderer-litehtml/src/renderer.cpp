@@ -1026,7 +1026,11 @@ Renderer::Renderer(double width, double dpr, bool dark, Backend& backend)
 }
 
 void Renderer::apply_theme(const Json& theme) {
+    theme_ = theme;
     theme_vars_ = theme::variables(theme);
+    // The client's chrome over the widget (docs/sdk-v1.md §2.17): always set, 0px until the host's safeArea message.
+    if (safe_area_vars_.empty()) safe_area_vars_ = theme::safe_area_variables(Json());
+    theme_vars_.insert(theme_vars_.end(), safe_area_vars_.begin(), safe_area_vars_.end());
     // The UA layer with the theme's values in place of its var() (litehtml substitutes a var() in a shorthand after the
     // cascade, so `padding: var(…)` from the master CSS would beat the widget's own `padding: 0`) and without :where()
     // (theme.h, unwrap_where).
@@ -1077,6 +1081,11 @@ std::vector<Json> Renderer::receive(const Json& msg) {
         rebuild();
     } else if (type == "theme") {
         apply_theme(msg["theme"]);
+        rebuild();
+        report_size(out);
+    } else if (type == "safeArea") {
+        safe_area_vars_ = theme::safe_area_variables(msg["inset"]);
+        apply_theme(Json(theme_));
         rebuild();
         report_size(out);
     }

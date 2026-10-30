@@ -64,6 +64,7 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
     c.theme = theme.colorScheme;
     c.themeParams = theme.params;
     c.locale = o.locale;
+    c.contentSafeArea = o.contentSafeArea;
     c.storage = o.storage;
     c.data = o.data;
     c.context = o.context;
@@ -112,6 +113,7 @@ void WidgetHost::start() {
         started_ = true;
         // Queued until the renderer is ready, so the variables are its first message, before any ops.
         toRenderer(themeMessage());
+        toRenderer(safeAreaMessage(config_.contentSafeArea));
         renderer_->load();
     });
 }
@@ -166,6 +168,23 @@ void WidgetHost::setTheme(const WidgetTheme& theme) {
         toRenderer("{\"type\":\"ops\",\"ops\":" + validator_.setTheme(theme_) + "}");
         engine_.theme(theme_, widgetTheme_.params);
     });
+}
+
+void WidgetHost::setContentSafeArea(const WidgetContentSafeArea& area) {
+    host([this, area] {
+        if (destroyed_) return;
+        config_.contentSafeArea = area;
+        if (started_) toRenderer(safeAreaMessage(area));
+        engine_.contentSafeArea(area);
+    });
+}
+
+/// `{"type":"safeArea","inset":{…}}` (docs/sdk-v1.md §3.4): the renderer core checks the values and sets the variables.
+std::string WidgetHost::safeAreaMessage(const WidgetContentSafeArea& area) {
+    Json msg = Json::object();
+    msg.set("type", "safeArea");
+    msg.set("inset", area.json());
+    return msg.dump();
 }
 
 void WidgetHost::setVisible(bool visible) { engine_.setVisible(visible); }

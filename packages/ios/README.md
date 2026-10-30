@@ -55,10 +55,10 @@ Package only (no simulator runtime needed; the WKWebView tests run natively on m
 xcodebuild test -scheme WidgetSandbox -destination 'platform=macOS'
 ```
 
-The demo links the Blitz and litehtml renderer prototypes (next section): the
-first build compiles the Rust crate, which needs rustup's `cargo` (`brew install
-rustup`, then `rustup default stable`; the iOS targets are added on first use),
-and the C++ core, which needs `cmake` and `ninja` from Homebrew.
+The Blitz and litehtml renderer prototypes (next section) are frozen since 2026-10-30 (`docs/decisions.md`, "The renderer prototypes are frozen"):
+the demo builds and links them only with `TW_NATIVE_RENDERERS=YES` on the `xcodebuild` command line. Such a build
+compiles the Rust crate, which needs rustup's `cargo` (`brew install rustup`, then `rustup default stable`; the iOS
+targets are added on first use), and the C++ core, which needs `cmake` and `ninja` from Homebrew.
 
 Cross-compile check for the simulator:
 
@@ -181,9 +181,10 @@ handler. The main thread never waits for the engine.
   "Runtime limits").
 - Pentest of `WKContentRuleList` + WebSocket and of the scheme handler on real devices.
 
-## Native renderer prototypes (dev tooling, never a product path)
+## Native renderer prototypes (dev tooling, never a product path; frozen)
 
-The **Renderer** picker on a widget screen (WebView | Blitz | litehtml) swaps
+Frozen since 2026-10-30: no client draws with them, so the demo has them only in a `TW_NATIVE_RENDERERS=YES` build
+(the Swift condition of the same name; without it the picker is hidden). The **Renderer** picker on a widget screen (WebView | Blitz | litehtml) swaps
 the renderer; the sandbox and the validator stay the same. Both native engines
 sit behind one Swift glue, `NativeRenderer.swift` (raster view, touches,
 coalesced paints, diagnostics), parameterised by a table of C functions: the

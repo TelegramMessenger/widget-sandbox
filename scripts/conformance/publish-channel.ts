@@ -3,8 +3,10 @@
 // packages/conformance/channel.json. Each post puts three things into its
 // topic, in this order:
 //   1. the description: the post's caption, as a text message;
-//   2. the widget: sendDocument of the HTML. A bot may send a widget only into
-//      its private chat with a user, and forwarding is allowed into any chat,
+//   2. the widget: sendWidget (Bot API 10.4, on the beta Bot API until it is
+//      released) with the HTML, its size anchors and its caption. A bot may
+//      send a widget only into its private chat with a user, and forwarding is
+//      allowed into any chat,
 //      so by default the widget goes to the tester's private chat and is
 //      forwarded into the topic from there (never copyMessage: a copy is a new
 //      send, which the server refuses in a group). A test bot that may post
@@ -13,9 +15,9 @@
 //      a picture Telegram would reject or shrink goes as a document instead.
 // The automatic set has no picture: its widgets report their own result.
 //
-// The test bot takes the size anchors from the document's file name:
-// `<name>-WxH.html` (0 = auto on that axis); a post with no anchors goes as
-// `<name>.html`.
+// The size anchors go as sendWidget's width and height (0 = auto on that axis,
+// left out). The regular Bot API does not know widgets: an HTML document the test
+// bot turned into a widget lost show_caption_above_media (2026-10-30).
 //
 // Config (never inside a git working tree; environment variables win):
 //   ~/.config/widget-sandbox/test-bot.env, or --config <file>:
@@ -24,7 +26,7 @@
 //     TW_BOT_DIRECT=1      optional: the bot sends widgets straight into the group (TW_BOT_USER optional then)
 //     TW_BOT_GROUP=…       the forum supergroup (the bot is an admin with Manage topics and Delete messages)
 //     TW_BOT_ID=…          optional: the bot's id, checked against the token
-//     TW_BOT_API=…         optional, default https://api.telegram.org
+//     TW_BOT_API=…         optional, default https://api.telegram.org/beta (sendWidget is Bot API 10.4)
 //     TW_BOT_TEST_ENV=1    optional: the Bot API's test environment (/bot<token>/test/<method>)
 // State: ~/.config/widget-sandbox/conformance-channel.state.json (--state <file>),
 // per group: the topics and, per post, the hashes and the message ids. A re-run
@@ -65,10 +67,13 @@ const CONFIG_DIR = path.join(os.homedir(), '.config', 'widget-sandbox');
  * The topics, in the order they are filled. `channel`: the posts of
  * channel.json under this widget-path prefix (the longest prefix wins).
  * `corpus`: every widget of a corpus directory that fits a mini-widget, in file
- * order, with no picture. `default: false` topics go out only when --topic names them.
+ * order, with no picture. `default: false` topics go out only when --topic names them (its name in lower case,
+ * spaces as hyphens: `--topic safe-area`). `withoutCaption`: its widgets go out without a caption, so a client draws
+ * its time over them (docs/sdk-v1.md §2.17); a file whose header says `caption: none, below, above` goes out once per
+ * placement: without a caption, with one below the widget (0: the time in the caption's line), with one above it.
  * icon colours: the six Telegram allows for a forum topic.
  */
-interface TopicSpec { name: string; channel?: string; corpus?: string; default: boolean; color: number }
+interface TopicSpec { name: string; channel?: string; corpus?: string; default: boolean; color: number; withoutCaption?: boolean }
 const TOPICS: TopicSpec[] = [
   { name: 'Visual', channel: 'visual/', default: true, color: 0x6fb9f0 },
   { name: 'Client SDK', channel: 'visual/sdk/', default: true, color: 0xffd67e },
@@ -79,6 +84,8 @@ const TOPICS: TopicSpec[] = [
   { name: 'Gestures', corpus: 'corpus/gestures', default: false, color: 0x6fb9f0 },
   // One widget per resize anchor: the default, growing up, growing down (corpus/resize/README.md); --topic resize.
   { name: 'Resize', corpus: 'corpus/resize', default: false, color: 0x8eee98 },
+  // The client's time over the corner of a widget without a caption (corpus/safe-area/README.md); --topic safe-area.
+  { name: 'Safe area', corpus: 'corpus/safe-area', default: false, color: 0xffd67e, withoutCaption: true },
   { name: 'Showcase', corpus: 'corpus/showcase', default: false, color: 0xcb86db },
   { name: 'Common', corpus: 'corpus/common', default: false, color: 0xff93b2 },
   { name: 'Generated', corpus: 'corpus/generated/with-profile', default: false, color: 0xfb6f5f },
@@ -116,9 +123,11 @@ const LIMIT = opt('--limit') !== undefined ? Number(opt('--limit')) : Infinity;
 if (!(LIMIT >= 0)) die('--limit takes a number');
 if (DELETE_TOPICS && !RESET) die('--delete-topics goes with --reset');
 if (REBUILD && (RESET || ONLY)) die('--rebuild works on whole topics: not with --reset or --only');
-const topicNames = opt('--topic')?.split(',').map((s) => s.trim().toLowerCase());
-for (const n of topicNames ?? []) if (!TOPICS.some((t) => t.name.toLowerCase() === n)) die(`no topic "${n}" (${TOPICS.map((t) => t.name).join(', ')})`);
-const SELECTED = TOPICS.filter((t) => (topicNames ? topicNames.includes(t.name.toLowerCase()) : t.default));
+/** A topic as --topic names it: `Safe area` is `safe-area`. */
+const topicArg = (name: string) => name.toLowerCase().replace(/\s+/g, '-');
+const topicNames = opt('--topic')?.split(',').map((s) => topicArg(s.trim()));
+for (const n of topicNames ?? []) if (!TOPICS.some((t) => topicArg(t.name) === n)) die(`no topic "${n}" (${TOPICS.map((t) => topicArg(t.name)).join(', ')})`);
+const SELECTED = TOPICS.filter((t) => (topicNames ? topicNames.includes(topicArg(t.name)) : t.default));
 
 function die(msg: string): never {
   console.error(`publish-channel: ${msg}`);
@@ -167,7 +176,7 @@ function loadConfig(): Config | undefined {
   const chat = group.startsWith('-100') ? group : `-100${group}`;
   const bot = get('TW_BOT_ID');
   if (bot && token && !token.startsWith(`${bot}:`)) die('TW_BOT_TOKEN is not the token of TW_BOT_ID');
-  const base = (get('TW_BOT_API') || 'https://api.telegram.org').replace(/\/+$/, '');
+  const base = (get('TW_BOT_API') || 'https://api.telegram.org/beta').replace(/\/+$/, '');
   return { token, user, group: chat, direct, base: get('TW_BOT_TEST_ENV') === '1' ? `${base}/bot${token}/test` : `${base}/bot${token}` };
 }
 
@@ -223,6 +232,13 @@ interface Post {
   text: string;
   photos: Photo[];
   hash: Hashes;
+  /** Sent without a caption: the client draws its time over the widget (channel.json `withoutCaption`). */
+  withoutCaption?: boolean;
+  /**
+   * Sent with the caption above the widget (`show_caption_above_media`, layer 233's `invert_media`; channel.json
+   * `captionAbove`): the client draws its time over the widget as without a caption (docs/sdk-v1.md §2.17).
+   */
+  captionAbove?: boolean;
 }
 
 const sha = (...parts: (string | Buffer)[]) => {
@@ -232,10 +248,18 @@ const sha = (...parts: (string | Buffer)[]) => {
 };
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const zlibSize = (b: Buffer) => zlib.deflateSync(b, { level: 9 }).length;
-/** The widget's message caption: its key, which the forwarded copy keeps. */
-const docCaption = (p: Post) => p.key.replace('@', ' · ');
+/**
+ * The widget's message caption: its key, which the forwarded copy keeps; none for a case of the client's time over the
+ * widget (docs/sdk-v1.md §2.17), which a caption below would move into its own line; above the widget for
+ * `captionAbove` (the Bot API's show_caption_above_media, layer 233's invert_media).
+ */
+const docCaption = (p: Post): { caption?: string; show_caption_above_media?: boolean } =>
+  p.withoutCaption ? {} : { caption: p.key.replace('@', ' · '), ...(p.captionAbove ? { show_caption_above_media: true } : {}) };
 const baseKey = (key: string) => key.replace(/@.*/, '');
-/** The document's file name, which carries the size anchors for the test bot. */
+/**
+ * The size anchors as the test bot once read them from the document's file name, before sendWidget: kept in the
+ * widget's hash so the posts already sent stay current.
+ */
 const docName = (p: Post) => path.basename(p.file, '.html') + (p.width || p.height ? `-${p.width}x${p.height}` : '') + '.html';
 
 function description(title: string, anchors: string, body: string) {
@@ -265,14 +289,14 @@ function photo(file: string, key: string): Photo {
 
 function channelPosts(): Post[] {
   const channel = JSON.parse(fs.readFileSync(path.join(CONF, 'channel.json'), 'utf8')) as {
-    posts: { widget: string; width: number; height: number; caption: string; photos: string[]; variant?: string; message?: Record<string, unknown> }[];
+    posts: { widget: string; width: number; height: number; caption: string; photos: string[]; variant?: string; message?: Record<string, unknown>; withoutCaption?: boolean; captionAbove?: boolean }[];
   };
   const prefixes = TOPICS.filter((t) => t.channel).sort((a, b) => b.channel!.length - a.channel!.length);
   const out: Post[] = [];
   const special: string[] = [];
   for (const p of channel.posts) {
     // A post that needs more than a plain widget in the private chat (the flags, the state, the group, the inline
-    // results: layer 233) cannot go out as a document: scripts/conformance/test-bot.ts --post sends it.
+    // results: layer 233) is scripts/conformance/test-bot.ts --post's.
     const m = p.message ?? {};
     if (Object.keys(m).some((k) => !['kind', 'view', 'forward'].includes(k)) || (m.kind && m.kind !== 'private' && m.kind !== 'copy')) {
       special.push(`${p.widget.replace(/\.html$/, '')}${p.variant ? ` --variant ${p.variant}` : ''}`);
@@ -287,6 +311,8 @@ function channelPosts(): Post[] {
     out.push({
       key: (p.width || p.height ? `${id}@${p.width}x${p.height}` : id) + (p.variant ? `@${p.variant}` : ''), topic: topic.name, file, width: p.width, height: p.height, html, zlib: zlibSize(html),
       text: body, photos: p.photos.map((f) => photo(path.join(CONF, f), id)), hash: { widget: '', description: '', photos: '' },
+      ...(p.withoutCaption ? { withoutCaption: true } : {}),
+      ...(p.captionAbove ? { captionAbove: true } : {}),
     });
   }
   if (special.length) console.log(`${special.length} posts need layer-233 fields (flags, state, a group, inline results) and are left to the test bot: corepack pnpm tsx scripts/conformance/test-bot.ts --post <id> [--variant <kind>]\n  ${special.join('\n  ')}`);
@@ -313,7 +339,16 @@ function corpusPosts(t: TopicSpec, skipped: string[]): Post[] {
     }
     const src = html.toString('utf8');
     const idea = /^\s*idea:\s*(.+)$/m.exec(src)?.[1] ?? /<title>([^<]*)<\/title>/i.exec(src)?.[1] ?? '';
-    out.push({ key, topic: t.name, file, width: 0, height: 0, html, zlib: packed, text: idea.trim(), photos: [], hash: { widget: '', description: '', photos: '' } });
+    const post = { key, topic: t.name, file, width: 0, height: 0, html, zlib: packed, text: idea.trim(), photos: [], hash: { widget: '', description: '', photos: '' } };
+    if (!t.withoutCaption) { out.push(post); continue; }
+    // `caption: none, below, above`: one post per placement (the triple of corpus/safe-area); else without a caption.
+    const placements = /^\s*caption:\s*(.+)$/m.exec(src)?.[1].split(',').map((s) => s.trim()) ?? ['none'];
+    for (const at of placements) {
+      if (at === 'none') out.push({ ...post, withoutCaption: true, text: `${post.text} Posted without a caption.` });
+      else if (at === 'below') out.push({ ...post, key: `${key}@caption-below`, text: `${post.text} Posted with a caption below the widget.` });
+      else if (at === 'above') out.push({ ...post, key: `${key}@caption-above`, captionAbove: true, text: `${post.text} Posted with a caption above the widget (invert_media).` });
+      else die(`${key}: unknown caption placement "${at}" (none, below, above)`);
+    }
   }
   return out;
 }
@@ -322,7 +357,8 @@ function finish(p: Post): Post {
   const anchors = p.width || p.height ? `width ${p.width}, height ${p.height}` : '';
   p.text = description(baseKey(p.key), anchors, p.text);
   p.hash = {
-    widget: sha(p.html, docName(p), docCaption(p), DIRECT ? 'direct' : 'forward'),
+    // `sendWidget` with the caption above: a caption-above post sent as a document came out with its caption below.
+    widget: sha(p.html, docName(p), docCaption(p).caption ?? '', ...(p.captionAbove ? ['caption above', 'sendWidget'] : []), DIRECT ? 'direct' : 'forward'),
     description: sha(p.text),
     photos: sha(...p.photos.flatMap((f) => [fs.readFileSync(f.file), f.label, f.asDocument ? 'document' : 'photo'])),
   };
@@ -393,9 +429,9 @@ async function pace(chat: 'group' | 'user', n = 1) {
 }
 
 interface Message { message_id: number }
-/** --verbose: what the server made of a widget message, without the chat and sender objects. */
+/** --verbose: what the server made of a widget message, without the chat and sender objects and the widget's HTML. */
 const brief = (m: Message) =>
-  JSON.stringify(m, (k, v) => (['chat', 'from', 'sender_chat', 'forward_from', 'forward_origin'].includes(k) ? undefined : v));
+  JSON.stringify(m, (k, v) => (['chat', 'from', 'sender_chat', 'forward_from', 'forward_origin', 'reply_to_message', 'html'].includes(k) ? undefined : v));
 
 async function sendDescription(thread: number, p: Post) {
   await pace('group');
@@ -406,17 +442,18 @@ async function sendDescription(thread: number, p: Post) {
   return m.message_id;
 }
 
-/** The widget as an HTML document: into the tester's private chat, the only place a bot may send one, or straight into the topic. */
+/** The widget: into the tester's private chat, the only place a bot may send one, or straight into the topic. */
 async function sendWidget(p: Post, thread?: number) {
   await pace(thread === undefined ? 'user' : 'group');
-  const m = await api<Message>(
-    'sendDocument',
-    thread === undefined
-      ? { chat_id: cfg.user, caption: docCaption(p), disable_notification: 'true' }
-      : { chat_id: cfg.group, message_thread_id: String(thread), caption: docCaption(p), disable_notification: 'true' },
-    { document: { file: p.file, name: docName(p), type: 'text/html' } },
-  );
-  if (VERBOSE) console.log(`    sendDocument → ${brief(m)}`);
+  const m = await api<Message>('sendWidget', {
+    ...(thread === undefined ? { chat_id: cfg.user } : { chat_id: cfg.group, message_thread_id: thread }),
+    html: p.html.toString('utf8'),
+    ...(p.width > 0 ? { width: p.width } : {}),
+    ...(p.height > 0 ? { height: p.height } : {}),
+    ...docCaption(p),
+    disable_notification: true,
+  });
+  if (VERBOSE) console.log(`    sendWidget → ${brief(m)}`);
   return m.message_id;
 }
 
@@ -562,7 +599,7 @@ async function check() {
 
 function describeSend(p: Post) {
   const pics = p.photos.map((f) => `${f.w}×${f.h}${f.asDocument ? ` as a document: ${f.asDocument}` : ''}`);
-  return `widget ${p.zlib} B zlib${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
+  return `widget ${p.zlib} B zlib${p.withoutCaption ? ' without a caption' : p.captionAbove ? ' with the caption above' : ''}${pics.length ? ` · ${pics.length === 1 ? 'picture' : 'pictures'} ${pics.join(', ')}` : ''}${p.width || p.height ? ` · as ${docName(p)}` : ''}`;
 }
 
 async function main() {

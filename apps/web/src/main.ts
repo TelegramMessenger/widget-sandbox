@@ -13,7 +13,8 @@ import { GESTURE_MODES, bubbleGestureLabel, bubbleGesturesOption, claimLabel, ge
 import type { FeedApi } from './feed';
 import { DEFAULT_PROFILE, MODES, MockBot, botOf, mountPanel, showCopied, type Mode, type RequestRecord } from './mock-bot';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
-import { CHAT_TYPES, DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, WIDGET_MESSAGE_KINDS, themeVariables, type ChatType, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetMessageKind } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { CHAT_TYPES, DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, WIDGET_MESSAGE_KINDS, checkContentSafeArea, themeVariables, type ChatType, type ContentSafeArea, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetMessageKind } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { REFERENCE_TIME_LABEL, referenceSafeArea, timeCornerStyle } from '@telegram/widget-sandbox/shared/reference';
 import { sizeVerdict, type WidgetSize } from '@telegram/widget-sandbox/shared/widget-size';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -25,7 +26,7 @@ const el = {
   status: $('#status'), stats: $('#stats'), diags: $('#diags'), bridge: $('#bridge'), console: $('#console'),
   widgetError: $('#widget-error'), width: $<HTMLSelectElement>('#width'), widthValue: $('#width-value'), gestureMode: $<HTMLSelectElement>('#gesture-mode'),
   chatSandbox: $('#chat-sandbox'), bubble: $('#chat-sandbox .bubble'), gestures: $('#gestures'), botPanel: $('#bot-panel'),
-  netMarker: $('#net-marker'),
+  netMarker: $('#net-marker'), timeCorner: $<HTMLSelectElement>('#time-corner'), timeCornerView: $('#time-corner-view'), timeCornerRef: $('#time-corner-ref'),
 };
 
 export interface TwState {
@@ -71,6 +72,21 @@ let gestures: GestureMode = gestureMode(new URLSearchParams(location.search).get
 /** Bubble widths a client lays out (CSS px); 0 = the default column, -1 = free (drag the column's corner). */
 const WIDTH_PRESETS = [200, 320, 360, 390, 430, 600];
 let bubbleWidth = 0;
+/**
+ * Where the client draws the message time (docs/sdk-v1.md §2.17, `?time=`): `caption` (a caption below the widget: the
+ * time in its line, nothing over the widget, the safe area is 0), `corner` (no caption, or one shown above the widget:
+ * the time over its bottom right corner, a left-to-right client) or `corner-rtl` (the left one). `__tw.setSafeArea(area)` passes any other numbers (the conformance runners).
+ */
+const TIME_MODES = [
+  { mode: 'caption', label: 'in the caption', title: 'a widget with a caption below it: the time is in the caption\'s line, nothing over the widget' },
+  { mode: 'corner', label: 'over the corner', title: 'a widget without a caption, or with its caption above it (invert_media): the time over its bottom right corner' },
+  { mode: 'corner-rtl', label: 'over the corner, RTL', title: 'a right-to-left client: the time over the bottom left corner' },
+] as const;
+type TimeMode = (typeof TIME_MODES)[number]['mode'];
+let timeMode: TimeMode = 'caption';
+let customSafeArea: ContentSafeArea | null = null;
+/** What the hosts get as `contentSafeArea`. */
+const safeArea = (): ContentSafeArea => customSafeArea ?? (timeMode === 'caption' ? checkContentSafeArea(null) : referenceSafeArea(timeMode === 'corner-rtl'));
 /** `?locale=ru`: the client's UI language passed to the widget (navigator.language, the Intl default); en-US otherwise. */
 const LOCALE = new URLSearchParams(location.search).get('locale') ?? undefined;
 
@@ -264,6 +280,7 @@ new ResizeObserver(() => {
     features: WIDGET_FEATURES,
     theme: state.theme,
     locale: LOCALE,
+    contentSafeArea: safeArea(),
     storage: storageFor(name),
     data: bot.dataFor(name),
     context,
@@ -372,6 +389,7 @@ function updateCompare() {
       policy: WIDGET_POLICY,
       features: WIDGET_FEATURES,
       theme: state.theme,
+      contentSafeArea: safeArea(),
       data: bot.dataFor(state.file),
       context: bot.hostContext(),
       ...limits,
@@ -414,7 +432,10 @@ async function openFile(rel: string) {
 /**
  * The dev app's theme in the reference frame: the palette of the toggle (the reference stylesheet alone follows the
  * browser's prefers-color-scheme), and the frame's root in the same scheme as its element, or the frame gets an opaque
- * canvas over the bubble, as the renderer's frame would (core.ts frameColorScheme).
+ * canvas over the bubble, as the renderer's frame would (core.ts frameColorScheme). The time control's content safe
+ * area comes with the frame's URL (`?safeArea=`, vite.config.ts) as the root variables; the frame's
+ * `env(safe-area-inset-*)` stays the browser's own (0, unless the page runs with Chromium's safe-area override, as
+ * `pnpm test:safe-area-corpus` does).
  */
 function referenceScheme(f: HTMLIFrameElement, theme: 'light' | 'dark') {
   try {
@@ -441,7 +462,8 @@ function updateReference() {
   f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
   f.style.colorScheme = state.theme;
   f.addEventListener('load', () => referenceScheme(f, state.theme));
-  f.src = '/reference/' + state.file;
+  const a = safeArea();
+  f.src = '/reference/' + state.file + (a.bottom || a.cornerLeft || a.cornerRight ? `?safeArea=${a.bottom},${a.cornerRight},${a.cornerLeft}` : '');
   el.referenceWrap.replaceChildren(f);
   referenceFrame = f;
   const size = () => {
@@ -489,6 +511,7 @@ function syncUrl() {
   if (workerPool) p.set('pool', String(workerPool.size));
   if (bubbleWidth) p.set('width', bubbleWidth > 0 ? String(bubbleWidth) : 'free');
   if (gestures !== 'phone') p.set('gestures', gestures);
+  if (timeMode !== 'caption') p.set('time', timeMode);
   // The mock bot's context and answers, when not the defaults (the original in the private chat with the bot, viewer 1001).
   const c = bot.context;
   if (c.message !== 'private') p.set('message', c.message);
@@ -516,6 +539,28 @@ new ResizeObserver(() => {
   showWidth();
   if (bubbleWidth < 0) el.stage.style.setProperty('--chat-width', Math.round(el.chatSandbox.getBoundingClientRect().width) + 'px');
 }).observe(el.chatSandbox);
+
+/**
+ * The time over the bubble (docs/sdk-v1.md §2.17): drawn here, outside the widget, as a client draws it (a view over the
+ * widget that takes its own taps), and passed to the live hosts; a new widget starts with it.
+ */
+function setTimeCorner(mode: TimeMode | null, area: Partial<ContentSafeArea> | null = null) {
+  if (mode) timeMode = mode;
+  customSafeArea = area ? checkContentSafeArea(area) : null;
+  el.timeCorner.value = timeMode;
+  const style = timeCornerStyle(safeArea());
+  el.timeCornerView.classList.toggle('hidden', !style);
+  el.timeCornerView.setAttribute('style', style);
+  el.timeCornerView.textContent = REFERENCE_TIME_LABEL;
+  // The reference column is a client's bubble too: the same time over it and the same variables in its frame.
+  el.timeCornerRef.classList.toggle('hidden', !style);
+  el.timeCornerRef.setAttribute('style', style);
+  el.timeCornerRef.textContent = REFERENCE_TIME_LABEL;
+  // The reference frame reads the band from its URL before its scripts run: a new one.
+  if (referenceFrame) updateReference();
+  for (const h of [host, ...compareHosts]) h?.setContentSafeArea(safeArea());
+  syncUrl();
+}
 
 /** The bubble's presses: `phone` (the mouse as a finger), `desktop` (as a mouse) or `off`; applied to the live hosts. */
 function setGestures(mode: GestureMode) {
@@ -579,6 +624,8 @@ async function init() {
   const w = params.get('width');
   setWidth(w === 'free' ? 'free' : Number(w) || 0);
   setGestures(gestures);
+  const time = params.get('time');
+  setTimeCorner(TIME_MODES.some((t) => t.mode === time) ? (time as TimeMode) : 'caption');
   setTheme(params.get('theme') === 'dark' ? 'dark' : 'light');
   // ?offscreen=1: the widget boots off screen until __tw.setVisible(true | null), as Telegram's clients create a bubble.
   if (params.get('offscreen') === '1') forcedVisible = false;
@@ -591,6 +638,8 @@ el.width.replaceChildren(...[['0', 'default'], ...WIDTH_PRESETS.map((w) => [Stri
 el.width.addEventListener('change', () => setWidth(el.width.value === 'free' ? 'free' : Number(el.width.value)));
 el.gestureMode.replaceChildren(...GESTURE_MODES.map((g) => Object.assign(document.createElement('option'), { value: g.mode, textContent: g.mode, title: g.title })));
 el.gestureMode.addEventListener('change', () => setGestures(gestureMode(el.gestureMode.value)));
+el.timeCorner.replaceChildren(...TIME_MODES.map((t) => Object.assign(document.createElement('option'), { value: t.mode, textContent: t.label, title: t.title })));
+el.timeCorner.addEventListener('change', () => setTimeCorner(el.timeCorner.value as TimeMode));
 el.reference.addEventListener('change', () => { updateReference(); syncUrl(); });
 el.compare.addEventListener('change', () => { updateCompare(); updateReference(); syncUrl(); });
 // The two native renderers are exclusive: ticking one unticks the other.
@@ -626,6 +675,10 @@ el.drop.addEventListener('drop', async (e) => {
   setWidth,
   /** The bubble's presses: 'phone' (default: a hold is the menu, a double tap the reaction, swipes the chat's, unless touch-action claims them), 'desktop' or 'off'. */
   setGestures: (mode: GestureMode) => setGestures(mode),
+  /** Where the client draws the message time: 'caption' (default), 'corner' or 'corner-rtl'; live, and for the next widget. */
+  setTimeCorner: (mode: TimeMode) => setTimeCorner(mode),
+  /** Any content safe area (docs/sdk-v1.md §2.17), drawn and passed as the time control's are; null = back to the control's. */
+  setSafeArea: (area: Partial<ContentSafeArea> | null) => setTimeCorner(null, area),
   /** Force the widget's visibility (null = back to the IntersectionObserver / page visibility). */
   setVisible: (v: boolean | null) => { forcedVisible = v; applyVisibility(); },
   /** The Web Storage the dev app keeps for a file (`local` survives a page reload), and forgetting it. */

@@ -7,9 +7,10 @@ import { diag, host, invalidateLayout, query, unsupported } from './host';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import { cssSupports } from '../shared/css-supports';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, REQUEST_ERRORS, STORAGE_QUOTA_BYTES,
-  checkChatType, checkCopyText, checkLink, checkLocale, checkRequestData, checkResizeAnchor, checkViewer, checkWidgetDataValue, completeThemeParams, utf8Length,
-  type ChatType, type RequestError, type ResizeAnchor, type ThemeParams, type WidgetUser,
+  CONTENT_SAFE_AREA_FIELDS, DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, NO_CONTENT_SAFE_AREA, REQUEST_ERRORS,
+  STORAGE_QUOTA_BYTES, checkChatType, checkContentSafeArea, checkCopyText, checkLink, checkLocale, checkRequestData, checkResizeAnchor, checkViewer, checkWidgetDataValue,
+  completeThemeParams, utf8Length,
+  type ChatType, type ContentSafeArea, type RequestError, type ResizeAnchor, type ThemeParams, type WidgetUser,
 } from '../shared/sdk-policy';
 
 const G: any = globalThis;
@@ -421,7 +422,7 @@ function installNetworkStubs() {
 
 let colorScheme: 'light' | 'dark' = 'light';
 let themeParams: Readonly<ThemeParams> = Object.freeze(completeThemeParams({}, 'light'));
-const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated', 'chatDataChanged', 'publicDataChanged'];
+const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated', 'chatDataChanged', 'publicDataChanged', 'contentSafeAreaChanged'];
 const widgetHandlers = new Map<string, Function[]>(WIDGET_EVENTS.map((t) => [t, []]));
 const themeCallbacks: Function[] = [];
 
@@ -444,6 +445,22 @@ export function setTheme(theme: unknown, notify: boolean) {
   if (!notify || !changed) return;
   fireWidgetEvent('themeChanged');
   for (const cb of [...themeCallbacks]) { try { cb(colorScheme); } catch (e) { reportError(e); } }
+}
+
+let contentSafeArea: Readonly<ContentSafeArea> = NO_CONTENT_SAFE_AREA;
+
+/**
+ * What the client draws over the widget (docs/sdk-v1.md §2.17): at boot (`notify` false) and on every change. A
+ * change gives the widget a fresh frozen `contentSafeAreaInset`, then `contentSafeAreaChanged`, in one task (the
+ * renderer has the root variables from the same call of the host).
+ */
+export function setContentSafeArea(area: unknown, notify: boolean) {
+  const next = checkContentSafeArea(area);
+  if (CONTENT_SAFE_AREA_FIELDS.every((k) => next[k] === contentSafeArea[k])) return;
+  contentSafeArea = Object.freeze(next);
+  // The variables moved boxes in the renderer: no cached layout answer survives.
+  invalidateLayout();
+  if (notify) fireWidgetEvent('contentSafeAreaChanged');
 }
 
 /** Visibility changed (the caller has flipped `document.hidden`): `activated` / `deactivated`. */
@@ -611,6 +628,12 @@ function installBridge() {
     /** The chat's palette as `#rrggbb`, Mini Apps keys; a fresh frozen object per change. */
     get themeParams() { return themeParams; },
     get isActive() { return !hidden; },
+    /**
+     * What the client draws over the widget, in CSS px (the `--tg-content-safe-area-*` root variables, `env(safe-area-inset-*)`):
+     * `bottom` is the band of the message time over a widget with no caption below it, `cornerLeft` / `cornerRight` the
+     * client's corner in it; 0 with a caption below. A fresh frozen object per change, then `contentSafeAreaChanged`.
+     */
+    get contentSafeAreaInset() { return contentSafeArea; },
     onEvent(type: unknown, handler: unknown) {
       const list = widgetHandlers.get(String(type));
       if (!list || typeof handler !== 'function' || list.includes(handler) || list.length >= MAX_HANDLERS_PER_EVENT) return;

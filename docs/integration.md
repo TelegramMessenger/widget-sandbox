@@ -181,6 +181,36 @@ aligned with the edge that stays put. The web dev app and the feed demo do all
 of this (`apps/web/src/main.ts`, `feed.ts`); `corpus/resize` has one widget per
 anchor to try it.
 
+## The time over a widget with no caption below it
+
+Without a caption, and with a caption shown above the widget (`invert_media`, as on
+a photo whose caption is moved up), draw the message time and its status (ticks,
+"edited", views) over the widget's bottom corner, on a backing, as over a photo:
+the right corner in a left-to-right interface, the left one in a right-to-left one.
+With a caption below the widget the time goes into the caption's line and nothing is
+drawn over the widget: pass 0 (`docs/sdk-v1.md` §2.17, §5.12).
+
+Pass what the time takes as the host's `contentSafeArea` (points, dp, CSS px):
+`bottom`, the height of its band at the widget's bottom edge, and `cornerRight` (or
+`cornerLeft` in a right-to-left interface), the width of the corner it takes in that
+band, backing and margins included; the rest 0. Pass it **at creation**, so the first
+height the host reports already has the band, and change it with
+`setContentSafeArea` only when the bubble's layout changes (a caption added or
+removed by an edit, or moved above or below the widget, "edited" appears, the views
+counter grows). Never per frame, and
+not for the floating date pill, which has no contract. The time is your view over
+the widget: its taps are yours; nothing in the gesture policy changes.
+
+The widget sees it as `env(safe-area-inset-bottom)` (the validator rewrites it to a
+root variable the renderer sets), `--tg-content-safe-area-inset-*` /
+`--tg-content-safe-area-corner-left|right` and `TelegramWidget.contentSafeAreaInset`;
+the renderer's UA layer pads an unstyled body by the band. A client that passes
+nothing keeps v0.3.0's behaviour (all 0). The dev app's **time** control and
+`?time=corner|corner-rtl` show it; `visual/17-time-corner` and `auto/36-safe-area`
+are its conformance cases (sent without a caption, and once more with the caption
+above), and `corpus/safe-area` has examples (its `07` is posted three times: no
+caption, a caption below, a caption above).
+
 ## Input
 
 - **Text selection is the widget's choice** (since v0.1.1, `docs/sdk-v1.md`
@@ -373,6 +403,7 @@ var options = WidgetHost.Options()                  // policy .strict, features 
 options.features = ["webAnimations"]
 options.locale = "ru"
 options.storage = WidgetStorage(local: savedLocal, session: savedSession)   // this message's Web Storage
+options.contentSafeArea = media.caption == nil || message.invertMedia ? WidgetContentSafeArea(bottom: timeBand, cornerRight: timeWidth) : WidgetContentSafeArea()   // no caption below: the time over the corner
 options.data = WidgetData(chatData: media.chatData, publicData: media.publicData)                    // the chat state and the shared state
 options.context = WidgetContext(isCopy: media.isCopy, canQuery: media.canQuery, backgroundQuery: media.backgroundQuery,
                                 chatType: .private, viewer: WidgetViewer(id: me.id, firstName: me.firstName, lastName: me.lastName,
@@ -417,6 +448,7 @@ import org.telegram.widgetsandbox.WidgetHost
 
 val options = WidgetHost.Options(features = setOf("webAnimations"),   // policy "strict" by default
     locale = "ru", storage = WidgetStorage(local = savedLocal, session = savedSession),
+    contentSafeArea = if (caption == null || message.invertMedia) WidgetContentSafeArea(bottom = timeBand, cornerRight = timeWidth) else WidgetContentSafeArea(),   // no caption below: the time over the corner
     data = WidgetData(media.chatData, media.publicData),
     context = WidgetContext(isCopy = media.isCopy, canQuery = media.canQuery, backgroundQuery = media.backgroundQuery,
                             chatType = "private", viewer = WidgetViewer(me.id, me.firstName, me.lastName, me.username, me.isPremium)))   // the server's flags; the account
@@ -468,6 +500,7 @@ const host = new WidgetHost(bubbleElement, html, {
   theme: { colorScheme: 'light', params: { bg_color: '#ffffff' /* … every key, this bubble's */ }, button: { radius: '10px' }, text: { fontSize: 16, padding: '6px 10px' } },
   locale: 'ru',
   storage: { local: savedLocal, session: savedSession },   // this message's Web Storage
+  contentSafeArea: caption && !message.invertMedia ? {} : { bottom: timeBand, cornerRight: timeWidth },   // no caption below: the time over the corner
   data: { chatData, publicData },  // the chat state and the shared state
   context: { isCopy, canQuery, backgroundQuery, chatType: 'private', viewer: { id: me.id, firstName: me.firstName, lastName: me.lastName, username: me.username, isPremium: me.isPremium } },   // the server's flags; the account
   onRequest: async ({ data }) => ({ result }),   // getBotWidgetQueryAnswer; or throw 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'
@@ -505,6 +538,7 @@ twidget::WidgetHostOptions options;            // policy "strict" by default
 options.features = {"webAnimations"};
 options.locale = "ru";
 options.storage = {savedLocal, savedSession};  // this message's Web Storage
+if (!media.caption || message.invertMedia) options.contentSafeArea = {.bottom = timeBand, .cornerRight = timeWidth};   // no caption below: the time over the corner
 options.data = {media.chatData, media.publicData};                          // std::optional<std::string> each
 options.context = {.isCopy = media.isCopy, .canQuery = media.canQuery, .backgroundQuery = media.backgroundQuery, .chatType = "private", .viewer = twidget::WidgetViewer{me.id, me.firstName, me.lastName, me.username, me.isPremium}};
 twidget::WidgetTheme theme{"light", {{"bg_color", "#ffffff"} /* … every key, this bubble's */}, {}, {.fontSize = 14, .padding = "6px 10px"}};

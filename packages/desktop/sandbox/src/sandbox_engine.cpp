@@ -198,6 +198,7 @@ void SandboxEngine::boot() {
         // SDK v1 (docs/sdk-v1.md §3.1): the client's values are trusted but still checked.
         config.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(config_.themeParams)));
         config.set("locale", sdk::checkLocale(config_.locale).value_or(std::string(sdk::DEFAULT_LOCALE)));
+        config.set("contentSafeArea", config_.contentSafeArea.json());
         config.set("profile", sdk::PROFILE_VERSION);
         // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
         bool preloadAccepted = true;
@@ -267,6 +268,26 @@ void SandboxEngine::theme(const std::string& colorScheme, const std::map<std::st
     t.set("theme", colorScheme);
     t.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(themeParams)));
     enqueue("theme", t.dump());
+}
+
+Json WidgetContentSafeArea::json() const {
+    Json out = Json::object();
+    auto put = [&](const char* name, double v) { out.set(name, std::isfinite(v) ? v : 0.0); };
+    put("top", top);
+    put("right", right);
+    put("bottom", bottom);
+    put("left", left);
+    put("cornerLeft", cornerLeft);
+    put("cornerRight", cornerRight);
+    return out;
+}
+
+void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
+    thread_.async([this, area] {
+        if (dead_) return;
+        if (!js_) { config_.contentSafeArea = area; return; }
+        input("safeArea", area.json().dump());
+    });
 }
 
 void SandboxEngine::setData(const WidgetData& data) {

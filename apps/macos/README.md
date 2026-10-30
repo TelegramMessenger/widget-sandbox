@@ -39,9 +39,9 @@ Package tests natively (no simulator):
 xcodebuild test -scheme WidgetSandbox -destination 'platform=macOS'
 ```
 
-The demo links the Blitz and litehtml renderer prototypes like the iOS one
-(`packages/ios/README.md`, "Native renderer prototypes"): the pre-build script phases
-need rustup's `cargo` and Homebrew's `cmake` + `ninja`.
+The Blitz and litehtml renderer prototypes are frozen (`packages/ios/README.md`, "Native renderer prototypes"): like
+the iOS demo, this one builds and links them only with `TW_NATIVE_RENDERERS=YES` on `xcodebuild`, and then the
+pre-build script phases need rustup's `cargo` and Homebrew's `cmake` + `ninja`.
 The demo is ad-hoc signed, not sandboxed (it must reach the canary itself)
 and never distributed. Its runners can be driven from a shell with a launch
 argument, like the Android demo's `--es autorun`; each writes a JSON report to
@@ -58,7 +58,7 @@ corepack pnpm canary &                 # the attack runner asks it for hits
 "$APP" --autorun htmlbubbles           # → htmlbubbles-report.json (116 Telegram demos ported to classic widgets; build with -configuration Release, the Debug QuickJS is too slow for their boot under the 500 ms wall-clock slice)
 "$APP" --autorun pause                 # → pause-report.json     (window minimised ⇒ frames stop)
 "$APP" --autorun compare               # → compare-report.json   (sandbox vs native WebKit, wall time to loaded)
-"$APP" --autorun generated --blitz     # the same on the Blitz renderer prototype; --litehtml for litehtml, --webview back (the choice is persisted)
+"$APP" --autorun generated --blitz     # the same on the Blitz renderer prototype (a TW_NATIVE_RENDERERS=YES build); --litehtml for litehtml, --webview back (the choice is persisted)
 ```
 
 ## Reference mode (dev tooling, never a product path)

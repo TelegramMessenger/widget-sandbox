@@ -1,7 +1,7 @@
 // Reference runner of the stress kit (packages/stress) on the web renderers: every widget of the manifest
 // through the web dev app (apps/web), the real pipeline (QuickJS worker → validator → renderer), in headless
-// Chromium; iframe and shadow (Shadow DOM, the web product renderer), blitz and litehtml when their wasm is
-// built. Per widget: load it, warm up, then measure for `measureMs`:
+// Chromium; iframe and shadow (Shadow DOM, the web product renderer); the frozen blitz and litehtml prototypes
+// only when named in --renderers and their wasm is built. Per widget: load it, warm up, then measure for `measureMs`:
 //   - client frames: requestAnimationFrame timestamps in the frame that hosts the renderer (the page for
 //     shadow, the sandboxed iframe for iframe), plus long tasks there: what the user sees;
 //   - renderer work per frame: the wasm renderers' paint time; null for iframe and shadow (a WebView-like

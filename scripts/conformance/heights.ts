@@ -16,12 +16,14 @@ import { MAX_HEIGHT, listWidgets, type Widget } from './lib';
 
 /** Loads the widget at `width` and returns its unclamped content height once it has run its checks (or waits for input). */
 async function measure(page: Page, w: Widget, width: number): Promise<{ height: number; status: string }> {
-  await page.evaluate(({ html, name, width }) => {
+  await page.evaluate(({ html, name, width, safeArea }) => {
     const wrap = document.querySelector('#sandbox-wrap') as HTMLElement;
     (wrap.closest('.chat') as HTMLElement).style.width = width + 'px';
     (wrap.closest('.bubble') as HTMLElement).style.padding = '0';
     const tw = (window as any).__tw;
     const m: any = ((window as any).__heights = { height: 0, attr: null, html: null });
+    // A widget drawn with the client's time over its corner is that much taller (the UA layer's body padding, its own env()).
+    tw.setSafeArea(safeArea);
     tw.load(html, name);
     const host = tw.host;
     const onRenderer = host.onRenderer;
@@ -42,7 +44,7 @@ async function measure(page: Page, w: Widget, width: number): Promise<{ height: 
       }
       return send(msg);
     };
-  }, { html: w.html, name: `conformance/${w.id}.html`, width });
+  }, { html: w.html, name: `conformance/${w.id}.html`, width, safeArea: w.meta.safeArea ?? null });
   let status = 'none';
   const t0 = Date.now();
   while (Date.now() - t0 < 10_000) {

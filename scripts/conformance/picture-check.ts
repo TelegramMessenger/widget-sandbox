@@ -19,6 +19,7 @@ import { chromium, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
 import { ROOT, listWidgets, picturePath, type Widget } from './lib';
 import { diffStats } from '../../packages/conformance/tools/diff.mjs';
+import { checkContentSafeArea } from '../../packages/core/src/shared/sdk-policy.ts';
 
 /** At most this share of the ink may differ (the pipeline and the reference agree to under 0.1 % today), and the heights by this many CSS px. */
 export const PICTURE_CHECK = { maxDiff: 0.005, height: 2 };
@@ -30,7 +31,7 @@ const isChecked = (w: Widget) => w.set === 'visual' && !w.id.startsWith('visual/
 
 /** Loads the widget at the reference width and returns its picture and the stage rects it published, once it ran its checks (or waits for input). */
 async function draw(page: Page, w: Widget): Promise<{ png: PNG; stages: Record<string, number[]> }> {
-  await page.evaluate(({ html, name, width }) => {
+  await page.evaluate(({ html, name, width, safeArea }) => {
     const wrap = document.querySelector('#sandbox-wrap') as HTMLElement;
     (wrap.closest('.chat') as HTMLElement).style.width = width + 'px';
     const bubble = wrap.closest('.bubble') as HTMLElement;
@@ -39,6 +40,8 @@ async function draw(page: Page, w: Widget): Promise<{ png: PNG; stages: Record<s
     bubble.style.boxShadow = 'none';
     const tw = (window as any).__tw;
     const m: any = ((window as any).__pictures = { attr: null, html: null });
+    // The client's time over the corner (the header's safeArea): the dev app passes the band and draws the time over the bubble.
+    tw.setSafeArea(safeArea);
     tw.load(html, name);
     tw.host.element.setAttribute('data-conf-el', '');
     const r = tw.host.renderer;
@@ -54,7 +57,7 @@ async function draw(page: Page, w: Widget): Promise<{ png: PNG; stages: Record<s
       }
       return send(msg);
     };
-  }, { html: w.html, name: `conformance/${w.id}.html`, width: WIDTH });
+  }, { html: w.html, name: `conformance/${w.id}.html`, width: WIDTH, safeArea: w.meta.safeArea ?? null });
   let pub: any = null;
   const t0 = Date.now();
   while (Date.now() - t0 < 15_000) {
@@ -69,6 +72,14 @@ async function draw(page: Page, w: Widget): Promise<{ png: PNG; stages: Record<s
   const box = (await page.locator('[data-conf-el]').boundingBox())!;
   const shot = await page.screenshot({ clip: { x: Math.round(box.x), y: Math.round(box.y), width: WIDTH, height: Math.max(Math.ceil(box.height), 40) }, animations: 'allow', caret: 'hide' });
   return { png: PNG.sync.read(shot), stages: pub?.stages ?? {} };
+}
+
+/** The corner box the client's time takes over the bottom of a picture `height` CSS px tall (the header's safeArea), as [x, y, w, h]. */
+function timeCorner(w: Widget, height: number): number[] | null {
+  const a = checkContentSafeArea(w.meta.safeArea ?? null);
+  const corner = a.cornerRight || a.cornerLeft;
+  if (!a.bottom || !corner) return null;
+  return [a.cornerRight ? WIDTH - corner : 0, height - a.bottom, corner, a.bottom];
 }
 
 /** The top `h` device rows of `png`, with the rects (CSS px) painted white. */
@@ -124,6 +135,9 @@ export async function checkPictures(widgets: Widget[], origin: string, renderer 
         const got = await draw(page, w);
         const masks = w.stages.filter((s) => s.illustration && got.stages[s.name]).map((s) => got.stages[s.name]);
         const h = Math.min(ref.height, got.png.height);
+        // The client's time over the corner is the client's drawing (the dev app's and the build's agree, but it is no part of the widget).
+        const corner = timeCorner(w, h / DPR);
+        if (corner) masks.push(corner);
         const d = diffStats(prepare(got.png, h, masks), prepare(ref, h, masks));
         const tall = Math.abs(ref.height - got.png.height) / DPR;
         const rows = diffRows(d.image);
