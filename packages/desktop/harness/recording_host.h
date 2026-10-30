@@ -51,6 +51,10 @@ public:
     /// The client's side of a request, on the engine thread, outside the lock: answer through `respond` now or keep it
     /// for later. Unset (the default): the client handles no requests, every one is refused (`unsupported`).
     std::function<void(const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)>)> onRequest;
+    /// The wallet calls that passed the glue's checks and gate (`onBridgeWallet`), in order, and the client's side of
+    /// them (unset: every one is refused, `unsupported`).
+    std::vector<WalletCall> walletCalls;
+    std::function<void(const WalletCall&, std::function<void(const WidgetRequestOutcome&)>)> onWallet;
     std::optional<std::string> died;
     int frameRequests = 0;
     bool loaded = false;
@@ -149,6 +153,15 @@ public:
             if (verbose_) fprintf(stderr, "[request] %s\n", Json::quote(request.data).c_str());
         }
         if (onRequest) onRequest(request, respond);
+        else respond.unsupported();
+    }
+    void onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) override {
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            walletCalls.push_back(call);
+            if (verbose_) fprintf(stderr, "[wallet] %s\n", call.toJson().dump().c_str());
+        }
+        if (onWallet) onWallet(call, respond);
         else respond.unsupported();
     }
     void onBridgeCopyText(SandboxEngine&, const std::string& text) override {

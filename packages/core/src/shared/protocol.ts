@@ -246,6 +246,8 @@ export interface SandboxConfig {
   isPreview?: boolean;
   chatType?: ChatType | null;
   viewer?: WidgetUser | null;
+  /** The client has the wallet for this user and the widget may request (docs/sdk-v1.md §2.18): `TelegramWidget.wallet`. */
+  wallet?: boolean;
   /**
    * Optional wire forms this host understands, opt-in per host (docs/protocol.md,
    * "Features"). Absent or empty: plain JSON only, which every host and renderer speaks.

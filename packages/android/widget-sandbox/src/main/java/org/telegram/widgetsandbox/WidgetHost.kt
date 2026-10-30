@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.View
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
@@ -184,13 +185,87 @@ data class WidgetContext(
      * ignored). The request flags and `isCopy` are ignored.
      */
     val preview: Boolean = false,
+    /**
+     * The client has Gram Wallet for this user: it supports the wallet and the wallet is available in the user's country
+     * (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with [canQuery] too, never in a preview.
+     */
+    val wallet: Boolean = false,
 )
 
 /**
  * What the client sends to the bot like a callback button's press: `data` (1–64 bytes, UTF-8). Whether it came from a
  * press or in the background is the glue's decision (the request gate); the server and the bot cannot tell them apart.
  */
-data class WidgetRequest(val data: String)
+data class WidgetRequest(
+    val data: String,
+    /** The widget asked for the user's wallet (only on a tap, only with [WidgetContext.wallet]): ask the server to attach the wallet card (`with_wallet`); it creates the wallet if the user had none. */
+    val wallet: Boolean = false,
+)
+
+/** One message of a transaction, as TON Connect's `sendTransaction` has it: the destination, nanotons as a decimal string, a body and a `StateInit` (bags of cells in base64). */
+data class WalletMessage(val address: String, val amount: String, val payload: String? = null, val stateInit: String? = null) {
+    fun json(): JSONObject = JSONObject().put("address", address).put("amount", amount).also { o ->
+        payload?.let { o.put("payload", it) }
+        stateInit?.let { o.put("stateInit", it) }
+    }
+}
+
+/**
+ * A transaction the widget asks the user to send (`TelegramWidget.wallet.sendTransaction`, docs/sdk-v1.md §2.18,
+ * checked): TON Connect's `sendTransaction` request. The client hands it to its TON Connect window as is ([json]: the
+ * protocol's field names); the wallet checks the network and the sender against the account, the cells and the expiry.
+ */
+data class WalletTransaction(
+    /** `valid_until`, Unix seconds. */
+    val validUntil: Long? = null,
+    /** "-239" (the mainnet) or "-3" (the testnet). */
+    val network: String? = null,
+    val from: String? = null,
+    /** 1–4 messages. */
+    val messages: List<WalletMessage>,
+) {
+    fun json(): JSONObject = JSONObject().put("messages", JSONArray(messages.map { it.json() })).also { o ->
+        validUntil?.let { o.put("valid_until", it) }
+        network?.let { o.put("network", it) }
+        from?.let { o.put("from", it) }
+    }
+}
+
+/**
+ * What the widget asks the user to sign (`TelegramWidget.wallet.signData`, checked): TON Connect's `signData` payload,
+ * `type` "text" (`text`), "binary" (`bytes`, base64) or "cell" (`cell`, base64, with its TL-B `schema`). The client signs
+ * for the bot of the message (the domain `bot<bot_id>`), never a domain the widget names.
+ */
+data class SignDataPayload(
+    val type: String,
+    val text: String? = null,
+    val bytes: String? = null,
+    val schema: String? = null,
+    val cell: String? = null,
+    val network: String? = null,
+    val from: String? = null,
+) {
+    fun json(): JSONObject = JSONObject().put("type", type).also { o ->
+        for ((k, v) in listOf("text" to text, "bytes" to bytes, "schema" to schema, "cell" to cell, "network" to network, "from" to from)) v?.let { o.put(k, it) }
+    }
+}
+
+/**
+ * A wallet call that passed its checks (docs/sdk-v1.md §2.18): the client shows its own wallet window with the bot of the
+ * message, sends the transaction (or signs the payload) on the user's confirmation, sends the outcome to the bot as a
+ * query with [data] (1–64 bytes, a request's) and completes with the bot's answer.
+ */
+sealed class WalletCall {
+    abstract val data: String
+    /** "sendTransaction" or "signData". */
+    abstract val method: String
+    data class SendTransaction(val transaction: WalletTransaction, override val data: String) : WalletCall() {
+        override val method get() = "sendTransaction"
+    }
+    data class SignData(val payload: SignDataPayload, override val data: String) : WalletCall() {
+        override val method get() = "signData"
+    }
+}
 
 /**
  * The server's answer as the client hands it to the host: `result`, text of at most 1024 bytes (UTF-8, no NUL; anything
@@ -199,8 +274,12 @@ data class WidgetRequest(val data: String)
  */
 data class WidgetRequestAnswer(val result: String? = null)
 
-/** Why a client could not complete a request: the bot did not answer in time, flood wait, anything else. */
-enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED }
+/**
+ * Why a client could not complete a request: the bot did not answer in time, flood wait, anything else; for a wallet
+ * call also REJECTED (the user declined in the wallet window) and BAD_REQUEST (the wallet refused the transaction or the
+ * payload), which a request's failure turns into FAILED.
+ */
+enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED, REJECTED, BAD_REQUEST }
 
 /** A failed request, as `onRequest` reports it: `Result.failure(WidgetRequestException(…))`; any other exception is FAILED. */
 class WidgetRequestException(val failure: WidgetRequestFailure) : Exception(failure.name)
@@ -292,6 +371,15 @@ class WidgetHost(
      * request arrives, so it may be set after the constructor; null then refuses the request (NOT_ALLOWED, `unsupported`).
      */
     var onRequest: ((WidgetRequest, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
+    /**
+     * A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18; checked: the transaction or the payload, a press or the
+     * grant, one call in flight with the requests). Only with [WidgetContext.wallet]. Show the client's own wallet window
+     * with the bot of the message; on confirmation send the transaction (or sign for `bot<bot_id>`), send the outcome to
+     * the bot as a query with `call.data` and call the completion once, from any thread, with the bot's answer, or
+     * `Result.failure(WidgetRequestException(REJECTED | BAD_REQUEST | …))`. Main thread, read at delivery; null then
+     * refuses the call (NOT_ALLOWED, `unsupported`).
+     */
+    var onWallet: ((WalletCall, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
     /** Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked: 1–256 characters, one per press). Main thread. */
     var onCopyText: ((String) -> Unit)? = null
     /**
@@ -577,6 +665,18 @@ class WidgetHost(
             val handler = onRequest ?: return@post respond(Result.failure(WidgetRequestUnsupported()))
             try {
                 handler(request, respond)
+            } catch (e: Exception) {
+                respond(Result.failure(e))
+            }
+        }
+    }
+    /** `onWallet`, read on the main thread at delivery as `onRequest` is. */
+    override fun onWallet(engine: SandboxEngine, call: WalletCall, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+        main.post {
+            if (destroyed || diagnostics.dead != null) return@post
+            val handler = onWallet ?: return@post respond(Result.failure(WidgetRequestUnsupported()))
+            try {
+                handler(call, respond)
             } catch (e: Exception) {
                 respond(Result.failure(e))
             }

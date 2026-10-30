@@ -84,14 +84,15 @@ laid over the same calls later (D19).
 | `chatType` | `'private' \| 'group' \| 'supergroup' \| 'channel' \| null`, read-only | §2.13: null in a copy (it is told nothing about the chat it is in) and in a preview, or when the client does not say |
 | `viewer` | `{ id, first_name?, last_name?, username?, is_premium? } \| null` (Mini Apps' `WebAppUser`), read-only, frozen | §2.13: the user looking at the widget; null wherever the widget may not send requests (no `canQuery`), a preview included |
 | `isPreview` | `boolean`, read-only | §2.16: an inline result shown before it is sent |
-| `request(data)` | `(data: string) => Promise<{ result: string \| null }>` | §2.14 |
+| `request(data, options?)` | `(data: string, options?: { wallet?: boolean }) => Promise<{ result: string \| null }>` | §2.14; `{ wallet: true }`: §2.18 |
+| `wallet` | `{ sendTransaction(transaction, data), signData(payload, data) } \| null`, read-only, frozen | §2.18: Gram Wallet; null where the client has no wallet for this user, where the widget may not ask the bot, in a preview |
 | `copyText(text)` | `(text: string) => void` | §2.15 |
 | `theme`, `onTheme(cb)` | aliases of `colorScheme` and `onEvent('themeChanged')` (the callback gets the colour scheme, at once and on every change) | deprecated |
 | `sendMessage` | `typeof TelegramWidget.sendMessage === 'undefined'` | removed |
 
 All methods are synchronous and return `undefined`, except the three haptic
 methods, which return `TelegramWidget.HapticFeedback` for chaining, as in Mini
-Apps, `isProfileAtLeast`, and `request`, which returns a promise of the
+Apps, `isProfileAtLeast`, and `request` and the two wallet calls, which return a promise of the
 bot's answer. No other call gets an answer from the client: whether the user
 confirmed a link is not reported back.
 
@@ -683,6 +684,71 @@ the client gives the numbers:
   `contentSafeAreaChanged`, in one task, with the variables already set. It never
   changes per frame.
 
+### 2.18 The wallet
+
+A widget can ask the user to pay or to sign through Telegram's built-in wallet (Gram Wallet). The widget is the
+front of a dApp and its bot is the back end, as a site and its server are in TON Connect; the formats are TON
+Connect's, but there is no connection, no manifest, no bridge and no domain: who asks is the bot that sent the
+message, and the client's own wallet window says so. Decided in `docs/decisions.md`, "The wallet".
+
+```js
+// A tap asks the bot with the user's wallet; the bot answers with a fresh transaction; the widget passes it on.
+TelegramWidget.request('pay:42', { wallet: true })
+  .then((a) => TelegramWidget.wallet.sendTransaction(JSON.parse(a.result), 'paid:42'))
+  .then((a) => show(a.result), (e) => showError(e.code));
+
+TelegramWidget.wallet.signData({ type: 'text', text: 'I accept the terms of order 42' }, 'terms:42')
+  .then((a) => show(a.result));
+```
+
+- **`TelegramWidget.wallet`** is `null` where the client has no wallet for this user (a client without it, a
+  country where the wallet is not available), where the widget may not ask the bot (no `canQuery`: §2.14's table;
+  a forward of a widget sent with `fwd_allow_queries` may) and in a preview. Check it before drawing a pay button.
+  The widget never learns the user's address from the client; the bot does (below) and may put it in `result`.
+- **`request(data, { wallet: true })`**, on a tap only: the bot gets the wallet card of the user's profile (the
+  cloud wallet's address and balance) with the request; a user without a wallet gets one created then (a new wallet
+  is empty: the client offers to top it up when it is paid from). Refused (`NOT_ALLOWED`) without `wallet` or
+  without a tap, background requests included. `options` is an object with at most `wallet`, a boolean; anything
+  else throws `TypeError`. The wallet that pays or signs is the one on the device, and it can be another one: with
+  the wallet's backup off a device keeps its own key and its own wallet. So the bot does not put the profile's
+  address in a transaction's `from` (the wallet refuses a `from` that is not its own: `BAD_REQUEST`); it learns the
+  device's wallet with the outcome (below).
+- **`wallet.sendTransaction(transaction, data)`**: `transaction` is TON Connect's `sendTransaction` request with
+  its own field names: `{ valid_until?, network?, from?, messages: [{ address, amount, payload?, stateInit? }] }`;
+  1–255 messages (what Gram Wallet takes); `valid_until` in Unix seconds; `network` `'-239'` (the mainnet) or
+  `'-3'` (the testnet); a message's `address` user-friendly (48 characters, the bounce flag in it; a raw `0:…` is
+  refused, as TON Connect wallets must), `from` raw or user-friendly; `amount` nanotons as a decimal string;
+  `payload` and `stateInit` bags of cells in base64, at most 8192 characters each and 65536 for all messages
+  together. `null` fields are left out; any other field (`items`, `extra_currency`, the SDK's `validUntil`) throws
+  `TypeError`. The client shows the transaction in its own wallet window
+  (each message's amount and destination, the emulated outcome) with the bot of the message; on confirmation it
+  sends it, gives the bot the outcome (the message hash and the device's wallet that sent it: its address, balance
+  and public key; the bot checks the transaction on the chain) and resolves with the bot's answer to it,
+  `{ result }`, as `request` does. The widget never gets the signed message.
+- **`wallet.signData(payload, data)`**: `payload` is TON Connect's: `{ type: 'text', text }` (at most 4096 bytes
+  of UTF-8, shown to the user), `{ type: 'binary', bytes }` or `{ type: 'cell', schema, cell }` (base64 of at most
+  4096 characters, the TL-B schema at most 1024 bytes; the window warns that it cannot show them), optionally with
+  `network` and `from`. There is no domain: the client signs for `bot<bot_id>` of the message. The signature goes
+  to the bot with the device's wallet that signed (its address and public key); the bot checks it or passes it on,
+  and resolves this with its answer.
+- `data` (1–64 bytes, a request's) is the label the bot gets with the outcome: what the payment or the signature
+  is for.
+- **When.** On a tap, in its handler, on the visible widget (one call per tap, shared as in §2.14), or **within
+  10 s of the answer to a call made by a tap** (a request or a wallet call): the answer grants one wallet call
+  without a new tap, so a tap can pay for what the bot answers. Any call made on a tap or on the grant uses the
+  grant up; a refusal, a failure or a background request's answer brings none. Never in the background, never
+  from a timer. One call in flight, shared with requests (`BUSY`).
+- The promise rejects as a request's does (§2.14), plus two codes:
+
+| `code` | when |
+|---|---|
+| `REJECTED` | the user declined in the wallet window |
+| `BAD_REQUEST` | the wallet refused the transaction or the payload (another network or sender than the user's, an expired `valid_until`, cells it cannot parse) |
+| `NOT_ALLOWED` | no wallet, no tap and no grant, a preview |
+
+  A failure after the window (`TIMEOUT`, `FAILED`) means the bot's answer did not come: the transaction may have
+  been sent; ask the bot about the order again rather than paying twice.
+
 ## 3. Protocol
 
 What carries the API between the sandbox (QuickJS), the host glue and the
@@ -728,12 +794,13 @@ dropped whole with the diagnostic `storage-rejected` (the widget starts empty).
 | `haptic` | `['impact', style]`, `['notification', type]`, `['selection']` | enum values; visible; rate limit | `haptic(...)` |
 | `setResizeAnchor` | `[edge]` | exactly `'top'` or `'bottom'` (v0.1.3); no gesture, no visibility gate | not an action: the host keeps the latest value and reports it with the height (§4) |
 | `watchPublicData` | `[on]` | exactly one boolean; no gesture, no visibility gate; refused in a preview | not an action: the host keeps the latest value and reports a change (`onWatchPublicData`, `watchesPublicData`, §4) |
-| `request` | `[id, data]` | `id` an integer 1–2147483647 (the shim numbers its requests), `data` 1–64 bytes; then the request gate (below) | `onRequest({ data })`; the answer goes back as a `bridge` event (§3.3) |
+| `request` | `[id, data]` or `[id, data, { wallet }]` | `id` an integer 1–2147483647 (the shim numbers its requests), `data` 1–64 bytes, the options an object with at most `wallet`, a boolean; then the request gate (below) | `onRequest({ data, wallet? })`; the answer goes back as a `bridge` event (§3.3) |
+| `wallet` | `[id, 'sendTransaction', transaction, data]` or `[id, 'signData', payload, data]` | the transaction or the payload as §2.18 has it (`checkWalletTransaction`, `checkSignDataPayload`), `data` 1–64 bytes; then the request gate's `decideWallet` (below) | `onWallet(call)`; the answer goes back as a `bridge` event, as a request's |
 | `copyText` | `[text]` | 1–256 UTF-16 code units; privileged: needs the task's gesture, consumes it | `onCopyText(text)` |
 
 The glue checks in this order: the method and its arguments
 (`checkBridgeCall`; any other method or a malformed call is dropped with
-`bridge-rejected`, at most 20 reported); for `request` the request gate (below);
+`bridge-rejected`, at most 20 reported); for `request` and `wallet` the request gate (below);
 user activation for the two link methods and `copyText` (`activation-blocked`);
 for `haptic` the gate of §2.6 (`haptic-limit`).
 
@@ -757,6 +824,14 @@ refuses it (`NOT_ALLOWED`, reason `unsupported`). The answer is checked
 (`checkRequestAnswer`: `result` text of at most 1024 bytes without a NUL, else
 `INVALID_ANSWER` and `answer-rejected`) and frees the gate; so does a failure
 (`TIMEOUT`, `RATE_LIMITED`, `FAILED`).
+
+The wallet (§2.18) in the same gate: a request with `{ wallet: true }` without the context's `wallet` →
+`no-wallet`; it goes out only as `foreground` (no background, never held). A wallet call (`decideWallet`): no
+`canQuery` → `disabled`; no `wallet` → `no-wallet`; a call in flight → `busy`; a press on the visible widget →
+`foreground`; the visible widget within 10 s of the grant → `granted`; else `no-activation`. The grant: an answer
+with no error to a call that went out as `foreground` or `granted` (`finish(answeredAt)`); any call that goes out
+as either uses it up. A wallet call's failure keeps the wallet's codes (`REJECTED`, `BAD_REQUEST`); a request's
+turns them into `FAILED`.
 A call that passes goes to the client as a `WidgetAction` with the normalised
 URL (and, deprecated, to `onBridge` with the raw method and arguments), except
 `setResizeAnchor` and `watchPublicData`, which only set a value the host keeps:
@@ -863,12 +938,14 @@ The widget's state and requests (§2.13–§2.15, §5.11):
 public struct WidgetData { var chatData: String?; var publicData: String? }          // the full state: the chat state and the shared state
 public enum WidgetChatType: String { case `private`, group, supergroup, channel }
 public struct WidgetViewer { var id: Int64; var firstName: String?; var lastName: String?; var username: String?; var isPremium = false }  // the account's own
-public struct WidgetContext { var isCopy = false; var canQuery = false; var backgroundQuery = false; var chatType: WidgetChatType?; var viewer: WidgetViewer?; var preview = false }  // the server's flags; preview: §2.16
-public struct WidgetRequest { let data: String }
+public struct WidgetContext { var isCopy = false; var canQuery = false; var backgroundQuery = false; var chatType: WidgetChatType?; var viewer: WidgetViewer?; var preview = false; var wallet = false }  // the server's flags; preview: §2.16; wallet: §2.18
+public struct WidgetRequest { let data: String; let wallet: Bool }   // wallet: attach the wallet card (with_wallet)
 public struct WidgetRequestAnswer { var result: String? }
-public enum WidgetRequestFailure: Error { case timeout, rateLimited, failed }
+public enum WidgetRequestFailure: Error { case timeout, rateLimited, notAllowed, failed, rejected, badRequest }   // rejected, badRequest: wallet calls
+public enum WalletCall { case sendTransaction(WalletTransaction, data: String), signData(SignDataPayload, data: String) }   // .json: TON Connect's shapes
 // Options: data (WidgetData()), context (WidgetContext())
 var onRequest: ((WidgetRequest, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?   // complete once, from any thread
+var onWallet: ((WalletCall, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?    // §2.18, §5.13
 var onCopyText: ((String) -> Void)?
 func setData(_ data: WidgetData)
 ```
@@ -909,13 +986,16 @@ The widget's state and requests:
 data class WidgetData(val chatData: String? = null, val publicData: String? = null)
 data class WidgetViewer(val id: Long, val firstName: String? = null, val lastName: String? = null, val username: String? = null, val isPremium: Boolean = false)
 data class WidgetContext(val isCopy: Boolean = false, val canQuery: Boolean = false, val backgroundQuery: Boolean = false,
-                         val chatType: String? = null, val viewer: WidgetViewer? = null, val preview: Boolean = false)   // the server's flags; preview: §2.16
-data class WidgetRequest(val data: String)
+                         val chatType: String? = null, val viewer: WidgetViewer? = null, val preview: Boolean = false,
+                         val wallet: Boolean = false)   // the server's flags; preview: §2.16; wallet: §2.18
+data class WidgetRequest(val data: String, val wallet: Boolean = false)   // wallet: attach the wallet card (with_wallet)
 data class WidgetRequestAnswer(val result: String? = null)
-enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED }
+enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED, REJECTED, BAD_REQUEST }   // REJECTED, BAD_REQUEST: wallet calls
 class WidgetRequestException(val failure: WidgetRequestFailure) : Exception()
+sealed class WalletCall { SendTransaction(transaction, data), SignData(payload, data) }   // .json(): TON Connect's shapes
 // Options: data, context
 var onRequest: ((WidgetRequest, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)?   // Result.failure(WidgetRequestException(…)); any other exception is FAILED
+var onWallet: ((WalletCall, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)?     // §2.18, §5.13
 var onCopyText: ((String) -> Unit)?
 fun setData(data: WidgetData)
 ```
@@ -953,13 +1033,15 @@ The widget's state and requests:
 ```cpp
 struct WidgetData { std::optional<std::string> chatData, publicData; };
 struct WidgetViewer { int64_t id = 0; std::optional<std::string> firstName, lastName, username; bool isPremium = false; };
-struct WidgetContext { bool isCopy = false, canQuery = false, backgroundQuery = false; std::string chatType; /* "" = none */ std::optional<WidgetViewer> viewer; bool preview = false; };
-struct WidgetRequest { std::string data; };
+struct WidgetContext { bool isCopy = false, canQuery = false, backgroundQuery = false; std::string chatType; /* "" = none */ std::optional<WidgetViewer> viewer; bool preview = false; bool wallet = false; };
+struct WidgetRequest { std::string data; bool wallet = false; };   // wallet: attach the wallet card (with_wallet)
 struct WidgetRequestAnswer { std::optional<std::string> result; };
-enum class WidgetRequestFailure { None, Timeout, RateLimited, Failed };
+enum class WidgetRequestFailure { None, Timeout, RateLimited, Failed, Rejected, BadRequest };   // Rejected, BadRequest: wallet calls
+struct WalletCall { Method method; WalletTransaction transaction; SignDataPayload payload; std::string data; };   // toJson(): TON Connect's shapes
 struct WidgetRequestOutcome { WidgetRequestFailure failure = WidgetRequestFailure::None; WidgetRequestAnswer answer; };
 // WidgetHostOptions: WidgetData data; WidgetContext context;
 std::function<void(const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond)> onRequest;   // respond once, from any thread
+std::function<void(const WalletCall&, std::function<void(const WidgetRequestOutcome&)> respond)> onWallet;      // §2.18, §5.13
 std::function<void(const std::string& text)> onCopyText;
 void setData(const WidgetData& data);
 ```
@@ -987,8 +1069,9 @@ new WidgetHost(container, html, {
   onResize(height, anchor),                // anchor: 'top' | 'bottom', the widget's setResizeAnchor (v0.1.3)
   onWatchPublicData(on),                   // the widget started or stopped watching its shared state (§5.11): on a change
   data: { chatData, publicData },          // the chat state and the shared state as the message has them now
-  context: { isCopy, canQuery, backgroundQuery, chatType, viewer: { id, firstName, lastName, username, isPremium }, preview },   // the server's flags (preview: §2.16); fixed for the host's life
-  onRequest({ data }),                     // resolve with the server's answer { result } or reject 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'
+  context: { isCopy, canQuery, backgroundQuery, chatType, viewer: { id, firstName, lastName, username, isPremium }, preview, wallet },   // the server's flags (preview: §2.16; wallet: §2.18); fixed for the host's life
+  onRequest({ data, wallet }),             // resolve with the server's answer { result } or reject 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'; wallet: attach the wallet card
+  onWallet(call),                          // §2.18, §5.13: { method: 'sendTransaction', transaction, data } | { method: 'signData', payload, data }; resolve with the bot's answer or reject 'REJECTED' | 'BAD_REQUEST' | …
   onCopyText(text),
   policy, visible, onDead, onError, onLoaded, onDiag, rendererFactory, workerPool, features, …
 })
@@ -1036,7 +1119,9 @@ private|group|via-bot|no-queries|live-copy|copy|preview`, or `--copy`, `--can-qu
 `--background-query`, `--chat-type` one by one; `--viewer id[,first,last,username,premium]`, `--chat-data`,
 `--public-data`, `--answer '{"result":"…"}'` or `--answer-error TIMEOUT`,
 `--set-data '{…}'`; the CLI prints a `request` line per request and a
-`copyText` line per copy.
+`copyText` line per copy. The wallet (§2.18): `context.wallet` and `onWallet` (`RunResult.walletCalls`: each call
+as checked, the gate's verdict, what went back); from a shell `--wallet`, `--wallet-answer '{"result":"…"}'` or
+`--wallet-error REJECTED`, and a `wallet.<method>` line per call.
 
 ## 5. What the client implements
 
@@ -1337,6 +1422,31 @@ shared state (`public_data`).
 - **Forwards.** Forwarding a widget without its author is not offered (the
   server keeps the forward header anyway), so a widget always shows which bot it
   is from.
+
+### 5.13 The wallet (§2.18)
+
+- **`context.wallet`**: pass `true` when the client supports Gram Wallet and the wallet is available to this user
+  (their country); the widget then gets `TelegramWidget.wallet` wherever it may ask the bot. Whether the user
+  already has a wallet is not part of it: one is created when a widget asks for it.
+- **A request with the wallet** (`WidgetRequest.wallet`): call `messages.getBotWidgetQueryAnswer` with
+  `widgetQueryTypeData` and `with_wallet`: the server attaches the cloud wallet's card from the user's profile
+  (`wallet_card`) to the bot's update, creating the wallet if the user has none. The framework let it through only
+  on a tap.
+- **`onWallet`**: show the client's existing TON Connect window over the chat, with the bot of the message in its
+  header (name, username, avatar; never anything the widget says about itself) and the emulation of the
+  transaction, or the text to sign (a warning for bytes and cells). Ignore touches on it for its first 0.5–1 s: the
+  second tap of a double tap over the widget must not land on Confirm. If the wallet is empty, offer the top-up over
+  the chat before sending; if `valid_until` has passed meanwhile, fail with `badRequest`. Decline → `rejected`;
+  the wallet's refusal (network, sender, cells) → `badRequest`.
+- **After the confirmation**: `sendTransaction` goes out the wallet's usual way (`wallet.sendTransfer`); then send
+  the outcome to the bot as a widget query with `call.data`: `widgetQueryTypeSentTransaction` with the
+  transaction's normalised message hash (`msg_hash`), or `widgetQueryTypeSignData` with the signature as TON
+  Connect's result (`signature`, `address`, `timestamp`, `domain` = `bot<bot_id>`, `payload`), each with **the
+  device's wallet** (`userWallet`: address, balance, public key), the one that signed: with the wallet's backup off a
+  device can hold another key and another wallet than the profile's card. Complete with the bot's answer as for a
+  request. No second tap: the call already had one. A failure of that query maps as a request's.
+- The server's API (the query types, `with_wallet`, `userWallet`, the card in the updates; `docs/decisions.md`,
+  "The wallet") is agreed and not shipped yet: until it is, leave `context.wallet` unset.
 
 ### 5.12 The time over a widget with no caption below it (§2.17)
 

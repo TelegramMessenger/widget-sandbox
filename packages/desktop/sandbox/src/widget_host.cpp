@@ -398,6 +398,15 @@ void WidgetHost::onBridgeRequest(SandboxEngine&, const WidgetRequest& request, W
     });
 }
 
+void WidgetHost::onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) {
+    // As onBridgeRequest: the client side is decided at delivery, on the host thread where `onWallet` lives.
+    host([this, call, respond = std::move(respond)] {
+        if (destroyed_) return;
+        if (!onWallet) return respond.unsupported();
+        onWallet(call, respond);
+    });
+}
+
 void WidgetHost::onBridgeCopyText(SandboxEngine&, const std::string& text) {
     host([this, text] {
         if (destroyed_) return; // no toast for a widget that is going away

@@ -350,6 +350,21 @@ refused in the widget (`NOT_ALLOWED`). Requests are never sent over the
 widget's own channels: the sandbox has no network (invariant 5); the client's
 MTProto connection carries them.
 
+## The wallet
+
+A widget can pay and sign through Gram Wallet (`docs/sdk-v1.md` §2.18, §5.13). Nothing changes until the client
+passes `context.wallet = true`: the client supports the wallet and the wallet is available to this user (their
+country). Then:
+
+| Host input / callback | What the client does |
+|---|---|
+| `WidgetRequest.wallet` | the widget asked, on a tap, for the user's wallet: call `getBotWidgetQueryAnswer` with `widgetQueryTypeData` and `with_wallet`; the server attaches the profile's wallet card (the cloud wallet) to the bot's update and creates the wallet if there is none |
+| `onWallet(call, complete)` | `sendTransaction` (a `WalletTransaction`: TON Connect's `sendTransaction` request, `json` / `toJson()` in its field names) or `signData` (a `SignDataPayload`, TON Connect's payload), with `data`: show the existing TON Connect window over the chat with the bot of the message in its header, ignore taps on it for its first 0.5–1 s, top up an empty wallet over the chat; on confirmation send the transaction the wallet's way (or sign for the domain `bot<bot_id>`), send the outcome to the bot as a widget query with `data` (`widgetQueryTypeSentTransaction` with the normalised message hash, or `widgetQueryTypeSignData` with `signData`'s result, each with the device's wallet as `userWallet`: address, balance, public key; it can differ from the profile's card when the wallet's backup is off), and complete with the bot's answer. Decline: `rejected`; the wallet's refusal: `badRequest`; the query's failures as a request's |
+
+The framework has checked the transaction or the payload (TON Connect's fields only, 1–255 messages, user-friendly destinations), the tap or the
+grant (the answer to a call made by a tap, within 10 s), and one call in flight with the requests. The server's API
+is agreed and not shipped yet (`docs/decisions.md`, "The wallet"); until it is, leave `context.wallet` unset.
+
 ## Forwarding and state
 
 A widget message may be forwarded to any chat, groups and channels included.

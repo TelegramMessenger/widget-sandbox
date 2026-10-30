@@ -146,6 +146,13 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// delivered: nil then refuses it (`NOT_ALLOWED`), so setting it right after creating the host catches every
     /// request. Main thread.
     public var onRequest: ((WidgetRequest, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?
+    /// A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18; checked: the transaction or the payload, a press or
+    /// the grant, one call in flight with the requests). Only with `context.wallet`. The client shows its own wallet
+    /// window with the bot of the message; on confirmation it sends the transaction (or signs for `bot<bot_id>`), sends
+    /// the outcome to the bot as a query with `call.data` and calls the completion once, from any thread, with the bot's
+    /// answer, or `.rejected` (the user declined), `.badRequest` (the wallet refused it) or a request's failure. Read on
+    /// the main thread when a call is delivered: nil then refuses it (`NOT_ALLOWED`). Main thread.
+    public var onWallet: ((WalletCall, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?
     /// Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked:
     /// at most 256 UTF-16 code units, one per press, shared with the link calls; docs/sdk-v1.md §2.15). Main thread.
     public var onCopyText: ((String) -> Void)?
@@ -689,6 +696,17 @@ public final class WidgetHost: SandboxEngineDelegate {
             self.onMain {
                 guard let onRequest = self.onRequest else { return respond.unsupported() }
                 onRequest(request) { respond($0) }
+            }
+        }
+    }
+    /// A wallet call that passed the engine's gate, to the client's `onWallet` on main, in order with the actions;
+    /// without `onWallet` at delivery the widget gets `NOT_ALLOWED` (`unsupported`).
+    public func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion) {
+        inOrder {
+            guard self.state.dead == nil else { return }
+            self.onMain {
+                guard let onWallet = self.onWallet else { return respond.unsupported() }
+                onWallet(wallet) { respond($0) }
             }
         }
     }

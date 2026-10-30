@@ -207,8 +207,8 @@ public enum WidgetAction: Equatable {
         case .setResizeAnchor, .watchPublicData:
             // Not actions: the host keeps them in its state (WidgetDiagnostics.resizeAnchor, .watchesPublicData).
             return nil
-        case .request, .copyText:
-            // Not actions: a request goes through the request gate to `onRequest`, a text to `onCopyText`.
+        case .request, .wallet, .copyText:
+            // Not actions: a request goes through the request gate to `onRequest`, a wallet call to `onWallet`, a text to `onCopyText`.
             return nil
         }
     }
@@ -295,19 +295,26 @@ public struct WidgetContext: Equatable {
     /// runs as usual, but no input (a tap selects the result), no requests or other bridge calls but `ready` and
     /// `setResizeAnchor`, no chat type or viewer, and Web Storage that is never committed. The flags are ignored.
     public var preview = false
+    /// The client has Gram Wallet for this user: it supports the wallet and the wallet is available in the user's
+    /// country (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with `canQuery` too, never in a preview.
+    public var wallet = false
 
-    public init(isCopy: Bool = false, canQuery: Bool = false, backgroundQuery: Bool = false, chatType: WidgetChatType? = nil, viewer: WidgetViewer? = nil, preview: Bool = false) {
+    public init(isCopy: Bool = false, canQuery: Bool = false, backgroundQuery: Bool = false, chatType: WidgetChatType? = nil, viewer: WidgetViewer? = nil, preview: Bool = false, wallet: Bool = false) {
         self.isCopy = isCopy
         self.canQuery = canQuery
         self.backgroundQuery = backgroundQuery
         self.chatType = chatType
         self.viewer = viewer
         self.preview = preview
+        self.wallet = wallet
     }
 
-    /// The flags as the glue applies them: a preview has none, whatever the client passed.
+    /// The flags as the glue applies them: a preview has none, whatever the client passed; the wallet only with `canQuery`.
     var effective: WidgetContext {
-        preview ? WidgetContext(chatType: chatType, viewer: viewer, preview: true) : self
+        if preview { return WidgetContext(chatType: chatType, viewer: viewer, preview: true) }
+        var out = self
+        out.wallet = wallet && canQuery
+        return out
     }
 }
 
@@ -316,9 +323,122 @@ public struct WidgetContext: Equatable {
 /// request, so the request says nothing about it (the glue's request gate decided).
 public struct WidgetRequest: Equatable {
     public let data: String
+    /// The widget asked for the user's wallet (only on a tap, only with `WidgetContext.wallet`): the client asks the
+    /// server to attach the wallet card (`with_wallet`); the server creates the wallet if the user had none.
+    public let wallet: Bool
 
-    public init(data: String) {
+    public init(data: String, wallet: Bool = false) {
         self.data = data
+        self.wallet = wallet
+    }
+}
+
+// MARK: the wallet (docs/sdk-v1.md §2.18)
+
+/// One message of a transaction, as TON Connect's `sendTransaction` has it: the destination (raw or user-friendly), nanotons
+/// as a decimal string, a body and a `StateInit` (bags of cells in base64).
+public struct WalletMessage: Equatable {
+    public var address: String
+    public var amount: String
+    public var payload: String?
+    public var stateInit: String?
+
+    public init(address: String, amount: String, payload: String? = nil, stateInit: String? = nil) {
+        self.address = address
+        self.amount = amount
+        self.payload = payload
+        self.stateInit = stateInit
+    }
+
+    var json: [String: Any] {
+        var out: [String: Any] = ["address": address, "amount": amount]
+        if let payload { out["payload"] = payload }
+        if let stateInit { out["stateInit"] = stateInit }
+        return out
+    }
+}
+
+/// A transaction the widget asks the user to send (`TelegramWidget.wallet.sendTransaction`, checked): TON Connect's
+/// `sendTransaction` request. The client hands it to its TON Connect window as is (`json`: the protocol's field names);
+/// the wallet checks the network and the sender against the account, the cells and the expiry.
+public struct WalletTransaction: Equatable {
+    /// `valid_until`, Unix seconds.
+    public var validUntil: Int64?
+    /// `-239` (the mainnet) or `-3` (the testnet).
+    public var network: String?
+    public var from: String?
+    /// 1–4 messages.
+    public var messages: [WalletMessage]
+
+    public init(validUntil: Int64? = nil, network: String? = nil, from: String? = nil, messages: [WalletMessage]) {
+        self.validUntil = validUntil
+        self.network = network
+        self.from = from
+        self.messages = messages
+    }
+
+    /// TON Connect's JSON shape (`valid_until`, `network`, `from`, `messages`), absent fields left out.
+    public var json: [String: Any] {
+        var out: [String: Any] = ["messages": messages.map(\.json)]
+        if let validUntil { out["valid_until"] = NSNumber(value: validUntil) }
+        if let network { out["network"] = network }
+        if let from { out["from"] = from }
+        return out
+    }
+}
+
+/// What the widget asks the user to sign (`TelegramWidget.wallet.signData`, checked): TON Connect's `signData` payload,
+/// a text, bytes (base64) or a cell (base64) with its TL-B schema. The client signs for the bot of the message (the
+/// domain `bot<bot_id>`), never a domain the widget names.
+public struct SignDataPayload: Equatable {
+    public enum Kind: String { case text, binary, cell }
+    public var type: Kind
+    public var text: String?
+    public var bytes: String?
+    public var schema: String?
+    public var cell: String?
+    public var network: String?
+    public var from: String?
+
+    public init(type: Kind, text: String? = nil, bytes: String? = nil, schema: String? = nil, cell: String? = nil, network: String? = nil, from: String? = nil) {
+        self.type = type
+        self.text = text
+        self.bytes = bytes
+        self.schema = schema
+        self.cell = cell
+        self.network = network
+        self.from = from
+    }
+
+    /// TON Connect's JSON shape, absent fields left out.
+    public var json: [String: Any] {
+        var out: [String: Any] = ["type": type.rawValue]
+        for (key, value) in [("text", text), ("bytes", bytes), ("schema", schema), ("cell", cell), ("network", network), ("from", from)] {
+            if let value { out[key] = value }
+        }
+        return out
+    }
+}
+
+/// A wallet call that passed its checks (docs/sdk-v1.md §2.18): the client shows its own wallet window with the bot of
+/// the message, sends the transaction (or signs the payload) on the user's confirmation, sends the outcome to the bot as
+/// a query with `data` (1–64 bytes, a request's) and completes with the bot's answer.
+public enum WalletCall: Equatable {
+    case sendTransaction(WalletTransaction, data: String)
+    case signData(SignDataPayload, data: String)
+
+    public var data: String {
+        switch self {
+        case .sendTransaction(_, let data), .signData(_, let data): return data
+        }
+    }
+
+    /// `sendTransaction` or `signData`.
+    public var method: String {
+        switch self {
+        case .sendTransaction: return "sendTransaction"
+        case .signData: return "signData"
+        }
     }
 }
 
@@ -342,8 +462,10 @@ public struct WidgetRequestAnswer: Equatable {
 
 /// A request the client could not complete: the bot did not answer in time (`timeout`), a flood wait
 /// (`rateLimited`), anything else (`failed`). The widget's promise rejects with `TIMEOUT`, `RATE_LIMITED` or `FAILED`.
+/// For a wallet call also `rejected` (the user declined in the wallet window: `REJECTED`) and `badRequest` (the
+/// wallet refused the transaction or the payload: `BAD_REQUEST`); for a request they are `FAILED`.
 public enum WidgetRequestFailure: Error, Equatable {
-    case timeout, rateLimited, notAllowed, failed
+    case timeout, rateLimited, notAllowed, failed, rejected, badRequest
 
     var code: SdkPolicy.RequestError {
         switch self {
@@ -351,7 +473,14 @@ public enum WidgetRequestFailure: Error, Equatable {
         case .rateLimited: return .rateLimited
         case .notAllowed: return .notAllowed
         case .failed: return .failed
+        case .rejected: return .rejected
+        case .badRequest: return .badRequest
         }
+    }
+
+    /// What a request's failure becomes in the widget: the wallet's own codes are `FAILED` there.
+    var requestCode: SdkPolicy.RequestError {
+        self == .rejected || self == .badRequest ? .failed : code
     }
 }
 

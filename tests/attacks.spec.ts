@@ -409,6 +409,53 @@ test.describe('requests to the bot', () => {
   });
 });
 
+// ───────────── the wallet (docs/sdk-v1.md §2.18) ─────────────
+
+test.describe('the wallet', () => {
+  const calls = (page: Page) => page.evaluate(() => (window as any).__tw.bot.requests.map((r: any) => (r.kind ? r.kind + ':' : '') + r.data) as string[]);
+  const diagCount = async (page: Page, kind: string) => (await twState(page)).diags[kind]?.count ?? 0;
+
+  test('no wallet window without a real tap, not even on a background request\'s answer; the tap opens one', async ({ page }) => {
+    await resetCanary();
+    const f = await openAttack(page, 'wallet-no-activation.html');
+    await page.waitForTimeout(1000);
+    expect(await calls(page)).toEqual(['bg']); // the background request itself, which grants nothing
+    await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+    await expect(f.locator('#log')).toContainText('canary:TypeError');
+    await expect(f.locator('#log')).toContainText('background-answer:NOT_ALLOWED');
+    expect(await diagCount(page, 'request-blocked')).toBeGreaterThanOrEqual(5);
+    await f.locator('#go').click();
+    await expect(page.locator('.wallet-sheet')).toHaveCount(1);
+    await page.locator('#wallet-decline').click();
+    await expect(f.locator('#log')).toContainText('tap:REJECTED');
+    expect(await calls(page)).toEqual(['bg', 'sendTransaction:tap']);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('a widget that rewrites the wire gets no wallet call through: the glue re-checks every one', async ({ page }) => {
+    await resetCanary();
+    const f = await openAttack(page, 'wallet-forged-wire.html');
+    await f.locator('#go').click();
+    await expect.poll(() => diagCount(page, 'bridge-rejected')).toBe(5);
+    await page.waitForTimeout(500);
+    expect(await calls(page)).toEqual([]);
+    await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('one grant, one window: a second call is BUSY, a refusal brings no grant, a later timer gets none', async ({ page }) => {
+    const f = await openAttack(page, 'wallet-grant-reuse.html', '&message=group');
+    await f.locator('#go').click();
+    await expect(page.locator('.wallet-sheet')).toHaveCount(1);
+    await expect(f.locator('#log')).toContainText('second:BUSY');
+    await page.locator('#wallet-decline').click();
+    await expect(f.locator('#log')).toContainText('after-refusal:NOT_ALLOWED');
+    await expect(f.locator('#log')).toContainText('timer:NOT_ALLOWED', { timeout: 5000 });
+    await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+    expect(await calls(page)).toEqual(['order', 'sendTransaction:first']);
+  });
+});
+
 test.describe('cpu quota', () => {
   test('a forced-layout loop is killed by the layout-query budget, the host stays responsive', async ({ page }) => {
     await resetCanary();
