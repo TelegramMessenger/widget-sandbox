@@ -244,6 +244,13 @@ public:
     /// widget's next request is BUSY. Read on the host thread when a request is delivered: unset then, the widget gets
     /// `NOT_ALLOWED` (reason `unsupported`).
     std::function<void(const WidgetRequest& request, std::function<void(const WidgetRequestOutcome&)> respond)> onRequest;
+    /// A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18; checked: the transaction or the payload, a press or
+    /// the grant, one call in flight with the requests). Only with `WidgetContext::wallet`. Show the client's own wallet
+    /// window with the bot of the message; on confirmation send the transaction (or sign for `bot<bot_id>`), send the
+    /// outcome to the bot as a query with `call.data` and call `respond` once, from any thread, with the bot's answer or
+    /// a failure (`Rejected`: the user declined, `BadRequest`: the wallet refused it, or a request's). Read on the host
+    /// thread at delivery: unset then, the widget gets `NOT_ALLOWED` (reason `unsupported`).
+    std::function<void(const WalletCall& call, std::function<void(const WidgetRequestOutcome&)> respond)> onWallet;
     /// Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`):
     /// 1–256 UTF-16 code units, well-formed, at most one privileged call per pointer press. Not an action.
     std::function<void(const std::string& text)> onCopyText;
@@ -275,6 +282,7 @@ public:
     void onPublicDataWatch(SandboxEngine&, bool on) override;
     void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override;
     void onBridgeRequest(SandboxEngine&, const WidgetRequest& request, WidgetRequestResponder respond) override;
+    void onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) override;
     void onBridgeCopyText(SandboxEngine&, const std::string& text) override;
     void onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) override;
     void onLoaded(SandboxEngine&) override;

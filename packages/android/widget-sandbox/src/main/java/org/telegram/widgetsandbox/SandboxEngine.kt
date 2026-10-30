@@ -98,8 +98,15 @@ private val REQUEST_REFUSED = mapOf(
     RequestVerdict.BUSY to "a request is already in flight",
     RequestVerdict.NO_ACTIVATION to "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
     RequestVerdict.RATE_LIMITED to "background requests at most once per 5 s",
+    RequestVerdict.NO_WALLET to "the client has no wallet for this user (no WidgetContext.wallet)",
+)
+/** Where a wallet call's refusal differs from a request's (widget-host.ts WALLET_REFUSED). */
+private val WALLET_REFUSED = mapOf(
+    RequestVerdict.NO_ACTIVATION to "it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each",
+    RequestVerdict.BUSY to "a request or a wallet call is already in flight",
 )
 private const val UNSUPPORTED_DETAIL = "request refused: the client handles no requests (onRequest)"
+private const val WALLET_UNSUPPORTED_DETAIL = "wallet call refused: the client handles no wallet calls (onWallet)"
 
 /** Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets. */
 internal fun coarseNowMs(ms: Double): Double = kotlin.math.floor(ms / 0.1) * 0.1
@@ -152,6 +159,15 @@ class SandboxEngine(
          * `request-blocked` with the reason `unsupported`; WidgetHost decides that on the main thread at delivery.
          */
         fun onRequest(engine: SandboxEngine, request: WidgetRequest, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+            respond(Result.failure(WidgetRequestUnsupported()))
+        }
+        /**
+         * A wallet call the gate let through (docs/sdk-v1.md §2.18: [WidgetContext.wallet], a press or the grant, one in
+         * flight with the requests). Show the client's wallet window with the bot of the message, send the transaction
+         * (or sign the payload) on the user's confirmation, send the outcome to the bot and call `respond` once, from any
+         * thread, with the bot's answer or a failure (REJECTED, BAD_REQUEST, a request's). The default refuses it.
+         */
+        fun onWallet(engine: SandboxEngine, call: WalletCall, respond: (Result<WidgetRequestAnswer>) -> Unit) {
             respond(Result.failure(WidgetRequestUnsupported()))
         }
         /** `TelegramWidget.copyText(text)` that passed its checks (1–256 UTF-16 units; one per press under the strict policy, shared with the link calls). Not an action (no `onAction` / `onBridge`). */
@@ -313,6 +329,7 @@ class SandboxEngine(
                         // preview; the viewer only where the widget may send requests (canQuery, never in a preview).
                         .put("chatType", (if (preview || copy) null else SdkPolicy.checkChatType(config.context.chatType)) ?: JSONObject.NULL)
                         .put("viewer", (if (hideViewer) null else viewer())?.let(::viewerJson) ?: JSONObject.NULL)
+                        .put("wallet", wallet)
                         .put("features", JSONArray(config.features.intersect(RUNTIME_FEATURES).sorted())),
                 ).toString()
             callTw("boot", bootArg)
@@ -342,6 +359,8 @@ class SandboxEngine(
     private val copy = config.context.isCopy && !preview
     private val canQuery = config.context.canQuery && !preview
     private val backgroundQuery = config.context.backgroundQuery && !preview
+    /** The client has the wallet for this user and the widget may ask the bot (docs/sdk-v1.md §2.18). */
+    private val wallet = config.context.wallet && canQuery
     /** The widget knows its viewer only where it may send requests (`canQuery`, never in a preview), as the network marker. */
     private val hideViewer = !canQuery
     private var previewBlockedReported = 0
@@ -617,7 +636,8 @@ class SandboxEngine(
                 previewBlockedReported += 1
                 delegate?.onDiag(this, "preview-blocked", "$name ignored: a preview (an inline result not sent yet) takes no actions")
             }
-            if (c is BridgeCall.Request) enqueue("bridge", JSONObject().put("type", "answer").put("id", c.id).put("error", "NOT_ALLOWED").put("reason", "preview").toString())
+            val id = (c as? BridgeCall.Request)?.id ?: (c as? BridgeCall.Wallet)?.id
+            if (id != null) enqueue("bridge", JSONObject().put("type", "answer").put("id", id).put("error", "NOT_ALLOWED").put("reason", "preview").toString())
             return
         }
         val checked = when (c) {
@@ -633,7 +653,12 @@ class SandboxEngine(
             }
             // A request has its own gate (a press or the background rules) and goes to `onRequest`, not `onAction`.
             is BridgeCall.Request -> {
-                request(c.id, c.data)
+                request(c.id, c.data, c.wallet)
+                return
+            }
+            // A wallet call shares the request gate (a press or the grant, never the background) and goes to `onWallet`.
+            is BridgeCall.Wallet -> {
+                walletCall(c.id, c.call)
                 return
             }
             else -> c
@@ -667,27 +692,58 @@ class SandboxEngine(
      * it): [WidgetRequestUnsupported] comes back like an answer. Every outcome goes back into the widget as a `bridge`
      * answer task, never inside the task that asked.
      */
-    private fun request(id: Int, data: String) {
+    private fun request(id: Int, data: String, withWallet: Boolean = false) {
         if (delegate == null) return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
         val strict = isStrictPolicy(config.policy)
         val pressed = !strict || activation.available(visible)
-        val verdict = requests.decide(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, backgroundQuery = backgroundQuery)
-        SdkPolicy.requestRefusal(verdict)?.let { return refuseRequest(id, verdict.value, it, "request refused (${verdict.value}): ${REQUEST_REFUSED[verdict] ?: verdict.value}") }
+        val verdict = requests.decide(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, backgroundQuery = backgroundQuery, withWallet = withWallet, wallet = wallet)
+        SdkPolicy.requestRefusal(verdict)?.let {
+            val why = if (withWallet && verdict == RequestVerdict.NO_ACTIVATION) "a request for the wallet needs a tap on the visible widget, one request per tap" else REQUEST_REFUSED[verdict] ?: verdict.value
+            return refuseRequest(id, verdict.value, it, "request refused (${verdict.value}): $why")
+        }
         if (verdict == RequestVerdict.FOREGROUND && strict) activation.consume(visible)
-        if (verdict == RequestVerdict.HELD) heldRequest = id to data else deliverRequest(id, data)
+        if (verdict == RequestVerdict.HELD) heldRequest = id to data else deliverRequest(id, data, withWallet)
+    }
+
+    /**
+     * docs/sdk-v1.md §2.18: a wallet call goes out on a press or on the grant (the answer to a call made by a press,
+     * within 10 s), never in the background; one call in flight with the requests. Its outcome settles like a request's.
+     */
+    private fun walletCall(id: Int, call: WalletCall) {
+        val strict = isStrictPolicy(config.policy)
+        val pressed = !strict || activation.available(visible)
+        val verdict = requests.decideWallet(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, wallet = wallet)
+        SdkPolicy.requestRefusal(verdict)?.let {
+            return refuseRequest(id, verdict.value, it, "wallet.${call.method} refused (${verdict.value}): ${WALLET_REFUSED[verdict] ?: REQUEST_REFUSED[verdict] ?: verdict.value}")
+        }
+        if (verdict == RequestVerdict.FOREGROUND && strict) activation.consume(visible)
+        val delegate = delegate ?: run {
+            requests.finish()
+            return refuseRequest(id, "unsupported", "NOT_ALLOWED", WALLET_UNSUPPORTED_DETAIL)
+        }
+        val respond = completion(id, wallet = true)
+        try {
+            delegate.onWallet(this, call, respond)
+        } catch (e: Exception) {
+            respond(Result.failure(e))
+        }
+    }
+
+    /** Any thread, honoured once; the gate lives on the engine thread. A stopped thread drops the post (destroyed). */
+    private fun completion(id: Int, wallet: Boolean): (Result<WidgetRequestAnswer>) -> Unit {
+        val once = AtomicBoolean(false)
+        return { outcome -> if (once.compareAndSet(false, true)) thread.post { answerRequest(id, outcome, wallet) } }
     }
 
     /** A request the gate let through, to the delegate; its outcome frees the gate ([answerRequest]). */
-    private fun deliverRequest(id: Int, data: String) {
+    private fun deliverRequest(id: Int, data: String, withWallet: Boolean = false) {
         val delegate = delegate ?: run {
             requests.finish()
             return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
         }
-        val once = AtomicBoolean(false)
-        // Any thread, honoured once; the gate lives on the engine thread. A stopped thread drops the post (destroyed).
-        val respond: (Result<WidgetRequestAnswer>) -> Unit = { outcome -> if (once.compareAndSet(false, true)) thread.post { answerRequest(id, outcome) } }
+        val respond = completion(id, wallet = false)
         try {
-            delegate.onRequest(this, WidgetRequest(data), respond)
+            delegate.onRequest(this, WidgetRequest(data, withWallet), respond)
         } catch (e: Exception) {
             respond(Result.failure(e)) // a delegate that throws has failed the request (FAILED), the gate does not stay in flight
         }
@@ -701,20 +757,26 @@ class SandboxEngine(
         enqueue("bridge", JSONObject().put("type", "answer").put("id", id).put("error", error).put("reason", reason).toString())
     }
 
-    /** The client's answer or failure, on the engine thread outside any task: checked, then into the widget (the promise settles in a `bridge` task). */
-    private fun answerRequest(id: Int, outcome: Result<WidgetRequestAnswer>) {
+    /**
+     * The client's answer or failure, on the engine thread outside any task: checked, then into the widget (the promise
+     * settles in a `bridge` task). The gate is free again; an answer brings the grant when the call had a press or the
+     * grant; the wallet's own failure codes only for a wallet call.
+     */
+    private fun answerRequest(id: Int, outcome: Result<WidgetRequestAnswer>, wallet: Boolean = false) {
         if (dead) return
-        requests.finish()
         val event = JSONObject().put("type", "answer").put("id", id)
         val answer = outcome.getOrElse { e ->
-            if (e is WidgetRequestUnsupported) return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
-            return accept("bridge", event.put("error", SdkPolicy.requestFailure(e)).toString())
+            requests.finish()
+            if (e is WidgetRequestUnsupported) return refuseRequest(id, "unsupported", "NOT_ALLOWED", if (wallet) WALLET_UNSUPPORTED_DETAIL else UNSUPPORTED_DETAIL)
+            return accept("bridge", event.put("error", if (wallet) SdkPolicy.walletFailure(e) else SdkPolicy.requestFailure(e)).toString())
         }
         val checked = SdkPolicy.checkRequestAnswer(mapOf("result" to answer.result))
         if (checked == null) {
+            requests.finish()
             delegate?.onDiag(this, "answer-rejected", "the answer's result is not text of at most ${SdkPolicy.MAX_REQUEST_RESULT_BYTES} bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER")
             return accept("bridge", event.put("error", "INVALID_ANSWER").toString())
         }
+        requests.finish(nowMs())
         accept("bridge", event.put("result", checked.result ?: JSONObject.NULL).toString())
     }
 

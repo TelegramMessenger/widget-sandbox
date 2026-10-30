@@ -105,6 +105,8 @@ SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared
     // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16). Fixed from
     // here on, so other threads may read config_ without a lock.
     if (config_.context.preview) config_.context.isCopy = config_.context.canQuery = config_.context.backgroundQuery = false;
+    // The wallet only where the widget may ask the bot (docs/sdk-v1.md §2.18).
+    config_.context.wallet = config_.context.wallet && config_.context.canQuery;
 }
 
 SandboxEngine::~SandboxEngine() {
@@ -221,6 +223,7 @@ void SandboxEngine::boot() {
         // The viewer in the widget's field names (Mini Apps' WebAppUser); a field that breaks its rule is left out and reported.
         sdk::CheckedViewer viewer = revealsViewer ? sdk::checkViewer(context.viewer) : sdk::CheckedViewer{};
         config.set("viewer", viewer.viewer ? sdk::viewerJson(*viewer.viewer) : Json());
+        config.set("wallet", context.wallet);
         for (const std::string& field : viewer.rejected)
             if (delegate_) delegate_->onDiag(*this, "data-rejected", "viewer." + field + ": " + std::string(sdk::viewerFieldRule(field)) + "; the widget does not see it");
         Json features = Json::array();
@@ -561,8 +564,8 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
                 previewBlockedReported_++;
                 delegate_->onDiag(*this, "preview-blocked", name + " ignored: a preview (an inline result not sent yet) takes no actions");
             }
-            if (checked->request) {
-                Json event = answerEvent(checked->request->id);
+            if (checked->request || checked->wallet) {
+                Json event = answerEvent(checked->request ? checked->request->id : checked->wallet->id);
                 event.set("error", "NOT_ALLOWED");
                 event.set("reason", "preview");
                 enqueue("bridge", event.dump());
@@ -583,7 +586,12 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         }
         // A request has its own gate (a press or the background rules; one in flight) and goes to onBridgeRequest, not onBridgeAction.
         if (checked->request) {
-            request(checked->request->id, checked->request->data);
+            request(checked->request->id, checked->request->data, checked->request->wallet);
+            return HostReturn::undefined();
+        }
+        // A wallet call shares the request gate (a press or the grant, never the background) and goes to onBridgeWallet.
+        if (checked->wallet) {
+            walletCall(checked->wallet->id, checked->wallet->call);
             return HostReturn::undefined();
         }
         if (isStrictPolicy(config_.policy) && sdk::isPrivilegedMethod(name)) {
@@ -672,7 +680,17 @@ const char* refusalText(sdk::RequestVerdict verdict) {
     case sdk::RequestVerdict::Busy: return "a request is already in flight";
     case sdk::RequestVerdict::NoActivation: return "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)";
     case sdk::RequestVerdict::RateLimited: return "background requests at most once per 5 s";
+    case sdk::RequestVerdict::NoWallet: return "the client has no wallet for this user (no WidgetContext::wallet)";
     default: return "";
+    }
+}
+
+/// Where a wallet call's refusal differs from a request's (WALLET_REFUSED in widget-host.ts).
+const char* walletRefusalText(sdk::RequestVerdict verdict) {
+    switch (verdict) {
+    case sdk::RequestVerdict::NoActivation: return "it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each";
+    case sdk::RequestVerdict::Busy: return "a request or a wallet call is already in flight";
+    default: return refusalText(verdict);
     }
 }
 
@@ -690,15 +708,17 @@ std::string SandboxEngine::refusal(int64_t id, std::string_view error, std::stri
     return event.dump();
 }
 
-void SandboxEngine::request(int64_t id, const std::string& data) {
+void SandboxEngine::request(int64_t id, const std::string& data, bool wallet) {
     // 1. A press this task has not used yet, peeked: it is consumed only when the request goes out as the press's.
     bool strict = isStrictPolicy(config_.policy);
     bool pressed = !strict || (activeGesture_ > consumedGesture_ && visible_);
     // 2. The gate. A refusal goes back as a `bridge` task of its own, after this one.
-    sdk::RequestVerdict verdict = requests_.decide(nowMs(), {pressed, visible_, config_.context.canQuery, config_.context.backgroundQuery});
+    const WidgetContext& c = config_.context;
+    sdk::RequestVerdict verdict = requests_.decide(nowMs(), {pressed, visible_, c.canQuery, c.backgroundQuery, wallet, c.wallet});
     if (std::optional<std::string_view> error = sdk::requestRefusal(verdict)) {
         std::string name(sdk::requestVerdictName(verdict));
-        return enqueue("bridge", refusal(id, *error, name, "request refused (" + name + "): " + refusalText(verdict)));
+        std::string why = wallet && verdict == sdk::RequestVerdict::NoActivation ? "a request for the wallet needs a tap on the visible widget, one request per tap" : refusalText(verdict);
+        return enqueue("bridge", refusal(id, *error, name, "request refused (" + name + "): " + why));
     }
     if (verdict == sdk::RequestVerdict::Foreground && strict) {
         consumedGesture_ = activeGesture_;
@@ -706,33 +726,62 @@ void SandboxEngine::request(int64_t id, const std::string& data) {
     }
     // 3. Off screen it waits for the widget to appear (setVisible); otherwise to the client now.
     if (verdict == sdk::RequestVerdict::Held) heldRequest_ = HeldRequest{id, data};
-    else deliverRequest(id, data);
+    else deliverRequest(id, data, wallet);
 }
 
-void SandboxEngine::deliverRequest(int64_t id, const std::string& data) {
-    // The client, which decides at delivery whether it handles requests at all. `respond` may come from any thread,
-    // once; it reaches this engine only while it lives (the liveness record), and the answer task does nothing once the
-    // runtime is dead. Background or not stays here: the bot cannot tell, and neither does the client.
-    auto once = std::make_shared<std::atomic<bool>>(false);
-    WidgetRequestResponder respond([life = liveness_, once, id](const std::optional<WidgetRequestOutcome>& outcome) {
-        if (once->exchange(true)) return;
-        std::lock_guard<std::mutex> l(life->mutex);
-        if (SandboxEngine* engine = life->engine) engine->thread_.async([engine, id, outcome] { engine->answerRequest(id, outcome); });
-    });
-    if (delegate_) delegate_->onBridgeRequest(*this, WidgetRequest{data}, std::move(respond));
+void SandboxEngine::walletCall(int64_t id, const WalletCall& call) {
+    // docs/sdk-v1.md §2.18: on a press or on the grant (the answer to a call made by a press, within 10 s), never in the
+    // background; one call in flight with the requests. Its outcome settles like a request's.
+    bool strict = isStrictPolicy(config_.policy);
+    bool pressed = !strict || (activeGesture_ > consumedGesture_ && visible_);
+    sdk::RequestVerdict verdict = requests_.decideWallet(nowMs(), {pressed, visible_, config_.context.canQuery, config_.context.wallet});
+    if (std::optional<std::string_view> error = sdk::requestRefusal(verdict)) {
+        std::string name(sdk::requestVerdictName(verdict));
+        return enqueue("bridge", refusal(id, *error, name, "wallet." + std::string(call.methodName()) + " refused (" + name + "): " + walletRefusalText(verdict)));
+    }
+    if (verdict == sdk::RequestVerdict::Foreground && strict) {
+        consumedGesture_ = activeGesture_;
+        activeGesture_ = 0;
+    }
+    WidgetRequestResponder respond = responder(id, true);
+    if (delegate_) delegate_->onBridgeWallet(*this, call, std::move(respond));
     else respond.unsupported();
 }
 
-void SandboxEngine::answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome) {
+WidgetRequestResponder SandboxEngine::responder(int64_t id, bool wallet) {
+    // `respond` may come from any thread, once; it reaches this engine only while it lives (the liveness record), and
+    // the answer task does nothing once the runtime is dead.
+    auto once = std::make_shared<std::atomic<bool>>(false);
+    return WidgetRequestResponder([life = liveness_, once, id, wallet](const std::optional<WidgetRequestOutcome>& outcome) {
+        if (once->exchange(true)) return;
+        std::lock_guard<std::mutex> l(life->mutex);
+        if (SandboxEngine* engine = life->engine) engine->thread_.async([engine, id, outcome, wallet] { engine->answerRequest(id, outcome, wallet); });
+    });
+}
+
+void SandboxEngine::deliverRequest(int64_t id, const std::string& data, bool wallet) {
+    // The client, which decides at delivery whether it handles requests at all. Background or not stays here: the bot
+    // cannot tell, and neither does the client.
+    WidgetRequestResponder respond = responder(id, false);
+    if (delegate_) delegate_->onBridgeRequest(*this, WidgetRequest{data, wallet}, std::move(respond));
+    else respond.unsupported();
+}
+
+void SandboxEngine::answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome, bool wallet) {
     if (dead_) return;
-    requests_.finish();
-    if (!outcome) return input("bridge", refusal(id, "NOT_ALLOWED", "unsupported", "request refused: the client handles no requests (onRequest)"));
+    if (!outcome) {
+        requests_.finish();
+        return input("bridge", refusal(id, "NOT_ALLOWED", "unsupported", wallet ? "wallet call refused: the client handles no wallet calls (onWallet)" : "request refused: the client handles no requests (onRequest)"));
+    }
     Json event = answerEvent(id);
     if (outcome->failure != WidgetRequestFailure::None) {
-        event.set("error", sdk::requestFailureCode(outcome->failure));
+        requests_.finish();
+        event.set("error", wallet ? sdk::walletFailureCode(outcome->failure) : sdk::requestFailureCode(outcome->failure));
     } else if (std::optional<sdk::CheckedAnswer> checked = sdk::checkRequestAnswer(outcome->answer)) {
+        requests_.finish(nowMs());
         event.set("result", checked->result ? Json(*checked->result) : Json()); // only the result: the bot changes its data with setData
     } else {
+        requests_.finish();
         if (delegate_)
             delegate_->onDiag(*this, "answer-rejected", "the answer's result is not text of at most " + std::to_string(sdk::MAX_REQUEST_RESULT_BYTES) +
                                                             " bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER");

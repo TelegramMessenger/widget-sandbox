@@ -11,7 +11,7 @@ import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import { GESTURE_MODES, bubbleGestureLabel, bubbleGesturesOption, claimLabel, gestureMode, showBubbleGesture, type GestureMode } from './bubble-gestures';
 import type { FeedApi } from './feed';
-import { DEFAULT_PROFILE, MODES, MockBot, botOf, mountPanel, showCopied, type Mode, type RequestRecord } from './mock-bot';
+import { DEFAULT_PROFILE, MODES, MockBot, botOf, mountPanel, showCopied, showWalletWindow, type Mode, type RequestRecord } from './mock-bot';
 import type { Stats } from '@telegram/widget-sandbox/shared/protocol';
 import { CHAT_TYPES, DEFAULT_RESIZE_ANCHOR, DEFAULT_THEME_PARAMS, WIDGET_MESSAGE_KINDS, checkContentSafeArea, themeVariables, type ChatType, type ContentSafeArea, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetMessageKind } from '@telegram/widget-sandbox/shared/sdk-policy';
 import { REFERENCE_TIME_LABEL, referenceSafeArea, timeCornerStyle } from '@telegram/widget-sandbox/shared/reference';
@@ -63,6 +63,7 @@ const bot = new MockBot({
   restart: () => { if (state.html) load(state.html, state.file); },
   setData: (data) => { for (const h of [host, ...compareHosts]) h?.setData(data); },
   changed: () => { coalesce(renderBot); coalesce(syncUrl); },
+  confirmWallet: (call) => showWalletWindow(bot.bot + '_bot', call),
 });
 const state: TwState = { file: null, html: '', theme: 'light', loaded: false, dead: null, diags: {}, logs: [], bridge: [], actions: [], gestures: [], bubbleGestures: [], stats: null, height: 0, resizeAnchor: DEFAULT_RESIZE_ANCHOR, lastError: null, size: null, requests: bot.requests, copiedTexts: [] };
 /** The file whose `<meta name="tw-bot">` chose the bot: a restart of the same file keeps the bot the panel shows. */
@@ -287,6 +288,7 @@ new ResizeObserver(() => {
     // Forced off (tests): created off screen, as Telegram's clients create a bubble before it is shown.
     ...(forcedVisible !== null ? { visible: forcedVisible } : {}),
     onRequest: (request) => bot.request(name, request),
+    onWallet: (call) => bot.walletCall(name, call),
     onCopyText: (text) => {
       state.copiedTexts.push(text);
       showCopied(el.bubble, text);
@@ -518,6 +520,7 @@ function syncUrl() {
   if (c.chatType) p.set('chat', c.chatType);
   if (c.viewer !== 1001 || c.profile !== DEFAULT_PROFILE) p.set('viewer', c.viewer === null ? 'none' : `${c.viewer},${c.profile}`);
   if (bot.mode !== 'bot') p.set('botmode', bot.mode);
+  if (!bot.wallet) p.set('wallet', '0');
   history.replaceState(null, '', '?' + p.toString());
 }
 
@@ -620,6 +623,8 @@ async function init() {
   }
   const botMode = params.get('botmode');
   if (botMode && (MODES as readonly string[]).includes(botMode)) bot.mode = botMode as Mode;
+  // ?wallet=0: the client has no wallet for this user (TelegramWidget.wallet is null).
+  if (params.get('wallet') === '0') bot.wallet = false;
   renderBot();
   const w = params.get('width');
   setWidth(w === 'free' ? 'free' : Number(w) || 0);

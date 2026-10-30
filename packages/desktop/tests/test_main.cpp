@@ -283,7 +283,7 @@ TEST(sdk_policy_shared_fixture) {
         if (h) { got = Json::object(); got.set("haptic", h->haptic); if (h->value) got.set("value", *h->value); }
         CHECK_MSG(jsonEqual(got, c["expect"]), c["args"].dump() + " → " + got.dump());
     }
-    int anchors = 0, requests = 0, copies = 0, watches = 0;
+    int anchors = 0, requests = 0, copies = 0, watches = 0, wallets = 0;
     for (const auto& c : (*root)["bridge"].arr()) {
         cases++;
         auto a = sdk::checkBridgeCall(c["method"], c["args"]);
@@ -291,8 +291,9 @@ TEST(sdk_policy_shared_fixture) {
         CHECK_MSG(jsonEqual(got, c["expect"]), c["method"].dump() + " " + c["args"].dump() + " → " + got.dump());
         // Exactly one of the five: the action, setResizeAnchor's edge, the request, the text to copy, the watch flag.
         if (a) CHECK_MSG(int(a->action.has_value()) + int(a->resizeAnchor.has_value()) + int(a->request.has_value()) + int(a->copyText.has_value()) +
-                                 int(a->watchPublicData.has_value()) == 1,
+                                 int(a->watchPublicData.has_value()) + int(a->wallet.has_value()) == 1,
                          c["method"].dump());
+        wallets += a && a->wallet;
         const std::string method = c["method"].isString() ? c["method"].asString() : "";
         anchors += method == "setResizeAnchor";
         requests += method == "request";
@@ -389,13 +390,18 @@ TEST(sdk_policy_shared_fixture) {
         sdk::RequestGate gate;
         int i = 0;
         for (const auto& s : c["steps"].arr()) {
-            if (s["op"].asString() == "finish") gate.finish();
+            if (s["op"].asString() == "finish") gate.finish(s["answeredAt"].isNumber() ? std::optional<double>(s["answeredAt"].asNumber()) : std::nullopt);
+            else if (s["op"].asString() == "decideWallet") {
+                sdk::RequestGate::WalletConditions at{s["gesture"].asBool(), s["visible"].asBool(), s["canQuery"].asBool(), s["wallet"].asBool()};
+                std::string got(sdk::requestVerdictName(gate.decideWallet(s["at"].asNumber(), at)));
+                CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            }
             else if (s["op"].asString() == "show") {
                 bool busy = gate.busy();
                 CHECK_MSG(gate.show(s["at"].asNumber()) == s["expect"].asBool(), c["name"].asString() + ", step " + std::to_string(i));
                 CHECK_MSG(gate.busy() == busy, c["name"].asString() + ", step " + std::to_string(i) + ": show changes nothing in flight");
             } else {
-                sdk::RequestGate::Conditions at{s["gesture"].asBool(), s["visible"].asBool(), s["canQuery"].asBool(), s["backgroundQuery"].asBool()};
+                sdk::RequestGate::Conditions at{s["gesture"].asBool(), s["visible"].asBool(), s["canQuery"].asBool(), s["backgroundQuery"].asBool(), s["withWallet"].asBool(), s["wallet"].asBool()};
                 std::string got(sdk::requestVerdictName(gate.decide(s["at"].asNumber(), at)));
                 CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
             }
@@ -406,8 +412,9 @@ TEST(sdk_policy_shared_fixture) {
     std::vector<std::string> verdicts;
     for (const auto& c : (*root)["requestRefusals"].arr()) {
         cases++;
-        sdk::RequestVerdict all[] = {sdk::RequestVerdict::Foreground, sdk::RequestVerdict::Background, sdk::RequestVerdict::Held, sdk::RequestVerdict::Disabled,
-                                     sdk::RequestVerdict::Busy, sdk::RequestVerdict::NoActivation, sdk::RequestVerdict::RateLimited};
+        sdk::RequestVerdict all[] = {sdk::RequestVerdict::Foreground, sdk::RequestVerdict::Background, sdk::RequestVerdict::Held, sdk::RequestVerdict::Granted,
+                                     sdk::RequestVerdict::Disabled, sdk::RequestVerdict::NoWallet, sdk::RequestVerdict::Busy, sdk::RequestVerdict::NoActivation,
+                                     sdk::RequestVerdict::RateLimited};
         const sdk::RequestVerdict* v = std::find_if(std::begin(all), std::end(all), [&](sdk::RequestVerdict x) { return sdk::requestVerdictName(x) == c["verdict"].asString(); });
         CHECK_MSG(v != std::end(all), c["verdict"].asString());
         if (v == std::end(all)) continue;
@@ -416,7 +423,21 @@ TEST(sdk_policy_shared_fixture) {
         Json got = refusal ? Json(*refusal) : Json();
         CHECK_MSG(jsonEqual(got, c["expect"]), c["verdict"].asString() + " → " + got.dump());
     }
-    CHECK_MSG(verdicts.size() == 7, std::to_string(verdicts.size()) + " verdicts"); // every verdict once
+    CHECK_MSG(verdicts.size() == 9, std::to_string(verdicts.size()) + " verdicts"); // every verdict once
+    CHECK_MSG(wallets == 3, std::to_string(wallets) + " valid wallet calls");
+    // The wallet (docs/sdk-v1.md §2.18): TON Connect's transaction and signData payload, checked.
+    for (const auto& c : (*root)["walletTransactions"].arr()) {
+        cases++;
+        std::optional<WalletTransaction> tx = sdk::checkWalletTransaction(expandRepeat(c["input"]));
+        Json got = tx ? tx->toJson() : Json();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), (c["note"].isString() ? c["note"].asString() : c["input"].dump().substr(0, 100)) + " → " + got.dump().substr(0, 120));
+    }
+    for (const auto& c : (*root)["signDataPayloads"].arr()) {
+        cases++;
+        std::optional<SignDataPayload> p = sdk::checkSignDataPayload(expandRepeat(c["input"]));
+        Json got = p ? p->toJson() : Json();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), (c["note"].isString() ? c["note"].asString() : c["input"].dump().substr(0, 100)) + " → " + got.dump().substr(0, 120));
+    }
     // The server's spec or later (the server's flags, answers of a result only, no NUL in data); a stale copy fails here.
     int flagged = 0, shows = 0, nulData = 0, edits = 0;
     for (const auto& c : (*root)["requestGate"].arr())
@@ -433,7 +454,7 @@ TEST(sdk_policy_shared_fixture) {
     printf("    %d fixture cases\n", cases);
     CHECK(cases > 150);
     for (const char* section : {"links", "haptics", "bridge", "hapticGate", "themeParams", "locales", "storage", "utf8",
-                                "widgetData", "viewer", "chatType", "answers", "requestGate", "requestRefusals", "previewMethods"})
+                                "widgetData", "viewer", "chatType", "answers", "requestGate", "requestRefusals", "previewMethods", "walletTransactions", "signDataPayloads"})
         CHECK_MSG((*root)[section].size() > 0, section);
 }
 
@@ -2169,6 +2190,91 @@ TEST(sdk_copy_text_needs_a_tap_and_shares_it_with_requests) {
 /// nothing; `request` is NOT_ALLOWED in the shim and never reaches the client; openLink, copyText and a haptic are
 /// `preview-blocked` (×3) and reach nothing; ready and setResizeAnchor work; its storage is never committed; a timer
 /// still fires. A request forged onto the wire is the glue's `preview-blocked` too.
+/// The wallet (docs/sdk-v1.md §2.18; sdk.test.ts, SdkTests.swift): a tap asks the bot with the wallet, the answer's
+/// transaction goes to `sendTransaction` on the grant (no new tap), the bot's answer to the payment resolves it; a
+/// refusal in the window brings no grant; a timer gets nothing; `TelegramWidget.wallet` only with the wallet and canQuery.
+static const char* kPayer =
+    "<button id='b'>pay</button><script>var log = [];"
+    "document.getElementById('b').onclick = function () { TelegramWidget.request('pay:42', { wallet: true })"
+    "  .then(function (a) { log.push('tx'); return TelegramWidget.wallet.sendTransaction(JSON.parse(a.result), 'paid:42'); })"
+    "  .then(function (b) { log.push('ok:' + b.result); }, function (e) { log.push('err:' + e.code);"
+    "    return TelegramWidget.wallet.sendTransaction({ messages: [{ address: 'EQ' + 'ab'.repeat(23), amount: '1' }] }, 'again').catch(function (e2) { log.push('again:' + e2.code); }); }); };</script>";
+static const std::string kTxJson = "{\"valid_until\":1900000000,\"messages\":[{\"address\":\"EQ" + std::string(46, 'a') + "\",\"amount\":\"1500000000\"}]}";
+
+TEST(sdk_wallet_a_tap_pays_on_the_answer_to_its_request) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, true, "private");
+    cfg.context.wallet = true;
+    Run r(kPayer, cfg, false);
+    r.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(kTxJson)); };
+    r.host.onWallet = [](const WalletCall&, Respond respond) { respond(answered(std::string("thanks"))); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", "tx ok:thanks") == "tx ok:thanks", r.engine.probe("log.join(' ')"));
+    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"pay:42", true}}));
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.walletCalls.size() == 1, std::to_string(r.host.walletCalls.size()));
+    if (!r.host.walletCalls.empty()) {
+        const WalletCall& c = r.host.walletCalls[0];
+        CHECK(c.method == WalletCall::Method::SendTransaction && c.data == "paid:42");
+        CHECK_MSG(c.transaction.toJson().dump() == kTxJson, c.transaction.toJson().dump());
+    }
+    CHECK(r.host.actions.empty());
+}
+
+TEST(sdk_wallet_refusals_and_the_background) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, false, "group");
+    cfg.context.wallet = true;
+    Run r(kPayer, cfg, false);
+    r.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(kTxJson)); };
+    r.host.onWallet = [](const WalletCall&, Respond respond) { WidgetRequestOutcome o; o.failure = WidgetRequestFailure::Rejected; respond(o); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    const std::string expected = "tx err:REJECTED again:NOT_ALLOWED";
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", expected) == expected, r.engine.probe("log.join(' ')"));
+    CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{"wallet.sendTransaction refused (no-activation): it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each"}));
+
+    // A request's failure Rejected is FAILED there.
+    SandboxConfig group = testConfig();
+    group.context = messageContext(false, true, false, "group");
+    Run p(kRequester, group, false);
+    p.host.onRequest = [](const WidgetRequest&, Respond respond) { WidgetRequestOutcome o; o.failure = WidgetRequestFailure::Rejected; respond(o); };
+    p.engine.start();
+    p.host.waitLoaded(20);
+    p.engine.activationEvent(kTapOnButton, 1);
+    const std::string failed = "err:tap:WidgetRequestError:FAILED err:tap2:WidgetRequestError:BUSY";
+    CHECK_MSG(probeUntil(p.engine, "log.join(' ')", failed) == failed, p.engine.probe("log.join(' ')"));
+
+    // From a timer neither a wallet call nor a request for the wallet goes out, also in the private chat with the bot;
+    // TelegramWidget.wallet is null without the wallet or without canQuery.
+    SandboxConfig priv = testConfig();
+    priv.context = messageContext(false, true, true, "private");
+    priv.context.wallet = true;
+    Run t("<script>var log = []; setTimeout(function () {"
+          "TelegramWidget.wallet.signData({ type: 'text', text: 'x' }, 's').catch(function (e) { log.push('sign:' + e.code); });"
+          "TelegramWidget.request('w', { wallet: true }).catch(function (e) { log.push('rq:' + e.code); }); }, 0);</script>", priv, false);
+    t.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(std::nullopt)); };
+    t.host.onWallet = [](const WalletCall&, Respond respond) { respond(answered(std::nullopt)); };
+    t.engine.start();
+    t.host.waitLoaded(20);
+    CHECK_MSG(probeUntil(t.engine, "log.slice().sort().join(' ')", "rq:NOT_ALLOWED sign:NOT_ALLOWED") == "rq:NOT_ALLOWED sign:NOT_ALLOWED", t.engine.probe("log.join(' ')"));
+    CHECK(requestsOf(t.host).empty());
+    {
+        auto l = t.host.lock();
+        CHECK(t.host.walletCalls.empty());
+    }
+    for (bool canQuery : {false, true}) {
+        SandboxConfig none = testConfig();
+        none.context = messageContext(false, canQuery, false, "private");
+        none.context.wallet = !canQuery;
+        Run n("<p>x</p>", none);
+        CHECK_MSG(n.engine.probe("String(TelegramWidget.wallet)") == "null", n.engine.probe("String(TelegramWidget.wallet)"));
+    }
+}
+
 TEST(sdk_preview_takes_no_input_and_no_actions) {
     SandboxConfig cfg = testConfig();
     cfg.data = {std::string("c"), std::string("p")};

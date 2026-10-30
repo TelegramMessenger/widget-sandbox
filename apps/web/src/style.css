@@ -164,3 +164,14 @@ section.grow { flex: 1; }
 #stats tr.size-warning td { color: var(--warn); font-weight: 500; }
 #stats tr.size-error td { color: var(--bad); font-weight: 600; }
 #stats tr.size td div { font-weight: 400; font-size: 11px; max-width: 280px; }
+
+/* The mock wallet window (mock-bot.ts showWalletWindow): the client's own sheet over the chat, outside the bubble. */
+.wallet-sheet { position: fixed; inset: 0; background: rgb(0 0 0 / .35); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+.wallet-card { background: var(--panel); color: var(--text); width: min(420px, 100%); border-radius: 14px 14px 0 0; padding: 16px; display: grid; gap: 8px; box-shadow: 0 -4px 24px rgb(0 0 0 / .2); }
+.wallet-head { font-weight: 600; font-size: 15px; }
+.wallet-line b { font-size: 15px; }
+.wallet-text { margin: 0; padding: 8px; background: var(--bg); border-radius: 6px; white-space: pre-wrap; font: 12px/1.4 ui-monospace, Menlo, monospace; }
+.wallet-warn { color: var(--warn); }
+.wallet-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+.wallet-buttons button { padding: 6px 14px; }
+#wallet-confirm { background: var(--accent); color: #fff; border: 0; border-radius: 6px; }

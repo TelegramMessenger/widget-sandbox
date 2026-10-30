@@ -23,8 +23,8 @@ import { sizeLine, sizeVerdict, type WidgetSize } from '../src/shared/widget-siz
 import {
   DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer, checkStorageCommit,
   allowedInPreview, checkThemeParams, checkViewer, checkWidgetData, requestFailure, requestRefusal, toWidgetTheme, viewerFromList, viewerUser, VIEWER_FIELD_RULES,
-  WIDGET_MESSAGE_KINDS, type WidgetMessageKind, type WidgetViewer,
-  type ButtonTokens, type ContentSafeArea, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
+  walletFailure, WIDGET_MESSAGE_KINDS, type WalletCall, type WidgetMessageKind, type WidgetViewer,
+  type ButtonTokens, type ContentSafeArea, type RequestError, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
   type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
@@ -66,7 +66,9 @@ export interface RunResult {
    * The widget's requests to the bot, in order (docs/sdk-v1.md §2.14): the data, whether it went out without a press,
    * the request gate's verdict (`unsupported` without `onRequest`), and what went back into the widget.
    */
-  requests: { data: string; background: boolean; verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> }[];
+  requests: { data: string; wallet?: true; background: boolean; verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> }[];
+  /** The widget's wallet calls, in order (docs/sdk-v1.md §2.18): the call as checked, the gate's verdict (`foreground`: a press, `granted`: the answer to a call made by a press), and what went back into the widget. */
+  walletCalls: { call: WalletCall; verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> }[];
   /** Texts the glue let through to the client's clipboard (`onCopyText`). */
   copiedTexts: string[];
   timers: number;
@@ -196,6 +198,11 @@ export interface RunOptions {
    * each press). Without it every request is refused, as on the hosts.
    */
   onRequest?: (request: WidgetRequest) => WidgetRequestAnswer | Promise<WidgetRequestAnswer>;
+  /**
+   * The client's side of a wallet call (only with `context.wallet`): the bot's answer to the call's outcome `{ result? }`,
+   * sync or a promise; throw or reject with 'REJECTED', 'BAD_REQUEST' or a request's failure. Without it every call is refused.
+   */
+  onWallet?: (call: WalletCall) => WidgetRequestAnswer | Promise<WidgetRequestAnswer>;
   /** CPU quota per second (default: effectively unlimited, like the harness's 10 s cpuLimitMs; wasm under Node is slow). */
   cpuQuotaMs?: number;
   /** Main-thread window per second (default: effectively unlimited too: the harness runs frames back to back, faster than a clock). */
@@ -241,6 +248,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const preview = opts.context?.preview === true;
   const copy = opts.context?.isCopy === true && !preview;
   const canQuery = opts.context?.canQuery === true && !preview;
+  const wallet = opts.context?.wallet === true && canQuery;
   const dataDiags: { kind: string; detail: string }[] = [];
   /** As WidgetHost: the full state of both strings, a copy without chatData, a field over the limit null and reported. */
   const checkData = (data: unknown) => {
@@ -272,8 +280,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, contentSafeArea: res.contentSafeArea, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], walletCalls: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, contentSafeArea: res.contentSafeArea, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null, wallet };
   res.diags.push(...dataDiags.splice(0));
   if (opts.storage !== undefined && !preview) {
     const preload = checkStorageCommit(opts.storage);
@@ -353,7 +361,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         if (!action) { res.diags.push({ kind: 'bridge-rejected', detail: `${String(method).slice(0, 64)}: unknown method or malformed arguments` }); return vm.undefined; }
         if (preview && !allowedInPreview(method)) {
           res.diags.push({ kind: 'preview-blocked', detail: `${String(method)} ignored in a preview` });
-          if (action.kind === 'request') answers.push(Promise.resolve({ type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' }));
+          if (action.kind === 'request' || action.kind === 'wallet') answers.push(Promise.resolve({ type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' }));
           return vm.undefined;
         }
         // Not an action: the host keeps the latest anchor next to the height.
@@ -370,29 +378,44 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           return vm.undefined;
         }
         // As WidgetHost.request: the gate (a press, or the background rules; one in flight), then no client side → refused.
-        if (action.kind === 'request') {
-          const entry: RunResult['requests'][number] = { data: action.data, background: false, verdict: 'no-activation' };
-          res.requests.push(entry);
+        if (action.kind === 'request' || action.kind === 'wallet') {
+          const entry: { verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> } = action.kind === 'request'
+            ? { data: action.data, ...(action.wallet ? { wallet: true as const } : {}), background: false, verdict: 'no-activation' } as RunResult['requests'][number]
+            : { call: action.call, verdict: 'no-activation' } as RunResult['walletCalls'][number];
+          if (action.kind === 'request') res.requests.push(entry as RunResult['requests'][number]);
+          else res.walletCalls.push(entry as RunResult['walletCalls'][number]);
+          const label = action.kind === 'request' ? 'request' : 'wallet.' + action.call.method;
           const settle = (p: Promise<Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'>>) =>
             answers.push(p.then((a) => { entry.answer = a; return { type: 'answer', id: action.id, ...a }; }));
           const refuse = (reason: RequestVerdict | 'unsupported') => {
-            res.diags.push({ kind: 'request-blocked', detail: `request refused (${reason})` });
+            res.diags.push({ kind: 'request-blocked', detail: `${label} refused (${reason})` });
             settle(Promise.resolve({ error: (reason === 'unsupported' ? null : requestRefusal(reason)) ?? 'NOT_ALLOWED', reason }));
           };
+          /** As WidgetHost.settle: the gate is free again, and an answer brings the grant when the call had a press or the grant. */
+          const fromClient = (outcome: Promise<WidgetRequestAnswer>, failure: (reason: unknown) => RequestError) => settle(outcome.then((a) => {
+            const checked = checkRequestAnswer(a);
+            if (!checked) { requestGate.finish(); res.diags.push({ kind: 'answer-rejected', detail: 'result over 1024 bytes or not text' }); return { error: 'INVALID_ANSWER' as const }; }
+            requestGate.finish(now());
+            return { result: checked.result };
+          }, (reason) => { requestGate.finish(); return { error: failure(reason) }; }));
           const pressed = policy === 'compat' || (visible && activeGesture > consumedGesture);
-          entry.verdict = requestGate.decide(now(), { gesture: pressed, visible, canQuery, backgroundQuery: opts.context?.backgroundQuery === true });
+          entry.verdict = action.kind === 'request'
+            ? requestGate.decide(now(), { gesture: pressed, visible, canQuery, backgroundQuery: opts.context?.backgroundQuery === true, withWallet: action.wallet === true, wallet })
+            : requestGate.decideWallet(now(), { gesture: pressed, visible, canQuery, wallet });
           if (requestRefusal(entry.verdict)) { refuse(entry.verdict); return vm.undefined; }
           if (entry.verdict === 'foreground' && policy === 'strict') { consumedGesture = activeGesture; activeGesture = 0; }
+          if (action.kind === 'wallet') {
+            const onWallet = opts.onWallet;
+            if (!onWallet) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return vm.undefined; }
+            fromClient(new Promise<WidgetRequestAnswer>((resolve) => resolve(onWallet(action.call))), walletFailure);
+            log('[wallet]', arg);
+            return vm.undefined;
+          }
           const sendToClient = () => {
-            entry.background = entry.verdict !== 'foreground';
+            (entry as RunResult['requests'][number]).background = entry.verdict !== 'foreground';
             const onRequest = opts.onRequest;
             if (!onRequest) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return; }
-            settle(new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data: action.data }))).then((a) => {
-              requestGate.finish();
-              const checked = checkRequestAnswer(a);
-              if (!checked) { res.diags.push({ kind: 'answer-rejected', detail: 'result over 1024 bytes or not text' }); return { error: 'INVALID_ANSWER' as const }; }
-              return { result: checked.result };
-            }, (reason) => { requestGate.finish(); return { error: requestFailure(reason) }; }));
+            fromClient(new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest(action.wallet ? { data: action.data, wallet: true } : { data: action.data }))), requestFailure);
           };
           // Off screen: it waits for the widget to appear (a { visible: true } step), the background request of that appearance.
           if (entry.verdict === 'held') heldRequest = sendToClient;
@@ -787,6 +810,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
        [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
        [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query] [--chat-type t] [--viewer id[,first,last,username,premium]]
        [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json] [--offscreen]
+       [--wallet] [--wallet-answer json | --wallet-error REJECTED|BAD_REQUEST|TIMEOUT|RATE_LIMITED|FAILED]
        [--safe-area bottom[,cornerRight[,cornerLeft]]]
   --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
   the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),
@@ -801,6 +825,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.
   --offscreen: the widget boots off screen and then appears, as Telegram's clients create it (a background request
   made at boot waits for that and goes out then).
+  --wallet: the client has Gram Wallet for this user (docs/sdk-v1.md §2.18; TelegramWidget.wallet where the widget may
+  request); every wallet call is confirmed and gets --wallet-answer (the bot's answer to its outcome, default
+  {"result":null}) or fails with --wallet-error (REJECTED: the user declined; BAD_REQUEST: the wallet refused it).
   --safe-area: what the client draws over a widget with no caption below it (docs/sdk-v1.md §2.17), in CSS px: the band of the
   message time at the bottom and its corner on the right (a left-to-right interface), or on the left as the third number
   (right-to-left: 24,0,72); env(safe-area-inset-bottom), the --tg-content-safe-area-* variables and
@@ -830,6 +857,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   };
   const answer = jsonFlag('--answer') ?? { result: null };
   const answerError = value('--answer-error');
+  const walletAnswer = jsonFlag('--wallet-answer') ?? { result: null };
+  const walletError = value('--wallet-error');
   const setData = jsonFlag('--set-data');
   const viewerId = value('--viewer');
   const kind = value('--message') as WidgetMessageKind | undefined;
@@ -844,8 +873,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ...(args.includes('--copy') ? { isCopy: true } : {}), ...(args.includes('--can-query') ? { canQuery: true } : {}),
       ...(args.includes('--background-query') ? { backgroundQuery: true } : {}), ...(value('--chat-type') ? { chatType: value('--chat-type') as any } : {}),
       ...(viewerId !== undefined && viewerFromList(viewerId) ? { viewer: viewerFromList(viewerId)! } : {}),
+      ...(args.includes('--wallet') ? { wallet: true } : {}),
     },
     onRequest: () => (answerError ? Promise.reject(answerError) : answer),
+    onWallet: () => (walletError ? Promise.reject(walletError) : walletAnswer),
     ...(args.includes('--offscreen') ? { visible: false } : {}),
     ...(safeArea !== undefined ? { contentSafeArea: { bottom, cornerRight: cornerRight ?? 0, cornerLeft: cornerLeft ?? 0 } } : {}),
     script: [...(args.includes('--offscreen') ? [{ visible: true }] : []), ...(setData !== undefined ? [{ data: setData }] : [])],
@@ -879,7 +910,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   for (const a of r.actions) console.log('action', JSON.stringify(a));
   const requestOutcome = (q: RunResult['requests'][number]) => q.verdict === 'foreground' ? 'sent (a tap)' : q.verdict === 'background' ? 'sent (background)'
     : q.verdict === 'held' ? (q.background ? 'held off screen, sent (background) when the widget appeared' : 'held off screen, never sent (the widget did not appear)') : 'refused (' + q.verdict + ')';
-  for (const q of r.requests) console.log(`request ${JSON.stringify(q.data)}: ${requestOutcome(q)} → ${JSON.stringify(q.answer ?? null)}`);
+  for (const q of r.requests) console.log(`request ${JSON.stringify(q.data)}${q.wallet ? ' with the wallet' : ''}: ${requestOutcome(q)} → ${JSON.stringify(q.answer ?? null)}`);
+  const walletOutcome = (v: RequestVerdict | 'unsupported') => v === 'foreground' ? 'sent (a tap)' : v === 'granted' ? 'sent (the answer to a call made by a tap)' : 'refused (' + v + ')';
+  for (const w of r.walletCalls) console.log(`wallet.${w.call.method} ${JSON.stringify(w.call.data)}: ${walletOutcome(w.verdict)} → ${JSON.stringify(w.answer ?? null)}`);
   for (const t of r.copiedTexts) console.log('copyText', JSON.stringify(t));
   for (const c of r.storageCommits) console.log('storage', JSON.stringify(c).slice(0, 500));
   if (r.gestures) console.log('\n' + formatReports(r.gestures, width ?? 400, desktop));

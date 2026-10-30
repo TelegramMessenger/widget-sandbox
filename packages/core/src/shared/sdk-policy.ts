@@ -66,11 +66,16 @@ export const VIEWER_USERNAME = /^[A-Za-z0-9_]{5,32}$/;
 /** The chat kinds a host may report (`Chat.type` of the Bot API); a value outside them is no chat type (null). */
 export const CHAT_TYPES = ['private', 'group', 'supergroup', 'channel'] as const;
 export type ChatType = (typeof CHAT_TYPES)[number];
-/** What a refused or failed request rejects with in the widget (`error.code`). */
-export const REQUEST_ERRORS = ['NOT_ALLOWED', 'BUSY', 'RATE_LIMITED', 'TIMEOUT', 'FAILED', 'INVALID_ANSWER'] as const;
+/**
+ * What a refused or failed request rejects with in the widget (`error.code`); `REJECTED` and `BAD_REQUEST` only for
+ * a wallet call: the user declined in the client's window, the wallet refused the transaction or the payload.
+ */
+export const REQUEST_ERRORS = ['NOT_ALLOWED', 'BUSY', 'RATE_LIMITED', 'TIMEOUT', 'FAILED', 'INVALID_ANSWER', 'REJECTED', 'BAD_REQUEST'] as const;
 export type RequestError = (typeof REQUEST_ERRORS)[number];
 /** What a client reports for a request it could not complete: the bot did not answer in time, flood wait, anything else. */
 export type RequestFailure = 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED';
+/** What a client reports for a wallet call it could not complete: a request's failures, the user's refusal, the wallet's. */
+export type WalletFailure = RequestFailure | 'REJECTED' | 'BAD_REQUEST';
 
 export type LinkMethod = 'openLink' | 'openTelegramLink';
 export type HapticCall = { haptic: 'impact' | 'notification' | 'selection'; value?: string };
@@ -83,13 +88,15 @@ export type WidgetAction =
  * A bridge call that passed its checks: an action for the client (`onAction`); the resize anchor, which no action
  * carries (the host keeps the latest one next to the height it reports); whether the widget watches its shared
  * `public_data` (the host keeps the latest, the client polls only for widgets that watch); a request to the bot (the
- * request gate, then the client's `onRequest`); a text to copy (`onCopyText`).
+ * request gate, then the client's `onRequest`; `wallet`: the widget asks the server to attach the user's wallet); a
+ * wallet call (the request gate, then the client's `onWallet`); a text to copy (`onCopyText`).
  */
 export type BridgeCall =
   | WidgetAction
   | { kind: 'setResizeAnchor'; edge: ResizeAnchor }
   | { kind: 'watchPublicData'; on: boolean }
-  | { kind: 'request'; id: number; data: string }
+  | { kind: 'request'; id: number; data: string; wallet?: true }
+  | { kind: 'wallet'; id: number; call: WalletCall }
   | { kind: 'copyText'; text: string };
 
 /** Methods that need the task's user gesture (docs/protocol.md, "User activation"); one press unlocks one of them. `request` has its own gate (`RequestGate`). */
@@ -210,8 +217,25 @@ export function checkBridgeCall(method: unknown, args: unknown): BridgeCall | nu
       return args.length === 1 && typeof args[0] === 'boolean' ? { kind: 'watchPublicData', on: args[0] } : null;
     case 'request': {
       const id = args[0];
-      const data = args.length === 2 ? checkRequestData(args[1]) : null;
-      return data !== null && typeof id === 'number' && Number.isInteger(id) && id >= 1 && id <= MAX_REQUEST_ID ? { kind: 'request', id, data } : null;
+      const data = args.length === 2 || args.length === 3 ? checkRequestData(args[1]) : null;
+      const options = args.length === 3 ? checkRequestOptions(args[2]) : { wallet: false };
+      if (data === null || options === null || !isRequestId(id)) return null;
+      return options.wallet ? { kind: 'request', id, data, wallet: true } : { kind: 'request', id, data };
+    }
+    case 'wallet': {
+      // [id, method, the method's argument, data]
+      const [id, name, arg, label] = args;
+      const data = args.length === 4 ? checkRequestData(label) : null;
+      if (data === null || !isRequestId(id)) return null;
+      if (name === 'sendTransaction') {
+        const transaction = checkWalletTransaction(arg);
+        return transaction === null ? null : { kind: 'wallet', id, call: { method: 'sendTransaction', transaction, data } };
+      }
+      if (name === 'signData') {
+        const payload = checkSignDataPayload(arg);
+        return payload === null ? null : { kind: 'wallet', id, call: { method: 'signData', payload, data } };
+      }
+      return null;
     }
     case 'copyText': {
       const text = args.length === 1 ? checkCopyText(args[0]) : null;
@@ -237,6 +261,15 @@ export function checkRequestData(data: unknown): string | null {
   if (typeof data !== 'string' || !wellFormed(data)) return null;
   const n = utf8Length(data);
   return n >= 1 && n <= MAX_REQUEST_DATA_BYTES ? data : null;
+}
+
+const isRequestId = (id: unknown): id is number => typeof id === 'number' && Number.isInteger(id) && id >= 1 && id <= MAX_REQUEST_ID;
+
+/** A `request`'s options, or null: an object with at most `wallet`, a boolean (absent or null: false). */
+export function checkRequestOptions(options: unknown): { wallet: boolean } | null {
+  if (!isPlainObject(options) || !onlyKeys(options, ['wallet'])) return null;
+  const w = options.wallet;
+  return w === undefined || w === null ? { wallet: false } : typeof w === 'boolean' ? { wallet: w } : null;
 }
 
 /** A `copyText` text, or null: a well-formed string of 1–256 UTF-16 code units. */
@@ -370,6 +403,11 @@ export interface WidgetContext {
   canQuery?: boolean;
   /** `background_query`: requests without a tap too (the original in the private chat with the bot): one when the widget appears on screen, then one per 5 s while visible; one made off screen waits for it to appear. */
   backgroundQuery?: boolean;
+  /**
+   * The client has Gram Wallet for this user: it supports the wallet and the wallet is available in the user's country
+   * (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with `canQuery` too, never in a preview.
+   */
+  wallet?: boolean;
   /** The kind of chat the message is in. A copy gets none (null in the widget): the bot must not learn where its widget was forwarded. */
   chatType?: ChatType;
   /** The account that looks at the widget. Only a widget with `canQuery` gets it (null elsewhere, previews included). */
@@ -382,9 +420,13 @@ export interface WidgetContext {
   preview?: boolean;
 }
 
-/** What the client sends to the bot: `data` (1–64 bytes). Whether it came from a tap stays in the framework: the server and the bot cannot tell. */
+/**
+ * What the client sends to the bot: `data` (1–64 bytes). Whether it came from a tap stays in the framework: the server and the bot cannot tell.
+ * `wallet`: the widget asked for the user's wallet (only on a tap): the client asks the server to attach the wallet card (`with_wallet`).
+ */
 export interface WidgetRequest {
   data: string;
+  wallet?: boolean;
 }
 
 /** The bot's answer as the client hands it to the host: the server's `result` (at most 1024 bytes; absent: an empty answer). */
@@ -398,20 +440,180 @@ export function requestFailure(reason: unknown): RequestFailure {
   return code === 'TIMEOUT' || code === 'RATE_LIMITED' ? code : 'FAILED';
 }
 
+/** What a client's failed wallet call becomes in the widget: a request's failures, `'REJECTED'`, `'BAD_REQUEST'` (or `{ code }`); anything else is `FAILED`. */
+export function walletFailure(reason: unknown): WalletFailure {
+  const code = typeof reason === 'object' && reason !== null ? (reason as Record<string, unknown>).code : reason;
+  return code === 'REJECTED' || code === 'BAD_REQUEST' ? code : requestFailure(code);
+}
+
+// ── the wallet (docs/sdk-v1.md §2.18): TON Connect's formats, Gram Wallet only ──
+
+/** Messages in one transaction: what Gram Wallet takes (its TON Connect `maxMessages`). */
+export const MAX_WALLET_MESSAGES = 255;
+/** Characters of a message's `payload` or `stateInit` (a bag of cells in base64). */
+export const MAX_WALLET_BOC_LENGTH = 8192;
+/** Characters of every message's `payload` and `stateInit` together. */
+export const MAX_WALLET_BOC_TOTAL = 65536;
+/** UTF-8 bytes of a `signData` text; characters of its `bytes` or `cell` (base64). */
+export const MAX_SIGN_DATA_LENGTH = 4096;
+/** UTF-8 bytes of a `cell` payload's TL-B schema. */
+export const MAX_SIGN_DATA_SCHEMA_BYTES = 1024;
+/** After the answer to a call made by a tap (a request or a wallet call) reached the widget, one wallet call may follow without a new tap this long. */
+export const WALLET_GRANT_MS = 10000;
+/** TON Connect's network ids: the mainnet and the testnet. */
+export const WALLET_NETWORKS = ['-239', '-3'];
+
+/** One message of a transaction, as TON Connect's `sendTransaction` has it: the destination, nanotons as a decimal string, a body and a `StateInit` in base64. */
+export interface WalletMessage {
+  address: string;
+  amount: string;
+  payload?: string;
+  stateInit?: string;
+}
+
+/** A transaction as TON Connect's `sendTransaction` request has it (its field names); the client hands it to its TON Connect window as is. */
+export interface WalletTransaction {
+  valid_until?: number;
+  network?: string;
+  from?: string;
+  messages: WalletMessage[];
+}
+
+/** A `signData` payload as TON Connect has it: a text, bytes, or a cell with its TL-B schema. The client sets the domain (`bot<bot_id>`), never the widget. */
+export interface SignDataPayload {
+  type: 'text' | 'binary' | 'cell';
+  text?: string;
+  bytes?: string;
+  schema?: string;
+  cell?: string;
+  network?: string;
+  from?: string;
+}
+
+/** A wallet call that passed its checks; `data` (1–64 bytes) goes to the bot with the call's outcome, as a request's. */
+export type WalletCall =
+  | { method: 'sendTransaction'; transaction: WalletTransaction; data: string }
+  | { method: 'signData'; payload: SignDataPayload; data: string };
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const onlyKeys = (o: Record<string, unknown>, keys: readonly string[]) => Object.keys(o).every((k) => keys.includes(k));
+/** Absent: undefined or null (a JSON null the bot wrote). */
+const absent = (v: unknown) => v === undefined || v === null;
+const RAW_ADDRESS = /^(0|-1):[0-9a-fA-F]{64}$/;
+const FRIENDLY_ADDRESS = /^[A-Za-z0-9+/_-]{48}$/;
+const AMOUNT = /^(0|[1-9][0-9]{0,36})$/;
+const BASE64 = /^[A-Za-z0-9+/_-]+={0,2}$/;
+
+/** A TON address, or null: raw (`0:` or `-1:` and 64 hex digits) or user-friendly (48 characters of base64 or base64url); a transaction's `from`. The wallet checks the rest. */
+export function checkWalletAddress(address: unknown): string | null {
+  return typeof address === 'string' && (RAW_ADDRESS.test(address) || FRIENDLY_ADDRESS.test(address)) ? address : null;
+}
+
+/** A message's destination, or null: user-friendly only (TON Connect: the wallet must refuse a raw one; the bounce flag is in it). */
+export function checkWalletDestination(address: unknown): string | null {
+  return typeof address === 'string' && FRIENDLY_ADDRESS.test(address) ? address : null;
+}
+
+const base64 = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max && BASE64.test(v);
+
+/** The optional `network` and `from` of a transaction or a payload into `out`; false when one breaks its rule. */
+function walletTarget(input: Record<string, unknown>, out: { network?: string; from?: string }): boolean {
+  if (!absent(input.network)) {
+    if (!WALLET_NETWORKS.includes(input.network as string)) return false;
+    out.network = input.network as string;
+  }
+  if (!absent(input.from)) {
+    const from = checkWalletAddress(input.from);
+    if (from === null) return false;
+    out.from = from;
+  }
+  return true;
+}
+
+/**
+ * A transaction for `sendTransaction`, or null: TON Connect's fields only (`valid_until`, `network`, `from`,
+ * `messages`), 1–255 messages of `address`, `amount` and optionally `payload` and `stateInit`. `valid_until` an
+ * integer of 1 to 2^32 − 1 (Unix seconds), `network` `-239` or `-3`, `from` raw or user-friendly, a message's
+ * `address` user-friendly only, amounts decimal strings of nanotons (at most 37 digits, no leading zero), payloads
+ * base64 of at most 8192 characters each and 65536 together. Absent and null fields are left out. The wallet checks
+ * the rest (the network and the sender against the account, the cells, the expiry) and refuses with `BAD_REQUEST`.
+ */
+export function checkWalletTransaction(tx: unknown): WalletTransaction | null {
+  if (!isPlainObject(tx) || !onlyKeys(tx, ['valid_until', 'network', 'from', 'messages'])) return null;
+  const out: WalletTransaction = { messages: [] };
+  if (!absent(tx.valid_until)) {
+    const v = tx.valid_until;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 4294967295) return null;
+    out.valid_until = v;
+  }
+  if (!walletTarget(tx, out)) return null;
+  const messages = tx.messages;
+  if (!Array.isArray(messages) || messages.length < 1 || messages.length > MAX_WALLET_MESSAGES) return null;
+  let total = 0;
+  for (const m of messages) {
+    if (!isPlainObject(m) || !onlyKeys(m, ['address', 'amount', 'payload', 'stateInit'])) return null;
+    const address = checkWalletDestination(m.address);
+    if (address === null || typeof m.amount !== 'string' || !AMOUNT.test(m.amount)) return null;
+    const message: WalletMessage = { address, amount: m.amount };
+    for (const field of ['payload', 'stateInit'] as const) {
+      if (absent(m[field])) continue;
+      if (!base64(m[field], MAX_WALLET_BOC_LENGTH)) return null;
+      message[field] = m[field] as string;
+      total += (m[field] as string).length;
+    }
+    out.messages.push(message);
+  }
+  return total <= MAX_WALLET_BOC_TOTAL ? out : null;
+}
+
+/** Text the server and the bot can take: well-formed, no NUL, 1 to `max` UTF-8 bytes. */
+const signText = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && wellFormed(v) && !v.includes('\0') && utf8Length(v) <= max;
+
+/**
+ * A `signData` payload, or null: TON Connect's three kinds with their fields only, and optionally `network` and
+ * `from` as a transaction's. `text`: 1–4096 UTF-8 bytes; `binary`: `bytes`, base64 of at most 4096 characters;
+ * `cell`: `schema` (TL-B, 1–1024 UTF-8 bytes) and `cell`, base64 of at most 4096 characters. Absent and null fields
+ * are left out. No domain: the client signs for the bot of the message (`bot<bot_id>`).
+ */
+export function checkSignDataPayload(payload: unknown): SignDataPayload | null {
+  if (!isPlainObject(payload)) return null;
+  const common = ['type', 'network', 'from'];
+  let out: SignDataPayload;
+  switch (payload.type) {
+    case 'text':
+      if (!onlyKeys(payload, [...common, 'text']) || !signText(payload.text, MAX_SIGN_DATA_LENGTH)) return null;
+      out = { type: 'text', text: payload.text };
+      break;
+    case 'binary':
+      if (!onlyKeys(payload, [...common, 'bytes']) || !base64(payload.bytes, MAX_SIGN_DATA_LENGTH)) return null;
+      out = { type: 'binary', bytes: payload.bytes };
+      break;
+    case 'cell':
+      if (!onlyKeys(payload, [...common, 'schema', 'cell']) || !signText(payload.schema, MAX_SIGN_DATA_SCHEMA_BYTES) || !base64(payload.cell, MAX_SIGN_DATA_LENGTH)) return null;
+      out = { type: 'cell', schema: payload.schema, cell: payload.cell };
+      break;
+    default:
+      return null;
+  }
+  return walletTarget(payload, out) ? out : null;
+}
+
 /**
  * The verdict on a request (docs/sdk-v1.md §2.14): `foreground` (it consumes the task's press) and `background`
  * go to the client; `held` (a background request from a widget off screen) waits in the glue and goes to the client
  * when the widget appears on screen (`RequestGate.show`); the rest are refused: `disabled` (no `canQuery`: a widget
  * sent without `allow_queries`, or a forwarded copy of one sent without `fwd_allow_queries`), `busy` (one request in
  * flight per widget, a held one included), `no-activation` (no press, and no `backgroundQuery`), `rate-limited` (a
- * background request sooner than 5 s after the last one, unless the widget appeared on screen since).
+ * background request sooner than 5 s after the last one, unless the widget appeared on screen since). A wallet call
+ * (`decideWallet`), or a request that asks for the wallet, goes out only as `foreground` or `granted` (no press, but
+ * within 10 s of the answer to a call made by a tap); `no-wallet` when the client has no wallet for this user.
  */
-export type RequestVerdict = 'foreground' | 'background' | 'held' | 'disabled' | 'busy' | 'no-activation' | 'rate-limited';
+export type RequestVerdict = 'foreground' | 'background' | 'held' | 'granted' | 'disabled' | 'no-wallet' | 'busy' | 'no-activation' | 'rate-limited';
 
 /** What the widget's promise rejects with for a refused request. */
 export function requestRefusal(verdict: RequestVerdict): RequestError | null {
   switch (verdict) {
-    case 'foreground': case 'background': case 'held': return null;
+    case 'foreground': case 'background': case 'held': case 'granted': return null;
     case 'busy': return 'BUSY';
     case 'rate-limited': return 'RATE_LIMITED';
     default: return 'NOT_ALLOWED';
@@ -425,23 +627,30 @@ export function requestRefusal(verdict: RequestVerdict): RequestError | null {
  * is held (`held`) and is the one of its next appearance (`show` returns true: the glue sends it then). One request
  * in flight, a held one included. `gesture`: the task has a press no privileged call consumed yet (the glue consumes
  * it on `foreground`). `finish` when the answer or the failure has gone into the widget, or when the glue drops a
- * held request (the widget stopped).
+ * held request (the widget stopped); `answeredAt` when an answer with no error went in then.
+ *
+ * The wallet (docs/sdk-v1.md §2.18): only with `wallet` (the client has Gram Wallet for this user). A request that
+ * asks for the wallet (`withWallet`) and a wallet call (`decideWallet`) need the visible widget and a press, or the
+ * grant: the answer to the last call made by a press or a grant (a request or a wallet call) lets one wallet call
+ * follow within 10 s, so a tap can pay for what the bot answers (tap → request → transaction). Any call that goes
+ * out as `foreground` or `granted` uses up the grant; its answer brings the next one.
  */
 export class RequestGate {
   private inFlight = false;
   private held = false;
   private lastBackground: number | null = null;
+  /** The call in flight went out on a press or the grant: its answer grants one wallet call. */
+  private granting = false;
+  private grantAt: number | null = null;
 
   get busy(): boolean { return this.inFlight; }
 
-  decide(now: number, s: { gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean }): RequestVerdict {
+  decide(now: number, s: { gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean; withWallet?: boolean; wallet?: boolean }): RequestVerdict {
     if (!s.canQuery) return 'disabled';
+    if (s.withWallet && !s.wallet) return 'no-wallet';
     if (this.inFlight) return 'busy';
-    if (s.gesture && s.visible) {
-      this.inFlight = true;
-      return 'foreground';
-    }
-    if (!s.backgroundQuery) return 'no-activation';
+    if (s.gesture && s.visible) return this.out('foreground');
+    if (!s.backgroundQuery || s.withWallet) return 'no-activation';
     if (!s.visible) {
       this.inFlight = this.held = true;
       return 'held';
@@ -452,8 +661,25 @@ export class RequestGate {
     return 'background';
   }
 
-  finish(): void {
-    this.inFlight = this.held = false;
+  /** A wallet call (`sendTransaction`, `signData`): on a press, or on the grant within 10 s of its answer. */
+  decideWallet(now: number, s: { gesture: boolean; visible: boolean; canQuery: boolean; wallet: boolean }): RequestVerdict {
+    if (!s.canQuery) return 'disabled';
+    if (!s.wallet) return 'no-wallet';
+    if (this.inFlight) return 'busy';
+    if (s.gesture && s.visible) return this.out('foreground');
+    if (s.visible && this.grantAt !== null && now - this.grantAt <= WALLET_GRANT_MS) return this.out('granted');
+    return 'no-activation';
+  }
+
+  private out(verdict: 'foreground' | 'granted'): RequestVerdict {
+    this.inFlight = this.granting = true;
+    this.grantAt = null;
+    return verdict;
+  }
+
+  finish(answeredAt?: number): void {
+    if (this.granting && answeredAt !== undefined) this.grantAt = answeredAt;
+    this.inFlight = this.held = this.granting = false;
   }
 
   /**
@@ -594,7 +820,7 @@ export const WIDGET_MESSAGE_KINDS = {
   copy: { isCopy: true, canQuery: false, backgroundQuery: false, chatType: 'private' },
   /** An inline result in the list, before it is sent: data, no input, nothing about the user. */
   preview: { isCopy: false, canQuery: false, backgroundQuery: false, chatType: 'private', preview: true },
-} as const satisfies Record<string, Required<Omit<WidgetContext, 'viewer' | 'preview'>> & { preview?: boolean }>;
+} as const satisfies Record<string, Required<Omit<WidgetContext, 'viewer' | 'preview' | 'wallet'>> & { preview?: boolean }>;
 export type WidgetMessageKind = keyof typeof WIDGET_MESSAGE_KINDS;
 
 /**

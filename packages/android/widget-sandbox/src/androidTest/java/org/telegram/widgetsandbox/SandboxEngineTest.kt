@@ -32,6 +32,9 @@ open class RecordingDelegate : SandboxEngine.Delegate {
     val copied: MutableList<String> = Collections.synchronizedList(ArrayList())
     /** The client's side of a request: called on the engine thread; null leaves the delegate's default, which refuses every request (`unsupported`). */
     @Volatile var answer: ((WidgetRequest, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
+    /** The wallet calls that reached the client, and its side of them (null: the default, which refuses every call). */
+    val walletCalls: MutableList<WalletCall> = Collections.synchronizedList(ArrayList())
+    @Volatile var wallet: ((WalletCall, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
     @Volatile var died: String? = null
     @Volatile var frameRequests = 0
 
@@ -56,6 +59,11 @@ open class RecordingDelegate : SandboxEngine.Delegate {
         val a = answer ?: return super.onRequest(engine, request, respond)
         requests.add(request)
         a(request, respond)
+    }
+    override fun onWallet(engine: SandboxEngine, call: WalletCall, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+        val w = wallet ?: return super.onWallet(engine, call, respond)
+        walletCalls.add(call)
+        w(call, respond)
     }
     override fun onCopyText(engine: SandboxEngine, text: String) { copied.add(text) }
     override fun onLoaded(engine: SandboxEngine) { loaded.countDown() }

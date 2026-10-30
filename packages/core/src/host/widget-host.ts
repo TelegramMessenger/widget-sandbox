@@ -14,8 +14,8 @@ import { IframeRenderer } from './iframe-renderer';
 import { GestureCounter, HostActivationGate } from './user-activation';
 import {
   DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, allowedInPreview, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer,
-  checkStorageCommit, checkViewer, checkWidgetData, requestFailure, requestRefusal, STORAGE_QUOTA_BYTES, toWidgetTheme, viewerUser, VIEWER_FIELD_RULES,
-  type ContentSafeArea, type RequestVerdict, type ResizeAnchor, type StorageCommit, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
+  checkStorageCommit, checkViewer, checkWidgetData, requestFailure, requestRefusal, STORAGE_QUOTA_BYTES, toWidgetTheme, viewerUser, VIEWER_FIELD_RULES, walletFailure,
+  type ContentSafeArea, type RequestError, type RequestVerdict, type ResizeAnchor, type StorageCommit, type WalletCall, type WidgetAction, type WidgetContext, type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
   type WidgetUser, type WidgetViewer,
 } from '../shared/sdk-policy';
 import { PROFILE_VERSION } from '../shared/profile-tables';
@@ -28,7 +28,10 @@ import {
   type BridgeEvent, type HostToRenderer, type HostToWorker, type RendererToHost, type SandboxConfig, type SandboxPolicy, type Stats, type WorkerToHost, resolvePolicy,
 } from '../shared/protocol';
 
-export type { ChatType, ContentSafeArea, RequestFailure, WidgetAction, WidgetContext, WidgetData, WidgetRequest, WidgetRequestAnswer, WidgetTheme, WidgetUser, WidgetViewer } from '../shared/sdk-policy';
+export type {
+  ChatType, ContentSafeArea, RequestFailure, SignDataPayload, WalletCall, WalletFailure, WalletMessage, WalletTransaction, WidgetAction, WidgetContext, WidgetData, WidgetRequest,
+  WidgetRequestAnswer, WidgetTheme, WidgetUser, WidgetViewer,
+} from '../shared/sdk-policy';
 export type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
 
 /** A press the bubble took (`bubbleGestures`): what the bubble does with it, and where the pointer was, in widget coordinates. */
@@ -67,9 +70,18 @@ export interface WidgetHostOptions {
    * A request the widget sends to the bot (`TelegramWidget.request`, checked: the data, the server's flags, the press
    * or the background rules, one in flight). The client sends `data` like a callback button's press and resolves
    * with the server's answer, `{ result }`, or rejects with `'TIMEOUT'`, `'RATE_LIMITED'` or `'FAILED'`. Without it
-   * every request is refused (`NOT_ALLOWED`).
+   * every request is refused (`NOT_ALLOWED`). `request.wallet`: attach the user's wallet card (`with_wallet`).
    */
   onRequest?: (request: WidgetRequest) => Promise<WidgetRequestAnswer> | WidgetRequestAnswer;
+  /**
+   * A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18; checked: the transaction or the payload, a press or
+   * the grant, one call in flight with the requests). The client shows its own wallet window with the bot of the
+   * message; on confirmation it sends the transaction (or signs for `bot<bot_id>`), sends the outcome to the bot as a
+   * query with `call.data` and resolves with the bot's answer, `{ result }`. It rejects with `'REJECTED'` (the user
+   * declined), `'BAD_REQUEST'` (the wallet refused it) or a request's failure. Only with `context.wallet`; without it
+   * every call is refused (`NOT_ALLOWED`).
+   */
+  onWallet?: (call: WalletCall) => Promise<WidgetRequestAnswer> | WidgetRequestAnswer;
   /** Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked, one per press). */
   onCopyText?: (text: string) => void;
   memoryLimitBytes?: number;
@@ -149,6 +161,12 @@ const REQUEST_REFUSED: Record<string, string> = {
   busy: 'a request is already in flight',
   'no-activation': 'it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)',
   'rate-limited': 'background requests at most once per 5 s',
+  'no-wallet': 'the client has no wallet for this user (no WidgetContext.wallet)',
+};
+/** Where a wallet call's refusal differs from a request's. */
+const WALLET_REFUSED: Record<string, string> = {
+  'no-activation': 'it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each',
+  busy: 'a request or a wallet call is already in flight',
 };
 const GESTURES = new Set<unknown>(['press', 'tap', 'double-tap', 'hold', 'drag-x', 'drag-y', 'menu-click']);
 
@@ -187,7 +205,7 @@ export class WidgetHost {
   private haptics = new HapticGate();
   private anchor: ResizeAnchor = DEFAULT_RESIZE_ANCHOR;
   private watching = false;
-  private context: { isCopy: boolean; canQuery: boolean; backgroundQuery: boolean; preview: boolean };
+  private context: { isCopy: boolean; canQuery: boolean; backgroundQuery: boolean; wallet: boolean; preview: boolean };
   private previewBlockedReported = 0;
   private requests = new RequestGate();
   /** A background request the widget made off screen: it goes to the client when the widget appears (`setVisible`). */
@@ -202,7 +220,11 @@ export class WidgetHost {
     this.visible = opts.visible ?? true;
     // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16).
     const preview = opts.context?.preview === true;
-    this.context = { isCopy: opts.context?.isCopy === true && !preview, canQuery: opts.context?.canQuery === true && !preview, backgroundQuery: opts.context?.backgroundQuery === true && !preview, preview };
+    const canQuery = opts.context?.canQuery === true && !preview;
+    this.context = {
+      isCopy: opts.context?.isCopy === true && !preview, canQuery, backgroundQuery: opts.context?.backgroundQuery === true && !preview,
+      wallet: opts.context?.wallet === true && canQuery, preview,
+    };
     // ── renderer ──
     this.renderer = (opts.rendererFactory ?? IframeRenderer.factory)(container, this.theme);
     this.element = this.renderer.element;
@@ -248,6 +270,7 @@ export class WidgetHost {
       // talk to the bot cannot pass the id out through a link either, and the rule matches the network marker.
       chatType: preview || this.context.isCopy ? null : checkChatType(opts.context?.chatType),
       viewer: this.context.canQuery ? this.checkViewer(opts.context?.viewer) : null,
+      wallet: this.context.wallet,
     };
     let pooled: PooledWorker | null = null;
     if (opts.workerPool) {
@@ -328,14 +351,36 @@ export class WidgetHost {
    * flight. The gate decides first; one made off screen waits here for the widget to appear (`held`); a client
    * without `onRequest` refuses at delivery, as the native hosts do.
    */
-  private request(id: number, data: string, gesture: unknown) {
+  private request(id: number, data: string, wallet: boolean, gesture: unknown) {
     const now = performance.now();
     const pressed = this.policy === 'compat' || this.activation.available(gesture, now, this.visible);
-    const verdict = this.requests.decide(now, { gesture: pressed, visible: this.visible, canQuery: this.context.canQuery, backgroundQuery: this.context.backgroundQuery });
-    if (requestRefusal(verdict)) return this.refuseRequest(id, verdict, `request refused (${verdict}): ${REQUEST_REFUSED[verdict] ?? verdict}`);
+    const c = this.context;
+    const verdict = this.requests.decide(now, { gesture: pressed, visible: this.visible, canQuery: c.canQuery, backgroundQuery: c.backgroundQuery, withWallet: wallet, wallet: c.wallet });
+    if (requestRefusal(verdict)) {
+      const why = wallet && verdict === 'no-activation' ? 'a request for the wallet needs a tap on the visible widget, one request per tap' : REQUEST_REFUSED[verdict] ?? verdict;
+      return this.refuseRequest(id, verdict, `request refused (${verdict}): ${why}`);
+    }
     if (verdict === 'foreground' && this.policy === 'strict') this.activation.accept(gesture, now, this.visible);
     if (verdict === 'held') this.heldRequest = { id, data };
-    else this.deliverRequest(id, data);
+    else this.deliverRequest(id, data, wallet);
+  }
+
+  /**
+   * docs/sdk-v1.md §2.18: a wallet call goes out on a press or on the grant (the answer to a call made by a press,
+   * within 10 s), never in the background; one call in flight with the requests.
+   */
+  private walletCall(id: number, call: WalletCall, gesture: unknown) {
+    const now = performance.now();
+    const pressed = this.policy === 'compat' || this.activation.available(gesture, now, this.visible);
+    const verdict = this.requests.decideWallet(now, { gesture: pressed, visible: this.visible, canQuery: this.context.canQuery, wallet: this.context.wallet });
+    if (requestRefusal(verdict)) return this.refuseRequest(id, verdict, `wallet.${call.method} refused (${verdict}): ${WALLET_REFUSED[verdict] ?? REQUEST_REFUSED[verdict] ?? verdict}`);
+    if (verdict === 'foreground' && this.policy === 'strict') this.activation.accept(gesture, now, this.visible);
+    const onWallet = this.opts.onWallet;
+    if (!onWallet) {
+      this.requests.finish();
+      return this.refuseRequest(id, 'unsupported', `wallet.${call.method} refused: the client handles no wallet calls (WidgetHostOptions.onWallet)`);
+    }
+    this.settle(id, new Promise<WidgetRequestAnswer>((resolve) => resolve(onWallet(call))), walletFailure);
   }
 
   private answerRequest(id: number, event: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'>) {
@@ -351,23 +396,29 @@ export class WidgetHost {
   }
 
   /** A request the gate let through, to the client; its answer or failure frees the gate. */
-  private deliverRequest(id: number, data: string) {
+  private deliverRequest(id: number, data: string, wallet = false) {
     const onRequest = this.opts.onRequest;
     if (!onRequest) {
       this.requests.finish();
       return this.refuseRequest(id, 'unsupported', 'request refused: the client handles no requests (WidgetHostOptions.onRequest)');
     }
-    new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data }))).then((a) => {
-      this.requests.finish();
+    this.settle(id, new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest(wallet ? { data, wallet: true } : { data }))), requestFailure);
+  }
+
+  /** The client's outcome of a request or a wallet call into the widget; it frees the gate, and an answer brings the grant when the call had a press or the grant. */
+  private settle(id: number, outcome: Promise<WidgetRequestAnswer>, failure: (reason: unknown) => RequestError) {
+    outcome.then((a) => {
       const checked = checkRequestAnswer(a);
       if (!checked) {
+        this.requests.finish();
         this.opts.onDiag?.('answer-rejected', 'the answer\'s result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER');
         return this.answerRequest(id, { error: 'INVALID_ANSWER' });
       }
+      this.requests.finish(performance.now());
       this.answerRequest(id, { result: checked.result });
     }, (reason) => {
       this.requests.finish();
-      this.answerRequest(id, { error: requestFailure(reason) });
+      this.answerRequest(id, { error: failure(reason) });
     });
   }
 
@@ -496,7 +547,7 @@ export class WidgetHost {
             this.previewBlockedReported++;
             this.opts.onDiag?.('preview-blocked', `${method} ignored: a preview (an inline result not sent yet) takes no actions`);
           }
-          if (action.kind === 'request') this.toWorker({ type: 'bridge', event: { type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' } });
+          if (action.kind === 'request' || action.kind === 'wallet') this.toWorker({ type: 'bridge', event: { type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' } });
           break;
         }
         // Not an action: the host keeps the latest anchor and reports it with the height (no gesture, no callback of its own).
@@ -514,7 +565,12 @@ export class WidgetHost {
         }
         // A request has its own gate (a press or the background rules) and goes to `onRequest`, not `onAction`.
         if (action.kind === 'request') {
-          this.request(action.id, action.data, msg.gesture);
+          this.request(action.id, action.data, action.wallet === true, msg.gesture);
+          break;
+        }
+        // A wallet call shares the request gate (a press or the grant, never the background) and goes to `onWallet`.
+        if (action.kind === 'wallet') {
+          this.walletCall(action.id, action.call, msg.gesture);
           break;
         }
         if (this.policy === 'strict' && PRIVILEGED_METHODS.has(method) && !this.activation.accept(msg.gesture, performance.now(), this.visible)) {

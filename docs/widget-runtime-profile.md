@@ -189,6 +189,8 @@ TelegramWidget.chatData;                     // the chat state (this message, th
 TelegramWidget.onEvent('chatDataChanged', fn); // and 'publicDataChanged': the bot changed the state: redraw from it
 TelegramWidget.request('vote:2').then((a) => a.result, (e) => e.code); // ask the bot, in a tap handler
 TelegramWidget.copyText('PROMO-2026');       // in a tap handler; the client shows what it copied
+TelegramWidget.request('pay:1', { wallet: true }); // in a tap handler: the bot gets the user's wallet with it
+TelegramWidget.wallet.sendTransaction(tx, 'paid:1'); // Gram Wallet: TON Connect's transaction; wallet.signData(payload, data); null where unavailable
 TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a forward? who looks ({ id, first_name, username, … }, only if you may ask the bot), where
 ```
 
@@ -255,6 +257,26 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   (`openTelegramLink('https://t.me/<bot>?start=…')`).
 - **copyText**: `copyText(text)`, 1–256 characters, in a tap handler; the
   client copies and shows the text it copied.
+- **The wallet** (Gram Wallet, TON Connect's formats): `TelegramWidget.wallet`
+  is `null` where the client has no wallet for this user, where the widget may
+  not ask the bot, and in a preview: check it before drawing a pay button. To
+  pay: on a tap, `request('pay:1', { wallet: true })` (the bot gets the user's
+  wallet address with it, a wallet is created if they had none), the bot
+  answers with a fresh transaction (TON Connect's `{ valid_until, messages:
+  [{ address, amount, payload?, stateInit? }] }`, 1–255 messages, a
+  user-friendly `address`, `amount` in nanotons as a string), and you pass it
+  on in the answer's handler:
+  `wallet.sendTransaction(tx, 'paid:1')` needs no new tap within 10 s of the
+  answer. The client's own window shows the bot and the amounts; the user
+  confirms; the bot gets the outcome and checks the chain; the promise resolves
+  with the bot's answer `{ result }`. `wallet.signData({ type: 'text', text },
+  'terms')` asks for a signature the same way (or `{ type: 'binary', bytes }`,
+  `{ type: 'cell', schema, cell }` in base64): it goes to the bot. One wallet
+  call per tap or per answer, one call in flight with requests, never from a
+  timer. Extra codes: `REJECTED` (the user declined), `BAD_REQUEST` (the wallet
+  refused it); a malformed transaction or payload throws `TypeError`. After
+  `TIMEOUT` the payment may have gone out: ask the bot about the order, do not
+  pay again.
 - **A preview** (`isPreview`): sent via the bot's inline mode, the widget is
   first shown in the list of results. There it has its state but gets no taps,
   cannot ask, link or copy, knows no viewer and keeps nothing in Web Storage:
@@ -557,6 +579,20 @@ THE WIDGET'S STATE AND REQUESTS (only the bot writes the state)
 - isPreview: shown in the bot's inline results before it is sent: no taps, no
   requests, links, copy or storage, viewer null. Draw the state as it will be
   sent.
+- wallet (Telegram's Gram Wallet, TON Connect's formats): null where the
+  client has no wallet for this user, the widget may not ask the bot, or in a
+  preview. To pay, on a tap: request('pay:1', { wallet: true }) gives the bot
+  the user's wallet address; the bot answers with a fresh transaction
+  { valid_until, messages: [{ address, amount, payload?, stateInit? }] } (1-255
+  messages, address user-friendly, amount: nanotons as a decimal string); in
+  the answer's handler
+  wallet.sendTransaction(tx, 'paid:1') needs no new tap (within 10 s). The
+  client's window shows the bot and amounts; the promise resolves with the
+  bot's answer { result }. wallet.signData({ type: 'text', text }, data)
+  asks for a signature, which goes to the bot. One wallet call per tap or
+  answer, never from a timer. Codes: 'REJECTED' (declined), 'BAD_REQUEST' (the
+  wallet refused it); a malformed transaction throws TypeError. After TIMEOUT
+  ask the bot, do not pay again.
 More: {docs}/sdk#state
 
 STORAGE, LIFECYCLE, LIMITS
