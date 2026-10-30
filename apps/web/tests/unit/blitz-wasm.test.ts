@@ -1,8 +1,9 @@
 // The Blitz renderer's wasm build (pnpm build:blitz-web → renderer-blitz/pkg-web/) driven
 // from Node through the same C ABI apps/web/src/renderers/blitz-renderer.ts uses: validated
-// ops in, real layout answers and a raster out, nothing fetched. Skipped when
-// the module is not built (it is gitignored dev tooling).
-// Run with: pnpm test:unit
+// ops in, real layout answers and a raster out, nothing fetched. The prototype is frozen
+// (docs/decisions.md, "The renderer prototypes are frozen"): skipped unless asked for with
+// TW_NATIVE_RENDERERS=1 and the module is built (it is gitignored dev tooling).
+// Run with: TW_NATIVE_RENDERERS=1 pnpm test:unit
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -109,7 +110,8 @@ function validated(ops: unknown[], diags: string[] = []) {
   return out;
 }
 
-describe('Blitz renderer (wasm)', { skip: built ? false : 'apps/renderer-blitz/pkg-web not built — pnpm build:blitz-web' }, () => {
+const skip = process.env.TW_NATIVE_RENDERERS !== '1' ? 'frozen prototype (TW_NATIVE_RENDERERS=1 runs it)' : built ? false : 'apps/renderer-blitz/pkg-web not built — pnpm build:blitz-web';
+describe('Blitz renderer (wasm)', { skip }, () => {
   it('bundles a font: the browser exposes none to wasm', async () => {
     const d = await Doc.create();
     assert.match(d.fonts(), /^1 families/);

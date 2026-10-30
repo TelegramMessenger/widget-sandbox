@@ -3,6 +3,14 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+- **The renderer prototypes are frozen** (dev tooling only, nothing changes for a client; `docs/decisions.md`, "The
+  renderer prototypes are frozen"): Blitz and the plain litehtml core leave the demos' default builds (iOS/macOS:
+  `TW_NATIVE_RENDERERS=YES` on `xcodebuild`; Android: `-Ptw.nativeRenderers=true`), the unit tests
+  (`TW_NATIVE_RENDERERS=1`) and the default renderers of the web conformance runner and the feed's benches; the demos
+  no longer need rustup or the litehtml CMake build.
+
 ## v0.3.0 — release notes (2026-10-29)
 
 Strict limits from the start, the renderer stress kit for the client teams, the tweb audit's five fixes completed on

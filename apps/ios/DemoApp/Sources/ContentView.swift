@@ -101,9 +101,11 @@ struct WidgetScreen: View {
                         LabeledSwitch("Dark", isOn: $dark)
                         Spacer()
                     }
-                    HStack {
-                        RendererPicker(raw: $rendererRaw)
-                        Spacer()
+                    if DemoRenderer.hasChoice {
+                        HStack {
+                            RendererPicker(raw: $rendererRaw)
+                            Spacer()
+                        }
                     }
                     #endif
                     if let model {

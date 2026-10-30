@@ -971,6 +971,9 @@ patch from the fork's owner.
 
 ## Renderer choice and the core: two tracks, one profile (Oct 2026)
 
+(The record of the three-way comparison; the prototypes it weighs are frozen since 2026-10-30, "The renderer
+prototypes are frozen" below.)
+
 Written after the Android renderer bench (`docs/android-renderer-bench.md`),
 the three-way renderer matrix (`docs/blitz-experiment.md`,
 `docs/litehtml-renderer.md`, `corpus/common`) and the iOS chat feed
@@ -1953,3 +1956,32 @@ it has for the dangerous kinds (joining a chat, a proxy, a login, a language). `
 with the full URL: an external page is where a widget could lead the user somewhere unexpected. Nothing changes in the
 framework: both calls stay privileged (only from a real tap, one per press) and the URL rules stay as they were; the
 confirmation was always the client's.
+
+## The renderer prototypes are frozen (2026-10-30)
+
+Blitz (`apps/renderer-blitz`) and the plain litehtml core (`apps/renderer-litehtml`), with their glue in the demos and
+in `packages/desktop/renderer`, stay in the repository as the record of the comparison above, but nothing builds or runs
+them by default and a change is not checked on them (Artem, 2026-10-30).
+
+- **Why.** Every client draws with a renderer of its own: the web with the Shadow DOM renderer, the native clients with
+  their own engines, and those that use litehtml use their own extended one, not our plain core; no client ships Blitz.
+  A result on the prototypes therefore says nothing about a client: plain litehtml fails where the clients' litehtml is
+  fixed (`auto/19` dies on the 100 ms layout-query window there) and passes where a client may be broken. Their job,
+  the evidence for the decision above and the probes behind profile 1, is done; whether every client draws a feature is
+  answered by the clients' own conformance runs (`packages/conformance/CLIENTS.md`), and what it costs by the stress
+  kit (`packages/stress/CLIENTS.md`). Meanwhile they cost every demo build a Rust and a CMake build and every report a
+  "not checked on Blitz/litehtml" line.
+- **What is off by default.** The demos' builds: the iOS/macOS demo builds, links and compiles them in (Swift condition
+  `TW_NATIVE_RENDERERS`) only with `TW_NATIVE_RENDERERS=YES` on `xcodebuild`, the Android demo includes their modules
+  only with `-Ptw.nativeRenderers=true`; without them no Rust toolchain or extra CMake build is needed and the renderer
+  picker is hidden. Their wasm unit tests run only with `TW_NATIVE_RENDERERS=1`. The default renderers of
+  `scripts/conformance/run-web.ts` and the default cells of `scripts/feed-report.ts` and the feed's bench panel are
+  iframe and shadow. Opt-in already before: the desktop core's `-DTW_BLITZ` / `-DTW_LITEHTML`, the web dev app's
+  toggles (they need `build:blitz-web` / `build:litehtml-web`), `TW_RENDERER=blitz|litehtml` for the Playwright suites.
+- **No obligation.** A framework change is not tested on the prototypes and a report does not list them as a gap. A
+  prototype that breaks stays broken until someone revives it; reviving one means its opt-in build and its checks first.
+- **What our native runs check instead.** The framework without a renderer (QuickJS on its thread, the glue, the
+  validator, the shared policies on their fixtures, the attack corpus through the native node model) and the `Renderer`
+  seam on our WebView renderer, which stands in for a client's. The clients' renderers are checked by the clients:
+  drawing by the conformance set, cost by the stress kit. Their renderer-side defences (no network attempt, `trusted`
+  only for a real press) have no shared check yet.

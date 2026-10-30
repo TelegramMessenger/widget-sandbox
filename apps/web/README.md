@@ -49,7 +49,8 @@ Open `127.0.0.1`, not `localhost`: Vite listens on 127.0.0.1 only, and the
 port is strict (`--port` when 5173 is taken). The chat feed is `?feed=1`.
 
 The Blitz and litehtml toggles (the dev app's checkboxes, the feed's renderer
-switch, compare all) need their wasm builds in `apps/renderer-*/pkg-web/`
+switch, compare all) are frozen prototypes since 2026-10-30 (no runner or bench
+uses them by default, their unit tests run only with `TW_NATIVE_RENDERERS=1`) and need their wasm builds in `apps/renderer-*/pkg-web/`
 (gitignored); the dev server reads them from disk, no restart. The toolchain,
 once (`--version` = the `wasm-bindgen` version in
 `apps/renderer-blitz/Cargo.lock`; the build script says so when they differ):

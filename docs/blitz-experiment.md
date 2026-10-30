@@ -1,5 +1,8 @@
 # Experiment: Blitz and litehtml as native renderers for the generated corpus
 
+> **Frozen since 2026-10-30** (`docs/decisions.md`, "The renderer prototypes are frozen"): no client draws with this
+> prototype, nothing builds or runs it by default; what follows is the record of the comparison.
+
 Date: 2026-10-09. Question: can the system WebView be replaced with a native
 HTML/CSS engine for rendering speed in the message list without lowering the
 widgets' CSS profile (as litehtml would). The candidate is [Blitz](https://github.com/DioxusLabs/blitz)

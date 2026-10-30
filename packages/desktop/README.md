@@ -8,7 +8,8 @@ three JS bundles; see `docs/decisions.md` (Desktop C++ core) for why the product
 renderer is not here (tdesktop has no WebView inside the chat) and what the
 product path on tdesktop looks like. The Blitz renderer prototype
 (`-DTW_BLITZ=ON`, below) is dev tooling behind the same `Renderer` seam the
-iOS/macOS and Android demos have.
+iOS/macOS and Android demos have; it and the litehtml one (`-DTW_LITEHTML=ON`) are
+frozen since 2026-10-30 (`docs/decisions.md`, "The renderer prototypes are frozen"): no check builds them.
 
 ```
 packages/desktop/

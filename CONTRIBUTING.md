@@ -35,6 +35,8 @@ one-platform half to `main`.
 - Glue: the tests of every platform you changed: `xcodebuild test` (macOS and iOS), Android
   JVM and `connectedDebugAndroidTest`, desktop `twidget-tests` and `twidget-run --attacks`.
   Code that never ran on its platform is not done.
+- Not the frozen renderer prototypes (Blitz, the plain litehtml core; `docs/decisions.md`, "The renderer prototypes are
+  frozen"): a change is not checked on them, and "not checked on Blitz/litehtml" is no gap.
 - A new behaviour gets a test that fails without the change.
 - Cost: measure anything that runs per element or per query on a large DOM (500+ elements).
   A widget has 300 ms of CPU per second and at most 500 ms in one task; a quadratic loop

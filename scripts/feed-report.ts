@@ -1,9 +1,10 @@
 // Runs the web feed's bench (src/feed-bench.ts) in headless Chromium and writes
 // the report: the JSON the tables are rendered from and the same tables as
 // Markdown — the web twin of the iOS `--autorun feed` + feed-report.json.
-//   corepack pnpm tsx scripts/feed-report.ts [--passes 5] [--count 60] [--combos iframe:on,shadow:on,litehtml:on,blitz:on,iframe:off,blitz:off]
+//   corepack pnpm tsx scripts/feed-report.ts [--passes 5] [--count 60] [--combos iframe:on,shadow:on,iframe:off,shadow:off]
 //                                            [--no-prewarm] [--theme dark] [--origin http://127.0.0.1:5174] [--out docs/feed-report-web]
-// Needs the dev server (corepack pnpm dev [--port 5174]); the canvas renderers need pnpm build:blitz-web / build:litehtml-web.
+// Needs the dev server (corepack pnpm dev [--port 5174]). The frozen canvas prototypes (blitz, litehtml) run only when named
+// in --combos and built (pnpm build:blitz-web / build:litehtml-web; docs/decisions.md, "The renderer prototypes are frozen").
 // Headless Chromium exposes measureUserAgentSpecificMemory (the page is cross-origin isolated), so the memory row counts
 // workers and frames there; the window is 1280×900 so the scroller is a desktop screen.
 
@@ -18,7 +19,7 @@ const argv = process.argv.slice(2);
 const opt = (name: string, def: string) => { const i = argv.indexOf(name); return i >= 0 && argv[i + 1] ? argv[i + 1] : def; };
 const passes = Number(opt('--passes', '5'));
 const count = Number(opt('--count', '60'));
-const combos = opt('--combos', 'iframe:on,shadow:on,litehtml:on,blitz:on,iframe:off,blitz:off');
+const combos = opt('--combos', 'iframe:on,shadow:on,iframe:off,shadow:off');
 const prewarm = !argv.includes('--no-prewarm');
 const theme = opt('--theme', 'light');
 const origin = opt('--origin', 'http://127.0.0.1:5174');

@@ -1,7 +1,8 @@
 // Web runner of the conformance set: every widget of packages/conformance on the
 // web dev app (apps/web) through the real pipeline (QuickJS worker → validator
-// → renderer), on each renderer: iframe, shadow (Shadow DOM, the web product
-// renderer), blitz and litehtml (wasm, when built). For each widget it
+// → renderer), on each renderer: iframe and shadow (Shadow DOM, the web product
+// renderer); the frozen blitz and litehtml prototypes (wasm) only when named in
+// --renderers and built (docs/decisions.md, "The renderer prototypes are frozen"). For each widget it
 //   - reads the result from the validated ops: it taps the renderer's `send`
 //     and keeps the last `data-conformance` attribute set on the element the
 //     `el` op adopted as <html> (what any host can do with its own ops);
@@ -17,7 +18,7 @@
 //
 // Needs the dev server of this checkout:  corepack pnpm dev --port 5175
 //   corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5175 \
-//     [--renderers iframe,shadow,blitz,litehtml] [--set auto,visual] [--only 03-layout-a] \
+//     [--renderers iframe,shadow] [--set auto,visual] [--only 03-layout-a] \
 //     [--themes light,dark] [--widths 390] [--features webAnimations] [--policy strict]
 
 import { execSync } from 'node:child_process';
@@ -30,7 +31,7 @@ import { ROOT, autoStagePos, crop, judgeStage, listWidgets, perform, refPath, ty
 const args = process.argv.slice(2);
 const opt = (name: string, def?: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : def);
 const ORIGIN = opt('origin', `http://127.0.0.1:${process.env.TW_PORT ?? 5175}`)!;
-const RENDERERS = opt('renderers', 'iframe,shadow,blitz,litehtml')!.split(',');
+const RENDERERS = opt('renderers', 'iframe,shadow')!.split(',');
 const SETS = opt('set', 'auto,visual')!.split(',');
 const THEMES = opt('themes');
 const WIDTHS = opt('widths', '390')!.split(',').map(Number);

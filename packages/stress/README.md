@@ -84,7 +84,7 @@ shape; `measured` in the manifest has the real nodes and largest batch.
    corepack pnpm tsx scripts/stress/run-web.ts --origin http://127.0.0.1:5178
    ```
 
-   Options: `--renderers iframe,shadow,blitz,litehtml` (the wasm renderers when built), `--only shadow-moving,ars-cell`,
+   Options: `--renderers iframe,shadow` (the default; the frozen blitz and litehtml wasm prototypes when named and built), `--only shadow-moving,ars-cell`,
    `--warmup 2000 --measure 10000`, `--pass production`, `--width 390`, `--device "…"`. It writes
    `reports/stress/<pass>-<renderer>.json`, which is gitignored.
 

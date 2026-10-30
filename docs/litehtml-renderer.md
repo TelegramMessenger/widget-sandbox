@@ -1,5 +1,8 @@
 # litehtml as a swappable renderer: the third column in the WebView / Blitz / litehtml comparison
 
+> **Frozen since 2026-10-30** (`docs/decisions.md`, "The renderer prototypes are frozen"): no client draws with this
+> prototype, nothing builds or runs it by default; what follows is the record of the comparison.
+
 Date: 2026-10-10. A continuation of `docs/blitz-experiment.md`: there litehtml
 was run over static DOM dumps by a separate binary, here it is embedded in
 the iOS, macOS and Android demos, in the C++ core `packages/desktop/` and in the web demo as the **third

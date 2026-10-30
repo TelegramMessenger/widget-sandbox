@@ -130,7 +130,7 @@ private fun memory(label: String): JSONObject {
 @Composable
 fun BenchScreen(renderer: String, count: Int, prewarm: Boolean, holdSeconds: Int, pools: Boolean = false, prewarmValidators: Int = 4, corpusName: String = "feed") {
     val context = LocalContext.current
-    val blitz = renderer != "webview" && renderer != "none"
+    val blitz = DemoRenderer.of(renderer)?.factory != null // a native prototype, only in a -Ptw.nativeRenderers=true build
     var status by remember { mutableStateOf("bench: $renderer × $count" + (if (prewarm) " (prewarmed WebView)" else "") + (if (pools) " (validator pool)" else "")) }
     val models = remember { mutableStateListOf<WidgetModel>() }
     val scroll = rememberScrollState()

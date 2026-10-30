@@ -60,7 +60,7 @@ The steps are in this order:
    corepack pnpm dev --port 5175
    ```
 
-3. Run the web renderers. This covers iframe, Shadow DOM, and Blitz/litehtml when their wasm is built (`pnpm build:blitz-web`, `pnpm build:litehtml-web`):
+3. Run the web renderers: iframe and Shadow DOM (the frozen Blitz and litehtml wasm prototypes only when named in `--renderers` and built):
 
    ```bash
    corepack pnpm tsx scripts/conformance/run-web.ts --origin http://127.0.0.1:5175
@@ -71,7 +71,7 @@ The steps are in this order:
 4. Judge the run files into the reports. This is the same tool the clients run:
 
    ```bash
-   node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow,blitz,litehtml}.json
+   node packages/conformance/tools/report.mjs --out packages/conformance/results reports/conformance/{iframe,shadow}.json
    ```
 
 `run-web.ts` is the reference runner. It loads each widget through `window.__tw.load` (the real worker → validator → renderer pipeline) and wraps the renderer's `send` to read the result from the validated ops. It focuses a stand-in chat input first and performs the manifest actions with real mouse input (the canvas renderers get taps only, through `__tw.tap`). It crops the stages from a DPR 2 viewport screenshot at the widget's snapped device-pixel origin and writes the run files to `reports/conformance/`, which is gitignored. The dev app lists the set as the `conformance/` group in its corpus panel.

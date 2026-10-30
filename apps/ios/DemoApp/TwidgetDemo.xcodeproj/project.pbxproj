@@ -128,8 +128,8 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 10ADEA544783213EFDF298B0 /* Build configuration list for PBXNativeTarget "TwidgetDemo" */;
 			buildPhases = (
-				89DB44E098CB09DD24F9E27C /* Build the Blitz renderer (cargo) */,
-				2973372AD4EF4EE366CA4E7E /* Build the litehtml renderer (cmake) */,
+				D434B0F8E31AE8C3F5356382 /* Build the Blitz renderer (cargo; TW_NATIVE_RENDERERS=YES only) */,
+				250F339C4D71FB28B4ED5218 /* Build the litehtml renderer (cmake; TW_NATIVE_RENDERERS=YES only) */,
 				03A0B1EC1C4239C12BA88B02 /* Sources */,
 				E471D8E497E9D572E862E5C2 /* Resources */,
 				276538D1031950CF55E0A1F4 /* Frameworks */,
@@ -195,7 +195,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		2973372AD4EF4EE366CA4E7E /* Build the litehtml renderer (cmake) */ = {
+		250F339C4D71FB28B4ED5218 /* Build the litehtml renderer (cmake; TW_NATIVE_RENDERERS=YES only) */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -205,16 +205,16 @@
 			);
 			inputPaths = (
 			);
-			name = "Build the litehtml renderer (cmake)";
+			name = "Build the litehtml renderer (cmake; TW_NATIVE_RENDERERS=YES only)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"$SRCROOT/../../renderer-litehtml/build-apple.sh\"";
+			shellScript = "[ \"$TW_NATIVE_RENDERERS\" = YES ] || exit 0; \"$SRCROOT/../../renderer-litehtml/build-apple.sh\"";
 		};
-		89DB44E098CB09DD24F9E27C /* Build the Blitz renderer (cargo) */ = {
+		D434B0F8E31AE8C3F5356382 /* Build the Blitz renderer (cargo; TW_NATIVE_RENDERERS=YES only) */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -224,14 +224,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Build the Blitz renderer (cargo)";
+			name = "Build the Blitz renderer (cargo; TW_NATIVE_RENDERERS=YES only)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"$SRCROOT/../../renderer-blitz/build-apple.sh\"";
+			shellScript = "[ \"$TW_NATIVE_RENDERERS\" = YES ] || exit 0; \"$SRCROOT/../../renderer-blitz/build-apple.sh\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -401,6 +401,20 @@
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
+					"$(TW_NATIVE_RENDERER_LDFLAGS_$(TW_NATIVE_RENDERERS))",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.telegram.widgetsandbox.TwidgetDemo;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = (
+					"$(inherited)",
+					"$(TW_NATIVE_RENDERER_CONDITION_$(TW_NATIVE_RENDERERS))",
+				);
+				SWIFT_OBJC_BRIDGING_HEADER = BridgingHeader.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TW_NATIVE_RENDERERS = NO;
+				TW_NATIVE_RENDERER_CONDITION_YES = TW_NATIVE_RENDERERS;
+				TW_NATIVE_RENDERER_LDFLAGS_YES = (
 					"-ltwidget_blitz",
 					"-ltwidget_litehtml",
 					"-lc++",
@@ -412,11 +426,6 @@
 					ImageIO,
 					"-liconv",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.telegram.widgetsandbox.TwidgetDemo;
-				SDKROOT = iphoneos;
-				SWIFT_OBJC_BRIDGING_HEADER = BridgingHeader.h;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -439,6 +448,20 @@
 				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
+					"$(TW_NATIVE_RENDERER_LDFLAGS_$(TW_NATIVE_RENDERERS))",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.telegram.widgetsandbox.TwidgetDemo;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = (
+					"$(inherited)",
+					"$(TW_NATIVE_RENDERER_CONDITION_$(TW_NATIVE_RENDERERS))",
+				);
+				SWIFT_OBJC_BRIDGING_HEADER = BridgingHeader.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TW_NATIVE_RENDERERS = NO;
+				TW_NATIVE_RENDERER_CONDITION_YES = TW_NATIVE_RENDERERS;
+				TW_NATIVE_RENDERER_LDFLAGS_YES = (
 					"-ltwidget_blitz",
 					"-ltwidget_litehtml",
 					"-lc++",
@@ -450,11 +473,6 @@
 					ImageIO,
 					"-liconv",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.telegram.widgetsandbox.TwidgetDemo;
-				SDKROOT = iphoneos;
-				SWIFT_OBJC_BRIDGING_HEADER = BridgingHeader.h;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
