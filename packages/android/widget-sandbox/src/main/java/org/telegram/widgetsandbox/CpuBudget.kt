@@ -5,6 +5,12 @@
 // leaves the window — never dropped or killed. Events always run with a floor
 // of 50 ms.
 //
+// The engine keeps two of them (docs/decisions.md, "Strict limits from the start"):
+// the JS quota (`cpuQuotaMs`, JS time only) and the main-thread window
+// (`mainThreadQuotaMs`): the host's own work for the widget, its layout queries
+// and the modelled cost of the ops it forwards ([opsCostMs]). A deferrable task
+// waits while either window is spent.
+//
 // Pure and side-effect free; checked against tests/fixtures/cpu-budget.json
 // (copied to src/androidTest/assets by `pnpm build:android`).
 
@@ -31,10 +37,16 @@ class CpuBudget(
         const val FLOOR_MS = 50.0
         /** Kinds that may be postponed. `boot`, `event` and `visibility` always run. */
         val DEFERRABLE = setOf("timer", "frame", "viewport", "resize", "theme", "bridge")
-        /** A task's layout queries may block the host for at most this much, or the task's slice if that is longer. */
-        const val QUERY_BUDGET_MIN_MS = 100.0
-        /** Layout-query budget of one task with [sliceMs] of CPU (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed. */
-        fun queryBudgetMs(sliceMs: Double): Double = maxOf(sliceMs, QUERY_BUDGET_MIN_MS)
+        /** A task's layout queries may block the host for at most this much, whatever its slice (boot included). */
+        const val QUERY_BUDGET_MS = 100.0
+        /** Layout-query budget of one task (cpu-budget.ts `queryBudgetMs`): the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU; past this the task is interrupted and killed. */
+        fun queryBudgetMs(@Suppress("UNUSED_PARAMETER") sliceMs: Double): Double = QUERY_BUDGET_MS
+
+        /** Modelled main-thread cost of one op the engine forwards to the validator, and of one canvas command in it. */
+        const val OP_COST_MS = 0.025
+        const val CANVAS_COMMAND_COST_MS = 0.002
+        /** What a batch of [ops] ops with [canvasCommands] canvas commands costs the host's main thread (cpu-budget.ts `opsCostMs`): deterministic, from what the widget sent. */
+        fun opsCostMs(ops: Int, canvasCommands: Int): Double = ops * OP_COST_MS + canvasCommands * CANVAS_COMMAND_COST_MS
     }
 
     constructor(config: SandboxConfig) : this(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs)

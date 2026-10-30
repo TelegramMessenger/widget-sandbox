@@ -268,7 +268,7 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     if (opts.litehtml) return runWidgetNative<LitehtmlRenderer>(html, opts, res);
 #endif
     RunOutcome out;
-    RecordingHost host(opts.theme, res, opts.verbose);
+    RecordingHost host(opts.theme, res, opts.verbose, config.policy);
     host.onRequest = [&](const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond) { respond(opts.answer); };
     {
         SandboxEngine engine(html, config, res);

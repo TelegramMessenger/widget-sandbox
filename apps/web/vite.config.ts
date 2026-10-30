@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { widgetSandbox } from '@telegram/widget-sandbox/vite';
-import { REFERENCE_STYLESHEET } from '@telegram/widget-sandbox/shared/reference';
+import { REFERENCE_STYLESHEET, referenceSafeAreaCss } from '@telegram/widget-sandbox/shared/reference';
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(appRoot, '..', '..');
@@ -25,8 +25,8 @@ const litehtmlDir = path.join(repoRoot, 'apps', 'renderer-litehtml', 'pkg-web');
  * reference text tokens (docs/sdk-v1.md §2.3, §2.4), so the comparison shows what the
  * profile removes rather than the root style, the button style or the theme.
  */
-const withDoctype = (html: string) => {
-  const ua = `<style data-tw-ua>${REFERENCE_STYLESHEET}</style>`;
+const withDoctype = (html: string, safeArea = '') => {
+  const ua = `<style data-tw-ua>${REFERENCE_STYLESHEET}${safeArea}</style>`;
   const m = /^\s*<!doctype[^>]*>/i.exec(html);
   return m ? m[0] + ua + html.slice(m[0].length) : '<!DOCTYPE html>\n' + ua + html;
 };
@@ -43,7 +43,7 @@ const groupDir = (group: string) => (group === 'conformance' ? conformanceDir : 
 
 function listCorpus(): string[] {
   const out: string[] = [];
-  for (const group of ['compat', 'attacks', 'generated', 'htmlbubbles-ported', 'common', 'showcase', 'defaults', 'gestures', 'resize', 'interactive', 'conformance']) {
+  for (const group of ['compat', 'attacks', 'generated', 'htmlbubbles-ported', 'common', 'showcase', 'defaults', 'gestures', 'resize', 'safe-area', 'interactive', 'bot-demos', 'conformance']) {
     const base = groupDir(group);
     const walk = (dir: string) => {
       if (!fs.existsSync(dir)) return;
@@ -109,7 +109,10 @@ export default defineConfig({
             if (!p) return next();
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
             res.setHeader('Content-Security-Policy', REFERENCE_CSP);
-            res.end(withDoctype(fs.readFileSync(p, 'utf8')));
+            // `?safeArea=bottom,cornerRight,cornerLeft` (the dev app's time control): the root variables a renderer sets for
+            // the client's time, there before the widget's first script runs (its env() stays the browser's own).
+            const area = (new URLSearchParams((req.url || '').split('?')[1] ?? '').get('safeArea') ?? '').split(',').map(Number);
+            res.end(withDoctype(fs.readFileSync(p, 'utf8'), area.some((n) => n > 0) ? referenceSafeAreaCss({ bottom: area[0], cornerRight: area[1], cornerLeft: area[2] }) : ''));
             return;
           }
           next();

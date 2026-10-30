@@ -189,6 +189,27 @@ class SdkTest {
         engine2.terminate()
     }
 
+    /**
+     * The client's time over the widget (docs/sdk-v1.md §2.17): the boot value from the first line (checked by the shim:
+     * out of range is 0), then one contentSafeAreaChanged with a fresh frozen object per change, nothing for the same
+     * value, and a value set before boot replaces the config's.
+     */
+    @Test
+    fun contentSafeAreaReachesTheWidget() {
+        val html = "<script>var first = TelegramWidget.contentSafeAreaInset; console.log('first=' + JSON.stringify(first));" +
+            "TelegramWidget.onEvent('contentSafeAreaChanged', function () { var a = TelegramWidget.contentSafeAreaInset;" +
+            " console.log('changed=' + [a.bottom, a.cornerLeft, a.cornerRight, Object.isFrozen(a), a !== first, this === TelegramWidget].join(':')); });</script>"
+        val (d, engine) = run(html) { it.contentSafeArea = WidgetContentSafeArea(top = 99.0, bottom = 24.0, cornerRight = 72.0) }
+        assertTrue("${d.logs}", d.logged().contains("first={\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}"))
+        val rtl = WidgetContentSafeArea(bottom = 26.5, cornerLeft = 80.0)
+        engine.contentSafeArea(rtl)
+        engine.contentSafeArea(rtl)
+        engine.contentSafeArea(WidgetContentSafeArea(bottom = Double.NaN))
+        engine.thread.sync {}
+        assertEquals(listOf("changed=26.5:80:0:true:true:true", "changed=0:0:0:true:true:true"), d.logged().filter { it.startsWith("changed=") })
+        engine.terminate()
+    }
+
     /** `setResizeAnchor` (v0.1.3): the shim sends only changes, the glue takes them with no gesture and hidden, never as an action. */
     @Test
     fun resizeAnchorIsNoAction() {
@@ -209,7 +230,7 @@ class SdkTest {
 
     private val show = "<script>console.log(JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.isForward, TelegramWidget.chatType, TelegramWidget.viewer]));</script>"
 
-    /** A button whose tap asks twice (the second is BUSY in the shim); every outcome goes into one log line. */
+    /** A button whose tap asks twice (the shim forwards both, the glue's gate refuses the second as BUSY); every outcome goes into one log line. */
     private val requester = "<button>go</button><script>var log = [];" +
         "function put(s) { log.push(s); console.log('log=' + log.join(' ')); }" +
         "function ask(d) { TelegramWidget.request(d).then(function (a) { put('ok:' + d + ':' + JSON.stringify(a) + ':' + Object.isFrozen(a)); }, function (e) { put('err:' + d + ':' + e.name + ':' + e.code); }); }" +
@@ -290,7 +311,9 @@ class SdkTest {
         val button = idOf(d, "button")
         engine.activationEvent(click(button), 1)
         assertTrue(d.log(), waitFor { d.log().contains("ok:") })
-        assertEquals("the second call of the tap is BUSY in the shim", "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true", d.log())
+        assertTrue(d.log(), waitFor { d.log().contains("err:tap2:") })
+        // The answer was posted to the engine thread inside onRequest, before the gate's refusal of the second call.
+        assertEquals("the second call of the tap is BUSY in the glue's gate", "ok:tap:{\"result\":\"thanks\"}:true err:tap2:WidgetRequestError:BUSY", d.log())
         assertEquals("onRequest gets only the data", listOf(WidgetRequest("tap")), d.requests.toList())
         // After the answer the next tap can request again.
         engine.activationEvent(click(button), 2)
@@ -301,7 +324,12 @@ class SdkTest {
         assertTrue(d.log(), waitFor { d.outcomes().size == 3 })
         assertEquals("err:tap:WidgetRequestError:NOT_ALLOWED", d.outcomes()[2])
         assertEquals(2, d.requests.size)
-        assertEquals(listOf("request refused (no-activation): it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)"), d.rejected("request-blocked"))
+        assertTrue(d.log(), waitFor { d.log().split(" ").size == 6 })
+        // The second call of the untapped click is forwarded too: refused for itself, not BUSY behind a refused one.
+        assertEquals("err:tap2:WidgetRequestError:NOT_ALLOWED", d.log().split(" ").last())
+        val busy = "request refused (busy): a request is already in flight"
+        val noTap = "request refused (no-activation): it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)"
+        assertEquals(listOf(busy, busy, noTap, noTap), d.rejected("request-blocked"))
         assertEquals("a request is no action", emptyList<WidgetAction>(), d.actions.toList())
         assertEquals(emptyList<Pair<String, String>>(), d.bridge.toList())
         engine.terminate()
@@ -328,11 +356,16 @@ class SdkTest {
         assertTrue("${bg.diags}", bg.rejected("request-blocked").any { it.startsWith("request refused (rate-limited)") })
         engine2.terminate()
 
+        // Off screen the boot request waits for the widget to appear (held, in flight): the timer's one meanwhile is BUSY.
         val (hidden, engine3) = run(html, client()) { it.context = WidgetContext(canQuery = true, backgroundQuery = true); it.visible = false }
         assertTrue(hidden.log(), waitFor { hidden.log().isNotEmpty() })
-        assertEquals("NOT_ALLOWED:false", hidden.log().split(" ")[0])
+        assertEquals("BUSY:false", hidden.log())
         assertEquals(emptyList<WidgetRequest>(), hidden.requests.toList())
-        assertTrue("${hidden.diags}", hidden.rejected("request-blocked").any { it.startsWith("request refused (hidden)") })
+        engine3.setVisible(true)
+        assertTrue(hidden.log(), waitFor { hidden.log().split(" ").size == 2 })
+        assertEquals("BUSY:false ok", hidden.log())
+        assertEquals(listOf(WidgetRequest("bg")), hidden.requests.toList())
+        assertEquals(listOf("request refused (busy): a request is already in flight"), hidden.rejected("request-blocked"))
         engine3.terminate()
 
         val (compat, engine4) = run(html, client()) { it.policy = "compat"; it.context = tapOnly }
@@ -360,7 +393,7 @@ class SdkTest {
         }
         assertEquals("a plain copy sees no chat type or viewer", """[null,"p",true,null,null]""", tapped(WidgetContext(isCopy = true)).logged().first { it.startsWith("[") })
         val live = tapped(WidgetContext(isCopy = true, canQuery = true))
-        assertEquals("a live copy asks on a tap", "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"x\"}:true", live.log())
+        assertEquals("a live copy asks on a tap", "ok:tap:{\"result\":\"x\"}:true err:tap2:WidgetRequestError:BUSY", live.log())
         assertEquals(listOf(WidgetRequest("tap")), live.requests.toList())
         assertEquals("a live copy sees the viewer, no chat type, no chatData", """[null,"p",true,null,{"id":5}]""", live.logged().first { it.startsWith("[") })
     }
@@ -372,8 +405,9 @@ class SdkTest {
         val button = idOf(d, "button")
         engine.activationEvent(click(button), 1)
         assertTrue(d.log(), waitFor { d.outcomes().isNotEmpty() })
+        assertTrue(d.log(), waitFor { d.log().split(" ").size == 2 })
         assertEquals("err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED", d.log())
-        assertEquals(listOf("request refused: the client handles no requests (onRequest)"), d.rejected("request-blocked"))
+        assertEquals(listOf("request refused (busy): a request is already in flight", "request refused: the client handles no requests (onRequest)"), d.rejected("request-blocked"))
         assertEquals(emptyList<WidgetRequest>(), d.requests.toList())
         // The refusal freed the gate, and the client is asked at delivery: one that starts answering gets the next tap's request.
         d.answer = { _, respond -> respond(Result.success(WidgetRequestAnswer("now"))) }
@@ -434,6 +468,40 @@ class SdkTest {
         )
         assertEquals("over 1024 bytes, and a NUL", List(2) { "the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER" }, d.rejected("answer-rejected"))
         engine.terminate()
+    }
+
+    /**
+     * Telegram's clients create the host off screen: a background request at boot waits for the widget to appear and
+     * goes out then, as that appearance's; one on `activated` is BUSY, the first being in flight (it used to be that the boot
+     * one was refused as hidden and, on Android, the `activated` one met the shim's BUSY: nothing went out). A widget
+     * terminated before it appears never gets its held request to the client.
+     */
+    @Test
+    fun aBackgroundRequestAtBootOffScreenGoesOutWhenTheWidgetAppears() {
+        val html = "<script>var log = []; function put(s) { log.push(s); console.log('log=' + log.join(' ')); }" +
+            "function ask(t) { TelegramWidget.request(t).then(function (a) { put(t + ':' + a.result); }, function (e) { put(t + ':' + e.code); }); }" +
+            "TelegramWidget.onEvent('activated', function () { ask('activated'); }); ask('boot'); console.log('active=' + TelegramWidget.isActive);</script>"
+        val background = WidgetContext(canQuery = true, backgroundQuery = true)
+        val d = RecordingDelegate().apply { answer = { _, respond -> respond(Result.success(WidgetRequestAnswer("r"))) } }
+        val (_, engine) = run(html, d) { it.context = background; it.visible = false }
+        assertTrue("${d.logs}", waitFor { d.logged().contains("active=false") })
+        engine.thread.sync {}
+        assertEquals("held while off screen", emptyList<WidgetRequest>(), d.requests.toList())
+        assertEquals("", d.log())
+        assertEquals(emptyList<String>(), d.rejected("request-blocked"))
+        engine.setVisible(true)
+        assertTrue(d.log(), waitFor { d.log().split(" ").size == 2 })
+        assertEquals(listOf("activated:BUSY", "boot:r"), d.log().split(" ").sorted())
+        assertEquals(listOf(WidgetRequest("boot")), d.requests.toList())
+        engine.terminate()
+
+        val dropped = RecordingDelegate().apply { answer = { _, respond -> respond(Result.success(WidgetRequestAnswer())) } }
+        val (_, engine2) = run(html, dropped) { it.context = background; it.visible = false }
+        assertTrue("${dropped.logs}", waitFor { dropped.logged().contains("active=false") })
+        engine2.terminate()
+        engine2.setVisible(true)
+        Thread.sleep(300)
+        assertEquals(emptyList<WidgetRequest>(), dropped.requests.toList())
     }
 
     /** One background request when the widget appears on screen (hidden → visible), then one per 5 s. */
@@ -705,6 +773,20 @@ class SdkTest {
             val dark = "#101010|#ffffff|dark|10px|0.7|17px|4px 6px|17px|0px"
             assertTrue(waitFor(5) { eval() == dark })
             assertEquals(dark, eval())
+
+            // The client's time over the widget (docs/sdk-v1.md §2.17): the variables on the root, the UA layer's body padding.
+            val safeArea = "(function(){ var s = getComputedStyle(document.documentElement); return ['--tg-content-safe-area-inset-bottom', '--tg-content-safe-area-corner-right', '--tg-content-safe-area-corner-left'].map(function (n) { return s.getPropertyValue(n).trim(); }).concat([getComputedStyle(document.body).paddingBottom]).join('|'); })()"
+            fun evalSafeArea(): String {
+                val done = CountDownLatch(1)
+                val out = AtomicReference("")
+                instrumentation.runOnMainSync { host.evaluateInRenderer(safeArea) { out.set(it); done.countDown() } }
+                assertTrue(done.await(5, TimeUnit.SECONDS))
+                return out.get().trim('"')
+            }
+            assertEquals("0 until the client passes a band", "0px|0px|0px|0px", evalSafeArea())
+            instrumentation.runOnMainSync { host.setContentSafeArea(WidgetContentSafeArea(bottom = 24.0, cornerLeft = 64.0)) }
+            assertTrue(waitFor(5) { evalSafeArea() == "24px|0px|64px|24px" })
+            assertEquals("24px|0px|64px|24px", evalSafeArea())
             assertEquals("callbacks run on the main thread", emptyList<String>(), offMain.toList())
             assertNull(latest.get().dead)
             instrumentation.runOnMainSync { host.destroy() }
@@ -744,6 +826,67 @@ class SdkTest {
             assertTrue("${latest.get().logs}", waitFor { latest.get().logs.any { it.second == "tapped" } })
             Thread.sleep(300)
             assertEquals("the tap's haptic plays", fromTimer + WidgetAction.Haptic("impact", "heavy"), actions.toList())
+            assertNull(latest.get().dead)
+            instrumentation.runOnMainSync { host.destroy() }
+        }
+    }
+
+    /** The renderer with a hand on its messages: `inject` hands WidgetHost one as if the renderer sent it, `sent` keeps what WidgetHost sent the renderer. */
+    private class Injector(private val inner: Renderer) : Renderer by inner {
+        val sent: MutableList<String> = Collections.synchronizedList(ArrayList())
+        override var onMessage: ((String) -> Unit)? = null
+            set(value) {
+                field = value
+                inner.onMessage = value
+            }
+        override fun send(json: String) {
+            sent.add(json)
+            inner.send(json)
+        }
+        fun inject(json: String) { onMessage?.invoke(json) }
+    }
+
+    /**
+     * Any pointerdown begins a press, trusted or not (desktop `an_untrusted_pointerdown_begins_a_new_gesture`): a second
+     * finger's is neither trusted (it may become the chat's scroll) nor claimed (`gesture` is the primary pointer's), so each
+     * of its taps opens a link from its pointerup handler; without WidgetHost's `pressBegan` the second release continued the
+     * first press, whose gesture was spent.
+     */
+    @Test
+    fun hostAnUntrustedPointerdownBeginsANewGesture() {
+        val html = "<button id='b'>go</button><script>TelegramWidget.ready(); var n = 0;" +
+            "document.getElementById('b').addEventListener('pointerup', function () { TelegramWidget.openLink('https://example.com/up-' + (++n)); });</script>"
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            lateinit var host: WidgetHost
+            lateinit var renderer: Injector
+            val latest = AtomicReference(WidgetDiagnostics())
+            val links = Collections.synchronizedList(ArrayList<String>())
+            scenario.onActivity { activity ->
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0, rendererFactory = { context, res, theme, _ ->
+                    Injector(RendererWebView(context, res.rendererBundle, theme)).also { renderer = it }
+                })
+                host.onChange = { latest.set(it) }
+                host.onAction = { if (it is WidgetAction.OpenLink) links.add(it.url) }
+                activity.show(host.view)
+            }
+            assertTrue("widget never loaded", waitFor(15) { latest.get().loaded })
+            Thread.sleep(300)
+            val button = renderer.sent.toList().firstNotNullOfOrNull { json ->
+                val ops = runCatching { JSONObject(json) }.getOrNull()?.takeIf { it.optString("type") == "ops" }?.optJSONArray("ops") ?: return@firstNotNullOfOrNull null
+                (0 until ops.length()).mapNotNull { ops.optJSONObject(it) }.firstOrNull { it.optString("op") == "el" && it.optString("tag") == "button" }?.getInt("id")
+            } ?: throw AssertionError("no <button> in the ops sent to the renderer")
+            fun event(type: String, trusted: Boolean) = instrumentation.runOnMainSync {
+                renderer.inject("{\"type\":\"event\",\"ev\":{\"type\":\"$type\",\"targetId\":$button,\"pointerId\":2,\"pointerType\":\"touch\",\"isPrimary\":false},\"trusted\":$trusted}")
+            }
+            // a second finger's tap, its gesture spent in its pointerup handler; then another tap of it
+            event("pointerdown", false)
+            event("pointerup", true)
+            event("pointerdown", false)
+            event("pointerup", true)
+            waitFor { links.size >= 2 }
+            Thread.sleep(100)
+            assertEquals("${latest.get().diags.mapValues { it.value.details }}", listOf("https://example.com/up-1", "https://example.com/up-2"), links.toList())
+            assertNull("${latest.get().diags.mapValues { it.value.details }}", latest.get().diags["activation-blocked"])
             assertNull(latest.get().dead)
             instrumentation.runOnMainSync { host.destroy() }
         }
@@ -1088,5 +1231,105 @@ class SdkTest {
             assertEquals(listOf("request refused: the client handles no requests (onRequest)"), bareLatest.get().diags["request-blocked"]?.details)
             instrumentation.runOnMainSync { host.destroy(); bare.destroy() }
         }
+    }
+
+    // ── the wallet (docs/sdk-v1.md §2.18): sdk.test.ts and SdkTests.swift ──
+
+    private val tx = WalletTransaction(validUntil = 1900000000L, messages = listOf(WalletMessage("EQ" + "ab".repeat(23), "1500000000")))
+    private val txJson = """{"valid_until":1900000000,"messages":[{"address":"EQ${"ab".repeat(23)}","amount":"1500000000"}]}"""
+    /** A tap asks the bot with the wallet, the answer's transaction goes to `sendTransaction`; every outcome into `log`. */
+    private val payer = "<button>pay</button><script>var log = []; function put(s) { log.push(s); console.log('log=' + log.join(' ')); }" +
+        "document.querySelector('button').onclick = function () { TelegramWidget.request('pay:42', { wallet: true })" +
+        ".then(function (a) { put('tx'); return TelegramWidget.wallet.sendTransaction(JSON.parse(a.result), 'paid:42'); })" +
+        ".then(function (b) { put('ok:' + b.result); }, function (e) { put('err:' + e.code); return TelegramWidget.wallet.sendTransaction(JSON.parse('$txJson'), 'again').catch(function (e2) { put('again:' + e2.code); }); }); };</script>"
+
+    @Test
+    fun walletOnlyWhereTheClientHasItAndTheWidgetMayAsk() {
+        val probe = "<script>console.log('w=' + (TelegramWidget.wallet === null ? 'null' : typeof TelegramWidget.wallet.sendTransaction + Object.isFrozen(TelegramWidget.wallet)));</script>"
+        for ((flags, expect) in listOf(
+            WidgetContext(canQuery = true, backgroundQuery = true, chatType = "private", wallet = true) to "w=functiontrue",
+            WidgetContext(isCopy = true, canQuery = true, wallet = true) to "w=functiontrue",
+            WidgetContext(canQuery = true) to "w=null",
+            WidgetContext(wallet = true) to "w=null",
+            WidgetContext(canQuery = true, preview = true, wallet = true) to "w=null",
+        )) {
+            val (d, engine) = run(probe) { it.context = flags }
+            assertTrue("$flags", waitFor { d.logged().any { it.startsWith("w=") } })
+            assertEquals("$flags", expect, d.logged().first { it.startsWith("w=") })
+            engine.terminate()
+        }
+    }
+
+    @Test
+    fun aTapPaysOnTheAnswerToItsRequest() {
+        val d = RecordingDelegate()
+        d.answer = { _, respond -> respond(Result.success(WidgetRequestAnswer(txJson))) }
+        d.wallet = { _, respond -> respond(Result.success(WidgetRequestAnswer("thanks"))) }
+        val (_, engine) = run(payer, d) { it.context = WidgetContext(canQuery = true, backgroundQuery = true, chatType = "private", wallet = true) }
+        engine.activationEvent(click(idOf(d, "button")), 1)
+        assertTrue(d.log(), waitFor { d.log().contains("ok:") || d.log().contains("err:") })
+        assertEquals("tx ok:thanks", d.log())
+        assertEquals(listOf(WidgetRequest("pay:42", wallet = true)), d.requests.toList())
+        assertEquals(listOf<WalletCall>(WalletCall.SendTransaction(tx, "paid:42")), d.walletCalls.toList())
+        assertEquals("a wallet call is no action", emptyList<WidgetAction>(), d.actions.toList())
+        engine.terminate()
+    }
+
+    @Test
+    fun walletRefusalsAndTheBackground() {
+        val d = RecordingDelegate()
+        d.answer = { _, respond -> respond(Result.success(WidgetRequestAnswer(txJson))) }
+        d.wallet = { _, respond -> respond(Result.failure(WidgetRequestException(WidgetRequestFailure.REJECTED))) }
+        val (_, engine) = run(payer, d) { it.context = WidgetContext(canQuery = true, chatType = "group", wallet = true) }
+        engine.activationEvent(click(idOf(d, "button")), 1)
+        assertTrue(d.log(), waitFor { d.log().contains("again:") })
+        assertEquals("a refusal brings no grant", "tx err:REJECTED again:NOT_ALLOWED", d.log())
+        assertEquals(1, d.walletCalls.size)
+        assertEquals(listOf("wallet.sendTransaction refused (no-activation): it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each"), d.rejected("request-blocked"))
+        engine.terminate()
+
+        // A request's failure REJECTED is FAILED there.
+        val plain = RecordingDelegate().apply { answer = { _, respond -> respond(Result.failure(WidgetRequestException(WidgetRequestFailure.REJECTED))) } }
+        val (_, e2) = run(requester, plain) { it.context = tapOnly }
+        e2.activationEvent(click(idOf(plain, "button")), 1)
+        assertTrue(plain.log(), waitFor { plain.outcomes().isNotEmpty() })
+        assertEquals("err:tap:WidgetRequestError:FAILED", plain.outcomes()[0])
+        e2.terminate()
+
+        // From a timer: neither a wallet call nor a request for the wallet goes out, also in the private chat with the bot.
+        val timer = RecordingDelegate().apply {
+            answer = { _, respond -> respond(Result.success(WidgetRequestAnswer())) }
+            wallet = { _, respond -> respond(Result.success(WidgetRequestAnswer())) }
+        }
+        val html = "<script>var log = []; function put(s) { log.push(s); console.log('log=' + log.join(' ')); } setTimeout(function () {" +
+            "TelegramWidget.wallet.signData({ type: 'text', text: 'x' }, 's').catch(function (e) { put('sign:' + e.code); });" +
+            "TelegramWidget.request('w', { wallet: true }).catch(function (e) { put('rq:' + e.code); }); }, 0);</script>"
+        val (_, e3) = run(html, timer) { it.context = WidgetContext(canQuery = true, backgroundQuery = true, chatType = "private", wallet = true) }
+        assertTrue(timer.log(), waitFor { timer.log().split(" ").size == 2 })
+        assertEquals(listOf("rq:NOT_ALLOWED", "sign:NOT_ALLOWED"), timer.log().split(" ").sorted())
+        assertEquals(0, timer.walletCalls.size + timer.requests.size)
+        e3.terminate()
+    }
+
+    @Test
+    fun signDataOnATapAndNoClientSide() {
+        val html = "<button>s</button><script>document.querySelector('button').onclick = function () {" +
+            "TelegramWidget.wallet.signData({ type: 'text', text: 'I agree', network: null }, 'sign:1').then(function (a) { console.log('ok:' + a.result); }, function (e) { console.log('err:' + e.code); }); };</script>"
+        val flags = WidgetContext(isCopy = true, canQuery = true, wallet = true)
+        val d = RecordingDelegate().apply { wallet = { _, respond -> respond(Result.success(WidgetRequestAnswer("signed"))) } }
+        val (_, engine) = run(html, d) { it.context = flags }
+        engine.activationEvent(click(idOf(d, "button")), 1)
+        assertTrue(waitFor { d.logged().any { it.startsWith("ok:") || it.startsWith("err:") } })
+        assertEquals(listOf("ok:signed"), d.logged().filter { it.startsWith("ok:") || it.startsWith("err:") })
+        assertEquals(listOf<WalletCall>(WalletCall.SignData(SignDataPayload("text", text = "I agree"), "sign:1")), d.walletCalls.toList())
+        engine.terminate()
+
+        val none = RecordingDelegate()
+        val (_, e2) = run(html, none) { it.context = flags }
+        e2.activationEvent(click(idOf(none, "button")), 1)
+        assertTrue(waitFor { none.logged().any { it.startsWith("err:") } })
+        assertEquals(listOf("err:NOT_ALLOWED"), none.logged().filter { it.startsWith("err:") })
+        assertEquals(listOf("wallet call refused: the client handles no wallet calls (onWallet)"), none.rejected("request-blocked"))
+        e2.terminate()
     }
 }

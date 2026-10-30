@@ -33,6 +33,13 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
 - [ ] A killed widget keeps its last frame with the "Widget stopped" badge; the
       bubble does not collapse ([sdk-v1.md §5.7](sdk-v1.md#57-failures-and-restarts-d22)).
 - [ ] Caption as the preview text; the localized "Widget" stub without one.
+- [ ] With no caption below the widget (none, or the caption shown above it, `invert_media`), the message
+      time over the widget's bottom corner on a backing (right, or left in a right-to-left interface), taps
+      on it yours; its band and corner as the host's `contentSafeArea` at creation, `setContentSafeArea`
+      only when the bubble's layout changes; with a caption below all 0
+      ([integration.md, "The time over a widget with no caption below it"](integration.md#the-time-over-a-widget-with-no-caption-below-it),
+      [sdk-v1.md §5.12](sdk-v1.md#512-the-time-over-a-widget-with-no-caption-below-it-217)). `visual/17-time-corner`,
+      `corpus/safe-area`.
 - [ ] A test bot sends widgets (≤ 4 KB compressed, every conformance widget included) to a
       tester's private chat; forward them into the shared test channel (bots may send
       widgets only to private chats).
@@ -51,8 +58,9 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       sets the theme variables on the root, propagates a body background to the whole
       bubble and honours `user-select: text` (`docs/decisions.md`, "The renderer's
       defaults", "Text selection").
-- [ ] Links: `openLink` / `openTelegramLink` only from a real tap; confirmation
-      showing the full URL; then open ([sdk-v1.md §5.2](sdk-v1.md#52-links)).
+- [ ] Links: `openLink` / `openTelegramLink` only from a real tap; `openLink` with a
+      confirmation showing the full URL, then open; `openTelegramLink` straight into the
+      client's `t.me` handling, no confirmation of its own ([sdk-v1.md §5.2](sdk-v1.md#52-links)).
 - [ ] Haptics with the rate limit ([sdk-v1.md §5.3](sdk-v1.md#53-haptics)).
 - [ ] Storage per (account, chat, message id) on disk, preloaded at creation,
       committed from `onStorageCommit`, deleted with the message, the chat, the

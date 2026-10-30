@@ -9,7 +9,9 @@ export function createWebAnimations(api: any): any {
   const resolved = NativePromise.resolve();
   const then = NativePromise.prototype.then;
   const microtask = (fn: any) => { then.call(resolved, fn); };
-  const MAX_ANIMATIONS = 1024;
+  /** Live script animations sent to the renderer (the validator's cap: 64 strict, 1024 compat); further ones are not rendered. */
+  const MAX_ANIMATIONS = Number(api.maxAnimations) > 0 ? Number(api.maxAnimations) : 64;
+  const MAX_CSS_CACHE = 1024;
   const MAX_KEYFRAMES = 64;
   const MAX_PROPERTIES = 64;
   const MAX_VALUE = 4096;
@@ -1075,7 +1077,7 @@ export function createWebAnimations(api: any): any {
     }
     const timing: any = { duration: Math.max(0, Number(r.duration) || 0), delay: Number(r.delay) || 0, iterations: r.iterations === null ? Infinity : Math.max(0, Number(r.iterations) || 0), direction: r.direction, fill: r.fill, easing: r.easing };
     if (!a) {
-      if (cssCache.size >= MAX_ANIMATIONS) cssCache.clear();
+      if (cssCache.size >= MAX_CSS_CACHE) cssCache.clear();
       let effect;
       try {
         effect = new KeyframeEffect(target, null, timing);
@@ -1619,9 +1621,15 @@ export function createWebAnimations(api: any): any {
 
 let enabled = false;
 let instance: any = null;
+let maxAnimations = 64;
 
 export function setWebAnimations(on: boolean): void {
   enabled = on;
+}
+
+/** Strict (the default): 64 live script animations, as the validator; compat: 1024. */
+export function setAnimationLimit(strict: boolean): void {
+  maxAnimations = strict ? 64 : 1024;
 }
 
 export function webAnimationsEnabled(): boolean {
@@ -1631,7 +1639,7 @@ export function webAnimationsEnabled(): boolean {
 export function webAnimations(): any {
   return instance ??= createWebAnimations({
     host, diag, unsupported, reportError: (e: unknown) => reportError(e), Event, EventTarget, nodeId: mirroredId, nodeById,
-    setTimer: hostTimer, clearTimer: clearHostTimer, timeOrigin, query, invalidateLayout,
+    setTimer: hostTimer, clearTimer: clearHostTimer, timeOrigin, query, invalidateLayout, maxAnimations,
   });
 }
 

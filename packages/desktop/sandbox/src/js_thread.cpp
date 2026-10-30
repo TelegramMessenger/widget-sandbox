@@ -83,10 +83,22 @@ std::shared_ptr<JSThread::Scheduled> JSThread::after(double seconds, std::functi
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (stopping_) { handle->cancel(); return handle; }
+        // A cancelled timer waits here until its time, up to 24 h for a widget's: once the queue has doubled since the
+        // last sweep they are swept out, so a widget setting and clearing timers in a loop cannot grow it (Kotlin's
+        // removeCallbacks, Swift's Timer.invalidate).
+        if (timers_.size() >= sweepAt_) {
+            std::erase_if(timers_, [](const auto& e) { return e.second.handle->cancelled(); });
+            sweepAt_ = std::max<size_t>(64, timers_.size() * 2);
+        }
         timers_.emplace(at, Timer{handle, std::move(fn)});
     }
     cv_.notify_one();
     return handle;
+}
+
+size_t JSThread::queuedTimers() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return timers_.size();
 }
 
 void JSThread::stop() {

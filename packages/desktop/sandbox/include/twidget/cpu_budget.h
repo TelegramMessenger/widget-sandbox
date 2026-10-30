@@ -5,6 +5,12 @@
 // postponed until the oldest busy bucket leaves the window — never dropped or
 // killed. Events always run with a floor of 50 ms.
 //
+// The engine keeps two of them (docs/decisions.md, "Strict limits from the start"):
+// the JS quota (`cpuQuotaMs`, JS time only) and the main-thread window
+// (`mainThreadQuotaMs`): the host's own work for the widget, its layout queries
+// and the modelled cost of the ops it forwards (`opsCostMs`). A deferrable task
+// waits while either window is spent.
+//
 // Pure and side-effect free; checked against tests/fixtures/cpu-budget.json
 // (copied to desktop/tests/fixtures by `pnpm build:desktop`).
 #pragma once
@@ -29,10 +35,16 @@ public:
     static constexpr double kFloorMs = 50;
     /// Kinds that may be postponed. `boot`, `event` and `visibility` always run.
     static bool deferrable(std::string_view kind);
-    /// A task's layout queries may block the host for at most this much, or the task's slice if that is longer.
-    static constexpr double kQueryBudgetMinMs = 100;
-    /// Layout-query budget of one task with `sliceMs` of CPU (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
-    static double queryBudgetMs(double sliceMs) { return std::max(sliceMs, kQueryBudgetMinMs); }
+    /// A task's layout queries may block the host for at most this much, whatever its slice (boot included).
+    static constexpr double kQueryBudgetMs = 100;
+    /// Layout-query budget of one task (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
+    static double queryBudgetMs(double /*sliceMs*/) { return kQueryBudgetMs; }
+    /// Modelled main-thread cost of one op the glue forwards to the validator, and of one canvas command in it.
+    static constexpr double kOpCostMs = 0.025;
+    static constexpr double kCanvasCommandCostMs = 0.002;
+    /// What a batch of `ops` ops with `canvasCommands` canvas commands costs the host's main thread (cpu-budget.ts
+    /// `opsCostMs`): deterministic, from what the widget sent.
+    static double opsCostMs(double ops, double canvasCommands) { return ops * kOpCostMs + canvasCommands * kCanvasCommandCostMs; }
 
     CpuBudget(double cpuLimitMs, double cpuQuotaMs, double cpuQuotaWindowMs, double cpuKillAfterMs);
 

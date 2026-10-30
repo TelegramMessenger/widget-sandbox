@@ -19,7 +19,16 @@ const DEFAULTS: Record<string, any> = {
   letterSpacing: '0px', wordSpacing: '0px', fontKerning: 'auto', fontStretch: 'normal', fontVariantCaps: 'normal',
   textRendering: 'auto',
 };
-const MAX_BUFFERED = 400_000;
+/**
+ * Commands one canvas may buffer in one task: the validator's per-send cap. Strict (the default): the next command
+ * throws RangeError, so the author sees the error where the host would stop the widget; compat: dropped, as before.
+ */
+let maxBuffered = 10_000;
+let throwPastLimit = true;
+export function setCanvasLimits(strict: boolean) {
+  maxBuffered = strict ? 10_000 : 400_000;
+  throwPastLimit = strict;
+}
 
 // Canvas words (docs/protocol.md): when the host advertises `canvasWords` and the
 // glue installs `__hostCanvas`, commands are written into a Float64Array per
@@ -221,6 +230,7 @@ let objectSeq = 1;
 function buffer(canvas: any): Buffer {
   let cmds = pending.get(canvas);
   if (!cmds) pending.set(canvas, (cmds = wordsEnabled ? new WordBuffer() : []));
+  if (throwPastLimit && cmds.length >= maxBuffered) throw new RangeError(`Canvas limit exceeded: more than ${maxBuffered} commands for one canvas in one task (max ${maxBuffered})`);
   return cmds;
 }
 
@@ -398,8 +408,8 @@ export class Context2D {
   }
   _push(cmd: any[]) {
     const cmds = buffer(this.canvas);
-    if (cmds.length > MAX_BUFFERED) {
-      if (cmds.length === MAX_BUFFERED + 1) diag('canvas', 'too many buffered canvas commands; dropping');
+    if (cmds.length > maxBuffered) {
+      if (cmds.length === maxBuffered + 1) diag('canvas', 'too many buffered canvas commands; dropping');
       return;
     }
     while (cmd.length && cmd[cmd.length - 1] === undefined) cmd.pop();
@@ -457,7 +467,7 @@ for (const name of CALLS) {
     let argc = args.length;
     while (argc > 0 && args[argc - 1] === undefined) argc--;
     const cmds = buffer(this.canvas);
-    if (!Array.isArray(cmds) && cmds.length <= MAX_BUFFERED && cmds.call(name, args, argc)) {
+    if (!Array.isArray(cmds) && cmds.length <= maxBuffered && cmds.call(name, args, argc)) {
       markDirty(this.canvas);
       return;
     }
@@ -469,7 +479,7 @@ for (const name of ['fillRect', 'strokeRect', 'clearRect']) {
   Context2D.prototype[name] = function (this: Context2D, a: any, b: any, c: any, d: any) {
     if (rectFast && arguments.length === 4 && Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d)) {
       const cmds = buffer(this.canvas);
-      if (!Array.isArray(cmds) && cmds.length <= MAX_BUFFERED && cmds.rect(name, a, b, c, d)) {
+      if (!Array.isArray(cmds) && cmds.length <= maxBuffered && cmds.rect(name, a, b, c, d)) {
         markDirty(this.canvas);
         return;
       }
@@ -493,7 +503,7 @@ for (const name of Object.keys(DEFAULTS)) {
       else if (typeof v !== 'string') return;
       this._s[name] = v;
       const cmds = buffer(this.canvas);
-      if (!Array.isArray(cmds) && cmds.length <= MAX_BUFFERED && cmds.set(name, v)) {
+      if (!Array.isArray(cmds) && cmds.length <= maxBuffered && cmds.set(name, v)) {
         markDirty(this.canvas);
         return;
       }

@@ -1,22 +1,22 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 267 features: 188 in (4 conditional on every renderer drawing them), 79 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 277 features: 199 in (4 conditional on every renderer drawing them), 78 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
 | html | 34 | 20 | 14 | 0 | 34 |
 | svg | 10 | 5 | 5 | 0 | 10 |
-| css | 76 | 54 | 22 | 0 | 76 |
+| css | 76 | 55 | 21 | 0 | 76 |
 | selector | 13 | 7 | 6 | 0 | 13 |
 | at-rule | 13 | 5 | 8 | 0 | 13 |
 | animation | 8 | 7 | 1 | 0 | 8 |
 | canvas | 21 | 13 | 8 | 0 | 21 |
 | js | 34 | 25 | 9 | 0 | 34 |
-| sdk | 17 | 16 | 1 | 0 | 17 |
+| sdk | 18 | 17 | 1 | 0 | 18 |
 | input | 14 | 9 | 5 | 0 | 14 |
-| limit | 11 | 11 | 0 | 0 | 7 |
-| behaviour | 16 | 16 | 0 | 0 | 16 |
-| **all** | 267 | 188 | 79 | 0 | 263 |
+| limit | 19 | 19 | 0 | 0 | 13 |
+| behaviour | 17 | 17 | 0 | 0 | 17 |
+| **all** | 277 | 199 | 78 | 0 | 271 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the pipeline of the tag does with it under `strict`: profile 1 enforced, SDK v1; legend below), **tests** (conformance widgets that judge it).
 
@@ -63,8 +63,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `svg.shapes` | Inline <svg>: rect, circle, ellipse, line, polyline, polygon, path with presentation attributes | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
-| `svg.structure` | g, defs, symbol, use (fragment href), transform attribute, viewBox/preserveAspectRatio | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
+| `svg.shapes` | Inline <svg>: rect, circle, ellipse, line, polyline, polygon, path with presentation attributes | in | D3a | kept |  | auto/13-svg-a, auto/30-svg-fill-box, visual/09-svg-a |
+| `svg.structure` | g, defs, symbol, use (fragment href), transform attribute, viewBox/preserveAspectRatio | in | D3a | kept |  | auto/13-svg-a, auto/30-svg-fill-box, visual/09-svg-a |
 | `svg.text` | SVG text, tspan | in | D3a | kept |  | auto/13-svg-a, visual/09-svg-a |
 | `svg.gradients` | linearGradient, radialGradient, stop; fill="url(#id)" | in | P1 | kept |  | auto/13-svg-a, visual/09-svg-a |
 | `svg.css` | CSS on inline SVG: fill/stroke from a stylesheet rule, :hover, CSS animation of SVG properties<br><sub>Blitz and the litehtml prototype ignore SVG CSS (probe svg-css).</sub> | in | P1 | kept |  | auto/13-svg-a, visual/09-svg-b |
@@ -81,15 +81,15 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.display.basic` | display: block, inline, inline-block, none | in | D3a | kept |  | auto/03-layout-a |
 | `css.display.flex` | Flexbox: display flex/inline-flex, direction, wrap, justify-content, align-items/self/content, flex grow/shrink/basis, order | in | D3a | kept |  | auto/03-layout-a, visual/04-layout |
 | `css.gap.flex` | gap / row-gap / column-gap in flex containers<br><sub>Missing in the litehtml prototype (probe flex-gap).</sub> | in | D3a | kept |  | auto/03-layout-a, visual/04-layout |
-| `css.display.grid` | CSS grid: display grid, grid-template-*, grid-area/column/row, auto-flow, place-* | in | P1-grid | kept |  | auto/03-layout-a, visual/04-layout |
+| `css.display.grid` | CSS grid: display grid, grid-template-*, grid-area/column/row, auto-flow, place-* | in | P1-grid | kept |  | auto/03-layout-a, auto/28-grid-percent-fill, auto/29-grid-svg-marks, visual/04-layout |
 | `css.display.table` | display: table / table-row / table-cell | in | D3a | kept |  | auto/03-layout-c |
 | `css.display.other` | display: flow-root, contents, list-item | out | P1 | stripped | the declaration is dropped | auto/03-layout-c |
-| `css.box.size` | width, height, min-/max-width/height (px, %, auto, fit-content, min/max-content) | in | D3a | kept |  | auto/03-layout-b |
+| `css.box.size` | width, height, min-/max-width/height (px, %, auto, fit-content, min/max-content) | in | D3a | kept |  | auto/03-layout-b, auto/28-grid-percent-fill, auto/29-grid-svg-marks |
 | `css.box.spacing` | margin, padding (incl. auto margins and negative margins) | in | D3a | kept |  | auto/03-layout-b |
 | `css.box.border` | border width/style/colour (solid, dashed, dotted, double) | in | D3a | kept |  | auto/03-layout-b, visual/01-boxes |
 | `css.box.radius` | border-radius, including clipping of the background | in | D3a | kept |  | auto/03-layout-c, visual/01-boxes |
 | `css.box.sizing` | box-sizing: border-box / content-box | in | D3a | kept |  | auto/03-layout-b |
-| `css.box.aspect-ratio` | aspect-ratio<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/03-layout-b |
+| `css.box.aspect-ratio` | aspect-ratio<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/03-layout-b, auto/29-grid-svg-marks |
 | `css.box.logical` | Logical properties: margin-inline, padding-block, inset-inline, inline-size, …<br><sub>Used by LLM widgets (15 % of generated); missing in the litehtml prototype.</sub> | out | P1 | stripped | the declaration is dropped | auto/03-layout-b |
 | `css.box.outline` | outline (width, style, colour, offset) | in | D3a | kept |  | auto/03-layout-b, auto/05-colour-backgrounds-b, visual/01-boxes |
 | `css.box.shadow` | box-shadow (outer, inset, spread, several layers) | in | D3a | kept |  | auto/05-colour-backgrounds-b, visual/01-boxes |
@@ -134,7 +134,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.text.rtl` | Right-to-left and bidi text (direction, unicode-bidi, Hebrew/Arabic shaping) | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
 | `css.text.emoji` | Colour emoji glyphs (system emoji font)<br><sub>Blitz on iOS had blank emoji on the vello backend.</sub> | in | D3a | kept |  | auto/06-text-fonts-c, visual/03-text-b |
 | `css.text.selection` | Text selection: not selectable by default; user-select: text (or -webkit-user-select) enables it (none \| text \| auto)<br><sub>user-select: all and contain, and ::selection, stay out. A native renderer that cannot select text yet keeps it unselectable: the widget still works (an accepted exception to 'every client draws it', like :hover).</sub> | in | D18 | kept |  | auto/06-text-fonts-c, visual/16-selection |
-| `css.transform.2d` | 2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
+| `css.transform.2d` | 2D transforms: translate, rotate, scale, skew, matrix; transform-origin; the translate/rotate/scale properties<br><sub>Missing in the litehtml prototype.</sub> | in | D3a | kept |  | auto/09-transforms-effects-a, auto/30-svg-fill-box, visual/05-transforms-effects-a |
 | `css.transform.3d` | 3D transforms: rotateX/Y/3d, translateZ/3d, scaleZ/3d, matrix3d, perspective, transform-style, backface-visibility | out | D3a | stripped | a transform with a 3D function is dropped; perspective, transform-style and backface-visibility are dropped | auto/09-transforms-effects-a, visual/05-transforms-effects-a, visual/13-out-of-profile |
 | `css.filter.blur-brightness-drop-shadow` | filter: blur(), brightness(), drop-shadow()<br><sub>Not drawn by Blitz or the litehtml prototype today (probe filter).</sub> | in* | D3a | kept |  | auto/09-transforms-effects-a, visual/05-transforms-effects-a |
 | `css.filter.other` | filter: grayscale(), sepia(), saturate(), contrast(), hue-rotate(), invert(), opacity() | out | P1 | stripped | the function is removed from the filter list; an empty list drops the declaration | auto/09-transforms-effects-a, visual/05-transforms-effects-b |
@@ -153,7 +153,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `css.value.custom-properties` | Custom properties and var() with fallbacks; inheritance | in | D3a | kept |  | auto/04-values-units |
 | `css.value.keywords` | inherit, initial, unset, revert; !important | in | D3a | kept |  | auto/04-values-units |
 | `css.value.content` | content in ::before/::after: strings, attr(data-*), counters<br><sub>Strict: attr() reads only budgeted attributes.</sub> | in | D3a | kept |  | auto/04-values-units |
-| `css.value.env` | env() (safe-area-inset-*, …) | out | P1 | stripped | the declaration is dropped (or env() resolves to its fallback) | auto/04-values-units |
+| `css.value.env` | env() (safe-area-inset-*, …)<br><sub>env(safe-area-inset-top\|right\|bottom\|left[, fallback]) becomes var(--tg-content-safe-area-inset-…[, fallback]), the root variable the renderer sets (the client's time over the bottom corner of a widget with no caption below it); another name resolves to its fallback or the declaration is dropped; never inside url().</sub> | in | P1-safe-area | replaced |  | auto/04-values-units, auto/36-safe-area, visual/17-time-corner |
 
 ## selector
 
@@ -195,8 +195,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `anim.transition` | CSS transitions (property, duration, delay incl. negative, timing functions) | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
-| `anim.keyframes` | CSS animations: animation-name/duration/delay/iteration-count/direction/fill-mode/timing-function<br><sub>Not driven by Blitz or the litehtml prototype.</sub> | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
+| `anim.transition` | CSS transitions (property, duration, delay incl. negative, timing functions) | in | D3a | kept |  | auto/10-css-animations, auto/28-grid-percent-fill, visual/06-css-animations |
+| `anim.keyframes` | CSS animations: animation-name/duration/delay/iteration-count/direction/fill-mode/timing-function<br><sub>Not driven by Blitz or the litehtml prototype.</sub> | in | D3a | kept |  | auto/10-css-animations, auto/30-svg-fill-box, visual/06-css-animations |
 | `anim.play-state` | animation-play-state: paused (and negative delays) freeze a frame | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
 | `anim.easing` | Timing functions: ease*, linear, cubic-bezier(), steps(), linear() stops | in | D3a | kept |  | auto/10-css-animations, visual/06-css-animations |
 | `anim.events` | animationstart/end/iteration and transitionend events reach the widget | in | D3a | kept |  | auto/10-css-animations |
@@ -250,7 +250,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `js.timers` | setTimeout / setInterval / clear*, ordering, clamped delays | in | P1 | kept |  | auto/15-js-runtime-a |
 | `js.raf` | requestAnimationFrame / cancelAnimationFrame (frames from the renderer) | in | P1 | kept |  | auto/15-js-runtime-a |
 | `js.microtasks` | Promise, async/await, queueMicrotask | in | P1 | kept |  | auto/15-js-runtime-a |
-| `js.storage.local` | localStorage: per (account, chat, message), preloaded, 16 KB, QuotaExceededError past it<br><sub>The shim keeps the map (16 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.</sub> | in | D17 | host |  | auto/15-js-runtime-a, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
+| `js.storage.local` | localStorage: per (account, chat, message), preloaded, 4 KB, QuotaExceededError past it<br><sub>The shim keeps the map (4 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.</sub> | in | D17 | host |  | auto/15-js-runtime-a, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
 | `js.storage.session` | sessionStorage: same key, in memory until app restart | in | D17 | host |  | auto/15-js-runtime-a, visual/sdk/07-storage-recreate, visual/sdk/08-storage-restart |
 | `js.intl` | Intl.NumberFormat, DateTimeFormat, PluralRules, RelativeTimeFormat, ListFormat, Collator (host ICU) | in | P1 | host |  | auto/15-js-runtime-b |
 | `js.intl.format-to-parts` | Intl.NumberFormat/DateTimeFormat formatToParts<br><sub>Numbers and dates, in every glue copy.</sub> | in | P1 | host |  | auto/15-js-runtime-b |
@@ -279,6 +279,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `tw.events` | onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type | in | SDK | kept |  | auto/16-sdk-taps-c, visual/sdk/14-theme-palette |
 | `tw.is-active` | TelegramWidget.isActive mirrors visibility (activated / deactivated) | in | SDK | kept |  | auto/16-sdk-taps-c, auto/20-client-behaviour |
 | `tw.resize-anchor` | TelegramWidget.setResizeAnchor('top' \| 'bottom'): the edge of the bubble that stays put when the widget's height changes<br><sub>v0.1.3: detect it with typeof TelegramWidget.setResizeAnchor === 'function'; anything but 'top' or 'bottom' throws TypeError; the host reports it with the height.</sub> | in | R1 | host |  | auto/24-resize-anchor, visual/sdk/18-resize-anchor |
+| `tw.content-safe-area` | TelegramWidget.contentSafeAreaInset { top, right, bottom, left, cornerLeft, cornerRight } (logical px, frozen, a fresh object per change) and contentSafeAreaChanged, with the --tg-content-safe-area-inset-* / -corner-left\|right variables on the root, updated in one task<br><sub>bottom is the height of the band the client draws the message time in over a widget with no caption below it; cornerRight (left-to-right interface) or cornerLeft (right-to-left) the width of its corner in that band; 0 with a caption below.</sub> | in | P1-safe-area | host |  | auto/36-safe-area, visual/17-time-corner |
 | `tw.bot-data` | TelegramWidget.chatData and publicData: the bot's two strings (text of at most 1024 bytes each, read-only, null for none); chatDataChanged / publicDataChanged when they change<br><sub>chatData belongs to one original message (in a group every member sees it) and is null in a forward; publicData is the forward's snapshot or a value shared with the original; one change of both fires both, chat first; an unchanged value fires nothing.</sub> | in | I1 | host |  | auto/25-state-api-a, visual/sdk/16-state-edit, visual/sdk/25-group-chat-state |
 | `tw.context` | TelegramWidget.isForward, chatType and viewer (a WebAppUser): a forwarded copy, the kind of chat, who looks; no chatType in a forward, no viewer where the widget may not ask the bot<br><sub>viewer is shaped like Mini Apps' WebAppUser (id, first_name, last_name, username, is_premium only when true; names 1-64 UTF-16 code units, a username 5-32 of [A-Za-z0-9_]; a field that breaks its rule is left out); chatType is private, group, supergroup or channel and null in every forward (a copy is told nothing about its chat); viewer only where the message has can_query (an original sent with allow_queries, a forward of one sent with fwd_allow_queries), else null.</sub> | in | I1 | host |  | auto/25-state-api-a, auto/26-context-copy, auto/26-context-group, auto/26-context-live-copy, auto/26-context-no-queries, auto/26-context-preview, auto/26-context-private, visual/sdk/20-forward-requests, visual/sdk/25-group-chat-state |
 | `tw.request` | TelegramWidget.request(data): a callback button inside the widget; data of 1-64 bytes, resolves { result } (text of at most 1024 bytes), rejects with error.code; where it may ask is the server's flag per message<br><sub>On a tap where can_query (originals of a widget sent with allow_queries, forwards of one sent with fwd_allow_queries; the client shows a network marker there), in the background only where background_query (the original in the private chat with the bot) while visible: one when the widget appears on screen, then one per 5 s; one in flight; the answer carries no data.</sub> | in | I1 | host |  | auto/25-state-api-b, auto/26-context-copy, auto/26-context-group, auto/26-context-live-copy, auto/26-context-no-queries, auto/26-context-preview, auto/26-context-private, visual/sdk/19-request-tap |
@@ -314,13 +315,21 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 
 | ID | Feature | Status | Decision | Today | Out: neutralised as | Tests |
 |---|---|---|---|---|---|---|
-| `limit.text-node` | Text values (text node, string property) up to 64 KB (strict) | in | D5 | kept |  | auto/19-limits |
-| `limit.text-budget` | Document text budget 256 K units, complex-script text 8192 units (strict) | in | D5 | kept |  | auto/19-limits |
+| `limit.text-node` | Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict) | in | D5 | kept |  | auto/19-limits, auto/31-stop-text |
+| `limit.text-budget` | Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict) | in | D5 | kept |  | auto/19-limits |
 | `limit.nodes` | At most 50 000 nodes | in | P1 | kept |  |  |
-| `limit.timers` | At most 256 live timers (RangeError past it) | in | P1 | kept |  | auto/19-limits |
-| `limit.cpu` | CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task | in | P1 | kept |  |  |
-| `limit.memory` | QuickJS heap 64 MB | in | P1 | kept |  |  |
-| `limit.storage` | localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing | in | D17 | kept |  | auto/15-js-runtime-a, visual/sdk/10-storage-quota |
+| `limit.timers` | At most 64 live timers (RangeError past it) | in | P1 | kept |  | auto/19-limits |
+| `limit.cpu` | CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task | in | P1 | kept |  |  |
+| `limit.memory` | QuickJS heap 8 MB | in | P1 | kept |  |  |
+| `limit.storage` | localStorage and sessionStorage: 4 KB per area and message (4096 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing | in | D17 | kept |  | auto/15-js-runtime-a, visual/sdk/10-storage-quota |
+| `limit.attribute` | Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict) | in | L1 | kept |  | auto/19-limits, auto/32-stop-attribute |
+| `limit.batch` | At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict) | in | L1 | kept |  | auto/33-stop-batch |
+| `limit.css-rules` | At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict) | in | L1 | kept |  | auto/34-stop-css-rules |
+| `limit.canvas-commands` | At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers) | in | L1 | kept |  | auto/19-limits |
+| `limit.animations` | At most 64 running script animations (further ones are not rendered; strict) | in | L1 | kept |  |  |
+| `limit.main-thread` | The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it) | in | L1 | host |  |  |
+| `limit.canvas-pixels` | A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096) | in | L1 | kept |  | auto/35-stop-canvas-pixels |
+| `limit.image-pixels` | A data: image of at most 1024 × 1024 pixels, as its bytes say (larger: the placeholder); bytes of none of the profile's image formats are a broken image | in | L1 | kept |  | auto/19-limits |
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | kept |  | auto/16-sdk-taps-a, visual/sdk/03-link-rejected |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in | SDK | kept |  | auto/20-client-behaviour |
 | `limit.haptic-rate` | Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit) | in | SDK | kept |  | auto/16-sdk-taps-c, auto/27-haptics-no-touch, visual/sdk/06-haptics-rate, visual/sdk/26-haptics-no-touch |
@@ -340,6 +349,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `behaviour.storage-forward` | A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty<br><sub>Testable with a test bot: forward its message into another chat; the copy starts with empty storage.</sub> | in | SDK | host |  | visual/sdk/15-storage-forward |
 | `behaviour.message-edit` | The HTML of a sent widget never changes (an edit may change only the caption): a bot changes only chatData and publicData (behaviour.data-edit)<br><sub>visual/sdk/16-bot-edit still tests an HTML edit, which the server does not allow, and is to be replaced by a data-edit case once the server ships editMessageWidgetData.</sub> | in | I1 | host |  | visual/sdk/16-state-edit |
 | `behaviour.resize-anchor` | When an auto height changes, the client keeps the widget's anchored edge in place on screen: top (default), the content below moves; bottom, the content above moves; also from a cached height and after a re-creation<br><sub>v0.1.3: WidgetDiagnostics.resizeAnchor / web onResize(height, anchor); the old pixels stay aligned to the anchored edge during a height animation.</sub> | in | R1 | host |  | visual/sdk/18-resize-anchor |
+| `behaviour.time-corner` | A widget with no caption below it (none, or one shown above it) gets the message time and status over its bottom corner, on a backing as on a photo, and taps on it are the client's; the client passes the band (contentSafeArea bottom) and its corner (cornerRight, or cornerLeft in a right-to-left interface) before the first render and changes them only with the bubble's layout (a caption added, removed or moved above or below by an edit, "edited"); with a caption below the time is in the caption's line and the safe area is 0<br><sub>WidgetHost contentSafeArea / setContentSafeArea on every host; never per frame; the floating day pill has no contract and is drawn over the widget like over a photo.</sub> | in | P1-safe-area | host |  | visual/17-time-corner |
 | `behaviour.data-edit` | A change of the bot's data reaches the running widget as chatDataChanged / publicDataChanged (the client's setData with the full state: the server's update, or the polled shared public_data): no new host, no restart<br><sub>The client keeps the values with the message; a shared widget's public_data (widget_id) is polled for one visible carrier per id, one message per call, at the object's period and applied to every widget with that id, forwards included; an answer carries no data; testable with a test bot once the server ships.</sub> | in | I1 | host |  | visual/sdk/16-state-edit, visual/sdk/24-watch-public-data, visual/sdk/25-group-chat-state |
 | `behaviour.forward-copy` | A forwarded copy never has chatData; its publicData is the forward's snapshot or the shared value; it is told nothing about the chat it is in (no chatType); it asks the bot only on a tap and only if the widget was sent with fwd_allow_queries, and otherwise has no viewer either<br><sub>The client passes the server's flags (is_copy, can_query); the framework drops chatData and chatType of a copy, and viewer of any message without can_query.</sub> | in | I1 | host |  | visual/sdk/20-forward-requests |
 | `behaviour.preview` | A widget in a list of inline results is a preview: the client creates it with context.preview and the result's data, routes no touches to it (a tap selects the result) and creates a new host for the sent message<br><sub>The host drops the preview's input, every bridge call but ready and setResizeAnchor, and its storage commits; chatType and viewer are null.</sub> | in | I1 | host |  | visual/sdk/23-preview |
@@ -366,12 +376,13 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D4**: Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)
 - **D5**: strict policy everywhere; webAnimations and morphUpdates from the profile
 - **D6**: 3D (__tw3d) cut from the release
-- **D8**: SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage
+- **D8**: SDK outward: openLink (confirmed with the full URL) and openTelegramLink (no confirmation of its own, 2026-10-29) on a tap, haptics; no sendMessage
 - **SDK**: SDK v1 (docs/sdk-v1.md), with Artem's answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble (replaced by G1 in v0.1.2)
 - **D11**: One widget model: classic DOM in the sandbox
 - **D12a**: Above the cap: hard clip, no fullscreen
 - **D14**: Theme: themeParams + --tg-theme-*, theme change event
-- **D17**: State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 16 KB, QuotaExceededError; sessionStorage in memory
+- **D17**: State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory
+- **L1**: Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)
 - **D18**: Text is not selectable by default; a widget enables selection with user-select: text (2026-10-20, replaces "Text selection forbidden")
 - **D20**: Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits
 - **D21**: No accessibility in v1
@@ -391,3 +402,4 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **G2**: Vertical drags are the chat's, v0.1.3 (Artem, 2026-10-24): a widget claims only horizontal drags; a vertical drag over a widget always scrolls the chat, whatever touch-action says, and the widget gets pointercancel. auto: holds and drags are the bubble's; pan-y: horizontal drags are the widget's; pan-x claims nothing; none: horizontal drags and holds (contextmenu) are the widget's. The axis lock (the first move past the 10 px slop decides for the whole press), double taps and the leading 20 px are unchanged. The engine under the renderer always allows vertical panning. Replaces G1's pan-x and the vertical half of none
 - **R1**: Resize anchor, v0.1.3 (Artem, 2026-10-24): TelegramWidget.setResizeAnchor('top' | 'bottom') says which edge of the bubble stays put on screen when the widget's height changes (top by default: it grows downward; bottom: it grows upward and the content above moves). An SDK v1 addition inside profile 1: TelegramWidget.profile stays 1 and widgets detect the method with typeof. It goes through the bridge as a checked call (sdk-policy, four copies and the fixture), needs no gesture, and the host keeps the latest value and reports it with the height; the client's list compensates its scroll
 - **I1**: The bot's data and requests (Artem, 2026-10-25; the server's spec): a widget is fixed code plus changeable state: the HTML never changes after sending; the state changes, and only the bot writes it. TelegramWidget.chatData, the chat state (one original message, seen only in its chat: in a group every member sees it; never forwarded), and publicData, the shared state (wherever the widget is shown: a forward gets a copy, or shares a shared widget's one state with the original): each a text of up to 1024 bytes (UTF-8), read-only in the widget; chatDataChanged / publicDataChanged when they change (no restart). isForward, chatType and viewer (Mini Apps' WebAppUser: id, first_name, last_name, username, is_premium; a field that breaks its rule is left out); a forward is told nothing about the chat it is in (no chatType: the bot must not learn where its widget was forwarded), and the widget knows its viewer only where it may ask the bot (can_query), originals included. request(data of 1-64 bytes): a callback button inside the widget; where it may ask is the server's per message (can_query: originals of a widget sent with allow_queries, forwards of one sent with fwd_allow_queries; background_query: the original in the private chat with the bot); the client marks a widget with can_query as one whose tap may send data to the bot's server; on a tap, one per tap (shared with openLink, openTelegramLink and copyText); in the background while visible: one when the widget appears on screen, then one per 5 s; one in flight; resolves { result } (text of at most 1024 bytes), rejects with error.code; the answer does not change the state. copyText(text of 1-256 characters) on a tap; the client's toast shows what it copied. Part of SDK v1 and layer 233 from the launch, inside profile 1. TelegramWidget.isPreview: an inline result in the list before it is sent gets its state but no input, no bridge call but ready and setResizeAnchor, no chat type or viewer, and Web Storage that is never committed. The checks are sdk-policy (four copies and the fixture)
+- **P1-safe-area**: Clarified on 2026-10-29 (Artem; widgets were not launched yet), not profile 2: a client draws the message time and its status over the bottom corner of a widget with no caption below it, as on a photo (with a caption below the time is in the caption's line and nothing is drawn over the widget; a caption shown above the widget, invert_media, is as none: Artem's decision of 2026-10-30). env(safe-area-inset-top|right|bottom|left[, fallback]) is in: the validator rewrites it to var(--tg-content-safe-area-inset-…[, fallback]), root variables the renderer sets like the theme's (bottom = the height of the time's band, the others 0), with --tg-content-safe-area-corner-left|right for the width of the client's corner in that band (a physical side: right in a left-to-right interface, left in a right-to-left one); 0 with a caption below. Another env() name resolves to its fallback or drops the declaration. The UA layer adds the band to the body's bottom padding, and TelegramWidget.contentSafeAreaInset with the contentSafeAreaChanged event gives the same numbers to script

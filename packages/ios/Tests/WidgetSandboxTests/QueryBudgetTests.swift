@@ -44,6 +44,8 @@ final class QueryBudgetTests: XCTestCase {
         let (engine, host) = run("const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }", delay: 0.005, wait: 10)
         let died = engine.queue.sync { host.died }
         XCTAssertTrue(died?.hasPrefix("Layout query limit exceeded") ?? false, died ?? "alive")
+        // 100 ms whatever the slice (the boot task here has 200 ms of CPU).
+        XCTAssertTrue(died?.contains("more than 100 ms in one boot task") ?? false, died ?? "alive")
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
         XCTAssertLessThan(engine.queue.sync { host.queries }, 120)
         engine.terminate()

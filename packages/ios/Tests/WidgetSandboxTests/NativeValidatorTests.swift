@@ -254,8 +254,8 @@ final class NativeValidatorDifferentialTests: XCTestCase {
     }
 
     func testIconExpansionOfFieldsMatchesTheJSONText() {
-        let icons = IconExpansion(resolver: IconExpansionTests.stubResolver) { _, _ in }
-        XCTAssertNotNil(icons.dataURL("icon:airplane"))
+        let icons = IconExpansion(resolver: IconExpansionTests.stubResolver, imageTypes: IconExpansionTests.profileImages) { _, _ in }
+        XCTAssertNotNil(icons.standIn("icon:airplane"))
         let values = ["icon:airplane", "icon:airplane?weight=bold", "icon:nope", "x icon:airplane", "url(icon:airplane)", "url('icon:airplane')", "url(\"icon:airplane\")", "url(\u{a0}icon:airplane)",
                       "url(\u{2003}icon:airplane)", "url(\ticon:airplane)", "url(\nicon:airplane)", "URL(ICON:airplane)", "URL(icon:airplane)", "url(Icon:airplane)", "ICON:airplane", "url( icon:airplane ) url(icon:airplane)", "url(\\\"icon:airplane)", "icon:airplane\n",
                       "a:url(icon:airplane);b:url(icon:airplane)", "icon:" + String(repeating: "a", count: 97), "url(icon:airplane?x=" + String(repeating: "1", count: 401) + ")"]
@@ -279,7 +279,7 @@ final class NativeValidatorDifferentialTests: XCTestCase {
             icons.beginBatch()
             guard case .success(let decoded) = BinaryOps.decode(encoder.finish(), table: BinaryInternTable(), icons: icons) else { return XCTFail(value) }
             XCTAssertEqual(BinaryOps.json(decoded.ops, canvas: [:]), expected, value)
-            if expected.contains("data:image") { replaced += 1 }
+            if expected.contains(icons.standInPrefix) { replaced += 1 }
         }
         XCTAssertGreaterThan(replaced, 6)
     }
@@ -443,6 +443,29 @@ final class BinaryOpsHostileTests: XCTestCase {
             }
             XCTAssertEqual(results[0], results[1], call)
         }
+    }
+
+    /// The client's time over the widget (docs/sdk-v1.md §2.17): the native model hands CSS with `env()` to the script
+    /// validator, so a style op, a `style` attribute and a stylesheet come out rewritten to the root variables exactly as
+    /// the script validator writes them; another `env()` name takes its fallback or is dropped.
+    func testEnvSafeAreaIsRewrittenAsTheScriptValidatorDoes() {
+        let setup = "[{\"op\":\"el\",\"id\":2,\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"el\",\"id\":3,\"tag\":\"style\"},{\"op\":\"ins\",\"parent\":1,\"id\":3,\"before\":null}]"
+        let batch = "[{\"op\":\"style\",\"id\":2,\"name\":\"padding-bottom\",\"value\":\"env(safe-area-inset-bottom, 8px)\",\"important\":false},"
+            + "{\"op\":\"style\",\"id\":2,\"name\":\"margin-bottom\",\"value\":\"env(keyboard-inset-height)\",\"important\":false},"
+            + "{\"op\":\"attr\",\"id\":2,\"name\":\"style\",\"value\":\"padding:0 max(12px,env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom))\"},"
+            + "{\"op\":\"text\",\"id\":4,\"data\":\"a{width:env(keyboard-inset-width,13px)}b{bottom:env(safe-area-inset-bottom)}\"},{\"op\":\"ins\",\"parent\":3,\"id\":4,\"before\":null}]"
+        var results: [NSArray] = []
+        for native in [false, true] {
+            let rig = Rig(native: native)
+            _ = rig.json(setup)
+            results.append(rig.json(batch).0)
+        }
+        XCTAssertEqual(results[0], results[1])
+        let text = String(decoding: (try? JSONSerialization.data(withJSONObject: results[1], options: [.withoutEscapingSlashes])) ?? Data(), as: UTF8.self)
+        XCTAssertTrue(text.contains("var(--tg-content-safe-area-inset-bottom,8px)"), text)
+        XCTAssertTrue(text.contains("padding:0 max(12px,var(--tg-content-safe-area-inset-right)) calc(8px + var(--tg-content-safe-area-inset-bottom))"), text)
+        // The style element's text reaches the renderer only as the sanitized `css` op (its raw text node is never inserted).
+        XCTAssertTrue(text.contains("{\"op\":\"css\",\"id\":3,\"text\":\"a{width:13px}b{bottom:var(--tg-content-safe-area-inset-bottom)}\"}"), text)
     }
 
     func testJSONOpsStillGoThroughTheNativeModel() {

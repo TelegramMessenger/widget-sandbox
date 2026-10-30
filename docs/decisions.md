@@ -523,7 +523,7 @@ information.
 
 ### Strict-policy text limits
 
-Strict validators allow at most 64 Ki UTF-16 units per text value, 256 Ki units across tracked text and comment nodes, and 8192 complex-script units across text nodes. Removal and shrinking release the document budget; resetting a pooled native validator clears it. Since the pre-release hardening the budgets also charge `data-*` / `aria-*` values and the strings of sanitized CSS (see "Strict budgets reach attributes and CSS strings").
+Strict validators allow at most 32 Ki UTF-16 units per text value and 48 Ki units across tracked text and comment nodes (64 Ki and 256 Ki until the strict limits; past either the widget now stops, "Strict limits from the start"), and 8192 complex-script units across text nodes. Removal and shrinking release the document budget; resetting a pooled native validator clears it. Since the pre-release hardening the budgets also charge `data-*` / `aria-*` values and the strings of sanitized CSS (see "Strict budgets reach attributes and CSS strings").
 
 Text mutations longer than 256 UTF-16 units, or containing complex-script, CJK, Kana, Hangul or fullwidth characters, also consume a shared token bucket with an 8192-work-unit burst and a 1024-unit-per-second refill; short Latin, digit and symbol text such as ticker cells is never charged, so a 400-cell ticker updating every frame keeps all its updates. Work counts words separated by whitespace, hyphens, question marks, slashes, or zero-width spaces, and counts CJK, Kana, Hangul, fullwidth and supplementary characters individually. Long unbroken runs cost at least one unit per 1024 UTF-16 units. Creating, replacing, splitting, or removing nodes cannot refund mutation work. Rejected mutations preserve the last accepted text. Compatibility policy keeps its existing limits.
 
@@ -555,15 +555,17 @@ kept the renderer answering forever: the host was busy, the widget alive. Found
 by Misha on the macOS client (54bdfa5); now the rule on every host:
 
 - the wall time of a task's queries is summed (`taskQueryMs`); past
-  `queryBudgetMs(slice) = max(slice, 100 ms)` (`cpu-budget.ts` and its three
-  twins, checked against `tests/fixtures/cpu-budget.json`) the task is
+  `queryBudgetMs = 100 ms` (`cpu-budget.ts` and its three twins, checked against
+  `tests/fixtures/cpu-budget.json`; `max(slice, 100 ms)` until the strict limits, so up to
+  500 ms at boot) the task is
   interrupted at the next poll (the CPU deadline is moved into the past) and
   killed with "Layout query limit exceeded: host queries blocked the renderer
   for more than N ms in one <kind> task"; any further query of that task is
   answered `{"error":"query budget exceeded"}`;
-- the query time is charged to the CPU quota together with the task's CPU
-  (`budget.record(kind, cpuMs + taskQueryMs)`): a layout-heavy widget pays for
-  what it costs the host, and the quota throttles it like a busy one;
+- the query time is charged to the host's main-thread window (with the modelled
+  cost of the task's ops; it was charged to the CPU quota with the task's CPU
+  until the strict limits): a layout-heavy widget pays for what it costs the host,
+  and the window throttles it like a busy one;
 - both counters reset at the start of each task.
 
 The budget is per task, not per widget, so an ordinary widget that measures a
@@ -572,11 +574,12 @@ while a forced-layout loop reaches it within the first task. The Node harness
 keeps the same accounting (its answers are in-process, so only a slow `answer`
 callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
 
-### 256 timers, and an error instead of a hang
+### 64 timers, and an error instead of a hang
 
 - Telegram allows 16 timers; browsers have no limit. D3 transitions and
-  staggered animations put dozens of timers in flight, so 256 is the default,
-  configurable (`maxTimers`).
+  staggered animations put dozens of timers in flight, so 256 was the default,
+  configurable (`maxTimers`); 64 since the strict limits (the busiest widget of
+  the corpora holds 31).
 - The cap used to be 2000 and silent: the glue dropped the timer and the shim
   returned an id whose callback never came — a hang with no error. Now the
   shim throws `RangeError('too many timers (max N)')` (reported once as
@@ -624,7 +627,8 @@ callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
   `JS_SetMemoryLimit` throws natively; the glue keeps working at the cap
   (host → VM strings, calls) and memory is reusable after the widget frees it.
   `setMemoryLimit` stays as the cheap first check for one huge allocation.
-  The footprint of a worker is therefore bounded by 80 MB; a polling or
+  The footprint of a worker is therefore bounded by 16 MB + the limit (24 MB at
+  the 8 MB default of the strict limits, 80 MB at the 64 MB it was); a polling or
   interrupt-handler guard was rejected because quickjs polls interrupts every
   10 000 back-edges, i.e. gigabytes of 1 MB allocations between polls.
 - Semantics match native: a widget that catches the error lives on at the cap
@@ -635,6 +639,67 @@ callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
   steady growth capped at 62 MB, burst refused, arrays capped. Android uses
   bionic `malloc_usable_size` through the `__linux__` branch. Swift, Kotlin and
   the C++ core need nothing extra.
+
+### Strict limits from the start (2026-10-29)
+
+Widgets are not launched yet. A limit can be loosened later without breaking anything; tightening it breaks widgets
+that worked, and with honest strict limits bots adapt to them (Artem, 2026-10-28: "лучше посильнее зарезать на старте").
+So every count and size limit was re-measured over 346 widgets of the corpora and the conformance set (5 s each in the
+dev app, a tap on the first button; memory also in the native C++ harness) and set to about twice the largest real use:
+
+| Limit | Largest real use | Limit | Past it |
+|---|---|---|---|
+| QuickJS heap | 3.1 MB (1.9 MB of it the runtime and the shim) | 8 MB (was 64) | stops |
+| Live timers | 31 | 64 (was 256) | `RangeError` |
+| Live script animations | 4 | 64 (was 1024) | not rendered |
+| One text value | 12.9 K (a stylesheet) | 32 K (was 64 K) | stops |
+| The document's text | 21.7 K | 48 K (was 256 K) | stops |
+| An attribute value | 1 066 (an inline style) | 8 K (was 4 MB) | stops |
+| Ops in one batch | 2 700 | 10 000 (was 200 000) | stops |
+| CSS rules / `@keyframes` | 167 / 12 | 400 / 32 (no cap) | stops |
+| Canvas commands per canvas and task | 237 (the projected 3D showcase: 9 510 a frame) | 10 000 for now (was 400 000 buffered) | `RangeError`; stops past it in a batch |
+| Web Storage per area | 585 characters | 4 KB (was 16 KB) | `QuotaExceededError` |
+| Layout queries per task | 14.6 ms over a whole run | 100 ms (was the slice, up to 500 ms) | stops |
+| Canvas pixels, all of a widget's canvases | 0.41 M (736 × 560) | 2048² = 4.2 M (the audit's 4096²) | stops |
+| A data: image's pixels | 800 (40 × 20) | 1024² = 1 M (the audit's 4096²) | the placeholder |
+
+- **Stop, not drop.** A counted cap used to drop the op with a diagnostic and the widget went on with a hole in its
+  document, whose look depended on what had passed. Now the validator (`validator.ts`, the same bundle on every native
+  host, and Swift's `NativeValidator`) sets `stopped`, reports the `limit` diagnostic with the reason and refuses that
+  batch whole and every later one; the host stops the widget with that reason, as for memory or CPU, and the bubble
+  keeps its last render. The author sees the cause at once. The complex-script budget and text churn still drop:
+  a widget in those scripts needs all of its budget, and the numbers did not change.
+- **The shim refuses at the same numbers**, so the author gets an error inside the widget where the host would stop it:
+  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 10 001st command for
+  one canvas in one task throws `RangeError`; the validator stops a batch with more, i.e. a tampered shim).
+- **Canvas commands: 10 000 for now.** The paint-limits draft put 2 000 per send, twice the old corpora's 237; the
+  projected 3D showcase that tmacos added on 2026-10-29 (`corpus/showcase/3d`) draws 1 247 to 9 510 commands a frame, so
+  the cap is 10 000 until the stress kit's canvas ladder (200 to 16 000 commands a frame on the clients' renderers) gives
+  the number. The main-thread window already charges 2 µs a command: 9 510 a frame is about 19 ms, so such a widget
+  turns at a few frames a second under the 100 ms window, and the demos want lighter meshes anyway.
+- **The main-thread window.** The JS quota (300 ms per second, unchanged: a widget's JS runs on its own thread, and the
+  busiest widgets on a weak phone are already throttled by it) no longer pays for what the widget costs the client's main
+  thread. That is a second `CpuBudget` in the glue, `mainThreadQuotaMs` = 100 ms per `cpuQuotaWindowMs`: the wall time of
+  the widget's layout queries plus a modelled, deterministic cost of the ops the glue forwards (25 µs per op, 2 µs per
+  canvas command; `opsCostMs` in `cpu-budget.ts` and its twins). A deferrable task waits while either window is spent.
+  The busiest widget of the corpora (`htmlbubbles-ported/06-trip-lisbon/10-ana-bare`, a list redrawn whole) costs
+  82 ms per second; 1000 elements moved every frame get about 6 frames a second instead of 60.
+- **Bitmaps.** The tweb audit (`docs/changes.md`, "Bitmaps a widget makes the page hold are bounded") found that
+  nothing bounded the bitmaps a widget makes the page hold: four canvases of 16384² grew a browser by ~16 GB, and a
+  data: image is decoded at the size its header claims (2 KB of a one-colour PNG is a real 4096², 64 MB; the attribute
+  cap bounds the bytes, not the pixels). The audit capped both at 4096² (64 MB) in the renderer and in `checkUrl`; by
+  the rule above they are lower. The corpora's canvases, run at a devicePixelRatio of 3, hold at most 0.41 M pixels
+  together, but the guide tells authors to scale a canvas by devicePixelRatio, and one across a whole 430 px bubble at
+  3× is 2.3 M: so the validator stops a widget whose canvases would hold more than 2048² together (a new canvas is
+  300 × 150; its `width` and `height` attributes and the shim's `r` command size it; removing it refunds it). The
+  renderer keeps the audit's 4096² as its own backstop for compat and for any path past the validator. A data: image
+  is a URL, so past 1024² it gets the placeholder as a refused URL does, and the widget goes on: the corpora's largest
+  is 40 × 20, and an image across a 320 px bubble at 3× fits.
+- **compat keeps the old caps** and never stops: tests, tooling, and the measuring runs of the stress kit
+  (`packages/stress`), which must see the cost past the limits.
+- Not in this change: the count of heavy boxes (shadows, filters, opacity) and the renderer's frame cost of the
+  paint-limits draft, and a lower node cap. They depend on the client renderers, so they wait for the stress kit's
+  numbers from the clients.
 
 ### Off-screen pause mirrors a background tab
 
@@ -689,6 +754,22 @@ callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
   v1" below), nor does the click a key activates (`detail` 0). Timers, frames,
   promise jobs after the task, scripted `click()`/`dispatchEvent` and hidden
   widgets get an `activation-blocked` diag instead. `ready` stays free.
+- A finger's or a pen's press is a gesture from its `pointerup` on (Oct 2026, after
+  v0.2.3), as HTML's activation-triggering input events have it: its `pointerdown` may
+  still become the chat's scroll, which ends it in `pointercancel`, and a swipe that
+  started on a widget let it copy text and send a request. The renderer core marks
+  such a `pointerdown` not `trusted`, nor a mouse event of a finger or a pen still
+  down: the `mousedown` a pen's contact makes at once, its barrel button pressed or
+  let go with the tip down (by the pointer whose buttons changed last: a mouse
+  pressed while a finger is held keeps its own `mousedown`; by the input's own
+  `pointerType`: a mouse that
+  plays a finger in the dev app's phone mode keeps its press), so the rule is one
+  JS change for every host. The counters no longer see that `pointerdown`, so every
+  host starts a new gesture at the renderer's `gesture` claim, which comes before
+  the press's events for every primary press, listened to or not, and at every
+  `pointerdown` event, trusted or not, which a second finger (no claim) has
+  (`GestureCounter.pressBegan`): without it a finger's release and click after a
+  press that ended without a click (a drag) continued that press's spent gesture.
 - Native glue (Swift, Kotlin, C++): the host numbers gestures from renderer
   events marked `trusted` and hands the number to the engine with the event;
   the engine opens the gesture for that event's task only and consumes it with
@@ -889,6 +970,9 @@ patch from the fork's owner.
   Blitz ~7 (its CPU bitmap and the texture of it), litehtml ~1.3.
 
 ## Renderer choice and the core: two tracks, one profile (Oct 2026)
+
+(The record of the three-way comparison; the prototypes it weighs are frozen since 2026-10-30, "The renderer
+prototypes are frozen" below.)
 
 Written after the Android renderer bench (`docs/android-renderer-bench.md`),
 the three-way renderer matrix (`docs/blitz-experiment.md`,
@@ -1861,3 +1945,163 @@ with `TWIDGET_EXPERIMENTAL_SCROLLING` honour it, and a release build reports a `
 The shared validator code is unchanged and inert unless a host turns the flag on (Kotlin, C++ and the web never do).
 Inner scrolling for every client is a question for widget profile 2: with a wheel or a trackpad it is safe; on a touch
 screen horizontal scrolling fits the gesture rule, vertical scrolling conflicts with "vertical drags are the chat's" (v0.1.3).
+
+
+## Telegram links open without a confirmation (2026-10-29)
+
+`openTelegramLink(url)` no longer asks the client for a confirmation of its own (`docs/sdk-v1.md` §5.2; Artem,
+2026-10-29, after the bot demos: "Open @bot" in a widget showed a dialog that a `t.me` link in a message never shows).
+The client opens it as a tapped `t.me` link in a message, through its own `t.me` handling, which keeps the confirmations
+it has for the dangerous kinds (joining a chat, a proxy, a login, a language). `openLink(url)` keeps the confirmation
+with the full URL: an external page is where a widget could lead the user somewhere unexpected. Nothing changes in the
+framework: both calls stay privileged (only from a real tap, one per press) and the URL rules stay as they were; the
+confirmation was always the client's.
+
+## The renderer prototypes are frozen (2026-10-30)
+
+Blitz (`apps/renderer-blitz`) and the plain litehtml core (`apps/renderer-litehtml`), with their glue in the demos and
+in `packages/desktop/renderer`, stay in the repository as the record of the comparison above, but nothing builds or runs
+them by default and a change is not checked on them (Artem, 2026-10-30).
+
+- **Why.** Every client draws with a renderer of its own: the web with the Shadow DOM renderer, the native clients with
+  their own engines, and those that use litehtml use their own extended one, not our plain core; no client ships Blitz.
+  A result on the prototypes therefore says nothing about a client: plain litehtml fails where the clients' litehtml is
+  fixed (`auto/19` dies on the 100 ms layout-query window there) and passes where a client may be broken. Their job,
+  the evidence for the decision above and the probes behind profile 1, is done; whether every client draws a feature is
+  answered by the clients' own conformance runs (`packages/conformance/CLIENTS.md`), and what it costs by the stress
+  kit (`packages/stress/CLIENTS.md`). Meanwhile they cost every demo build a Rust and a CMake build and every report a
+  "not checked on Blitz/litehtml" line.
+- **What is off by default.** The demos' builds: the iOS/macOS demo builds, links and compiles them in (Swift condition
+  `TW_NATIVE_RENDERERS`) only with `TW_NATIVE_RENDERERS=YES` on `xcodebuild`, the Android demo includes their modules
+  only with `-Ptw.nativeRenderers=true`; without them no Rust toolchain or extra CMake build is needed and the renderer
+  picker is hidden. Their wasm unit tests run only with `TW_NATIVE_RENDERERS=1`. The default renderers of
+  `scripts/conformance/run-web.ts` and the default cells of `scripts/feed-report.ts` and the feed's bench panel are
+  iframe and shadow. Opt-in already before: the desktop core's `-DTW_BLITZ` / `-DTW_LITEHTML`, the web dev app's
+  toggles (they need `build:blitz-web` / `build:litehtml-web`), `TW_RENDERER=blitz|litehtml` for the Playwright suites.
+- **No obligation.** A framework change is not tested on the prototypes and a report does not list them as a gap. A
+  prototype that breaks stays broken until someone revives it; reviving one means its opt-in build and its checks first.
+- **What our native runs check instead.** The framework without a renderer (QuickJS on its thread, the glue, the
+  validator, the shared policies on their fixtures, the attack corpus through the native node model) and the `Renderer`
+  seam on our WebView renderer, which stands in for a client's. The clients' renderers are checked by the clients:
+  drawing by the conformance set, cost by the stress kit. Their renderer-side defences (no network attempt, `trusted`
+  only for a real press) have no shared check yet.
+
+## The client's time over a widget with no caption below it: the content safe area (2026-10-29)
+
+Artem's decision (`P1-safe-area` in `profile.json`; `docs/sdk-v1.md` §2.17, §5.12): a message with a widget and no
+caption gets its time and status drawn by the client over the widget's bottom corner, on a backing, as on a photo;
+with a caption below the widget the time is in the caption's line and nothing covers the widget. The widget is told
+what is covered so it can keep clear of it.
+
+**A caption above the widget** (`invert_media`, Bot API `show_caption_above_media`; Artem's decision of
+2026-10-30): as no caption. The time is drawn over the widget's bottom corner again, as on
+a photo whose caption is moved up, so the client passes the same band and corner; only a caption below gives 0. An
+edit that moves the caption above or below the widget is a layout change like adding or removing it.
+
+**Why `env()`, rewritten.** `env(safe-area-inset-bottom)` is what web code and models already write
+(`padding-bottom: max(12px, env(safe-area-inset-bottom))`), and it means the right thing: keep this band clear. But the
+engine's own `env()` cannot carry it: its values belong to the document (in the shadow renderer, to the whole chat
+page), come from the system insets of the view on WKWebView and Android WebView, and do not exist in Blitz or
+litehtml. So the validator rewrites `env(safe-area-inset-{top,right,bottom,left}[, fb])` to
+`var(--tg-content-safe-area-inset-…[, fb])`, root variables the renderer sets like the theme's (inline, `!important`,
+names from a fixed list, values checked: an inset 0–64 px, a corner 0–200 px). Every renderer then draws the same, and
+the names are Mini Apps', so `var(--tg-content-safe-area-inset-bottom)` from Mini Apps code works too. Before this the
+validator dropped every declaration with `env()`, fallback or not: `padding: 12px 12px calc(12px +
+env(safe-area-inset-bottom))` lost the whole padding. Another `env()` name now resolves to its fallback (dropped without
+one); none inside `url()`.
+
+**Why a corner as well.** CSS has no cut-outs: a safe area is four edge lengths. One number would leave the whole band
+empty, while the time takes only one corner of it, and its width varies (12- or 24-hour time, "edited", ticks, views).
+`--tg-content-safe-area-corner-left|right` gives that width on its physical side (right in a left-to-right interface,
+left in a right-to-left one, whatever the widget's own direction), so content may enter the band on the other side.
+Script gets the same numbers as `TelegramWidget.contentSafeAreaInset` (one frozen object of six numbers, a fresh one per
+change, and `contentSafeAreaChanged`; Artem: one object, no separate members), for a canvas widget that lays out its
+own controls: `getComputedStyle` on the variables would be a layout query.
+
+**Static, never per frame.** The client passes the band at creation, so the first height already has it, and changes
+it only with the bubble's layout (a caption added, removed or moved above or below by an edit, "edited"). The floating date pill moves
+relative to the bubble every frame; passing it would restyle every visible bubble on every frame and lag behind it, so
+it has no contract and is drawn over the widget as over a photo. Taps on the time are the client's (a view over the
+widget); nothing changes in the gesture policy.
+
+**The UA layer pads the body.** `:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`: an
+unstyled widget (and one that only sets `body { margin: 0 }`, as most do) stays clear of the time; a widget that sets
+the body's padding handles the band itself. The price: a widget with no caption below it is that much taller.
+
+**A clarification of profile 1, not profile 2.** `css.value.env` moved from out to in on 2026-10-29, before widgets
+launched, as the UA layer was clarified in v0.1.1 (`P1-safe-area`, like `P1-ua`): `TelegramWidget.profile` stays 1. A
+client that passes no safe area keeps v0.3.0's layout, except that a declaration with `env(safe-area-inset-*)` now
+applies with 0 where it used to be dropped, and another `env()` name with a fallback now takes its fallback.
+
+## The wallet: Gram Wallet for widgets (2026-10-30)
+
+A widget can pay and sign through Telegram's built-in wallet (Gram Wallet; `docs/sdk-v1.md` §2.18, §5.13). The
+widget is the front of a dApp and its bot is the back end, as a site and its server are in TON Connect. Decided with
+Artem on 2026-10-29 and 2026-10-30 after the wallet team's answer; the framework side is built, the server and the
+clients' windows are not.
+
+- **Gram Wallet only, TON Connect's formats, not TON Connect's protocol.** The transaction is TON Connect's
+  `sendTransaction` request and the payload TON Connect's `signData`, field for field, so a bot reuses its TON
+  Connect code and the client hands both to its existing TON Connect window. There is no bridge, no session keys,
+  no manifest and no `connect`: the widget and the wallet are in one app, and who asks is the bot that sent the
+  message, which the client puts in the window's header. A widget cannot claim to be anyone else, and the window is
+  the client's, outside the bubble, so a widget cannot draw a fake one. An object shaped like TON Connect's bridge
+  was dropped: with `connect`, `restoreConnection`, `listen` and `ton_proof` missing it would only mislead
+  (`connect` → `send` would fail), so the API is two calls of its own on TON Connect's data.
+- **No connection: the bot gets the wallet with a request, on a tap.** `request(data, { wallet: true })` makes the
+  server attach the wallet card of the user's profile (the cloud wallet's address and balance) to the bot's update
+  and create the wallet if there is none (wallets are created on the fly; where the wallet is unavailable by
+  country, the client passes no `context.wallet` and the widget sees `null`). Never in the background: a widget must
+  not create wallets or learn addresses without the user's action. `ton_proof` is not needed: the address comes from
+  the server, and the bot knows who asked.
+- **The device's wallet signs, and the bot learns it with the outcome** (the server team, 2026-10-30). With the
+  wallet's backup off a device keeps its own key and its own wallet, which can differ from the profile's card. So a
+  sent transaction and a signature reach the bot with the wallet that made them (`userWallet`: address, balance,
+  public key), which the client fills from the device, and the profile's card comes only with `with_wallet`. A bot
+  does not put the card's address in `from`. The device's wallet comes from the user's own client: the signature
+  proves the key, the chain proves a payment (its sender), and an address the bot must tie to the key it checks on
+  the chain (the wallet's public key), as a TON Connect back end does with `walletStateInit`.
+- **The grant.** A tap unlocks one call; paying needs two (ask the bot for a fresh transaction, then send it),
+  and a transaction prepared earlier would outlive its `valid_until`. So the answer to a call made by a tap grants
+  one wallet call within 10 s, and the answer to that call grants the next: a chain that goes on only while the
+  user keeps confirming windows. A refusal, a failure, a background request's answer bring none; any call made on a
+  tap or a grant uses the grant up. The grant is time-bound rather than task-bound: an answer can wait under the CPU
+  quota, and a time window is the same rule in five glue copies (`RequestGate.decideWallet`, the fixture).
+- **The outcome goes to the bot, not to the widget.** The widget has no network: a signature or a signed message
+  is of use only to the bot, and 64 bytes of `data` would not carry it. The client sends it to the server as a
+  widget query of its own type (the transaction's normalised message hash, or `signData`'s result as is, each with
+  the device's wallet), and the widget gets the bot's answer, as for a request. The bot checks a payment on the
+  chain (the sender is that wallet's address, the recipients, amounts and order, the trace's success), not by the
+  hash alone.
+- **The domain of `signData` is `bot<bot_id>`,** set by the client: a widget has no domain, and a verifier compares
+  the string and checks the signature with the public key of the device's wallet that came with it.
+- **Tap-jacking.** A double tap over the widget is the widget's (v0.1.2): its second tap could land on Confirm in a
+  window opened by the first. The client ignores taps on the window for its first 0.5–1 s.
+- **Limits.** 1–255 messages: TON Connect sets no limit of its own (each wallet declares `maxMessages`), Gram Wallet
+  takes 255, and a limit is harder to raise later than to keep (Artem, 2026-10-30; batches of payouts and multi-step
+  swaps need more than 4). What bounds the call instead is its size: payloads of 8192 base64 characters each and 65536
+  for all messages together, `signData` text and bytes of 4096, a schema of 1024. A message's destination is
+  user-friendly only (TON Connect: a wallet must refuse a raw one, the bounce flag is in the friendly form); `from`
+  may be raw. Any field outside TON Connect's set is refused (`items`, `extra_currency`, which Gram Wallet does not
+  take; the SDK's `validUntil` too, rather than a transaction without an expiry).
+- **The server's API (agreed 2026-10-30, not shipped yet).** A query type per kind; the bot's update carries the
+  type and, for `with_wallet`, the profile's card:
+
+  ```tl
+  userWallet flags:# address:string balance:long public_key:flags.0?bytes = UserWallet;
+
+  widgetQueryTypeData flags:# with_wallet:flags.0?true = WidgetQueryType;
+  widgetQueryTypeSignData wallet:UserWallet sign_data:DataJSON = WidgetQueryType;
+  widgetQueryTypeSentTransaction wallet:UserWallet msg_hash:string = WidgetQueryType;
+
+  updateBotWidgetQuery flags:# query_id:long query_type:WidgetQueryType user_id:long peer:Peer msg_id:int chat_instance:long chat_type:string data:bytes widget_id:flags.0?long wallet_card:flags.1?wallet.Card = Update;
+  updateInlineBotWidgetQuery flags:# query_id:long query_type:WidgetQueryType user_id:long inline_message_id:InputBotInlineMessageID chat_instance:long chat_type:string data:bytes widget_id:flags.0?long wallet_card:flags.1?wallet.Card = Update;
+  updateBotWidgetCopyQuery flags:# query_id:long query_type:WidgetQueryType user_id:long data:bytes widget_id:long wallet_card:flags.1?wallet.Card = Update;
+
+  ---functions---
+
+  messages.getBotWidgetQueryAnswer peer:InputPeer msg_id:int query_type:WidgetQueryType data:bytes = messages.BotWidgetQueryAnswer;
+  ```
+
+  Open: which message hash the server keeps (the normalised one, TEP-467, is what toncenter looks up), the TEP-81
+  form of `bot<bot_id>` for a cell signature, how jettons and NFTs show in the window.

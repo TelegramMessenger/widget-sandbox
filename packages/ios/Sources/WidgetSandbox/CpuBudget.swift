@@ -4,6 +4,12 @@
 // tasks are postponed until the oldest busy bucket leaves the window — never
 // dropped or killed. Events always run with a floor of 50 ms.
 //
+// The glue keeps two of them (docs/decisions.md, "Strict limits from the start"):
+// the JS quota (`cpuQuotaMs`, JS time only) and the main-thread window
+// (`mainThreadQuotaMs`): the host's own work for the widget, its layout queries
+// and the modelled cost of the ops it forwards (`opsCostMs`). A deferrable task
+// waits while either window is spent.
+//
 // Pure and side-effect free; checked against tests/fixtures/cpu-budget.json
 // (copied to Tests/WidgetSandboxTests/Fixtures by `pnpm build:ios`).
 
@@ -20,10 +26,18 @@ public struct CpuBudget {
     public static let floorMs = 50.0
     /// Kinds that may be postponed. `boot`, `event` and `visibility` always run.
     public static let deferrable: Set<String> = ["timer", "frame", "viewport", "resize", "theme", "bridge"]
-    /// A task's layout queries may block the host for at most this much, or the task's slice if that is longer.
-    public static let queryBudgetMinMs = 100.0
-    /// Layout-query budget of one task with `sliceMs` of CPU (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
-    public static func queryBudgetMs(sliceMs: Double) -> Double { max(sliceMs, queryBudgetMinMs) }
+    /// A task's layout queries may block the host for at most this much, whatever its slice (boot included).
+    public static let queryBudgetMs = 100.0
+    /// Layout-query budget of one task (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
+    public static func queryBudgetMs(sliceMs _: Double) -> Double { queryBudgetMs }
+
+    /// Modelled main-thread cost of one op the glue forwards to the validator, and of one canvas command in it.
+    public static let opCostMs = 0.025
+    public static let canvasCommandCostMs = 0.002
+    /// What a batch of `ops` ops with `canvasCommands` canvas commands costs the host's main thread: deterministic, from what the widget sent.
+    public static func opsCostMs(ops: Int, canvasCommands: Int) -> Double {
+        Double(ops) * opCostMs + Double(canvasCommands) * canvasCommandCostMs
+    }
 
     private let cpuLimitMs: Double
     private let cpuQuotaMs: Double

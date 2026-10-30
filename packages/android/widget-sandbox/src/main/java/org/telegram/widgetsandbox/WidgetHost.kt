@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.View
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
@@ -27,7 +28,10 @@ class WidgetDiagnostics(
     var stats: SandboxStats = SandboxStats(),
     var nodes: Int = 0,
     var loaded: Boolean = false,
-    /** Fatal: the runtime is gone. The renderer keeps the last state (frozen); the owner removes the view with `destroy()`. */
+    /**
+     * Fatal: the runtime is gone (memory, CPU, layout queries, or a counted cap passed under strict: `Text limit exceeded: …`,
+     * `Ops limit exceeded: …`, …). The renderer keeps the last state (frozen); the owner removes the view with `destroy()`.
+     */
     var dead: String? = null,
     /** Document height in CSS px (= dp). */
     var height: Double = 0.0,
@@ -109,6 +113,32 @@ data class WidgetTextTokens(
     val padding: String? = null,
 )
 
+/**
+ * What the client draws over the widget, in dp = CSS px (docs/sdk-v1.md §2.17, §5.12). A widget with no caption below it gets
+ * the message time and status over its bottom corner, as on a photo: `bottom` is the height of that band and
+ * `cornerRight` (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in
+ * it; with a caption below it everything is 0 (the time is in the caption's line; a caption shown above it, `invert_media`, is as none). The widget sees it as `env(safe-area-inset-*)`,
+ * the `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
+ * and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+ */
+data class WidgetContentSafeArea(
+    val top: Double = 0.0,
+    val right: Double = 0.0,
+    val bottom: Double = 0.0,
+    val left: Double = 0.0,
+    val cornerLeft: Double = 0.0,
+    val cornerRight: Double = 0.0,
+) {
+    /** The TS `ContentSafeArea` shape; a value that is not finite is 0 (JSON has no NaN). */
+    internal fun json(): JSONObject {
+        val out = JSONObject()
+        for ((k, v) in listOf("top" to top, "right" to right, "bottom" to bottom, "left" to left, "cornerLeft" to cornerLeft, "cornerRight" to cornerRight)) {
+            out.put(k, if (v.isFinite()) v else 0.0)
+        }
+        return out
+    }
+}
+
 /** Web Storage of the message as the client keeps it (docs/sdk-v1.md §2.8, §5.4): the stored `local` area and the in-memory `session` one. */
 data class WidgetStorage(val local: Map<String, String> = emptyMap(), val session: Map<String, String> = emptyMap())
 
@@ -142,7 +172,7 @@ data class WidgetContext(
     val isCopy: Boolean = false,
     /** `can_query`: requests are allowed, on a tap (an original of a widget sent with `allow_queries`, or a copy of one sent with `fwd_allow_queries`). */
     val canQuery: Boolean = false,
-    /** `background_query`: requests without a tap too (the original in the private chat with the bot): while visible, one when the widget appears on screen, then one per 5 s. */
+    /** `background_query`: requests without a tap too (the original in the private chat with the bot): one when the widget appears on screen, then one per 5 s while visible; one made off screen waits for it to appear. */
     val backgroundQuery: Boolean = false,
     /** "private" | "group" | "supergroup" | "channel" ([SdkPolicy.CHAT_TYPES]); anything else is none. No copy gets it, with `canQuery` or not (a bot must learn nothing about where its widget was forwarded), nor a preview. */
     val chatType: String? = null,
@@ -155,13 +185,87 @@ data class WidgetContext(
      * ignored). The request flags and `isCopy` are ignored.
      */
     val preview: Boolean = false,
+    /**
+     * The client has Gram Wallet for this user: it supports the wallet and the wallet is available in the user's country
+     * (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with [canQuery] too, never in a preview.
+     */
+    val wallet: Boolean = false,
 )
 
 /**
  * What the client sends to the bot like a callback button's press: `data` (1–64 bytes, UTF-8). Whether it came from a
  * press or in the background is the glue's decision (the request gate); the server and the bot cannot tell them apart.
  */
-data class WidgetRequest(val data: String)
+data class WidgetRequest(
+    val data: String,
+    /** The widget asked for the user's wallet (only on a tap, only with [WidgetContext.wallet]): ask the server to attach the wallet card (`with_wallet`); it creates the wallet if the user had none. */
+    val wallet: Boolean = false,
+)
+
+/** One message of a transaction, as TON Connect's `sendTransaction` has it: the destination, nanotons as a decimal string, a body and a `StateInit` (bags of cells in base64). */
+data class WalletMessage(val address: String, val amount: String, val payload: String? = null, val stateInit: String? = null) {
+    fun json(): JSONObject = JSONObject().put("address", address).put("amount", amount).also { o ->
+        payload?.let { o.put("payload", it) }
+        stateInit?.let { o.put("stateInit", it) }
+    }
+}
+
+/**
+ * A transaction the widget asks the user to send (`TelegramWidget.wallet.sendTransaction`, docs/sdk-v1.md §2.18,
+ * checked): TON Connect's `sendTransaction` request. The client hands it to its TON Connect window as is ([json]: the
+ * protocol's field names); the wallet checks the network and the sender against the account, the cells and the expiry.
+ */
+data class WalletTransaction(
+    /** `valid_until`, Unix seconds. */
+    val validUntil: Long? = null,
+    /** "-239" (the mainnet) or "-3" (the testnet). */
+    val network: String? = null,
+    val from: String? = null,
+    /** 1–4 messages. */
+    val messages: List<WalletMessage>,
+) {
+    fun json(): JSONObject = JSONObject().put("messages", JSONArray(messages.map { it.json() })).also { o ->
+        validUntil?.let { o.put("valid_until", it) }
+        network?.let { o.put("network", it) }
+        from?.let { o.put("from", it) }
+    }
+}
+
+/**
+ * What the widget asks the user to sign (`TelegramWidget.wallet.signData`, checked): TON Connect's `signData` payload,
+ * `type` "text" (`text`), "binary" (`bytes`, base64) or "cell" (`cell`, base64, with its TL-B `schema`). The client signs
+ * for the bot of the message (the domain `bot<bot_id>`), never a domain the widget names.
+ */
+data class SignDataPayload(
+    val type: String,
+    val text: String? = null,
+    val bytes: String? = null,
+    val schema: String? = null,
+    val cell: String? = null,
+    val network: String? = null,
+    val from: String? = null,
+) {
+    fun json(): JSONObject = JSONObject().put("type", type).also { o ->
+        for ((k, v) in listOf("text" to text, "bytes" to bytes, "schema" to schema, "cell" to cell, "network" to network, "from" to from)) v?.let { o.put(k, it) }
+    }
+}
+
+/**
+ * A wallet call that passed its checks (docs/sdk-v1.md §2.18): the client shows its own wallet window with the bot of the
+ * message, sends the transaction (or signs the payload) on the user's confirmation, sends the outcome to the bot as a
+ * query with [data] (1–64 bytes, a request's) and completes with the bot's answer.
+ */
+sealed class WalletCall {
+    abstract val data: String
+    /** "sendTransaction" or "signData". */
+    abstract val method: String
+    data class SendTransaction(val transaction: WalletTransaction, override val data: String) : WalletCall() {
+        override val method get() = "sendTransaction"
+    }
+    data class SignData(val payload: SignDataPayload, override val data: String) : WalletCall() {
+        override val method get() = "signData"
+    }
+}
 
 /**
  * The server's answer as the client hands it to the host: `result`, text of at most 1024 bytes (UTF-8, no NUL; anything
@@ -170,8 +274,12 @@ data class WidgetRequest(val data: String)
  */
 data class WidgetRequestAnswer(val result: String? = null)
 
-/** Why a client could not complete a request: the bot did not answer in time, flood wait, anything else. */
-enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED }
+/**
+ * Why a client could not complete a request: the bot did not answer in time, flood wait, anything else; for a wallet
+ * call also REJECTED (the user declined in the wallet window) and BAD_REQUEST (the wallet refused the transaction or the
+ * payload), which a request's failure turns into FAILED.
+ */
+enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED, REJECTED, BAD_REQUEST }
 
 /** A failed request, as `onRequest` reports it: `Result.failure(WidgetRequestException(…))`; any other exception is FAILED. */
 class WidgetRequestException(val failure: WidgetRequestFailure) : Exception(failure.name)
@@ -206,14 +314,16 @@ class WidgetHost(
         rendererFactory: RendererFactory? = null,
     ) : this(context, html, WidgetTheme(theme), widthDp, options, resources, rendererFactory)
 
-    /** Limits for the widget's QuickJS runtime (see SandboxConfig). */
+    /** Limits for the widget's QuickJS runtime (see SandboxConfig; docs/decisions.md, "Strict limits from the start"). */
     data class Options(
-        val memoryLimitBytes: Long = 64L shl 20,
+        val memoryLimitBytes: Long = 8L shl 20,
         val cpuLimitMs: Double = 500.0,
         val cpuQuotaMs: Double = 300.0,
         val cpuQuotaWindowMs: Double = 1000.0,
         val cpuKillAfterMs: Double = 0.0,
-        val maxTimers: Int = 256,
+        /** The host's main-thread work for this widget per window (layout queries + 25 µs per op + 2 µs per canvas command); timers and frames wait beyond it. */
+        val mainThreadQuotaMs: Double = 100.0,
+        val maxTimers: Int = 64,
         /** Initial visibility; change it later with `setVisible`. */
         val visible: Boolean = true,
         /** The bubble height bounds in dp; 50 and 600 are the shared v0.1.0 values (docs/integration.md, "Bubble sizing"). */
@@ -225,18 +335,24 @@ class WidgetHost(
         val sharedValidatorThread: Boolean = false,
         /** Take a prewarmed validator from ValidatorPool when it has one, and recycle it on destroy (implies the shared thread). */
         val pools: Boolean = false,
-        /** "strict" (default; anything but "compat") or "compat": the gesture gate, 64 KB text caps and the text budgets. */
+        /** "strict" (default; anything but "compat") or "compat": the gesture gate, the text budgets and the counted caps past which the widget stops (32 KB of text, …). */
         val policy: String = "strict",
         /** Opt-in sandbox features, e.g. "webAnimations"; see [SandboxConfig.features]. */
         val features: Set<String> = emptySet(),
         /** The client's UI language, BCP 47 (`ru`, `pt-BR`): `navigator.language` and the Intl default; `en-US` when malformed. */
         val locale: String = SdkPolicy.DEFAULT_LOCALE,
-        /** Web Storage of this message as the client keeps it (the preload); over the 16 KB quota it is dropped whole (`storage-rejected`). */
+        /** Web Storage of this message as the client keeps it (the preload); over the 4 KB quota it is dropped whole (`storage-rejected`). */
         val storage: WidgetStorage = WidgetStorage(),
         /** The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`. */
         val data: WidgetData = WidgetData(),
         /** The message's flags from the server (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer (docs/sdk-v1.md §4.4); without `canQuery` every request is refused. */
         val context: WidgetContext = WidgetContext(),
+        /**
+         * What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
+         * the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
+         * render, so the first height already has the band; later only with the bubble's layout ([setContentSafeArea]).
+         */
+        val contentSafeArea: WidgetContentSafeArea = WidgetContentSafeArea(),
     )
 
     val view: View get() = renderer.view
@@ -255,6 +371,15 @@ class WidgetHost(
      * request arrives, so it may be set after the constructor; null then refuses the request (NOT_ALLOWED, `unsupported`).
      */
     var onRequest: ((WidgetRequest, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
+    /**
+     * A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18; checked: the transaction or the payload, a press or the
+     * grant, one call in flight with the requests). Only with [WidgetContext.wallet]. Show the client's own wallet window
+     * with the bot of the message; on confirmation send the transaction (or sign for `bot<bot_id>`), send the outcome to
+     * the bot as a query with `call.data` and call the completion once, from any thread, with the bot's answer, or
+     * `Result.failure(WidgetRequestException(REJECTED | BAD_REQUEST | …))`. Main thread, read at delivery; null then
+     * refuses the call (NOT_ALLOWED, `unsupported`).
+     */
+    var onWallet: ((WalletCall, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)? = null
     /** Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked: 1–256 characters, one per press). Main thread. */
     var onCopyText: ((String) -> Unit)? = null
     /**
@@ -322,8 +447,8 @@ class WidgetHost(
             innerWidth = viewport.first, innerHeight = viewport.second, devicePixelRatio = viewport.third, theme = scheme,
             memoryLimitBytes = options.memoryLimitBytes, cpuLimitMs = options.cpuLimitMs,
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
-            maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
-            themeParams = this.theme.params, locale = options.locale, storage = options.storage,
+            mainThreadQuotaMs = options.mainThreadQuotaMs, maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
+            themeParams = this.theme.params, locale = options.locale, contentSafeArea = options.contentSafeArea, storage = options.storage,
             data = options.data, context = options.context,
         )
         if (isStrictPolicy(options.policy)) validator.setPolicy("strict")
@@ -339,6 +464,7 @@ class WidgetHost(
         })
         // The theme goes first (queued until `ready`, which flushes it before the engine starts).
         toRenderer(themeMessage())
+        toRenderer(safeAreaMessage(options.contentSafeArea))
         // The engine starts once the renderer announced itself, so the very first
         // layout queries have something to measure.
         renderer.load()
@@ -354,11 +480,26 @@ class WidgetHost(
         this.theme = checkedTheme(theme)
         toRenderer(themeMessage())
         toRenderer("{\"type\":\"ops\",\"ops\":${validator.setTheme(scheme)}}")
+        if (stopOverLimit()) return // a sheet re-sanitized for the scheme passed a cap
         engine.theme(scheme, this.theme.params)
     }
 
     @Deprecated("Since SDK v1: setTheme(WidgetTheme)", ReplaceWith("setTheme(WidgetTheme(theme))"))
     fun setTheme(theme: String) = setTheme(WidgetTheme(theme))
+
+    /**
+     * What the client draws over the widget changed with the bubble's layout (docs/sdk-v1.md §2.17, §5.12): a caption
+     * added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
+     * widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
+     */
+    fun setContentSafeArea(area: WidgetContentSafeArea) {
+        if (destroyed) return
+        toRenderer(safeAreaMessage(area))
+        engine.contentSafeArea(area)
+    }
+
+    /** `{type:'safeArea', inset}` (docs/sdk-v1.md §3.4): the renderer core checks the values and sets the `--tg-content-safe-area-*` variables. */
+    private fun safeAreaMessage(area: WidgetContentSafeArea) = JSONObject().put("type", "safeArea").put("inset", area.json()).toString()
 
     /**
      * The bot's data changed (an edit the client got from the server): the full state of both strings. The widget gets
@@ -419,8 +560,9 @@ class WidgetHost(
 
     override fun onOps(engine: SandboxEngine, json: String) {
         main.post {
-            if (destroyed) return@post
+            if (destroyed || diagnostics.dead != null) return@post
             val clean = validator.processOps(json)
+            if (stopOverLimit()) return@post
             if (clean != "[]") {
                 toRenderer("{\"type\":\"ops\",\"ops\":$clean}")
                 opsSent += 1
@@ -495,7 +637,7 @@ class WidgetHost(
     }
     override fun onAction(engine: SandboxEngine, action: WidgetAction) {
         main.post {
-            if (destroyed) return@post
+            if (destroyed || diagnostics.dead != null) return@post
             if (diagnostics.actions.size < 1000) diagnostics.actions.add(action)
             onAction?.invoke(action)
             changed()
@@ -510,7 +652,7 @@ class WidgetHost(
         }
     }
     override fun onStorageCommit(engine: SandboxEngine, area: String, values: Map<String, String>) {
-        main.post { if (!destroyed) onStorageCommit?.invoke(area, values) }
+        main.post { if (!destroyed && diagnostics.dead == null) onStorageCommit?.invoke(area, values) }
     }
     /**
      * `onRequest` is read here, on the main thread at delivery, not when the widget asked: a client that sets it after the
@@ -519,7 +661,7 @@ class WidgetHost(
      */
     override fun onRequest(engine: SandboxEngine, request: WidgetRequest, respond: (Result<WidgetRequestAnswer>) -> Unit) {
         main.post {
-            if (destroyed) return@post
+            if (destroyed || diagnostics.dead != null) return@post
             val handler = onRequest ?: return@post respond(Result.failure(WidgetRequestUnsupported()))
             try {
                 handler(request, respond)
@@ -528,8 +670,20 @@ class WidgetHost(
             }
         }
     }
+    /** `onWallet`, read on the main thread at delivery as `onRequest` is. */
+    override fun onWallet(engine: SandboxEngine, call: WalletCall, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+        main.post {
+            if (destroyed || diagnostics.dead != null) return@post
+            val handler = onWallet ?: return@post respond(Result.failure(WidgetRequestUnsupported()))
+            try {
+                handler(call, respond)
+            } catch (e: Exception) {
+                respond(Result.failure(e))
+            }
+        }
+    }
     override fun onCopyText(engine: SandboxEngine, text: String) {
-        main.post { if (!destroyed) onCopyText?.invoke(text) }
+        main.post { if (!destroyed && diagnostics.dead == null) onCopyText?.invoke(text) }
     }
     /**
      * The latest anchor goes into the state next to the height (no callback of its own: `onChange`, coalesced). Posted
@@ -564,14 +718,29 @@ class WidgetHost(
         }
     }
     override fun onDied(engine: SandboxEngine, reason: String) {
-        main.post {
-            if (diagnostics.dead != null) return@post
-            diagnostics.dead = reason
-            changed()
-            resolveQuery("{\"error\":\"dead\"}", null)
-            // The WebView stays: last render as fallback, badge from the renderer, no more events or frames.
-            toRenderer(JSONObject().put("type", "frozen").put("reason", options.stoppedLabel).put("fatal", true).toString())
-        }
+        main.post { die(reason) }
+    }
+
+    /** The widget is gone for good (memory, CPU, layout queries, a counted cap); main thread. */
+    private fun die(reason: String) {
+        if (diagnostics.dead != null) return
+        diagnostics.dead = reason
+        changed()
+        resolveQuery("{\"error\":\"dead\"}", null)
+        // The WebView stays: last render as fallback, badge from the renderer, no more events or frames.
+        toRenderer(JSONObject().put("type", "frozen").put("reason", options.stoppedLabel).put("fatal", true).toString())
+    }
+
+    /**
+     * After a validator call: a counted cap passed under strict (the validator's `limit`; its batch and every later one
+     * came back empty) stops the widget like memory or CPU does, with the cap as the reason. The engine refuses the
+     * widget's next host call and frees the runtime; what it sent after the batch is dropped here.
+     */
+    private fun stopOverLimit(): Boolean {
+        val reason = validator.stopped ?: return false
+        die(reason)
+        engine.stop(reason)
+        return true
     }
 
     // MARK: renderer → host (main thread)
@@ -591,13 +760,18 @@ class WidgetHost(
             }
             // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
             "event" -> if (!preview) (msg.opt("ev") as? JSONObject)?.let { ev ->
+                // Any pointerdown begins a press, trusted or not: a second finger's is neither trusted nor claimed (`gesture`
+                // is the primary pointer's), and without this its release continued the press before it.
+                if (ev.optString("type") == "pointerdown") gestures.pressBegan()
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
                 val gesture = if (msg.opt("trusted") == true) gestures.gestureFor(ev.optString("type"), ev.optDouble("detail", 0.0)) else 0
                 if (gesture > 0) engine.activationEvent(ev.toString(), gesture) else engine.event(ev.toString())
             }
             "gesture" -> {
                 // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s after.
+                // Before the preview check: harmless, a preview gets no input and no haptics anyway.
                 engine.press()
+                gestures.pressBegan()
                 if (preview) return
                 // A preview claims nothing (no onGesture / onGestureClaim); its renderer already leaves every press to the client.
                 // Vertical drags are the chat's (v0.1.3): the claim's `y` is false whatever the renderer sends. The renderer

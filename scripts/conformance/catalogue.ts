@@ -204,7 +204,7 @@ c('value.math', 'calc(), min(), max(), clamp()', 'in', 'D3a', 'kept', { match: {
 c('value.custom-properties', 'Custom properties and var() with fallbacks; inheritance', 'in', 'D3a', 'kept', { match: { functions: ['var'], properties: ['--*'] } });
 c('value.keywords', 'inherit, initial, unset, revert; !important', 'in', 'D3a', 'kept', { match: { values: ['inherit', 'initial', 'unset', 'revert', '!important'] } });
 c('value.content', 'content in ::before/::after: strings, attr(data-*), counters', 'in', 'D3a', 'kept', { match: { properties: ['content', 'counter-reset', 'counter-increment', 'quotes'], functions: ['attr', 'counter', 'counters'] }, note: 'Strict: attr() reads only budgeted attributes.' });
-c('value.env', 'env() (safe-area-inset-*, …)', 'out', 'proposed', 'stripped', { match: { functions: ['env'] }, neutralise: 'the declaration is dropped (or env() resolves to its fallback)' });
+c('value.env', 'env() (safe-area-inset-*, …)', 'in', 'P1-safe-area', 'replaced', { match: { functions: ['env'] }, note: 'env(safe-area-inset-top|right|bottom|left[, fallback]) becomes var(--tg-content-safe-area-inset-…[, fallback]), the root variable the renderer sets (the client\'s time over the bottom corner of a widget with no caption below it); another name resolves to its fallback or the declaration is dropped; never inside url().' });
 
 // ───────────── CSS: selectors ─────────────
 const sel = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('selector', 'sel.' + id, title, st, d, t, x);
@@ -291,7 +291,7 @@ js('focus', 'element.focus() / blur() / select(), document.activeElement: the wi
 js('timers', 'setTimeout / setInterval / clear*, ordering, clamped delays', 'in', 'today', 'kept', { match: { apis: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] } });
 js('raf', 'requestAnimationFrame / cancelAnimationFrame (frames from the renderer)', 'in', 'today', 'kept', { match: { apis: ['requestAnimationFrame', 'cancelAnimationFrame'] } });
 js('microtasks', 'Promise, async/await, queueMicrotask', 'in', 'today', 'kept', { match: { apis: ['Promise', 'queueMicrotask'] } });
-js('storage.local', 'localStorage: per (account, chat, message), preloaded, 16 KB, QuotaExceededError past it', 'in', 'D17', 'host', { match: { apis: ['localStorage'] }, note: 'The shim keeps the map (16 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.' });
+js('storage.local', 'localStorage: per (account, chat, message), preloaded, 4 KB, QuotaExceededError past it', 'in', 'D17', 'host', { match: { apis: ['localStorage'] }, note: 'The shim keeps the map (4 KB per area, QuotaExceededError past it); the client preloads it and keeps each commit per message.' });
 js('storage.session', 'sessionStorage: same key, in memory until app restart', 'in', 'D17', 'host', { match: { apis: ['sessionStorage'] } });
 js('intl', 'Intl.NumberFormat, DateTimeFormat, PluralRules, RelativeTimeFormat, ListFormat, Collator (host ICU)', 'in', 'today', 'host', { match: { apis: ['Intl.NumberFormat', 'Intl.DateTimeFormat', 'Intl.PluralRules', 'Intl.RelativeTimeFormat', 'Intl.ListFormat', 'Intl.Collator'] } });
 js('intl.format-to-parts', 'Intl.NumberFormat/DateTimeFormat formatToParts', 'candidate', 'proposed', 'host', { match: { apis: ['formatToParts'] }, note: 'Numbers and dates, in every glue copy.' });
@@ -318,6 +318,7 @@ tw('theme-params', 'themeParams (every Mini Apps key, #rrggbb) and the --tg-them
 tw('events', 'onEvent / offEvent for themeChanged, activated, deactivated; at most 16 handlers per event type', 'in', 'SDK', 'kept', { match: { apis: ['TelegramWidget.onEvent', 'TelegramWidget.offEvent'] } });
 tw('is-active', 'TelegramWidget.isActive mirrors visibility (activated / deactivated)', 'in', 'SDK', 'kept', { match: { apis: ['TelegramWidget.isActive'] } });
 tw('resize-anchor', 'TelegramWidget.setResizeAnchor(\'top\' | \'bottom\'): the edge of the bubble that stays put when the widget\'s height changes', 'in', 'R1', 'host', { match: { apis: ['TelegramWidget.setResizeAnchor'] }, note: 'v0.1.3: detect it with typeof TelegramWidget.setResizeAnchor === \'function\'; anything but \'top\' or \'bottom\' throws TypeError; the host reports it with the height.' });
+tw('content-safe-area', 'TelegramWidget.contentSafeAreaInset { top, right, bottom, left, cornerLeft, cornerRight } (logical px, frozen, a fresh object per change) and contentSafeAreaChanged, with the --tg-content-safe-area-inset-* / -corner-left|right variables on the root, updated in one task', 'in', 'P1-safe-area', 'host', { match: { apis: ['TelegramWidget.contentSafeAreaInset'], properties: ['--tg-content-safe-area-*'] }, note: 'bottom is the height of the band the client draws the message time in over a widget with no caption below it; cornerRight (left-to-right interface) or cornerLeft (right-to-left) the width of its corner in that band; 0 with a caption below.' });
 tw('bot-data', 'TelegramWidget.chatData and publicData: the bot\'s two strings (text of at most 1024 bytes each, read-only, null for none); chatDataChanged / publicDataChanged when they change', 'in', 'I1', 'host', { match: { apis: ['TelegramWidget.chatData', 'TelegramWidget.publicData'] }, note: 'chatData belongs to one original message (in a group every member sees it) and is null in a forward; publicData is the forward\'s snapshot or a value shared with the original; one change of both fires both, chat first; an unchanged value fires nothing.' });
 tw('context', 'TelegramWidget.isForward, chatType and viewer (a WebAppUser): a forwarded copy, the kind of chat, who looks; no chatType in a forward, no viewer where the widget may not ask the bot', 'in', 'I1', 'host', { match: { apis: ['TelegramWidget.isForward', 'TelegramWidget.chatType', 'TelegramWidget.viewer'] }, note: 'viewer is shaped like Mini Apps\' WebAppUser (id, first_name, last_name, username, is_premium only when true; names 1-64 UTF-16 code units, a username 5-32 of [A-Za-z0-9_]; a field that breaks its rule is left out); chatType is private, group, supergroup or channel and null in every forward (a copy is told nothing about its chat); viewer only where the message has can_query (an original sent with allow_queries, a forward of one sent with fwd_allow_queries), else null.' });
 tw('request', 'TelegramWidget.request(data): a callback button inside the widget; data of 1-64 bytes, resolves { result } (text of at most 1024 bytes), rejects with error.code; where it may ask is the server\'s flag per message', 'in', 'I1', 'host', { match: { apis: ['TelegramWidget.request'] }, note: 'On a tap where can_query (originals of a widget sent with allow_queries, forwards of one sent with fwd_allow_queries; the client shows a network marker there), in the background only where background_query (the original in the private chat with the bot) while visible: one when the widget appears on screen, then one per 5 s; one in flight; the answer carries no data.' });
@@ -349,13 +350,21 @@ inp('prevent-default', 'preventDefault on pointer events keeps the gesture in th
 
 // ───────────── Limits ─────────────
 const lim = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('limit', 'limit.' + id, title, st, d, t, x);
-lim('text-node', 'Text values (text node, string property) up to 64 KB (strict)', 'in', 'D5', 'kept');
-lim('text-budget', 'Document text budget 256 K units, complex-script text 8192 units (strict)', 'in', 'D5', 'kept');
+lim('text-node', 'Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict)', 'in', 'D5', 'kept');
+lim('text-budget', 'Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict)', 'in', 'D5', 'kept');
 lim('nodes', 'At most 50 000 nodes', 'in', 'today', 'kept');
-lim('timers', 'At most 256 live timers (RangeError past it)', 'in', 'today', 'kept');
-lim('cpu', 'CPU quota 300 ms per second (timers deferred, not killed); 500 ms per task slice; layout queries count toward both and may block the host for at most max(slice, 100 ms) per task', 'in', 'today', 'kept');
-lim('memory', 'QuickJS heap 64 MB', 'in', 'today', 'kept');
-lim('storage', 'localStorage and sessionStorage: 16 KB per area and message (16384 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'kept');
+lim('timers', 'At most 64 live timers (RangeError past it)', 'in', 'today', 'kept');
+lim('cpu', 'CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task', 'in', 'today', 'kept');
+lim('memory', 'QuickJS heap 8 MB', 'in', 'today', 'kept');
+lim('storage', 'localStorage and sessionStorage: 4 KB per area and message (4096 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'kept');
+lim('attribute', 'Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict)', 'in', 'L1', 'kept');
+lim('batch', "At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict)", 'in', 'L1', 'kept');
+lim('css-rules', "At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict)", 'in', 'L1', 'kept');
+lim('canvas-commands', "At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers)", 'in', 'L1', 'kept');
+lim('animations', 'At most 64 running script animations (further ones are not rendered; strict)', 'in', 'L1', 'kept');
+lim('main-thread', "The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it)", 'in', 'L1', 'host');
+lim('canvas-pixels', "A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096)", 'in', 'L1', 'kept');
+lim('image-pixels', "A data: image of at most 1024 × 1024 pixels, as its bytes say (larger: the placeholder); bytes of none of the profile's image formats are a broken image", 'in', 'L1', 'kept');
 lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'kept');
 lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'kept');
 lim('haptic-rate', 'Haptics: a bucket of 5 calls refilled at 10 per second, and a touch: free while a finger is down on the widget and 5 s after it is lifted, otherwise one 1 s series (the next after a touch or 10 s later); the rest dropped (haptic-limit)', 'in', 'SDK', 'kept');
@@ -373,6 +382,7 @@ b('storage-persist', 'localStorage survives the widget being dropped and re-crea
 b('storage-forward', 'A forwarded copy has its own storage, keyed by its own chat and message, so it starts empty', 'in', 'SDK', 'host', { note: 'Testable with a test bot: forward its message into another chat; the copy starts with empty storage.' });
 b('message-edit', 'The HTML of a sent widget never changes (an edit may change only the caption): a bot changes only chatData and publicData (behaviour.data-edit)', 'in', 'I1', 'host', { note: 'visual/sdk/16-bot-edit still tests an HTML edit, which the server does not allow, and is to be replaced by a data-edit case once the server ships editMessageWidgetData.' });
 b('resize-anchor', 'When an auto height changes, the client keeps the widget\'s anchored edge in place on screen: top (default), the content below moves; bottom, the content above moves; also from a cached height and after a re-creation', 'in', 'R1', 'host', { note: 'v0.1.3: WidgetDiagnostics.resizeAnchor / web onResize(height, anchor); the old pixels stay aligned to the anchored edge during a height animation.' });
+b('time-corner', 'A widget with no caption below it (none, or one shown above it) gets the message time and status over its bottom corner, on a backing as on a photo, and taps on it are the client\'s; the client passes the band (contentSafeArea bottom) and its corner (cornerRight, or cornerLeft in a right-to-left interface) before the first render and changes them only with the bubble\'s layout (a caption added, removed or moved above or below by an edit, "edited"); with a caption below the time is in the caption\'s line and the safe area is 0', 'in', 'P1-safe-area', 'host', { note: 'WidgetHost contentSafeArea / setContentSafeArea on every host; never per frame; the floating day pill has no contract and is drawn over the widget like over a photo.' });
 b('data-edit', 'A change of the bot\'s data reaches the running widget as chatDataChanged / publicDataChanged (the client\'s setData with the full state: the server\'s update, or the polled shared public_data): no new host, no restart', 'in', 'I1', 'host', { note: 'The client keeps the values with the message; a shared widget\'s public_data (widget_id) is polled for one visible carrier per id, one message per call, at the object\'s period and applied to every widget with that id, forwards included; an answer carries no data; testable with a test bot once the server ships.' });
 b('forward-copy', 'A forwarded copy never has chatData; its publicData is the forward\'s snapshot or the shared value; it is told nothing about the chat it is in (no chatType); it asks the bot only on a tap and only if the widget was sent with fwd_allow_queries, and otherwise has no viewer either', 'in', 'I1', 'host', { note: 'The client passes the server\'s flags (is_copy, can_query); the framework drops chatData and chatType of a copy, and viewer of any message without can_query.' });
 b('preview', 'A widget in a list of inline results is a preview: the client creates it with context.preview and the result\'s data, routes no touches to it (a tap selects the result) and creates a new host for the sent message', 'in', 'I1', 'host', { note: 'The host drops the preview\'s input, every bridge call but ready and setResizeAnchor, and its storage commits; chatType and viewer are null.' });
@@ -435,7 +445,7 @@ const PROFILE_1: Record<string, Partial<Feature>> = {
   "css.touch-action": {"status": "in", "decision": "P1"},
   "css.value.vw": {"status": "in", "decision": "P1"},
   "css.value.vh": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped"},
-  "css.value.env": {"status": "out", "decision": "P1", "neutralise": "the declaration is dropped (or env() resolves to its fallback)"},
+  "css.value.env": {"status": "in", "decision": "P1-safe-area"},
   "sel.has": {"status": "out", "decision": "P1", "neutralise": "the selector never matches (dropped from its list)"},
   "sel.first-letter-line": {"status": "out", "decision": "P1", "neutralise": "the selector never matches (dropped from its list)"},
   "sel.active": {"status": "in", "decision": "P1"},
@@ -509,12 +519,13 @@ export const DECISIONS: Record<string, string> = {
   D4: 'Input: taps in the PoC, drag in v1; no keyboard at all, not even Enter or Space (it conflicts with the chat input field; Artem, 2026-10-16)',
   D5: 'strict policy everywhere; webAnimations and morphUpdates from the profile',
   D6: '3D (__tw3d) cut from the release',
-  D8: 'SDK outward: openLink / openTelegramLink on a tap with confirmation, haptics; no sendMessage',
+  D8: 'SDK outward: openLink (confirmed with the full URL) and openTelegramLink (no confirmation of its own, 2026-10-29) on a tap, haptics; no sendMessage',
   SDK: 'SDK v1 (docs/sdk-v1.md), with Artem\'s answers of 2026-10-17: haptics without a gesture (bucket 5, 10 per second), any t.me path, URLs of at most 256 characters, 16 handlers per event type, stopped after 2 crashes in a row, double tap and long press stay with the bubble',
   D11: 'One widget model: classic DOM in the sandbox',
   D12a: 'Above the cap: hard clip, no fullscreen',
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',
-  D17: 'State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 16 KB, QuotaExceededError; sessionStorage in memory',
+  D17: 'State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory',
+  L1: 'Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)',
   D18: 'Text is not selectable by default; user-select: text enables it (2026-10-20)',
   D20: 'Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits',
   D21: 'No accessibility in v1',

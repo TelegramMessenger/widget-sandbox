@@ -9,11 +9,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * The layout-query budget (CpuBudget.queryBudgetMs): a widget whose loop forces
- * layout on every iteration burns no JS CPU of its own but keeps the host
- * answering queries; it is killed with the layout-query reason instead of
- * holding the renderer, and the host is never blocked for long. The twin of
- * QueryBudgetTests.swift.
+ * The layout-query budget (CpuBudget.queryBudgetMs, 100 ms per task whatever its
+ * slice): a widget whose loop forces layout on every iteration burns no JS CPU of
+ * its own but keeps the host answering queries; it is killed with the layout-query
+ * reason instead of holding the renderer, and the host is never blocked for long.
+ * The twin of QueryBudgetTests.swift.
  */
 @RunWith(AndroidJUnit4::class)
 class QueryBudgetTest {
@@ -22,7 +22,7 @@ class QueryBudgetTest {
     /**
      * Every query costs the host [delayMs] of wall time, like a slow renderer. The delay is
      * large against one loop iteration's CPU on the emulator's debug interpreter, so the
-     * query budget (not the CPU slice of the same 200 ms) is the limit that fires.
+     * query budget (100 ms, not the CPU slice of 200 ms) is the limit that fires.
      */
     private class SlowHost(private val delayMs: Long) : SandboxEngine.Delegate {
         @Volatile var died: String? = null
@@ -62,11 +62,11 @@ class QueryBudgetTest {
     @Test
     fun forcedLayoutLoopIsKilledInsteadOfBlockingTheHost() {
         val started = System.currentTimeMillis()
-        // 20 ms per answer: 10 queries pass the 200 ms budget while the loop has burnt far less CPU than the 200 ms slice.
+        // 20 ms per answer: 5 queries pass the 100 ms budget while the loop has burnt far less CPU than the 200 ms slice.
         val (host, engine) = run("const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }", delayMs = 20, waitMs = 30_000)
         val died = host.died
         assertNotNull("alive after ${System.currentTimeMillis() - started} ms, ${host.queryCount} queries", died)
-        assertTrue(died!!, died.startsWith("Layout query limit exceeded"))
+        assertTrue(died!!, died.startsWith("Layout query limit exceeded: host queries blocked the renderer for more than 100 ms in one boot task"))
         // From the first query (the boot itself is slow on a loaded emulator) to the kill: the host was never held for long.
         assertTrue("${host.diedAt - host.firstQueryAt} ms from the first query to the kill", host.diedAt - host.firstQueryAt < 5_000)
         assertTrue("${host.queryCount} queries", host.queryCount < 40)

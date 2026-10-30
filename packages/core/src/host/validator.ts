@@ -22,7 +22,7 @@ import { DOCUMENT_ID, EVENT_TYPES, type AnimKeyframe, type AnimRecord, type Canv
 
 const MAX_NODES = 50_000;
 /** Text nodes, string properties and Path2D data; a chat widget has no use for more, and every byte is copied through the renderer. */
-const MAX_TEXT = 64 * 1024;
+const MAX_TEXT = 32 * 1024;
 const COMPAT_MAX_TEXT = 2 * 1024 * 1024;
 /**
  * Per-document budget of complex-script text (UTF-16 units at or above U+0590:
@@ -32,7 +32,7 @@ const COMPAT_MAX_TEXT = 2 * 1024 * 1024;
  */
 const COMPLEX_TEXT_BUDGET = 8192;
 const COMPLEX_CHURN_PER_SECOND = 1024;
-const TEXT_BUDGET = 256 * 1024;
+const TEXT_BUDGET = 48 * 1024;
 
 export function textWork(text: string): number {
   let count = 0;
@@ -71,9 +71,28 @@ function complexUnits(text: string): number {
 }
 const KEYFRAME_MEMBERS = new Set(['offset', 'easing', 'composite', 'computed-offset']);
 const OUT_OF_PROFILE = Symbol('out of profile');
-const MAX_ATTR = 4 * 1024 * 1024; // data: URLs can be large
-const MAX_OPS_PER_BATCH = 200_000;
-const MAX_CANVAS_CMDS = 500_000;
+// Strict caps (docs/decisions.md, "Strict limits from the start"): about twice what real widgets use; past one the widget stops.
+/** An attribute (or inline style) value: the largest `data:` image a 4 KB message can carry fits. */
+const MAX_ATTR = 8 * 1024;
+const MAX_OPS_PER_BATCH = 10_000;
+/**
+ * Canvas commands in one `canvas` op (one canvas, one task). Provisional: the corpora's widgets send at most 237, the
+ * projected 3D showcase up to 9 510 a frame; the stress kit's canvas ladder (200 to 16 000) sets the final number.
+ */
+const MAX_CANVAS_CMDS = 10_000;
+const MAX_CSS_RULES = 400;
+const MAX_KEYFRAMES = 32;
+const MAX_LIVE_ANIMS = 64;
+/**
+ * A widget's canvases together, in bitmap pixels (16 MB as RGBA): a canvas over a whole bubble at 3× is ~2.3 M, the
+ * corpora's largest 0.4 M. compat has none here; the renderer holds every widget to 4096 × 4096 (its own backstop).
+ */
+const MAX_CANVAS_PIXELS = 2048 * 2048;
+// compat keeps the caps hosts had before (tests and tooling, the stress kit's measuring runs).
+const COMPAT_MAX_ATTR = 4 * 1024 * 1024; // data: URLs can be large
+const COMPAT_MAX_OPS_PER_BATCH = 200_000;
+const COMPAT_MAX_CANVAS_CMDS = 500_000;
+const COMPAT_MAX_LIVE_ANIMS = 1024;
 const MAX_ID = 2 ** 31;
 /** Renderer-side parent id meaning "detached, but keep the node". */
 const LIMBO = 0;
@@ -100,6 +119,9 @@ interface NodeInfo {
   data: string;
   /** Complex-script units this text node counts against the document budget. */
   complex?: number;
+  /** A `<style>` element: the rules and `@keyframes` of its sanitized sheet, counted against the document's caps. */
+  cssRules?: number;
+  cssKeyframes?: number;
   textSlots?: Map<string, { length: number; complex: number }>;
   /** Renderer currently has this node attached under its parent. */
   attached: boolean;
@@ -112,10 +134,58 @@ interface NodeInfo {
  */
 export type ValidatorPolicy = 'compat' | 'strict';
 
+/**
+ * `stop`: a counted cap stops the widget (strict) instead of dropping the op with a diagnostic (compat);
+ * `maxCssRules` / `maxKeyframes` 0 = no cap.
+ */
 export function policyLimits(policy: ValidatorPolicy) {
   return policy === 'strict'
-    ? { maxText: MAX_TEXT, maxCanvasString: MAX_TEXT, complexTextBudget: COMPLEX_TEXT_BUDGET, textBudget: TEXT_BUDGET }
-    : { maxText: COMPAT_MAX_TEXT, maxCanvasString: MAX_ATTR, complexTextBudget: 0, textBudget: 0 };
+    ? {
+      maxText: MAX_TEXT, maxCanvasString: MAX_TEXT, maxAttr: MAX_ATTR, maxOps: MAX_OPS_PER_BATCH, maxCanvasCmds: MAX_CANVAS_CMDS,
+      maxCssRules: MAX_CSS_RULES, maxKeyframes: MAX_KEYFRAMES, maxLiveAnims: MAX_LIVE_ANIMS, maxCanvasPixels: MAX_CANVAS_PIXELS,
+      complexTextBudget: COMPLEX_TEXT_BUDGET, textBudget: TEXT_BUDGET, stop: true,
+    }
+    : {
+      maxText: COMPAT_MAX_TEXT, maxCanvasString: COMPAT_MAX_ATTR, maxAttr: COMPAT_MAX_ATTR, maxOps: COMPAT_MAX_OPS_PER_BATCH,
+      maxCanvasCmds: COMPAT_MAX_CANVAS_CMDS, maxCssRules: 0, maxKeyframes: 0, maxLiveAnims: COMPAT_MAX_LIVE_ANIMS, maxCanvasPixels: 0,
+      complexTextBudget: 0, textBudget: 0, stop: false,
+    };
+}
+
+/**
+ * Style rules and `@keyframes` blocks in a sanitized stylesheet: a rule inside `@media` / `@supports` / `@container` /
+ * `@layer` counts, the keyframe selectors inside `@keyframes` do not.
+ */
+export function countCssRules(css: string): { rules: number; keyframes: number } {
+  let rules = 0;
+  let keyframes = 0;
+  const stack: ('rule' | 'at' | 'kf' | 'frame')[] = [];
+  let prelude = 0;
+  for (let i = 0; i < css.length; i++) {
+    const c = css.charCodeAt(i);
+    if (c === 0x22 || c === 0x27) { // a string: skip to its end
+      for (i++; i < css.length && css.charCodeAt(i) !== c; i++) if (css.charCodeAt(i) === 0x5c) i++;
+    } else if (c === 0x2f && css.charCodeAt(i + 1) === 0x2a) { // a comment
+      const end = css.indexOf('*/', i + 2);
+      i = end < 0 ? css.length : end + 1;
+    } else if (c === 0x7b) { // {
+      const head = css.slice(prelude, i).trim().toLowerCase();
+      const top = stack[stack.length - 1];
+      let kind: 'rule' | 'at' | 'kf' | 'frame';
+      if (top === 'kf') kind = 'frame';
+      else if (/^@(-webkit-)?keyframes\b/.test(head)) kind = 'kf';
+      else if (head.startsWith('@')) kind = 'at';
+      else kind = 'rule';
+      if (kind === 'kf') keyframes++;
+      else if (kind === 'rule') rules++;
+      stack.push(kind);
+      prelude = i + 1;
+    } else if (c === 0x7d) { // }
+      stack.pop();
+      prelude = i + 1;
+    } else if (c === 0x3b) prelude = i + 1; // ;
+  }
+  return { rules, keyframes };
 }
 
 export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
@@ -127,9 +197,10 @@ export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
     animTags: [...SVG_ANIMATION_TAGS], fragTags: [...SVG_HREF_FRAGMENT_TAGS], svgCase: [...SVG_ATTR_CASE.entries()],
     props: Object.entries(PROPS).map(([k, v]) => [k, v.type, v.tags ? [...v.tags] : null]), methods: Object.entries(METHODS),
     events: [...EVENT_TYPE_SET], mime: [...IMAGE_MIME], placeholder: PLACEHOLDER_IMAGE,
-    limits: [MAX_NODES, limits.maxText, MAX_ATTR, MAX_OPS_PER_BATCH, MAX_CANVAS_CMDS, LIMBO],
+    limits: [MAX_NODES, limits.maxText, limits.maxAttr, limits.maxOps, limits.maxCanvasCmds, LIMBO],
     complexTextBudget: limits.complexTextBudget,
     textBudget: limits.textBudget,
+    cssRules: limits.maxCssRules, keyframes: limits.maxKeyframes, liveAnims: limits.maxLiveAnims, canvasPixels: limits.maxCanvasPixels, stop: limits.stop,
     textAttrs: TEXT_ATTRS, textAttrPrefixes: TEXT_ATTR_PREFIXES,
   };
 }
@@ -153,6 +224,12 @@ export class Validator {
   private dirtyStyles = new Set<NodeId>();
   private complexText = 0;
   private totalText = 0;
+  private cssRules = 0;
+  private cssKeyframes = 0;
+  /** Each canvas's bitmap size (width, height), and their pixels together: the strict cap is on the sum. */
+  private canvasSizes = new Map<NodeId, [number, number]>();
+  private canvasPixels = 0;
+  private stopReason: string | null = null;
   private churnTokens = COMPLEX_TEXT_BUDGET;
   private churnAt: number | null = null;
   private clock: () => number = () => Date.now() / 1000;
@@ -179,6 +256,62 @@ export class Validator {
   private limits = policyLimits('compat');
 
   get policy(): ValidatorPolicy { return this.policyName; }
+
+  /**
+   * Set once a counted cap was passed under strict: the reason the host stops the widget with (`die`), as it does for
+   * memory or CPU. From then on every batch is refused whole, so the renderer keeps the last render that fit.
+   */
+  get stopped(): string | null { return this.stopReason; }
+
+  /** A cap passed: strict stops the widget (diagnostic `limit`, the host acts on it); compat only rejects the op. */
+  private stop(reason: string): false {
+    if (!this.limits.stop) return false;
+    if (this.stopReason === null) {
+      this.stopReason = reason;
+      this.diag('limit', reason);
+    }
+    return false;
+  }
+
+  private tooLongText(length: number): false {
+    return this.stop(`Text limit exceeded: a text value of ${length} characters (max ${this.limits.maxText})`);
+  }
+
+  private tooLongAttr(length: number): false {
+    return this.stop(`Attribute limit exceeded: a value of ${length} characters (max ${this.limits.maxAttr})`);
+  }
+
+  private overDocumentText(): false {
+    return this.stop(`Text limit exceeded: the document's text is over ${this.limits.textBudget} characters`);
+  }
+
+  /**
+   * Canvas `id` takes the bitmap `w` × `h` (an attribute, its removal, the shim's `r` command, a new canvas's 300 × 150);
+   * false when the widget's canvases would hold more pixels together than strict allows (the widget stops).
+   */
+  private sizeCanvas(id: NodeId, w: number, h: number): boolean {
+    const old = this.canvasSizes.get(id);
+    const total = this.canvasPixels - (old ? old[0] * old[1] : 0) + w * h;
+    // NaN-safe: no size may slip past as a comparison that is false both ways
+    if (this.limits.maxCanvasPixels && !(total <= this.limits.maxCanvasPixels)) {
+      return this.stop(`Canvas limit exceeded: canvases of ${total} pixels together (max ${this.limits.maxCanvasPixels})`);
+    }
+    this.canvasSizes.set(id, [w, h]);
+    this.canvasPixels = total;
+    return true;
+  }
+
+  /** A canvas's `width` or `height` attribute set to `value` (null: removed), by HTML's rules for non-negative integers. */
+  private sizeCanvasAttr(node: NodeInfo, name: string, value: string | null): boolean {
+    const lower = name.toLowerCase();
+    if (node.tag !== 'canvas' || node.ns !== 'html' || (lower !== 'width' && lower !== 'height')) return true;
+    const parsed = /^[\t\n\f\r ]*\+?(\d+)/.exec(value ?? '');
+    const fallback = lower === 'width' ? 300 : 150;
+    // past 2147483647 it is no unsigned long and the canvas takes the default, as the browser does (0 × 1e310 is NaN)
+    const n = parsed && Number(parsed[1]) <= 2147483647 ? Number(parsed[1]) : fallback;
+    const [w, h] = this.canvasSizes.get(node.id) ?? [300, 150];
+    return this.sizeCanvas(node.id, lower === 'width' ? n : w, lower === 'height' ? n : h);
+  }
 
   setPolicy(policy: ValidatorPolicy) {
     this.policyName = policy === 'compat' ? 'compat' : 'strict';
@@ -219,6 +352,21 @@ export class Validator {
     if (this.budgeted && !this.updateTextSlot(style, 'sheet', cssStringText(text))) {
       this.releaseTextSlot(style, 'sheet');
       return '';
+    }
+    if (this.limits.maxCssRules || this.limits.maxKeyframes) {
+      const { rules, keyframes } = countCssRules(text);
+      this.cssRules += rules - (style.cssRules ?? 0);
+      this.cssKeyframes += keyframes - (style.cssKeyframes ?? 0);
+      style.cssRules = rules;
+      style.cssKeyframes = keyframes;
+      if (this.limits.maxCssRules && this.cssRules > this.limits.maxCssRules) {
+        this.stop(`CSS limit exceeded: ${this.cssRules} rules in the document's stylesheets (max ${this.limits.maxCssRules})`);
+        return '';
+      }
+      if (this.limits.maxKeyframes && this.cssKeyframes > this.limits.maxKeyframes) {
+        this.stop(`CSS limit exceeded: ${this.cssKeyframes} @keyframes in the document's stylesheets (max ${this.limits.maxKeyframes})`);
+        return '';
+      }
     }
     return text;
   }
@@ -263,10 +411,15 @@ export class Validator {
 
   /** Validated canvas commands, with the same diagnostics as a `canvas` op. */
   canvasCommands(cmds: unknown): CanvasCmd[] {
-    if (!Array.isArray(cmds)) return [];
+    if (!Array.isArray(cmds) || this.stopReason !== null) return [];
+    if (cmds.length > this.limits.maxCanvasCmds) {
+      this.tooManyCanvasCmds(cmds.length);
+      return [];
+    }
     const out: CanvasCmd[] = [];
     for (const cmd of cmds) {
       const clean = this.canvasCmd(cmd);
+      if (this.stopReason !== null) return [];
       if (clean === OUT_OF_PROFILE) continue;
       if (clean) out.push(clean);
       else this.diag('protocol-violation', 'rejected canvas cmd ' + safeJson(cmd));
@@ -289,25 +442,36 @@ export class Validator {
 
   processOps(batch: unknown): RenderOp[] {
     this.out = [];
-    if (!Array.isArray(batch) || batch.length > MAX_OPS_PER_BATCH) {
+    if (this.stopReason !== null) return [];
+    if (Array.isArray(batch) && batch.length > this.limits.maxOps && this.limits.stop) {
+      this.stop(`Ops limit exceeded: ${batch.length} operations in one batch (max ${this.limits.maxOps})`);
+      return [];
+    }
+    if (!Array.isArray(batch) || batch.length > this.limits.maxOps) {
       this.diag('protocol-violation', 'ops batch is not an array or too large');
       return [];
     }
     for (const op of batch) {
       try {
-        if (!isObj(op) || !this.applyOp(op)) this.diag('protocol-violation', 'rejected op ' + safeJson(op));
+        if (!isObj(op) || !this.applyOp(op)) {
+          if (this.stopReason !== null) break;
+          this.diag('protocol-violation', 'rejected op ' + safeJson(op));
+        }
       } catch (e) {
         this.diag('protocol-violation', 'validator error: ' + (e as Error).message);
       }
+      if (this.stopReason !== null) break;
     }
     for (const id of this.dirtyStyles) {
+      if (this.stopReason !== null) break;
       const style = this.nodes.get(id);
       if (style) this.out.push({ op: 'css', id, text: this.styleText(style) });
     }
     this.dirtyStyles.clear();
     const out = this.out;
     this.out = [];
-    return out;
+    // A stopped widget's last batch is refused whole: the renderer keeps the last render that fit.
+    return this.stopReason !== null ? [] : out;
   }
 
   private applyOp(op: Record<string, unknown>): boolean {
@@ -390,9 +554,16 @@ export class Validator {
     if (outTag === null) return true; // tracked, never rendered
 
     const outAttrs: [string, string][] = [...extra];
+    // a canvas is born 300 × 150
+    if (outTag === 'canvas' && node.ns === 'html' && !this.sizeCanvas(id, 300, 150)) return false;
     if (attrs) {
       for (const [name, value] of Object.entries(attrs)) {
-        if (!isStr(value, MAX_ATTR)) continue;
+        if (typeof value !== 'string') continue;
+        if (value.length > this.limits.maxAttr) {
+          if (this.limits.stop) return this.tooLongAttr(value.length);
+          continue;
+        }
+        if (!this.sizeCanvasAttr(node, name, value)) return false;
         for (const pair of this.sanitizeAttr(node, name, value)) {
           const text = this.attrText(pair[0], pair[1]);
           if (text === null || this.updateTextSlot(node, 'attr:' + pair[0], text)) outAttrs.push(pair);
@@ -405,12 +576,10 @@ export class Validator {
 
   private opCharData(op: Record<string, unknown>): boolean {
     const { id, data } = op;
-    if (!isId(id) || !isStr(data, this.limits.maxText)) return false;
+    if (!isId(id) || typeof data !== 'string') return false;
+    if (data.length > this.limits.maxText) return this.tooLongText(data.length);
     if (this.nodes.has(id) || this.nodes.size >= MAX_NODES) return false;
-    if (this.limits.textBudget && this.totalText + data.length > this.limits.textBudget) {
-      this.diag('text-budget', `document text over ${this.limits.textBudget} units`);
-      return false;
-    }
+    if (this.limits.textBudget && this.totalText + data.length > this.limits.textBudget) return this.overDocumentText();
     const kind = op.op === 'text' ? 'text' : 'comment';
     const complex = kind === 'text' ? complexUnits(data) : 0;
     if (complex && this.limits.complexTextBudget && this.complexText + complex > this.limits.complexTextBudget) {
@@ -429,14 +598,12 @@ export class Validator {
 
   private opData(op: Record<string, unknown>): boolean {
     const { id, data } = op;
-    if (!isId(id) || !isStr(data, this.limits.maxText)) return false;
+    if (!isId(id) || typeof data !== 'string') return false;
+    if (data.length > this.limits.maxText) return this.tooLongText(data.length);
     const node = this.nodes.get(id);
     if (!node || node.kind === 'el' || node.kind === 'doc') return false;
     const textGrowth = data.length - node.data.length;
-    if (textGrowth > 0 && this.limits.textBudget && this.totalText + textGrowth > this.limits.textBudget) {
-      this.diag('text-budget', `document text over ${this.limits.textBudget} units`);
-      return false;
-    }
+    if (textGrowth > 0 && this.limits.textBudget && this.totalText + textGrowth > this.limits.textBudget) return this.overDocumentText();
     const complex = node.kind === 'text' ? complexUnits(data) : 0;
     const growth = complex - (node.complex ?? 0);
     if (growth > 0 && this.limits.complexTextBudget && this.complexText + growth > this.limits.complexTextBudget) {
@@ -537,6 +704,10 @@ export class Validator {
       const n = stack.pop()!;
       this.complexText -= n.complex ?? 0;
       this.totalText -= n.data.length;
+      this.cssRules -= n.cssRules ?? 0;
+      this.cssKeyframes -= n.cssKeyframes ?? 0;
+      const size = this.canvasSizes.get(n.id);
+      if (size) { this.canvasPixels -= size[0] * size[1]; this.canvasSizes.delete(n.id); }
       for (const charge of n.textSlots?.values() ?? []) {
         this.totalText -= charge.length;
         this.complexText -= charge.complex;
@@ -557,10 +728,12 @@ export class Validator {
 
   private opAttr(op: Record<string, unknown>): boolean {
     const { id, name, value } = op;
-    if (!isId(id) || !isStr(name, 128) || !isStr(value, MAX_ATTR)) return false;
+    if (!isId(id) || !isStr(name, 128) || typeof value !== 'string') return false;
+    if (value.length > this.limits.maxAttr) return this.tooLongAttr(value.length);
     const node = this.nodes.get(id);
     if (!node || node.kind !== 'el') return false;
     if (!node.rendered) return true;
+    if (!this.sizeCanvasAttr(node, name, value)) return false;
     const pairs = this.sanitizeAttr(node, name, value);
     if (pairs.length === 0) {
       // The previous (possibly valid) value must not survive a rejected update.
@@ -587,6 +760,7 @@ export class Validator {
     if (!node.rendered) return true;
     const canon = this.canonAttrName(node, name);
     if (!canon) return true;
+    if (!this.sizeCanvasAttr(node, canon, null)) return false;
     this.releaseTextSlot(node, 'attr:' + canon);
     this.out.push({ op: 'rattr', id, name: canon });
     if (node.tag === 'a' && (canon === 'href' || canon === 'xlink:href')) this.out.push({ op: 'rattr', id, name: 'data-tg-link' });
@@ -696,7 +870,8 @@ export class Validator {
 
   private opStyle(op: Record<string, unknown>): boolean {
     const { id, name, value, important } = op;
-    if (!isId(id) || !isStr(name, 128) || !isStr(value, MAX_ATTR)) return false;
+    if (!isId(id) || !isStr(name, 128) || typeof value !== 'string') return false;
+    if (value.length > this.limits.maxAttr) return this.tooLongAttr(value.length);
     const node = this.nodes.get(id);
     if (!node || node.kind !== 'el') return false;
     if (!node.rendered) return true;
@@ -719,7 +894,7 @@ export class Validator {
     const node = this.nodes.get(id);
     if (!spec || !node || node.kind !== 'el') return false;
     if (typeof value !== spec.type) return false;
-    if (typeof value === 'string' && value.length > this.limits.maxText) return false;
+    if (typeof value === 'string' && value.length > this.limits.maxText) return this.tooLongText(value.length);
     if (typeof value === 'number' && !Number.isFinite(value)) return false;
     if (!node.rendered || (spec.tags && !spec.tags.has(node.tag))) return true;
     if (typeof value === 'string' && !this.updateTextSlot(node, 'prop:' + name, value)) return false;
@@ -729,16 +904,10 @@ export class Validator {
 
   private updateTextSlot(node: NodeInfo, key: string, text: string): boolean {
     if (!this.limits.textBudget && !this.limits.complexTextBudget) return true;
-    if (text.length > this.limits.maxText) {
-      this.diag('text-budget', `visible text over ${this.limits.maxText} units`);
-      return false;
-    }
+    if (text.length > this.limits.maxText) return this.tooLongText(text.length);
     const previous = node.textSlots?.get(key);
     const lengthDelta = text.length - (previous?.length ?? 0);
-    if (lengthDelta > 0 && this.limits.textBudget && this.totalText + lengthDelta > this.limits.textBudget) {
-      this.diag('text-budget', `document text over ${this.limits.textBudget} units`);
-      return false;
-    }
+    if (lengthDelta > 0 && this.limits.textBudget && this.totalText + lengthDelta > this.limits.textBudget) return this.overDocumentText();
     const complex = complexUnits(text);
     const complexDelta = complex - (previous?.complex ?? 0);
     if (complexDelta > 0 && this.limits.complexTextBudget && this.complexText + complexDelta > this.limits.complexTextBudget) {
@@ -790,13 +959,16 @@ export class Validator {
 
   private opCanvas(op: Record<string, unknown>): boolean {
     const { id, cmds } = op;
-    if (!isId(id) || !Array.isArray(cmds) || cmds.length > MAX_CANVAS_CMDS) return false;
+    if (!isId(id) || !Array.isArray(cmds)) return false;
+    if (cmds.length > this.limits.maxCanvasCmds) return this.tooManyCanvasCmds(cmds.length);
     const node = this.nodes.get(id);
     if (!node || node.kind !== 'el' || node.tag !== 'canvas') return false;
     const out: CanvasCmd[] = [];
     for (const cmd of cmds) {
       const clean = this.canvasCmd(cmd);
+      if (this.stopReason !== null) return false;
       if (clean === OUT_OF_PROFILE) continue;
+      if (clean && clean[0] === 'r' && !this.sizeCanvas(id, Math.trunc(Number(clean[1])), Math.trunc(Number(clean[2])))) return false;
       if (clean) {
         if (clean[0] === 'c' && (clean[1] === 'fillText' || clean[1] === 'strokeText') && typeof clean[2] === 'string'
           && this.limits.textBudget && chargesChurn(clean[2]) && !this.takeChurn(textWork(clean[2]))) {
@@ -809,11 +981,15 @@ export class Validator {
     return true;
   }
 
+  private tooManyCanvasCmds(count: number): false {
+    return this.stop(`Canvas limit exceeded: ${count} commands in one send (max ${this.limits.maxCanvasCmds})`);
+  }
+
   /** A canvas argument: finite number, short string, boolean, null, flat number array, or object ref. */
   private canvasArg(v: unknown): unknown {
     if (v === null || typeof v === 'boolean') return v;
     if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
-    if (typeof v === 'string') return v.length <= this.limits.maxCanvasString ? v : undefined;
+    if (typeof v === 'string') return v.length <= this.limits.maxCanvasString ? v : (this.tooLongText(v.length), undefined);
     if (Array.isArray(v)) return v.length <= 4096 && v.every(isNum) ? v : undefined;
     if (isObj(v)) {
       if (isNum(v.g) && Number.isInteger(v.g)) return { g: v.g }; // gradient / pattern
@@ -881,6 +1057,7 @@ export class Validator {
         return isNum(name) && isNum(rest[0]) && typeof rest[1] === 'string' && rest[1].length < 256 ? ['gs', name, rest[0], rest[1]] : null;
       case 'pn':
         // ['pn', pid, svgPathData | null]
+        if (typeof rest[0] === 'string' && rest[0].length > this.limits.maxText) return this.tooLongText(rest[0].length) || null;
         return isNum(name) && (rest[0] === null || isStr(rest[0], this.limits.maxText)) ? ['pn', name, rest[0]] : null;
       case 'pc': {
         // ['pc', pid, method, ...args]
@@ -1005,7 +1182,7 @@ export class Validator {
         frames.push({ offset: f.offset as number, easing: f.easing as string, composite: f.composite as AnimKeyframe['composite'], values });
       }
       if (bad) { this.diag('protocol-violation', 'rejected anim keyframes'); drop(aid); continue; }
-      if (!live.has(aid) && live.size >= MAX_LIVE_ANIMS) { this.diag('animation-limit', 'more than ' + MAX_LIVE_ANIMS + ' live script animations'); continue; }
+      if (!live.has(aid) && live.size >= this.limits.maxLiveAnims) { this.diag('animation-limit', 'more than ' + this.limits.maxLiveAnims + ' live script animations'); continue; }
       live.add(aid);
       out.push({
         aid, target: a.target as NodeId, keyframes: frames,
@@ -1034,7 +1211,6 @@ export class Validator {
 }
 
 const MAX_ANIM_RECORDS = 4096;
-const MAX_LIVE_ANIMS = 1024;
 const MAX_ANIM_KEYFRAMES = 64;
 const MAX_ANIM_VALUES = 64;
 const MAX_ANIM_TIME = 86_400_000;

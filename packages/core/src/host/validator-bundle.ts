@@ -11,7 +11,10 @@
 //   __twValidator.rewriteMediaQuery(query)  → string
 //   __twValidator.nodeCount()               → number
 //   __twValidator.isCanvas(id)              → boolean (would a canvas op for id be accepted)
-// Diagnostics are reported through `__diag(kind, detail)` if the host defines it.
+//   __twValidator.stopped()                 → '' or the reason a counted cap stopped the widget (strict)
+// Diagnostics are reported through `__diag(kind, detail)` if the host defines it. Kind `limit` is fatal: a
+// counted cap was passed under strict, the host stops the widget with `detail` as the reason (every later
+// batch comes back empty), as it does for memory or CPU.
 
 import { clearStylesheetCache, sanitizeCssValue, sanitizeStyleAttribute, sanitizeStyleProperty, sanitizeStylesheet } from './css-sanitizer';
 import { Validator, validatorTables } from './validator';
@@ -66,6 +69,9 @@ const v = () => {
   },
   isCanvas(id: number) {
     return v().isCanvas(Number(id));
+  },
+  stopped() {
+    return v().stopped ?? '';
   },
   // For a native node model (Swift NativeValidator): the rules as data and the
   // stateless sanitizers; with native('1') the queries ask the host's model

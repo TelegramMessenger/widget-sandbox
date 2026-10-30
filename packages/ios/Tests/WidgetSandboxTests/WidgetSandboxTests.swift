@@ -13,7 +13,12 @@ final class RecordingDelegate: SandboxEngineDelegate {
     var storageCommits: [SdkPolicy.StorageCommit] = []
     var died: String?
     var frameRequests = 0
+    /// Tasks (a timer's, an event's, a frame's, …) started after `engineLoaded`: the boot's are not counted.
+    var tasksAfterLoad = 0
+    private var isLoaded = false
     let lock = NSLock()
+
+    func engineTaskStarted(_ engine: SandboxEngine) { lock.lock(); if isLoaded { tasksAfterLoad += 1 }; lock.unlock() }
 
     func engine(_ engine: SandboxEngine, ops json: String) { lock.lock(); ops.append(json); lock.unlock() }
     func engine(_ engine: SandboxEngine, query json: String) -> (json: String, binary: Data?) {
@@ -30,7 +35,7 @@ final class RecordingDelegate: SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) { lock.lock(); bridge.append((method, argsJson)); lock.unlock() }
     func engine(_ engine: SandboxEngine, action: WidgetAction) { lock.lock(); actions.append(action); lock.unlock() }
     func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) { lock.lock(); storageCommits.append(storageCommit); lock.unlock() }
-    func engineLoaded(_ engine: SandboxEngine) { loaded.fulfill() }
+    func engineLoaded(_ engine: SandboxEngine) { lock.lock(); isLoaded = true; lock.unlock(); loaded.fulfill() }
     func engine(_ engine: SandboxEngine, stats: SandboxStats) {}
     func engine(_ engine: SandboxEngine, died reason: String) { lock.lock(); died = reason; lock.unlock(); loaded.fulfill() }
 }
@@ -110,6 +115,79 @@ final class SandboxEngineTests: XCTestCase {
         XCTAssertEqual(d.diags.filter { $0.0 == "timer-limit" }.count, 1, "\(d.diags)")
         XCTAssertFalse(d.diags.contains { $0.0 == "timer-limit-enforced" }, "the engine backstop must not be needed: \(d.diags)")
         XCTAssertNil(d.died)
+    }
+
+    /// The shim serialises a timer's `[id, delay]` with `JSON.stringify`, which a widget may replace: here every
+    /// `timer` host call names one id. The glue replaces that id's timer, cancelling the one before: of 1000 timers
+    /// asked for, one fires, and no more than `maxTimers` native timers ever run (the old handle was overwritten and its
+    /// timer left running, past the cap and after destroy). The shim's own list stays under its cap: its clearTimeout
+    /// names an id the glue never saw.
+    func testATimerIdAskedForAgainReplacesItsTimer() {
+        let html = """
+            <script>
+            var stringify = JSON.stringify, fixed = 0, hijack = true, fired = 0, set = 0;
+            JSON.stringify = function (v) {
+              if (hijack && Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
+                if (!fixed) fixed = v[0];
+                return stringify([fixed, v[1]]);
+              }
+              return stringify.apply(JSON, arguments);
+            };
+            var replaced = JSON.stringify !== stringify;
+            for (var i = 0; i < 1000; i++) {
+              var t = setTimeout(function () { fired++; console.log('fired ' + fired); }, 100);
+              set++;
+              if (t !== fixed) clearTimeout(t);
+            }
+            hijack = false;
+            console.log('set ' + set + ' replaced ' + replaced);
+            </script>
+            """
+        let (d, engine) = run(html) { $0.maxTimers = 8 }
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, !(engine.queue.sync { d.logs.contains { $0.1 == "fired 1" } }) { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        engine.queue.sync {}
+        d.lock.lock()
+        let logs = d.logs.map { $0.1 }, tasks = d.tasksAfterLoad, diags = d.diags
+        d.lock.unlock()
+        XCTAssertTrue(logs.contains("set 1000 replaced true"), "\(logs.prefix(5))")
+        XCTAssertEqual(logs.filter { $0.hasPrefix("fired") }, ["fired 1"])
+        XCTAssertEqual(tasks, 1, "one native timer fired; each one left running is a task")
+        XCTAssertLessThanOrEqual(tasks, engine.config.maxTimers)
+        XCTAssertFalse(diags.contains { $0.0 == "timer-limit-enforced" }, "\(diags)")
+        XCTAssertNil(d.died)
+        engine.terminate()
+    }
+
+    /// A replaced id does not count against `maxTimers`: with the glue's list full (eight timers the shim does not know
+    /// of), a timer for an id the list holds replaces it, and only a ninth id is refused (`timer-limit-enforced`).
+    func testAReplacedTimerIdDoesNotCountAgainstTheCap() {
+        func widget(_ last: Int) -> String {
+            """
+            <script>
+            var stringify = JSON.stringify, next = 1000, as = -1;
+            JSON.stringify = function (v) {
+              if (as !== -1 && Array.isArray(v) && v.length === 2 && typeof v[0] === 'number') return stringify([as === 0 ? next++ : as, v[1]]);
+              return stringify.apply(JSON, arguments);
+            };
+            function ask(id) { as = id; var t = setTimeout(function () {}, 10000); as = -1; clearTimeout(t); }
+            for (var i = 0; i < 8; i++) ask(0);
+            ask(\(last));
+            console.log('asked ' + next);
+            </script>
+            """
+        }
+        for (last, refused) in [(1000, false), (1007, false), (0, true)] {
+            let (d, engine) = run(widget(last)) { $0.maxTimers = 8 }
+            engine.queue.sync {}
+            d.lock.lock()
+            XCTAssertTrue(d.logs.contains { $0.1 == "asked \(last == 0 ? 1009 : 1008)" }, "\(d.logs)")
+            XCTAssertEqual(d.diags.filter { $0.0 == "timer-limit-enforced" }.count, refused ? 1 : 0, "id \(last): \(d.diags)")
+            XCTAssertNil(d.died)
+            d.lock.unlock()
+            engine.terminate()
+        }
     }
 
     /// A 100 ms interval burning 40 ms per tick is legal under cpuLimitMs alone;

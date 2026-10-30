@@ -7,15 +7,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { runWidget } from '../../scripts/sandbox-node.ts';
-import { queryBudgetMs, QUERY_BUDGET_MIN_MS } from '../../src/host/cpu-budget.ts';
+import { queryBudgetMs, QUERY_BUDGET_MS } from '../../src/host/cpu-budget.ts';
 
 const busy = (ms: number) => { const t = performance.now(); while (performance.now() - t < ms) { /* a slow renderer */ } };
 const html = (script: string) => `<div id="a"></div><script>${script}</script>`;
 
 describe('layout-query budget', () => {
-  it('is the slice, at least 100 ms', () => {
-    assert.equal(queryBudgetMs(500), 500);
-    assert.equal(queryBudgetMs(10), QUERY_BUDGET_MIN_MS);
+  it('is 100 ms, whatever the slice (boot included)', () => {
+    assert.equal(queryBudgetMs(500), QUERY_BUDGET_MS);
+    assert.equal(queryBudgetMs(10), QUERY_BUDGET_MS);
+    assert.equal(QUERY_BUDGET_MS, 100);
   });
 
   it('kills a forced-layout loop with the layout-query reason', async () => {
@@ -26,7 +27,7 @@ describe('layout-query budget', () => {
     });
     const reason = r.logs.find((l) => l.level === 'error' && /Layout query limit exceeded/.test(l.text));
     assert.ok(reason, JSON.stringify(r.logs.slice(0, 3)));
-    assert.match(reason!.text, /more than 200 ms in one boot task/);
+    assert.match(reason!.text, /more than 100 ms in one boot task/);
     assert.ok(r.diags.some((d) => d.kind === 'query-limit'));
     assert.ok(r.queries.length < 120, `${r.queries.length} queries`);
     assert.ok(performance.now() - started < 5000, 'the harness returned promptly');

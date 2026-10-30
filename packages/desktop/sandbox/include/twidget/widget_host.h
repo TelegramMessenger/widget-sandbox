@@ -67,24 +67,32 @@ struct WidgetTheme {
 
 /// Limits for the widget's QuickJS runtime (see SandboxConfig); mirrors WidgetHost.Options on iOS/Android.
 struct WidgetHostOptions {
-    size_t memoryLimitBytes = size_t(64) << 20;
+    size_t memoryLimitBytes = size_t(8) << 20;
     double cpuLimitMs = 500;
     double cpuQuotaMs = 300;
     double cpuQuotaWindowMs = 1000;
     double cpuKillAfterMs = 0;
-    int maxTimers = 256;
+    /// The host's main-thread work for this widget per window (layout queries + 25 µs per op + 2 µs per canvas command).
+    double mainThreadQuotaMs = 100;
+    int maxTimers = 64;
     /// Initial visibility; change it later with `setVisible`.
     bool visible = true;
     /// Device pixel ratio the engine boots with; the renderer's `size` report overrides it.
     double devicePixelRatio = 1;
-    /// "strict" (default; anything but "compat") or "compat": the gesture gate, 64 KB text caps and the text budgets.
+    /// "strict" (default; anything but "compat") or "compat": the gesture gate, the 32 KB text caps and the text budgets,
+    /// and the validator's counted caps, past which the widget stops (`diagnostics().dead` with the cap's reason, such
+    /// as `Ops limit exceeded: 12000 operations in one batch (max 10000)`; docs/decisions.md, "Strict limits from the start").
     std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
     std::vector<std::string> features;
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
+    /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
+    /// the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
+    /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
+    WidgetContentSafeArea contentSafeArea;
     /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); an area over the
-    /// 16 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
+    /// 4 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
     /// The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later
     /// edits go through `setData`. A field over 1024 bytes, with a NUL or malformed is null for the widget (`data-rejected`).
@@ -115,7 +123,8 @@ struct WidgetDiagnostics {
     /// `loaded`: the widget's scripts ran; `rendered`: the renderer applied every op sent up to that point.
     bool rendered = false;
     std::optional<double> renderedMs;
-    /// Fatal: the runtime is gone. The renderer keeps the last state (frozen).
+    /// Fatal: the runtime is gone (memory, CPU, or a counted cap of the validator under strict). The renderer keeps the
+    /// last state (frozen).
     std::optional<std::string> dead;
     /// Last uncaught widget error (non-fatal), cleared once a later task completes without one.
     std::optional<std::string> lastError;
@@ -147,6 +156,8 @@ public:
     static bool isUserActivation(const Json& ev);
     /// The gesture number for this renderer event, 0 when it is not a user activation.
     int gestureFor(const Json& ev);
+    /// A primary press began (the renderer's `gesture` claim): what follows is a new gesture (user-activation.ts).
+    void pressBegan() { pressOpen_ = false; lastType_.clear(); }
 
 private:
     int number_ = 0;
@@ -181,6 +192,10 @@ public:
     /// widget gets `chatDataChanged`, then `publicDataChanged`, for each that differs; a copy keeps no `chatData` (its
     /// publicData can change); a field over the limit is null (`data-rejected`).
     void setData(const WidgetData& data);
+    /// What the client draws over the widget changed with the bubble's layout (docs/sdk-v1.md §2.17, §5.12): a caption
+    /// added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
+    /// widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
+    void setContentSafeArea(const WidgetContentSafeArea& area);
     /// A DOM event for the widget that did not come from the renderer (the harness's `--events`).
     void event(const std::string& json);
     /// Trusted diagnostic code evaluated in the widget context (tests / harness only).
@@ -222,13 +237,20 @@ public:
     std::function<void(const WidgetGestureClaim& claim)> onGesture;
     /// A request the widget sends to the bot (`TelegramWidget.request`, docs/sdk-v1.md §2.14), checked: the
     /// data (1–64 bytes), the message's `WidgetContext::canQuery`, a press (one request per press, shared with the links
-    /// and copyText) or, without one, `backgroundQuery` (visible, one when the widget appears on screen, then one per
-    /// 5 s), one in flight. Send it like a callback button's press and call `respond` once, from any thread, with the
+    /// and copyText) or, without one, `backgroundQuery` (one when the widget appears on screen, then one per 5 s while
+    /// visible; one made off screen waits for `setVisible(true)`), one in flight. Send it like a callback button's press and call `respond` once, from any thread, with the
     /// server's answer (`result`) or a failure (`Timeout`, `RateLimited`, `Failed`); later calls, and calls after
     /// `destroy()`, are ignored. Until then the
     /// widget's next request is BUSY. Read on the host thread when a request is delivered: unset then, the widget gets
     /// `NOT_ALLOWED` (reason `unsupported`).
     std::function<void(const WidgetRequest& request, std::function<void(const WidgetRequestOutcome&)> respond)> onRequest;
+    /// A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18; checked: the transaction or the payload, a press or
+    /// the grant, one call in flight with the requests). Only with `WidgetContext::wallet`. Show the client's own wallet
+    /// window with the bot of the message; on confirmation send the transaction (or sign for `bot<bot_id>`), send the
+    /// outcome to the bot as a query with `call.data` and call `respond` once, from any thread, with the bot's answer or
+    /// a failure (`Rejected`: the user declined, `BadRequest`: the wallet refused it, or a request's). Read on the host
+    /// thread at delivery: unset then, the widget gets `NOT_ALLOWED` (reason `unsupported`).
+    std::function<void(const WalletCall& call, std::function<void(const WidgetRequestOutcome&)> respond)> onWallet;
     /// Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`):
     /// 1–256 UTF-16 code units, well-formed, at most one privileged call per pointer press. Not an action.
     std::function<void(const std::string& text)> onCopyText;
@@ -260,6 +282,7 @@ public:
     void onPublicDataWatch(SandboxEngine&, bool on) override;
     void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override;
     void onBridgeRequest(SandboxEngine&, const WidgetRequest& request, WidgetRequestResponder respond) override;
+    void onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) override;
     void onBridgeCopyText(SandboxEngine&, const std::string& text) override;
     void onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) override;
     void onLoaded(SandboxEngine&) override;
@@ -284,6 +307,8 @@ private:
     void toRenderer(const std::string& json);
     /// `{"type":"theme","theme":{"colorScheme","params","button"}}` of the current theme (docs/sdk-v1.md §3.4).
     std::string themeMessage() const;
+    /// `{"type":"safeArea","inset":{…}}` (docs/sdk-v1.md §3.4).
+    static std::string safeAreaMessage(const WidgetContentSafeArea& area);
     void resolveQuery(const std::string& json, std::optional<std::vector<uint8_t>> binary);
     void diag(const std::string& kind, const std::string& detail);
     void changed();

@@ -120,6 +120,16 @@ const Var TEXT_VARS[] = {
     {"padding", "--tg-text-padding", padding},
 };
 
+struct SafeAreaVar { const char* field; const char* name; double max; };
+const SafeAreaVar SAFE_AREA_VARS[] = {
+    {"top", "--tg-content-safe-area-inset-top", 64},
+    {"right", "--tg-content-safe-area-inset-right", 64},
+    {"bottom", "--tg-content-safe-area-inset-bottom", 64},
+    {"left", "--tg-content-safe-area-inset-left", 64},
+    {"cornerLeft", "--tg-content-safe-area-corner-left", 200},
+    {"cornerRight", "--tg-content-safe-area-corner-right", 200},
+};
+
 std::string var_name(const char* key) {
     std::string name = std::string("--tg-theme-") + key;
     for (char& c : name) if (c == '_') c = '-';
@@ -150,8 +160,20 @@ std::vector<std::pair<std::string, std::string>> variables(const Json& theme) {
     return vars;
 }
 
+std::vector<std::pair<std::string, std::string>> safe_area_variables(const Json& inset) {
+    std::vector<std::pair<std::string, std::string>> vars;
+    for (const SafeAreaVar& v : SAFE_AREA_VARS) {
+        const Json& given = inset[v.field];
+        double n = given.isNumber() ? given.asNumber() : 0;
+        if (!std::isfinite(n) || n < 0 || n > v.max) n = 0;
+        vars.emplace_back(v.name, Json::number(std::round(n * 100) / 100) + "px");
+    }
+    return vars;
+}
+
 bool is_variable(const std::string& name) {
     if (name == "--tg-color-scheme") return true;
+    for (const SafeAreaVar& v : SAFE_AREA_VARS) if (name == v.name) return true;
     for (const char* k : THEME_KEYS) if (name == var_name(k)) return true;
     for (const Var& v : BUTTON_VARS) if (name == v.name) return true;
     for (const Var& v : TEXT_VARS) if (name == v.name) return true;

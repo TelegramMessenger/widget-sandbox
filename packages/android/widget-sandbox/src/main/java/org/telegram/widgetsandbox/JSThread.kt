@@ -67,18 +67,25 @@ class JSThread(name: String) {
         return result as T
     }
 
-    class Scheduled {
-        @Volatile internal var cancelled = false
-        /** Safe from any thread; the block will not run after this returns. */
+    class Scheduled internal constructor(private val handler: Handler?, block: () -> Unit, stopped: () -> Boolean) {
+        @Volatile private var cancelled = false
+        internal val runnable = Runnable { if (!cancelled && !stopped()) block() }
+        /**
+         * Safe from any thread; the block will not run after this returns, and the queue lets go of it at once (as Swift's
+         * `Timer.invalidate`): a cancelled timer no longer waits there until its time, up to 24 h for a widget's, so a
+         * widget setting and clearing timers in a loop cannot grow the queue.
+         */
         fun cancel() {
             cancelled = true
+            handler?.removeCallbacks(runnable)
         }
     }
 
     /** Runs `block` on the thread after `delayMs` unless cancelled. */
     fun after(delayMs: Long, block: () -> Unit): Scheduled {
-        val handle = Scheduled()
-        handler?.postDelayed({ if (!handle.cancelled && !stopped) block() }, maxOf(0L, delayMs))
+        val h = handler
+        val handle = Scheduled(h, block) { stopped }
+        h?.postDelayed(handle.runnable, maxOf(0L, delayMs))
         return handle
     }
 

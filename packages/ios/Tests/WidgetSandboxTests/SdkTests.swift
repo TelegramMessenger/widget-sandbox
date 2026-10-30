@@ -90,7 +90,7 @@ final class SdkTests: XCTestCase {
     func testPreloadIsReadableFromTheFirstLineAndEachTaskCommits() {
         var options = WidgetHost.Options()
         options.storage = WidgetStorage(local: ["count": "41"], session: ["s": "kept"])
-        let h = Harness("<button id='b'>b</button><script>console.log('seen='+localStorage.getItem('count')+'/'+sessionStorage.getItem('s')+'/'+localStorage.length);localStorage.setItem('count',String(Number(localStorage.getItem('count'))+1));localStorage.extra=7;document.getElementById('b').onclick=function(){sessionStorage.setItem('s','tapped');localStorage.setItem('count',localStorage.count);localStorage.setItem('w','ж'.repeat(8185));};</script>", options: options)
+        let h = Harness("<button id='b'>b</button><script>console.log('seen='+localStorage.getItem('count')+'/'+sessionStorage.getItem('s')+'/'+localStorage.length);localStorage.setItem('count',String(Number(localStorage.getItem('count'))+1));localStorage.extra=7;document.getElementById('b').onclick=function(){sessionStorage.setItem('s','tapped');localStorage.setItem('count',localStorage.count);localStorage.setItem('w','ж'.repeat(2041));};</script>", options: options)
         h.pump { !h.commits.isEmpty }
         XCTAssertTrue(h.logs.contains("seen=41/kept/1"), "\(h.logs)")
         XCTAssertEqual(h.commits.map(\.area), [.local])
@@ -99,7 +99,7 @@ final class SdkTests: XCTestCase {
         h.pump { h.commits.count >= 3 }
         h.settle(0.1)
         XCTAssertEqual(h.commits.map(\.area), [.local, .local, .session], "one commit per task, local first; an unchanged value is no change")
-        XCTAssertEqual(h.commits[1].values["w"]?.count, 8185, "count=42, extra=7 and w = 13 + 1 + 16370 bytes: exactly the quota, by the shim's count and the glue's")
+        XCTAssertEqual(h.commits[1].values["w"]?.count, 2041, "count=42, extra=7 and w = 13 + 1 + 4082 bytes: exactly the quota, by the shim's count and the glue's")
         XCTAssertEqual(h.commits[2].values, ["s": "tapped"])
         XCTAssertEqual(h.count("storage-rejected"), 0)
     }
@@ -114,7 +114,7 @@ final class SdkTests: XCTestCase {
     }
 
     func testSetItemPastTheQuotaThrowsAndCommitsNothing() {
-        let h = Harness("<script>var out=[];localStorage.setItem('k','x'.repeat(16383));try{localStorage.setItem('k2','y');}catch(e){out.push(e.name);}console.log('out='+out.join());</script>")
+        let h = Harness("<script>var out=[];localStorage.setItem('k','x'.repeat(4095));try{localStorage.setItem('k2','y');}catch(e){out.push(e.name);}console.log('out='+out.join());</script>")
         h.pump { !h.commits.isEmpty }
         XCTAssertTrue(h.logs.contains("out=QuotaExceededError"), "\(h.logs)")
         XCTAssertEqual(h.commits.count, 1)
@@ -306,7 +306,7 @@ final class SdkTests: XCTestCase {
         XCTAssertTrue(logs.contains("n=0"), "\(logs)")
     }
 
-    /// The widget of sdk.test.ts: a tap asks twice (the second is BUSY in the shim); every outcome goes into `log`.
+    /// The widget of sdk.test.ts: a tap asks twice (the shim forwards both, the glue's gate refuses the second as BUSY); every outcome goes into `log`.
     private static let requester = "<button id='b'>go</button><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
         "function ask(d){TelegramWidget.request(d).then(function(a){out('ok:'+d+':'+JSON.stringify(a)+':'+Object.isFrozen(a)+':'+TelegramWidget.chatData);},function(e){out('err:'+d+':'+e.name+':'+e.code);});}" +
         "document.getElementById('b').addEventListener('click',function(){ask('tap');ask('tap2');});</script>"
@@ -316,6 +316,13 @@ final class SdkTests: XCTestCase {
     private func log(_ h: Harness, entries: Int) -> String {
         h.pump { (h.logs.last { $0.hasPrefix("log=") }?.split(separator: " ").count ?? 0) >= entries }
         return String(h.logs.last { $0.hasPrefix("log=") }?.dropFirst(4) ?? "")
+    }
+
+    /// `log` with each tap's two outcomes sorted: the client's answer comes through the main thread, the gate's BUSY
+    /// for the second call from the engine's, in either order.
+    private func tapLog(_ h: Harness, entries: Int) -> String {
+        let all = log(h, entries: entries).split(separator: " ").map(String.init)
+        return stride(from: 0, to: all.count, by: 2).flatMap { all[$0..<min($0 + 2, all.count)].sorted() }.joined(separator: " ")
     }
 
     /// An original in a group (`canQuery` only) asks on a tap: one request, the answer resolves with `{ result }`, a
@@ -328,14 +335,14 @@ final class SdkTests: XCTestCase {
             respond(.success(WidgetRequestAnswer(result: "thanks")))
         }
         h.click(Self.button)
-        XCTAssertEqual(log(h, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
+        XCTAssertEqual(tapLog(h, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
         XCTAssertEqual(asked, [WidgetRequest(data: "tap")])
-        XCTAssertEqual(h.count("request-blocked"), 0, "BUSY came from the shim")
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details, ["request refused (busy): a request is already in flight"], "BUSY comes from the glue's gate")
         XCTAssertEqual(h.actions, [], "a request is no action")
         XCTAssertTrue(h.host.diagnostics.bridge.isEmpty)
 
         h.click(Self.button)
-        XCTAssertEqual(log(h, entries: 4).split(separator: " ").suffix(2).joined(separator: " "), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
+        XCTAssertEqual(tapLog(h, entries: 4).split(separator: " ").suffix(2).joined(separator: " "), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"thanks"}:true:v1"#)
         XCTAssertEqual(asked.count, 2, "after the answer the next tap asks again")
     }
 
@@ -377,8 +384,8 @@ final class SdkTests: XCTestCase {
         XCTAssertNil(host.diagnostics.diags["request-blocked"])
     }
 
-    /// No tap: refused without `backgroundQuery` (a group); with it (the private chat with the bot) visible only, one
-    /// per 5 s (sdk.test.ts "without a tap …" and "background requests …").
+    /// No tap: refused without `backgroundQuery` (a group); with it (the private chat with the bot) one per 5 s
+    /// (sdk.test.ts "without a tap …" and "background requests …"); off screen it waits (the tests below).
     func testRequestsWithoutATap() {
         // The pointer moving is no press: the request comes from a timer that it starts.
         let html = "<p>x</p><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
@@ -400,12 +407,55 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(asked, [WidgetRequest(data: "bg")])
         h.event(["type": "pointermove", "targetId": 4])
         XCTAssertEqual(log(h, entries: 2), "ok RATE_LIMITED:false", "a second background request within 5 s")
-        h.host.setVisible(false)
-        h.event(["type": "pointermove", "targetId": 4])
-        XCTAssertEqual(log(h, entries: 3), "ok RATE_LIMITED:false NOT_ALLOWED:false", "a hidden widget asks nothing in the background (its timer waits for the 1 Hz tick)")
         XCTAssertEqual(asked.count, 1)
-        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details.map { $0.components(separatedBy: ":").first ?? "" }, ["request refused (rate-limited)", "request refused (hidden)"])
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details.map { $0.components(separatedBy: ":").first ?? "" }, ["request refused (rate-limited)"])
     }
+
+    /// Telegram's clients create the host off screen (`isActive` false at boot): a background request at boot waits
+    /// in the glue (no answer, nothing refused) and goes to the client when the widget appears, as that appearance's;
+    /// one on `activated` meanwhile is BUSY, the first being in flight (sdk.test.ts "… a request at boot off screen …").
+    func testBackgroundRequestAtBootOffScreenGoesOutWhenTheWidgetAppears() {
+        var options = WidgetHost.Options()
+        options.context = Self.privateChat
+        options.visible = false
+        let h = Harness(Self.offScreenAsker, options: options)
+        var asked: [WidgetRequest] = []
+        h.host.onRequest = { request, respond in asked.append(request); respond(.success(WidgetRequestAnswer(result: "r"))) }
+        h.pump { h.logs.contains("active=false") }
+        h.settle(0.2)
+        XCTAssertEqual(asked, [], "held while off screen")
+        XCTAssertFalse(h.logs.contains { $0.hasPrefix("log=") }, "\(h.logs)")
+        XCTAssertEqual(h.count("request-blocked"), 0)
+        let window = TestWindow.makeVisible()
+        defer { window.close() }
+        window.attach(h.host.view)
+        h.host.setVisible(true)
+        XCTAssertEqual(log(h, entries: 2).split(separator: " ").sorted(), ["activated:BUSY", "boot:r"])
+        XCTAssertEqual(asked, [WidgetRequest(data: "boot")])
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details, ["request refused (busy): a request is already in flight"])
+    }
+
+    /// A held request never reaches the client once the host is destroyed, even if it is shown afterwards.
+    func testHeldRequestIsDroppedWhenTheHostIsDestroyed() {
+        var options = WidgetHost.Options()
+        options.context = Self.privateChat
+        options.visible = false
+        let h = Harness(Self.offScreenAsker, options: options)
+        var asked: [WidgetRequest] = []
+        h.host.onRequest = { request, respond in asked.append(request); respond(.success(WidgetRequestAnswer())) }
+        h.pump { h.logs.contains("active=false") }
+        let window = TestWindow.makeVisible()
+        defer { window.close() }
+        window.attach(h.host.view)
+        h.host.destroy()
+        h.host.setVisible(true)
+        h.settle(0.3)
+        XCTAssertEqual(asked, [])
+    }
+
+    private static let offScreenAsker = "<p>x</p><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
+        "function ask(t){TelegramWidget.request(t).then(function(a){out(t+':'+a.result);},function(e){out(t+':'+e.code);});}" +
+        "TelegramWidget.onEvent('activated',function(){ask('activated');});ask('boot');console.log('active='+TelegramWidget.isActive);</script>"
 
     /// A background request, the widget hidden and shown again, a background request at once: delivered (one when the
     /// widget appears on screen), another at once: RATE_LIMITED (then one per 5 s).
@@ -443,7 +493,7 @@ final class SdkTests: XCTestCase {
         let live = harness(Self.requester + "<script>" + Self.show + "</script>", Self.liveCopy, data: WidgetData(chatData: "secret", publicData: "p"))
         live.host.onRequest = answerX
         live.click(Self.button)
-        XCTAssertEqual(log(live, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"x"}:true:null"#)
+        XCTAssertEqual(tapLog(live, entries: 2), #"err:tap2:WidgetRequestError:BUSY ok:tap:{"result":"x"}:true:null"#)
         XCTAssertEqual(asked, [WidgetRequest(data: "tap")])
         XCTAssertEqual(context(live), #"ctx=[null,"p",true,null,{"id":42}]"#, "no copy tells where it was forwarded")
 
@@ -474,10 +524,11 @@ final class SdkTests: XCTestCase {
 
         let unsupported = harness(Self.requester.replacingOccurrences(of: "e.code);", with: "e.code+'|'+e.message);"), Self.group)
         unsupported.click(Self.button)
-        unsupported.pump { unsupported.logs.contains { $0.contains("err:tap:") } }
-        XCTAssertEqual(unsupported.logs.last { $0.hasPrefix("log=") },
-                       "log=err:tap2:WidgetRequestError:BUSY|request: a request is already in flight; wait for its answer err:tap:WidgetRequestError:NOT_ALLOWED|request: this client does not deliver requests")
-        XCTAssertEqual(unsupported.host.diagnostics.diags["request-blocked"]?.details, ["request refused: the client handles no requests (WidgetHost.onRequest)"])
+        unsupported.pump { unsupported.logs.contains { $0.contains("err:tap:") && $0.contains("err:tap2:") } }
+        let line = unsupported.logs.last { $0.hasPrefix("log=") } ?? ""
+        XCTAssertTrue(line.contains("err:tap2:WidgetRequestError:BUSY|request: a request is already in flight; wait for its answer"), line)
+        XCTAssertTrue(line.contains("err:tap:WidgetRequestError:NOT_ALLOWED|request: this client does not deliver requests"), line)
+        XCTAssertEqual(unsupported.host.diagnostics.diags["request-blocked"]?.details, ["request refused (busy): a request is already in flight", "request refused: the client handles no requests (WidgetHost.onRequest)"])
     }
 
     /// A failure becomes its code; a result over 1024 bytes or with a NUL is INVALID_ANSWER (`answer-rejected`); the
@@ -493,7 +544,7 @@ final class SdkTests: XCTestCase {
         for code in ["TIMEOUT", "RATE_LIMITED", "FAILED", "INVALID_ANSWER", "INVALID_ANSWER"] {
             h.click(Self.button)
             expected += ["err:tap2:WidgetRequestError:BUSY", "err:tap:WidgetRequestError:\(code)"]
-            XCTAssertEqual(log(h, entries: expected.count), expected.joined(separator: " "))
+            XCTAssertEqual(tapLog(h, entries: expected.count), expected.joined(separator: " "))
         }
         XCTAssertEqual(h.host.diagnostics.diags["answer-rejected"]?.details, Array(repeating: "the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER", count: 2))
 
@@ -509,9 +560,9 @@ final class SdkTests: XCTestCase {
         }
         h.click(Self.button)
         expected += ["err:tap2:WidgetRequestError:BUSY", #"ok:tap:{"result":"first"}:true:null"#]
-        XCTAssertEqual(log(h, entries: expected.count), expected.joined(separator: " "))
+        XCTAssertEqual(tapLog(h, entries: expected.count), expected.joined(separator: " "))
         h.settle()
-        XCTAssertEqual(log(h, entries: expected.count), expected.joined(separator: " "), "later calls are ignored")
+        XCTAssertEqual(tapLog(h, entries: expected.count), expected.joined(separator: " "), "later calls are ignored")
 
         // A completion kept past destroy() reaches nothing.
         h.host.onRequest = { _, respond in stored = respond }
@@ -785,6 +836,64 @@ final class SdkTests: XCTestCase {
         XCTAssertEqual(second, "#abcdef|light|||#000000|15px|1.35|8px 12px|15px|rgba(0, 0, 0, 0)|12px|0px")
     }
 
+    // MARK: the client's time over the widget (docs/sdk-v1.md §2.17)
+
+    /// The option reaches the renderer right after the theme and the widget from its first line (checked by the shim:
+    /// out of range is 0); setContentSafeArea sends the variables and one contentSafeAreaChanged with a fresh frozen
+    /// object; the same value fires nothing; NaN reaches nobody as NaN.
+    func testContentSafeAreaReachesTheRendererAndTheWidget() throws {
+        var options = WidgetHost.Options()
+        options.contentSafeArea = WidgetContentSafeArea(top: 99, bottom: 24, cornerRight: 72)
+        let h = Harness("<script>var first=TelegramWidget.contentSafeAreaInset;console.log('first='+JSON.stringify(first));TelegramWidget.onEvent('contentSafeAreaChanged',function(){var a=TelegramWidget.contentSafeAreaInset;console.log('changed='+[a.bottom,a.cornerLeft,a.cornerRight,Object.isFrozen(a),a!==first,this===TelegramWidget].join(':'));});</script>", options: options)
+        h.pump { h.logs.contains { $0.hasPrefix("first=") } }
+        XCTAssertTrue(h.logs.contains("first={\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}"), "\(h.logs)")
+        let messages = h.renderer.messages.compactMap { Self.object($0) }
+        XCTAssertEqual(messages.first?["type"] as? String, "theme")
+        XCTAssertEqual(messages.dropFirst().first?["type"] as? String, "safeArea", "right after the theme, before any op")
+        let inset = try XCTUnwrap(messages.dropFirst().first?["inset"] as? [String: Double])
+        XCTAssertEqual(inset["bottom"], 24)
+        XCTAssertEqual(inset["cornerRight"], 72)
+        XCTAssertEqual(inset["top"], 99, "passed as given: the renderer core checks the range")
+        let rtl = WidgetContentSafeArea(bottom: 26.5, cornerLeft: 80)
+        h.host.setContentSafeArea(rtl)
+        h.host.setContentSafeArea(rtl)
+        h.host.setContentSafeArea(WidgetContentSafeArea(bottom: .nan))
+        h.pump { h.logs.filter { $0.hasPrefix("changed=") }.count >= 2 }
+        XCTAssertEqual(h.logs.filter { $0.hasPrefix("changed=") }, ["changed=26.5:80:0:true:true:true", "changed=0:0:0:true:true:true"])
+        let sent = h.renderer.messages.compactMap { Self.object($0) }.filter { $0["type"] as? String == "safeArea" }
+        XCTAssertEqual(sent.count, 4)
+        XCTAssertEqual((sent.last?["inset"] as? [String: Double])?["bottom"], 0, "NaN goes out as 0")
+    }
+
+    /// The renderer core sets the six variables on the root (the widget's own `:root` rule cannot replace them), the
+    /// validator's `env()` resolves to them, and the UA layer pads the body by the band; a change moves all of it.
+    @MainActor
+    func testContentSafeAreaOnTheRendererRoot() async throws {
+        let window = TestWindow.makeVisible()
+        defer { window.close() }
+        var options = WidgetHost.Options()
+        options.contentSafeArea = WidgetContentSafeArea(bottom: 24, cornerRight: 64)
+        let host = try WidgetHost(html: "<style>:root{--tg-content-safe-area-inset-bottom:50px}</style><p style=\"margin:0;padding-bottom:env(safe-area-inset-bottom, 99px)\">x</p>", width: 300, options: options)
+        defer { host.destroy() }
+        var latest = WidgetDiagnostics()
+        host.onChange = { latest = $0 }
+        window.attach(host.view)
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline, !latest.rendered { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertTrue(latest.rendered, "\(latest.diags)")
+        let probe = "(function(){var s=getComputedStyle(document.documentElement);return ['--tg-content-safe-area-inset-bottom','--tg-content-safe-area-corner-right','--tg-content-safe-area-corner-left'].map(function(n){return s.getPropertyValue(n).trim();}).concat([getComputedStyle(document.body).paddingBottom,getComputedStyle(document.querySelector('p')).paddingBottom]).join('|');})()"
+        let first = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
+        XCTAssertEqual(first, "24px|64px|0px|24px|24px")
+        host.setContentSafeArea(WidgetContentSafeArea(bottom: 20, cornerLeft: 70))
+        var second = ""
+        let changed = Date().addingTimeInterval(5)
+        while Date() < changed, second != "20px|0px|70px|20px|20px" {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            second = await withCheckedContinuation { c in host.evaluateInRenderer(probe) { c.resume(returning: $0) } }
+        }
+        XCTAssertEqual(second, "20px|0px|70px|20px|20px")
+    }
+
     // MARK: helpers
 
     private static func object(_ json: String) -> [String: Any]? {
@@ -794,6 +903,98 @@ final class SdkTests: XCTestCase {
     private func pump(_ timeout: TimeInterval = 5, _ condition: () -> Bool) {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+
+    // MARK: the wallet (docs/sdk-v1.md §2.18)
+
+    private static let tx = WalletTransaction(validUntil: 1900000000, messages: [WalletMessage(address: "EQ" + String(repeating: "ab", count: 23), amount: "1500000000")])
+    private static let txJson = #"{"valid_until":1900000000,"messages":[{"address":"EQ"# + String(repeating: "ab", count: 23) + #"","amount":"1500000000"}]}"#
+    /// sdk.test.ts's payer: a tap asks the bot with the wallet, the answer's transaction goes to `sendTransaction`, every outcome into `log`.
+    private static let payer = "<button id='b'>pay</button><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
+        "document.getElementById('b').onclick=function(){TelegramWidget.request('pay:42',{wallet:true})" +
+        ".then(function(a){out('tx');return TelegramWidget.wallet.sendTransaction(JSON.parse(a.result),'paid:42');})" +
+        ".then(function(b){out('ok:'+b.result);},function(e){out('err:'+e.code);return TelegramWidget.wallet.sendTransaction(JSON.parse('" + txJson + "'),'again').catch(function(e2){out('again:'+e2.code);});});};</script>"
+
+    /// `TelegramWidget.wallet` only where the client has the wallet and the widget may ask the bot; never in a preview.
+    func testWalletOnlyWhereTheClientHasItAndTheWidgetMayAsk() {
+        let probe = "<script>console.log('w='+(TelegramWidget.wallet===null?'null':typeof TelegramWidget.wallet.sendTransaction+Object.isFrozen(TelegramWidget.wallet)));</script>"
+        let cases: [(WidgetContext, String)] = [
+            (WidgetContext(canQuery: true, backgroundQuery: true, chatType: .private, wallet: true), "w=functiontrue"),
+            (WidgetContext(isCopy: true, canQuery: true, wallet: true), "w=functiontrue"),
+            (Self.privateChat, "w=null"),
+            (WidgetContext(chatType: .private, wallet: true), "w=null"),
+            (WidgetContext(canQuery: true, chatType: .private, preview: true, wallet: true), "w=null"),
+        ]
+        for (context, expect) in cases {
+            let h = harness(probe, context)
+            h.pump { h.logs.contains { $0.hasPrefix("w=") } }
+            XCTAssertEqual(h.logs.first { $0.hasPrefix("w=") }, expect, "\(context)")
+        }
+    }
+
+    /// A tap pays: the request asks for the wallet, the bot answers with the transaction, the call on that answer goes
+    /// out without a new tap (the grant), the bot's answer to the payment resolves it.
+    func testATapPaysOnTheAnswerToItsRequest() {
+        var context = Self.privateChat
+        context.wallet = true
+        let h = harness(Self.payer, context)
+        var asked: [WidgetRequest] = []
+        var calls: [WalletCall] = []
+        h.host.onRequest = { request, respond in asked.append(request); respond(.success(WidgetRequestAnswer(result: Self.txJson))) }
+        h.host.onWallet = { call, respond in calls.append(call); respond(.success(WidgetRequestAnswer(result: "thanks"))) }
+        h.click(Self.button)
+        XCTAssertEqual(log(h, entries: 2), "tx ok:thanks")
+        XCTAssertEqual(asked, [WidgetRequest(data: "pay:42", wallet: true)])
+        XCTAssertEqual(calls, [.sendTransaction(Self.tx, data: "paid:42")])
+        XCTAssertEqual(h.actions, [], "a wallet call is no action")
+    }
+
+    /// The user declines: REJECTED, and a refusal brings no grant (the next call needs a tap); a request's failure
+    /// `.rejected` is FAILED there; from a timer neither a wallet call nor a request for the wallet goes out.
+    func testRefusalsAndTheBackground() {
+        let h = harness(Self.payer, WidgetContext(canQuery: true, chatType: .group, wallet: true))
+        var calls = 0
+        h.host.onRequest = { _, respond in respond(.success(WidgetRequestAnswer(result: Self.txJson))) }
+        h.host.onWallet = { _, respond in calls += 1; respond(.failure(.rejected)) }
+        h.click(Self.button)
+        XCTAssertEqual(log(h, entries: 3), "tx err:REJECTED again:NOT_ALLOWED")
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details, ["wallet.sendTransaction refused (no-activation): it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each"])
+
+        let plain = harness(Self.requester, Self.group)
+        plain.host.onRequest = { _, respond in respond(.failure(.rejected)) }
+        plain.click(Self.button)
+        XCTAssertEqual(tapLog(plain, entries: 2), "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:FAILED")
+
+        var context = Self.privateChat
+        context.wallet = true
+        let timer = harness("<script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}setTimeout(function(){" +
+            "TelegramWidget.wallet.signData({type:'text',text:'x'},'s').catch(function(e){out('sign:'+e.code);});" +
+            "TelegramWidget.request('w',{wallet:true}).catch(function(e){out('rq:'+e.code);});},0);</script>", context)
+        timer.host.onRequest = { _, respond in calls += 100; respond(.success(WidgetRequestAnswer())) }
+        timer.host.onWallet = { _, respond in calls += 100; respond(.success(WidgetRequestAnswer())) }
+        XCTAssertEqual(log(timer, entries: 2).split(separator: " ").sorted(), ["rq:NOT_ALLOWED", "sign:NOT_ALLOWED"])
+        XCTAssertEqual(calls, 1, "neither reaches the client")
+    }
+
+    /// signData on a tap with its payload as checked; a client without `onWallet` at delivery refuses (`unsupported`).
+    func testSignDataOnATapAndNoClientSide() {
+        let html = "<button id='b'>s</button><script>document.getElementById('b').onclick=function(){" +
+            "TelegramWidget.wallet.signData({type:'text',text:'I agree',network:null},'sign:1').then(function(a){console.log('ok:'+a.result);},function(e){console.log('err:'+e.code);});};</script>"
+        let context = WidgetContext(isCopy: true, canQuery: true, wallet: true)
+        let h = harness(html, context)
+        var calls: [WalletCall] = []
+        h.host.onWallet = { call, respond in calls.append(call); respond(.success(WidgetRequestAnswer(result: "signed"))) }
+        h.click(Self.button)
+        h.pump { h.logs.contains { $0.hasPrefix("ok:") || $0.hasPrefix("err:") } }
+        XCTAssertTrue(h.logs.contains("ok:signed"), "\(h.logs)")
+        XCTAssertEqual(calls, [.signData(SignDataPayload(type: .text, text: "I agree"), data: "sign:1")])
+
+        let none = harness(html, context)
+        none.click(Self.button)
+        none.pump { none.logs.contains { $0.hasPrefix("err:") } }
+        XCTAssertTrue(none.logs.contains("err:NOT_ALLOWED"), "\(none.logs)")
+        XCTAssertEqual(none.host.diagnostics.diags["request-blocked"]?.details, ["wallet call refused: the client handles no wallet calls (WidgetHost.onWallet)"])
     }
 }
 

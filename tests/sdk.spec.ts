@@ -392,6 +392,33 @@ test('the poll demo: a tap votes through the mock bot, the widget redraws from t
   expect(data.publicData).toBe('{"v":[3,5,2]}');
 });
 
+test('the wallet demo: a tap pays through the client\'s wallet window, the bot gets the outcome; a decline is REJECTED; without the wallet the widget says so', async ({ page }) => {
+  await page.goto('/?file=interactive/05-wallet.html');
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  await root.locator('.item button').first().click();
+  // The window is the client's, outside the bubble: the bot of the message and what is paid.
+  await expect(page.locator('.wallet-sheet')).toContainText('@shop_bot asks you to send');
+  await expect(page.locator('.wallet-sheet')).toContainText('1.5 TON');
+  await page.locator('#wallet-confirm').click();
+  await expect(root.locator('#note')).toHaveText('Paid for Coffee. Thank you!');
+  await expect(root.locator('#paid')).toHaveText('Paid: Coffee');
+  let state = await tw(page);
+  expect(state.requests.map((r: any) => [r.data, r.kind])).toEqual([['pay:0', 'wallet'], ['paid:0', 'sendTransaction']]);
+  await root.locator('#terms').click();
+  await expect(page.locator('.wallet-sheet pre')).toHaveText('I accept the Corner café terms of 30 October 2026.');
+  await page.locator('#wallet-decline').click();
+  await expect(root.locator('#note')).toHaveText('You declined in the wallet.');
+  state = await tw(page);
+  expect(state.requests.at(-1)).toMatchObject({ data: 'terms', kind: 'signData', error: 'REJECTED' });
+  await page.goto('/?file=interactive/05-wallet.html&wallet=0');
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  await expect(root.locator('#note')).toHaveText('No wallet here: pay in the bot.');
+  await root.locator('.item button').first().click();
+  await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+  expect((await tw(page)).requests).toEqual([]);
+});
+
 test('background requests: allowed in the private chat with the bot (backgroundQuery) while visible, one at once, then one per 5 s', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => { const tw = (window as any).__tw; Object.assign(tw.bot.context, { message: 'private' }); tw.bot.bot = 'echo'; tw.bot.delayMs = 0; });
@@ -421,10 +448,39 @@ test('background requests: the widget appearing on screen again may ask at once,
   const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
   await expect(root.locator('#log')).toHaveText(/^ok RATE_LIMITED/);
   await page.evaluate(() => (window as any).__tw.setVisible(false));
-  await expect(root.locator('#log')).toHaveText(/NOT_ALLOWED/, { timeout: 5000 });
+  // Off screen the next ask (its 300 ms timer fires at the hidden 1 Hz) waits in the host: no answer, nothing sent.
+  await page.waitForTimeout(1500);
+  const held = (await root.locator('#log').textContent()) ?? '';
+  expect(held).not.toMatch(/NOT_ALLOWED|BUSY/);
+  expect((await tw(page)).requests).toHaveLength(1);
   await page.evaluate(() => (window as any).__tw.setVisible(true));
   await expect.poll(async () => (await tw(page)).requests.length, { timeout: 3000 }).toBe(2);
+  await expect(root.locator('#log')).toHaveText(new RegExp('^' + held + ' ok'));
   expect(Date.now() - t0).toBeLessThan(5000);
+  await page.evaluate(() => (window as any).__tw.setVisible(null));
+});
+
+test('background requests: one at boot off screen (as Telegram\'s clients create a bubble) goes out when the widget appears; one on activated is BUSY', async ({ page }) => {
+  await page.goto('/');
+  // The bot takes 300 ms, as a real one does: the boot request is still in flight when the widget hears it is visible.
+  await page.evaluate(() => { const tw = (window as any).__tw; Object.assign(tw.bot.context, { message: 'private' }); tw.bot.bot = 'echo'; tw.bot.delayMs = 300; tw.setVisible(false); });
+  await page.evaluate((h) => (window as any).__tw.load(h, 'sdk/background-boot.html'), `<p id="log"></p><p id="active"></p><script>
+    var log = [];
+    function ask(t) { TelegramWidget.request(t).then(function (a) { log.push(t + ':' + a.result); show(); }, function (e) { log.push(t + ':' + e.code); show(); }); }
+    function show() { document.getElementById('log').textContent = log.slice().sort().join(' '); }
+    document.getElementById('active').textContent = 'active ' + TelegramWidget.isActive;
+    TelegramWidget.onEvent('activated', function () { ask('activated'); });
+    ask('boot');
+  </script>`);
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  await expect(root.locator('#active')).toHaveText('active false');
+  await page.waitForTimeout(500);
+  await expect(root.locator('#log')).toHaveText('');
+  expect((await tw(page)).requests).toEqual([]);
+  await page.evaluate(() => (window as any).__tw.setVisible(true));
+  await expect(root.locator('#log')).toHaveText('activated:BUSY boot:boot');
+  expect((await tw(page)).requests.map((r: any) => r.data)).toEqual(['boot']);
   await page.evaluate(() => (window as any).__tw.setVisible(null));
 });
 

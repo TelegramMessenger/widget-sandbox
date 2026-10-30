@@ -55,6 +55,7 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
     c.cpuQuotaMs = o.cpuQuotaMs;
     c.cpuQuotaWindowMs = o.cpuQuotaWindowMs;
     c.cpuKillAfterMs = o.cpuKillAfterMs;
+    c.mainThreadQuotaMs = o.mainThreadQuotaMs;
     c.maxTimers = o.maxTimers;
     c.visible = o.visible;
     c.innerWidth = width;
@@ -63,6 +64,7 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
     c.theme = theme.colorScheme;
     c.themeParams = theme.params;
     c.locale = o.locale;
+    c.contentSafeArea = o.contentSafeArea;
     c.storage = o.storage;
     c.data = o.data;
     c.context = o.context;
@@ -111,6 +113,7 @@ void WidgetHost::start() {
         started_ = true;
         // Queued until the renderer is ready, so the variables are its first message, before any ops.
         toRenderer(themeMessage());
+        toRenderer(safeAreaMessage(config_.contentSafeArea));
         renderer_->load();
     });
 }
@@ -167,6 +170,23 @@ void WidgetHost::setTheme(const WidgetTheme& theme) {
     });
 }
 
+void WidgetHost::setContentSafeArea(const WidgetContentSafeArea& area) {
+    host([this, area] {
+        if (destroyed_) return;
+        config_.contentSafeArea = area;
+        if (started_) toRenderer(safeAreaMessage(area));
+        engine_.contentSafeArea(area);
+    });
+}
+
+/// `{"type":"safeArea","inset":{…}}` (docs/sdk-v1.md §3.4): the renderer core checks the values and sets the variables.
+std::string WidgetHost::safeAreaMessage(const WidgetContentSafeArea& area) {
+    Json msg = Json::object();
+    msg.set("type", "safeArea");
+    msg.set("inset", area.json());
+    return msg.dump();
+}
+
 void WidgetHost::setVisible(bool visible) { engine_.setVisible(visible); }
 void WidgetHost::setData(const WidgetData& data) { engine_.setData(data); }
 void WidgetHost::event(const std::string& json) { engine_.event(json); }
@@ -205,9 +225,12 @@ bool WidgetHost::waitUntil(const std::function<bool(const WidgetDiagnostics&)>& 
 
 // ───────────── engine → host (engine thread) ─────────────
 
-void WidgetHost::onOps(SandboxEngine&, const std::string& json) {
+void WidgetHost::onOps(SandboxEngine& engine, const std::string& json) {
     // Validation on the validator's thread (synchronous from here), the renderer call on the host thread.
     std::string clean = validator_.processOps(json);
+    // A counted cap passed under strict (the validator's `limit`): the widget stops as it does for memory or CPU
+    // (onDied: the reason in the diagnostics, the renderer frozen on its last render; this batch came back empty).
+    if (std::optional<std::string> reason = validator_.stopped()) return engine.stop(*reason);
     int nodes = validator_.nodeCount();
     host([this, clean = std::move(clean), nodes] {
         if (destroyed_) return;
@@ -375,6 +398,15 @@ void WidgetHost::onBridgeRequest(SandboxEngine&, const WidgetRequest& request, W
     });
 }
 
+void WidgetHost::onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) {
+    // As onBridgeRequest: the client side is decided at delivery, on the host thread where `onWallet` lives.
+    host([this, call, respond = std::move(respond)] {
+        if (destroyed_) return;
+        if (!onWallet) return respond.unsupported();
+        onWallet(call, respond);
+    });
+}
+
 void WidgetHost::onBridgeCopyText(SandboxEngine&, const std::string& text) {
     host([this, text] {
         if (destroyed_) return; // no toast for a widget that is going away
@@ -481,6 +513,9 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing (§2.16).
         if (options_.context.preview) return;
         if (const Json* ev = msg.find("ev")) {
+            // Any pointerdown begins a press, trusted or not: a second finger's is neither trusted nor claimed (`gesture`
+            // is the primary pointer's), and without this its release continued the press before it.
+            if ((*ev)["type"].isString() && (*ev)["type"].asString() == "pointerdown") gestures_.pressBegan();
             // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
             if (int gesture = msg["trusted"].asBool() ? gestures_.gestureFor(*ev) : 0) engine_.activationEvent(ev->dump(), gesture);
             else engine_.event(ev->dump());
@@ -547,6 +582,7 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s
         // after. Before the preview check: harmless, a preview gets no haptics anyway.
         engine_.pressBegan();
+        gestures_.pressBegan();
         if (options_.context.preview) return; // no input, so nothing to claim: the press is the client's
         // docs/sdk-v1.md §5.5, gesture_policy.h. The renderer core sends x and hold (and `y` / `wants`, always false
         // since v0.1.3); vertical drags are the chat's, so the claim's `y` is false whatever a renderer sends. A

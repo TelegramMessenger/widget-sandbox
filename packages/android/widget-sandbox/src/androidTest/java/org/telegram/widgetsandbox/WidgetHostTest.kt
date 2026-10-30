@@ -141,6 +141,58 @@ class WidgetHostTest {
         }
     }
 
+    /**
+     * A counted cap passed under strict stops the widget like memory or CPU does (docs/decisions.md, "Strict limits from
+     * the start"): a 40 000-character text node set by a timer is refused with its whole batch, the reason is the
+     * validator's, the renderer keeps the last render frozen with the badge, and nothing the widget does later arrives.
+     * Under compat the same text (up to 2 MB) is drawn.
+     */
+    @Test
+    fun aTextOverTheCapStopsTheWidget() {
+        val html = "<p id=\"p\">kept</p><script>setTimeout(function () { document.getElementById('p').textContent = 'x'.repeat(40000); }, 50);" +
+            "setTimeout(function () { document.getElementById('p').textContent = 'never'; }, 300);</script>"
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            lateinit var host: WidgetHost
+            val latestRef = AtomicReference(WidgetDiagnostics())
+            scenario.onActivity { activity ->
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0)
+                host.onChange = { latestRef.set(it) }
+                activity.show(host.view)
+            }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+            while (System.nanoTime() < deadline && latestRef.get().dead == null) Thread.sleep(50)
+            assertEquals("Text limit exceeded: a text value of 40000 characters (max 32768)", latestRef.get().dead)
+            assertEquals(1, latestRef.get().diags["limit"]?.count)
+            Thread.sleep(800) // the second timer's time: the engine is gone, nothing more is drawn
+            val result = AtomicReference<String>()
+            val done = CountDownLatch(1)
+            instrumentation.runOnMainSync {
+                host.evaluateInRenderer("document.body.textContent + '|' + document.documentElement.dataset.twFrozen") { result.set(it); done.countDown() }
+            }
+            assertTrue(done.await(5, TimeUnit.SECONDS))
+            assertEquals("\"keptWidget stopped|fatal\"", result.get())
+            instrumentation.runOnMainSync { host.destroy() }
+
+            latestRef.set(WidgetDiagnostics())
+            scenario.onActivity { activity ->
+                host = WidgetHost(activity, html, WidgetTheme(), 360.0, WidgetHost.Options(policy = "compat"))
+                host.onChange = { latestRef.set(it) }
+                activity.show(host.view)
+            }
+            val deadline2 = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+            while (System.nanoTime() < deadline2 && latestRef.get().stats.tasks < 4) Thread.sleep(50)
+            Thread.sleep(500)
+            assertNull(latestRef.get().dead)
+            assertNull(latestRef.get().diags["limit"])
+            val compat = AtomicReference<String>()
+            val compatDone = CountDownLatch(1)
+            instrumentation.runOnMainSync { host.evaluateInRenderer("document.body.textContent") { compat.set(it); compatDone.countDown() } }
+            assertTrue(compatDone.await(5, TimeUnit.SECONDS))
+            assertEquals("\"never\"", compat.get())
+            instrumentation.runOnMainSync { host.destroy() }
+        }
+    }
+
     /** Memory and CPU limits are configurable from the public host API (not the case on iOS yet). */
     @Test
     fun limitsAreConfigurableFromTheHostApi() {

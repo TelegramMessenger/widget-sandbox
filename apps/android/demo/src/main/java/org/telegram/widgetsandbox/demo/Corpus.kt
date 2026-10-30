@@ -16,6 +16,14 @@ object Corpus {
     /** The renderer-comparison corpus, one group per batch (corpus/common/README.md). */
     fun commonGroups(context: Context): List<String> = subGroups(context, "common")
 
+    /** The client's time over the corner of a widget with no caption below it, one group per batch (corpus/safe-area/README.md). */
+    fun safeAreaGroups(context: Context): List<String> = subGroups(context, "safe-area")
+
+    /** What the demo passes for a corpus/safe-area widget: a message with no caption below the widget, the time over its right corner (reference.ts REFERENCE_TIME_CORNER). */
+    val timeCorner = org.telegram.widgetsandbox.WidgetContentSafeArea(bottom = 24.0, cornerRight = 64.0)
+
+    fun isSafeArea(group: String) = group.startsWith("safe-area/")
+
     private fun subGroups(context: Context, parent: String): List<String> =
         (context.assets.list("Corpus/$parent") ?: emptyArray()).filter { !it.endsWith(".md") }.sorted().map { "$parent/$it" }
 

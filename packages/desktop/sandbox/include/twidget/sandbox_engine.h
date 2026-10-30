@@ -30,9 +30,21 @@
 
 namespace twidget {
 
-/// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts.
+/// What the client draws over the widget, in CSS px (docs/sdk-v1.md §2.17, §5.12). A widget with no caption below it gets the
+/// message time and status over its bottom corner, as on a photo: `bottom` is the height of that band and `cornerRight`
+/// (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in it; with a
+/// caption everything is 0 (the time is in the caption's line). The widget sees it as `env(safe-area-inset-*)`, the
+/// `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
+/// and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+struct WidgetContentSafeArea {
+    double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0;
+    /// The TS `ContentSafeArea` shape; a value that is not finite is 0 (JSON has no NaN).
+    Json json() const;
+};
+
+/// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start").
 struct SandboxConfig {
-    size_t memoryLimitBytes = size_t(64) << 20;
+    size_t memoryLimitBytes = size_t(8) << 20;
     /// Longest continuous run of widget JS in one task before the runtime is killed.
     double cpuLimitMs = 500;
     /// JS time the widget may use per `cpuQuotaWindowMs` (sliding window); beyond it timers and frames are deferred, never killed.
@@ -40,8 +52,12 @@ struct SandboxConfig {
     double cpuQuotaWindowMs = 1000;
     /// Kill after this long of uninterrupted throttling; 0 disables (default).
     double cpuKillAfterMs = 0;
+    /// The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+    /// queries block the renderer and the modelled cost of the ops it sends (CpuBudget::opsCostMs: 25 µs per op, 2 µs per
+    /// canvas command). Beyond it timers and frames are deferred like under the JS quota.
+    double mainThreadQuotaMs = 100;
     /// Live timers a widget may hold; the shim throws RangeError beyond it, the engine refuses as a backstop.
-    int maxTimers = 256;
+    int maxTimers = 64;
     /// Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz.
     bool visible = true;
     double innerWidth = 400;
@@ -53,6 +69,8 @@ struct SandboxConfig {
     std::map<std::string, std::string> themeParams;
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
+    /// What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes go through `contentSafeArea`.
+    WidgetContentSafeArea contentSafeArea;
     /// Web Storage of this message as the client keeps it; an area over the quota drops the whole
     /// preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
@@ -63,8 +81,9 @@ struct SandboxConfig {
     /// (docs/sdk-v1.md §4.4). All false: no requests.
     WidgetContext context;
     /// "strict" (default): privileged bridge calls need a user gesture, text values are capped at
-    /// 64 KB and visible text is budgeted. "compat": the behaviour before that hardening, for tests
-    /// and tooling. Anything but exactly "compat" is strict (isStrictPolicy).
+    /// 32 KB and visible text is budgeted, and the shim refuses at the validator's counted caps (2000 canvas
+    /// commands per canvas per task, 64 live script animations). "compat": the behaviour before that hardening,
+    /// for tests and tooling. Anything but exactly "compat" is strict (isStrictPolicy); the shim gets it in its boot config.
     std::string policy = "strict";
     /// Opt-in sandbox features of docs/protocol.md, such as "webAnimations"; the renderer must support them.
     /// This runtime honours webAnimations, noInPlaceText, noAttrFast and noCanvasRect and drops the rest.
@@ -83,7 +102,7 @@ struct SandboxStats {
     double queryMs = 0;
     int queryCacheHits = 0;
     int missedMutations = 0;
-    /// Tasks deferred by the CPU quota; JS time used in the current quota window at the time of the report.
+    /// Tasks deferred by the CPU quota or the main-thread window; JS time used in the current quota window at the time of the report.
     int throttledTasks = 0;
     double cpuWindowMs = 0;
 };
@@ -142,6 +161,12 @@ public:
     /// (decided here, at delivery). Until then every other request of the widget is BUSY. Not an action (never
     /// `onBridgeAction` / `onBridge`). The default handles none.
     virtual void onBridgeRequest(SandboxEngine&, const WidgetRequest&, WidgetRequestResponder respond) { respond.unsupported(); }
+    /// A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18) that passed its checks and the request gate (a press
+    /// or the grant; one call in flight with the requests): show the client's own wallet window with the bot of the
+    /// message, send the transaction (or sign the payload) on the user's confirmation, send the outcome to the bot and
+    /// complete `respond` once, from any thread, with the bot's answer or a failure (`Rejected`, `BadRequest`, a
+    /// request's), or `respond.unsupported()`. Not an action. The default handles none.
+    virtual void onBridgeWallet(SandboxEngine&, const WalletCall&, WidgetRequestResponder respond) { respond.unsupported(); }
     /// `TelegramWidget.copyText(text)`: 1–256 UTF-16 code units, well-formed; a privileged call (one per
     /// press, shared with the links and a request's press; `activation-blocked` without one). Not an action.
     virtual void onBridgeCopyText(SandboxEngine&, const std::string& /*text*/) {}
@@ -168,6 +193,11 @@ public:
 
     void start();
     void terminate();
+    /// The host stops the widget (a counted cap of the validator passed under strict, its diagnostic `limit`): the
+    /// runtime dies with `reason` as it does for memory or CPU (`onDied(reason)`). From the engine thread (a delegate
+    /// callback such as `onOps`) at once, and the task that is still on the stack is interrupted; from any other
+    /// thread asynchronously.
+    void stop(const std::string& reason);
 
     // Inputs from the host (all asynchronous). A preview (`WidgetContext::preview`) takes no input: events are dropped.
     void event(const std::string& json);
@@ -179,6 +209,9 @@ public:
     /// The chat's theme changed: the colour scheme and the palette (checked here, as at boot) in one task;
     /// the shim updates `colorScheme` and `themeParams`, then fires `themeChanged`.
     void theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams = {});
+    /// What the client draws over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.contentSafeAreaInset` and
+    /// `contentSafeAreaChanged` in one task; the shim checks the values. Before boot it only replaces the config's.
+    void contentSafeArea(const WidgetContentSafeArea& area);
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);
     /// The renderer's primary press began / ended (pointerdown; pointerup or pointercancel), trusted input only, never the
@@ -212,11 +245,17 @@ private:
     void wake();
     void onTimerFired(int id);
     HostReturn hostCall(const std::string& kind, const std::string& arg);
-    /// A checked `request` call: the request gate, then the delegate.
-    void request(int64_t id, const std::string& data);
-    /// A request's outcome back on the engine thread (nullopt: the client handles no requests): the gate frees, the
-    /// answer is checked and goes into the widget.
-    void answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome);
+    /// A checked `request` call: the request gate, then the delegate (or held until the widget appears).
+    void request(int64_t id, const std::string& data, bool wallet = false);
+    /// A checked wallet call: the request gate (a press or the grant), then the delegate.
+    void walletCall(int64_t id, const WalletCall& call);
+    /// A request the gate let through, to the delegate; its outcome frees the gate (`answerRequest`).
+    void deliverRequest(int64_t id, const std::string& data, bool wallet = false);
+    /// The responder of request or wallet call `id`: once, from any thread, back to `answerRequest` on the engine thread.
+    WidgetRequestResponder responder(int64_t id, bool wallet);
+    /// A request's or wallet call's outcome back on the engine thread (nullopt: the client handles none): the gate frees
+    /// (an answer brings the grant when the call had a press or the grant), the answer is checked and goes into the widget.
+    void answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome, bool wallet = false);
     /// `request-blocked` (at most 20 per widget) and the `bridge` answer event that refuses request `id`.
     std::string refusal(int64_t id, std::string_view error, std::string_view reason, const std::string& detail);
     /// `{"chatData":…,"publicData":…}` members of `checked` set on `event` (JSON null for none); `data-rejected` when the
@@ -266,11 +305,15 @@ private:
 
     // CPU quota: decide before a task, record after it.
     CpuBudget budget_;
+    /// The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota.
+    CpuBudget mainBudget_;
     double currentSliceMs_ = 0;
     std::string currentKind_ = "boot";
     double excludeMs_ = 0;
     /// Wall time this task's layout queries have blocked for, and whether that passed the task's query budget.
     double taskQueryMs_ = 0;
+    /// Modelled main-thread cost of the ops this task sent (CpuBudget::opsCostMs).
+    double taskOpsCostMs_ = 0;
     bool queryLimitHit_ = false;
     double lastThrottleDiag_ = -1e300;
     std::map<std::string, int> throttledSinceDiag_;
@@ -288,6 +331,12 @@ private:
     void rejectStorage(const std::string& detail);
     // Requests to the bot (docs/sdk-v1.md §2.14): one in flight, a press or the background rules; refusals reported at most 20 times.
     sdk::RequestGate requests_;
+    /// A background request the widget made off screen: it goes to the delegate when the widget appears (`setVisible`).
+    struct HeldRequest {
+        int64_t id;
+        std::string data;
+    };
+    std::optional<HeldRequest> heldRequest_;
     int blockedRequestsReported_ = 0;
     // A preview's dropped bridge calls (docs/sdk-v1.md §2.16), reported at most 20 times.
     int previewBlockedReported_ = 0;

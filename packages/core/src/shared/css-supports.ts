@@ -5,9 +5,11 @@
 // it, so a widget gets the same answer from either. "Supported" means the
 // validator keeps the declaration as written: nothing in it is removed or
 // replaced (a fallback family the validator appends after `ui-monospace` does
-// not count). `tests/unit/profile.test.ts` checks this against the sanitizer.
+// not count, nor a safe-area `env()` it renames to the root variable that holds
+// the same value, docs/sdk-v1.md §2.17). `tests/unit/profile.test.ts` checks this against the sanitizer.
 
 import { PROFILE_CSS, PROFILE_IMAGES } from './profile-tables';
+import { SAFE_AREA_ENV_VARIABLES } from './sdk-policy';
 
 const CSS = PROFILE_CSS;
 const PROPERTIES = new Set<string>(CSS.properties);
@@ -158,9 +160,13 @@ function tokKind(t: Tok) {
   return { size, slash: t.t === 'delim' && t.v === '/' };
 }
 
+/** `env(<safe-area-inset-*>[, fallback])`: the validator's rewrite keeps its meaning; another name is replaced or dropped. */
+const envSupported = (args: Tok[]) => args[0]?.t === 'ident' && Object.prototype.hasOwnProperty.call(SAFE_AREA_ENV_VARIABLES, args[0].v)
+  && (args.length === 1 || (args[1].t === 'delim' && args[1].v === ','));
+
 function valueTokensSupported(toks: Tok[]): boolean {
   for (const t of deep(toks)) {
-    if (t.t === 'func' && !FUNCTIONS.has(t.v)) return false;
+    if (t.t === 'func' && (!FUNCTIONS.has(t.v) || (t.v === 'env' && !envSupported(t.args)))) return false;
     if (t.t === 'dim' && !UNITS.has(t.unit.toLowerCase())) return false;
     if (t.t === 'url' && !IMAGE_URL.test(t.v)) return false;
   }

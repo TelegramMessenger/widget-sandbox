@@ -2,8 +2,8 @@
 // Node, with a fake host that logs everything. Layout queries get canned
 // answers. Usage: pnpm tsx scripts/sandbox-node.ts corpus/compat/tabs.html [--ops] [--ops-file msgs.json] [--events]
 // `--ops-file` writes the host → renderer messages a renderer gets (a JSON array: the `theme`
-// message WidgetHost sends first, then the validated ops as one `ops` message) for the native
-// renderer harnesses (renderer-litehtml/tools/run.cpp).
+// and `safeArea` messages WidgetHost sends first, then the validated ops as one `ops` message) for
+// the native renderer harnesses (renderer-litehtml/tools/run.cpp).
 //
 // Mirrors the worker glue (src/host/worker.ts) closely enough to debug the shim
 // and to drive unit tests of the mutation protocol.
@@ -15,16 +15,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { CpuBudget, queryBudgetMs } from '../src/host/cpu-budget.ts';
+import { CpuBudget, opsCostMs, queryBudgetMs } from '../src/host/cpu-budget.ts';
 import { GestureCounter } from '../src/host/user-activation.ts';
 import type { GestureClaim } from '../src/shared/gesture-policy.ts';
 import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
 import { sizeLine, sizeVerdict, type WidgetSize } from '../src/shared/widget-size.ts';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, checkBridgeCall, checkChatType, checkLocale, checkRequestAnswer, checkStorageCommit,
+  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HapticGate, PRIVILEGED_METHODS, RequestGate, checkBridgeCall, checkChatType, checkContentSafeArea, checkLocale, checkRequestAnswer, checkStorageCommit,
   allowedInPreview, checkThemeParams, checkViewer, checkWidgetData, requestFailure, requestRefusal, toWidgetTheme, viewerFromList, viewerUser, VIEWER_FIELD_RULES,
-  WIDGET_MESSAGE_KINDS, type WidgetMessageKind, type WidgetViewer,
-  type ButtonTokens, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
+  walletFailure, WIDGET_MESSAGE_KINDS, type WalletCall, type WidgetMessageKind, type WidgetViewer,
+  type ButtonTokens, type ContentSafeArea, type RequestError, type RequestVerdict, type ResizeAnchor, type StorageCommit, type TextTokens, type ThemeParams, type WidgetAction, type WidgetContext,
   type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
@@ -39,6 +39,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export interface RunResult {
   /** The theme WidgetHost passes to the renderer at load (`{type:'theme', theme}`, docs/sdk-v1.md §3.4): scheme, checked palette, button and text tokens. */
   theme: WidgetTheme;
+  /** What the client draws over the widget as the renderer and the widget got it last (checked; docs/sdk-v1.md §2.17). */
+  contentSafeArea: ContentSafeArea;
   /** One entry per `morph` script step: whether the shim applied it. */
   morphed: boolean[];
   ops: unknown[][];
@@ -64,13 +66,19 @@ export interface RunResult {
    * The widget's requests to the bot, in order (docs/sdk-v1.md §2.14): the data, whether it went out without a press,
    * the request gate's verdict (`unsupported` without `onRequest`), and what went back into the widget.
    */
-  requests: { data: string; background: boolean; verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> }[];
+  requests: { data: string; wallet?: true; background: boolean; verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> }[];
+  /** The widget's wallet calls, in order (docs/sdk-v1.md §2.18): the call as checked, the gate's verdict (`foreground`: a press, `granted`: the answer to a call made by a press), and what went back into the widget. */
+  walletCalls: { call: WalletCall; verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> }[];
   /** Texts the glue let through to the client's clipboard (`onCopyText`). */
   copiedTexts: string[];
   timers: number;
   probes: string[];
-  /** Tasks the CPU quota deferred (the harness drops them instead of retrying). */
+  /** Tasks the CPU quota or the main-thread window deferred (the harness drops them instead of retrying). */
   throttled: number;
+  /** What the run cost the host's main thread: layout-query time plus the modelled cost of the ops sent (cpu-budget.ts `opsCostMs`), ms. */
+  mainThreadMs: number;
+  /** Set when a counted cap stopped the widget (strict: the validator's `limit`): the reason, as a host's `onDead` gets it. */
+  stopped?: string;
   /** The most layout queries any one task made, and their summed answer time (ms): how close a widget comes to the layout-query budget. */
   maxTaskQueries: number;
   maxTaskQueryMs: number;
@@ -165,7 +173,7 @@ export interface RunOptions {
   /** Initial visibility (default true): a hidden widget gets no frames and cannot use a gesture, as in the worker and the web host. */
   visible?: boolean;
   /** Steps run after the timer rounds: visibility and theme changes and probes, in order (probe results land in RunResult.probes before `probes`). */
-  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> } | { data: WidgetData })[];
+  script?: ({ visible: boolean } | { probe: string } | { morph: string } | { theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> } | { data: WidgetData } | { safeArea: Partial<ContentSafeArea> })[];
   /** The colour scheme at start (default light). */
   theme?: 'light' | 'dark';
   /** The client's palette (checked as WidgetHost does: unknown keys and non-#rrggbb values are dropped). */
@@ -175,6 +183,8 @@ export interface RunOptions {
   text?: TextTokens;
   /** The client's UI language (default en-US). */
   locale?: string;
+  /** What the client draws over the widget (docs/sdk-v1.md §2.17): the time's band and corner, in CSS px; 0 by default. `{ safeArea }` script steps change it. */
+  contentSafeArea?: Partial<ContentSafeArea>;
   /** The client's Web Storage preload; over the quota it is dropped whole (`storage-rejected`). */
   storage?: unknown;
   /** The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13); `{ data }` script steps are the client's `setData`. */
@@ -188,8 +198,15 @@ export interface RunOptions {
    * each press). Without it every request is refused, as on the hosts.
    */
   onRequest?: (request: WidgetRequest) => WidgetRequestAnswer | Promise<WidgetRequestAnswer>;
+  /**
+   * The client's side of a wallet call (only with `context.wallet`): the bot's answer to the call's outcome `{ result? }`,
+   * sync or a promise; throw or reject with 'REJECTED', 'BAD_REQUEST' or a request's failure. Without it every call is refused.
+   */
+  onWallet?: (call: WalletCall) => WidgetRequestAnswer | Promise<WidgetRequestAnswer>;
   /** CPU quota per second (default: effectively unlimited, like the harness's 10 s cpuLimitMs; wasm under Node is slow). */
   cpuQuotaMs?: number;
+  /** Main-thread window per second (default: effectively unlimited too: the harness runs frames back to back, faster than a clock). */
+  mainThreadQuotaMs?: number;
   /** Validator CSS scope: 'shadow' for ops meant for the Shadow DOM renderer (css-sanitizer.ts). */
   cssScope?: 'document' | 'shadow';
   /** Runtime heap cap (default LIMIT_DEFAULTS.memoryLimitBytes), enforced like the worker does: wasm Memory maximum + setMemoryLimit. */
@@ -215,6 +232,8 @@ export interface RunOptions {
   morphUpdates?: boolean;
   /** The bubble's width in CSS px (default 400): the widget's innerWidth, and the renderer's page with `gestures` / `layout`. */
   width?: number;
+  /** The widget's devicePixelRatio (default 1; a phone's is 2 or 3). */
+  dpr?: number;
   /** Presses after the timer rounds, on the real renderer core in headless Chromium (gesture-run.ts); reported in RunResult.gestures. */
   gestures?: GestureStep[];
   /** The renderer plays a desktop client's bubble (a mouse) instead of a phone's (a finger). */
@@ -229,6 +248,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const preview = opts.context?.preview === true;
   const copy = opts.context?.isCopy === true && !preview;
   const canQuery = opts.context?.canQuery === true && !preview;
+  const wallet = opts.context?.wallet === true && canQuery;
   const dataDiags: { kind: string; detail: string }[] = [];
   /** As WidgetHost: the full state of both strings, a copy without chatData, a field over the limit null and reported. */
   const checkData = (data: unknown) => {
@@ -260,8 +280,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   let currentSliceMs = 10_000;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
-  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], walletCalls: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, contentSafeArea: res.contentSafeArea, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null, wallet };
   res.diags.push(...dataDiags.splice(0));
   if (opts.storage !== undefined && !preview) {
     const preload = checkStorageCommit(opts.storage);
@@ -270,9 +290,14 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   }
   const haptics = new HapticGate();
   const requestGate = new RequestGate();
+  /** A background request made off screen, sent when the widget appears. */
+  let heldRequest = null as (() => void) | null;
+  const now = () => (opts.now ? opts.now() : performance.now());
   /** Answers on their way into the widget, delivered in order at the next step of the run. */
   const answers: Promise<BridgeEvent>[] = [];
   const budget = new CpuBudget(config);
+  const mainBudget = new CpuBudget({ ...config, cpuQuotaMs: config.mainThreadQuotaMs, cpuKillAfterMs: 0 });
+  let taskOpsCostMs = 0;
   const validator = new Validator((kind, detail) => res.diags.push({ kind: 'validator:' + kind, detail }), { colorScheme: 'light', scope: opts.cssScope ?? 'document' });
   const policy = opts.policy === 'compat' ? 'compat' : 'strict';
   validator.setPolicy(policy);
@@ -310,7 +335,8 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       case 'now': return vm.newNumber(opts.now ? opts.now() : coarseNowMs(performance.now()));
       case 'timer': {
         const [id, delay] = JSON.parse(arg);
-        if (timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }
+        // An id that has a timer replaces it, as in the other glue copies.
+        if (!timers.has(id) && timers.size >= config.maxTimers) { res.diags.push({ kind: 'timer-limit-enforced', detail: `glue refused a timer beyond maxTimers=${config.maxTimers}` }); return vm.undefined; }
         const ms = Math.min(Math.max(Number(delay) || 0, 0), MAX_TIMER_DELAY_MS);
         // Rounds fire timers by delay, as a clock would; hidden ones as the other glue copies clamp them (1 Hz, in order).
         timers.set(id, visible ? ms : Math.max(ms, 1000 + ms / 10));
@@ -335,7 +361,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         if (!action) { res.diags.push({ kind: 'bridge-rejected', detail: `${String(method).slice(0, 64)}: unknown method or malformed arguments` }); return vm.undefined; }
         if (preview && !allowedInPreview(method)) {
           res.diags.push({ kind: 'preview-blocked', detail: `${String(method)} ignored in a preview` });
-          if (action.kind === 'request') answers.push(Promise.resolve({ type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' }));
+          if (action.kind === 'request' || action.kind === 'wallet') answers.push(Promise.resolve({ type: 'answer', id: action.id, error: 'NOT_ALLOWED', reason: 'preview' }));
           return vm.undefined;
         }
         // Not an action: the host keeps the latest anchor next to the height.
@@ -352,28 +378,48 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           return vm.undefined;
         }
         // As WidgetHost.request: the gate (a press, or the background rules; one in flight), then no client side → refused.
-        if (action.kind === 'request') {
-          const entry: RunResult['requests'][number] = { data: action.data, background: false, verdict: 'no-activation' };
-          res.requests.push(entry);
+        if (action.kind === 'request' || action.kind === 'wallet') {
+          const entry: { verdict: RequestVerdict | 'unsupported'; answer?: Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'> } = action.kind === 'request'
+            ? { data: action.data, ...(action.wallet ? { wallet: true as const } : {}), background: false, verdict: 'no-activation' } as RunResult['requests'][number]
+            : { call: action.call, verdict: 'no-activation' } as RunResult['walletCalls'][number];
+          if (action.kind === 'request') res.requests.push(entry as RunResult['requests'][number]);
+          else res.walletCalls.push(entry as RunResult['walletCalls'][number]);
+          const label = action.kind === 'request' ? 'request' : 'wallet.' + action.call.method;
           const settle = (p: Promise<Omit<Extract<BridgeEvent, { type: 'answer' }>, 'type' | 'id'>>) =>
             answers.push(p.then((a) => { entry.answer = a; return { type: 'answer', id: action.id, ...a }; }));
           const refuse = (reason: RequestVerdict | 'unsupported') => {
-            res.diags.push({ kind: 'request-blocked', detail: `request refused (${reason})` });
+            res.diags.push({ kind: 'request-blocked', detail: `${label} refused (${reason})` });
             settle(Promise.resolve({ error: (reason === 'unsupported' ? null : requestRefusal(reason)) ?? 'NOT_ALLOWED', reason }));
           };
+          /** As WidgetHost.settle: the gate is free again, and an answer brings the grant when the call had a press or the grant. */
+          const fromClient = (outcome: Promise<WidgetRequestAnswer>, failure: (reason: unknown) => RequestError) => settle(outcome.then((a) => {
+            const checked = checkRequestAnswer(a);
+            if (!checked) { requestGate.finish(); res.diags.push({ kind: 'answer-rejected', detail: 'result over 1024 bytes or not text' }); return { error: 'INVALID_ANSWER' as const }; }
+            requestGate.finish(now());
+            return { result: checked.result };
+          }, (reason) => { requestGate.finish(); return { error: failure(reason) }; }));
           const pressed = policy === 'compat' || (visible && activeGesture > consumedGesture);
-          entry.verdict = requestGate.decide(opts.now ? opts.now() : performance.now(), { gesture: pressed, visible, canQuery, backgroundQuery: opts.context?.backgroundQuery === true });
+          entry.verdict = action.kind === 'request'
+            ? requestGate.decide(now(), { gesture: pressed, visible, canQuery, backgroundQuery: opts.context?.backgroundQuery === true, withWallet: action.wallet === true, wallet })
+            : requestGate.decideWallet(now(), { gesture: pressed, visible, canQuery, wallet });
           if (requestRefusal(entry.verdict)) { refuse(entry.verdict); return vm.undefined; }
           if (entry.verdict === 'foreground' && policy === 'strict') { consumedGesture = activeGesture; activeGesture = 0; }
-          entry.background = entry.verdict === 'background';
-          const onRequest = opts.onRequest;
-          if (!onRequest) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return vm.undefined; }
-          settle(new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest({ data: action.data }))).then((a) => {
-            requestGate.finish();
-            const checked = checkRequestAnswer(a);
-            if (!checked) { res.diags.push({ kind: 'answer-rejected', detail: 'result over 1024 bytes or not text' }); return { error: 'INVALID_ANSWER' as const }; }
-            return { result: checked.result };
-          }, (reason) => { requestGate.finish(); return { error: requestFailure(reason) }; }));
+          if (action.kind === 'wallet') {
+            const onWallet = opts.onWallet;
+            if (!onWallet) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return vm.undefined; }
+            fromClient(new Promise<WidgetRequestAnswer>((resolve) => resolve(onWallet(action.call))), walletFailure);
+            log('[wallet]', arg);
+            return vm.undefined;
+          }
+          const sendToClient = () => {
+            (entry as RunResult['requests'][number]).background = entry.verdict !== 'foreground';
+            const onRequest = opts.onRequest;
+            if (!onRequest) { requestGate.finish(); entry.verdict = 'unsupported'; refuse('unsupported'); return; }
+            fromClient(new Promise<WidgetRequestAnswer>((resolve) => resolve(onRequest(action.wallet ? { data: action.data, wallet: true } : { data: action.data }))), requestFailure);
+          };
+          // Off screen: it waits for the widget to appear (a { visible: true } step), the background request of that appearance.
+          if (entry.verdict === 'held') heldRequest = sendToClient;
+          else sendToClient();
           log('[request]', arg);
           return vm.undefined;
         }
@@ -386,7 +432,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
           activeGesture = 0;
         }
         if (action.kind === 'haptic') {
-          const d = haptics.decide(opts.now ? opts.now() : performance.now(), visible);
+          const d = haptics.decide(now(), visible);
           if (d === 'report') res.diags.push({ kind: 'haptic-limit', detail: visible ? 'over the rate limit, or outside a touch after a 1 s series' : 'hidden widget' });
           if (d !== 'play') return vm.undefined;
         }
@@ -434,7 +480,12 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     canvasPayloads.length = 0;
     res.ops.push(ops);
     res.stream.push({ kind: 'ops', json: JSON.stringify(ops) });
+    if (Array.isArray(ops)) taskOpsCostMs += opsCostMs(ops.length, ops.reduce((n, op) => n + (op && op.op === 'canvas' && Array.isArray(op.cmds) ? op.cmds.length : 0), 0));
     const out = validator.processOps(ops);
+    if (validator.stopped && res.stopped === undefined) {
+      res.stopped = validator.stopped;
+      log('STOPPED', validator.stopped);
+    }
     res.renderOps.push(...out);
     log(`ops (${ops.length}) →`, JSON.stringify(out).slice(0, 2000));
   };
@@ -543,19 +594,25 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   };
   /** Same policy as the worker: decide → run with the slice → record. A deferred task is dropped and counted. */
   const task = (kind: string, fn: () => void) => {
+    if (res.stopped !== undefined) return; // the host stopped the widget
     const now = performance.now();
     const d = budget.decide(kind, now);
     if (!d.run) { res.throttled++; res.diags.push({ kind: 'cpu-throttled', detail: `${kind} deferred until ${d.retryAt.toFixed(0)}` }); return; }
+    const main = mainBudget.decide(kind, now);
+    if (!main.run) { res.throttled++; res.diags.push({ kind: 'cpu-throttled', detail: `${kind} deferred until ${main.retryAt.toFixed(0)} (main-thread window: layout queries and ops)` }); return; }
     deadline = Date.now() + d.sliceMs;
     currentSliceMs = d.sliceMs;
     currentKind = kind;
     taskQueryMs = 0;
     taskQueries = 0;
+    taskOpsCostMs = 0;
     queryLimitHit = false;
     fn(); settle(); pump();
     res.maxTaskQueries = Math.max(res.maxTaskQueries, taskQueries);
     res.maxTaskQueryMs = Math.max(res.maxTaskQueryMs, taskQueryMs);
-    budget.record(kind, performance.now() - now, performance.now()); // wall time: includes the queries, as the worker's cpuMs + taskQueryMs does
+    budget.record(kind, performance.now() - now - taskQueryMs, performance.now());
+    mainBudget.record(kind, taskQueryMs + taskOpsCostMs, performance.now());
+    res.mainThreadMs += taskQueryMs + taskOpsCostMs;
   };
 
   task('boot', () => tw('boot', JSON.stringify({ html, config })));
@@ -573,7 +630,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     const { gesture, ...event } = ev as Record<string, unknown> & { gesture?: number };
     // Without a renderer, an injected trusted event stands for the renderer's press (claim) and release (haptic gate).
     if (typeof gesture === 'number' && gesture > 0) {
-      const at = opts.now ? opts.now() : performance.now();
+      const at = now();
       if (event.type === 'pointerdown' || event.type === 'mousedown') haptics.press(at);
       else haptics.release(at);
     }
@@ -610,12 +667,19 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   };
   for (const step of opts.script ?? []) {
     if ('visible' in step) {
-      if (step.visible && !visible) requestGate.show();
+      const appears = step.visible && !visible;
       visible = step.visible;
+      // The held request goes to the client before the widget hears it is visible, as in every other glue copy.
+      if (appears && requestGate.show(now()) && heldRequest) { const send = heldRequest; heldRequest = null; send(); }
       task('visibility', () => tw('visibility', JSON.stringify({ visible: step.visible })));
     }
     else if ('morph' in step) task('morph', () => { res.morphed.push(tw('morph', JSON.stringify({ html: step.morph })) === '1'); });
     else if ('theme' in step) task('theme', () => tw('theme', JSON.stringify({ theme: step.theme, themeParams: checkThemeParams(step.themeParams) })));
+    else if ('safeArea' in step) {
+      res.contentSafeArea = checkContentSafeArea(step.safeArea);
+      const inset = res.contentSafeArea;
+      task('safeArea', () => tw('safeArea', JSON.stringify(inset)));
+    }
     else if ('data' in step) {
       const event: BridgeEvent = { type: 'data', ...checkData(step.data) };
       res.diags.push(...dataDiags.splice(0));
@@ -660,14 +724,16 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
       switch (msg?.type) {
         case 'event': {
           const ev = msg.ev as Record<string, unknown>;
+          // any pointerdown begins a press, trusted or not (a second finger's is neither, and has no claim): as WidgetHost
+          if (ev.type === 'pointerdown') counter.pressBegan();
           const gesture = msg.trusted === true ? counter.gestureFor(ev) : 0;
           current?.received.push(`${ev.type} ${labelOf(ev.targetId)}`);
           inject(gesture ? { ...ev, gesture } : ev);
           flush();
           break;
         }
-        case 'gesture': haptics.press(opts.now ? opts.now() : performance.now()); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
-        case 'release': haptics.release(opts.now ? opts.now() : performance.now()); break;
+        case 'gesture': haptics.press(now()); counter.pressBegan(); if (!preview) current?.claims.push({ x: msg.x === true, y: msg.y === true, hold: msg.hold === true }); break;
+        case 'release': haptics.release(now()); break;
         case 'bubble': current?.bubble.push(String(msg.action) + (msg.edge ? ' (edge strip)' : '')); break;
         case 'size': if (Number.isFinite(msg.height)) res.height = msg.height; break;
       }
@@ -680,6 +746,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     };
     try {
       r.send({ type: 'theme', theme: res.theme });
+      r.send({ type: 'safeArea', inset: res.contentSafeArea });
       r.send({ type: 'arbitrate', bubble: true, touch: !desktop });
       flush();
       await r.settle();
@@ -727,7 +794,7 @@ function defaultAnswer(q: any, viewport: { innerWidth: number; innerHeight: numb
 export function agentBlock(): string {
   const guide = fs.readFileSync(path.join(root, '..', '..', 'docs', 'widget-runtime-profile.md'), 'utf8');
   const block = guide.slice(guide.indexOf('<!-- agent-block -->'), guide.indexOf('<!-- /agent-block -->'));
-  return block.replace(/^[^]*?```text\n/, '').replace(/\n```[^]*$/, '');
+  return block.replace(/^[^]*?```text\n/, '').replace(/\n```[^]*$/, '').replace(/^<!-- \/?profile:agent -->\n/gm, '');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -735,7 +802,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = process.argv.slice(3);
   if (file === '--guide') {
     console.log(agentBlock());
-    console.log('\nThe whole guide: docs/widget-runtime-profile.md; the profile: docs/profile-v1.md; the API: docs/sdk-v1.md §2.');
     process.exit(0);
   }
   if (!file) {
@@ -743,7 +809,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
        tsx scripts/sandbox-node.ts <widget.html> [--ops] [--ops-file msgs.json] [--dark] [--font-size px] [--verbose] [--json]
        [--width px] [--desktop] [--tap x,y] [--hold x,y[,ms]] [--double-tap x,y] [--swipe x,y,dx,dy] [--right-click x,y]
        [--message private|group|via-bot|no-queries|live-copy|copy|preview] [--copy] [--can-query] [--background-query] [--chat-type t] [--viewer id[,first,last,username,premium]]
-       [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json]
+       [--chat-data s] [--public-data s] [--answer json | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data json] [--offscreen]
+       [--wallet] [--wallet-answer json | --wallet-error REJECTED|BAD_REQUEST|TIMEOUT|RATE_LIMITED|FAILED]
+       [--safe-area bottom[,cornerRight[,cornerLeft]]]
   --width lays the widget out at that bubble width in the real renderer (headless Chromium) and reports its height;
   the presses run there in order, on a phone's bubble (a finger) or with --desktop a desktop client's (a mouse),
   and each is reported: the element, its touch-action claim, who got the press, the events the widget received, a hint.
@@ -754,7 +822,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   nothing about the user); --copy, --can-query, --background-query, --chat-type set
   them one by one (none given: no requests); --viewer who looks (id, then optionally the first and last name, the username and premium); --chat-data / --public-data the strings at start;
   every request gets --answer (the server's answer: {"result":"…"}, default {"result":null}) or fails with
-  --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.`);
+  --answer-error; --set-data applies the bot's data (the full state: {"chatData":"…","publicData":"…"}) after the presses.
+  --offscreen: the widget boots off screen and then appears, as Telegram's clients create it (a background request
+  made at boot waits for that and goes out then).
+  --wallet: the client has Gram Wallet for this user (docs/sdk-v1.md §2.18; TelegramWidget.wallet where the widget may
+  request); every wallet call is confirmed and gets --wallet-answer (the bot's answer to its outcome, default
+  {"result":null}) or fails with --wallet-error (REJECTED: the user declined; BAD_REQUEST: the wallet refused it).
+  --safe-area: what the client draws over a widget with no caption below it (docs/sdk-v1.md §2.17), in CSS px: the band of the
+  message time at the bottom and its corner on the right (a left-to-right interface), or on the left as the third number
+  (right-to-left: 24,0,72); env(safe-area-inset-bottom), the --tg-content-safe-area-* variables and
+  TelegramWidget.contentSafeAreaInset get them, and the UA layer adds the band to an unstyled body's bottom padding.`);
     process.exit(2);
   }
   const verbose = args.includes('--verbose');
@@ -780,9 +857,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   };
   const answer = jsonFlag('--answer') ?? { result: null };
   const answerError = value('--answer-error');
+  const walletAnswer = jsonFlag('--wallet-answer') ?? { result: null };
+  const walletError = value('--wallet-error');
   const setData = jsonFlag('--set-data');
   const viewerId = value('--viewer');
   const kind = value('--message') as WidgetMessageKind | undefined;
+  const safeArea = value('--safe-area');
+  const [bottom, cornerRight, cornerLeft] = (safeArea ?? '').split(',').map((n) => (n.trim() === '' ? 0 : Number(n)));
+  if (safeArea !== undefined && ![bottom, cornerRight ?? 0, cornerLeft ?? 0].every((n) => n >= 0 && Number.isFinite(n))) { console.error('--safe-area takes bottom[,cornerRight[,cornerLeft]] in CSS px'); process.exit(2); }
   if (kind !== undefined && !(kind in WIDGET_MESSAGE_KINDS)) { console.error(`--message takes ${Object.keys(WIDGET_MESSAGE_KINDS).join(', ')}`); process.exit(2); }
   const r = await runWidget(fs.readFileSync(file, 'utf8'), {
     data: { chatData: value('--chat-data') ?? null, publicData: value('--public-data') ?? null },
@@ -791,9 +873,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ...(args.includes('--copy') ? { isCopy: true } : {}), ...(args.includes('--can-query') ? { canQuery: true } : {}),
       ...(args.includes('--background-query') ? { backgroundQuery: true } : {}), ...(value('--chat-type') ? { chatType: value('--chat-type') as any } : {}),
       ...(viewerId !== undefined && viewerFromList(viewerId) ? { viewer: viewerFromList(viewerId)! } : {}),
+      ...(args.includes('--wallet') ? { wallet: true } : {}),
     },
     onRequest: () => (answerError ? Promise.reject(answerError) : answer),
-    ...(setData !== undefined ? { script: [{ data: setData }] } : {}),
+    onWallet: () => (walletError ? Promise.reject(walletError) : walletAnswer),
+    ...(args.includes('--offscreen') ? { visible: false } : {}),
+    ...(safeArea !== undefined ? { contentSafeArea: { bottom, cornerRight: cornerRight ?? 0, cornerLeft: cornerLeft ?? 0 } } : {}),
+    script: [...(args.includes('--offscreen') ? [{ visible: true }] : []), ...(setData !== undefined ? [{ data: setData }] : [])],
     verbose, probes, cssScope: args.includes('--shadow') ? 'shadow' : 'document', theme: args.includes('--dark') ? 'dark' : 'light',
     ...(fontSize >= 0 ? { text: { fontSize: Number(args[fontSize + 1]) } } : {}),
     width, desktop, layout: width !== undefined, ...(gestures.length ? { gestures } : {}),
@@ -806,20 +892,27 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   r.probes.forEach((p, i) => console.log(`probe[${i}] ${probes[i]} → ${p}`));
   if (args.includes('--ops')) console.log(JSON.stringify(r.renderOps, null, 0));
   const opsFile = args.indexOf('--ops-file');
-  if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'ops', ops: r.renderOps }]));
+  if (opsFile >= 0 && args[opsFile + 1]) fs.writeFileSync(args[opsFile + 1], JSON.stringify([{ type: 'theme', theme: r.theme }, { type: 'safeArea', inset: r.contentSafeArea }, { type: 'ops', ops: r.renderOps }]));
   const tags = r.renderOps.filter((o) => o.op === 'el').length;
   const size = sizeVerdict(r.size);
   console.log(sizeLine(r.size));
   if (size.message) console.log(size.message);
-  console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}`);
+  console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}; main thread ${r.mainThreadMs.toFixed(1)} ms (layout queries + 25 µs per op + 2 µs per canvas command; a host allows ${LIMIT_DEFAULTS.mainThreadQuotaMs} ms per second)`);
+  if (r.stopped) console.log(`STOPPED: ${r.stopped} (a host stops the widget here, the bubble keeps its last render)`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
   if (r.publicDataWatches.length) console.log(`public data: ${r.watchesPublicData ? 'watched' : 'not watched'} (watchPublicData: ${r.publicDataWatches.join(' → ')}): a client polls a shared widget's public_data only while it watches`);
+  const sa = r.contentSafeArea;
+  if (sa.bottom || sa.cornerLeft || sa.cornerRight) console.log(`content safe area: the client's time over the bottom ${sa.bottom} px, its corner ${sa.cornerRight ? `${sa.cornerRight} px on the right` : sa.cornerLeft ? `${sa.cornerLeft} px on the left` : 'none'}`);
   if (r.resizeAnchors.length) console.log(`resize anchor: ${r.resizeAnchor} (setResizeAnchor: ${r.resizeAnchors.join(' → ')}): the ${r.resizeAnchor} edge of the bubble stays put when the height changes`);
   console.log(`listens for: ${r.listens.length ? r.listens.join(', ') : '(no listeners)'}; click, load, error and toggle are always delivered`);
   for (const d of r.diags) console.log('diag ', d.kind, '—', d.detail);
   for (const l of r.logs) console.log(`[${l.level}]`, l.text);
   for (const a of r.actions) console.log('action', JSON.stringify(a));
-  for (const q of r.requests) console.log(`request ${JSON.stringify(q.data)}: ${q.verdict === 'foreground' ? 'sent (a tap)' : q.verdict === 'background' ? 'sent (background)' : 'refused (' + q.verdict + ')'} → ${JSON.stringify(q.answer ?? null)}`);
+  const requestOutcome = (q: RunResult['requests'][number]) => q.verdict === 'foreground' ? 'sent (a tap)' : q.verdict === 'background' ? 'sent (background)'
+    : q.verdict === 'held' ? (q.background ? 'held off screen, sent (background) when the widget appeared' : 'held off screen, never sent (the widget did not appear)') : 'refused (' + q.verdict + ')';
+  for (const q of r.requests) console.log(`request ${JSON.stringify(q.data)}${q.wallet ? ' with the wallet' : ''}: ${requestOutcome(q)} → ${JSON.stringify(q.answer ?? null)}`);
+  const walletOutcome = (v: RequestVerdict | 'unsupported') => v === 'foreground' ? 'sent (a tap)' : v === 'granted' ? 'sent (the answer to a call made by a tap)' : 'refused (' + v + ')';
+  for (const w of r.walletCalls) console.log(`wallet.${w.call.method} ${JSON.stringify(w.call.data)}: ${walletOutcome(w.verdict)} → ${JSON.stringify(w.answer ?? null)}`);
   for (const t of r.copiedTexts) console.log('copyText', JSON.stringify(t));
   for (const c of r.storageCommits) console.log('storage', JSON.stringify(c).slice(0, 500));
   if (r.gestures) console.log('\n' + formatReports(r.gestures, width ?? 400, desktop));

@@ -32,8 +32,9 @@ const subGroups = (parent: string) => {
 };
 // htmlbubbles-ported/<chat>: Telegram's demos as classic widgets; common/<batch>: the renderer-comparison corpus (corpus/common/README.md);
 // showcase/<batch>: the interactive, animated demos on the full web profile (corpus/showcase/README.md);
-// defaults/<batch>: widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults/README.md).
-for (const group of ['compat', 'attacks', 'generated/with-profile', 'generated/without-profile', ...subGroups('htmlbubbles-ported'), ...subGroups('common'), ...subGroups('showcase'), ...subGroups('defaults')]) {
+// defaults/<batch>: widgets with little or no CSS, drawn by the renderer's UA layer (corpus/defaults/README.md);
+// safe-area/<batch>: the client's time over the corner of a widget without a caption (corpus/safe-area/README.md).
+for (const group of ['compat', 'attacks', 'generated/with-profile', 'generated/without-profile', ...subGroups('htmlbubbles-ported'), ...subGroups('common'), ...subGroups('showcase'), ...subGroups('defaults'), ...subGroups('safe-area')]) {
   const dir = path.join(root, 'corpus', group);
   if (!fs.existsSync(dir)) continue;
   fs.mkdirSync(path.join(corpusOut, group), { recursive: true });

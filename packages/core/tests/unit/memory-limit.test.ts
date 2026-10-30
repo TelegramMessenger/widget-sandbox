@@ -24,7 +24,7 @@ describe('memory limit', () => {
   it('steady growth of 1 MB typed arrays is refused at the cap; the widget cannot catch it and the footprint stays bounded', async () => {
     const r = await runWidget(attack('mem-steady-growth.html'), { timerRounds: 30, probes: ["document.getElementById('mb').textContent"] });
     const reachedMb = parseInt(r.probes[0], 10);
-    assert.ok(reachedMb >= 40 && reachedMb <= 80, `reached ${reachedMb} MB (${r.probes[0]})`);
+    assert.ok(reachedMb >= 4 && reachedMb <= 16, `reached ${reachedMb} MB (${r.probes[0]})`);
     assert.ok(!/alloc refused/.test(r.probes[0]), 'out of memory is not catchable');
     assert.ok(errorsOf(r).some((t) => /InternalError: out of memory/.test(t)), JSON.stringify(errorsOf(r)));
     assert.ok(r.wasmBytes <= FOOTPRINT_CAP, `wasm memory ${r.wasmBytes} > ${FOOTPRINT_CAP}`);
@@ -49,10 +49,11 @@ describe('memory limit', () => {
     assert.ok(r.wasmBytes < 48 * 1024 * 1024, `wasm memory ${r.wasmBytes}`);
   });
 
-  it('a smaller limit is honoured (16 MB)', async () => {
-    const r = await runWidget(attack('mem-steady-growth.html'), { timerRounds: 10, memoryLimitBytes: 16 << 20, probes: ["document.getElementById('mb').textContent"] });
-    assert.ok(parseInt(r.probes[0], 10) <= 32, r.probes[0]);
+  it('another limit is honoured (24 MB)', async () => {
+    const r = await runWidget(attack('mem-steady-growth.html'), { timerRounds: 30, memoryLimitBytes: 24 << 20, probes: ["document.getElementById('mb').textContent"] });
+    const reachedMb = parseInt(r.probes[0], 10);
+    assert.ok(reachedMb > 16 && reachedMb <= 40, r.probes[0]);
     assert.ok(errorsOf(r).some((t) => /InternalError: out of memory/.test(t)), JSON.stringify(errorsOf(r)));
-    assert.ok(r.wasmBytes <= WASM_INITIAL_PAGES * WASM_PAGE_BYTES + (16 << 20));
+    assert.ok(r.wasmBytes <= WASM_INITIAL_PAGES * WASM_PAGE_BYTES + (24 << 20));
   });
 });

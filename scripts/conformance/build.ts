@@ -44,8 +44,8 @@ import { checkPictures } from './picture-check';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { REFERENCE_STYLESHEET } from '../../packages/core/src/shared/reference.ts';
-import { DEFAULT_THEME_PARAMS } from '../../packages/core/src/shared/sdk-policy.ts';
+import { REFERENCE_STYLESHEET, REFERENCE_TIME_LABEL, referenceSafeAreaCss, timeCornerStyle } from '../../packages/core/src/shared/reference.ts';
+import { DEFAULT_THEME_PARAMS, checkContentSafeArea, type ContentSafeArea } from '../../packages/core/src/shared/sdk-policy.ts';
 
 const args = process.argv.slice(2);
 const opt = (name: string) => (args.includes('--' + name) ? args[args.indexOf('--' + name) + 1] : undefined);
@@ -169,15 +169,20 @@ const SWAP = "document.addEventListener('DOMContentLoaded',function(){[].forEach
  * The page's canvas is the reference palette's bubble colour, set outside the document (Chromium), as the client's bubble is
  * behind a transparent renderer: a widget's root background or body background still paints over it (propagation).
  */
-async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdk: 'mock' | 'palette' | false = false, theme: 'light' | 'dark' = 'light', message?: MessageSpec): Promise<Page> {
+async function openNative(ctx: BrowserContext, html: string, mode: 'ref' | 'native', sdk: 'mock' | 'palette' | false = false, theme: 'light' | 'dark' = 'light', message?: MessageSpec, safeArea?: Partial<ContentSafeArea>): Promise<Page> {
   const page = await ctx.newPage();
+  // A widget drawn with the client's time over its corner (the header's `safeArea`, reference mode only): the engine's
+  // own env(safe-area-inset-*) and the root variables a renderer sets both hold the band (Chromium only).
+  const area = mode === 'ref' && safeArea && ctx.browser()?.browserType().name() === 'chromium' ? checkContentSafeArea(safeArea) : null;
   if (ctx.browser()?.browserType().name() === 'chromium') {
     const hex = DEFAULT_THEME_PARAMS[theme].bg_color;
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-    await (await ctx.newCDPSession(page)).send('Emulation.setDefaultBackgroundColorOverride', { color: { r, g, b, a: 1 } });
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send('Emulation.setDefaultBackgroundColorOverride', { color: { r, g, b, a: 1 } });
+    if (area) await cdp.send('Emulation.setSafeAreaInsetsOverride' as any, { insets: { top: area.top, right: area.right, bottom: area.bottom, left: area.left } });
   }
   // The mode goes into the HTML, before the harness. Links never navigate in a native reference run.
-  const boot = (UA_CSS ? `<style>${UA_CSS}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true);${mode === 'ref' ? SWAP + ';' + BUBBLE : ''}</script>` + (sdk ? `<script>${sdk === 'palette' ? 'window.__conformanceNoSdk=1;' : ''}${message ? `window.__conformanceMessage=${JSON.stringify(message)};` : ''}${SDK_MOCK}</script>` : '');
+  const boot = (UA_CSS ? `<style>${UA_CSS}${area ? referenceSafeAreaCss(area) : ''}</style>` : '') + `<script>window.__conformanceMode=${JSON.stringify(mode)};document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a');if(a)e.preventDefault()},true);${mode === 'ref' ? SWAP + ';' + BUBBLE : ''}</script>` + (sdk ? `<script>${sdk === 'palette' ? 'window.__conformanceNoSdk=1;' : ''}${message ? `window.__conformanceMessage=${JSON.stringify(message)};` : ''}${SDK_MOCK}</script>` : '');
   // Served from a real (fake) origin, not about:blank, so storage works as in a WebView.
   const url = 'https://conformance.test/widget.html';
   await page.route(url, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html.replace(/<head>/i, '<head>' + boot) }));
@@ -245,10 +250,11 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
   const out: Record<string, string> = {};
   for (const theme of pictureThemes(w)) {
     const ctx = await newContext(browser, theme);
-    const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', theme, w.meta.message?.[0]);
+    const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', theme, w.meta.message?.[0], w.meta.safeArea);
     await waitStatus(page, ['done', 'awaiting'], 15_000);
     await page.waitForTimeout(300);
     const h = Math.min(isSdk(w) ? 1200 : 2000, await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height)));
+    if (w.meta.safeArea) await drawTime(page, w.meta.safeArea, h);
     const file = picturePath(w, theme);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     writeIfChanged(file, await page.screenshot({ clip: { x: 0, y: 0, width: WIDTH, height: Math.max(h, 40) }, animations: 'allow', caret: 'hide' }));
@@ -258,10 +264,28 @@ async function renderPictures(browser: Browser, w: Widget, html: string): Promis
   return out;
 }
 
+/**
+ * The client's time over the bottom corner of a picture `height` CSS px tall, as the dev app draws it over a bubble
+ * (reference.ts `timeCornerStyle`): outside the widget's document flow, on top of everything.
+ */
+async function drawTime(page: Page, area: Partial<ContentSafeArea>, height: number) {
+  const style = timeCornerStyle(area);
+  if (!style) return;
+  await page.evaluate(({ style, height, label }) => {
+    const box = document.createElement('div');
+    box.style.cssText = `position:absolute;left:0;top:0;width:100%;height:${height}px;pointer-events:none;z-index:2147483647`;
+    const time = document.createElement('div');
+    time.setAttribute('style', style);
+    time.textContent = label;
+    box.appendChild(time);
+    document.documentElement.appendChild(box);
+  }, { style, height, label: REFERENCE_TIME_LABEL });
+}
+
 /** The height gate: the widget's height at MAX_HEIGHT.width, drawn natively in reference mode. */
 async function measureHeight(browser: Browser, w: Widget, html: string): Promise<number> {
   const ctx = await newContext(browser, 'light', MAX_HEIGHT.width);
-  const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', 'light', w.meta.message?.[0]);
+  const page = await openNative(ctx, html, 'ref', isSdk(w) ? 'mock' : 'palette', 'light', w.meta.message?.[0], w.meta.safeArea);
   await waitStatus(page, ['done', 'awaiting'], 15_000);
   await page.waitForTimeout(300);
   const h = await page.evaluate(() => Math.ceil(document.documentElement.getBoundingClientRect().height));
@@ -396,6 +420,8 @@ async function main() {
       ...(refImages ? { refImages } : {}),
       ...(height !== undefined ? { height } : {}),
       ...(isSdk(w) ? { group: 'sdk', expect: w.meta.expect, contract: w.meta.contract, pending: w.meta.pending } : {}),
+      ...(w.meta.stops ? { stops: w.meta.stops } : {}),
+      ...(w.meta.safeArea ? { safeArea: w.meta.safeArea } : {}),
       ...(w.meta.message ? { message: w.meta.message } : {}),
       ...(w.meta.bot ? { bot: w.meta.bot } : {}),
     });
@@ -428,6 +454,7 @@ async function main() {
     'behaviour.network-marker': 'visual/sdk/21-network-marker (client behaviour)',
     'behaviour.resize-anchor': 'visual/sdk/18-resize-anchor (client behaviour)',
     'behaviour.size-hint': 'visual/sdk/17-size-hint (client behaviour)',
+    'behaviour.time-corner': 'visual/17-time-corner, sent without a caption (client behaviour)',
   };
   const needAuto = CATALOGUE.filter((f) => f.status !== 'out' && !auto.has(f.id) && !external[f.id]).map((f) => f.id);
   const outUncovered = CATALOGUE.filter((f) => f.status === 'out' && !auto.has(f.id)).map((f) => f.id);
@@ -550,13 +577,19 @@ function writeChannel(tests: any[]) {
       ? 'the widget checks itself: its result line at the bottom must say "done" and show no "fail" (each failure is listed under it)'
       : t.group === 'sdk' ? `${t.hint ?? ''} The client must: ${t.expect ?? ''}` : t.hint ?? 'compare with the picture';
     const messages: (MessageSpec | undefined)[] = header.message ?? [undefined];
-    for (const message of messages) for (const [width, height] of header.anchors ?? ANCHORS[t.id] ?? [[0, 0]]) {
+    // The client draws its time over a widget with no caption below it (docs/sdk-v1.md §2.17): a case of it goes out
+    // without a caption, then with its caption above the widget (invert_media), which must look the same.
+    const captions: ('none' | 'above' | undefined)[] = header.safeArea ? ['none', 'above'] : [undefined];
+    for (const message of messages) for (const captionAt of captions) for (const [width, height] of header.anchors ?? ANCHORS[t.id] ?? [[0, 0]]) {
       const view = message ? ` Sent as ${describeMessage(message)}${message.view ? `; look at ${message.view}` : ''}.` : '';
+      const placed = captionAt === 'none' ? ' Sent without a caption: your time over the widget\'s bottom corner.'
+        : captionAt === 'above' ? ' Sent with its caption above the widget (invert_media): your time over the widget\'s bottom corner, as without a caption.' : '';
       posts.push({
         widget: t.file,
         width, height,
         ...(message ? { message, ...(messages.length > 1 ? { variant: message.kind } : {}) } : {}),
-        caption: `${t.id} · ${t.title}. ${check}${view}`.replace(/\s+/g, ' ').trim(),
+        ...(captionAt === 'none' ? { withoutCaption: true } : captionAt === 'above' ? { captionAbove: true, variant: 'caption-above' } : {}),
+        caption: `${t.id} · ${t.title}. ${check}${view}${placed && !/\.\s*$/.test(check + view) ? '.' : ''}${placed}`.replace(/\s+/g, ' ').trim(),
         photos: Object.values(t.refImages ?? {}),
         zlib: t.zlib,
         ...(t.pending ? { pending: t.pending } : {}),
@@ -568,7 +601,7 @@ function writeChannel(tests: any[]) {
     }
   }
   const channel = {
-    $comment: 'Generated by scripts/conformance/build.ts: the test channel, in posting order. A test bot sends each widget as a layer-233 message (inputMediaWidget: html = the file, width / height = the anchors, 0 = auto) with its caption, then the photos (the reference pictures, light then dark) as a separate message next to it. A post with `message` is sent with those fields (allow_queries, fwd_allow_queries, shared_widget, chat_data, public_data), into the test group when chat is group, forwarded by the tester when forward, or as the inline result for the query conf-preview when inline; its kind is the message context the client must report where the tester looks. `bot`: what the test bot does on a widget_query with that data (scripts/conformance/test-bot.ts; templates {n}, {from}, {time}).',
+    $comment: 'Generated by scripts/conformance/build.ts: the test channel, in posting order. A test bot sends each widget as a layer-233 message (inputMediaWidget: html = the file, width / height = the anchors, 0 = auto) with its caption (none with `withoutCaption`, shown above the widget with `captionAbove`, Bot API show_caption_above_media / layer-233 invert_media: the client then draws the message time over the bottom corner of the widget, docs/sdk-v1.md §2.17), then the photos (the reference pictures, light then dark) as a separate message next to it. A post with `message` is sent with those fields (allow_queries, fwd_allow_queries, shared_widget, chat_data, public_data), into the test group when chat is group, forwarded by the tester when forward, or as the inline result for the query conf-preview when inline; its kind is the message context the client must report where the tester looks. `bot`: what the test bot does on a widget_query with that data (scripts/conformance/test-bot.ts; templates {n}, {from}, {time}).',
     version: 1,
     posts,
     bot,

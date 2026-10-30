@@ -62,16 +62,51 @@ static int countOccurrences(const std::string& text, const char* needle) {
     return count;
 }
 
+/// Commands in the canvas ops of an ops batch (JSON): the elements of each `"cmds":[…]` array. Like `"op":` the key
+/// cannot occur inside a JSON string (a quote there is always `\"`); the strings inside the array are skipped.
+static int countCanvasCommands(const std::string& json) {
+    static constexpr const char* kKey = "\"cmds\":[";
+    const size_t keyLength = std::strlen(kKey);
+    int count = 0;
+    for (size_t pos = json.find(kKey); pos != std::string::npos; pos = json.find(kKey, pos)) {
+        size_t i = pos + keyLength;
+        int depth = 1;
+        bool any = false;
+        for (; i < json.size() && depth > 0; i++) {
+            char c = json[i];
+            if (c == '"') {
+                for (i++; i < json.size() && json[i] != '"'; i++) if (json[i] == '\\') i++;
+                any = true;
+            } else if (c == '[' || c == '{') {
+                any = true;
+                depth++;
+            } else if (c == ']' || c == '}') {
+                depth--;
+            } else if (c == ',') {
+                if (depth == 1) count++;
+            } else if (c != ' ' && c != '\n' && c != '\r' && c != '\t') {
+                any = true;
+            }
+        }
+        if (any) count++; // n elements are n - 1 commas
+        pos = i;
+    }
+    return count;
+}
+
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
 SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
     : thread_("widget.sandbox"), html_(std::move(html)), config_(config), resources_(std::move(resources)),
       intl_(intl ? std::move(intl) : std::make_shared<BasicIntl>()), visible_(config.visible),
-      budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs) {
+      budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs),
+      mainBudget_(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0) {
     liveness_->engine = this;
     // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16). Fixed from
     // here on, so other threads may read config_ without a lock.
     if (config_.context.preview) config_.context.isCopy = config_.context.canQuery = config_.context.backgroundQuery = false;
+    // The wallet only where the widget may ask the bot (docs/sdk-v1.md §2.18).
+    config_.context.wallet = config_.context.wallet && config_.context.canQuery;
 }
 
 SandboxEngine::~SandboxEngine() {
@@ -93,6 +128,18 @@ void SandboxEngine::start() {
 
 void SandboxEngine::terminate() {
     thread_.async([this] { kill("terminated"); });
+}
+
+void SandboxEngine::stop(const std::string& reason) {
+    auto body = [this, reason] {
+        if (dead_) return;
+        kill(reason);
+        // The task that sent the batch is still on the stack: interrupt it at the next poll (uncatchable, as the
+        // layout-query limit does); hostCall forwards nothing more meanwhile.
+        if (js_) js_->cpuDeadline = -kInf;
+    };
+    if (thread_.isCurrent()) body();
+    else thread_.async(body);
 }
 
 void SandboxEngine::boot() {
@@ -139,7 +186,10 @@ void SandboxEngine::boot() {
         config.set("cpuQuotaMs", config_.cpuQuotaMs);
         config.set("cpuQuotaWindowMs", config_.cpuQuotaWindowMs);
         config.set("cpuKillAfterMs", config_.cpuKillAfterMs);
+        config.set("mainThreadQuotaMs", config_.mainThreadQuotaMs);
         config.set("maxTimers", config_.maxTimers);
+        // The shim refuses at the validator's counted caps under strict (canvas commands per task, live script animations).
+        config.set("policy", isStrictPolicy(config_.policy) ? "strict" : "compat");
         config.set("visible", visible_);
         Json viewport = Json::object();
         viewport.set("innerWidth", config_.innerWidth);
@@ -150,6 +200,7 @@ void SandboxEngine::boot() {
         // SDK v1 (docs/sdk-v1.md §3.1): the client's values are trusted but still checked.
         config.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(config_.themeParams)));
         config.set("locale", sdk::checkLocale(config_.locale).value_or(std::string(sdk::DEFAULT_LOCALE)));
+        config.set("contentSafeArea", config_.contentSafeArea.json());
         config.set("profile", sdk::PROFILE_VERSION);
         // A preview has no message yet: no storage of its own (it lives in memory for this run and is never committed).
         bool preloadAccepted = true;
@@ -172,6 +223,7 @@ void SandboxEngine::boot() {
         // The viewer in the widget's field names (Mini Apps' WebAppUser); a field that breaks its rule is left out and reported.
         sdk::CheckedViewer viewer = revealsViewer ? sdk::checkViewer(context.viewer) : sdk::CheckedViewer{};
         config.set("viewer", viewer.viewer ? sdk::viewerJson(*viewer.viewer) : Json());
+        config.set("wallet", context.wallet);
         for (const std::string& field : viewer.rejected)
             if (delegate_) delegate_->onDiag(*this, "data-rejected", "viewer." + field + ": " + std::string(sdk::viewerFieldRule(field)) + "; the widget does not see it");
         Json features = Json::array();
@@ -221,6 +273,26 @@ void SandboxEngine::theme(const std::string& colorScheme, const std::map<std::st
     enqueue("theme", t.dump());
 }
 
+Json WidgetContentSafeArea::json() const {
+    Json out = Json::object();
+    auto put = [&](const char* name, double v) { out.set(name, std::isfinite(v) ? v : 0.0); };
+    put("top", top);
+    put("right", right);
+    put("bottom", bottom);
+    put("left", left);
+    put("cornerLeft", cornerLeft);
+    put("cornerRight", cornerRight);
+    return out;
+}
+
+void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
+    thread_.async([this, area] {
+        if (dead_) return;
+        if (!js_) { config_.contentSafeArea = area; return; }
+        input("safeArea", area.json().dump());
+    });
+}
+
 void SandboxEngine::setData(const WidgetData& data) {
     sdk::CheckedWidgetData checked = sdk::checkWidgetData(data, config_.context.isCopy);
     thread_.async([this, checked] {
@@ -261,7 +333,13 @@ void SandboxEngine::setVisible(bool v) {
     thread_.async([this, v] {
         if (dead_ || visible_ == v) return;
         visible_ = v;
-        if (v) requests_.show(); // the widget appeared on screen, its next background request may go out at once
+        // The widget appeared on screen: its next background request may go out at once, the one it made off screen now
+        // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
+        if (v && requests_.show(nowMs()) && heldRequest_) {
+            HeldRequest held = std::move(*heldRequest_);
+            heldRequest_.reset();
+            deliverRequest(held.id, held.data);
+        }
         if (!js_) return; // boot reads `visible_` for the shim
         dispatch("visibility", std::string("{\"visible\":") + (v ? "true" : "false") + "}");
         if (v) {
@@ -295,8 +373,8 @@ void SandboxEngine::input(const std::string& kind, const std::string& arg) {
     dispatch(kind, arg);
 }
 
-/// Runs one task for an input (event, timer, frame, …) if the CPU quota
-/// allows, otherwise defers it (returns false). Events and visibility always run.
+/// Runs one task for an input (event, timer, frame, …) if the CPU quota and the
+/// main-thread window allow, otherwise defers it (returns false). Events and visibility always run.
 bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
     if (dead_) return true;
     if (kind.rfind(kActivationPrefix, 0) == 0) {
@@ -307,8 +385,10 @@ bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
         return ran;
     }
     double now = nowMs();
-    CpuDecision d = budget_.decide(kind, now);
-    if (!d.run) {
+    // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
+    CpuDecision js = budget_.decide(kind, now);
+    CpuDecision main = mainBudget_.decide(kind, now);
+    if (!js.run || !main.run) {
         if (budget_.shouldKill(now)) {
             char buf[256];
             snprintf(buf, sizeof buf, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget_.throttledFor(now) / 1000,
@@ -327,13 +407,17 @@ bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
                 parts += std::to_string(n) + " " + k + (n == 1 ? "" : "s");
             }
             throttledSinceDiag_.clear();
-            if (delegate_) delegate_->onDiag(*this, "cpu-throttled", "deferred " + parts + ": " + std::to_string(int(budget_.used(now))) + " ms of the " +
-                                                                        std::to_string(int(config_.cpuQuotaMs)) + " ms per " + std::to_string(int(config_.cpuQuotaWindowMs)) + " ms budget used");
+            std::string window = js.run
+                ? std::to_string(int(mainBudget_.used(now))) + " ms of the " + std::to_string(int(config_.mainThreadQuotaMs)) + " ms per " +
+                      std::to_string(int(config_.cpuQuotaWindowMs)) + " ms main-thread budget used by layout queries and ops"
+                : std::to_string(int(budget_.used(now))) + " ms of the " + std::to_string(int(config_.cpuQuotaMs)) + " ms per " +
+                      std::to_string(int(config_.cpuQuotaWindowMs)) + " ms budget used";
+            if (delegate_) delegate_->onDiag(*this, "cpu-throttled", "deferred " + parts + ": " + window);
         }
-        scheduleWake(d.retryAt / 1000);
+        scheduleWake(std::max(js.run ? 0 : js.retryAt, main.run ? 0 : main.retryAt) / 1000);
         return false;
     }
-    task(kind, d.sliceMs, [&] { callTw(kind, arg); });
+    task(kind, js.sliceMs, [&] { callTw(kind, arg); });
     return true;
 }
 
@@ -392,8 +476,13 @@ static Json answerEvent(int64_t id) {
 // MARK: the single capability
 
 HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& arg) {
+    // Stopped by the host (`stop`) from inside this task: until the interrupt lands, nothing more reaches the delegate.
+    if (dead_) return HostReturn::undefined();
     if (kind == "ops") {
-        stats_.ops += countOccurrences(arg, "\"op\":");
+        int ops = countOccurrences(arg, "\"op\":");
+        stats_.ops += ops;
+        // What the batch costs the host's main thread (the validator, the renderer), charged to the main-thread window.
+        taskOpsCostMs_ += CpuBudget::opsCostMs(ops, countCanvasCommands(arg));
         if (delegate_) delegate_->onOps(*this, arg);
         return HostReturn::undefined();
     }
@@ -407,7 +496,13 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
         // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
         if (!visible_) delay = std::max(delay, 1.0 + delay / 10);
-        if (int(timers_.size()) >= config_.maxTimers) {
+        // An id that has a timer replaces it: dropping the old handle does not cancel it (the thread keeps the
+        // timer), so it ran on past maxTimers.
+        auto replaced = timers_.find(id);
+        if (replaced != timers_.end()) {
+            replaced->second->cancel();
+            timers_.erase(replaced);
+        } else if (int(timers_.size()) >= config_.maxTimers) {
             // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
             if (!timerLimitReported_) {
                 timerLimitReported_ = true;
@@ -469,8 +564,8 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
                 previewBlockedReported_++;
                 delegate_->onDiag(*this, "preview-blocked", name + " ignored: a preview (an inline result not sent yet) takes no actions");
             }
-            if (checked->request) {
-                Json event = answerEvent(checked->request->id);
+            if (checked->request || checked->wallet) {
+                Json event = answerEvent(checked->request ? checked->request->id : checked->wallet->id);
                 event.set("error", "NOT_ALLOWED");
                 event.set("reason", "preview");
                 enqueue("bridge", event.dump());
@@ -491,7 +586,12 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
         }
         // A request has its own gate (a press or the background rules; one in flight) and goes to onBridgeRequest, not onBridgeAction.
         if (checked->request) {
-            request(checked->request->id, checked->request->data);
+            request(checked->request->id, checked->request->data, checked->request->wallet);
+            return HostReturn::undefined();
+        }
+        // A wallet call shares the request gate (a press or the grant, never the background) and goes to onBridgeWallet.
+        if (checked->wallet) {
+            walletCall(checked->wallet->id, checked->wallet->call);
             return HostReturn::undefined();
         }
         if (isStrictPolicy(config_.policy) && sdk::isPrivilegedMethod(name)) {
@@ -579,9 +679,18 @@ const char* refusalText(sdk::RequestVerdict verdict) {
     case sdk::RequestVerdict::Disabled: return "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)";
     case sdk::RequestVerdict::Busy: return "a request is already in flight";
     case sdk::RequestVerdict::NoActivation: return "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)";
-    case sdk::RequestVerdict::Hidden: return "a background request from a widget off screen";
     case sdk::RequestVerdict::RateLimited: return "background requests at most once per 5 s";
+    case sdk::RequestVerdict::NoWallet: return "the client has no wallet for this user (no WidgetContext::wallet)";
     default: return "";
+    }
+}
+
+/// Where a wallet call's refusal differs from a request's (WALLET_REFUSED in widget-host.ts).
+const char* walletRefusalText(sdk::RequestVerdict verdict) {
+    switch (verdict) {
+    case sdk::RequestVerdict::NoActivation: return "it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each";
+    case sdk::RequestVerdict::Busy: return "a request or a wallet call is already in flight";
+    default: return refusalText(verdict);
     }
 }
 
@@ -599,43 +708,80 @@ std::string SandboxEngine::refusal(int64_t id, std::string_view error, std::stri
     return event.dump();
 }
 
-void SandboxEngine::request(int64_t id, const std::string& data) {
+void SandboxEngine::request(int64_t id, const std::string& data, bool wallet) {
     // 1. A press this task has not used yet, peeked: it is consumed only when the request goes out as the press's.
     bool strict = isStrictPolicy(config_.policy);
     bool pressed = !strict || (activeGesture_ > consumedGesture_ && visible_);
     // 2. The gate. A refusal goes back as a `bridge` task of its own, after this one.
-    sdk::RequestVerdict verdict = requests_.decide(nowMs(), {pressed, visible_, config_.context.canQuery, config_.context.backgroundQuery});
+    const WidgetContext& c = config_.context;
+    sdk::RequestVerdict verdict = requests_.decide(nowMs(), {pressed, visible_, c.canQuery, c.backgroundQuery, wallet, c.wallet});
     if (std::optional<std::string_view> error = sdk::requestRefusal(verdict)) {
         std::string name(sdk::requestVerdictName(verdict));
-        return enqueue("bridge", refusal(id, *error, name, "request refused (" + name + "): " + refusalText(verdict)));
+        std::string why = wallet && verdict == sdk::RequestVerdict::NoActivation ? "a request for the wallet needs a tap on the visible widget, one request per tap" : refusalText(verdict);
+        return enqueue("bridge", refusal(id, *error, name, "request refused (" + name + "): " + why));
     }
     if (verdict == sdk::RequestVerdict::Foreground && strict) {
         consumedGesture_ = activeGesture_;
         activeGesture_ = 0;
     }
-    // 3. The client, which decides at delivery whether it handles requests at all. `respond` may come from any thread,
-    // once; it reaches this engine only while it lives (the liveness record), and the answer task does nothing once the
-    // runtime is dead. Background or not stays here: the bot cannot tell, and neither does the client.
-    auto once = std::make_shared<std::atomic<bool>>(false);
-    WidgetRequestResponder respond([life = liveness_, once, id](const std::optional<WidgetRequestOutcome>& outcome) {
-        if (once->exchange(true)) return;
-        std::lock_guard<std::mutex> l(life->mutex);
-        if (SandboxEngine* engine = life->engine) engine->thread_.async([engine, id, outcome] { engine->answerRequest(id, outcome); });
-    });
-    if (delegate_) delegate_->onBridgeRequest(*this, WidgetRequest{data}, std::move(respond));
+    // 3. Off screen it waits for the widget to appear (setVisible); otherwise to the client now.
+    if (verdict == sdk::RequestVerdict::Held) heldRequest_ = HeldRequest{id, data};
+    else deliverRequest(id, data, wallet);
+}
+
+void SandboxEngine::walletCall(int64_t id, const WalletCall& call) {
+    // docs/sdk-v1.md §2.18: on a press or on the grant (the answer to a call made by a press, within 10 s), never in the
+    // background; one call in flight with the requests. Its outcome settles like a request's.
+    bool strict = isStrictPolicy(config_.policy);
+    bool pressed = !strict || (activeGesture_ > consumedGesture_ && visible_);
+    sdk::RequestVerdict verdict = requests_.decideWallet(nowMs(), {pressed, visible_, config_.context.canQuery, config_.context.wallet});
+    if (std::optional<std::string_view> error = sdk::requestRefusal(verdict)) {
+        std::string name(sdk::requestVerdictName(verdict));
+        return enqueue("bridge", refusal(id, *error, name, "wallet." + std::string(call.methodName()) + " refused (" + name + "): " + walletRefusalText(verdict)));
+    }
+    if (verdict == sdk::RequestVerdict::Foreground && strict) {
+        consumedGesture_ = activeGesture_;
+        activeGesture_ = 0;
+    }
+    WidgetRequestResponder respond = responder(id, true);
+    if (delegate_) delegate_->onBridgeWallet(*this, call, std::move(respond));
     else respond.unsupported();
 }
 
-void SandboxEngine::answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome) {
+WidgetRequestResponder SandboxEngine::responder(int64_t id, bool wallet) {
+    // `respond` may come from any thread, once; it reaches this engine only while it lives (the liveness record), and
+    // the answer task does nothing once the runtime is dead.
+    auto once = std::make_shared<std::atomic<bool>>(false);
+    return WidgetRequestResponder([life = liveness_, once, id, wallet](const std::optional<WidgetRequestOutcome>& outcome) {
+        if (once->exchange(true)) return;
+        std::lock_guard<std::mutex> l(life->mutex);
+        if (SandboxEngine* engine = life->engine) engine->thread_.async([engine, id, outcome, wallet] { engine->answerRequest(id, outcome, wallet); });
+    });
+}
+
+void SandboxEngine::deliverRequest(int64_t id, const std::string& data, bool wallet) {
+    // The client, which decides at delivery whether it handles requests at all. Background or not stays here: the bot
+    // cannot tell, and neither does the client.
+    WidgetRequestResponder respond = responder(id, false);
+    if (delegate_) delegate_->onBridgeRequest(*this, WidgetRequest{data, wallet}, std::move(respond));
+    else respond.unsupported();
+}
+
+void SandboxEngine::answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome, bool wallet) {
     if (dead_) return;
-    requests_.finish();
-    if (!outcome) return input("bridge", refusal(id, "NOT_ALLOWED", "unsupported", "request refused: the client handles no requests (onRequest)"));
+    if (!outcome) {
+        requests_.finish();
+        return input("bridge", refusal(id, "NOT_ALLOWED", "unsupported", wallet ? "wallet call refused: the client handles no wallet calls (onWallet)" : "request refused: the client handles no requests (onRequest)"));
+    }
     Json event = answerEvent(id);
     if (outcome->failure != WidgetRequestFailure::None) {
-        event.set("error", sdk::requestFailureCode(outcome->failure));
+        requests_.finish();
+        event.set("error", wallet ? sdk::walletFailureCode(outcome->failure) : sdk::requestFailureCode(outcome->failure));
     } else if (std::optional<sdk::CheckedAnswer> checked = sdk::checkRequestAnswer(outcome->answer)) {
+        requests_.finish(nowMs());
         event.set("result", checked->result ? Json(*checked->result) : Json()); // only the result: the bot changes its data with setData
     } else {
+        requests_.finish();
         if (delegate_)
             delegate_->onDiag(*this, "answer-rejected", "the answer's result is not text of at most " + std::to_string(sdk::MAX_REQUEST_RESULT_BYTES) +
                                                             " bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER");
@@ -675,6 +821,7 @@ std::string SandboxEngine::syncQuery(const std::string& json) {
 void SandboxEngine::kill(const std::string& reason) {
     if (dead_) return;
     dead_ = true;
+    heldRequest_.reset(); // never reaches the client
     pendingBeforeBoot_.clear();
     for (auto& [_, t] : timers_) t->cancel();
     timers_.clear();
@@ -780,13 +927,15 @@ void SandboxEngine::resetDeadline() {
     js_->deadline = nowSeconds() + std::max(currentSliceMs_ * kWallBackstopFactor, kWallBackstopMinMs) / 1000;
 }
 
-/// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
+/// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota, its layout
+/// queries and the modelled cost of its ops against the main-thread window.
 void SandboxEngine::task(const std::string& kind, double sliceMs, const std::function<void()>& body) {
     if (dead_) return;
     currentKind_ = kind;
     currentSliceMs_ = sliceMs;
     excludeMs_ = 0;
     taskQueryMs_ = 0;
+    taskOpsCostMs_ = 0;
     queryLimitHit_ = false;
     double c0 = QuickJSContext::threadCpuTime();
     resetDeadline();
@@ -796,8 +945,10 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     stats_.tasks++;
     double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;
-    budget_.record(kind, cpuMs + taskQueryMs_, nowMs()); // layout queries count toward the quota: they cost the host as much as JS
-    stats_.cpuWindowMs = budget_.used(nowMs());
+    double end = nowMs();
+    budget_.record(kind, cpuMs, end);
+    mainBudget_.record(kind, taskQueryMs_ + taskOpsCostMs_, end); // what the task cost the host's main thread
+    stats_.cpuWindowMs = budget_.used(end);
     double now = nowSeconds();
     if (now - lastMemCheck_ > 1 && !dead_) {
         lastMemCheck_ = now;

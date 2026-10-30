@@ -75,7 +75,7 @@ static SandboxConfig testConfig() {
 struct Run {
     RecordingHost host;
     SandboxEngine engine;
-    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true) : host("light", RES), engine(html, cfg, RES) {
+    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true) : host("light", RES, false, cfg.policy), engine(html, cfg, RES) {
         engine.setDelegate(&host);
         if (start) { engine.start(); host.waitLoaded(20); }
     }
@@ -174,13 +174,15 @@ TEST(json_numbers_ignore_lc_numeric) {
     setlocale(LC_NUMERIC, saved.c_str());
 }
 
-/// CpuBudget against the fixture shared with cpu-budget.ts, CpuBudget.swift and CpuBudget.kt.
+/// CpuBudget against the fixture shared with cpu-budget.ts, CpuBudget.swift and CpuBudget.kt (the JS quota and the
+/// main-thread window are two budgets of the same policy; opsCostMs is the window's model of the ops).
 TEST(cpu_budget_shared_fixture) {
     auto root = Json::parse(readFile(std::string(TW_FIXTURES) + "/cpu-budget.json"));
     CHECK_MSG(root.has_value(), "fixture missing — run pnpm build:desktop");
     if (!root) return;
     const auto& cases = (*root)["cases"].arr();
     CHECK(cases.size() > 5);
+    int costSteps = 0;
     for (const auto& c : cases) {
         const std::string& name = c["name"].asString();
         const Json& cfg = c["config"];
@@ -200,11 +202,17 @@ TEST(cpu_budget_shared_fixture) {
                 CHECK_MSG(b.shouldKill(at) == kill->asBool(), where);
             } else if (const Json* slice = step.find("queryBudget")) {
                 CHECK_MSG(CpuBudget::queryBudgetMs(slice->asNumber()) == step["expect"].asNumber(), where);
+            } else if (const Json* cost = step.find("opsCost")) {
+                costSteps++;
+                double got = CpuBudget::opsCostMs((*cost)[0].asNumber(), (*cost)[1].asNumber());
+                CHECK_MSG(std::fabs(got - step["expect"].asNumber()) < 1e-9, where + " got " + std::to_string(got));
             } else {
                 CHECK_MSG(false, where + ": unknown step");
             }
         }
     }
+    // The strict-limits fixture (the main-thread window) or later: a stale copy fails here.
+    CHECK_MSG(costSteps >= 6, std::to_string(costSteps) + " opsCost steps — run pnpm build:desktop");
 }
 
 /// Deep equality of JSON values, object members in any order (what node:assert's deepEqual compares).
@@ -275,7 +283,7 @@ TEST(sdk_policy_shared_fixture) {
         if (h) { got = Json::object(); got.set("haptic", h->haptic); if (h->value) got.set("value", *h->value); }
         CHECK_MSG(jsonEqual(got, c["expect"]), c["args"].dump() + " → " + got.dump());
     }
-    int anchors = 0, requests = 0, copies = 0, watches = 0;
+    int anchors = 0, requests = 0, copies = 0, watches = 0, wallets = 0;
     for (const auto& c : (*root)["bridge"].arr()) {
         cases++;
         auto a = sdk::checkBridgeCall(c["method"], c["args"]);
@@ -283,8 +291,9 @@ TEST(sdk_policy_shared_fixture) {
         CHECK_MSG(jsonEqual(got, c["expect"]), c["method"].dump() + " " + c["args"].dump() + " → " + got.dump());
         // Exactly one of the five: the action, setResizeAnchor's edge, the request, the text to copy, the watch flag.
         if (a) CHECK_MSG(int(a->action.has_value()) + int(a->resizeAnchor.has_value()) + int(a->request.has_value()) + int(a->copyText.has_value()) +
-                                 int(a->watchPublicData.has_value()) == 1,
+                                 int(a->watchPublicData.has_value()) + int(a->wallet.has_value()) == 1,
                          c["method"].dump());
+        wallets += a && a->wallet;
         const std::string method = c["method"].isString() ? c["method"].asString() : "";
         anchors += method == "setResizeAnchor";
         requests += method == "request";
@@ -381,10 +390,18 @@ TEST(sdk_policy_shared_fixture) {
         sdk::RequestGate gate;
         int i = 0;
         for (const auto& s : c["steps"].arr()) {
-            if (s["op"].asString() == "finish") gate.finish();
-            else if (s["op"].asString() == "show") gate.show();
-            else {
-                sdk::RequestGate::Conditions at{s["gesture"].asBool(), s["visible"].asBool(), s["canQuery"].asBool(), s["backgroundQuery"].asBool()};
+            if (s["op"].asString() == "finish") gate.finish(s["answeredAt"].isNumber() ? std::optional<double>(s["answeredAt"].asNumber()) : std::nullopt);
+            else if (s["op"].asString() == "decideWallet") {
+                sdk::RequestGate::WalletConditions at{s["gesture"].asBool(), s["visible"].asBool(), s["canQuery"].asBool(), s["wallet"].asBool()};
+                std::string got(sdk::requestVerdictName(gate.decideWallet(s["at"].asNumber(), at)));
+                CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
+            }
+            else if (s["op"].asString() == "show") {
+                bool busy = gate.busy();
+                CHECK_MSG(gate.show(s["at"].asNumber()) == s["expect"].asBool(), c["name"].asString() + ", step " + std::to_string(i));
+                CHECK_MSG(gate.busy() == busy, c["name"].asString() + ", step " + std::to_string(i) + ": show changes nothing in flight");
+            } else {
+                sdk::RequestGate::Conditions at{s["gesture"].asBool(), s["visible"].asBool(), s["canQuery"].asBool(), s["backgroundQuery"].asBool(), s["withWallet"].asBool(), s["wallet"].asBool()};
                 std::string got(sdk::requestVerdictName(gate.decide(s["at"].asNumber(), at)));
                 CHECK_MSG(got == s["expect"].asString(), c["name"].asString() + ", step " + std::to_string(i) + ": " + got);
             }
@@ -395,8 +412,9 @@ TEST(sdk_policy_shared_fixture) {
     std::vector<std::string> verdicts;
     for (const auto& c : (*root)["requestRefusals"].arr()) {
         cases++;
-        sdk::RequestVerdict all[] = {sdk::RequestVerdict::Foreground, sdk::RequestVerdict::Background, sdk::RequestVerdict::Disabled, sdk::RequestVerdict::Busy,
-                                     sdk::RequestVerdict::NoActivation, sdk::RequestVerdict::Hidden, sdk::RequestVerdict::RateLimited};
+        sdk::RequestVerdict all[] = {sdk::RequestVerdict::Foreground, sdk::RequestVerdict::Background, sdk::RequestVerdict::Held, sdk::RequestVerdict::Granted,
+                                     sdk::RequestVerdict::Disabled, sdk::RequestVerdict::NoWallet, sdk::RequestVerdict::Busy, sdk::RequestVerdict::NoActivation,
+                                     sdk::RequestVerdict::RateLimited};
         const sdk::RequestVerdict* v = std::find_if(std::begin(all), std::end(all), [&](sdk::RequestVerdict x) { return sdk::requestVerdictName(x) == c["verdict"].asString(); });
         CHECK_MSG(v != std::end(all), c["verdict"].asString());
         if (v == std::end(all)) continue;
@@ -405,7 +423,21 @@ TEST(sdk_policy_shared_fixture) {
         Json got = refusal ? Json(*refusal) : Json();
         CHECK_MSG(jsonEqual(got, c["expect"]), c["verdict"].asString() + " → " + got.dump());
     }
-    CHECK_MSG(verdicts.size() == 7, std::to_string(verdicts.size()) + " verdicts"); // every verdict once
+    CHECK_MSG(verdicts.size() == 9, std::to_string(verdicts.size()) + " verdicts"); // every verdict once
+    CHECK_MSG(wallets == 3, std::to_string(wallets) + " valid wallet calls");
+    // The wallet (docs/sdk-v1.md §2.18): TON Connect's transaction and signData payload, checked.
+    for (const auto& c : (*root)["walletTransactions"].arr()) {
+        cases++;
+        std::optional<WalletTransaction> tx = sdk::checkWalletTransaction(expandRepeat(c["input"]));
+        Json got = tx ? tx->toJson() : Json();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), (c["note"].isString() ? c["note"].asString() : c["input"].dump().substr(0, 100)) + " → " + got.dump().substr(0, 120));
+    }
+    for (const auto& c : (*root)["signDataPayloads"].arr()) {
+        cases++;
+        std::optional<SignDataPayload> p = sdk::checkSignDataPayload(expandRepeat(c["input"]));
+        Json got = p ? p->toJson() : Json();
+        CHECK_MSG(jsonEqual(got, expandRepeat(c["expect"])), (c["note"].isString() ? c["note"].asString() : c["input"].dump().substr(0, 100)) + " → " + got.dump().substr(0, 120));
+    }
     // The server's spec or later (the server's flags, answers of a result only, no NUL in data); a stale copy fails here.
     int flagged = 0, shows = 0, nulData = 0, edits = 0;
     for (const auto& c : (*root)["requestGate"].arr())
@@ -422,7 +454,7 @@ TEST(sdk_policy_shared_fixture) {
     printf("    %d fixture cases\n", cases);
     CHECK(cases > 150);
     for (const char* section : {"links", "haptics", "bridge", "hapticGate", "themeParams", "locales", "storage", "utf8",
-                                "widgetData", "viewer", "chatType", "answers", "requestGate", "requestRefusals", "previewMethods"})
+                                "widgetData", "viewer", "chatType", "answers", "requestGate", "requestRefusals", "previewMethods", "walletTransactions", "signDataPayloads"})
         CHECK_MSG((*root)[section].size() > 0, section);
 }
 
@@ -639,6 +671,12 @@ TEST(pinned_thread_gives_deep_recursion) {
     CHECK(f.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     CHECK(f.get());
     CHECK(!cancelledRan);
+    // A cancelled timer leaves the queue before its time: 10 000 timers of 24 h set and cancelled (a widget's
+    // setTimeout / clearTimeout loop) leave at most twice the live ones, not 10 000.
+    auto live = t.after(86400, [] {});
+    for (int i = 0; i < 10000; i++) t.after(86400, [] {})->cancel();
+    CHECK_MSG(t.queuedTimers() <= 128, std::to_string(t.queuedTimers()) + " timers queued");
+    live->cancel();
     t.stop();
 }
 
@@ -700,8 +738,17 @@ TEST(memory_limit_kills_allocation_flood) {
     cfg.cpuLimitMs = 10000;
     Run r("<script>var a = []; for (;;) a.push(new Array(100000).fill(1.5));</script>", cfg);
     r.barrier();
-    auto l = r.host.lock();
-    CHECK_MSG(r.host.died && r.host.died->find("Memory limit") != std::string::npos, r.host.died.value_or("alive: " + r.logsText()));
+    {
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.died && r.host.died->find("Memory limit exceeded (16 MB)") != std::string::npos, r.host.died.value_or("alive: " + r.logsText()));
+    }
+    // The default is 8 MB of QuickJS heap (docs/decisions.md, "Strict limits from the start").
+    auto byDefault = testConfig();
+    byDefault.cpuLimitMs = 10000;
+    Run d("<script>var a = []; for (;;) a.push(new Array(100000).fill(1.5));</script>", byDefault);
+    d.barrier();
+    auto l = d.host.lock();
+    CHECK_MSG(d.host.died && d.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, d.host.died.value_or("alive: " + d.logsText()));
 }
 
 TEST(layout_query_round_trip) {
@@ -745,6 +792,21 @@ TEST(timer_limit_is_enforced) {
     CHECK(!r.host.died);
 }
 
+/// A timer id the shim asks for again replaces its timer: a widget that replaces JSON.stringify makes the shim's 200
+/// timer calls arrive as one long interval's id, due in 20 ms. The engine kept every handle's timer running (dropping
+/// the shared_ptr did not cancel it) and each fired the interval's callback; now the old one is cancelled, once.
+TEST(a_timer_id_asked_for_again_replaces_its_timer) {
+    Run r("<script>var fired = 0; var id = setInterval(function () { fired++; }, 10000000); var orig = JSON.stringify;"
+          "JSON.stringify = function (v) { return Array.isArray(v) && v.length === 2 ? '[' + id + ',20]' : orig(v); };"
+          "for (var i = 0; i < 200; i++) clearTimeout(setTimeout(function () {}, 1)); JSON.stringify = orig;"
+          "setTimeout(function () { console.log('fired=' + fired); console.log('done'); }, 500);</script>", testConfig());
+    r.host.waitUntil([&] { return r.host.hasLog("done"); }, 5);
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.hasLog("fired=1"), r.logsText());
+    CHECK_MSG(!r.host.hasDiag("timer-limit-enforced"), r.diagsText());
+    CHECK(!r.host.died);
+}
+
 /// A 100 ms interval burning 40 ms per tick is legal under cpuLimitMs alone; the
 /// quota (100 ms/s here) defers ticks instead of killing, reports `cpu-throttled`,
 /// and a click still gets through.
@@ -783,6 +845,8 @@ TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     auto l = r.host.lock();
     CHECK_MSG(r.host.died.has_value(), "alive after " + std::to_string(seconds) + " s, " + std::to_string(r.host.queries.size()) + " queries");
     CHECK_MSG(r.host.died && r.host.died->rfind("Layout query limit exceeded", 0) == 0, r.host.died.value_or("alive"));
+    // 100 ms whatever the slice (CpuBudget::kQueryBudgetMs), the boot task's included.
+    CHECK_MSG(r.host.died && r.host.died->find("more than 100 ms in one boot task") != std::string::npos, r.host.died.value_or("alive"));
     CHECK_MSG(seconds < 5, std::to_string(seconds) + " s");
     CHECK_MSG(r.host.queries.size() < 120, std::to_string(r.host.queries.size()) + " queries");
 }
@@ -952,6 +1016,13 @@ TEST(user_gestures_are_numbered_per_physical_press) {
     CHECK(c.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 3);
     CHECK(c.gestureFor(ev("{\"type\":\"keydown\",\"key\":\" \"}")) == 0);
     CHECK(c.gestureFor(ev("{\"type\":\"mousemove\"}")) == 0);
+    // A press the renderer reports (its `gesture` claim) begins a new gesture: a finger's release after a drag, whose
+    // pointerdown is not trusted, is not the end of the drag's press.
+    GestureCounter d;
+    CHECK(d.gestureFor(ev("{\"type\":\"pointerup\"}")) == 1);
+    d.pressBegan();
+    CHECK(d.gestureFor(ev("{\"type\":\"pointerup\"}")) == 2);
+    CHECK(d.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 2);
 }
 
 /// A renderer without a document: announces itself, answers every query with null, keeps what it was sent; tests inject its events.
@@ -1023,6 +1094,166 @@ TEST(gestures_need_the_renderers_trusted_flag) {
     std::lock_guard<std::mutex> l(m);
     CHECK_MSG(sent == std::vector<std::string>({"https://example.com/click-1"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
     CHECK(host.diagnostics().countDiag("activation-blocked") == 8);
+}
+
+// ───────────── strict limits (docs/decisions.md, "Strict limits from the start") ─────────────
+
+/// The defaults every host shares (LIMIT_DEFAULTS in protocol.ts, STORAGE_QUOTA_BYTES in sdk-policy.ts).
+TEST(strict_limit_defaults) {
+    SandboxConfig c;
+    WidgetHostOptions o;
+    CHECK(c.memoryLimitBytes == size_t(8) * 1024 * 1024 && o.memoryLimitBytes == c.memoryLimitBytes);
+    CHECK(c.maxTimers == 64 && o.maxTimers == 64);
+    CHECK(c.mainThreadQuotaMs == 100 && o.mainThreadQuotaMs == 100);
+    CHECK(c.cpuQuotaMs == 300 && o.cpuQuotaMs == 300 && c.cpuQuotaWindowMs == 1000);
+    CHECK(CpuBudget::queryBudgetMs(500) == 100 && CpuBudget::queryBudgetMs(10) == 100);
+    CHECK(sdk::STORAGE_QUOTA_BYTES == 4096);
+}
+
+/// The default timer cap reaches the shim: the 65th live timer throws RangeError in the widget.
+TEST(default_timer_cap_throws_at_the_65th) {
+    Run r("<script>var n = 0; try { for (; n < 100; n++) setTimeout(function () {}, 60000); } catch (e) { console.log(e.name + ' at ' + n); }</script>");
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.hasLog("RangeError at 64"), r.logsText());
+    CHECK_MSG(!r.host.hasDiag("timer-limit-enforced"), r.diagsText());
+    CHECK(!r.host.died);
+}
+
+/// The policy reaches the shim in the boot config: under strict a canvas takes 10 000 commands in one task and the next
+/// throws RangeError in the widget (the validator's per-send cap, so the host does not have to stop it); compat draws all.
+TEST(shim_refuses_canvas_commands_at_the_validators_cap) {
+    const std::string html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d');"
+                             "try { for (var i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
+    Run strict(html);
+    strict.barrier();
+    {
+        auto l = strict.host.lock();
+        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)"), strict.logsText());
+        CHECK_MSG(!strict.host.died, strict.host.died.value_or(""));
+        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",9999,") != std::string::npos, "the 10 000 commands before it are drawn");
+    }
+    SandboxConfig cfg = testConfig();
+    cfg.policy = "compat";
+    Run compat(html, cfg);
+    compat.barrier();
+    auto l = compat.host.lock();
+    CHECK_MSG(compat.host.hasLog("drew all"), compat.logsText());
+    CHECK(!compat.host.died);
+}
+
+/// A text node over 32 KB made by the widget stops it under strict, through the real engine and WidgetHost: the
+/// validator's `limit` is fatal (`dead` with its reason, the runtime gone, the renderer frozen on its last render) and
+/// nothing after it reaches the renderer. compat draws it (its cap is 2 MB) and never stops.
+TEST(text_over_the_cap_stops_the_widget) {
+    const std::string html = "<p id=p>start</p><script>"
+                             "setTimeout(function () { document.getElementById('p').textContent = 'x'.repeat(40000); }, 10);"
+                             "setTimeout(function () { document.getElementById('p').textContent = 'never'; }, 60);</script>";
+    const std::string x64(64, 'x');
+    {
+        ScriptedRenderer* renderer = nullptr;
+        WidgetHost host(html, WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+        std::mutex m;
+        std::string rendered;
+        host.onRenderOps = [&](const std::string& ops) { std::lock_guard<std::mutex> l(m); rendered += ops; };
+        host.start();
+        CHECK(host.waitLoaded(20));
+        CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.dead.has_value(); }, 5));
+        sleepMs(150); // the second timer would have fired by now
+        WidgetDiagnostics d = host.diagnostics();
+        CHECK_MSG(d.dead == std::optional<std::string>("Text limit exceeded: a text value of 40000 characters (max 32768)"), d.dead.value_or("alive"));
+        CHECK_MSG(d.countDiag("limit") == 1, std::to_string(d.countDiag("limit")));
+        CHECK(host.probe("1") == "ERROR no runtime");
+        std::vector<Json> frozen = renderer->sent("frozen");
+        CHECK_MSG(frozen.size() == 1 && frozen[0]["fatal"].asBool() && frozen[0]["reason"].asString() == host.stoppedLabel, std::to_string(frozen.size()) + " frozen messages");
+        std::lock_guard<std::mutex> l(m);
+        CHECK_MSG(rendered.find("start") != std::string::npos, rendered);
+        CHECK(rendered.find(x64) == std::string::npos);
+        CHECK(rendered.find("never") == std::string::npos);
+    }
+    WidgetHostOptions compat;
+    compat.policy = "compat";
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host(html, WidgetTheme{}, 300, compat, RES, scripted(renderer));
+    std::mutex m;
+    std::string rendered;
+    host.onRenderOps = [&](const std::string& ops) { std::lock_guard<std::mutex> l(m); rendered += ops; };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    for (int i = 0; i < 100; i++) {
+        { std::lock_guard<std::mutex> l(m); if (rendered.find("never") != std::string::npos) break; }
+        sleepMs(20);
+    }
+    WidgetDiagnostics d = host.diagnostics();
+    CHECK_MSG(!d.dead, d.dead.value_or(""));
+    CHECK(d.countDiag("limit") == 0);
+    std::lock_guard<std::mutex> l(m);
+    CHECK(rendered.find(x64) != std::string::npos);
+    CHECK(rendered.find("never") != std::string::npos);
+}
+
+/// The main-thread window (mainThreadQuotaMs): the modelled cost of what a task sent (25 µs per op, 2 µs per canvas
+/// command) plus its layout queries, apart from the JS quota. Past it frames are deferred and `cpu-throttled` names the
+/// main-thread budget; with the default 100 ms the same frames all run. The canvas widget sends one op per frame, so
+/// only its commands (counted in the JSON's `cmds` arrays) can spend the window.
+TEST(main_thread_window_defers_frames) {
+    const std::string dom = "<div id=list></div><script>var list = document.getElementById('list'), drawn = 0;"
+                            "for (var i = 0; i < 50; i++) list.appendChild(document.createElement('span'));"
+                            "function frame() { drawn++; for (var s of list.children) s.textContent = String(Math.random()); requestAnimationFrame(frame); }"
+                            "requestAnimationFrame(frame);</script>";
+    const std::string canvas = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d'), drawn = 0;"
+                               "function frame() { drawn++; for (var i = 0; i < 1500; i++) x.fillRect(i % 300, 0, 1, 1); requestAnimationFrame(frame); }"
+                               "requestAnimationFrame(frame);</script>";
+    auto run = [](const std::string& html, double quota, int& frames, std::string& throttled) {
+        SandboxConfig cfg = testConfig();
+        cfg.mainThreadQuotaMs = quota;
+        Run r(html, cfg);
+        for (int i = 1; i <= 10; i++) {
+            r.engine.frame(i * 16);
+            r.barrier();
+        }
+        frames = std::atoi(r.engine.probe("drawn").c_str());
+        auto l = r.host.lock();
+        CHECK_MSG(!r.host.died, r.host.died.value_or(""));
+        throttled.clear();
+        for (auto& [k, d] : r.host.diags) if (k == "cpu-throttled") throttled += d + "\n";
+    };
+    for (const std::string* html : {&dom, &canvas}) {
+        const char* which = html == &dom ? "dom" : "canvas";
+        int frames = 0;
+        std::string throttled;
+        run(*html, 100, frames, throttled);
+        CHECK_MSG(frames == 10 && throttled.empty(), std::string(which) + ": " + std::to_string(frames) + " frames; " + throttled);
+        run(*html, 2, frames, throttled);
+        CHECK_MSG(frames < 3, std::string(which) + ": " + std::to_string(frames) + " frames under a 2 ms window");
+        CHECK_MSG(throttled.find("main-thread budget used by layout queries and ops") != std::string::npos, std::string(which) + ": " + throttled);
+    }
+}
+
+/// Any pointerdown begins a press, trusted or not: a second finger's is neither trusted (it may become the chat's scroll)
+/// nor claimed (`gesture` is the primary pointer's), so its release is a new gesture, not the one before it, spent.
+TEST(an_untrusted_pointerdown_begins_a_new_gesture) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<button id='b'>go</button><script>TelegramWidget.ready(); var n = 0;"
+                    "document.getElementById('b').addEventListener('pointerup', function () { TelegramWidget.openLink('https://example.com/up-' + (++n)); });</script>",
+                    WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+    std::mutex m;
+    std::vector<std::string> sent;
+    host.onAction = [&](const WidgetAction& a) { std::lock_guard<std::mutex> l(m); if (a.kind != WidgetAction::Ready) sent.push_back(a.url); };
+    host.start();
+    CHECK(host.waitLoaded(20));
+    auto event = [&](const std::string& type, bool trusted) {
+        renderer->onMessage("{\"type\":\"event\",\"ev\":{\"type\":\"" + type + "\",\"targetId\":5,\"pointerId\":2,\"pointerType\":\"touch\",\"isPrimary\":false},\"trusted\":" + (trusted ? "true" : "false") + "}");
+    };
+    // a second finger's tap, its gesture spent in its pointerup handler; then another tap of it
+    event("pointerdown", false);
+    event("pointerup", true);
+    event("pointerdown", false);
+    event("pointerup", true);
+    CHECK(host.waitUntil([&](const WidgetDiagnostics&) { std::lock_guard<std::mutex> l(m); return sent.size() >= 2; }, 5));
+    sleepMs(100);
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG(sent == std::vector<std::string>({"https://example.com/up-1", "https://example.com/up-2"}), [&] { std::string s; for (auto& x : sent) s += x + " "; return s; }());
 }
 
 // ───────────── SDK v1 through the real engine (docs/sdk-v1.md §2–§4) ─────────────
@@ -1143,10 +1374,10 @@ TEST(sdk_storage_preload_and_commits) {
         }
         CHECK(!r.host.hasDiag("storage-rejected"));
     }
-    // 16 KB of UTF-8 per area: the shim throws past it, what it commits is within the glue's quota.
-    Run q("<script>var out = []; localStorage.setItem('k', 'x'.repeat(16383));"
+    // 4 KB of UTF-8 per area: the shim throws past it, what it commits is within the glue's quota.
+    Run q("<script>var out = []; localStorage.setItem('k', 'x'.repeat(4095));"
           "try { localStorage.setItem('k2', 'y'); } catch (e) { out.push(e.name, e.code, e instanceof DOMException); }"
-          "sessionStorage.setItem('w', '\xD0\xB6'.repeat(8000)); sessionStorage.setItem('\\ud800', 'x\\udc00');</script>");
+          "sessionStorage.setItem('w', '\xD0\xB6'.repeat(2000)); sessionStorage.setItem('\\ud800', 'x\\udc00');</script>");
     CHECK(q.engine.probe("out.join()") == "QuotaExceededError,22,true");
     q.barrier();
     StorageArea session;
@@ -1154,16 +1385,16 @@ TEST(sdk_storage_preload_and_commits) {
         auto l = q.host.lock();
         CHECK_MSG(q.host.storageCommits.size() == 2 && !q.host.hasDiag("storage-rejected"), q.diagsText());
         if (q.host.storageCommits.size() == 2) {
-            CHECK(sdk::storageBytes(q.host.storageCommits[0].second) == 16384);
+            CHECK(sdk::storageBytes(q.host.storageCommits[0].second) == 4096);
             session = q.host.storageCommits[1].second;
             CHECK(session.count("\xED\xA0\x80") && session["\xED\xA0\x80"] == "x\xED\xB0\x80");
-            CHECK(sdk::storageBytes(session) == 1 + 2 * 8000 + 3 + 4);
+            CHECK(sdk::storageBytes(session) == 1 + 2 * 2000 + 3 + 4);
         }
     }
     SandboxConfig again = testConfig();
     again.storage.session = session;
     Run back("<p>x</p>", again);
-    CHECK_MSG(back.engine.probe("sessionStorage.getItem('\\ud800') === 'x\\udc00' && sessionStorage.getItem('w').length") == "8000", back.diagsText());
+    CHECK_MSG(back.engine.probe("sessionStorage.getItem('\\ud800') === 'x\\udc00' && sessionStorage.getItem('w').length") == "2000", back.diagsText());
 }
 
 TEST(sdk_storage_preload_over_quota_is_rejected) {
@@ -1266,6 +1497,43 @@ TEST(sdk_widget_host_theme_locale_and_gestures) {
     CHECK((claims == std::vector<WidgetGestureClaim>{
                {true, false, true}, {false, false, false}, {true, false, false}, {true, false, true}, {}, {true, false, false}, {}, {}}));
     CHECK(commits.size() == 1 && commits[0].first == "local" && commits[0].second == StorageArea({{"k", "w"}}));
+}
+
+/// The client's chrome over the widget (docs/sdk-v1.md §2.17): the option reaches the renderer right after the theme and
+/// the widget from its first line (checked by the shim: out of range is 0); setContentSafeArea sends the variables and
+/// one contentSafeAreaChanged with a fresh frozen object; the same value fires nothing; NaN reaches nobody as NaN.
+TEST(sdk_content_safe_area_reaches_the_renderer_and_the_widget) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHostOptions options;
+    options.contentSafeArea.bottom = 24;
+    options.contentSafeArea.cornerRight = 72;
+    options.contentSafeArea.top = 99; // over 64: 0 for the widget
+    WidgetHost host("<script>var log = [], first = TelegramWidget.contentSafeAreaInset;"
+                    "TelegramWidget.onEvent('contentSafeAreaChanged', function () { var a = TelegramWidget.contentSafeAreaInset;"
+                    " log.push([a.bottom, a.cornerLeft, a.cornerRight, Object.isFrozen(a), a !== first, this === TelegramWidget].join(':')); });</script>",
+                    WidgetTheme{}, 300, options, RES, scripted(renderer));
+    host.start();
+    CHECK(host.waitLoaded(20));
+    {
+        std::lock_guard<std::mutex> l(renderer->mutex);
+        CHECK_MSG(renderer->messages.size() > 1 && renderer->messages[1] == "{\"type\":\"safeArea\",\"inset\":{\"top\":99,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}",
+                  renderer->messages.size() > 1 ? renderer->messages[1] : "nothing sent");
+    }
+    CHECK_MSG(host.probe("JSON.stringify(first)") == "{\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}", host.probe("JSON.stringify(first)"));
+    WidgetContentSafeArea rtl;
+    rtl.bottom = 26.5;
+    rtl.cornerLeft = 80;
+    host.setContentSafeArea(rtl);
+    host.setContentSafeArea(rtl);
+    WidgetContentSafeArea broken;
+    broken.bottom = std::nan("");
+    host.setContentSafeArea(broken);
+    host.onHostThread([] {});
+    CHECK_MSG(host.probe("log.join('|')") == "26.5:80:0:true:true:true|0:0:0:true:true:true", host.probe("log.join('|')"));
+    auto sent = renderer->sent("safeArea");
+    CHECK_MSG(sent.size() == 4 && sent[3].dump() == "{\"type\":\"safeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0,\"cornerLeft\":0,\"cornerRight\":0}}",
+              sent.empty() ? "none" : sent.back().dump());
+    host.destroy();
 }
 
 /// The API before SDK v1 still compiles and forwards: a string theme, setTheme(string), the raw onBridgeCall; and the
@@ -1424,7 +1692,7 @@ TEST(sdk_resize_anchor_is_host_state_next_to_the_height) {
 
 static const char* kShowContext = "JSON.stringify([TelegramWidget.chatData, TelegramWidget.publicData, TelegramWidget.isForward, TelegramWidget.chatType, TelegramWidget.viewer])";
 
-/// A button whose tap asks twice (the second is BUSY in the shim); `mode = 'copy'` makes it copy twice instead. The log
+/// A button whose tap asks twice (the shim forwards both, the glue's gate refuses the second as BUSY); `mode = 'copy'` makes it copy twice instead. The log
 /// shows each settled request and each `chatDataChanged` / `publicDataChanged`.
 static const char* kRequester =
     "<button id='b'>go</button><script>var log = [], mode = 'ask';"
@@ -1691,7 +1959,8 @@ TEST(sdk_set_data_fires_chat_then_public_data_changed) {
 
 /// A tap sends one request (the client gets only its data) where the message allows requests: an original in a group
 /// (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap
-/// is BUSY in the shim and never reaches the client; after the answer the next tap can ask again.
+/// is BUSY in the glue's gate and never reaches the client; after the answer the next tap can ask again. The recording
+/// host answers on the engine thread inside the delivery, so the answer is queued before the gate's refusal.
 TEST(sdk_request_tap_answer_and_busy) {
     SandboxConfig cfg = testConfig();
     cfg.context = messageContext(false, true, false, "group");
@@ -1701,14 +1970,15 @@ TEST(sdk_request_tap_answer_and_busy) {
     r.engine.start();
     r.host.waitLoaded(20);
     r.engine.activationEvent(kTapOnButton, 1);
-    const std::string first = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true";
+    const std::string first = "ok:tap:{\"result\":\"thanks\"}:true err:tap2:WidgetRequestError:BUSY";
     CHECK_MSG(probeUntil(r.engine, "log.join(' ')", first) == first, r.engine.probe("log.join(' ')"));
     CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}}));
     r.engine.activationEvent(kTapOnButton, 2);
-    const std::string second = first + " err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"again\"}:true";
+    const std::string second = first + " ok:tap:{\"result\":\"again\"}:true err:tap2:WidgetRequestError:BUSY";
     CHECK_MSG(probeUntil(r.engine, "log.join(' ')", second) == second, r.engine.probe("log.join(' ')"));
     CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}, {"tap"}}));
-    CHECK(diagsOf(r.host, "request-blocked").empty());
+    const std::string busy = "request refused (busy): a request is already in flight";
+    CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{busy, busy}));
     {
         auto l = r.host.lock();
         CHECK_MSG(r.host.actions.empty() && r.host.bridge.empty(), actionsText(r.host.actions)); // not an action, not a raw call
@@ -1720,13 +1990,13 @@ TEST(sdk_request_tap_answer_and_busy) {
     c.engine.start();
     c.host.waitLoaded(20);
     c.engine.activationEvent(kTapOnButton, 1);
-    const std::string asked = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":null}:true";
+    const std::string asked = "ok:tap:{\"result\":null}:true err:tap2:WidgetRequestError:BUSY";
     CHECK_MSG(probeUntil(c.engine, "log.join(' ')", asked) == asked, c.engine.probe("log.join(' ')"));
     CHECK((requestsOf(c.host) == std::vector<WidgetRequest>{{"tap"}}));
 }
 
 /// Refused requests never reach the client: a message with `canQuery` only, from a timer (no-activation); with
-/// `backgroundQuery` the first goes out and the next within 5 s is RATE_LIMITED; a hidden widget's is refused (hidden);
+/// `backgroundQuery` the first goes out and the next within 5 s is RATE_LIMITED (a hidden widget's waits: the next test);
 /// a plain copy and a message without flags never ask, even with a tap (the shim refuses; a forged call on the wire is
 /// the glue's `disabled`). Without onRequest the gate lets the request through and the delivery refuses it
 /// (`unsupported`): the tap is used, the gate frees, the next tap is refused the same way, not BUSY.
@@ -1757,16 +2027,6 @@ TEST(sdk_request_refusals) {
         CHECK((requestsOf(b.host) == std::vector<WidgetRequest>{{"bg"}}));
         CHECK((diagsOf(b.host, "request-blocked") == std::vector<std::string>{"request refused (rate-limited): background requests at most once per 5 s"}));
     }
-    {
-        SandboxConfig hidden = bg;
-        hidden.visible = false;
-        Run h("<script>var log = []; TelegramWidget.request('bg').catch(function (e) { log.push(e.code); });</script>", hidden, false);
-        h.host.onRequest = never(calls);
-        h.engine.start();
-        h.host.waitLoaded(20);
-        CHECK_MSG(probeUntil(h.engine, "log.join()", "NOT_ALLOWED") == "NOT_ALLOWED", h.engine.probe("log.join()"));
-        CHECK((diagsOf(h.host, "request-blocked") == std::vector<std::string>{"request refused (hidden): a background request from a widget off screen"}));
-    }
     for (WidgetContext context : {messageContext(true, false, false, "private"), messageContext(true, false, true), WidgetContext{}}) {
         SandboxConfig cfg = testConfig();
         cfg.context = context;
@@ -1796,12 +2056,13 @@ TEST(sdk_request_refusals) {
         group.context = messageContext(false, true, false, "group");
         Run u(kRequester, group); // no onRequest
         u.engine.activationEvent(kTapOnButton, 1);
-        const std::string refused = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED";
+        // The delivery refuses on the engine thread, queued before the gate's BUSY for the second call.
+        const std::string refused = "err:tap:WidgetRequestError:NOT_ALLOWED err:tap2:WidgetRequestError:BUSY";
         CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused) == refused, u.engine.probe("log.join(' ')"));
         u.engine.activationEvent(kTapOnButton, 2);
         CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused + " " + refused) == refused + " " + refused, u.engine.probe("log.join(' ')"));
-        const std::string unsupported = "request refused: the client handles no requests (onRequest)";
-        CHECK((diagsOf(u.host, "request-blocked") == std::vector<std::string>{unsupported, unsupported}));
+        const std::string unsupported = "request refused: the client handles no requests (onRequest)", busy = "request refused (busy): a request is already in flight";
+        CHECK((diagsOf(u.host, "request-blocked") == std::vector<std::string>{busy, unsupported, busy, unsupported}));
         CHECK(requestsOf(u.host).size() == 2); // delivered, then refused there
     }
     CHECK_MSG(calls == 0, std::to_string(calls) + " refused requests reached the client");
@@ -1822,12 +2083,12 @@ TEST(sdk_request_failures_and_invalid_answers) {
         return diagsOf(r.host, "answer-rejected");
     };
     for (auto [failure, code] : {std::pair{WidgetRequestFailure::Timeout, "TIMEOUT"}, {WidgetRequestFailure::RateLimited, "RATE_LIMITED"}, {WidgetRequestFailure::Failed, "FAILED"}})
-        tapWith({failure, {}}, "log[1]", std::string("err:tap:WidgetRequestError:") + code);
-    tapWith(answered(""), "log[1]", "ok:tap:{\"result\":\"\"}:true");
+        tapWith({failure, {}}, "log[0]", std::string("err:tap:WidgetRequestError:") + code);
+    tapWith(answered(""), "log[0]", "ok:tap:{\"result\":\"\"}:true");
     const std::vector<std::string> rejected = {"the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER"};
-    CHECK(tapWith(answered(std::string(1025, 'x')), "log[1]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
-    CHECK(tapWith(answered(std::string("a\0b", 3)), "log[1]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
-    CHECK(tapWith(answered("{\"v\":[1,2]}\n"), "log[1]", "ok:tap:{\"result\":\"{\\\"v\\\":[1,2]}\\n\"}:true").empty());
+    CHECK(tapWith(answered(std::string(1025, 'x')), "log[0]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered(std::string("a\0b", 3)), "log[0]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered("{\"v\":[1,2]}\n"), "log[0]", "ok:tap:{\"result\":\"{\\\"v\\\":[1,2]}\\n\"}:true").empty());
 }
 
 /// Background requests: one when the widget appears on screen, then one per 5 s. A background request at boot goes
@@ -1857,6 +2118,40 @@ TEST(sdk_background_request_after_the_widget_appears) {
     v.engine.setVisible(true); // no transition
     v.engine.probe("ask()");
     CHECK_MSG(probeUntil(v.engine, "log.join()", "ok,RATE_LIMITED") == "ok,RATE_LIMITED", v.engine.probe("log.join()"));
+}
+
+/// Telegram's clients create the host off screen: a background request at boot waits in the glue (no answer, nothing
+/// refused, nothing delivered) and goes to the client when the widget appears, as that appearance's; one on `activated`
+/// meanwhile is BUSY, the first being in flight. A widget terminated before it appears never sends its held request.
+TEST(sdk_background_request_off_screen_waits_for_the_widget) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, true, "private");
+    cfg.visible = false;
+    const char* html = "<script>var log = []; function ask(t) { TelegramWidget.request(t).then(function (a) { log.push(t + ':' + a.result); }, function (e) { log.push(t + ':' + e.code); }); }"
+                       "TelegramWidget.onEvent('activated', function () { ask('activated'); }); ask('boot');</script>";
+    Run r(html, cfg, false);
+    r.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered("r")); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.barrier();
+    CHECK_MSG(r.engine.probe("log.length + ':' + TelegramWidget.isActive") == "0:false", r.engine.probe("log.join()"));
+    CHECK(requestsOf(r.host).empty() && diagsOf(r.host, "request-blocked").empty());
+    r.engine.setVisible(true);
+    const std::string both = "activated:BUSY boot:r";
+    CHECK_MSG(probeUntil(r.engine, "log.slice().sort().join(' ')", both) == both, r.engine.probe("log.join(' ')"));
+    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"boot"}}));
+    CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{"request refused (busy): a request is already in flight"}));
+
+    int calls = 0;
+    Run d(html, cfg, false);
+    d.host.onRequest = [&calls](const WidgetRequest&, Respond respond) { calls++; respond(answered("never")); };
+    d.engine.start();
+    d.host.waitLoaded(20);
+    d.barrier();
+    d.engine.terminate();
+    d.engine.setVisible(true);
+    d.barrier();
+    CHECK(calls == 0 && requestsOf(d.host).empty());
 }
 
 /// copyText: one per tap, to the client as given (onBridgeCopyText), never an action or a raw call; the second call of
@@ -1895,6 +2190,91 @@ TEST(sdk_copy_text_needs_a_tap_and_shares_it_with_requests) {
 /// nothing; `request` is NOT_ALLOWED in the shim and never reaches the client; openLink, copyText and a haptic are
 /// `preview-blocked` (×3) and reach nothing; ready and setResizeAnchor work; its storage is never committed; a timer
 /// still fires. A request forged onto the wire is the glue's `preview-blocked` too.
+/// The wallet (docs/sdk-v1.md §2.18; sdk.test.ts, SdkTests.swift): a tap asks the bot with the wallet, the answer's
+/// transaction goes to `sendTransaction` on the grant (no new tap), the bot's answer to the payment resolves it; a
+/// refusal in the window brings no grant; a timer gets nothing; `TelegramWidget.wallet` only with the wallet and canQuery.
+static const char* kPayer =
+    "<button id='b'>pay</button><script>var log = [];"
+    "document.getElementById('b').onclick = function () { TelegramWidget.request('pay:42', { wallet: true })"
+    "  .then(function (a) { log.push('tx'); return TelegramWidget.wallet.sendTransaction(JSON.parse(a.result), 'paid:42'); })"
+    "  .then(function (b) { log.push('ok:' + b.result); }, function (e) { log.push('err:' + e.code);"
+    "    return TelegramWidget.wallet.sendTransaction({ messages: [{ address: 'EQ' + 'ab'.repeat(23), amount: '1' }] }, 'again').catch(function (e2) { log.push('again:' + e2.code); }); }); };</script>";
+static const std::string kTxJson = "{\"valid_until\":1900000000,\"messages\":[{\"address\":\"EQ" + std::string(46, 'a') + "\",\"amount\":\"1500000000\"}]}";
+
+TEST(sdk_wallet_a_tap_pays_on_the_answer_to_its_request) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, true, "private");
+    cfg.context.wallet = true;
+    Run r(kPayer, cfg, false);
+    r.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(kTxJson)); };
+    r.host.onWallet = [](const WalletCall&, Respond respond) { respond(answered(std::string("thanks"))); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", "tx ok:thanks") == "tx ok:thanks", r.engine.probe("log.join(' ')"));
+    CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"pay:42", true}}));
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.walletCalls.size() == 1, std::to_string(r.host.walletCalls.size()));
+    if (!r.host.walletCalls.empty()) {
+        const WalletCall& c = r.host.walletCalls[0];
+        CHECK(c.method == WalletCall::Method::SendTransaction && c.data == "paid:42");
+        CHECK_MSG(c.transaction.toJson().dump() == kTxJson, c.transaction.toJson().dump());
+    }
+    CHECK(r.host.actions.empty());
+}
+
+TEST(sdk_wallet_refusals_and_the_background) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, false, "group");
+    cfg.context.wallet = true;
+    Run r(kPayer, cfg, false);
+    r.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(kTxJson)); };
+    r.host.onWallet = [](const WalletCall&, Respond respond) { WidgetRequestOutcome o; o.failure = WidgetRequestFailure::Rejected; respond(o); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    const std::string expected = "tx err:REJECTED again:NOT_ALLOWED";
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", expected) == expected, r.engine.probe("log.join(' ')"));
+    CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{"wallet.sendTransaction refused (no-activation): it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each"}));
+
+    // A request's failure Rejected is FAILED there.
+    SandboxConfig group = testConfig();
+    group.context = messageContext(false, true, false, "group");
+    Run p(kRequester, group, false);
+    p.host.onRequest = [](const WidgetRequest&, Respond respond) { WidgetRequestOutcome o; o.failure = WidgetRequestFailure::Rejected; respond(o); };
+    p.engine.start();
+    p.host.waitLoaded(20);
+    p.engine.activationEvent(kTapOnButton, 1);
+    const std::string failed = "err:tap:WidgetRequestError:FAILED err:tap2:WidgetRequestError:BUSY";
+    CHECK_MSG(probeUntil(p.engine, "log.join(' ')", failed) == failed, p.engine.probe("log.join(' ')"));
+
+    // From a timer neither a wallet call nor a request for the wallet goes out, also in the private chat with the bot;
+    // TelegramWidget.wallet is null without the wallet or without canQuery.
+    SandboxConfig priv = testConfig();
+    priv.context = messageContext(false, true, true, "private");
+    priv.context.wallet = true;
+    Run t("<script>var log = []; setTimeout(function () {"
+          "TelegramWidget.wallet.signData({ type: 'text', text: 'x' }, 's').catch(function (e) { log.push('sign:' + e.code); });"
+          "TelegramWidget.request('w', { wallet: true }).catch(function (e) { log.push('rq:' + e.code); }); }, 0);</script>", priv, false);
+    t.host.onRequest = [](const WidgetRequest&, Respond respond) { respond(answered(std::nullopt)); };
+    t.host.onWallet = [](const WalletCall&, Respond respond) { respond(answered(std::nullopt)); };
+    t.engine.start();
+    t.host.waitLoaded(20);
+    CHECK_MSG(probeUntil(t.engine, "log.slice().sort().join(' ')", "rq:NOT_ALLOWED sign:NOT_ALLOWED") == "rq:NOT_ALLOWED sign:NOT_ALLOWED", t.engine.probe("log.join(' ')"));
+    CHECK(requestsOf(t.host).empty());
+    {
+        auto l = t.host.lock();
+        CHECK(t.host.walletCalls.empty());
+    }
+    for (bool canQuery : {false, true}) {
+        SandboxConfig none = testConfig();
+        none.context = messageContext(false, canQuery, false, "private");
+        none.context.wallet = !canQuery;
+        Run n("<p>x</p>", none);
+        CHECK_MSG(n.engine.probe("String(TelegramWidget.wallet)") == "null", n.engine.probe("String(TelegramWidget.wallet)"));
+    }
+}
+
 TEST(sdk_preview_takes_no_input_and_no_actions) {
     SandboxConfig cfg = testConfig();
     cfg.data = {std::string("c"), std::string("p")};
@@ -2043,7 +2423,7 @@ TEST(sdk_widget_host_requests_data_and_copy_text) {
     }
     WidgetDiagnostics d = host->diagnostics();
     CHECK_MSG(d.actions.empty() && d.bridge.empty(), actionsText(d.actions));
-    CHECK(d.countDiag("request-blocked") == 0 && d.countDiag("answer-rejected") == 0);
+    CHECK(d.countDiag("request-blocked") == 1 && d.countDiag("answer-rejected") == 0); // the tap's second call, BUSY
     // A request in flight when the host goes: its respond is ignored after destroy() and after the host is freed.
     host->probe("mode = 'ask'");
     tap();
@@ -2063,15 +2443,17 @@ TEST(sdk_widget_host_requests_data_and_copy_text) {
     plain.start();
     CHECK(plain.waitLoaded(20));
     renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
-    const std::string refused = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED";
-    CHECK_MSG(probeUntil(plain, "log.join(' ')", refused) == refused, plain.probe("log.join(' ')"));
-    CHECK(plain.waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("request-blocked") == 1; }, 5));
-    CHECK(plain.diagnostics().diags["request-blocked"].second == std::vector<std::string>{"request refused: the client handles no requests (onRequest)"});
+    // The refusal at delivery comes from the host thread, the gate's BUSY from the engine's: their order is the threads'.
+    const std::string refused = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED", sorted = "log.slice().sort().join(' ')";
+    CHECK_MSG(probeUntil(plain, sorted, refused) == refused, plain.probe("log.join(' ')"));
+    CHECK(plain.waitUntil([](const WidgetDiagnostics& d) { return d.countDiag("request-blocked") == 2; }, 5));
+    CHECK((plain.diagnostics().diags["request-blocked"].second ==
+           std::vector<std::string>{"request refused (busy): a request is already in flight", "request refused: the client handles no requests (onRequest)"}));
     // Decided at delivery: set on the host thread after start, the next tap's request reaches it.
     plain.onHostThread([&] { plain.onRequest = [](const WidgetRequest& q, Respond respond) { respond(answered("late " + q.data)); }; });
     renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
-    const std::string answeredLog = refused + " err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"late tap\"}:true";
-    CHECK_MSG(probeUntil(plain, "log.join(' ')", answeredLog) == answeredLog, plain.probe("log.join(' ')"));
+    const std::string answeredLog = "err:tap2:WidgetRequestError:BUSY err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED ok:tap:{\"result\":\"late tap\"}:true";
+    CHECK_MSG(probeUntil(plain, sorted, answeredLog) == answeredLog, plain.probe("log.join(' ')"));
 }
 
 static size_t countHaptics(RecordingHost& host) {

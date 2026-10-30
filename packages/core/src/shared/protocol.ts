@@ -2,7 +2,7 @@
 // Types only (plus a few constants): no code here runs with any privilege.
 
 import { PROFILE_EVENTS } from './profile-tables';
-import type { ChatType, RequestError, StorageCommit, ThemeParams, WidgetTheme, WidgetUser } from './sdk-policy';
+import type { ChatType, ContentSafeArea, RequestError, StorageCommit, ThemeParams, WidgetTheme, WidgetUser } from './sdk-policy';
 import type { BubbleAction, Gesture } from './gesture-policy';
 
 export type NodeId = number;
@@ -156,6 +156,11 @@ export type HostToRenderer =
   | { type: 'requestFrame' }
   /** The chat's theme (docs/sdk-v1.md §3.4): the renderer sets the CSS variables `themeVariables` makes of it on the widget's root. */
   | { type: 'theme'; theme: WidgetTheme }
+  /**
+   * What the client draws over the widget (docs/sdk-v1.md §2.17, §3.4): the renderer sets the
+   * `--tg-content-safe-area-*` variables `contentSafeAreaVariables` makes of it on the widget's root (0 until then).
+   */
+  | { type: 'safeArea'; inset: ContentSafeArea }
   /** The runtime is gone (fatal) or paused: keep the last render, stop forwarding events and frames, show a badge with `reason`. */
   | { type: 'frozen'; reason: string; fatal: boolean }
   /**
@@ -206,6 +211,12 @@ export interface SandboxConfig {
   cpuQuotaWindowMs: number;
   /** Kill after this long of uninterrupted throttling; 0 disables (default). */
   cpuKillAfterMs: number;
+  /**
+   * The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+   * queries block the renderer and the modelled cost of the ops it sends (`opsCostMs` in cpu-budget.ts). Beyond it
+   * timers and frames are deferred like under the JS quota. Optional for older configs (LIMIT_DEFAULTS).
+   */
+  mainThreadQuotaMs?: number;
   /** Live timers (setTimeout + setInterval) a widget may hold; the shim throws RangeError beyond it, the glue refuses as a backstop. */
   maxTimers: number;
   /** Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz. */
@@ -216,6 +227,8 @@ export interface SandboxConfig {
   themeParams?: Partial<ThemeParams>;
   /** The client's UI language, BCP 47 (`checkLocale`); `navigator.language` and the Intl default. */
   locale?: string;
+  /** What the client draws over the widget (docs/sdk-v1.md §2.17), logical px; all 0 when absent. The shim checks it. */
+  contentSafeArea?: ContentSafeArea;
   /** The widget profile the glue enforces (`PROFILE_VERSION`); the shim reports a mismatch with its own. */
   profile?: number;
   /** The client's preload of Web Storage (docs/sdk-v1.md §2.8), checked by the glue (`checkStorageCommit`). */
@@ -233,6 +246,8 @@ export interface SandboxConfig {
   isPreview?: boolean;
   chatType?: ChatType | null;
   viewer?: WidgetUser | null;
+  /** The client has the wallet for this user and the widget may request (docs/sdk-v1.md §2.18): `TelegramWidget.wallet`. */
+  wallet?: boolean;
   /**
    * Optional wire forms this host understands, opt-in per host (docs/protocol.md,
    * "Features"). Absent or empty: plain JSON only, which every host and renderer speaks.
@@ -254,14 +269,16 @@ export function resolvePolicy(policy: unknown): SandboxPolicy {
   return policy === 'compat' ? 'compat' : 'strict';
 }
 
-/** Defaults shared by every host (the native configs repeat them). */
+/** Defaults shared by every host (the native configs repeat them; docs/decisions.md, "Strict limits from the start"). */
 export const LIMIT_DEFAULTS = {
-  memoryLimitBytes: 64 * 1024 * 1024,
+  memoryLimitBytes: 8 * 1024 * 1024,
   cpuLimitMs: 500,
   cpuQuotaMs: 300,
   cpuQuotaWindowMs: 1000,
   cpuKillAfterMs: 0,
-  maxTimers: 256,
+  /** The host's main-thread work for the widget per `cpuQuotaWindowMs`: layout queries and the modelled cost of its ops. */
+  mainThreadQuotaMs: 100,
+  maxTimers: 64,
 } as const;
 
 /** Timer delays are clamped to this on every platform (24 h, like Telegram). */
@@ -287,6 +304,8 @@ export type HostToWorker =
   | { type: 'viewport'; viewport: SandboxConfig['viewport'] }
   | { type: 'resize'; entries: { id: NodeId; width: number; height: number }[] }
   | { type: 'theme'; theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> }
+  /** The shim's `safeArea` dispatch: `TelegramWidget.contentSafeAreaInset` and `contentSafeAreaChanged` (docs/sdk-v1.md §2.17). */
+  | { type: 'safeArea'; inset: ContentSafeArea }
   | { type: 'visibility'; visible: boolean }
   /** Into the widget (the shim's `bridge` dispatch): the bot's data changed, or the answer to a request. */
   | { type: 'bridge'; event: BridgeEvent };

@@ -6,6 +6,10 @@ import android.view.View
 import android.widget.Toast
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,8 +48,6 @@ import org.telegram.widgetsandbox.WidgetAction
 import org.telegram.widgetsandbox.WidgetDiagnostics
 import org.telegram.widgetsandbox.WidgetHost
 import org.telegram.widgetsandbox.WidgetTheme
-import org.telegram.widgetsandbox.blitz.BlitzRenderer
-import org.telegram.widgetsandbox.litehtml.LitehtmlRenderer
 import org.telegram.widgetsandbox.RendererFactory
 
 /**
@@ -54,17 +56,20 @@ import org.telegram.widgetsandbox.RendererFactory
  * (renderer-blitz module, Rust) or litehtml (renderer-litehtml module, C++). The sandbox and the validator
  * are the same either way; dev tooling. `--es renderer webview|blitz|blitz_canvas|litehtml` sets it from adb.
  * `blitz_canvas` is Blitz's layout painted by android.graphics from a display list (CanvasScene.kt).
+ * The prototypes are frozen (2026-10-30): they exist only in a build with -Ptw.nativeRenderers=true (NativeRenderers).
  */
 enum class DemoRenderer(val title: String, val factory: RendererFactory?) {
-    WEBVIEW("WebView", null), BLITZ("Blitz", BlitzRenderer.factory), BLITZ_CANVAS("Blitz·Canvas", BlitzRenderer.canvasFactory), LITEHTML("litehtml", LitehtmlRenderer.factory);
+    WEBVIEW("WebView", null), BLITZ("Blitz", NativeRenderers.blitz), BLITZ_CANVAS("Blitz·Canvas", NativeRenderers.blitzCanvas), LITEHTML("litehtml", NativeRenderers.litehtml);
 
     val label get() = if (this == WEBVIEW) "sandbox" else "sandbox · $title renderer"
 
     companion object {
         const val PREF = "renderer"
-        fun of(name: String?) = entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        /** The renderers in this build: WebView, plus the prototypes when they were built in. */
+        val choices get() = entries.filter { it == WEBVIEW || it.factory != null }
+        fun of(name: String?) = choices.firstOrNull { it.name.equals(name, ignoreCase = true) }
         /** The persisted choice; `blitz` was the Blitz switch before the picker existed. */
-        fun load(prefs: android.content.SharedPreferences) = of(prefs.getString(PREF, null)) ?: if (prefs.getBoolean("blitz", false)) BLITZ else WEBVIEW
+        fun load(prefs: android.content.SharedPreferences) = of(prefs.getString(PREF, null)) ?: (if (prefs.getBoolean("blitz", false)) of(BLITZ.name) else null) ?: WEBVIEW
     }
 }
 
@@ -129,15 +134,17 @@ class WidgetModel(context: Context, html: String, theme: WidgetTheme, widthDp: D
     fun setStarted(v: Boolean) { started = v; host.setVisible(onScreen && started) }
 }
 
-/** WebView | Blitz | litehtml, the renderer picker above the bubble (= RendererPicker in DemoPlatform.swift). */
+/** WebView | Blitz | litehtml, the renderer picker above the bubble (= RendererPicker in DemoPlatform.swift); nothing without the prototypes. */
 @Composable
 fun RendererPicker(selected: DemoRenderer, onSelect: (DemoRenderer) -> Unit) {
+    val choices = DemoRenderer.choices
+    if (choices.size < 2) return
     SingleChoiceSegmentedButtonRow {
-        DemoRenderer.entries.forEachIndexed { i, r ->
+        choices.forEachIndexed { i, r ->
             SegmentedButton(
                 selected = r == selected,
                 onClick = { onSelect(r) },
-                shape = SegmentedButtonDefaults.itemShape(index = i, count = DemoRenderer.entries.size),
+                shape = SegmentedButtonDefaults.itemShape(index = i, count = choices.size),
                 label = { Text(r.title, fontSize = 12.sp) },
             )
         }
@@ -194,16 +201,29 @@ fun WidgetView(model: WidgetModel, widthDp: Int = 360, bubble: Boolean = false, 
     }
 }
 
-/** The widget in a chat bubble; `scroll`: the list it sits in, for the resize anchor (WidgetView). */
+/**
+ * The widget in a chat bubble; `scroll`: the list it sits in, for the resize anchor (WidgetView). `timeOverCorner`: a
+ * message with no caption below the widget, the time drawn over the widget's bottom right corner on a backing (docs/sdk-v1.md §2.17;
+ * the host got the band as `contentSafeArea`); a view over the widget, so its taps are the bubble's.
+ */
 @Composable
-fun ChatBubble(model: WidgetModel, scroll: ScrollState? = null) {
+fun ChatBubble(model: WidgetModel, scroll: ScrollState? = null, timeOverCorner: Boolean = false) {
     Column {
         Text(model.renderer.label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
-        Column(
+        Box(
             // The bubble is the widget's canvas, as on a client: no padding of its own (the widget's body margin is the inset),
             // the colour demoTheme passes as bg_color, the radius clips what the widget paints.
             modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface),
-        ) { WidgetView(model, bubble = true, scroll = scroll) }
+        ) {
+            WidgetView(model, bubble = true, scroll = scroll)
+            if (timeOverCorner) {
+                Text(
+                    "12:00 ✓✓", fontSize = 11.sp, color = Color.White, textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 3.dp).width(52.dp).height(18.dp)
+                        .clip(RoundedCornerShape(9.dp)).background(Color.Black.copy(alpha = 0.35f)).clickable {},
+                )
+            }
+        }
         // What a product shows under the bubble: the widget stays on screen (frozen) with a one-line reason.
         val d = model.diagnostics
         val line = d.dead?.let { "Widget stopped: " + it.lineSequence().first() } ?: d.lastError?.lineSequence()?.first()

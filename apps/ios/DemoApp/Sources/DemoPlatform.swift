@@ -118,8 +118,10 @@ enum DemoAutorun {
         if let i = args.firstIndex(of: "--features"), i + 1 < args.count {
             features = Set(args[i + 1].split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
         }
+        #if TW_NATIVE_RENDERERS
         if args.contains("--blitz") { DemoRenderer.kind = .blitz }
         if args.contains("--litehtml") { DemoRenderer.kind = .litehtml }
+        #endif
         if args.contains("--webview") || args.contains("--no-blitz") { DemoRenderer.kind = .webview }
         if let i = args.firstIndex(of: "--renderer"), i + 1 < args.count, let k = DemoRenderer.Kind(rawValue: args[i + 1]) { DemoRenderer.kind = k }
     }
@@ -135,15 +137,21 @@ enum DemoAutorun {
 /// screen, persisted as `demo.renderer`): the product WKWebView renderer, or
 /// one of the native prototypes — Blitz (Rust) or litehtml (C++). The sandbox
 /// and the validator are the same either way; the comparison is of renderers
-/// only. Dev tooling.
+/// only. Dev tooling. The prototypes are frozen (2026-10-30): they exist only in
+/// a build with TW_NATIVE_RENDERERS=YES, and without them the picker is hidden.
 enum DemoRenderer {
     enum Kind: String, CaseIterable {
-        case webview, blitz, litehtml
+        case webview
+        #if TW_NATIVE_RENDERERS
+        case blitz, litehtml
+        #endif
         var title: String {
             switch self {
             case .webview: return "WebView"
+            #if TW_NATIVE_RENDERERS
             case .blitz: return "Blitz"
             case .litehtml: return "litehtml"
+            #endif
             }
         }
     }
@@ -151,31 +159,40 @@ enum DemoRenderer {
     static var kind: Kind {
         get {
             if let raw = UserDefaults.standard.string(forKey: key), let k = Kind(rawValue: raw) { return k }
+            #if TW_NATIVE_RENDERERS
             // `demo.blitz` was the Blitz switch before the picker existed.
-            return UserDefaults.standard.bool(forKey: "demo.blitz") ? .blitz : .webview
+            if UserDefaults.standard.bool(forKey: "demo.blitz") { return .blitz }
+            #endif
+            return .webview
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
     }
+    /// More than one renderer to pick from: a build with the prototypes.
+    static var hasChoice: Bool { Kind.allCases.count > 1 }
     static var factory: RendererFactory? { factory(for: kind) }
     static func factory(for kind: Kind) -> RendererFactory? {
         switch kind {
         case .webview: return nil
+        #if TW_NATIVE_RENDERERS
         case .blitz: return BlitzRenderer.factory
         case .litehtml: return LitehtmlRenderer.factory
+        #endif
         }
     }
     static var label: String { kind == .webview ? "sandbox" : "sandbox · \(kind.title) renderer" }
 }
 
-/// The picker bound to `DemoRenderer.kind`; `onChange` fires through the @AppStorage key.
+/// The picker bound to `DemoRenderer.kind`; `onChange` fires through the @AppStorage key. Nothing without the prototypes.
 struct RendererPicker: View {
     @Binding var raw: String
     var body: some View {
-        Picker("Renderer", selection: Binding(get: { DemoRenderer.kind.rawValue }, set: { raw = $0 })) {
-            ForEach(DemoRenderer.Kind.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+        if DemoRenderer.hasChoice {
+            Picker("Renderer", selection: Binding(get: { DemoRenderer.kind.rawValue }, set: { raw = $0 })) {
+                ForEach(DemoRenderer.Kind.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
         }
-        .pickerStyle(.segmented)
-        .fixedSize()
     }
 }
 

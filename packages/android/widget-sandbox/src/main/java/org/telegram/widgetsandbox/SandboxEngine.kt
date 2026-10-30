@@ -15,14 +15,14 @@ import org.json.JSONTokener
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts. */
+/** Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start"). */
 data class SandboxConfig(
     var innerWidth: Double,
     var innerHeight: Double,
     var devicePixelRatio: Double,
     var theme: String,
     /** QuickJS heap limit (JS_SetMemoryLimit); exceeding it terminates the widget. */
-    var memoryLimitBytes: Long = 64L shl 20,
+    var memoryLimitBytes: Long = 8L shl 20,
     /** Longest continuous run of widget JS (one task) before the widget is terminated. */
     var cpuLimitMs: Double = 500.0,
     /** JS time the widget may use per `cpuQuotaWindowMs` (sliding window); beyond it timers and frames are deferred, never killed. */
@@ -30,13 +30,20 @@ data class SandboxConfig(
     var cpuQuotaWindowMs: Double = 1000.0,
     /** Kill after this long of uninterrupted throttling; 0 disables (default). */
     var cpuKillAfterMs: Double = 0.0,
+    /**
+     * The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+     * queries block the renderer and the modelled cost of the ops it sends ([CpuBudget.opsCostMs]). Beyond it timers
+     * and frames are deferred like under the JS quota.
+     */
+    var mainThreadQuotaMs: Double = 100.0,
     /** Live timers a widget may hold; the shim throws RangeError beyond it, the engine refuses as a backstop. */
-    var maxTimers: Int = 256,
+    var maxTimers: Int = 64,
     /** Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz. */
     var visible: Boolean = true,
     /**
-     * "strict" (default): privileged bridge calls need a user gesture, text values are capped at 64 KB
-     * and visible text is budgeted. "compat": the behaviour before that hardening, for tests and tooling.
+     * "strict" (default): privileged bridge calls need a user gesture, text values are capped at 32 KB,
+     * visible text is budgeted, and past a counted cap (text, attributes, ops, canvas commands, CSS rules)
+     * the widget stops. "compat": the behaviour before that hardening, for tests and tooling.
      * Anything but exactly "compat" is strict ([isStrictPolicy]), so a typo never weakens the sandbox.
      */
     var policy: String = "strict",
@@ -55,6 +62,8 @@ data class SandboxConfig(
     var data: WidgetData = WidgetData(),
     /** The message's flags from the server (docs/sdk-v1.md §4.4: `isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer; fixed for the engine's life. */
     var context: WidgetContext = WidgetContext(),
+    /** What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes: [SandboxEngine.contentSafeArea]. */
+    var contentSafeArea: WidgetContentSafeArea = WidgetContentSafeArea(),
 )
 
 /** The features the Kotlin glue implements; the twin of Swift `runtimeFeatures` and `WEB_FEATURES` in worker.ts. */
@@ -72,7 +81,7 @@ data class SandboxStats(
     var queryMs: Double = 0.0,
     var queryCacheHits: Int = 0,
     var missedMutations: Int = 0,
-    /** Tasks deferred by the CPU quota. */
+    /** Tasks deferred by the CPU quota or the main-thread window. */
     var throttledTasks: Int = 0,
     /** JS time used in the current quota window at the time of the report. */
     var cpuWindowMs: Double = 0.0,
@@ -88,13 +97,21 @@ private val REQUEST_REFUSED = mapOf(
     RequestVerdict.DISABLED to "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)",
     RequestVerdict.BUSY to "a request is already in flight",
     RequestVerdict.NO_ACTIVATION to "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
-    RequestVerdict.HIDDEN to "a background request from a widget off screen",
     RequestVerdict.RATE_LIMITED to "background requests at most once per 5 s",
+    RequestVerdict.NO_WALLET to "the client has no wallet for this user (no WidgetContext.wallet)",
+)
+/** Where a wallet call's refusal differs from a request's (widget-host.ts WALLET_REFUSED). */
+private val WALLET_REFUSED = mapOf(
+    RequestVerdict.NO_ACTIVATION to "it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each",
+    RequestVerdict.BUSY to "a request or a wallet call is already in flight",
 )
 private const val UNSUPPORTED_DETAIL = "request refused: the client handles no requests (onRequest)"
+private const val WALLET_UNSUPPORTED_DETAIL = "wallet call refused: the client handles no wallet calls (onWallet)"
 
 /** Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets. */
 internal fun coarseNowMs(ms: Double): Double = kotlin.math.floor(ms / 0.1) * 0.1
+/** The key of a canvas op's commands in an ops batch (JSON): outside a string only, inside one a quote is `\"`. */
+private const val CMDS_KEY = "\"cmds\":["
 private const val HIDE_HOST_GLOBALS = "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);"
 private const val WALL_BACKSTOP_FACTOR = 10.0
 private const val WALL_BACKSTOP_MIN_MS = 5000.0
@@ -144,6 +161,15 @@ class SandboxEngine(
         fun onRequest(engine: SandboxEngine, request: WidgetRequest, respond: (Result<WidgetRequestAnswer>) -> Unit) {
             respond(Result.failure(WidgetRequestUnsupported()))
         }
+        /**
+         * A wallet call the gate let through (docs/sdk-v1.md §2.18: [WidgetContext.wallet], a press or the grant, one in
+         * flight with the requests). Show the client's wallet window with the bot of the message, send the transaction
+         * (or sign the payload) on the user's confirmation, send the outcome to the bot and call `respond` once, from any
+         * thread, with the bot's answer or a failure (REJECTED, BAD_REQUEST, a request's). The default refuses it.
+         */
+        fun onWallet(engine: SandboxEngine, call: WalletCall, respond: (Result<WidgetRequestAnswer>) -> Unit) {
+            respond(Result.failure(WidgetRequestUnsupported()))
+        }
         /** `TelegramWidget.copyText(text)` that passed its checks (1–256 UTF-16 units; one per press under the strict policy, shared with the link calls). Not an action (no `onAction` / `onBridge`). */
         fun onCopyText(engine: SandboxEngine, text: String) {}
         fun onLoaded(engine: SandboxEngine)
@@ -185,11 +211,17 @@ class SandboxEngine(
 
     // CPU quota (mirrors worker.ts): decide before a task, record after it. Times in ms of nowNs().
     private val budget = CpuBudget(config)
+    /** The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota. */
+    private val mainBudget = CpuBudget(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0.0)
     /** Slice given to the running task in ms (for the kill message); the boot task gets cpuLimitMs. */
     private var currentSliceMs = 0.0
     /** Wall time this task's layout queries have blocked for, and whether that passed the task's query budget. */
     private var taskQueryMs = 0.0
+    /** Modelled main-thread cost of the ops this task sent ([CpuBudget.opsCostMs]). */
+    private var taskOpsCostMs = 0.0
     private var queryLimitHit = false
+    /** Set from any thread by [stop]: the host stopped the widget; the engine dies at the widget's next host call or task. */
+    @Volatile private var stopReason: String? = null
     private var currentKind = "boot"
     /** JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms. */
     private var excludeMs = 0.0
@@ -209,14 +241,24 @@ class SandboxEngine(
         thread.post { boot() }
     }
 
-    /** Kills the widget, frees the runtime and stops the thread. */
-    fun terminate() {
+    /** Kills the widget, frees the runtime and stops the thread; `onDied` gets [reason] when the widget was still alive. */
+    fun terminate(reason: String = "terminated") {
         thread.post {
-            kill("terminated")
+            kill(reason)
             js?.close()
             js = null
             thread.stop()
         }
+    }
+
+    /**
+     * The host stopped the widget (WidgetHost: the validator's `limit`, a counted cap passed under strict), from any
+     * thread: the widget's next host call is refused and interrupts its JS, then the engine dies with [reason] and
+     * frees the runtime and the thread, as [terminate] does.
+     */
+    fun stop(reason: String) {
+        stopReason = reason
+        terminate(reason)
     }
 
     private fun boot() {
@@ -266,12 +308,16 @@ class SandboxEngine(
                         .put("cpuQuotaMs", config.cpuQuotaMs)
                         .put("cpuQuotaWindowMs", config.cpuQuotaWindowMs)
                         .put("cpuKillAfterMs", config.cpuKillAfterMs)
+                        .put("mainThreadQuotaMs", config.mainThreadQuotaMs)
                         .put("maxTimers", config.maxTimers)
+                        // The shim caps canvas commands and script animations from it (anything but compat is strict).
+                        .put("policy", if (isStrictPolicy(config.policy)) "strict" else "compat")
                         .put("visible", visible)
                         .put("viewport", JSONObject().put("innerWidth", config.innerWidth).put("innerHeight", config.innerHeight).put("dpr", config.devicePixelRatio))
                         .put("theme", config.theme)
                         .put("themeParams", JSONObject(SdkPolicy.checkThemeParams(config.themeParams)))
                         .put("locale", SdkPolicy.checkLocale(config.locale) ?: SdkPolicy.DEFAULT_LOCALE)
+                        .put("contentSafeArea", config.contentSafeArea.json())
                         .put("profile", SdkPolicy.PROFILE_VERSION)
                         // A preview has no message yet: no storage of its own (it lives in the sandbox for this run, never committed).
                         .put("storage", if (preview) JSONObject() else preload())
@@ -283,6 +329,7 @@ class SandboxEngine(
                         // preview; the viewer only where the widget may send requests (canQuery, never in a preview).
                         .put("chatType", (if (preview || copy) null else SdkPolicy.checkChatType(config.context.chatType)) ?: JSONObject.NULL)
                         .put("viewer", (if (hideViewer) null else viewer())?.let(::viewerJson) ?: JSONObject.NULL)
+                        .put("wallet", wallet)
                         .put("features", JSONArray(config.features.intersect(RUNTIME_FEATURES).sorted())),
                 ).toString()
             callTw("boot", bootArg)
@@ -305,11 +352,15 @@ class SandboxEngine(
     private val activation = ActivationGate()
     private val haptics = HapticGate()
     private val requests = RequestGate()
+    /** A background request the widget made off screen: it goes to the client when the widget appears ([setVisible]); engine thread only. */
+    private var heldRequest: Pair<Int, String>? = null
     /** A preview (an inline result not sent yet, docs/sdk-v1.md §2.16) asks nothing and is no copy, whatever the flags say. */
     private val preview = config.context.preview
     private val copy = config.context.isCopy && !preview
     private val canQuery = config.context.canQuery && !preview
     private val backgroundQuery = config.context.backgroundQuery && !preview
+    /** The client has the wallet for this user and the widget may ask the bot (docs/sdk-v1.md §2.18). */
+    private val wallet = config.context.wallet && canQuery
     /** The widget knows its viewer only where it may send requests (`canQuery`, never in a preview), as the network marker. */
     private val hideViewer = !canQuery
     private var previewBlockedReported = 0
@@ -341,6 +392,16 @@ class SandboxEngine(
         enqueue("theme", JSONObject().put("theme", theme).put("themeParams", JSONObject(SdkPolicy.checkThemeParams(themeParams))).toString())
 
     /**
+     * What the client draws over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.contentSafeAreaInset` and
+     * `contentSafeAreaChanged` in one task; the shim checks the values. Before boot it only replaces the config's.
+     */
+    fun contentSafeArea(area: WidgetContentSafeArea) = thread.post {
+        if (dead) return@post
+        if (js == null) { config.contentSafeArea = area; return@post }
+        accept("safeArea", area.json().toString())
+    }
+
+    /**
      * The bot's data changed (docs/sdk-v1.md §2.13): the full state of both strings, checked here (`data-rejected`;
      * a copy keeps no chatData, its publicData applies). The widget gets `chatDataChanged`, then `publicDataChanged`, for
      * each that differs: a `bridge` task, deferred under the CPU quota like a theme change, in order.
@@ -355,8 +416,9 @@ class SandboxEngine(
         thread.post {
             if (dead || visible == v) return@post
             visible = v
-            // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
-            if (v) requests.show()
+            // On screen again: the widget's next background request may go out at once, the one it made off screen now
+            // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
+            if (v && requests.show(nowMs())) heldRequest?.let { (id, data) -> heldRequest = null; deliverRequest(id, data) }
             if (js == null) return@post // boot reads `visible` for the shim
             dispatch("visibility", "{\"visible\":$v}")
             if (v) {
@@ -380,7 +442,7 @@ class SandboxEngine(
         dispatch(kind, arg)
     }
 
-    /** Runs one task for an input (event, timer, frame, …) if the CPU quota allows, otherwise defers it (returns false). Events and visibility always run. */
+    /** Runs one task for an input (event, timer, frame, …) if the CPU quota and the main-thread window allow, otherwise defers it (returns false). Events and visibility always run. */
     private fun dispatch(kind: String, arg: String): Boolean {
         if (dead) return true
         if (kind.startsWith(ACTIVATION_PREFIX)) {
@@ -392,29 +454,34 @@ class SandboxEngine(
             }
         }
         val now = nowMs()
-        when (val d = budget.decide(kind, now)) {
-            is CpuDecision.Defer -> {
-                if (budget.shouldKill(now)) {
-                    kill(String.format(java.util.Locale.ROOT, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, config.cpuQuotaMs.toInt(), config.cpuQuotaWindowMs.toInt(), config.cpuKillAfterMs.toInt()))
-                    return true
-                }
-                defer(kind, arg)
-                stats.throttledTasks += 1
-                throttledSinceDiag[kind] = (throttledSinceDiag[kind] ?: 0) + 1
-                if (now - lastThrottleDiagMs >= 1000) {
-                    lastThrottleDiagMs = now
-                    val parts = throttledSinceDiag.entries.sortedBy { it.key }.map { "${it.value} ${it.key}${if (it.value == 1) "" else "s"}" }
-                    throttledSinceDiag.clear()
-                    delegate?.onDiag(this, "cpu-throttled", "deferred ${parts.joinToString(", ")}: ${budget.used(now).toInt()} ms of the ${config.cpuQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms budget used")
-                }
-                scheduleWake((d.retryAt * 1e6).toLong())
-                return false
-            }
-            is CpuDecision.Run -> {
-                task(kind, d.sliceMs) { callTw(kind, arg) }
-                return true
-            }
+        // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
+        val js = budget.decide(kind, now)
+        val main = mainBudget.decide(kind, now)
+        if (js is CpuDecision.Run && main is CpuDecision.Run) {
+            task(kind, js.sliceMs) { callTw(kind, arg) }
+            return true
         }
+        if (budget.shouldKill(now)) {
+            kill(String.format(java.util.Locale.ROOT, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, config.cpuQuotaMs.toInt(), config.cpuQuotaWindowMs.toInt(), config.cpuKillAfterMs.toInt()))
+            return true
+        }
+        defer(kind, arg)
+        stats.throttledTasks += 1
+        throttledSinceDiag[kind] = (throttledSinceDiag[kind] ?: 0) + 1
+        if (now - lastThrottleDiagMs >= 1000) {
+            lastThrottleDiagMs = now
+            val parts = throttledSinceDiag.entries.sortedBy { it.key }.map { "${it.value} ${it.key}${if (it.value == 1) "" else "s"}" }
+            throttledSinceDiag.clear()
+            val window = if (js is CpuDecision.Run) {
+                "${mainBudget.used(now).toInt()} ms of the ${config.mainThreadQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms main-thread budget used by layout queries and ops"
+            } else {
+                "${budget.used(now).toInt()} ms of the ${config.cpuQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms budget used"
+            }
+            delegate?.onDiag(this, "cpu-throttled", "deferred ${parts.joinToString(", ")}: $window")
+        }
+        val retryAt = maxOf((js as? CpuDecision.Defer)?.retryAt ?: 0.0, (main as? CpuDecision.Defer)?.retryAt ?: 0.0)
+        scheduleWake((retryAt * 1e6).toLong())
+        return false
     }
 
     private fun defer(kind: String, arg: String) {
@@ -464,10 +531,19 @@ class SandboxEngine(
     // MARK: the single capability
 
     private fun hostCall(kind: String, arg: String): HostReturn {
+        // Stopped by the host: nothing more leaves the widget, its JS is interrupted at the next poll.
+        stopReason?.let { reason ->
+            kill(reason)
+            js?.cpuDeadlineNanos = Long.MIN_VALUE
+            return HostReturn.Undefined
+        }
         val delegate = delegate
         when (kind) {
             "ops" -> {
-                stats.ops += countOccurrences("\"op\":", arg)
+                // Exact: inside a JSON string a quote is always `\"`.
+                val ops = countOccurrences("\"op\":", arg)
+                stats.ops += ops
+                taskOpsCostMs += CpuBudget.opsCostMs(ops, countCanvasCommands(arg))
                 delegate?.onOps(this, arg)
             }
             "query" -> return HostReturn.Str(syncQuery(arg))
@@ -481,7 +557,13 @@ class SandboxEngine(
                 // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
                 // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
                 if (!visible) delayMs = maxOf(delayMs, 1000.0 + delayMs / 10)
-                if (timers.size >= config.maxTimers) {
+                // An id that has a timer replaces it, and does not count against the cap: overwriting the handle left the old
+                // one running outside the map, past maxTimers and out of kill()'s reach (a shim told to reuse an id, its
+                // JSON.stringify replaced; worker.ts, sandbox_engine.cpp).
+                val replaced = timers.remove(id)
+                if (replaced != null) {
+                    replaced.cancel()
+                } else if (timers.size >= config.maxTimers) {
                     // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
                     if (!timerLimitReported) {
                         timerLimitReported = true
@@ -554,7 +636,8 @@ class SandboxEngine(
                 previewBlockedReported += 1
                 delegate?.onDiag(this, "preview-blocked", "$name ignored: a preview (an inline result not sent yet) takes no actions")
             }
-            if (c is BridgeCall.Request) enqueue("bridge", JSONObject().put("type", "answer").put("id", c.id).put("error", "NOT_ALLOWED").put("reason", "preview").toString())
+            val id = (c as? BridgeCall.Request)?.id ?: (c as? BridgeCall.Wallet)?.id
+            if (id != null) enqueue("bridge", JSONObject().put("type", "answer").put("id", id).put("error", "NOT_ALLOWED").put("reason", "preview").toString())
             return
         }
         val checked = when (c) {
@@ -570,7 +653,12 @@ class SandboxEngine(
             }
             // A request has its own gate (a press or the background rules) and goes to `onRequest`, not `onAction`.
             is BridgeCall.Request -> {
-                request(c.id, c.data)
+                request(c.id, c.data, c.wallet)
+                return
+            }
+            // A wallet call shares the request gate (a press or the grant, never the background) and goes to `onWallet`.
+            is BridgeCall.Wallet -> {
+                walletCall(c.id, c.call)
                 return
             }
             else -> c
@@ -598,23 +686,64 @@ class SandboxEngine(
 
     /**
      * docs/sdk-v1.md §2.14: a press unlocks one request (peeked here, consumed only when the request goes out as the
-     * press's), background ones only where the context allows them; one in flight. Whether the client handles requests
+     * press's), background ones only where the context allows them, one made off screen held until the widget appears
+     * ([setVisible]); one in flight. Whether the client handles requests
      * is decided at delivery (a client may set `onRequest` after the constructor, before a boot-time request reaches
      * it): [WidgetRequestUnsupported] comes back like an answer. Every outcome goes back into the widget as a `bridge`
      * answer task, never inside the task that asked.
      */
-    private fun request(id: Int, data: String) {
-        val delegate = delegate ?: return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
+    private fun request(id: Int, data: String, withWallet: Boolean = false) {
+        if (delegate == null) return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
         val strict = isStrictPolicy(config.policy)
         val pressed = !strict || activation.available(visible)
-        val verdict = requests.decide(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, backgroundQuery = backgroundQuery)
-        SdkPolicy.requestRefusal(verdict)?.let { return refuseRequest(id, verdict.value, it, "request refused (${verdict.value}): ${REQUEST_REFUSED[verdict] ?: verdict.value}") }
+        val verdict = requests.decide(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, backgroundQuery = backgroundQuery, withWallet = withWallet, wallet = wallet)
+        SdkPolicy.requestRefusal(verdict)?.let {
+            val why = if (withWallet && verdict == RequestVerdict.NO_ACTIVATION) "a request for the wallet needs a tap on the visible widget, one request per tap" else REQUEST_REFUSED[verdict] ?: verdict.value
+            return refuseRequest(id, verdict.value, it, "request refused (${verdict.value}): $why")
+        }
         if (verdict == RequestVerdict.FOREGROUND && strict) activation.consume(visible)
-        val once = AtomicBoolean(false)
-        // Any thread, honoured once; the gate lives on the engine thread. A stopped thread drops the post (destroyed).
-        val respond: (Result<WidgetRequestAnswer>) -> Unit = { outcome -> if (once.compareAndSet(false, true)) thread.post { answerRequest(id, outcome) } }
+        if (verdict == RequestVerdict.HELD) heldRequest = id to data else deliverRequest(id, data, withWallet)
+    }
+
+    /**
+     * docs/sdk-v1.md §2.18: a wallet call goes out on a press or on the grant (the answer to a call made by a press,
+     * within 10 s), never in the background; one call in flight with the requests. Its outcome settles like a request's.
+     */
+    private fun walletCall(id: Int, call: WalletCall) {
+        val strict = isStrictPolicy(config.policy)
+        val pressed = !strict || activation.available(visible)
+        val verdict = requests.decideWallet(nowMs(), gesture = pressed, visible = visible, canQuery = canQuery, wallet = wallet)
+        SdkPolicy.requestRefusal(verdict)?.let {
+            return refuseRequest(id, verdict.value, it, "wallet.${call.method} refused (${verdict.value}): ${WALLET_REFUSED[verdict] ?: REQUEST_REFUSED[verdict] ?: verdict.value}")
+        }
+        if (verdict == RequestVerdict.FOREGROUND && strict) activation.consume(visible)
+        val delegate = delegate ?: run {
+            requests.finish()
+            return refuseRequest(id, "unsupported", "NOT_ALLOWED", WALLET_UNSUPPORTED_DETAIL)
+        }
+        val respond = completion(id, wallet = true)
         try {
-            delegate.onRequest(this, WidgetRequest(data), respond)
+            delegate.onWallet(this, call, respond)
+        } catch (e: Exception) {
+            respond(Result.failure(e))
+        }
+    }
+
+    /** Any thread, honoured once; the gate lives on the engine thread. A stopped thread drops the post (destroyed). */
+    private fun completion(id: Int, wallet: Boolean): (Result<WidgetRequestAnswer>) -> Unit {
+        val once = AtomicBoolean(false)
+        return { outcome -> if (once.compareAndSet(false, true)) thread.post { answerRequest(id, outcome, wallet) } }
+    }
+
+    /** A request the gate let through, to the delegate; its outcome frees the gate ([answerRequest]). */
+    private fun deliverRequest(id: Int, data: String, withWallet: Boolean = false) {
+        val delegate = delegate ?: run {
+            requests.finish()
+            return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
+        }
+        val respond = completion(id, wallet = false)
+        try {
+            delegate.onRequest(this, WidgetRequest(data, withWallet), respond)
         } catch (e: Exception) {
             respond(Result.failure(e)) // a delegate that throws has failed the request (FAILED), the gate does not stay in flight
         }
@@ -628,20 +757,26 @@ class SandboxEngine(
         enqueue("bridge", JSONObject().put("type", "answer").put("id", id).put("error", error).put("reason", reason).toString())
     }
 
-    /** The client's answer or failure, on the engine thread outside any task: checked, then into the widget (the promise settles in a `bridge` task). */
-    private fun answerRequest(id: Int, outcome: Result<WidgetRequestAnswer>) {
+    /**
+     * The client's answer or failure, on the engine thread outside any task: checked, then into the widget (the promise
+     * settles in a `bridge` task). The gate is free again; an answer brings the grant when the call had a press or the
+     * grant; the wallet's own failure codes only for a wallet call.
+     */
+    private fun answerRequest(id: Int, outcome: Result<WidgetRequestAnswer>, wallet: Boolean = false) {
         if (dead) return
-        requests.finish()
         val event = JSONObject().put("type", "answer").put("id", id)
         val answer = outcome.getOrElse { e ->
-            if (e is WidgetRequestUnsupported) return refuseRequest(id, "unsupported", "NOT_ALLOWED", UNSUPPORTED_DETAIL)
-            return accept("bridge", event.put("error", SdkPolicy.requestFailure(e)).toString())
+            requests.finish()
+            if (e is WidgetRequestUnsupported) return refuseRequest(id, "unsupported", "NOT_ALLOWED", if (wallet) WALLET_UNSUPPORTED_DETAIL else UNSUPPORTED_DETAIL)
+            return accept("bridge", event.put("error", if (wallet) SdkPolicy.walletFailure(e) else SdkPolicy.requestFailure(e)).toString())
         }
         val checked = SdkPolicy.checkRequestAnswer(mapOf("result" to answer.result))
         if (checked == null) {
+            requests.finish()
             delegate?.onDiag(this, "answer-rejected", "the answer's result is not text of at most ${SdkPolicy.MAX_REQUEST_RESULT_BYTES} bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER")
             return accept("bridge", event.put("error", "INVALID_ANSWER").toString())
         }
+        requests.finish(nowMs())
         accept("bridge", event.put("result", checked.result ?: JSONObject.NULL).toString())
     }
 
@@ -731,6 +866,7 @@ class SandboxEngine(
     private fun kill(reason: String) {
         if (dead) return
         dead = true
+        heldRequest = null // never reaches the client
         pendingBeforeBoot.clear()
         for (t in timers.values) t.cancel()
         timers.clear()
@@ -847,13 +983,15 @@ class SandboxEngine(
         ctx.deadlineNanos = nowNs() + (maxOf(currentSliceMs * WALL_BACKSTOP_FACTOR, WALL_BACKSTOP_MIN_MS) * 1e6).toLong()
     }
 
-    /** One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota. */
+    /** One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota, its layout queries and ops against the main-thread window. */
     private fun task(kind: String, sliceMs: Double, body: () -> Unit) {
+        stopReason?.let { kill(it) }
         if (dead) return
         currentKind = kind
         currentSliceMs = sliceMs
         excludeMs = 0.0
         taskQueryMs = 0.0
+        taskOpsCostMs = 0.0
         queryLimitHit = false
         val c0 = js?.threadCpuNanos() ?: 0L
         resetDeadline()
@@ -863,7 +1001,8 @@ class SandboxEngine(
         stats.tasks += 1
         val cpuMs = ((js?.threadCpuNanos() ?: c0) - c0) / 1e6 - excludeMs
         stats.jsMs += cpuMs
-        budget.record(kind, cpuMs + taskQueryMs, nowMs()) // layout queries count toward the quota: they cost the host as much as JS
+        budget.record(kind, cpuMs, nowMs())
+        mainBudget.record(kind, taskQueryMs + taskOpsCostMs, nowMs()) // what the task cost the host's main thread
         stats.cpuWindowMs = budget.used(nowMs())
         val now = nowNs()
         if (now - lastMemCheck > 1_000_000_000L && !dead) {
@@ -896,6 +1035,39 @@ class SandboxEngine(
     private fun splitPrefix(s: String): Pair<String, String> {
         val i = s.indexOf(':')
         return if (i < 0) s to "" else s.substring(0, i) to s.substring(i + 1)
+    }
+
+    /**
+     * Commands in the canvas ops of an ops batch (JSON): the elements of each `"cmds":[...]` array, counted at its
+     * depth with strings skipped (the cost model's canvas commands, [CpuBudget.opsCostMs]).
+     */
+    private fun countCanvasCommands(json: String): Int {
+        var total = 0
+        var i = json.indexOf(CMDS_KEY)
+        while (i >= 0) {
+            var j = i + CMDS_KEY.length
+            var depth = 0
+            var elements = 0
+            var empty = true
+            scan@ while (j < json.length) {
+                when (json[j]) {
+                    '"' -> {
+                        j++
+                        while (j < json.length && json[j] != '"') j += if (json[j] == '\\') 2 else 1
+                        empty = false
+                    }
+                    '[', '{' -> { depth++; empty = false }
+                    ']', '}' -> { if (depth == 0) break@scan; depth-- }
+                    ',' -> if (depth == 0) elements++
+                    ' ', '\n', '\r', '\t' -> {}
+                    else -> empty = false
+                }
+                j++
+            }
+            if (!empty) total += elements + 1
+            i = json.indexOf(CMDS_KEY, j)
+        }
+        return total
     }
 
     private fun countOccurrences(needle: String, text: String): Int {

@@ -2,7 +2,6 @@ import Foundation
 
 extension NativeValidator {
     static let maxAnimRecords = 4096
-    static let maxLiveAnims = 1024
     static let maxAnimKeyframes = 64
     static let maxAnimValues = 64
     static let maxAnimTime = 86_400_000.0
@@ -153,8 +152,9 @@ extension NativeValidator {
                 drop(aid)
                 continue
             }
-            if !liveAnims.contains(aid), liveAnims.count >= Self.maxLiveAnims {
-                diag("animation-limit", "more than \(Self.maxLiveAnims) live script animations")
+            // The policy's cap (`tables.liveAnims`: 64 strict, 1024 compat): further ones are dropped, not a stop.
+            if !liveAnims.contains(aid), liveAnims.count >= tables.maxLiveAnims {
+                diag("animation-limit", "more than \(tables.maxLiveAnims) live script animations")
                 continue
             }
             liveAnims.insert(aid)

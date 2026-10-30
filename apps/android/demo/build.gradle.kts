@@ -1,5 +1,9 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+// The frozen native renderer prototypes (gradle.properties, tw.nativeRenderers): their modules and the demo's table of
+// them (src/nativeRenderers) only when asked for; otherwise src/noNativeRenderers says there are none.
+val nativeRenderers = providers.gradleProperty("tw.nativeRenderers").orNull == "true"
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -29,6 +33,10 @@ android {
         compose = true
     }
 
+    sourceSets {
+        getByName("main").java.srcDir(if (nativeRenderers) "src/nativeRenderers/java" else "src/noNativeRenderers/java")
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -43,8 +51,10 @@ kotlin {
 
 dependencies {
     implementation("org.telegram.widgetsandbox:widget-sandbox")
-    implementation(project(":renderer-blitz"))
-    implementation(project(":renderer-litehtml"))
+    if (nativeRenderers) {
+        implementation(project(":renderer-blitz"))
+        implementation(project(":renderer-litehtml"))
+    }
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.webkit)

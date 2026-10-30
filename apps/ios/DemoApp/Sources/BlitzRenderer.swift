@@ -4,7 +4,10 @@
 // the shared NativeRenderer glue (view, touches, frames, diagnostics). Dev
 // tooling for the comparison in docs/blitz-experiment.md, not a product path.
 // Mirrors BlitzRenderer.kt.
+// Frozen since 2026-10-30 (docs/decisions.md, "The renderer prototypes are frozen"): compiled only in a
+// build with TW_NATIVE_RENDERERS=YES, which also builds and links the engines (project.yml).
 
+#if TW_NATIVE_RENDERERS
 import Foundation
 import WidgetSandbox
 
@@ -32,3 +35,5 @@ enum BlitzRenderer {
         }
     )
 }
+
+#endif

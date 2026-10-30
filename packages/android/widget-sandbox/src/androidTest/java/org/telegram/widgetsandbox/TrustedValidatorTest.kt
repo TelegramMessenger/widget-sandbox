@@ -84,6 +84,33 @@ class TrustedValidatorTest {
         }
     }
 
+    /**
+     * Strict: a counted cap passed is fatal (the bundle's `limit`, docs/decisions.md "Strict limits from the start"): that
+     * batch and every later one come back empty and `stopped` has the reason the host stops the widget with. A fresh
+     * instance (`reset`, the pool's recycling) starts clean, compat by default, and draws the same text.
+     */
+    @Test
+    fun aCountedCapStopsTheValidator() {
+        val diags: MutableList<String> = Collections.synchronizedList(ArrayList())
+        val skeleton = "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null}]"
+        val text = "[{\"op\":\"text\",\"id\":4,\"data\":\"${"x".repeat(40000)}\"},{\"op\":\"ins\",\"parent\":3,\"id\":4,\"before\":null}]"
+        val reason = "Text limit exceeded: a text value of 40000 characters (max 32768)"
+        TrustedValidator("light", resources) { k, d -> diags.add("$k|$d") }.use { v ->
+            v.setPolicy("strict")
+            assertTrue(v.processOps(skeleton).contains("\"tag\":\"body\""))
+            assertNull(v.stopped)
+            assertEquals("[]", v.processOps(text))
+            assertEquals(reason, v.stopped)
+            assertEquals("$diags", 1, diags.count { it == "limit|$reason" })
+            assertEquals("[]", v.processOps("[{\"op\":\"el\",\"id\":5,\"tag\":\"p\"},{\"op\":\"ins\",\"parent\":3,\"id\":5,\"before\":null}]"))
+            v.reset("light")
+            assertNull(v.stopped)
+            v.processOps(skeleton)
+            assertTrue(v.processOps(text).contains("x".repeat(40000)))
+            assertNull(v.stopped)
+        }
+    }
+
     /** Churn validators, each with its own thread, and let them tear down (the iOS demo once crashed on the second widget). */
     @Test
     fun repeatedCreateAndTeardown() {

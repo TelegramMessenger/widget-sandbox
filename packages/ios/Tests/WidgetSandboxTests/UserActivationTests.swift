@@ -71,6 +71,11 @@ final class UserActivationTests: XCTestCase {
             event(["type": "click", "targetId": target, "clientX": 5, "clientY": 5, "button": 0, "buttons": 0, "detail": 1])
         }
 
+        /// The renderer's claim for a primary press (sent for every one, before the press's own events).
+        func pressClaim() {
+            renderer.onMessage?("{\"type\":\"gesture\",\"x\":false,\"y\":false,\"hold\":false}")
+        }
+
         func settle(_ seconds: TimeInterval = 0.3) {
             pump(seconds) { false }
         }
@@ -203,6 +208,50 @@ final class UserActivationTests: XCTestCase {
         h.event(["type": "pointerup", "targetId": 4])
         h.pump { !h.privileged.isEmpty }
         XCTAssertEqual(h.links, ["https://example.com/done"])
+    }
+
+    /// A finger's pointerdown is not trusted (the press may still become the chat's scroll): its press counts from its
+    /// release. The renderer's `gesture` claim begins a new gesture, so a tap after a drag that spent its gesture without
+    /// a click is a gesture of its own, not the end of the drag's (user-activation.test.ts, the desktop
+    /// `user_gestures_are_numbered_per_physical_press`). The widget listens to no pointerdown: only the claims split the presses.
+    func testAPressTheRendererClaimsBeginsANewGesture() {
+        let h = Harness("<div id='d'>card</div><script>var moved=false,n=0;document.addEventListener('pointermove',function(){moved=true;});document.addEventListener('pointerup',function(){if(moved){moved=false;TelegramWidget.openLink('https://example.com/drop-'+(++n));}});document.addEventListener('click',function(){TelegramWidget.openLink('https://example.com/click-'+(++n));});</script>")
+        // a finger's drag: its gesture spent at its release (a drop), no click after it
+        h.pressClaim()
+        h.event(["type": "pointermove", "targetId": 5, "pointerType": "touch"], trusted: true)
+        h.event(["type": "pointerup", "targetId": 5, "pointerType": "touch"])
+        h.pump { h.links.count >= 1 }
+        // a finger's tap: its release and its click are the next gesture
+        h.pressClaim()
+        h.event(["type": "pointerup", "targetId": 5, "pointerType": "touch"])
+        h.event(["type": "click", "targetId": 5, "detail": 1])
+        h.pump { h.links.count >= 2 }
+        // a drag with a click: the claim comes before the press's events, which stay one gesture
+        h.pressClaim()
+        h.event(["type": "pointermove", "targetId": 5, "pointerType": "touch"], trusted: true)
+        h.event(["type": "pointerup", "targetId": 5, "pointerType": "touch"])
+        h.event(["type": "click", "targetId": 5, "detail": 1])
+        h.pump { h.links.count >= 3 }
+        h.settle()
+        XCTAssertEqual(h.links, ["https://example.com/drop-1", "https://example.com/click-2", "https://example.com/drop-3"])
+        XCTAssertEqual(h.blocked, 1, "the last click continues its press, whose gesture its release spent")
+    }
+
+    /// Any pointerdown begins a press, trusted or not: a second finger's is neither trusted (it may become the chat's
+    /// scroll) nor claimed (`gesture` is the primary pointer's), so its release is a new gesture, not the one before it,
+    /// spent (the desktop `an_untrusted_pointerdown_begins_a_new_gesture`).
+    func testAnUntrustedPointerdownBeginsANewGesture() {
+        let h = Harness("<button id='b'>go</button><script>TelegramWidget.ready();var n=0;document.getElementById('b').addEventListener('pointerup',function(){TelegramWidget.openLink('https://example.com/up-'+(++n));});</script>")
+        let finger: [String: Any] = ["targetId": 5, "pointerId": 2, "pointerType": "touch", "isPrimary": false]
+        // a second finger's tap, its gesture spent in its pointerup handler; then another tap of it
+        for _ in 0..<2 {
+            h.event(finger.merging(["type": "pointerdown"]) { $1 }, trusted: false)
+            h.event(finger.merging(["type": "pointerup"]) { $1 })
+        }
+        h.pump { h.links.count >= 2 }
+        h.settle()
+        XCTAssertEqual(h.links, ["https://example.com/up-1", "https://example.com/up-2"])
+        XCTAssertEqual(h.blocked, 0)
     }
 
     func testKeyPressDoesNotActivate() {

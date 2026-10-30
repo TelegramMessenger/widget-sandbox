@@ -41,17 +41,38 @@ public final class TrustedValidator {
     public var onDiag: (String, String) -> Void
     private var icons: IconExpansion?
 
+    /// `icon:` tokens become stand-ins before validation and the host's URLs after it (`IconExpansion`): the strict caps
+    /// count what the widget sent, never the host's icon bytes.
     public func setAssetResolver(_ resolver: WidgetAssetResolver?) {
         thread.async { [self] in
-            icons = resolver.map { IconExpansion(resolver: $0) { [weak self] k, d in self?.onDiag(k, d) } }
+            icons = resolver.map { resolver in
+                IconExpansion(resolver: resolver, imageTypes: { [weak self] in self?.loadTables()?.mime ?? [] }) { [weak self] k, d in self?.onDiag(k, d) }
+            }
         }
     }
 
+    /// On the validator's thread, before validation.
     private func expandIcons(_ json: String) -> String {
         guard let icons else { return json }
         icons.beginBatch()
         return icons.expand(json)
     }
+
+    /// On the validator's thread: validated ops with the host's URLs in place of the stand-ins.
+    private func restoreIcons(_ json: String) -> String {
+        guard let icons else { return json }
+        return icons.restore(json)
+    }
+
+    private func restoreIcons(_ batch: RenderBatch) -> RenderBatch {
+        guard let icons else { return batch }
+        switch batch {
+        case .empty: return batch
+        case .json(let json): return .json(icons.restore(json))
+        case .ops(let ops): return .ops(icons.restore(ops))
+        }
+    }
+
     /// Set once the bundle is evaluated: from the precompiled blob or from source.
     public private(set) var bundleSource = "pending"
 
@@ -91,7 +112,11 @@ public final class TrustedValidator {
         js.registerFunction("__diag") { [weak self] args in
             guard let self else { return .undefined }
             self.oracleDiagnostics += 1
-            self.onDiag(args.first ?? "", args.count > 1 ? args[1] : "")
+            let kind = args.first ?? "", detail = args.count > 1 ? args[1] : ""
+            // `limit` is fatal: a counted cap was passed under strict; the bundle refuses every later batch and the
+            // host stops the widget with the reason once the call returns (`stopped`).
+            if kind == "limit", self.scriptStop == nil { self.scriptStop = detail }
+            self.onDiag(kind, detail)
             return .undefined
         }
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
@@ -158,6 +183,7 @@ public final class TrustedValidator {
             native = nil
             icons = nil
             policy = .compat
+            scriptStop = nil
         }
         _ = str("__v_create", [theme])
         thread.sync { [self] in js?.collectGarbage() }
@@ -178,6 +204,12 @@ public final class TrustedValidator {
 
     /// The node model kept in Swift for a widget whose sandbox sends binary ops; nil: the JS validator owns it.
     private var native: NativeValidator?
+    /// The script validator's stop (diagnostic `limit`): the widget's model in JS, or the canvas commands it checks for the native model.
+    private var scriptStop: String?
+
+    /// Set once a counted cap was passed under strict (validator.ts `stopped`, diagnostic `limit`): the reason the host
+    /// stops the widget with, as for memory or CPU. Every later batch comes back empty.
+    public var stopped: String? { thread.sync { [self] in native?.stopReason ?? scriptStop } }
     var nativeModel: NativeValidator? { native }
     fileprivate var oracleDiagnostics = 0
     private static let tablesLock = NSLock()
@@ -254,7 +286,7 @@ public final class TrustedValidator {
                 onDiag("protocol-violation", "malformed binary ops batch (\(failure))")
                 return .empty
             case .success(let decoded):
-                return Self.render(native.process(decoded, canvas: canvas), typed: typed)
+                return restoreIcons(Self.render(native.process(decoded, canvas: canvas), typed: typed))
             }
         }
     }
@@ -283,20 +315,21 @@ public final class TrustedValidator {
     }
 
     /// Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived).
+    /// One turn of the validator's thread: the stand-ins of a batch are the expansion's of that batch.
     public func processOps(_ json: String) -> String {
-        let json = thread.sync { [self] in expandIcons(json) }
-        if let native = thread.sync({ [self] in self.native }) {
-            return thread.sync { [self] in
+        thread.sync { [self] in
+            let json = expandIcons(json)
+            if let native {
                 guard let value = JSONText.parse(json) else {
                     onDiag("protocol-violation", "ops batch is not valid JSON")
                     return "[]"
                 }
                 let ops = native.process(json: value)
-                return ops.isEmpty ? "[]" : WidgetOp.json(ops)
+                return ops.isEmpty ? "[]" : restoreIcons(WidgetOp.json(ops))
             }
+            let out = str("__v_processOps", [json])
+            return out.isEmpty ? "[]" : restoreIcons(out)
         }
-        let out = str("__v_processOps", [json])
-        return out.isEmpty ? "[]" : out
     }
 
     /// What a renderer gets for one ops batch: nothing, the JSON array, or typed ops for a renderer that takes them.
@@ -317,8 +350,14 @@ public final class TrustedValidator {
     public func processOpsForRenderer(_ json: String, canvas: [Int: WidgetCanvasBatch] = [:], typed: Bool) -> RenderBatch {
         thread.sync { [self] in
             guard let js else { return .empty }
+            // A stopped widget gets nothing; the shortcut takes payloads within the strict caps only (10 000 commands, 32 KB
+            // strings: `CanvasBatchFastPath`), anything bigger goes through the validator, which stops the widget there.
+            // Under strict a payload that resizes its canvas (`r`) goes there too: the validator counts the widget's canvas
+            // pixels and stops it past 2048².
+            if (native?.stopReason ?? scriptStop) != nil { return .empty }
             if typed, !canvas.isEmpty, let list = CanvasWords.only(json, canvas),
-               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch) && (policy != .strict || CanvasWords.textCharges($0.batch).isEmpty) }) {
+               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch)
+                   && (policy != .strict || (CanvasWords.textCharges($0.batch).isEmpty && CanvasWords.resizes($0.batch).isEmpty)) }) {
                 nativeCanvasBatches += 1
                 return .ops(list.map { WidgetOp(canvas: $0.id, batch: $0.batch) })
             }
@@ -360,12 +399,13 @@ public final class TrustedValidator {
         }
         return str("__v_validateAnim", [json]).nilIfEmpty ?? "[]"
     }
+    /// The stylesheets again, sanitized for the scheme: the validator keeps them with the stand-ins.
     public func setTheme(_ theme: String) -> String {
         thread.sync { [self] in
             let fromJS = str("__v_setTheme", [theme]).nilIfEmpty ?? "[]"
-            guard let native else { return fromJS }
+            guard let native else { return restoreIcons(fromJS) }
             let ops = native.setTheme()
-            return ops.isEmpty ? "[]" : WidgetOp.json(ops)
+            return ops.isEmpty ? "[]" : restoreIcons(WidgetOp.json(ops))
         }
     }
     public func rewriteMediaQuery(_ query: String) -> String { str("__v_rewriteMediaQuery", [query]) }
@@ -382,6 +422,8 @@ public final class TrustedValidator {
 
 extension TrustedValidator: NativeValidatorOracle {
     var diagnostics: Int { oracleDiagnostics }
+    /// On the validator's thread, from the native model's calls.
+    var limitStop: String? { scriptStop }
 
     func styleProperty(_ name: String, _ value: String) -> String? {
         let r = str("__v_cssProp", [name, value])

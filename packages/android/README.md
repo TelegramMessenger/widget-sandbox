@@ -29,7 +29,8 @@ android/
                                      Ref toggle (ReferenceWebView.kt: the same file in a plain WebView without
                                      the sandbox — dev tooling, like `?reference=1` on the web; hidden for attacks/)
     src/main/assets/Corpus/          copied by `pnpm build:android` (gitignored)
-  apps/renderer-blitz/                    Blitz renderer prototype (dev tooling): JNI glue + Kotlin Renderer for the
+  apps/renderer-blitz/                    Blitz renderer prototype (dev tooling, frozen since 2026-10-30: in the demo only with
+                                     -Ptw.nativeRenderers=true; the same for renderer-litehtml): JNI glue + Kotlin Renderer for the
                                      Rust crate in ../renderer-blitz (repo root, shared with the iOS/macOS demo),
                                      built by cargo-ndk from build.gradle.kts
   apps/renderer-litehtml/                 litehtml renderer prototype (dev tooling): the C++ core in ../renderer-litehtml built by
@@ -153,6 +154,10 @@ anchor to `SandboxEngine.Delegate.onResizeAnchor`, and `WidgetHost` keeps the la
 `WidgetDiagnostics.resizeAnchor` ("top" until the widget calls it) next to `height`, set before the size
 report of the content its task changed; the client keeps that edge of the bubble in place when the height
 changes (the demo's lists: `WidgetView(scroll = …)`).
+The client's time over a widget with no caption below it (`docs/sdk-v1.md` §2.17, §5.12): `Options(contentSafeArea =
+WidgetContentSafeArea(bottom, cornerRight, cornerLeft))` at creation and `setContentSafeArea` with the bubble's layout
+(dp = CSS px, 0 by default); the renderer core sets the `--tg-content-safe-area-*` variables, the engine passes
+`contentSafeArea` at boot and the `safeArea` dispatch (`SandboxEngine.contentSafeArea`).
 The widget's state and requests (`docs/sdk-v1.md` §2.13–§2.15, §4.2): `Options(data = WidgetData(chatData, publicData),
 context = WidgetContext(isCopy, canQuery, backgroundQuery, chatType, viewer))` (the chat state and the shared state,
 which only the bot writes; the server's flags), `setData(WidgetData)` (the full state on every change),

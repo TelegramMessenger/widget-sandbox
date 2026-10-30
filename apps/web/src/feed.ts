@@ -2,7 +2,8 @@
 // in a native build). The web port of the idea behind ios/DemoApp/Sources/ChatFeed
 // (docs/chat-feed-ios.md): a vertical feed of 60–80 bubbles, each a WidgetHost
 // on corpus/showcase (the interactive, animated demos; `corpus=common` for the
-// renderer-comparison corpus, `corpus=gestures` for the drag claims), driven by the list's own lifecycle — a host is created when
+// renderer-comparison corpus, `corpus=gestures` for the drag claims, `corpus=safe-area` for the client's time over the
+// corner), driven by the list's own lifecycle — a host is created when
 // a bubble comes near the viewport, hidden (`setVisible(false)`) when it leaves
 // it, and dropped when it is screens away (the height is remembered so the
 // layout does not jump; a host from the pool replaces it when it comes back).
@@ -36,19 +37,22 @@ import { WorkerPool } from '@telegram/widget-sandbox/host/worker-pool';
 import { WIDGET_FEATURES, WIDGET_POLICY } from './policy';
 import { bubbleGesturesOption, showBubbleGesture, type GestureMode } from './bubble-gestures';
 import { DEFAULT_RESIZE_ANCHOR, type ResizeAnchor } from '@telegram/widget-sandbox/shared/sdk-policy';
+import { REFERENCE_TIME_LABEL, referenceSafeArea, timeCornerStyle } from '@telegram/widget-sandbox/shared/reference';
 
 export type FeedRenderer = 'iframe' | 'shadow' | 'blitz' | 'litehtml';
 /** Which corpus fills the widget bubbles; `BATCH_ORDER` is the round-robin over its batches (light first). */
-export type FeedCorpus = 'showcase' | 'common' | 'gestures' | 'resize';
+export type FeedCorpus = 'showcase' | 'common' | 'gestures' | 'resize' | 'safe-area';
 const CORPORA: { kind: FeedCorpus; title: string }[] = [
   { kind: 'showcase', title: 'corpus/showcase: 21 interactive, animated demos on the full web profile (boarding pass, ride tracking, smart home, kanban, live poll …)' },
   { kind: 'common', title: 'corpus/common: the 32 widgets on the profile every renderer shares, for like-for-like renderer timings' },
   { kind: 'gestures', title: 'corpus/gestures: what the horizontal-only rule removed (v0.1.3: games on touch-action none and the same games on pan-y, joystick and 2048, now alike; a wheel picker that no longer turns) and what is fine with horizontal only (paddle, card carousel, range slider)' },
   { kind: 'resize', title: 'corpus/resize: one widget per resize anchor (setResizeAnchor, v0.1.3): an FAQ that grows downward (the default, top), a support thread that grows upward (bottom), results that grow downward (top)' },
+  { kind: 'safe-area', title: 'corpus/safe-area: the client\'s time over the bottom corner of a widget with no caption below it (docs/sdk-v1.md §2.17): every bubble gets the reference band and the time drawn over it; a diagnostic, full-bleed cards (one right-to-left), an unstyled note, CSS as models write it, a canvas chart, the caption pair' },
 ];
 const BATCH_ORDER: Record<FeedCorpus, string[]> = {
   showcase: ['travel', 'commerce', 'life', 'work'], common: ['cards', 'interactive', 'live', 'heavy'], gestures: ['1-pairs', '2-horizontal', '3-vertical'],
   resize: ['1-default', '2-grows-up', '3-grows-down'],
+  'safe-area': ['1-diagnostic', '2-cards', '3-css', '4-script', '5-caption'],
 };
 const RENDERERS: { kind: FeedRenderer; label: string; title: string }[] = [
   { kind: 'iframe', label: 'iframe', title: 'sandboxed srcdoc iframe per bubble (product renderer)' },
@@ -506,6 +510,8 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
       rendererFactory: timedFactory(FACTORIES[renderer], rec),
       workerPool: pool ?? undefined,
       visible: b.visible,
+      // corpus/safe-area: messages with no caption below the widget, the client's time over their corner.
+      ...(corpus === 'safe-area' ? { contentSafeArea: referenceSafeArea() } : {}),
       bubbleGestures: bubbleGesturesOption(gestures),
       onBubbleGesture: (g) => { if (b.wrap.parentElement) showBubbleGesture(b.wrap.parentElement, g); },
       onLoaded: () => {
@@ -660,6 +666,13 @@ export function startFeed(view: HTMLElement, opts: FeedOptions): FeedApi {
     const wrap = document.createElement('div');
     wrap.className = 'frame-wrap feed-wrap';
     bubble.appendChild(wrap);
+    if (corpus === 'safe-area') {
+      // The client's time over a widget with no caption below it: a view over the widget, its taps the client's.
+      const time = document.createElement('div');
+      time.setAttribute('style', timeCornerStyle(referenceSafeArea()));
+      time.textContent = REFERENCE_TIME_LABEL;
+      bubble.appendChild(time);
+    }
     const foot = document.createElement('div');
     foot.className = 'feed-foot hidden';
     el.append(head, bubble, foot);

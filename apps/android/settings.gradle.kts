@@ -18,11 +18,12 @@ dependencyResolutionManagement {
     }
 }
 
-// The demo and the native renderer modules. The framework (org.telegram.widgetsandbox:widget-sandbox)
+// The demo and, with -Ptw.nativeRenderers=true (gradle.properties), the frozen native renderer modules. The framework (org.telegram.widgetsandbox:widget-sandbox)
 // comes from packages/android as an included build: Gradle substitutes the coordinates with that
 // project, so a change there rebuilds the demo without publishing. A client outside this repo
 // takes the same coordinates from Maven instead.
 includeBuild("../../packages/android")
 
 rootProject.name = "widgetsandbox-apps"
-include(":demo", ":renderer-blitz", ":renderer-litehtml")
+include(":demo")
+if (providers.gradleProperty("tw.nativeRenderers").orNull == "true") include(":renderer-blitz", ":renderer-litehtml")

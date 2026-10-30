@@ -1,9 +1,10 @@
 // The litehtml renderer's wasm build (pnpm build:litehtml-web → renderer-litehtml/pkg-web/)
 // driven from Node through the same C ABI apps/web/src/renderers/litehtml-renderer.ts uses: validated
 // ops in, real layout answers and a display list out, nothing fetched. Fonts come from a
-// stub backend (every glyph 8 px wide), since Node has no canvas. Skipped when the module
-// is not built (it is gitignored dev tooling).
-// Run with: pnpm test:unit
+// stub backend (every glyph 8 px wide), since Node has no canvas. The prototype is frozen
+// (docs/decisions.md, "The renderer prototypes are frozen"): skipped unless asked for with
+// TW_NATIVE_RENDERERS=1 and the module is built (it is gitignored dev tooling).
+// Run with: TW_NATIVE_RENDERERS=1 pnpm test:unit
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -108,7 +109,8 @@ const CARD = [
   { op: 'el', id: 9, tag: 'button', attrs: { id: 'b', style: 'display:block;width:200px;height:60px;margin:0' } }, { op: 'text', id: 10, data: 'go' }, { op: 'ins', parent: 9, id: 10, before: null }, { op: 'ins', parent: 4, id: 9, before: null },
 ];
 
-describe('litehtml wasm renderer', { skip: built ? false : 'renderer-litehtml/pkg-web not built (pnpm build:litehtml-web)' }, () => {
+const skip = process.env.TW_NATIVE_RENDERERS !== '1' ? 'frozen prototype (TW_NATIVE_RENDERERS=1 runs it)' : built ? false : 'renderer-litehtml/pkg-web not built (pnpm build:litehtml-web)';
+describe('litehtml wasm renderer', { skip }, () => {
   it('lays out validated ops, reports the size and answers rect/box queries from real geometry', async () => {
     const d = await Doc.create();
     try {

@@ -4,7 +4,7 @@
 
 import './prelude';
 import * as linkedom from 'linkedom';
-import { enableCanvasWords, flushCanvases, ImageData, installCanvas, Context2D, Path2D, setCanvasRectFast } from './canvas';
+import { enableCanvasWords, flushCanvases, ImageData, installCanvas, Context2D, Path2D, setCanvasLimits, setCanvasRectFast } from './canvas';
 import * as capture from './capture';
 import { morphDocument } from './morph';
 import { document, installAttributeFastPaths, loadDocument, parseInto, SCRIPT_INERT, setAttrFast, setInPlaceText, SVG_NS } from './dom';
@@ -16,7 +16,7 @@ import { counters, diag, host, invalidateLayout, setFlushHook, unsupported } fro
 import { DOMMatrix, DOMPoint, DOMRect, elementFromPoint, getComputedStyle, installLayout } from './layout';
 import { styleOf } from './style';
 import { PROFILE_VERSION } from '../shared/profile-tables';
-import { flushPendingAnimations, setWebAnimations, webAnimations, webAnimationsEnabled } from './waapi';
+import { flushPendingAnimations, setAnimationLimit, setWebAnimations, webAnimations, webAnimationsEnabled } from './waapi';
 
 const G: any = globalThis;
 const LD: any = linkedom;
@@ -446,6 +446,9 @@ const handlers: Record<string, (arg: string) => string | void> = {
   boot(arg) {
     const { html, config } = JSON.parse(arg);
     globals.configureLimits({ maxTimers: Number(config.maxTimers) });
+    // The validator's counted caps, so the author gets an error where the host would stop the widget (anything but compat is strict).
+    setCanvasLimits(config.policy !== 'compat');
+    setAnimationLimit(config.policy !== 'compat');
     enableCanvasWords(Array.isArray(config.features) && config.features.includes('canvasWords'));
     capture.enableBinaryOps(Array.isArray(config.features) && config.features.includes('binaryOps'));
     setInPlaceText(!(Array.isArray(config.features) && config.features.includes('noInPlaceText')));
@@ -456,6 +459,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
     if (webAnimationsEnabled()) Object.assign(G, webAnimations().globals);
     globals.setHidden(config.visible === false);
     globals.setTheme({ theme: config.theme, themeParams: config.themeParams }, false);
+    globals.setContentSafeArea(config.contentSafeArea, false);
     globals.setLocale(config.locale);
     globals.preloadStorage(config.storage);
     globals.configureWidget(config);
@@ -510,6 +514,7 @@ const handlers: Record<string, (arg: string) => string | void> = {
   },
   resize(arg) { globals.fireResize(JSON.parse(arg), capture.nodeById); },
   theme(arg) { globals.setTheme(JSON.parse(arg), true); globals.mediaChanged(); },
+  safeArea(arg) { globals.setContentSafeArea(JSON.parse(arg), true); },
   bridge(arg) { globals.bridgeEvent(JSON.parse(arg)); },
   morph(arg) {
     if (!morphEnabled) return '';

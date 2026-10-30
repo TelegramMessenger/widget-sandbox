@@ -12,7 +12,9 @@ import QuartzCore
 
 /// Mirrors `SandboxPolicy` in src/shared/protocol.ts. `strict` (the default everywhere): the link calls and copyText
 /// (`SdkPolicy.privilegedMethods`) need a user gesture, a request one unless the context allows background requests;
-/// text values are capped at 64 KB and visible text is budgeted.
+/// visible text is budgeted, and past a counted cap (32 KB per text value, 48 KB of document text, 8 KB per attribute,
+/// 10 000 ops per batch, 10 000 canvas commands per send, 400 CSS rules, 32 `@keyframes`) the widget stops
+/// (docs/decisions.md, "Strict limits from the start").
 /// `compat`: the behaviour before that hardening, for tests and tooling.
 public enum SandboxPolicy: String {
     case compat
@@ -20,7 +22,7 @@ public enum SandboxPolicy: String {
 }
 
 public struct SandboxConfig {
-    public var memoryLimitBytes = 64 << 20
+    public var memoryLimitBytes = 8 << 20
     /// Longest continuous run of widget JS in one task before the runtime is killed.
     public var cpuLimitMs = 500.0
     /// JS time the widget may use per `cpuQuotaWindowMs` (sliding window); beyond it timers and frames are deferred, never killed.
@@ -28,8 +30,12 @@ public struct SandboxConfig {
     public var cpuQuotaWindowMs = 1000.0
     /// Kill after this long of uninterrupted throttling; 0 disables (default).
     public var cpuKillAfterMs = 0.0
+    /// The host's main-thread work for the widget per `cpuQuotaWindowMs`, apart from the JS quota: the time its layout
+    /// queries block the renderer and the modelled cost of the ops it sends (`CpuBudget.opsCostMs`); beyond it timers and
+    /// frames are deferred like under the JS quota.
+    public var mainThreadQuotaMs = 100.0
     /// Live timers a widget may hold; the shim throws RangeError beyond it, the engine refuses as a backstop.
-    public var maxTimers = 256
+    public var maxTimers = 64
     /// Initial visibility (see `setVisible`): hidden widgets get no frames and timers at 1 Hz.
     public var visible = true
     public var innerWidth: Double
@@ -44,6 +50,8 @@ public struct SandboxConfig {
     public var themeParams: [String: String] = [:]
     /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed (`SdkPolicy.checkLocale`).
     public var locale = SdkPolicy.defaultLocale
+    /// What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes go through `contentSafeArea(_:)`.
+    public var contentSafeArea = WidgetContentSafeArea()
     /// The client's Web Storage preload (docs/sdk-v1.md §2.8); over the quota it is dropped whole at boot (`storage-rejected`).
     public var storage = WidgetStorage()
     /// The bot's `chatData` and `publicData` at start (docs/sdk-v1.md §2.13), checked at boot (`SdkPolicy.checkWidgetData`):
@@ -104,6 +112,11 @@ public protocol SandboxEngineDelegate: AnyObject {
     /// into the widget. Later calls, and calls after the engine died, are ignored. A delegate without a client side
     /// for requests leaves the default, which refuses it (`NOT_ALLOWED`, reason `unsupported`).
     func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion)
+    /// A wallet call that passed the request gate (docs/sdk-v1.md §2.18): the client shows its own wallet window with
+    /// the bot of the message, sends the transaction (or signs the payload) on the user's confirmation, sends the
+    /// outcome to the bot and calls `respond` once, from any thread, with the bot's answer or a failure (`rejected`,
+    /// `badRequest`, a request's). A delegate without a client side for the wallet leaves the default, which refuses it.
+    func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion)
     /// A checked `copyText` call (docs/sdk-v1.md §2.15): one per press (strict), like the link calls; not an action.
     func engine(_ engine: SandboxEngine, copyText: String)
     func engineLoaded(_ engine: SandboxEngine)
@@ -121,6 +134,7 @@ public extension SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) {}
     func engine(_ engine: SandboxEngine, watchesPublicData: Bool) {}
     func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) { respond.unsupported() }
+    func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion) { respond.unsupported() }
     func engine(_ engine: SandboxEngine, copyText: String) {}
 
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
@@ -193,12 +207,19 @@ public final class SandboxEngine {
 
     // CPU quota (mirrors worker.ts): decide before a task, record after it.
     private var budget: CpuBudget
+    /// The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota.
+    private var mainBudget: CpuBudget
+    private static func mainBudget(_ c: SandboxConfig) -> CpuBudget {
+        CpuBudget(cpuLimitMs: c.cpuLimitMs, cpuQuotaMs: c.mainThreadQuotaMs, cpuQuotaWindowMs: c.cpuQuotaWindowMs, cpuKillAfterMs: 0)
+    }
     /// Slice given to the running task in ms (for the kill message); the boot task gets cpuLimitMs.
     private var currentSliceMs = 0.0
     private var currentKind = "boot"
     /// JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms.
     private var excludeMs = 0.0
     private var taskQueryMs = 0.0
+    /// Modelled main-thread cost of the ops this task sent (`CpuBudget.opsCostMs`).
+    private var taskOpsCostMs = 0.0
     private var queryLimitHit = false
     private var lastThrottleDiag = -Double.infinity
     private var throttledSinceDiag: [String: Int] = [:]
@@ -215,6 +236,8 @@ public final class SandboxEngine {
     private var haptics = SdkPolicy.HapticGate()
     /// The server's flags, one request to the bot in flight, a press or the background rules (docs/sdk-v1.md §2.14); JS thread only.
     private var requests = SdkPolicy.RequestGate()
+    /// A background request the widget made off screen: it goes to the client when the widget appears (`setVisible`); JS thread only.
+    private var heldRequest: (id: Int, data: String)?
     private var blockedRequestsReported = 0
     private var previewBlockedReported = 0
     /// The texts of `request-blocked` per refusal (REQUEST_REFUSED in widget-host.ts).
@@ -222,8 +245,13 @@ public final class SandboxEngine {
         .disabled: "the server allows no requests for this message (no can_query: a widget sent without allow_queries, or a forwarded copy of one sent without fwd_allow_queries)",
         .busy: "a request is already in flight",
         .noActivation: "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
-        .hidden: "a background request from a widget off screen",
         .rateLimited: "background requests at most once per 5 s",
+        .noWallet: "the client has no wallet for this user (no WidgetContext.wallet)",
+    ]
+    /// Where a wallet call's refusal differs from a request's (WALLET_REFUSED in widget-host.ts).
+    private static let walletRefused: [SdkPolicy.RequestVerdict: String] = [
+        .noActivation: "it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each",
+        .busy: "a request or a wallet call is already in flight",
     ]
     private static let activationPrefix = "activation:"
     /// Two full areas of the quota at 12 JSON characters per byte (`\uXXXX` escapes plus the quotes, colon and comma of
@@ -237,6 +265,7 @@ public final class SandboxEngine {
         self.resources = resources
         visible = config.visible
         budget = CpuBudget(config: config)
+        mainBudget = Self.mainBudget(config)
     }
 
     /// An engine without a widget yet: `prewarm()` builds the runtime and
@@ -251,6 +280,7 @@ public final class SandboxEngine {
         config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
         visible = true
         budget = CpuBudget(config: config)
+        mainBudget = Self.mainBudget(config)
     }
 
     deinit { queue.stop() }
@@ -322,12 +352,19 @@ public final class SandboxEngine {
             self.config = config
             self.visible = config.visible
             self.budget = CpuBudget(config: config)
+            self.mainBudget = Self.mainBudget(config)
             self.boot()
         }
     }
 
     public func terminate() {
         queue.async { self.kill("terminated") }
+    }
+
+    /// Stops the widget for `reason` the way a memory or CPU death does (`engine(_:died:)` with it): the host's answer to
+    /// the validator's `limit` (a counted cap passed under strict). The running task, if any, ends first.
+    public func stop(reason: String) {
+        queue.async { self.kill(reason) }
     }
 
     /// The runtime, the two host functions and the sandbox bundle (ours, so its time is excluded from the widget's quota).
@@ -345,6 +382,7 @@ public final class SandboxEngine {
                 stagedCanvas = [:]
                 stagedWords = 0
                 stats.ops += Int(words[1])
+                taskOpsCostMs += CpuBudget.opsCostMs(ops: max(0, Int(words[1])), canvasCommands: Self.canvasCommands(in: canvas))
                 binaryBatches += 1
                 delegate?.engine(self, binaryOps: BinaryOpsPayload(words: Array(words), strings: Array(strings)), canvas: canvas)
             }
@@ -400,11 +438,14 @@ public final class SandboxEngine {
             var bootConfig: [String: Any] = [
                 "memoryLimitBytes": self.config.memoryLimitBytes, "cpuLimitMs": self.config.cpuLimitMs,
                 "cpuQuotaMs": self.config.cpuQuotaMs, "cpuQuotaWindowMs": self.config.cpuQuotaWindowMs, "cpuKillAfterMs": self.config.cpuKillAfterMs,
-                "maxTimers": self.config.maxTimers, "visible": self.visible,
+                "mainThreadQuotaMs": self.config.mainThreadQuotaMs, "maxTimers": self.config.maxTimers, "visible": self.visible,
+                // The shim caps canvas commands per task and live script animations from it, as the validator does (anything but compat is strict).
+                "policy": self.config.policy.rawValue,
                 "viewport": ["innerWidth": self.config.innerWidth, "innerHeight": self.config.innerHeight, "dpr": self.config.devicePixelRatio],
                 "theme": self.config.theme,
                 "themeParams": SdkPolicy.checkThemeParams(self.config.themeParams),
                 "locale": SdkPolicy.checkLocale(self.config.locale) ?? SdkPolicy.defaultLocale,
+                "contentSafeArea": self.config.contentSafeArea.json,
                 "profile": SdkPolicy.profileVersion,
                 // A preview has no message yet: no storage of its own (it lives in the sandbox for this run only).
                 "storage": self.config.context.preview ? [String: Any]() : self.preload(),
@@ -454,6 +495,7 @@ public final class SandboxEngine {
         let noViewer = context.preview || !context.canQuery
         out["chatType"] = Self.orNull(noChatType ? nil : SdkPolicy.checkChatType(context.chatType)?.rawValue)
         out["viewer"] = noViewer ? NSNull() : checkedViewer(context.viewer)
+        out["wallet"] = context.wallet
         return out
     }
 
@@ -496,6 +538,16 @@ public final class SandboxEngine {
     /// The chat's theme changed: the colour scheme and the palette (checked here), in one task (docs/sdk-v1.md §3.3).
     public func theme(_ theme: String, params: [String: String] = [:]) {
         enqueue("theme", Self.json(["theme": theme, "themeParams": SdkPolicy.checkThemeParams(params)]))
+    }
+
+    /// What the client draws over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.contentSafeAreaInset` and
+    /// `contentSafeAreaChanged` in one task; the shim checks the values. Before `start` it only replaces `config.contentSafeArea`.
+    public func contentSafeArea(_ area: WidgetContentSafeArea) {
+        queue.async {
+            if self.dead { return }
+            guard self.started else { self.config.contentSafeArea = area; return }
+            self.enqueueNow("safeArea", Self.json(area.json))
+        }
     }
 
     /// The bot's data changed (docs/sdk-v1.md §2.13): the full state of both strings, checked against this engine's
@@ -547,8 +599,12 @@ public final class SandboxEngine {
         queue.async {
             if self.dead || self.visible == v { return }
             self.visible = v
-            // On screen again: the widget's next background request may go out at once (docs/sdk-v1.md §2.14).
-            if v { self.requests.show() }
+            // On screen again: the widget's next background request may go out at once, the one it made off screen now
+            // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
+            if v, self.requests.show(nowMs: Self.nowMs()), let held = self.heldRequest {
+                self.heldRequest = nil
+                self.deliverRequest(id: held.id, data: held.data)
+            }
             guard self.js != nil else { return } // boot reads `visible` for the shim
             self.dispatch("visibility", "{\"visible\":\(v)}")
             if !v, !self.dead { self.js.collectGarbage() }
@@ -584,27 +640,37 @@ public final class SandboxEngine {
             return dispatch("event", arg)
         }
         let now = Self.nowMs()
-        switch budget.decide(kind, now: now) {
-        case .defer_(let retryAt):
-            if budget.shouldKill(now) {
-                kill(String(format: "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, Int(config.cpuQuotaMs), Int(config.cpuQuotaWindowMs), Int(config.cpuKillAfterMs)))
-                return true
-            }
-            defer_(kind, arg)
-            stats.throttledTasks += 1
-            throttledSinceDiag[kind, default: 0] += 1
-            if now - lastThrottleDiag >= 1000 {
-                lastThrottleDiag = now
-                let parts = throttledSinceDiag.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)\($0.value == 1 ? "" : "s")" }
-                throttledSinceDiag.removeAll()
-                delegate?.engine(self, diag: "cpu-throttled", detail: "deferred \(parts.joined(separator: ", ")): \(Int(budget.used(now))) ms of the \(Int(config.cpuQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms budget used")
-            }
-            scheduleWake(at: retryAt / 1000)
-            return false
-        case .run(let sliceMs):
+        // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
+        let js = budget.decide(kind, now: now)
+        let main = mainBudget.decide(kind, now: now)
+        if case .run(let sliceMs) = js, case .run = main {
             task(kind, sliceMs: sliceMs) { self.callTw(kind, arg) }
             return true
         }
+        if budget.shouldKill(now) {
+            kill(String(format: "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget.throttledFor(now) / 1000, Int(config.cpuQuotaMs), Int(config.cpuQuotaWindowMs), Int(config.cpuKillAfterMs)))
+            return true
+        }
+        defer_(kind, arg)
+        stats.throttledTasks += 1
+        throttledSinceDiag[kind, default: 0] += 1
+        if now - lastThrottleDiag >= 1000 {
+            lastThrottleDiag = now
+            let parts = throttledSinceDiag.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)\($0.value == 1 ? "" : "s")" }
+            throttledSinceDiag.removeAll()
+            let window: String
+            if case .run = js {
+                window = "\(Int(mainBudget.used(now))) ms of the \(Int(config.mainThreadQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms main-thread budget used by layout queries and ops"
+            } else {
+                window = "\(Int(budget.used(now))) ms of the \(Int(config.cpuQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms budget used"
+            }
+            delegate?.engine(self, diag: "cpu-throttled", detail: "deferred \(parts.joined(separator: ", ")): \(window)")
+        }
+        var retryAt = 0.0
+        if case .defer_(let at) = js { retryAt = max(retryAt, at) }
+        if case .defer_(let at) = main { retryAt = max(retryAt, at) }
+        scheduleWake(at: retryAt / 1000)
+        return false
     }
 
     private func defer_(_ kind: String, _ arg: String) {
@@ -652,10 +718,12 @@ public final class SandboxEngine {
     private func hostCall(kind: String, arg: String) -> HostReturn {
         switch kind {
         case "ops":
-            stats.ops += Self.countOccurrences(of: "\"op\":", in: arg)
+            let ops = Self.countOccurrences(of: "\"op\":", in: arg)
+            stats.ops += ops
             let canvas = stagedCanvas
             stagedCanvas = [:]
             stagedWords = 0
+            taskOpsCostMs += CpuBudget.opsCostMs(ops: ops, canvasCommands: Self.countCanvasCommands(inJSON: arg) + Self.canvasCommands(in: canvas))
             delegate?.engine(self, ops: arg, canvas: canvas)
             return .undefined
         case "query":
@@ -668,7 +736,11 @@ public final class SandboxEngine {
             // Hidden: 1 Hz, like a background tab. The timers keep the order of their own delays: all at 1 s, the
             // queue's order by deadline would run the ones set first first (setTimeout 20, 10, 0 → 20, 10, 0).
             if !visible { delay = max(delay, 1 + delay / 10) }
-            guard timers.count < config.maxTimers else {
+            // An id that has a timer replaces it: overwriting the handle did not cancel the old one (the thread keeps
+            // the timer), so a shim told to reuse an id ran timers past maxTimers, still queued after destroy.
+            if let replaced = timers.removeValue(forKey: id) {
+                replaced.cancel()
+            } else if timers.count >= config.maxTimers {
                 // Backstop: the shim should have thrown RangeError before asking. Reaching this means a shim bug (or a tampered shim).
                 if !timerLimitReported {
                     timerLimitReported = true
@@ -744,8 +816,11 @@ public final class SandboxEngine {
                 previewBlockedReported += 1
                 delegate?.engine(self, diag: "preview-blocked", detail: "\(name) ignored: a preview (an inline result not sent yet) takes no actions")
             }
-            if case .request(let id, _) = checked {
+            switch checked {
+            case .request(let id, _, _), .wallet(let id, _):
                 enqueue("bridge", Self.json(["type": "answer", "id": id, "error": SdkPolicy.RequestError.notAllowed.rawValue, "reason": "preview"]))
+            default:
+                break
             }
             return
         }
@@ -757,8 +832,13 @@ public final class SandboxEngine {
             delegate?.engine(self, watchesPublicData: on)
             return
         }
-        if case .request(let id, let data) = checked {
-            request(id: id, data: data)
+        if case .request(let id, let data, let wallet) = checked {
+            request(id: id, data: data, wallet: wallet)
+            return
+        }
+        // A wallet call shares the request gate (a press or the grant, never the background) and goes to the delegate's `wallet`.
+        if case .wallet(let id, let call) = checked {
+            walletCall(id: id, call: call)
             return
         }
         if case .copyText(let text) = checked {
@@ -807,29 +887,60 @@ public final class SandboxEngine {
 
     /// docs/sdk-v1.md §2.14 (WidgetHost.request in widget-host.ts): the request gate on the server's flags: none
     /// without `canQuery`; a press unlocks one request (peeked here, consumed only when the request goes out as that
-    /// press's, under `strict`); background ones only with `backgroundQuery`; one in flight. Whether the client has a side for requests is decided where it
+    /// press's, under `strict`); background ones only with `backgroundQuery`, one made off screen held until the widget
+    /// appears (`setVisible`); one in flight. Whether the client has a side for requests is decided where it
     /// is delivered, by the delegate (WidgetHost: `onRequest` on the main thread, so a client that sets it right after
     /// creating the host gets a request the widget made before that). Every outcome goes back into the widget as a
     /// `bridge` task of its own, never inside the calling task.
-    private func request(id: Int, data: String) {
+    private func request(id: Int, data: String, wallet: Bool) {
         let pressed = config.policy == .compat || (activeGesture > consumedGesture && visible)
-        let verdict = requests.decide(nowMs: Self.nowMs(), gesture: pressed, visible: visible, canQuery: config.context.effective.canQuery, backgroundQuery: config.context.effective.backgroundQuery)
+        let context = config.context.effective
+        let verdict = requests.decide(nowMs: Self.nowMs(), gesture: pressed, visible: visible, canQuery: context.canQuery, backgroundQuery: context.backgroundQuery, withWallet: wallet, wallet: context.wallet)
         if let error = SdkPolicy.requestRefusal(verdict) {
-            let event = refusal(id, reason: verdict.rawValue, error: error, detail: "request refused (\(verdict.rawValue)): \(Self.requestRefused[verdict] ?? verdict.rawValue)")
+            let why = wallet && verdict == .noActivation ? "a request for the wallet needs a tap on the visible widget, one request per tap" : Self.requestRefused[verdict] ?? verdict.rawValue
+            let event = refusal(id, reason: verdict.rawValue, error: error, detail: "request refused (\(verdict.rawValue)): \(why)")
             return enqueue("bridge", event)
         }
         if verdict == .foreground, config.policy == .strict {
             consumedGesture = activeGesture
             activeGesture = 0
         }
-        // The client answers once, from any thread; the gate and the widget are touched on this thread only.
-        let once = RequestOnce()
-        let respond = WidgetRequestCompletion { [weak self] outcome in
-            guard once.claim(), let self else { return }
-            self.queue.async { [weak self] in self?.settleRequest(id, outcome) }
+        if verdict == .held { heldRequest = (id, data) } else { deliverRequest(id: id, data: data, wallet: wallet) }
+    }
+
+    /// docs/sdk-v1.md §2.18: a wallet call goes out on a press or on the grant (the answer to a call made by a press,
+    /// within 10 s), never in the background; one call in flight with the requests. Its outcome settles like a request's.
+    private func walletCall(id: Int, call: WalletCall) {
+        let pressed = config.policy == .compat || (activeGesture > consumedGesture && visible)
+        let context = config.context.effective
+        let verdict = requests.decideWallet(nowMs: Self.nowMs(), gesture: pressed, visible: visible, canQuery: context.canQuery, wallet: context.wallet)
+        if let error = SdkPolicy.requestRefusal(verdict) {
+            let why = Self.walletRefused[verdict] ?? Self.requestRefused[verdict] ?? verdict.rawValue
+            return enqueue("bridge", refusal(id, reason: verdict.rawValue, error: error, detail: "wallet.\(call.method) refused (\(verdict.rawValue)): \(why)"))
         }
+        if verdict == .foreground, config.policy == .strict {
+            consumedGesture = activeGesture
+            activeGesture = 0
+        }
+        let respond = completion(id, wallet: true)
         guard let delegate else { return respond.unsupported() }
-        delegate.engine(self, request: WidgetRequest(data: data), respond: respond)
+        delegate.engine(self, wallet: call, respond: respond)
+    }
+
+    /// The client answers once, from any thread; the gate and the widget are touched on this thread only.
+    private func completion(_ id: Int, wallet: Bool) -> WidgetRequestCompletion {
+        let once = RequestOnce()
+        return WidgetRequestCompletion { [weak self] outcome in
+            guard once.claim(), let self else { return }
+            self.queue.async { [weak self] in self?.settleRequest(id, outcome, wallet: wallet) }
+        }
+    }
+
+    /// A request the gate let through, to the delegate; its outcome frees the gate (`settleRequest`).
+    private func deliverRequest(id: Int, data: String, wallet: Bool = false) {
+        let respond = completion(id, wallet: false)
+        guard let delegate else { return respond.unsupported() }
+        delegate.engine(self, request: WidgetRequest(data: data, wallet: wallet), respond: respond)
     }
 
     /// A refused request `id` (`request-blocked`, at most 20 per widget): the answer event with its error and reason.
@@ -841,23 +952,28 @@ public final class SandboxEngine {
         return Self.json(["type": "answer", "id": id, "error": error.rawValue, "reason": reason])
     }
 
-    /// The client's outcome for request `id`, on the engine's thread: the gate is free again; no client side is a
-    /// refusal (`unsupported`); the answer's `result` is checked (`answer-rejected` → `INVALID_ANSWER`) and settles the
-    /// widget's promise (an answer carries no data); a failure becomes its code.
-    private func settleRequest(_ id: Int, _ outcome: WidgetRequestCompletion.Outcome) {
+    /// The client's outcome for request or wallet call `id`, on the engine's thread: the gate is free again (an answer
+    /// brings the grant when the call had a press or the grant); no client side is a refusal (`unsupported`); the
+    /// answer's `result` is checked (`answer-rejected` → `INVALID_ANSWER`) and settles the widget's promise (an answer
+    /// carries no data); a failure becomes its code (the wallet's own codes only for a wallet call).
+    private func settleRequest(_ id: Int, _ outcome: WidgetRequestCompletion.Outcome, wallet: Bool) {
         if dead { return }
-        requests.finish()
         guard case .answer(let result) = outcome else {
-            return enqueueNow("bridge", refusal(id, reason: "unsupported", error: .notAllowed, detail: "request refused: the client handles no requests (WidgetHost.onRequest)"))
+            requests.finish()
+            let detail = wallet ? "wallet call refused: the client handles no wallet calls (WidgetHost.onWallet)" : "request refused: the client handles no requests (WidgetHost.onRequest)"
+            return enqueueNow("bridge", refusal(id, reason: "unsupported", error: .notAllowed, detail: detail))
         }
         var event: [String: Any] = ["type": "answer", "id": id]
         switch result {
         case .failure(let failure):
-            event["error"] = failure.code.rawValue
+            requests.finish()
+            event["error"] = (wallet ? failure.code : failure.requestCode).rawValue
         case .success(let answer):
             if let checked = SdkPolicy.checkRequestAnswer(answer) {
+                requests.finish(answeredAtMs: Self.nowMs())
                 event["result"] = Self.orNull(checked.result)
             } else {
+                requests.finish()
                 delegate?.engine(self, diag: "answer-rejected", detail: "the answer's result is not text of at most \(SdkPolicy.maxRequestResultBytes) bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER")
                 event["error"] = SdkPolicy.RequestError.invalidAnswer.rawValue
             }
@@ -914,6 +1030,7 @@ public final class SandboxEngine {
         }
         if dead { return }
         dead = true
+        heldRequest = nil // never reaches the client
         pendingBeforeBoot.removeAll()
         for (_, t) in timers { t.cancel() }
         timers.removeAll()
@@ -1027,6 +1144,7 @@ public final class SandboxEngine {
         currentSliceMs = sliceMs
         excludeMs = 0
         taskQueryMs = 0
+        taskOpsCostMs = 0
         queryLimitHit = false
         let c0 = QuickJSContext.threadCPUTime()
         resetDeadline()
@@ -1036,8 +1154,10 @@ public final class SandboxEngine {
         stats.tasks += 1
         let cpuMs = (QuickJSContext.threadCPUTime() - c0) * 1000 - excludeMs
         stats.jsMs += cpuMs
-        budget.record(kind, cpuMs: cpuMs + taskQueryMs, now: Self.nowMs()) // layout queries count toward the quota: they cost the host as much as JS
-        stats.cpuWindowMs = budget.used(Self.nowMs())
+        let end = Self.nowMs()
+        budget.record(kind, cpuMs: cpuMs, now: end)
+        mainBudget.record(kind, cpuMs: taskQueryMs + taskOpsCostMs, now: end) // what the task cost the host's main thread
+        stats.cpuWindowMs = budget.used(end)
         let now = CACurrentMediaTime()
         if now - lastMemCheck > 1, !dead {
             lastMemCheck = now
@@ -1081,6 +1201,61 @@ public final class SandboxEngine {
         guard let i = s.firstIndex(of: ":") else { return (s, "") }
         return (String(s[..<i]), String(s[s.index(after: i)...]))
     }
+    /// Canvas commands in an ops batch's JSON (the main-thread cost): the elements of each `"cmds":[...]` array; strings
+    /// are skipped (inside one a quote is always `\"`), as is anything nested in a command.
+    static func countCanvasCommands(inJSON json: String) -> Int {
+        var json = json
+        return json.withUTF8 { b -> Int in
+            let needle = Array("\"cmds\":[".utf8)
+            let n = b.count
+            var count = 0
+            var i = 0
+            var inString = false
+            var depth = 0 // inside a cmds array: 1 = its elements, more = inside one
+            var expecting = false
+            while i < n {
+                let c = b[i]
+                if inString {
+                    if c == 0x5c { i += 2; continue }
+                    if c == 0x22 { inString = false }
+                    i += 1
+                    continue
+                }
+                if depth == 0 {
+                    if c == 0x22 {
+                        if n - i >= needle.count, needle.indices.allSatisfy({ b[i + $0] == needle[$0] }) {
+                            i += needle.count
+                            depth = 1
+                            expecting = true
+                            continue
+                        }
+                        inString = true
+                    }
+                    i += 1
+                    continue
+                }
+                if depth == 1, expecting, c != 0x2c, c != 0x5d, c != 0x20, c != 0x0a, c != 0x0d, c != 0x09 {
+                    count += 1
+                    expecting = false
+                }
+                switch c {
+                case 0x5b, 0x7b: depth += 1
+                case 0x5d, 0x7d: depth -= 1
+                case 0x2c: if depth == 1 { expecting = true }
+                case 0x22: inString = true
+                default: break
+                }
+                i += 1
+            }
+            return count
+        }
+    }
+
+    /// Commands in the canvas word payloads staged for a batch.
+    private static func canvasCommands(in canvas: [Int: WidgetCanvasBatch]) -> Int {
+        canvas.values.reduce(0) { $0 + (CanvasWords.commandCount($1) ?? 0) }
+    }
+
     private static func countOccurrences(of needle: String, in text: String) -> Int {
         var count = 0
         var range = text.startIndex..<text.endIndex

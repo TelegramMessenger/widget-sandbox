@@ -111,10 +111,14 @@ struct FeedBar: View {
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
-                Picker("Renderer", selection: $switches.renderer) {
-                    ForEach(DemoRenderer.Kind.allCases, id: \.self) { Text($0.title).tag($0) }
+                if DemoRenderer.hasChoice {
+                    Picker("Renderer", selection: $switches.renderer) {
+                        ForEach(DemoRenderer.Kind.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                } else {
+                    Spacer()
                 }
-                .pickerStyle(.segmented)
                 Toggle("pool", isOn: $switches.pools).toggleStyle(.switch).fixedSize()
             }
             HStack(spacing: 8) {

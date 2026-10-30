@@ -8,7 +8,8 @@ three JS bundles; see `docs/decisions.md` (Desktop C++ core) for why the product
 renderer is not here (tdesktop has no WebView inside the chat) and what the
 product path on tdesktop looks like. The Blitz renderer prototype
 (`-DTW_BLITZ=ON`, below) is dev tooling behind the same `Renderer` seam the
-iOS/macOS and Android demos have.
+iOS/macOS and Android demos have; it and the litehtml one (`-DTW_LITEHTML=ON`) are
+frozen since 2026-10-30 (`docs/decisions.md`, "The renderer prototypes are frozen"): no check builds them.
 
 ```
 packages/desktop/
@@ -44,7 +45,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 69 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
+./build/twidget-tests                             # 75 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
@@ -150,8 +151,16 @@ What it is on this platform:
 - Pass an `IntlProvider` built on `QLocale` to the engine; `BasicIntl` is only
   a fallback.
 - Limits live in `SandboxConfig` / `WidgetHostOptions` (same fields and
-  defaults as `protocol.ts`). `setVisible(false)` when the bubble leaves the
-  screen.
+  defaults as `protocol.ts`: 8 MB of QuickJS heap, 64 timers, 300 ms of JS and
+  100 ms of main-thread work per second; `docs/decisions.md`, "Strict limits
+  from the start"). The main-thread window charges a task's layout queries and
+  25 µs per op and 2 µs per canvas command it sent; past it, as past the JS
+  quota, timers and frames wait. Under `strict` a counted cap of the validator
+  (32 KB per text value, 48 KB of document text, 8 KB per attribute, 10 000 ops
+  per batch, 10 000 canvas commands per send, 400 CSS rules, 32 `@keyframes`)
+  stops the widget: `diagnostics().dead` carries the reason
+  (`TrustedValidator::stopped()`, `SandboxEngine::stop`), as for memory or CPU.
+  `setVisible(false)` when the bubble leaves the screen.
 - SDK v1 (`docs/sdk-v1.md` §4.3, §5): build the host with a `WidgetTheme`
   (scheme, this bubble's 15 `themeParams` colours, `WidgetButtonTokens`,
   `WidgetTextTokens` with the chat's text size) and call
@@ -164,7 +173,7 @@ What it is on this platform:
   `gesture` and `release` messages, which WidgetHost passes to the engine's
   `pressBegan` / `pressEnded`; a renderer that sends neither gets the no-touch
   rule; `Ready`); `onStorageCommit(area, values)` the full new content of an area at
-  the end of each task that changed it, within the 16 KB quota (persist
+  the end of each task that changed it, within the 4 KB quota (persist
   `local`, keep `session` in memory); `onGesture(WidgetGestureClaim)` on every
   primary press: what of it the widget claims with `touch-action` (`x`:
   horizontal drags, `hold`; taps and double taps are always the widget's, and
@@ -179,7 +188,12 @@ What it is on this platform:
   upward and the content above it moves (in a top-down list, add the height
   delta to the scroll offset while the bubble is on screen, and pin the widget
   to the bubble's bottom during the transition). A change reaches `onChange`
-  before the height it anchors; it is not an action.
+  before the height it anchors; it is not an action. With no caption below the
+  widget (none, or one shown above it) the client draws the message time over the widget's bottom corner and passes
+  `WidgetHostOptions::contentSafeArea` (`bottom`, `cornerRight` or
+  `cornerLeft`, CSS px; 0 by default) at creation and `setContentSafeArea` when
+  the bubble's layout changes (`docs/sdk-v1.md` §2.17, §5.12); the renderer gets
+  `{type:'safeArea'}` right after the theme.
   Strings are UTF-8; a widget's lone surrogate arrives in its 3-byte WTF-8
   form. The string-theme constructor, `setTheme(std::string)`, `onBridgeCall`
   and `onGestureClaim(x, y)` are deprecated forwards; the host → widget

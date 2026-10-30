@@ -4,7 +4,10 @@
 // a shadow tree on the C++ side and re-parsed by litehtml on every batch, as
 // Telegram's HTMLBubbles does (docs/litehtml-renderer.md). Dev tooling for the
 // three-way renderer comparison, not a product path. Mirrors LitehtmlRenderer.kt.
+// Frozen since 2026-10-30 (docs/decisions.md, "The renderer prototypes are frozen"): compiled only in a
+// build with TW_NATIVE_RENDERERS=YES, which also builds and links the engines (project.yml).
 
+#if TW_NATIVE_RENDERERS
 import Foundation
 import WidgetSandbox
 
@@ -34,3 +37,5 @@ enum LitehtmlRenderer {
         }
     )
 }
+
+#endif

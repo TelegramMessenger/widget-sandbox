@@ -2,7 +2,8 @@ import XCTest
 import WidgetSandboxProtocol
 @testable import WidgetSandbox
 
-/// Text nodes are capped at 64 KB by the validator bundle every native glue loads.
+/// Text values are capped at 32 KB and document text at 48 KB under strict by the validator bundle every native glue
+/// loads (and the native node model); past a cap the widget stops (docs/decisions.md, "Strict limits from the start").
 final class TextBudgetTests: XCTestCase {
     static var strict: WidgetHost.Options {
         var options = WidgetHost.Options()
@@ -14,6 +15,7 @@ final class TextBudgetTests: XCTestCase {
         let renderer = RecordingRenderer()
         var compat = WidgetHost.Options()
         compat.policy = .compat
+        compat.memoryLimitBytes = 64 << 20 // the validator's compat caps, not the heap: a 1 MB text and its JSON
         let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(1024*1024);document.getElementById('b').textContent='\\u0627'.repeat(20000);</script>", theme: WidgetTheme(), width: 300, options: compat, rendererFactory: { _, _, _ in renderer })
         defer { host.destroy() }
         let deadline = Date().addingTimeInterval(5)
@@ -26,18 +28,25 @@ final class TextBudgetTests: XCTestCase {
         XCTAssertNil(host.diagnostics.diags["text-budget"])
     }
 
-    func testTextNodesAreCappedAt64KB() {
-        let renderer = RecordingRenderer()
-        let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(64*1024);document.getElementById('b').textContent='b'.repeat(64*1024+1);</script>", theme: WidgetTheme(), width: 300, options: Self.strict, rendererFactory: { _, _, _ in renderer })
-        defer { host.destroy() }
-        let deadline = Date().addingTimeInterval(5)
-        while !(host.diagnostics.rendered || host.diagnostics.dead != nil) && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    /// 32 KB passes; 32 KB + 1 in the same task stops the widget and that task's batch is refused whole.
+    func testTextNodesAreCappedAt32KB() {
+        for binary in [false, true] {
+            let renderer = RecordingRenderer()
+            var options = Self.strict
+            if binary { options.features = ["binaryOps"] }
+            let host = try! WidgetHost(html: "<p id=a></p><p id=b></p><script>document.getElementById('a').textContent='a'.repeat(32*1024);document.getElementById('b').textContent='b'.repeat(32*1024+1);</script>", theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
+            defer { host.destroy() }
+            let deadline = Date().addingTimeInterval(5)
+            while host.diagnostics.dead == nil && Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2)) // the validator's diagnostics reach the executor on their own
+            XCTAssertEqual(host.diagnostics.dead, "Text limit exceeded: a text value of 32769 characters (max 32768)", "binary \(binary)")
+            let all = renderer.messages.joined()
+            XCTAssertFalse(all.contains(String(repeating: "a", count: 32 * 1024)), "binary \(binary)")
+            XCTAssertFalse(all.contains(String(repeating: "b", count: 32 * 1024 + 1)), "binary \(binary)")
+            XCTAssertEqual(host.diagnostics.diags["limit"]?.details, ["Text limit exceeded: a text value of 32769 characters (max 32768)"], "binary \(binary)")
         }
-        let all = renderer.messages.joined()
-        XCTAssertTrue(all.contains(String(repeating: "a", count: 64 * 1024)))
-        XCTAssertFalse(all.contains(String(repeating: "b", count: 64 * 1024 + 1)))
-        XCTAssertGreaterThan(host.diagnostics.diags["protocol-violation"]?.count ?? 0, 0)
     }
 
     /// 8192 complex-script units per document, through the validator bundle every native glue loads.
@@ -192,43 +201,62 @@ final class TextBudgetTests: XCTestCase {
     }
 
     func testVisibleTextBudgetsMatchOnBothValidatorPaths() throws {
-        let chunk = String(repeating: "a", count: 64 * 1024)
+        let chunk = String(repeating: "a", count: 16 * 1024)
+        let title = String(repeating: "a", count: 8192)
         let arabic = { String(repeating: "ا", count: $0) }
-        let cases: [[ [String: Any] ]] = [
-            [
-                ["op": "el", "id": 20, "tag": "button", "attrs": ["value": chunk + "x", "data-label": chunk + "x"]],
-                ["op": "attr", "id": 20, "name": "TITLE", "value": chunk + "x"],
-            ],
-            [
-                ["op": "text", "id": 20, "data": chunk], ["op": "text", "id": 21, "data": chunk], ["op": "text", "id": 22, "data": chunk],
-                ["op": "el", "id": 30, "tag": "div", "attrs": ["title": chunk]],
-                ["op": "text", "id": 23, "data": "overflow"], ["op": "rm", "id": 30], ["op": "text", "id": 24, "data": chunk],
-            ],
-            [
+        // Batches run one after another on one validator of each kind.
+        let cases: [[[[String: Any]]]] = [
+            // An attribute value over 8 KB stops the widget, on creation and on mutation.
+            [[["op": "el", "id": 20, "tag": "button", "attrs": ["value": title, "data-label": title + "x"]]]],
+            [[["op": "el", "id": 20, "tag": "button"]], [["op": "attr", "id": 20, "name": "TITLE", "value": title + "x"]], [["op": "text", "id": 21, "data": "after"]]],
+            // 48 KB of document text shared with visible attributes, removals refunded; past it the widget stops.
+            [[
+                ["op": "text", "id": 20, "data": chunk], ["op": "text", "id": 21, "data": chunk],
+                ["op": "el", "id": 30, "tag": "div", "attrs": ["title": title]], ["op": "text", "id": 22, "data": title],
+                ["op": "rm", "id": 30], ["op": "text", "id": 24, "data": title],
+            ], [["op": "text", "id": 25, "data": "overflow"]]],
+            // The complex-script budget only drops (text-budget), as before.
+            [[
                 ["op": "text", "id": 20, "data": arabic(6000)],
                 ["op": "el", "id": 21, "tag": "button", "attrs": ["title": arabic(3000), "value": arabic(2000)]],
                 ["op": "rattr", "id": 21, "name": "VALUE"], ["op": "attr", "id": 21, "name": "value", "value": arabic(2192)],
                 ["op": "attr", "id": 21, "name": "title", "value": arabic(1)],
-            ],
+            ]],
         ]
-        for (index, ops) in cases.enumerated() {
-            let batch = String(decoding: try JSONSerialization.data(withJSONObject: ops, options: [.sortedKeys]), as: UTF8.self)
-            let js = NativeValidatorDifferentialTests.Rig(native: false, policy: .strict).json(batch)
-            let native = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict).json(batch)
-            XCTAssertEqual(native.0, js.0, "case \(index)")
-            XCTAssertEqual(native.1, js.1, "case \(index)")
-            XCTAssertEqual(native.2, js.2, "case \(index)")
-            XCTAssertTrue(native.2.contains { $0.hasPrefix("text-budget") }, "case \(index)")
-            let output = native.0 as! [[String: Any]]
-            if index == 0 {
-                XCTAssertEqual(output.count, 1)
-                XCTAssertTrue((output[0]["attrs"] as! [Any]).isEmpty)
-            } else if index == 1 {
-                XCTAssertFalse(output.contains { $0["id"] as? Int == 23 })
-                XCTAssertTrue(output.contains { $0["id"] as? Int == 24 })
-            } else {
-                XCTAssertFalse(output.contains { $0["op"] as? String == "attr" && $0["name"] as? String == "title" })
-                XCTAssertTrue(output.contains { $0["op"] as? String == "attr" && $0["value"] as? String == arabic(2192) })
+        for (index, batches) in cases.enumerated() {
+            let js = NativeValidatorDifferentialTests.Rig(native: false, policy: .strict)
+            let native = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict)
+            var outputs: [[[String: Any]]] = []
+            var diags: [String] = []
+            for (k, ops) in batches.enumerated() {
+                let batch = String(decoding: try JSONSerialization.data(withJSONObject: ops, options: [.sortedKeys]), as: UTF8.self)
+                let a = js.json(batch), b = native.json(batch)
+                XCTAssertEqual(b.0, a.0, "case \(index) batch \(k)")
+                XCTAssertEqual(b.1, a.1, "case \(index) batch \(k)")
+                XCTAssertEqual(b.2, a.2, "case \(index) batch \(k)")
+                outputs.append(b.0 as! [[String: Any]])
+                diags += b.2
+            }
+            XCTAssertEqual(js.validator.stopped, native.validator.stopped, "case \(index)")
+            switch index {
+            case 0:
+                XCTAssertEqual(outputs.map(\.count), [0])
+                XCTAssertEqual(native.validator.stopped, "Attribute limit exceeded: a value of 8193 characters (max 8192)")
+                XCTAssertTrue(diags.contains("limit|Attribute limit exceeded: a value of 8193 characters (max 8192)"))
+            case 1:
+                XCTAssertEqual(outputs[1].count, 0)
+                XCTAssertEqual(outputs[2].count, 0, "a stopped validator refuses every batch")
+                XCTAssertEqual(native.validator.stopped, "Attribute limit exceeded: a value of 8193 characters (max 8192)")
+            case 2:
+                XCTAssertTrue(outputs[0].contains { $0["op"] as? String == "el" && ($0["attrs"] as? [Any])?.isEmpty == false })
+                XCTAssertTrue(outputs[0].contains { $0["id"] as? Int == 24 }, "the removed title was refunded")
+                XCTAssertEqual(outputs[1].count, 0)
+                XCTAssertEqual(native.validator.stopped, "Text limit exceeded: the document's text is over 49152 characters")
+            default:
+                XCTAssertNil(native.validator.stopped)
+                XCTAssertTrue(diags.contains { $0.hasPrefix("text-budget") })
+                XCTAssertFalse(outputs[0].contains { $0["op"] as? String == "attr" && $0["name"] as? String == "title" })
+                XCTAssertTrue(outputs[0].contains { $0["op"] as? String == "attr" && $0["value"] as? String == arabic(2192) })
             }
         }
     }
@@ -248,27 +276,45 @@ final class TextBudgetTests: XCTestCase {
         }
     }
 
+    /// 48 KB of document text: three 8 KB attributes and 16 KB of text, a removed attribute refunded once, a removed
+    /// element refunded once; one character past the full budget stops the widget.
     func testBinaryVisibleAttributeBudgetsRefundExactlyOnce() {
-        let rig = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict)
-        var encoder = BinaryOpsEncoder()
-        let chunk = String(repeating: "x", count: 64 * 1024)
-        encoder.begin(reset: true)
-        encoder.element(20, tag: "button", svg: false, attributes: [("value", chunk), ("data-label", chunk), ("title", chunk)])
-        encoder.text(21, chunk, code: .text)
-        encoder.attribute(20, "value", chunk + "x", internValue: false)
-        encoder.text(22, "rejected", code: .text)
-        encoder.removeAttribute(20, "VALUE")
-        encoder.removeAttribute(20, "value")
-        encoder.text(23, chunk, code: .text)
-        encoder.text(24, "still rejected", code: .text)
-        encoder.remove(20)
-        encoder.text(25, chunk, code: .text)
-        encoder.text(26, chunk, code: .text)
-        encoder.text(27, "still full", code: .text)
-        let output = rig.binary(encoder.finish()).0 as! [[String: Any]]
-        let textIds = output.filter { $0["op"] as? String == "text" }.compactMap { $0["id"] as? Int }
-        XCTAssertEqual(textIds, [21, 23, 25, 26])
-        XCTAssertFalse(output.contains { $0["op"] as? String == "attr" })
+        let attribute = String(repeating: "x", count: 8192)
+        let text = String(repeating: "x", count: 16384)
+        func textIds(_ output: NSArray) -> [Int] {
+            (output as! [[String: Any]]).filter { $0["op"] as? String == "text" }.compactMap { $0["id"] as? Int }
+        }
+        do {
+            let rig = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict)
+            var encoder = BinaryOpsEncoder()
+            encoder.begin(reset: true)
+            encoder.element(20, tag: "button", svg: false, attributes: [("value", attribute), ("data-label", attribute), ("title", attribute)])
+            encoder.text(21, text, code: .text)
+            encoder.removeAttribute(20, "VALUE")
+            encoder.removeAttribute(20, "value")
+            encoder.text(23, text, code: .text)
+            XCTAssertEqual(textIds(rig.binary(encoder.finish()).0), [21, 23])
+            encoder.begin()
+            encoder.text(24, "x", code: .text)
+            XCTAssertEqual(rig.binary(encoder.finish()).0.count, 0, "full: a removed attribute is refunded once")
+            XCTAssertEqual(rig.validator.stopped, "Text limit exceeded: the document's text is over 49152 characters")
+        }
+        do {
+            let rig = NativeValidatorDifferentialTests.Rig(native: true, policy: .strict)
+            var encoder = BinaryOpsEncoder()
+            encoder.begin(reset: true)
+            encoder.element(20, tag: "button", svg: false, attributes: [("value", attribute), ("data-label", attribute), ("title", attribute)])
+            encoder.text(21, text, code: .text)
+            encoder.remove(20)
+            encoder.text(25, text, code: .text)
+            encoder.text(26, text, code: .text)
+            XCTAssertEqual(textIds(rig.binary(encoder.finish()).0), [21, 25, 26])
+            XCTAssertNil(rig.validator.stopped)
+            encoder.begin()
+            encoder.text(27, "still full", code: .text)
+            XCTAssertEqual(rig.binary(encoder.finish()).0.count, 0)
+            XCTAssertEqual(rig.validator.stopped, "Text limit exceeded: the document's text is over 49152 characters")
+        }
     }
 
     func testCanvasTextChurnIsLimitedAcrossJSONAndBinaryPaths() {

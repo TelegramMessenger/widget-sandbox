@@ -9,8 +9,8 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   HapticGate, RequestGate, THEME_KEYS, allowedInPreview, THEME_VARIABLES, checkBridgeCall, checkChatType, checkCopyText, checkHaptic, checkLink, checkLocale, checkRequestAnswer,
-  checkRequestData, checkStorageCommit, checkThemeParams, checkViewer, checkWidgetData, DEFAULT_TEXT_TOKENS, completeThemeParams, requestFailure, requestRefusal, viewerFromList, viewerUser,
-  themeVariables, utf8Length, type LinkMethod, type RequestVerdict,
+  checkRequestData, checkSignDataPayload, checkStorageCommit, checkThemeParams, checkViewer, checkWalletTransaction, checkWidgetData, DEFAULT_TEXT_TOKENS, completeThemeParams, requestFailure,
+  requestRefusal, viewerFromList, viewerUser, themeVariables, utf8Length, walletFailure, type LinkMethod, type RequestVerdict,
 } from '../../src/shared/sdk-policy.ts';
 import { PROFILE_UA_STYLESHEET } from '../../src/shared/profile-tables.ts';
 
@@ -35,7 +35,7 @@ describe('sdk-policy fixture', () => {
     for (const c of fixture.haptics) assert.deepEqual(checkHaptic(c.args), c.expect, JSON.stringify(c.args));
   });
   it('bridge calls', () => {
-    for (const c of fixture.bridge) assert.deepEqual(checkBridgeCall(c.method, c.args), c.expect, `${c.method} ${JSON.stringify(c.args)}`);
+    for (const c of fixture.bridge) assert.deepEqual(checkBridgeCall(c.method, c.args), c.expect, `${c.method} ${JSON.stringify(c.args).slice(0, 120)}`);
   });
   it('haptic gate', () => {
     for (const c of fixture.hapticGate) {
@@ -74,9 +74,11 @@ describe('sdk-policy fixture', () => {
   it('request gate', () => {
     for (const c of fixture.requestGate) {
       const gate = new RequestGate();
-      c.steps.forEach((s: { op: string; at: number; gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean; expect: string }, i: number) => {
-        if (s.op === 'finish') return gate.finish();
-        if (s.op === 'show') return gate.show();
+      type Step = { op: string; at: number; answeredAt?: number; gesture: boolean; visible: boolean; canQuery: boolean; backgroundQuery: boolean; withWallet?: boolean; wallet?: boolean; expect: string | boolean };
+      c.steps.forEach((s: Step, i: number) => {
+        if (s.op === 'finish') return gate.finish(s.answeredAt);
+        if (s.op === 'show') return assert.equal(gate.show(s.at), s.expect, `${c.name}, step ${i}`);
+        if (s.op === 'decideWallet') return assert.equal(gate.decideWallet(s.at, { ...s, wallet: s.wallet === true }), s.expect, `${c.name}, step ${i}`);
         assert.equal(gate.decide(s.at, s), s.expect, `${c.name}, step ${i}`);
       });
     }
@@ -86,6 +88,32 @@ describe('sdk-policy fixture', () => {
   });
   it('request refusals', () => {
     for (const c of fixture.requestRefusals) assert.equal(requestRefusal(c.verdict as RequestVerdict), c.expect, c.verdict);
+  });
+  it('wallet transactions', () => {
+    for (const c of fixture.walletTransactions) assert.deepEqual(checkWalletTransaction(expand(c.input)), expand(c.expect), c.note ?? JSON.stringify(c.input).slice(0, 120));
+  });
+  it('signData payloads', () => {
+    for (const c of fixture.signDataPayloads) assert.deepEqual(checkSignDataPayload(expand(c.input)), expand(c.expect), c.note ?? JSON.stringify(c.input).slice(0, 120));
+  });
+});
+
+describe('sdk-policy: the wallet (TS only)', () => {
+  it('a client\'s failure of a wallet call becomes its code, anything else FAILED', () => {
+    assert.equal(walletFailure('REJECTED'), 'REJECTED');
+    assert.equal(walletFailure({ code: 'BAD_REQUEST' }), 'BAD_REQUEST');
+    assert.equal(walletFailure('TIMEOUT'), 'TIMEOUT');
+    assert.equal(walletFailure(new Error('x')), 'FAILED');
+    assert.equal(requestFailure('REJECTED'), 'FAILED');
+  });
+  it('a lone surrogate in a signData text is refused', () => {
+    assert.equal(checkSignDataPayload({ type: 'text', text: 'a\ud800' }), null);
+    assert.equal(checkSignDataPayload({ type: 'cell', schema: '\udfff', cell: 'AA==' }), null);
+  });
+  it('the checked transaction is a fresh object: what the widget passed cannot change it later', () => {
+    const tx = { messages: [{ address: 'EQ' + 'a'.repeat(46), amount: '1' }] };
+    const out = checkWalletTransaction(tx)!;
+    tx.messages[0].amount = '999';
+    assert.equal(out.messages[0].amount, '1');
   });
 });
 
@@ -194,7 +222,8 @@ describe('sdk-policy (TS only)', () => {
     for (const v of ['--tg-theme-text-color', '--tg-theme-link-color', '--tg-text-font-size', '--tg-text-line-height', '--tg-text-padding']) assert.ok(layer.includes(`var(${v}`), v);
     // the bubble's fill is the canvas behind the renderer: no root background, so a body background reaches the canvas
     assert.ok(!/:where\(html\)\{[^}]*background/.test(layer));
-    assert.match(layer, /:where\(body\)\{margin:var\(--tg-text-padding,8px 12px\);padding:0\}/);
+    // The body pads for the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17), 0 with a caption below.
+    assert.match(layer, /:where\(body\)\{margin:var\(--tg-text-padding,8px 12px\);padding:0;padding-bottom:var\(--tg-content-safe-area-inset-bottom,0px\)\}/);
     // selection off on the root only: user-select is not inherited, so an element's `auto` follows its parent and
     // `user-select: text` on a container reaches its children
     assert.match(layer, /:where\(html\)\{[^}]*;user-select:none;/);

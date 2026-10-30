@@ -71,6 +71,8 @@ public:
 
     /// Runs `fn` on the thread after `seconds` unless cancelled.
     std::shared_ptr<Scheduled> after(double seconds, std::function<void()> fn);
+    /// Timers in the queue, cancelled ones not yet swept included (tests).
+    size_t queuedTimers();
 
     /// Stops the loop once queued work has run; the thread then exits. Idempotent.
     void stop();
@@ -91,6 +93,7 @@ private:
     std::condition_variable cv_;
     std::deque<std::function<void()>> tasks_;
     std::multimap<std::chrono::steady_clock::time_point, Timer> timers_;
+    size_t sweepAt_ = 64; // the queue's size that sweeps out cancelled timers
     bool stopRequested_ = false; // set by the stop task itself, on the thread
     bool stopping_ = false;      // no more work accepted
     bool joined_ = false;

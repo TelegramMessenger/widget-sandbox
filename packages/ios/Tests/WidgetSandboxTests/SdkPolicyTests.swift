@@ -63,13 +63,21 @@ final class SdkPolicyTests: XCTestCase {
         case .haptic(let h): return hapticDict(h)!.merging(["kind": "haptic"]) { a, _ in a } as NSDictionary
         case .setResizeAnchor(let edge): return ["kind": "setResizeAnchor", "edge": edge.rawValue]
         case .watchPublicData(let on): return ["kind": "watchPublicData", "on": on]
-        case .request(let id, let data): return ["kind": "request", "id": id, "data": data]
+        case .request(let id, let data, let wallet):
+            return wallet ? ["kind": "request", "id": id, "data": data, "wallet": true] : ["kind": "request", "id": id, "data": data]
+        case .wallet(let id, let call):
+            var c: [String: Any] = ["method": call.method, "data": call.data]
+            switch call {
+            case .sendTransaction(let tx, _): c["transaction"] = tx.json
+            case .signData(let payload, _): c["payload"] = payload.json
+            }
+            return ["kind": "wallet", "id": id, "call": c]
         case .copyText(let text): return ["kind": "copyText", "text": text]
         }
     }
 
     func testBridgeCalls() throws {
-        var anchors = 0, watches = 0, requests = 0, copies = 0
+        var anchors = 0, watches = 0, requests = 0, wallets = 0, copies = 0
         for c in try cases("bridge") {
             let checked = SdkPolicy.checkBridgeCall(value(c["method"]), value(c["args"]))
             XCTAssertEqual(actionDict(checked), value(c["expect"]) as? NSDictionary, "\(short(c["method"])) \(short(c["args"]))")
@@ -77,14 +85,16 @@ final class SdkPolicyTests: XCTestCase {
             case .setResizeAnchor?: anchors += 1
             case .watchPublicData?: watches += 1
             case .request?: requests += 1
+            case .wallet?: wallets += 1
             case .copyText?: copies += 1
             default: continue
             }
-            XCTAssertNil(WidgetAction(checked!), "the anchor, the watch, a request and a copy are never a WidgetAction")
+            XCTAssertNil(WidgetAction(checked!), "the anchor, the watch, a request, a wallet call and a copy are never a WidgetAction")
         }
         XCTAssertEqual(anchors, 2, "the fixture's setResizeAnchor entries for top and bottom")
         XCTAssertEqual(watches, 2, "the fixture's watchPublicData entries for true and false")
-        XCTAssertEqual(requests, 5, "the fixture's valid request entries")
+        XCTAssertEqual(requests, 9, "the fixture's valid request entries")
+        XCTAssertEqual(wallets, 3, "the fixture's valid wallet entries")
         XCTAssertEqual(copies, 4, "the fixture's valid copyText entries")
     }
 
@@ -264,21 +274,30 @@ final class SdkPolicyTests: XCTestCase {
             var gate = SdkPolicy.RequestGate()
             for (i, step) in try XCTUnwrap(c["steps"] as? [[String: Any]]).enumerated() {
                 if step["op"] as? String == "finish" {
-                    gate.finish()
+                    gate.finish(answeredAtMs: (step["answeredAt"] as? NSNumber)?.doubleValue)
                     XCTAssertFalse(gate.busy, "\(name), step \(i)")
+                    continue
+                }
+                if step["op"] as? String == "decideWallet" {
+                    let verdict = gate.decideWallet(
+                        nowMs: try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue), gesture: try XCTUnwrap(step["gesture"] as? Bool),
+                        visible: try XCTUnwrap(step["visible"] as? Bool), canQuery: try XCTUnwrap(step["canQuery"] as? Bool), wallet: try XCTUnwrap(step["wallet"] as? Bool))
+                    XCTAssertEqual(verdict.rawValue, step["expect"] as? String, "\(name), step \(i)")
+                    if verdict == .foreground || verdict == .granted { XCTAssertTrue(gate.busy, "\(name), step \(i)") }
                     continue
                 }
                 if step["op"] as? String == "show" {
                     let busy = gate.busy
-                    gate.show()
-                    XCTAssertEqual(gate.busy, busy, "\(name), step \(i): show changes nothing in flight")
+                    XCTAssertEqual(gate.show(nowMs: try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue)), try XCTUnwrap(step["expect"] as? Bool), "\(name), step \(i)")
+                    XCTAssertEqual(gate.busy, busy, "\(name), step \(i): show changes nothing in flight (a held request stays in flight as it goes out)")
                     continue
                 }
                 let verdict = gate.decide(
                     nowMs: try XCTUnwrap((step["at"] as? NSNumber)?.doubleValue), gesture: try XCTUnwrap(step["gesture"] as? Bool),
-                    visible: try XCTUnwrap(step["visible"] as? Bool), canQuery: try XCTUnwrap(step["canQuery"] as? Bool), backgroundQuery: try XCTUnwrap(step["backgroundQuery"] as? Bool))
+                    visible: try XCTUnwrap(step["visible"] as? Bool), canQuery: try XCTUnwrap(step["canQuery"] as? Bool), backgroundQuery: try XCTUnwrap(step["backgroundQuery"] as? Bool),
+                    withWallet: step["withWallet"] as? Bool ?? false, wallet: step["wallet"] as? Bool ?? false)
                 XCTAssertEqual(verdict.rawValue, step["expect"] as? String, "\(name), step \(i)")
-                if verdict == .foreground || verdict == .background { XCTAssertTrue(gate.busy, "\(name), step \(i)") }
+                if verdict == .foreground || verdict == .background || verdict == .held { XCTAssertTrue(gate.busy, "\(name), step \(i)") }
             }
         }
     }
@@ -298,7 +317,30 @@ final class SdkPolicyTests: XCTestCase {
             let verdict = try XCTUnwrap(SdkPolicy.RequestVerdict(rawValue: try XCTUnwrap(c["verdict"] as? String)))
             XCTAssertEqual(SdkPolicy.requestRefusal(verdict)?.rawValue, value(c["expect"]) as? String, verdict.rawValue)
         }
-        XCTAssertEqual(list.count, 7, "every verdict")
+        XCTAssertEqual(list.count, 9, "every verdict")
+    }
+
+    func testWalletTransactions() throws {
+        for c in try cases("walletTransactions") {
+            let note = c["note"] as? String ?? short(c["input"])
+            XCTAssertEqual(SdkPolicy.checkWalletTransaction(expand(c["input"])).map { $0.json as NSDictionary }, expand(c["expect"]) as? NSDictionary, note)
+        }
+    }
+
+    func testSignDataPayloads() throws {
+        for c in try cases("signDataPayloads") {
+            let note = c["note"] as? String ?? short(c["input"])
+            XCTAssertEqual(SdkPolicy.checkSignDataPayload(expand(c["input"])).map { $0.json as NSDictionary }, expand(c["expect"]) as? NSDictionary, note)
+        }
+    }
+
+    /// The JSON forms a client hands to its TON Connect window: the protocol's field names, absent fields left out.
+    func testWalletJson() {
+        let tx = WalletTransaction(validUntil: 1900000000, messages: [WalletMessage(address: "0:" + String(repeating: "a", count: 64), amount: "1")])
+        XCTAssertEqual(tx.json as NSDictionary, ["valid_until": 1900000000, "messages": [["address": "0:" + String(repeating: "a", count: 64), "amount": "1"]]] as NSDictionary)
+        XCTAssertEqual(SignDataPayload(type: .text, text: "x").json as NSDictionary, ["type": "text", "text": "x"] as NSDictionary)
+        XCTAssertEqual(WalletCall.signData(SignDataPayload(type: .text, text: "x"), data: "d").method, "signData")
+        XCTAssertEqual(WalletCall.sendTransaction(tx, data: "pay").data, "pay")
     }
 
     /// The constants the fixture does not spell out, as sdk-policy.ts has them.
@@ -319,12 +361,15 @@ final class SdkPolicyTests: XCTestCase {
         XCTAssertEqual(SdkPolicy.maxViewerNameLength, 64)
         XCTAssertEqual(Set(SdkPolicy.viewerFieldRules.keys), ["first_name", "last_name", "username", "is_premium"])
         XCTAssertEqual(WidgetChatType.allCases.map(\.rawValue), ["private", "group", "supergroup", "channel"])
-        XCTAssertEqual(SdkPolicy.RequestError.allCases.map(\.rawValue), ["NOT_ALLOWED", "BUSY", "RATE_LIMITED", "TIMEOUT", "FAILED", "INVALID_ANSWER"])
+        XCTAssertEqual(SdkPolicy.RequestError.allCases.map(\.rawValue), ["NOT_ALLOWED", "BUSY", "RATE_LIMITED", "TIMEOUT", "FAILED", "INVALID_ANSWER", "REJECTED", "BAD_REQUEST"])
+        XCTAssertEqual([SdkPolicy.maxWalletMessages, SdkPolicy.maxWalletBocLength, SdkPolicy.maxWalletBocTotal, SdkPolicy.maxSignDataLength, SdkPolicy.maxSignDataSchemaBytes], [255, 8192, 65536, 4096, 1024])
+        XCTAssertEqual(SdkPolicy.walletGrantMs, 10000)
+        XCTAssertEqual(SdkPolicy.walletNetworks, ["-239", "-3"])
         XCTAssertEqual(SdkPolicy.maxLinkLength, 256)
-        XCTAssertEqual(SdkPolicy.storageQuotaBytes, 16384)
+        XCTAssertEqual(SdkPolicy.storageQuotaBytes, 4096)
         XCTAssertEqual(SdkPolicy.maxLocaleLength, 35)
         XCTAssertEqual(SdkPolicy.defaultLocale, "en-US")
         XCTAssertEqual(SdkPolicy.profileVersion, 1)
-        XCTAssertEqual(SandboxEngine.maxStorageCommitChars, 2 * 12 * 16384 + 64)
+        XCTAssertEqual(SandboxEngine.maxStorageCommitChars, 2 * 12 * 4096 + 64)
     }
 }

@@ -7,9 +7,10 @@ import { diag, host, invalidateLayout, query, unsupported } from './host';
 import { PROFILE_VERSION } from '../shared/profile-tables';
 import { cssSupports } from '../shared/css-supports';
 import {
-  DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, REQUEST_ERRORS, STORAGE_QUOTA_BYTES,
-  checkChatType, checkCopyText, checkLink, checkLocale, checkRequestData, checkResizeAnchor, checkViewer, checkWidgetDataValue, completeThemeParams, utf8Length,
-  type ChatType, type RequestError, type ResizeAnchor, type ThemeParams, type WidgetUser,
+  CONTENT_SAFE_AREA_FIELDS, DEFAULT_LOCALE, DEFAULT_RESIZE_ANCHOR, HAPTIC_IMPACT_STYLES, HAPTIC_NOTIFICATION_TYPES, MAX_HANDLERS_PER_EVENT, NO_CONTENT_SAFE_AREA, REQUEST_ERRORS,
+  STORAGE_QUOTA_BYTES, checkChatType, checkContentSafeArea, checkCopyText, checkLink, checkLocale, checkRequestData, checkRequestOptions, checkResizeAnchor, checkSignDataPayload,
+  checkViewer, checkWalletTransaction, checkWidgetDataValue, completeThemeParams, utf8Length,
+  type ChatType, type ContentSafeArea, type RequestError, type ResizeAnchor, type ThemeParams, type WidgetUser,
 } from '../shared/sdk-policy';
 
 const G: any = globalThis;
@@ -67,7 +68,7 @@ interface Timer { fn: any; args: any[]; interval: boolean; delay: number }
 const timers = new Map<number, Timer>();
 let timerSeq = 1;
 /** Live timers allowed (from `config.maxTimers` at boot). The glue enforces the same cap as a backstop; this one gives the widget an error instead of a silent hang. */
-let maxTimers = 256;
+let maxTimers = 64;
 let timerLimitReported = false;
 
 export function configureLimits(limits: { maxTimers?: number }) {
@@ -421,7 +422,7 @@ function installNetworkStubs() {
 
 let colorScheme: 'light' | 'dark' = 'light';
 let themeParams: Readonly<ThemeParams> = Object.freeze(completeThemeParams({}, 'light'));
-const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated', 'chatDataChanged', 'publicDataChanged'];
+const WIDGET_EVENTS = ['themeChanged', 'activated', 'deactivated', 'chatDataChanged', 'publicDataChanged', 'contentSafeAreaChanged'];
 const widgetHandlers = new Map<string, Function[]>(WIDGET_EVENTS.map((t) => [t, []]));
 const themeCallbacks: Function[] = [];
 
@@ -444,6 +445,22 @@ export function setTheme(theme: unknown, notify: boolean) {
   if (!notify || !changed) return;
   fireWidgetEvent('themeChanged');
   for (const cb of [...themeCallbacks]) { try { cb(colorScheme); } catch (e) { reportError(e); } }
+}
+
+let contentSafeArea: Readonly<ContentSafeArea> = NO_CONTENT_SAFE_AREA;
+
+/**
+ * What the client draws over the widget (docs/sdk-v1.md §2.17): at boot (`notify` false) and on every change. A
+ * change gives the widget a fresh frozen `contentSafeAreaInset`, then `contentSafeAreaChanged`, in one task (the
+ * renderer has the root variables from the same call of the host).
+ */
+export function setContentSafeArea(area: unknown, notify: boolean) {
+  const next = checkContentSafeArea(area);
+  if (CONTENT_SAFE_AREA_FIELDS.every((k) => next[k] === contentSafeArea[k])) return;
+  contentSafeArea = Object.freeze(next);
+  // The variables moved boxes in the renderer: no cached layout answer survives.
+  invalidateLayout();
+  if (notify) fireWidgetEvent('contentSafeAreaChanged');
 }
 
 /** Visibility changed (the caller has flipped `document.hidden`): `activated` / `deactivated`. */
@@ -515,6 +532,8 @@ let canQuery = false;
 let isPreview = false;
 let chatType: ChatType | null = null;
 let viewer: Readonly<WidgetUser> | null = null;
+/** The client has the wallet for this user and the widget may ask the bot (docs/sdk-v1.md §2.18). */
+let walletAvailable = false;
 
 /**
  * The glue's context at boot (already decided there from the server's flags: a copy never has chatData, and has no
@@ -529,6 +548,7 @@ export function configureWidget(config: Record<string, unknown>) {
   chatType = checkChatType(config.chatType);
   const v = checkViewer(config.viewer).viewer;
   viewer = v && Object.freeze(v);
+  walletAvailable = config.wallet === true && canQuery;
 }
 
 /** The client's `setData`: the full state of both strings; `chatDataChanged`, then `publicDataChanged`, for each that differs, in this task. */
@@ -545,9 +565,9 @@ function applyData(data: unknown) {
 
 const REQUEST_MESSAGES: Record<string, string> = {
   preview: 'a preview (an inline result not sent yet) cannot ask the bot',
+  'no-wallet': 'the client has no wallet for this user (TelegramWidget.wallet is null)',
   disabled: 'requests are off for this message (the bot did not allow them here)',
   'no-activation': 'it needs a tap on the widget and runs in that tap\'s handler, one call per tap; background requests only where the client allows them (the private chat with the bot)',
-  hidden: 'background requests only while the widget is on screen',
   unsupported: 'this client does not deliver requests',
   BUSY: 'a request is already in flight; wait for its answer',
   RATE_LIMITED: 'too many requests (background requests at most once per 5 s); try again later',
@@ -555,39 +575,84 @@ const REQUEST_MESSAGES: Record<string, string> = {
   FAILED: 'the client could not deliver the request',
   INVALID_ANSWER: "the bot's answer broke the limits (a result over 1024 bytes, or not text)",
 };
+/** What differs for a wallet call. */
+const WALLET_MESSAGES: Record<string, string> = {
+  'no-activation': 'it needs a tap on the widget and runs in that tap\'s handler (one call per tap), or follows within 10 s the answer to a call made by a tap',
+  REJECTED: 'the user declined in the wallet window',
+  BAD_REQUEST: 'the wallet refused it (the network, the sender, the expiry or the cells)',
+  FAILED: 'the client could not complete the call',
+};
 
-function requestError(code: RequestError, reason?: unknown): Error {
-  const e = new Error('request: ' + (REQUEST_MESSAGES[typeof reason === 'string' && code === 'NOT_ALLOWED' ? reason : code] ?? REQUEST_MESSAGES['no-activation']));
+/** `label`: the call (`request`, `wallet.sendTransaction`, `wallet.signData`). */
+function requestError(code: RequestError, reason: unknown, label: string): Error {
+  const key = typeof reason === 'string' && code === 'NOT_ALLOWED' ? reason : code;
+  const wallet = label !== 'request' ? WALLET_MESSAGES[key] : undefined;
+  const e = new Error(label + ': ' + (wallet ?? REQUEST_MESSAGES[key] ?? REQUEST_MESSAGES['no-activation']));
   e.name = 'WidgetRequestError';
   (e as any).code = code;
   return e;
 }
 
 let requestSeq = 0;
-let pendingRequest: { id: number; resolve: (v: unknown) => void; reject: (e: unknown) => void } | null = null;
+/**
+ * Requests the glue has not answered yet. The glue's gate alone decides which one is in flight (`BUSY` for the
+ * others): a refusal comes back as a task of its own, so the shim cannot tell a refused request from one in flight.
+ */
+const pendingRequests = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void; label: string }>();
 
-function request(data: unknown): Promise<unknown> {
-  const checked = checkRequestData(data);
-  if (checked === null) throw new TypeError('request: data must be a string of 1 to 64 bytes (UTF-8), without lone surrogates');
-  if (!canQuery) return Promise.reject(requestError('NOT_ALLOWED', isPreview ? 'preview' : 'disabled'));
-  if (pendingRequest) return Promise.reject(requestError('BUSY'));
+function pending(label: string, send: (id: number) => void): Promise<unknown> {
   const id = ++requestSeq;
   return new Promise((resolve, reject) => {
-    pendingRequest = { id, resolve, reject };
-    bridge('request', id, checked);
+    pendingRequests.set(id, { resolve, reject, label });
+    send(id);
   });
 }
+
+function request(data: unknown, options?: unknown): Promise<unknown> {
+  const checked = checkRequestData(data);
+  if (checked === null) throw new TypeError('request: data must be a string of 1 to 64 bytes (UTF-8), without lone surrogates');
+  const opts = options === undefined ? { wallet: false } : checkRequestOptions(options);
+  if (opts === null) throw new TypeError('request: options must be an object with at most `wallet` (a boolean)');
+  if (!canQuery) return Promise.reject(requestError('NOT_ALLOWED', isPreview ? 'preview' : 'disabled', 'request'));
+  if (opts.wallet && !walletAvailable) return Promise.reject(requestError('NOT_ALLOWED', 'no-wallet', 'request'));
+  return pending('request', (id) => (opts.wallet ? bridge('request', id, checked, { wallet: true }) : bridge('request', id, checked)));
+}
+
+/**
+ * A wallet call (docs/sdk-v1.md §2.18): the argument in TON Connect's format, checked here for a clear error and
+ * again in the glue; `data` (1–64 bytes) tells the bot what the outcome is for. Resolves with the bot's answer to it.
+ */
+function walletCall(method: 'sendTransaction' | 'signData', arg: unknown, data: unknown): Promise<unknown> {
+  const label = 'wallet.' + method;
+  const checked = method === 'sendTransaction' ? checkWalletTransaction(arg) : checkSignDataPayload(arg);
+  if (checked === null) {
+    throw new TypeError(method === 'sendTransaction'
+      ? label + ": expected TON Connect's transaction: { valid_until?, network?, from?, messages: [{ address, amount, payload?, stateInit? }] }, 1 to 255 messages, user-friendly addresses, amounts as decimal strings of nanotons, payloads in base64 (at most 8192 characters each, 65536 together)"
+      : label + ": expected TON Connect's payload: { type: 'text', text } (at most 4096 bytes), { type: 'binary', bytes } or { type: 'cell', schema, cell } (base64 of at most 4096 characters); no domain");
+  }
+  const label64 = checkRequestData(data);
+  if (label64 === null) throw new TypeError(label + ': data must be a string of 1 to 64 bytes (UTF-8), without lone surrogates');
+  if (!walletAvailable) return Promise.reject(requestError('NOT_ALLOWED', 'no-wallet', label));
+  return pending(label, (id) => bridge('wallet', id, method, checked, label64));
+}
+
+const walletApi = Object.freeze({
+  /** Ask the user to send a transaction in the client's wallet window (TON Connect's `sendTransaction` request); resolves with the bot's answer `{ result }` once it is sent. */
+  sendTransaction: (transaction: unknown, data: unknown) => walletCall('sendTransaction', transaction, data),
+  /** Ask the user to sign data in the client's wallet window (TON Connect's `signData` payload); the signature goes to the bot, which resolves this with its answer `{ result }`. */
+  signData: (payload: unknown, data: unknown) => walletCall('signData', payload, data),
+});
 
 /** A `bridge` dispatch from the glue: the bot's data, or the answer to a request. */
 export function bridgeEvent(event: unknown) {
   const e = (typeof event === 'object' && event !== null ? event : {}) as Record<string, unknown>;
   if (e.type === 'data') return applyData(e);
   if (e.type !== 'answer') return;
-  const p = pendingRequest;
-  if (!p || p.id !== e.id) return;
-  pendingRequest = null;
+  const p = typeof e.id === 'number' ? pendingRequests.get(e.id) : undefined;
+  if (!p) return;
+  pendingRequests.delete(e.id as number);
   if (typeof e.error === 'string') {
-    p.reject(requestError((REQUEST_ERRORS as readonly string[]).includes(e.error) ? (e.error as RequestError) : 'FAILED', e.reason));
+    p.reject(requestError((REQUEST_ERRORS as readonly string[]).includes(e.error) ? (e.error as RequestError) : 'FAILED', e.reason, p.label));
     return;
   }
   const result = typeof e.result === 'string' ? e.result : null;
@@ -609,6 +674,12 @@ function installBridge() {
     /** The chat's palette as `#rrggbb`, Mini Apps keys; a fresh frozen object per change. */
     get themeParams() { return themeParams; },
     get isActive() { return !hidden; },
+    /**
+     * What the client draws over the widget, in CSS px (the `--tg-content-safe-area-*` root variables, `env(safe-area-inset-*)`):
+     * `bottom` is the band of the message time over a widget with no caption below it, `cornerLeft` / `cornerRight` the
+     * client's corner in it; 0 with a caption below. A fresh frozen object per change, then `contentSafeAreaChanged`.
+     */
+    get contentSafeAreaInset() { return contentSafeArea; },
     onEvent(type: unknown, handler: unknown) {
       const list = widgetHandlers.get(String(type));
       if (!list || typeof handler !== 'function' || list.includes(handler) || list.length >= MAX_HANDLERS_PER_EVENT) return;
@@ -651,8 +722,17 @@ function installBridge() {
     get chatType() { return chatType; },
     /** Who looks at the widget, `{ id }` (the Telegram user id the bot gets with a request); null in a copy that cannot request. */
     get viewer() { return viewer; },
-    /** Ask the bot (a callback button inside the widget): `data` of 1–64 bytes; resolves with `{ result }`, rejects with `error.code`. Needs a tap, except in the private chat with the bot. */
-    request(data: unknown) { return request(data); },
+    /**
+     * Ask the bot (a callback button inside the widget): `data` of 1–64 bytes; resolves with `{ result }`, rejects with `error.code`. Needs a tap, except in the private chat with the bot.
+     * `{ wallet: true }` (on a tap only, where `wallet` is not null): the bot gets the user's wallet with it, created if the user had none.
+     */
+    request(data: unknown, options?: unknown) { return request(data, options); },
+    /**
+     * Gram Wallet (docs/sdk-v1.md §2.18): `sendTransaction(transaction, data)` and `signData(payload, data)` in TON Connect's
+     * formats, each confirmed by the user in the client's own window; on a tap, or within 10 s of the answer to a call made by a tap.
+     * Null where the client has no wallet for this user, where the widget cannot ask the bot, and in a preview.
+     */
+    get wallet() { return walletAvailable ? walletApi : null; },
     /** Copy text to the clipboard (the client shows what it copied); 1–256 characters; needs a tap. */
     copyText(text: unknown) { copyText(text); },
     /** Deprecated alias of `colorScheme`. */

@@ -40,7 +40,7 @@ host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
 | widget API | `TelegramWidget`, Web Storage, `CSS.supports`, `navigator.language`, `visibilitychange`, the inert stubs | — |
 | checks | argument schemas, user activation, rate limits, storage quota, profile tables, in all five glue copies | — |
 | theme | CSS variables on the renderer root, `themeChanged`, the defaults of the root, the text and `<button>` (the UA layer) | maps the bubble's colours to `themeParams`, its button and message text to the button and text tokens, calls `setTheme` |
-| links | validates the URL, lets one call through per pointer press | shows the confirmation with the full URL, opens it |
+| links | validates the URL, lets one call through per pointer press | `openLink`: shows the confirmation with the full URL, opens it; `openTelegramLink`: opens it as a `t.me` link in a message, no confirmation of its own |
 | haptics | validates, rate-limits, drops calls from hidden widgets | plays them (or ignores them on desktop and web) |
 | storage | preload at start, per-task commits, the quota | persists per message, deletes with the message, chat, account, "Clear cache" |
 | gestures | reports per press what the widget claims with `touch-action` (horizontal drags, holds); the shared policy (thresholds, who wins); `dblclick` for every double tap, `contextmenu` for claimed holds; on the web, plays the bubble itself | drives its recognizers from the policy: menu and swipe-to-reply unless the widget claims the press, and then cancels the widget's touch; the list scroll always; no double-tap reaction over the widget (v0.1.2; vertical drags the chat's since v0.1.3, §5.5) |
@@ -69,7 +69,8 @@ laid over the same calls later (D19).
 | `colorScheme` | `'light' \| 'dark'`, read-only | before v1: `theme` |
 | `themeParams` | `ThemeParams`, read-only, a fresh frozen object per change | |
 | `isActive` | `boolean`, read-only (`!document.hidden`) | |
-| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated' \| 'chatDataChanged' \| 'publicDataChanged'` (the last two: §2.13); the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
+| `contentSafeAreaInset` | `{ top, right, bottom, left, cornerLeft, cornerRight }` in CSS px, read-only, a fresh frozen object per change | §2.17: the client's time over the bottom corner of a widget with no caption below it; detect it with `TelegramWidget.contentSafeAreaInset !== undefined` |
+| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated' \| 'chatDataChanged' \| 'publicDataChanged' \| 'contentSafeAreaChanged'` (`chatDataChanged`, `publicDataChanged`: §2.13; `contentSafeAreaChanged`: §2.17); the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
 | `openLink(url)` | `(url: string) => void` | before v1 without the checks below |
 | `openTelegramLink(url)` | `(url: string) => void` | |
 | `HapticFeedback.impactOccurred(style)` | `style`: `'light' \| 'medium' \| 'heavy' \| 'rigid' \| 'soft'` | |
@@ -83,14 +84,15 @@ laid over the same calls later (D19).
 | `chatType` | `'private' \| 'group' \| 'supergroup' \| 'channel' \| null`, read-only | §2.13: null in a copy (it is told nothing about the chat it is in) and in a preview, or when the client does not say |
 | `viewer` | `{ id, first_name?, last_name?, username?, is_premium? } \| null` (Mini Apps' `WebAppUser`), read-only, frozen | §2.13: the user looking at the widget; null wherever the widget may not send requests (no `canQuery`), a preview included |
 | `isPreview` | `boolean`, read-only | §2.16: an inline result shown before it is sent |
-| `request(data)` | `(data: string) => Promise<{ result: string \| null }>` | §2.14 |
+| `request(data, options?)` | `(data: string, options?: { wallet?: boolean }) => Promise<{ result: string \| null }>` | §2.14; `{ wallet: true }`: §2.18 |
+| `wallet` | `{ sendTransaction(transaction, data), signData(payload, data) } \| null`, read-only, frozen | §2.18: Gram Wallet; null where the client has no wallet for this user, where the widget may not ask the bot, in a preview |
 | `copyText(text)` | `(text: string) => void` | §2.15 |
 | `theme`, `onTheme(cb)` | aliases of `colorScheme` and `onEvent('themeChanged')` (the callback gets the colour scheme, at once and on every change) | deprecated |
 | `sendMessage` | `typeof TelegramWidget.sendMessage === 'undefined'` | removed |
 
 All methods are synchronous and return `undefined`, except the three haptic
 methods, which return `TelegramWidget.HapticFeedback` for chaining, as in Mini
-Apps, `isProfileAtLeast`, and `request`, which returns a promise of the
+Apps, `isProfileAtLeast`, and `request` and the two wallet calls, which return a promise of the
 bot's answer. No other call gets an answer from the client: whether the user
 confirmed a link is not reported back.
 
@@ -271,7 +273,9 @@ Other form controls are outside the profile and dropped by the validator.
 - **User activation** (`docs/protocol.md`, "User activation"): the glue
   forwards a call only while the task of a real pointer press on the visible
   widget runs, and one press unlocks one call shared by both methods. A press
-  is `pointerdown` … `click` from the renderer, marked `trusted`, and the
+  is `pointerdown` … `click` from the renderer, marked `trusted` (a finger's or
+  a pen's from its `pointerup`: the renderer does not mark their `pointerdown`,
+  which may still become the chat's scroll), and the
   `dblclick` that ends a double tap (delivered since v0.1.2, §2.10) belongs to
   the press of its second click;
   keys never count (D4: no keyboard input or focus at all), nor does a click a
@@ -353,8 +357,8 @@ out of v1 (§6).
   bot or the server.
 - `sessionStorage` has the same key and lives in the client's memory until the
   app restarts.
-- Quota: 16 KB per area and message (16384 bytes of keys and values counted in
-  UTF-8). `setItem` that would exceed it throws a `DOMException` named
+- Quota: 4 KB per area and message (4096 bytes of keys and values counted in
+  UTF-8; 16 KB until the strict limits, `docs/decisions.md` "Strict limits from the start"). `setItem` that would exceed it throws a `DOMException` named
   `QuotaExceededError` (the shim provides `DOMException`) and stores nothing.
   Keys and values are converted to strings, as in browsers.
 - The data is in the widget at start (synchronous reads from the first line of
@@ -395,7 +399,7 @@ missing or malformed locale is `en-US` (before v1: always `en-US`).
 |---|---|---|---|
 | `openLink`, `openTelegramLink` | `TypeError` | dropped, `activation-blocked` (no press, hidden, press used) | 256 characters; one call per press |
 | haptics | `TypeError` | dropped, `haptic-limit` (hidden, over the bucket, outside a touch after the series) | bucket 5, 10 per second; outside a touch (a press and 5 s after it) one 1 s series, the next after a touch or 10 s later |
-| `localStorage`, `sessionStorage` | — | `QuotaExceededError` | 16 KB per area |
+| `localStorage`, `sessionStorage` | — | `QuotaExceededError` | 4 KB per area |
 | `isProfileAtLeast` | `false` | — | — |
 | `onEvent`, `offEvent` | ignored (unknown type or non-function) | — | 16 handlers per type; further ones are ignored |
 | `ready` | — | — | — |
@@ -410,11 +414,15 @@ request, at most 20 per widget), `answer-rejected` (an answer whose `result`
 broke the limits) and `data-rejected` (a chat state or shared state the client
 passed that is over 1024 bytes or not text).
 
-A widget is killed, and its last frame kept (§5.7), for one of three reasons the
+A widget is killed, and its last frame kept (§5.7), for one of these reasons the
 host sees in `died` / `onDead`: `CPU limit exceeded` (more than the task's slice
 of continuous JS), `Layout query limit exceeded` (its synchronous layout queries
-blocked the renderer for more than max(slice, 100 ms) in one task; the queries
-also count toward the CPU quota) and `Memory limit exceeded (64 MB)`.
+blocked the renderer for more than 100 ms in one task; the queries also count
+toward the host's main-thread window), `Memory limit exceeded (8 MB)`, and, under
+`strict`, a counted cap of the validator (`Text limit exceeded`, `Attribute limit
+exceeded`, `Ops limit exceeded`, `Canvas limit exceeded`, `CSS limit exceeded`; the
+validator's `limit` diagnostic carries the same reason; `docs/decisions.md`, "Strict
+limits from the start").
 
 ### 2.12 Resize anchor (v0.1.3)
 
@@ -553,21 +561,27 @@ TelegramWidget.request('vote:2').then(
   visible widget, like `openLink`: one tap unlocks one call, shared with
   `openLink`, `openTelegramLink` and `copyText` (a handler that calls `request`
   and then `copyText` copies nothing).
-- **Background requests**, without a tap, only where the table allows them:
-  only while the widget is visible, one at once when the widget appears on
-  screen (scrolled into view, the app back in front, at creation), then at most
-  one per 5 s (from the start of the last one) while it stays visible. The
-  server and the bot cannot tell a background request from a tap (as for
-  callback buttons); the limit is the client's, the framework's.
-- **One in flight.** A second call while a request waits for its answer rejects
-  at once with `BUSY`.
+- **Background requests**, without a tap, only where the table allows them;
+  they go out only while the widget is visible: one at once when the widget
+  appears on screen (scrolled into view, the app back in front, at creation on
+  screen), then at most one per 5 s (from the start of the last one) while it
+  stays visible. One made while the widget is off screen waits in the client
+  and goes out when the widget appears, as that appearance's one; its promise
+  stays pending meanwhile (a widget that never appears never asks). Clients
+  create a bubble before it is on screen, so a request in the script's first
+  lines is the way to fetch fresh state: it goes out as soon as the widget is
+  seen. The server and the bot cannot tell a background request from a tap (as
+  for callback buttons); the limit is the client's, the framework's.
+- **One in flight.** A second call while a request waits for its answer, or
+  waits off screen to go out, rejects with `BUSY`. Only the client's gate
+  decides it: a request it refused never makes the next one `BUSY`.
 - The promise rejects with an `Error` whose `name` is `WidgetRequestError` and
   whose `code` says why:
 
 | `code` | when |
 |---|---|
-| `NOT_ALLOWED` | this message may not ask (a widget sent without `allow_queries`, or a forward of one sent without `fwd_allow_queries`); no tap where background requests are off; a background call while hidden; a client that does not deliver requests |
-| `BUSY` | another request is in flight |
+| `NOT_ALLOWED` | this message may not ask (a widget sent without `allow_queries`, or a forward of one sent without `fwd_allow_queries`); no tap where background requests are off; a client that does not deliver requests |
+| `BUSY` | another request is in flight, or waits off screen to go out |
 | `RATE_LIMITED` | a background call sooner than 5 s after the last one while the widget stayed visible, or the server's flood limit |
 | `TIMEOUT` | the bot did not answer in time (15 s: it is down, not subscribed to the updates, or slow) |
 | `FAILED` | anything else: the bot was blocked or deleted, the message is gone, the network |
@@ -610,6 +624,131 @@ it is not a message yet and is not the user's:
 Draw the same first state a sent widget would draw: the preview is what the
 user is about to send.
 
+### 2.17 The client's time over the widget: the content safe area
+
+A message with a widget and **no caption below it** (no caption, or a caption
+shown above the media, `invert_media`) gets its time and status (the ticks,
+"edited", a channel's views) drawn by the client **over the widget's bottom
+corner**, on a backing, as over a photo: the right corner in a left-to-right
+interface, the left one in a right-to-left one (a physical side: an English widget
+in an Arabic client has the time on its left). With a caption below the widget the
+time is in the caption's line and nothing is drawn over the widget: everything is
+0. A caption above the widget is as no caption: the time is over the corner
+again, as on a photo whose caption is moved up. Taps on the time are the
+client's (a view over the widget), never the widget's: put nothing a user taps
+under it. The floating date pill of a chat that scrolls past the widget has no
+contract: it is drawn over the widget like over a photo and moves every frame.
+
+The widget gets the band and the corner the way a web page gets the screen's notch;
+the client gives the numbers:
+
+```css
+/* the band the time is drawn in, at the bottom: keep it clear */
+.footer { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+/* only the corner of the band is covered: content may run into the band on the other side */
+.footer { padding-right: max(12px, var(--tg-content-safe-area-corner-right));
+          padding-left: max(12px, var(--tg-content-safe-area-corner-left)); }
+```
+
+- `env(safe-area-inset-top|right|bottom|left[, fallback])` is in profile 1 (a
+  clarification of 2026-10-29, before widgets launched; `P1-safe-area` in
+  `profile.json`). The validator rewrites it, in stylesheets, `style` attributes
+  and CSSOM writes alike, to `var(--tg-content-safe-area-inset-…[, fallback])`: the
+  engine's own `env()` belongs to the document (on the web, to the chat page) and
+  comes from the view's system insets, so it never reaches the renderer. The
+  variables are always set (0 with a caption below), so a fallback applies only where a
+  client sets nothing. Any other `env()` name (`keyboard-inset-*`, `titlebar-area-*`)
+  resolves to its fallback, or drops the declaration without one; `env()` inside
+  `url()` and the other URL-taking functions is rejected like `var()`. `CSS.supports`
+  and `@supports` answer `true` for the safe-area insets only.
+- The root variables, set by the renderer like the theme's (inline and
+  `!important`, names from a fixed list, values checked): `--tg-content-safe-area-inset-top`,
+  `-right`, `-bottom`, `-left` (bottom = the height of the time's band, the rest
+  0; the names are Mini Apps', so `var(--tg-content-safe-area-inset-bottom)` from
+  Mini Apps code works too) and `--tg-content-safe-area-corner-left`, `-right`: the
+  width the client's corner takes in the band, on its physical side (`right` in a
+  left-to-right interface, `left` in a right-to-left one, the other 0). An inset is
+  0–64 px and a corner 0–200 px; a client value outside that is 0.
+- The renderer's UA layer (§2.4) adds the band to the body's bottom padding
+  (`:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`), so
+  an unstyled widget (and one that sets only `body { margin: 0 }`) stays clear of
+  the time and is that much taller. A widget that sets the body's padding, or resets
+  every padding (`* { padding: 0 }`), handles the band itself. The converse: a widget that
+  pads for the band itself must set the body's padding too (`body { margin: 0; padding: 0 }`),
+  or the default bottom padding comes on top of its own (`corpus/safe-area`, README).
+- `TelegramWidget.contentSafeAreaInset`, `{ top, right, bottom, left, cornerLeft,
+  cornerRight }` in CSS px, has the same numbers for script (a canvas widget lays
+  its own controls out with them; `getComputedStyle` on the variables would be a
+  layout query). A change (a caption added, removed or moved above or below the widget
+  by an edit, an "edited" mark that widens the time) gives a fresh frozen object and fires
+  `contentSafeAreaChanged`, in one task, with the variables already set. It never
+  changes per frame.
+
+### 2.18 The wallet
+
+A widget can ask the user to pay or to sign through Telegram's built-in wallet (Gram Wallet). The widget is the
+front of a dApp and its bot is the back end, as a site and its server are in TON Connect; the formats are TON
+Connect's, but there is no connection, no manifest, no bridge and no domain: who asks is the bot that sent the
+message, and the client's own wallet window says so. Decided in `docs/decisions.md`, "The wallet".
+
+```js
+// A tap asks the bot with the user's wallet; the bot answers with a fresh transaction; the widget passes it on.
+TelegramWidget.request('pay:42', { wallet: true })
+  .then((a) => TelegramWidget.wallet.sendTransaction(JSON.parse(a.result), 'paid:42'))
+  .then((a) => show(a.result), (e) => showError(e.code));
+
+TelegramWidget.wallet.signData({ type: 'text', text: 'I accept the terms of order 42' }, 'terms:42')
+  .then((a) => show(a.result));
+```
+
+- **`TelegramWidget.wallet`** is `null` where the client has no wallet for this user (a client without it, a
+  country where the wallet is not available), where the widget may not ask the bot (no `canQuery`: §2.14's table;
+  a forward of a widget sent with `fwd_allow_queries` may) and in a preview. Check it before drawing a pay button.
+  The widget never learns the user's address from the client; the bot does (below) and may put it in `result`.
+- **`request(data, { wallet: true })`**, on a tap only: the bot gets the wallet card of the user's profile (the
+  cloud wallet's address and balance) with the request; a user without a wallet gets one created then (a new wallet
+  is empty: the client offers to top it up when it is paid from). Refused (`NOT_ALLOWED`) without `wallet` or
+  without a tap, background requests included. `options` is an object with at most `wallet`, a boolean; anything
+  else throws `TypeError`. The wallet that pays or signs is the one on the device, and it can be another one: with
+  the wallet's backup off a device keeps its own key and its own wallet. So the bot does not put the profile's
+  address in a transaction's `from` (the wallet refuses a `from` that is not its own: `BAD_REQUEST`); it learns the
+  device's wallet with the outcome (below).
+- **`wallet.sendTransaction(transaction, data)`**: `transaction` is TON Connect's `sendTransaction` request with
+  its own field names: `{ valid_until?, network?, from?, messages: [{ address, amount, payload?, stateInit? }] }`;
+  1–255 messages (what Gram Wallet takes); `valid_until` in Unix seconds; `network` `'-239'` (the mainnet) or
+  `'-3'` (the testnet); a message's `address` user-friendly (48 characters, the bounce flag in it; a raw `0:…` is
+  refused, as TON Connect wallets must), `from` raw or user-friendly; `amount` nanotons as a decimal string;
+  `payload` and `stateInit` bags of cells in base64, at most 8192 characters each and 65536 for all messages
+  together. `null` fields are left out; any other field (`items`, `extra_currency`, the SDK's `validUntil`) throws
+  `TypeError`. The client shows the transaction in its own wallet window
+  (each message's amount and destination, the emulated outcome) with the bot of the message; on confirmation it
+  sends it, gives the bot the outcome (the message hash and the device's wallet that sent it: its address, balance
+  and public key; the bot checks the transaction on the chain) and resolves with the bot's answer to it,
+  `{ result }`, as `request` does. The widget never gets the signed message.
+- **`wallet.signData(payload, data)`**: `payload` is TON Connect's: `{ type: 'text', text }` (at most 4096 bytes
+  of UTF-8, shown to the user), `{ type: 'binary', bytes }` or `{ type: 'cell', schema, cell }` (base64 of at most
+  4096 characters, the TL-B schema at most 1024 bytes; the window warns that it cannot show them), optionally with
+  `network` and `from`. There is no domain: the client signs for `bot<bot_id>` of the message. The signature goes
+  to the bot with the device's wallet that signed (its address and public key); the bot checks it or passes it on,
+  and resolves this with its answer.
+- `data` (1–64 bytes, a request's) is the label the bot gets with the outcome: what the payment or the signature
+  is for.
+- **When.** On a tap, in its handler, on the visible widget (one call per tap, shared as in §2.14), or **within
+  10 s of the answer to a call made by a tap** (a request or a wallet call): the answer grants one wallet call
+  without a new tap, so a tap can pay for what the bot answers. Any call made on a tap or on the grant uses the
+  grant up; a refusal, a failure or a background request's answer brings none. Never in the background, never
+  from a timer. One call in flight, shared with requests (`BUSY`).
+- The promise rejects as a request's does (§2.14), plus two codes:
+
+| `code` | when |
+|---|---|
+| `REJECTED` | the user declined in the wallet window |
+| `BAD_REQUEST` | the wallet refused the transaction or the payload (another network or sender than the user's, an expired `valid_until`, cells it cannot parse) |
+| `NOT_ALLOWED` | no wallet, no tap and no grant, a preview |
+
+  A failure after the window (`TIMEOUT`, `FAILED`) means the bot's answer did not come: the transaction may have
+  been sent; ask the bot about the order again rather than paying twice.
+
 ## 3. Protocol
 
 What carries the API between the sandbox (QuickJS), the host glue and the
@@ -628,6 +767,7 @@ one policy with a shared JSON fixture, as `cpu-budget` does:
 | `theme` | `'light' \| 'dark'` | client (`colorScheme`) | |
 | `themeParams` | `Record<ThemeKey, '#rrggbb'>` | client | |
 | `locale` | BCP 47 string, at most 35 characters | client | |
+| `contentSafeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }`, CSS px | client (§2.17, §5.12; all 0 when absent); the shim checks it: an inset 0–64, a corner 0–200, two decimals, else 0 | |
 | `profile` | integer | glue (its own constant; `VERSION.json` once it exists) | the shim reports `profile-mismatch` when it differs from the bundle's |
 | `storage` | `{ local: Record<string, string>, session: Record<string, string> }` | client (the preload), glue checks the quota | |
 | `policy` | `'strict'` | glue default | |
@@ -654,12 +794,13 @@ dropped whole with the diagnostic `storage-rejected` (the widget starts empty).
 | `haptic` | `['impact', style]`, `['notification', type]`, `['selection']` | enum values; visible; rate limit | `haptic(...)` |
 | `setResizeAnchor` | `[edge]` | exactly `'top'` or `'bottom'` (v0.1.3); no gesture, no visibility gate | not an action: the host keeps the latest value and reports it with the height (§4) |
 | `watchPublicData` | `[on]` | exactly one boolean; no gesture, no visibility gate; refused in a preview | not an action: the host keeps the latest value and reports a change (`onWatchPublicData`, `watchesPublicData`, §4) |
-| `request` | `[id, data]` | `id` an integer 1–2147483647 (the shim numbers its requests), `data` 1–64 bytes; then the request gate (below) | `onRequest({ data })`; the answer goes back as a `bridge` event (§3.3) |
+| `request` | `[id, data]` or `[id, data, { wallet }]` | `id` an integer 1–2147483647 (the shim numbers its requests), `data` 1–64 bytes, the options an object with at most `wallet`, a boolean; then the request gate (below) | `onRequest({ data, wallet? })`; the answer goes back as a `bridge` event (§3.3) |
+| `wallet` | `[id, 'sendTransaction', transaction, data]` or `[id, 'signData', payload, data]` | the transaction or the payload as §2.18 has it (`checkWalletTransaction`, `checkSignDataPayload`), `data` 1–64 bytes; then the request gate's `decideWallet` (below) | `onWallet(call)`; the answer goes back as a `bridge` event, as a request's |
 | `copyText` | `[text]` | 1–256 UTF-16 code units; privileged: needs the task's gesture, consumes it | `onCopyText(text)` |
 
 The glue checks in this order: the method and its arguments
 (`checkBridgeCall`; any other method or a malformed call is dropped with
-`bridge-rejected`, at most 20 reported); for `request` the request gate (below);
+`bridge-rejected`, at most 20 reported); for `request` and `wallet` the request gate (below);
 user activation for the two link methods and `copyText` (`activation-blocked`);
 for `haptic` the gate of §2.6 (`haptic-limit`).
 
@@ -683,6 +824,14 @@ refuses it (`NOT_ALLOWED`, reason `unsupported`). The answer is checked
 (`checkRequestAnswer`: `result` text of at most 1024 bytes without a NUL, else
 `INVALID_ANSWER` and `answer-rejected`) and frees the gate; so does a failure
 (`TIMEOUT`, `RATE_LIMITED`, `FAILED`).
+
+The wallet (§2.18) in the same gate: a request with `{ wallet: true }` without the context's `wallet` →
+`no-wallet`; it goes out only as `foreground` (no background, never held). A wallet call (`decideWallet`): no
+`canQuery` → `disabled`; no `wallet` → `no-wallet`; a call in flight → `busy`; a press on the visible widget →
+`foreground`; the visible widget within 10 s of the grant → `granted`; else `no-activation`. The grant: an answer
+with no error to a call that went out as `foreground` or `granted` (`finish(answeredAt)`); any call that goes out
+as either uses it up. A wallet call's failure keeps the wallet's codes (`REJECTED`, `BAD_REQUEST`); a request's
+turns them into `FAILED`.
 A call that passes goes to the client as a `WidgetAction` with the normalised
 URL (and, deprecated, to `onBridge` with the raw method and arguments), except
 `setResizeAnchor` and `watchPublicData`, which only set a value the host keeps:
@@ -702,7 +851,7 @@ Record<string, string> }`, the full content of each area that changed in the
 task. The shim sends it once the task is over (after the MutationObserver
 callbacks, when the glue's last `endTick` of the task returns). The glue
 refuses an argument longer than any commit within the quota can be (2 × 12 ×
-16384 + 64 characters) before parsing it, checks that the commit has only
+4096 + 64 characters) before parsing it, checks that the commit has only
 `local` / `session`, each an object of strings within the quota, and hands
 each area to the client (`onStorageCommit(area, values)`, `local` first); a
 commit that fails is dropped whole with `storage-rejected` (at most 20
@@ -714,6 +863,7 @@ in order.
 | message | payload |
 |---|---|
 | `theme` | `{ theme: 'light' \| 'dark', themeParams }` (before v1: the scheme only) |
+| `safeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }` (§2.17): the shim checks it, and on a change sets a fresh `contentSafeAreaInset`, drops its cached layout answers and fires `contentSafeAreaChanged`, in one task. Not deferred under the CPU quota (it comes from the client, never from the widget, and only with the bubble's layout) |
 | `visibility` | `{ visible }` |
 | `event` | a renderer event, with `gesture: n` for a trusted press |
 | `bridge` | `{ type: 'data', chatData, publicData }` (the full state after a change: the shim fires `chatDataChanged`, then `publicDataChanged`, for each that differs), or `{ type: 'answer', id, result }` / `{ type: 'answer', id, error, reason? }`. Deferred under the CPU quota like `theme`, in order |
@@ -727,12 +877,14 @@ for the widget's state and the answers to `request`.
 | message | payload |
 |---|---|
 | `theme` | `{ type: 'theme', theme: { colorScheme, params, button, text } }`: the renderer core builds the variables of §2.3 and §2.4 (`themeVariables`) and sets them on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer); the colour scheme itself still goes to the renderer element (`color-scheme`, the WebView's appearance) as before. A native renderer does the same with its own copy of `themeVariables` (`apps/renderer-litehtml/src/theme.cpp`) |
+| `safeArea` | `{ type: 'safeArea', inset: { top, right, bottom, left, cornerLeft, cornerRight } }` (§2.17): the renderer core sets the six `--tg-content-safe-area-*` variables (`contentSafeAreaVariables`) on the root next to the theme's, 0 until the first one; hosts send it right after `theme` and on every `setContentSafeArea`. The litehtml prototype's twin is `theme::safe_area_variables`; Blitz ignores it (the fallback of a widget's `env()` then applies) |
 
 | `arbitrate` | `{ type: 'arbitrate', bubble, touch?, rtl? }` (v0.1.2): `bubble` true, the renderer plays the bubble itself with the gesture policy (the web hosts, `bubbleGestures`): a press the bubble takes ends for the widget with `pointercancel` and the host gets `bubble`. `touch`: a mouse's primary button arbitrates as a finger (and the widget sees `pointerType: 'touch'`). `rtl`: the edge strip is on the right. Native hosts leave it off: their own recognizers take the presses |
 
 The renderer takes only variable names from the fixed list above and values
 that match their grammar (`#rrggbb`, CSS lengths, a font shorthand with a
-generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3).
+generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3, a
+safe-area inset of 0–64 px and a corner of 0–200 px).
 
 ### 3.5 Renderer → host
 
@@ -766,7 +918,9 @@ public struct WidgetGestureClaim { var x: Bool; var y: Bool; var hold: Bool }   
 public enum WidgetResizeAnchor: String { case top, bottom }   // v0.1.3: WidgetDiagnostics.resizeAnchor, next to height
 
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
-// Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload)
+// Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload),
+//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
+public struct WidgetContentSafeArea { var top, right, bottom, left, cornerLeft, cornerRight: Double }   // points = CSS px, 0 by default
 var onChange: ((WidgetDiagnostics) -> Void)?           // height, resizeAnchor (v0.1.3), watchesPublicData, loaded, rendered, dead, diags, actions
 var onWatchPublicData: ((Bool) -> Void)?                // the widget started or stopped watching its shared state (§5.11): on a change
 var onError: ((String) -> Void)?
@@ -774,6 +928,7 @@ var onAction: ((WidgetAction) -> Void)?
 var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?   // local before session
 var onGestureClaim: ((WidgetGestureClaim) -> Void)?   // every primary pointerdown; drive the bubble's recognizers with GestureArbiter (§5.5)
 func setTheme(_ theme: WidgetTheme)
+func setContentSafeArea(_ area: WidgetContentSafeArea)   // only with the bubble's layout (a caption edit or move), never per frame
 func setVisible(_ visible: Bool); func snapshot(completion:); func destroy()
 ```
 
@@ -783,12 +938,14 @@ The widget's state and requests (§2.13–§2.15, §5.11):
 public struct WidgetData { var chatData: String?; var publicData: String? }          // the full state: the chat state and the shared state
 public enum WidgetChatType: String { case `private`, group, supergroup, channel }
 public struct WidgetViewer { var id: Int64; var firstName: String?; var lastName: String?; var username: String?; var isPremium = false }  // the account's own
-public struct WidgetContext { var isCopy = false; var canQuery = false; var backgroundQuery = false; var chatType: WidgetChatType?; var viewer: WidgetViewer?; var preview = false }  // the server's flags; preview: §2.16
-public struct WidgetRequest { let data: String }
+public struct WidgetContext { var isCopy = false; var canQuery = false; var backgroundQuery = false; var chatType: WidgetChatType?; var viewer: WidgetViewer?; var preview = false; var wallet = false }  // the server's flags; preview: §2.16; wallet: §2.18
+public struct WidgetRequest { let data: String; let wallet: Bool }   // wallet: attach the wallet card (with_wallet)
 public struct WidgetRequestAnswer { var result: String? }
-public enum WidgetRequestFailure: Error { case timeout, rateLimited, failed }
+public enum WidgetRequestFailure: Error { case timeout, rateLimited, notAllowed, failed, rejected, badRequest }   // rejected, badRequest: wallet calls
+public enum WalletCall { case sendTransaction(WalletTransaction, data: String), signData(SignDataPayload, data: String) }   // .json: TON Connect's shapes
 // Options: data (WidgetData()), context (WidgetContext())
 var onRequest: ((WidgetRequest, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?   // complete once, from any thread
+var onWallet: ((WalletCall, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?    // §2.18, §5.13
 var onCopyText: ((String) -> Void)?
 func setData(_ data: WidgetData)
 ```
@@ -810,7 +967,9 @@ data class WidgetStorage(val local: Map<String, String> = emptyMap(), val sessio
 sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(kind, value?) }   // kind: impact | notification | selection
 
 WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
-// Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload)
+// Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload),
+//          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
+data class WidgetContentSafeArea(val top: Double = 0.0, val right: Double = 0.0, val bottom: Double = 0.0, val left: Double = 0.0, val cornerLeft: Double = 0.0, val cornerRight: Double = 0.0)   // dp = CSS px
 var onChange: ((WidgetDiagnostics) -> Unit)?               // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions
 var onWatchPublicData: ((Boolean) -> Unit)?                 // the widget started or stopped watching its shared state (§5.11): on a change
 var onError: ((String) -> Unit)?
@@ -818,7 +977,7 @@ var onAction: ((WidgetAction) -> Unit)?
 var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   // "local" | "session"
 var onGesture: ((WidgetGestureClaim) -> Unit)?             // v0.1.2: x, y, hold (y always false since v0.1.3); drive the bubble's recognizers with GestureArbiter (§5.5)
 var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)?    // deprecated since v0.1.2: called right after onGesture
-fun setTheme(theme: WidgetTheme); fun setVisible(visible: Boolean); fun destroy()
+fun setTheme(theme: WidgetTheme); fun setContentSafeArea(area: WidgetContentSafeArea); fun setVisible(visible: Boolean); fun destroy()
 ```
 
 The widget's state and requests:
@@ -827,13 +986,16 @@ The widget's state and requests:
 data class WidgetData(val chatData: String? = null, val publicData: String? = null)
 data class WidgetViewer(val id: Long, val firstName: String? = null, val lastName: String? = null, val username: String? = null, val isPremium: Boolean = false)
 data class WidgetContext(val isCopy: Boolean = false, val canQuery: Boolean = false, val backgroundQuery: Boolean = false,
-                         val chatType: String? = null, val viewer: WidgetViewer? = null, val preview: Boolean = false)   // the server's flags; preview: §2.16
-data class WidgetRequest(val data: String)
+                         val chatType: String? = null, val viewer: WidgetViewer? = null, val preview: Boolean = false,
+                         val wallet: Boolean = false)   // the server's flags; preview: §2.16; wallet: §2.18
+data class WidgetRequest(val data: String, val wallet: Boolean = false)   // wallet: attach the wallet card (with_wallet)
 data class WidgetRequestAnswer(val result: String? = null)
-enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED }
+enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED, REJECTED, BAD_REQUEST }   // REJECTED, BAD_REQUEST: wallet calls
 class WidgetRequestException(val failure: WidgetRequestFailure) : Exception()
+sealed class WalletCall { SendTransaction(transaction, data), SignData(payload, data) }   // .json(): TON Connect's shapes
 // Options: data, context
 var onRequest: ((WidgetRequest, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)?   // Result.failure(WidgetRequestException(…)); any other exception is FAILED
+var onWallet: ((WalletCall, (Result<WidgetRequestAnswer>) -> Unit) -> Unit)?     // §2.18, §5.13
 var onCopyText: ((String) -> Unit)?
 fun setData(data: WidgetData)
 ```
@@ -853,7 +1015,9 @@ struct WidgetStorage { std::map<std::string, std::string> local, session; };
 struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } kind; std::string url, hapticKind, hapticValue; };
 
 WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
-// WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload)
+// WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload),
+//                    WidgetContentSafeArea contentSafeArea (the client's time over a widget with no caption below it, §2.17, §5.12)
+struct WidgetContentSafeArea { double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0; };   // CSS px
 std::function<void(const WidgetDiagnostics&)> onChange;           // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions, storageCommits (first 1000)
 std::function<void(bool)> onWatchPublicData;                      // the widget started or stopped watching its shared state (§5.11): on a change
 std::function<void(const std::string&)> onError;
@@ -861,7 +1025,7 @@ std::function<void(const WidgetAction&)> onAction;
 std::function<void(const std::string& area, const std::map<std::string, std::string>&)> onStorageCommit;
 std::function<void(const WidgetGestureClaim&)> onGesture;          // v0.1.2: x, y, hold (y always false since v0.1.3; twidget/gesture_policy.h, GestureArbiter)
 std::function<void(bool x, bool y)> onGestureClaim;                 // deprecated since v0.1.2: called right after onGesture
-void start(); void setTheme(const WidgetTheme&); void setVisible(bool); void destroy();
+void start(); void setTheme(const WidgetTheme&); void setContentSafeArea(const WidgetContentSafeArea&); void setVisible(bool); void destroy();
 ```
 
 The widget's state and requests:
@@ -869,13 +1033,15 @@ The widget's state and requests:
 ```cpp
 struct WidgetData { std::optional<std::string> chatData, publicData; };
 struct WidgetViewer { int64_t id = 0; std::optional<std::string> firstName, lastName, username; bool isPremium = false; };
-struct WidgetContext { bool isCopy = false, canQuery = false, backgroundQuery = false; std::string chatType; /* "" = none */ std::optional<WidgetViewer> viewer; bool preview = false; };
-struct WidgetRequest { std::string data; };
+struct WidgetContext { bool isCopy = false, canQuery = false, backgroundQuery = false; std::string chatType; /* "" = none */ std::optional<WidgetViewer> viewer; bool preview = false; bool wallet = false; };
+struct WidgetRequest { std::string data; bool wallet = false; };   // wallet: attach the wallet card (with_wallet)
 struct WidgetRequestAnswer { std::optional<std::string> result; };
-enum class WidgetRequestFailure { None, Timeout, RateLimited, Failed };
+enum class WidgetRequestFailure { None, Timeout, RateLimited, Failed, Rejected, BadRequest };   // Rejected, BadRequest: wallet calls
+struct WalletCall { Method method; WalletTransaction transaction; SignDataPayload payload; std::string data; };   // toJson(): TON Connect's shapes
 struct WidgetRequestOutcome { WidgetRequestFailure failure = WidgetRequestFailure::None; WidgetRequestAnswer answer; };
 // WidgetHostOptions: WidgetData data; WidgetContext context;
 std::function<void(const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond)> onRequest;   // respond once, from any thread
+std::function<void(const WalletCall&, std::function<void(const WidgetRequestOutcome&)> respond)> onWallet;      // §2.18, §5.13
 std::function<void(const std::string& text)> onCopyText;
 void setData(const WidgetData& data);
 ```
@@ -897,19 +1063,22 @@ type WidgetAction =
 new WidgetHost(container, html, {
   theme,                                   // WidgetTheme, or a plain 'light' | 'dark'
   locale, storage: { local, session },     // the client's language and Web Storage preload
+  contentSafeArea: { bottom, cornerRight, cornerLeft },   // the client's time over a widget with no caption below it (§2.17, §5.12); 0 by default
   onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y, hold }),
   bubbleGestures, onBubbleGesture({ action, gesture, x, y, edge }),   // v0.1.2: the renderer plays the bubble (§5.5)
   onResize(height, anchor),                // anchor: 'top' | 'bottom', the widget's setResizeAnchor (v0.1.3)
   onWatchPublicData(on),                   // the widget started or stopped watching its shared state (§5.11): on a change
   data: { chatData, publicData },          // the chat state and the shared state as the message has them now
-  context: { isCopy, canQuery, backgroundQuery, chatType, viewer: { id, firstName, lastName, username, isPremium }, preview },   // the server's flags (preview: §2.16); fixed for the host's life
-  onRequest({ data }),                     // resolve with the server's answer { result } or reject 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'
+  context: { isCopy, canQuery, backgroundQuery, chatType, viewer: { id, firstName, lastName, username, isPremium }, preview, wallet },   // the server's flags (preview: §2.16; wallet: §2.18); fixed for the host's life
+  onRequest({ data, wallet }),             // resolve with the server's answer { result } or reject 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'; wallet: attach the wallet card
+  onWallet(call),                          // §2.18, §5.13: { method: 'sendTransaction', transaction, data } | { method: 'signData', payload, data }; resolve with the bot's answer or reject 'REJECTED' | 'BAD_REQUEST' | …
   onCopyText(text),
   policy, visible, onDead, onError, onLoaded, onDiag, rendererFactory, workerPool, features, …
 })
 host.resizeAnchor;                         // v0.1.3: the latest anchor, 'top' until the widget sets one
 host.watchesPublicData;                    // the widget's latest watchPublicData / unwatchPublicData, false until then
 host.setTheme(theme); host.setVisible(visible); host.setBubbleGestures(mode); host.destroy();
+host.setContentSafeArea({ bottom, cornerRight, cornerLeft }); host.contentSafeArea;   // only with the bubble's layout, never per frame
 host.setData({ chatData, publicData });    // the state changed (the server's update, the polled shared state): the full state
 // @telegram/widget-sandbox/shared/gesture-policy: GestureArbiter, claimOf and the thresholds, for a client's own recognizers
 ```
@@ -926,7 +1095,11 @@ For tests and tooling, not for clients. `RunOptions` takes `theme`, `locale`,
 `resizeAnchor` and `resizeAnchors` (the latest anchor and each one the glue
 accepted, v0.1.3; the CLI prints a `resize anchor:` line), `watchesPublicData`
 and `publicDataWatches` (the same for `watchPublicData`; a `public data:` line) and `theme` (the
-renderer's `theme` message, which `--ops-file` writes before the ops).
+renderer's `theme` message, which `--ops-file` writes before the ops, then the
+`safeArea` one). `contentSafeArea` and `script` steps `{ safeArea }` are the client's
+time over the widget (§2.17; `RunResult.contentSafeArea`); from a shell
+`--safe-area bottom[,cornerRight[,cornerLeft]]` (`--safe-area 24,64`, or `24,0,64` for a
+right-to-left client).
 Gestures are injected per event (`gesture: n`). Since v0.1.2 `width` (the bubble's,
 default 400) and `gestures` (`tap`, `hold`, `double-tap`, `swipe`, `right-click`) run the
 widget on the real renderer core in headless Chromium after load: `RunResult.gestures`
@@ -946,7 +1119,9 @@ private|group|via-bot|no-queries|live-copy|copy|preview`, or `--copy`, `--can-qu
 `--background-query`, `--chat-type` one by one; `--viewer id[,first,last,username,premium]`, `--chat-data`,
 `--public-data`, `--answer '{"result":"…"}'` or `--answer-error TIMEOUT`,
 `--set-data '{…}'`; the CLI prints a `request` line per request and a
-`copyText` line per copy.
+`copyText` line per copy. The wallet (§2.18): `context.wallet` and `onWallet` (`RunResult.walletCalls`: each call
+as checked, the gate's verdict, what went back); from a shell `--wallet`, `--wallet-answer '{"result":"…"}'` or
+`--wallet-error REJECTED`, and a `wallet.<method>` line per call.
 
 ## 5. What the client implements
 
@@ -969,13 +1144,15 @@ private|group|via-bot|no-queries|live-copy|copy|preview`, or `--copy`, `--can-qu
 
 ### 5.2 Links
 
-- On `openLink(url)` and `openTelegramLink(url)`: show a native confirmation
-  that displays the **full URL** (not only the domain; the host in its ASCII
-  form, as the framework's URL parser gives it), with Open and Cancel.
-- On Open: `openLink` goes to the external browser (or the client's in-app
-  browser, by its usual setting); `openTelegramLink` goes through the client's
-  own `t.me` handling, which keeps its own confirmations (joining a chat,
-  starting a bot).
+- On `openLink(url)`: show a native confirmation that displays the **full
+  URL** (not only the domain; the host in its ASCII form, as the framework's
+  URL parser gives it), with Open and Cancel. On Open, go to the external
+  browser (or the client's in-app browser, by its usual setting).
+- On `openTelegramLink(url)`: no confirmation of its own; open it as a tapped
+  `t.me` link in a message, through the client's own `t.me` handling, which
+  keeps its own confirmations (joining a chat, a proxy, a login and the like).
+  Telegram opens its own links without asking (decided 2026-10-29,
+  `docs/decisions.md`, "Telegram links open without a confirmation").
 - One dialog at a time; drop actions that arrive while one is shown.
 - The framework guarantees at most one link action per pointer press.
 
@@ -999,7 +1176,7 @@ ignore them.
 - Delete both areas with the message, with the chat or its history, with the
   account, and on "Clear cache". There are no per-bot quotas and no age-based
   eviction.
-- The framework enforces the 16 KB quota; the client stores what it gets.
+- The framework enforces the 4 KB quota; the client stores what it gets.
 
 ### 5.5 Gestures and drag (D4)
 
@@ -1158,7 +1335,8 @@ goes to the background, `setVisible(true)` when it is back.
   below layer 233 (`messageMediaUnsupported`), the message shows as
   unsupported media with its caption. Keep that fallback.
 - The media caption is the preview and search text; without one, the localized
-  "Widget" stub.
+  "Widget" stub. A widget with no caption below it (none, or one shown above it)
+  gets the message time over its bottom corner (§5.12).
 - Test with a test bot in a tester's private chat and forward into the shared
   test channel (a bot sends widgets to its private chats, to the basic groups
   and supergroups it is a member of, and via its inline mode; the channel gets
@@ -1244,6 +1422,59 @@ shared state (`public_data`).
 - **Forwards.** Forwarding a widget without its author is not offered (the
   server keeps the forward header anyway), so a widget always shows which bot it
   is from.
+
+### 5.13 The wallet (§2.18)
+
+- **`context.wallet`**: pass `true` when the client supports Gram Wallet and the wallet is available to this user
+  (their country); the widget then gets `TelegramWidget.wallet` wherever it may ask the bot. Whether the user
+  already has a wallet is not part of it: one is created when a widget asks for it.
+- **A request with the wallet** (`WidgetRequest.wallet`): call `messages.getBotWidgetQueryAnswer` with
+  `widgetQueryTypeData` and `with_wallet`: the server attaches the cloud wallet's card from the user's profile
+  (`wallet_card`) to the bot's update, creating the wallet if the user has none. The framework let it through only
+  on a tap.
+- **`onWallet`**: show the client's existing TON Connect window over the chat, with the bot of the message in its
+  header (name, username, avatar; never anything the widget says about itself) and the emulation of the
+  transaction, or the text to sign (a warning for bytes and cells). Ignore touches on it for its first 0.5–1 s: the
+  second tap of a double tap over the widget must not land on Confirm. If the wallet is empty, offer the top-up over
+  the chat before sending; if `valid_until` has passed meanwhile, fail with `badRequest`. Decline → `rejected`;
+  the wallet's refusal (network, sender, cells) → `badRequest`.
+- **After the confirmation**: `sendTransaction` goes out the wallet's usual way (`wallet.sendTransfer`); then send
+  the outcome to the bot as a widget query with `call.data`: `widgetQueryTypeSentTransaction` with the
+  transaction's normalised message hash (`msg_hash`), or `widgetQueryTypeSignData` with the signature as TON
+  Connect's result (`signature`, `address`, `timestamp`, `domain` = `bot<bot_id>`, `payload`), each with **the
+  device's wallet** (`userWallet`: address, balance, public key), the one that signed: with the wallet's backup off a
+  device can hold another key and another wallet than the profile's card. Complete with the bot's answer as for a
+  request. No second tap: the call already had one. A failure of that query maps as a request's.
+- The server's API (the query types, `with_wallet`, `userWallet`, the card in the updates; `docs/decisions.md`,
+  "The wallet") is agreed and not shipped yet: until it is, leave `context.wallet` unset.
+
+### 5.12 The time over a widget with no caption below it (§2.17)
+
+- With a caption below the widget, draw the time in the caption's line as for any
+  media and pass nothing (the content safe area stays 0). Without a caption, and
+  with a caption shown above the widget (`invert_media`, as on a photo), draw the
+  message time and its status (ticks, "edited", views) over the widget's bottom
+  corner, on a
+  backing as over a photo or a video (the widget's background can be any colour):
+  the right corner in a left-to-right interface, the left one in a right-to-left
+  one.
+- Pass the band and the corner as the host's `contentSafeArea`, in points / dp /
+  CSS px: `bottom` = the height of the band the time takes at the widget's
+  bottom edge (the backing and its margins), `cornerRight` (or `cornerLeft` in a
+  right-to-left interface) = the width of the corner the time takes in that band,
+  the backing and its margins; `top`, `left` and `right` 0. Give them **at
+  creation**, before the first render, so the first height the host reports
+  already has the band.
+- Change them with `setContentSafeArea` only when the bubble's layout changes: a
+  caption added or removed by an edit, or moved above or below the widget,
+  "edited" appearing, a views counter that grows wider. Never per frame and never for the chat's scroll: the floating date
+  pill has no contract (draw it over the widget like over a photo).
+- The time is a view over the widget: taps on it are the client's (its own
+  hit test; on the web an element over the renderer), never forwarded to the
+  widget. Nothing in the gesture policy changes.
+- What the widget sees and how a widget handles it: §2.17. The renderer's UA
+  layer pads an unstyled body by the band, so such a widget is that much taller
+  with no caption below it.
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 

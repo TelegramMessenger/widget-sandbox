@@ -7,8 +7,12 @@ callbacks. The HTML you pass is the whole widget (inline CSS and JS); nothing
 in it can reach the network.
 
 The same `Options` exist everywhere with the same defaults (`memoryLimitBytes`
-64 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000,
-`maxTimers` 256, `visible`, `policy` `strict`), see `packages/core/src/shared/protocol.ts`.
+8 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000,
+`mainThreadQuotaMs` 100 (the host's main-thread work for the widget: its layout
+queries and the modelled cost of its ops), `maxTimers` 64, `visible`, `policy`
+`strict`), see `packages/core/src/shared/protocol.ts` and `docs/decisions.md`,
+"Strict limits from the start". Keep the defaults in a product build; `policy`
+`compat` and wider quotas are for tests and the stress kit's measuring runs.
 Call `setVisible(false)` when the bubble leaves the screen (frames stop, timers
 drop to 1 Hz), `setTheme` when the chat theme changes, `destroy()` when the
 bubble is recycled. A widget that exceeds its limits is killed; the renderer
@@ -177,6 +181,36 @@ aligned with the edge that stays put. The web dev app and the feed demo do all
 of this (`apps/web/src/main.ts`, `feed.ts`); `corpus/resize` has one widget per
 anchor to try it.
 
+## The time over a widget with no caption below it
+
+Without a caption, and with a caption shown above the widget (`invert_media`, as on
+a photo whose caption is moved up), draw the message time and its status (ticks,
+"edited", views) over the widget's bottom corner, on a backing, as over a photo:
+the right corner in a left-to-right interface, the left one in a right-to-left one.
+With a caption below the widget the time goes into the caption's line and nothing is
+drawn over the widget: pass 0 (`docs/sdk-v1.md` §2.17, §5.12).
+
+Pass what the time takes as the host's `contentSafeArea` (points, dp, CSS px):
+`bottom`, the height of its band at the widget's bottom edge, and `cornerRight` (or
+`cornerLeft` in a right-to-left interface), the width of the corner it takes in that
+band, backing and margins included; the rest 0. Pass it **at creation**, so the first
+height the host reports already has the band, and change it with
+`setContentSafeArea` only when the bubble's layout changes (a caption added or
+removed by an edit, or moved above or below the widget, "edited" appears, the views
+counter grows). Never per frame, and
+not for the floating date pill, which has no contract. The time is your view over
+the widget: its taps are yours; nothing in the gesture policy changes.
+
+The widget sees it as `env(safe-area-inset-bottom)` (the validator rewrites it to a
+root variable the renderer sets), `--tg-content-safe-area-inset-*` /
+`--tg-content-safe-area-corner-left|right` and `TelegramWidget.contentSafeAreaInset`;
+the renderer's UA layer pads an unstyled body by the band. A client that passes
+nothing keeps v0.3.0's behaviour (all 0). The dev app's **time** control and
+`?time=corner|corner-rtl` show it; `visual/17-time-corner` and `auto/36-safe-area`
+are its conformance cases (sent without a caption, and once more with the caption
+above), and `corpus/safe-area` has examples (its `07` is posted three times: no
+caption, a caption below, a caption above).
+
 ## Input
 
 - **Text selection is the widget's choice** (since v0.1.1, `docs/sdk-v1.md`
@@ -195,8 +229,10 @@ anchor to try it.
 - **User activation is a pointer press only.** A link call (`openLink`,
   `openTelegramLink`, a tapped `<a href>`) goes through only from the handler of a real
   tap or click the renderer saw (`trusted`), one call per press; no key press
-  counts. A renderer behind your own `Renderer` implementation must mark its
-  real input `trusted: true` or the widget never gets a gesture.
+  counts, and a finger's press counts from its release (it may still become the
+  chat's scroll). A renderer behind your own `Renderer` implementation must mark its
+  real input `trusted: true` or the widget never gets a gesture, but not a finger's
+  or a pen's `pointerdown`.
 - **Who gets a press: `touch-action` is the claim, and vertical drags are
   always the chat's** (v0.1.2 and v0.1.3, `docs/sdk-v1.md` §5.5). On every
   primary pointer press the host reports the widget's claim (`onGestureClaim`
@@ -224,7 +260,8 @@ anchor to try it.
   client.
 - **What the widget asks for** arrives as `onAction`, checked: `openLink(url)`
   (show a confirmation with the full URL, then the browser),
-  `openTelegramLink(url)` (your own t.me handling), `haptic(…)` (play it or
+  `openTelegramLink(url)` (your own t.me handling, as a tapped `t.me` link in a
+  message: no confirmation of its own), `haptic(…)` (play it or
   ignore it on desktop and web), `ready`. `docs/sdk-v1.md` §5 is the client's
   side of each. The widget's state and requests add two callbacks of their own:
   `onRequest` and `onCopyText` (below).
@@ -246,7 +283,7 @@ types):
 | the client passes or implements | what it is |
 |---|---|
 | `data` (at creation) | `{ chatData, publicData }`: the message's chat state and shared state as the client has them now; none = null |
-| `context` (at creation, fixed) | the server's flags from `messageMediaWidget`, read, not derived: `isCopy` (`is_copy`), `canQuery` (`can_query`: requests on a tap; never set for a widget the bot sent without `allow_queries`), `backgroundQuery` (`background_query`: requests without a tap too, one when the widget appears on screen, then one per 5 s while it is visible); `chatType` (the kind of chat: `private`, `group`, `supergroup`), `viewer` (the account's own: its user id, first and last name, username and Premium flag, as the bot gets them in `from`). Pass them for every message: the framework gives no copy the chat type, and no message without `canQuery` the viewer (the widget knows who views it only where it may send requests). No flags: no requests |
+| `context` (at creation, fixed) | the server's flags from `messageMediaWidget`, read, not derived: `isCopy` (`is_copy`), `canQuery` (`can_query`: requests on a tap; never set for a widget the bot sent without `allow_queries`), `backgroundQuery` (`background_query`: requests without a tap too, one when the widget appears on screen, then one per 5 s while it is visible; one the widget makes off screen, at boot included, waits in the framework and reaches `onRequest` once `setVisible(true)` reports the bubble on screen); `chatType` (the kind of chat: `private`, `group`, `supergroup`), `viewer` (the account's own: its user id, first and last name, username and Premium flag, as the bot gets them in `from`). Pass them for every message: the framework gives no copy the chat type, and no message without `canQuery` the viewer (the widget knows who views it only where it may send requests). No flags: no requests |
 | `setData(data)` | the state changed: the full new state (the chat state and the shared state); the widget gets `chatDataChanged` / `publicDataChanged`, nothing restarts. Call it on `updateMessageWidgetData` (apply the chat state and the shared state it carries) and when polling brings a new shared state (below) |
 | `onRequest(request, complete)` | `{ data }`: call `messages.getBotWidgetQueryAnswer` (the peer, the message id, `data` as UTF-8 bytes) and complete with its `{ result }`, or a failure: `timeout` for `WIDGET_RESPONSE_TIMEOUT`, `rateLimited` for `FLOOD_WAIT`, `failed` for anything else; complete every request exactly once. The answer carries no state and no toast, alert or link: show nothing for it, and do not re-fetch the state after it |
 | `onCopyText(text)` | copy it and show the client's toast with the copied text |
@@ -313,6 +350,21 @@ refused in the widget (`NOT_ALLOWED`). Requests are never sent over the
 widget's own channels: the sandbox has no network (invariant 5); the client's
 MTProto connection carries them.
 
+## The wallet
+
+A widget can pay and sign through Gram Wallet (`docs/sdk-v1.md` §2.18, §5.13). Nothing changes until the client
+passes `context.wallet = true`: the client supports the wallet and the wallet is available to this user (their
+country). Then:
+
+| Host input / callback | What the client does |
+|---|---|
+| `WidgetRequest.wallet` | the widget asked, on a tap, for the user's wallet: call `getBotWidgetQueryAnswer` with `widgetQueryTypeData` and `with_wallet`; the server attaches the profile's wallet card (the cloud wallet) to the bot's update and creates the wallet if there is none |
+| `onWallet(call, complete)` | `sendTransaction` (a `WalletTransaction`: TON Connect's `sendTransaction` request, `json` / `toJson()` in its field names) or `signData` (a `SignDataPayload`, TON Connect's payload), with `data`: show the existing TON Connect window over the chat with the bot of the message in its header, ignore taps on it for its first 0.5–1 s, top up an empty wallet over the chat; on confirmation send the transaction the wallet's way (or sign for the domain `bot<bot_id>`), send the outcome to the bot as a widget query with `data` (`widgetQueryTypeSentTransaction` with the normalised message hash, or `widgetQueryTypeSignData` with `signData`'s result, each with the device's wallet as `userWallet`: address, balance, public key; it can differ from the profile's card when the wallet's backup is off), and complete with the bot's answer. Decline: `rejected`; the wallet's refusal: `badRequest`; the query's failures as a request's |
+
+The framework has checked the transaction or the payload (TON Connect's fields only, 1–255 messages, user-friendly destinations), the tap or the
+grant (the answer to a call made by a tap, within 10 s), and one call in flight with the requests. The server's API
+is agreed and not shipped yet (`docs/decisions.md`, "The wallet"); until it is, leave `context.wallet` unset.
+
 ## Forwarding and state
 
 A widget message may be forwarded to any chat, groups and channels included.
@@ -328,7 +380,7 @@ host's `storage` at creation and keep what `onStorageCommit(area, values)`
 hands you — `local` on disk (with a short delay, and at once when the widget
 is hidden or destroyed and when the app goes to the background), `session` in
 memory — and delete both with the message, the chat, the account and on "Clear
-cache" (`docs/sdk-v1.md` §5.4). The framework enforces the 16 KB quota.
+cache" (`docs/sdk-v1.md` §5.4). The framework enforces the 4 KB quota.
 
 **Theme and language.** Pass the chat's theme as a `WidgetTheme` (colour
 scheme, the Mini Apps palette keys as `#rrggbb`, your button's tokens, your
@@ -366,6 +418,7 @@ var options = WidgetHost.Options()                  // policy .strict, features 
 options.features = ["webAnimations"]
 options.locale = "ru"
 options.storage = WidgetStorage(local: savedLocal, session: savedSession)   // this message's Web Storage
+options.contentSafeArea = media.caption == nil || message.invertMedia ? WidgetContentSafeArea(bottom: timeBand, cornerRight: timeWidth) : WidgetContentSafeArea()   // no caption below: the time over the corner
 options.data = WidgetData(chatData: media.chatData, publicData: media.publicData)                    // the chat state and the shared state
 options.context = WidgetContext(isCopy: media.isCopy, canQuery: media.canQuery, backgroundQuery: media.backgroundQuery,
                                 chatType: .private, viewer: WidgetViewer(id: me.id, firstName: me.firstName, lastName: me.lastName,
@@ -410,6 +463,7 @@ import org.telegram.widgetsandbox.WidgetHost
 
 val options = WidgetHost.Options(features = setOf("webAnimations"),   // policy "strict" by default
     locale = "ru", storage = WidgetStorage(local = savedLocal, session = savedSession),
+    contentSafeArea = if (caption == null || message.invertMedia) WidgetContentSafeArea(bottom = timeBand, cornerRight = timeWidth) else WidgetContentSafeArea(),   // no caption below: the time over the corner
     data = WidgetData(media.chatData, media.publicData),
     context = WidgetContext(isCopy = media.isCopy, canQuery = media.canQuery, backgroundQuery = media.backgroundQuery,
                             chatType = "private", viewer = WidgetViewer(me.id, me.firstName, me.lastName, me.username, me.isPremium)))   // the server's flags; the account
@@ -461,6 +515,7 @@ const host = new WidgetHost(bubbleElement, html, {
   theme: { colorScheme: 'light', params: { bg_color: '#ffffff' /* … every key, this bubble's */ }, button: { radius: '10px' }, text: { fontSize: 16, padding: '6px 10px' } },
   locale: 'ru',
   storage: { local: savedLocal, session: savedSession },   // this message's Web Storage
+  contentSafeArea: caption && !message.invertMedia ? {} : { bottom: timeBand, cornerRight: timeWidth },   // no caption below: the time over the corner
   data: { chatData, publicData },  // the chat state and the shared state
   context: { isCopy, canQuery, backgroundQuery, chatType: 'private', viewer: { id: me.id, firstName: me.firstName, lastName: me.lastName, username: me.username, isPremium: me.isPremium } },   // the server's flags; the account
   onRequest: async ({ data }) => ({ result }),   // getBotWidgetQueryAnswer; or throw 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'
@@ -498,6 +553,7 @@ twidget::WidgetHostOptions options;            // policy "strict" by default
 options.features = {"webAnimations"};
 options.locale = "ru";
 options.storage = {savedLocal, savedSession};  // this message's Web Storage
+if (!media.caption || message.invertMedia) options.contentSafeArea = {.bottom = timeBand, .cornerRight = timeWidth};   // no caption below: the time over the corner
 options.data = {media.chatData, media.publicData};                          // std::optional<std::string> each
 options.context = {.isCopy = media.isCopy, .canQuery = media.canQuery, .backgroundQuery = media.backgroundQuery, .chatType = "private", .viewer = twidget::WidgetViewer{me.id, me.firstName, me.lastName, me.username, me.isPremium}};
 twidget::WidgetTheme theme{"light", {{"bg_color", "#ffffff"} /* … every key, this bubble's */}, {}, {.fontSize = 14, .padding = "6px 10px"}};

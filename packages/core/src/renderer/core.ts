@@ -16,7 +16,7 @@
 
 import { EVENT_TYPES, type CanvasCmd, type HostToRenderer, type Query, type RenderOp, type RendererToHost, type WidgetEvent } from '../shared/protocol';
 import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
-import { THEME_VARIABLES, themeVariables } from '../shared/sdk-policy';
+import { THEME_VARIABLES, contentSafeAreaVariables, themeVariables } from '../shared/sdk-policy';
 import { GestureArbiter, claimOf, type GestureClaim, type GestureVerdict, type PointerKind } from '../shared/gesture-policy';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
 import { TOUCH_ACTION_CLAIM, engineTouchAction } from './touch-action';
@@ -173,8 +173,41 @@ function forget(node: Node) {
     ids.delete(node);
     canvases.delete(id);
     if (node instanceof Element) resizeObserver.unobserve(node);
+    if (node instanceof HTMLCanvasElement) { canvasPixelsTotal -= canvasPixels.get(node) ?? 0; canvasPixels.delete(node); }
   }
   for (let c = firstChildOf(node); c; c = nextSiblingOf(c)) forget(c);
+}
+
+// ───────────────────────── canvas sizes ─────────────────────────
+
+/**
+ * A canvas's bitmap is the page's memory, as large as the widget makes it (four canvases of 16384² grew a browser by
+ * ~16 GB): a widget's canvases hold at most this many pixels together (64 MB as RGBA; a canvas over a whole bubble at
+ * 3× is ~2.5 M). A size past it is not applied: the canvas keeps the one it had, a new one is 0 × 0.
+ */
+const CANVAS_PIXELS_MAX = 4096 * 4096;
+const canvasPixels = new Map<HTMLCanvasElement, number>();
+let canvasPixelsTotal = 0;
+
+/** Charges `el` the size `w` × `h` if the widget's canvases can hold it together; false, and nothing charged, if not. */
+function fitCanvas(el: HTMLCanvasElement, w: number, h: number): boolean {
+  const others = canvasPixelsTotal - (canvasPixels.get(el) ?? 0);
+  if (!(others + w * h <= CANVAS_PIXELS_MAX)) {
+    violation(`canvas ${w}×${h}: a widget's canvases hold at most ${CANVAS_PIXELS_MAX} pixels together`);
+    return false;
+  }
+  canvasPixels.set(el, w * h);
+  canvasPixelsTotal = others + w * h;
+  return true;
+}
+
+/** Whether `el` may take `value` (null: none) as its `name`: anything but a canvas's width or height may. */
+function canvasSizeFits(el: Element, name: string, value: string | null): boolean {
+  if (!(el instanceof HTMLCanvasElement) || (name !== 'width' && name !== 'height')) return true;
+  // HTML's rules for non-negative integers; a value they refuse, or none, is the default
+  const parsed = /^[\t\n\f\r ]*\+?(\d+)/.exec(value ?? '');
+  const n = parsed ? Number(parsed[1]) : name === 'width' ? 300 : 150;
+  return fitCanvas(el, name === 'width' ? n : el.width, name === 'height' ? n : el.height);
 }
 
 function idOf(node: Node | null): number {
@@ -193,6 +226,7 @@ function applyAttr(el: Element, name: string, value: string) {
   // Assigning canvas width/height clears the bitmap even if unchanged; the
   // canvas command stream ('r') is authoritative for resets.
   if (el instanceof HTMLCanvasElement && (lower === 'width' || lower === 'height') && getAttribute(el, lower) === value) return;
+  if (!canvasSizeFits(el, lower, value)) return;
   setAttribute(el, name, value);
   if (lower === 'style') widenTouchAction(styleOf(el));
 }
@@ -248,6 +282,8 @@ function applyOp(op: RenderOp) {
       // A script's image loads before it is inserted (new Image()), where the root's listeners do not see it.
       if (tag === 'img' && !op.adopt) for (const type of ['load', 'error']) el.addEventListener(type, onDetachedImage);
       register(op.id, el);
+      // a canvas is born 300 × 150
+      if (el instanceof HTMLCanvasElement && !fitCanvas(el, 300, 150)) { el.width = 0; el.height = 0; }
       for (const [name, value] of op.attrs) applyAttr(el, name, value);
       return;
     }
@@ -266,6 +302,7 @@ function applyOp(op: RenderOp) {
       if (node === HTML && op.name.toLowerCase() === 'style') applyThemeVariables();
       return;
     case 'rattr':
+      if (!canvasSizeFits(node as Element, op.name.toLowerCase(), null)) return;
       removeAttribute(node as Element, op.name);
       if (node === HTML && op.name.toLowerCase() === 'style') applyThemeVariables();
       return;
@@ -331,6 +368,9 @@ const METHOD_IMPL: Record<string, (el: any, a: any[]) => void> = {
   scrollTo: (el, a) => Element.prototype.scrollTo.call(el, a[0], a[1]),
   scrollBy: (el, a) => Element.prototype.scrollBy.call(el, a[0], a[1]),
   setPointerCapture: (el, a) => {
+    // Only a pointer whose press began on the widget (`ownPointers`): the shim's check runs in the VM, which the widget
+    // can lie to, and on the Shadow DOM renderer a pointer pressed on the chat would be taken from the control under it.
+    if (!ownPointers.has(a[0])) return;
     try { Element.prototype.setPointerCapture.call(el, a[0]); } catch {}
   },
   releasePointerCapture: (el, a) => {
@@ -395,6 +435,8 @@ function replay(id: number, el: HTMLCanvasElement, cmds: CanvasCmd[]) {
           ctx[name] = resolveArg(st, rest[0]);
           break;
         case 'r':
+          // a size past the widget's canvas pixels still clears the bitmap
+          if (!fitCanvas(el, name, rest[0])) { el.width = el.width; break; }
           el.width = name;
           el.height = rest[0];
           break;
@@ -702,6 +744,7 @@ function settle(v: GestureVerdict, base: WidgetEvent) {
   if (!v.cancel || !bubbleMode || base.pointerId === undefined) return;
   forward({ ...base, type: 'pointercancel', button: -1, buttons: 0 }, true);
   takenPointer = base.pointerId;
+  ownPointers.delete(base.pointerId);
   clearHold();
   pressPointer = -1;
   pressAsTouch = clickAsTouch = false;
@@ -786,11 +829,20 @@ function onEvent(e: Event) {
     // A finger makes a click only for a tap: reproducing a phone with a mouse, a drag or a hold ends without one.
     if (type === 'pointerup' && bubbleMode?.touch && verdict && (verdict.gesture === 'drag-x' || verdict.gesture === 'drag-y' || verdict.gesture === 'hold')) dropClick = true;
   } else if (MOUSE_COMPAT.has(type) && (takenPointer !== -1 || (dropClick && type !== 'mousemove'))) return;
-  if (ev) forward(ev, e.isTrusted);
+  // A press begun off the widget and let go over it (on the Shadow DOM renderer, a drag from the chat) is no press of
+  // the widget's: its release reaches it, but is no gesture. A release is that of the pointer whose buttons changed last.
+  // A finger's or a pen's press may still become the chat's scroll, which ends it in pointercancel: its pointerdown is
+  // no gesture either, its release is (HTML's activation-triggering input events), and neither is a mouse event of a
+  // finger or a pen still down: the mousedown a pen's contact makes at once, its barrel button pressed or let go with the
+  // tip down (a mouse pressed while a finger is held makes its own). The type is the input's own: a mouse playing a
+  // finger (`pressAsTouch`) scrolls nothing.
+  const mayScroll = type === 'pointerdown' ? e instanceof PointerEvent && isFingerOrPen(e) : (type === 'mousedown' || type === 'mouseup') && changedFingerDown;
+  const trusted = e.isTrusted && !mayScroll && (changedOwn || (type !== 'pointerup' && type !== 'mouseup'));
+  if (ev) forward(ev, trusted);
   else if (ALWAYS_FORWARD.has(type) || interest.has(type)) {
     const out = serialize(e, targetId);
     if (type === 'click' && clickAsTouch && out.pointerType === 'mouse') { out.pointerType = 'touch'; clickAsTouch = false; }
-    forward(out, e.isTrusted);
+    forward(out, trusted);
   }
   if (verdict && ev) settle(verdict, ev);
   if (type === 'click' && pendingDblclick) {
@@ -865,19 +917,26 @@ function onMessage(msg: HostToRenderer) {
       canvasDirty = true;
       syncCanvas();
       break;
+    case 'safeArea':
+      // The UA layer's body padding follows the band; the size observers report the new height.
+      safeAreaVars = contentSafeAreaVariables(msg.inset);
+      applyThemeVariables();
+      break;
   }
 }
 
-// ───────────────────────── theme variables (docs/sdk-v1.md §2.3, §2.4, §3.4) ─────────────────────────
+// ───────────────────────── theme and safe-area variables (docs/sdk-v1.md §2.3, §2.4, §2.17, §3.4) ─────────────────────────
 
 let themeVars: Record<string, string> = {};
+/** The client's chrome over the widget (docs/sdk-v1.md §2.17): always set, 0 until the host says otherwise. */
+let safeAreaVars: Record<string, string> = contentSafeAreaVariables(null);
 
 /** The host's variables, inline and important on the widget's root: no widget stylesheet or root style op overrides them. */
 function applyThemeVariables() {
   if (!HTML) return;
   const style = styleOf(HTML);
   for (const name of THEME_VARIABLES) {
-    const v = themeVars[name];
+    const v = themeVars[name] ?? safeAreaVars[name];
     if (v === undefined) style.removeProperty(name);
     else style.setProperty(name, v, 'important');
   }
@@ -966,6 +1025,39 @@ function swallow(e: Event) {
   if (e.cancelable) e.preventDefault();
 }
 
+/**
+ * The pointers whose trusted press began on the widget, until they are let go anywhere in the window: the only ones it
+ * may capture. And whether the pointer whose buttons changed last was one of them: pressed, let go (the window hears a
+ * release before the root does) or chorded (a button pressed or let go while another is held: a pointermove and its
+ * mouse event, no pointerdown or pointerup). A compatibility mouse event follows its pointer's change at once.
+ */
+const ownPointers = new Set<number>();
+let changedOwn = false;
+/** Of those, the fingers' and pens' still down (a press of theirs is no gesture before its release), and whether the pointer whose buttons changed last is one. */
+const fingersDown = new Set<number>();
+let changedFingerDown = false;
+const isFingerOrPen = (e: PointerEvent) => e.pointerType === 'touch' || e.pointerType === 'pen';
+function pressedHere(e: Event) {
+  if (!e.isTrusted) return;
+  const id = (e as PointerEvent).pointerId;
+  ownPointers.add(id);
+  if (isFingerOrPen(e as PointerEvent)) fingersDown.add(id);
+  changedOwn = true;
+  changedFingerDown = fingersDown.has(id);
+}
+function buttonsChanged(e: Event) {
+  if (!e.isTrusted || (e as PointerEvent).button === -1) return;
+  const id = (e as PointerEvent).pointerId;
+  changedOwn = ownPointers.has(id);
+  changedFingerDown = fingersDown.has(id);
+}
+function letGo(e: Event) {
+  const id = (e as PointerEvent).pointerId;
+  changedOwn = ownPointers.delete(id);
+  fingersDown.delete(id);
+  changedFingerDown = false;
+}
+
 function init(s: Send) {
   send = s;
   ({ html: HTML, head: HEAD, body: BODY } = env.roots());
@@ -974,6 +1066,10 @@ function init(s: Send) {
   const ua = createElement(doc, 'style');
   setTextContent(ua, PROFILE_UA_STYLESHEET);
   insertBefore(HEAD, ua, firstChildOf(HEAD));
+  root.addEventListener('pointerdown', pressedHere, true);
+  root.addEventListener('pointermove', buttonsChanged, true);
+  window.addEventListener('pointerup', letGo, true);
+  window.addEventListener('pointercancel', letGo, true);
   for (const type of SWALLOWED) root.addEventListener(type, swallow, { capture: true, passive: false });
   for (const type of ALL_EVENTS) root.addEventListener(type, onEvent, { capture: true, passive: false });
   // Chromium dispatches enter/leave events only to nodes that listen for them or have an ancestor element with a
@@ -992,6 +1088,12 @@ function init(s: Send) {
 function destroy() {
   for (const type of ALL_EVENTS) root.removeEventListener(type, onEvent, { capture: true });
   for (const type of SWALLOWED) root.removeEventListener(type, swallow, { capture: true });
+  root.removeEventListener('pointerdown', pressedHere, true);
+  root.removeEventListener('pointermove', buttonsChanged, true);
+  window.removeEventListener('pointerup', letGo, true);
+  window.removeEventListener('pointercancel', letGo, true);
+  ownPointers.clear();
+  fingersDown.clear();
   if (root instanceof ShadowRoot) for (const type of ENTER_LEAVE) root.host.removeEventListener(type, noop, true);
   for (const o of sizeObservers) o.disconnect();
   sizeObservers = [];

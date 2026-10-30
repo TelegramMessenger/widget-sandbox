@@ -32,7 +32,8 @@ public struct WidgetDiagnostics {
     /// bubbles out from remembered heights trusts a new height only once this is set.
     public var rendered = false
     public var renderedMs: Double?
-    /// Fatal: the runtime is gone. The renderer keeps the last state (frozen); the owner removes the view with `destroy()`.
+    /// Fatal: the runtime is gone (memory, CPU, or a counted cap passed under strict: the validator's `limit`, docs/decisions.md
+    /// "Strict limits from the start"). The renderer keeps the last state (frozen); the owner removes the view with `destroy()`.
     public var dead: String?
     /// Last uncaught widget error (non-fatal), cleared once a later task completes without one.
     public var lastError: String?
@@ -56,12 +57,14 @@ public struct WidgetDiagnostics {
 public final class WidgetHost: SandboxEngineDelegate {
     /// Limits for the widget's QuickJS runtime (see SandboxConfig); mirrors WidgetHost.Options on Android.
     public struct Options {
-        public var memoryLimitBytes = 64 << 20
+        public var memoryLimitBytes = 8 << 20
         public var cpuLimitMs = 500.0
         public var cpuQuotaMs = 300.0
         public var cpuQuotaWindowMs = 1000.0
         public var cpuKillAfterMs = 0.0
-        public var maxTimers = 256
+        /// The host's main-thread work for this widget per window (layout queries + 25 µs per op + 2 µs per canvas command).
+        public var mainThreadQuotaMs = 100.0
+        public var maxTimers = 64
         /// The bubble's maximum height in points; 600 is the shared v0.1.0 value (docs/integration.md, "Bubble sizing").
         public var maximumHeight: CGFloat = 600
         /// Initial visibility; change it later with `setVisible`.
@@ -94,6 +97,10 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var policy: SandboxPolicy = .strict
         /// The client's UI language, BCP 47 (`navigator.language`, the Intl default); `en-US` when malformed.
         public var locale = SdkPolicy.defaultLocale
+        /// What the client draws over the widget (docs/sdk-v1.md §2.17, §5.12): for a widget with no caption below it the band of
+        /// the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
+        /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
+        public var contentSafeArea = WidgetContentSafeArea()
         /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`).
         public var storage = WidgetStorage()
         /// The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`.
@@ -139,6 +146,13 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// delivered: nil then refuses it (`NOT_ALLOWED`), so setting it right after creating the host catches every
     /// request. Main thread.
     public var onRequest: ((WidgetRequest, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?
+    /// A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18; checked: the transaction or the payload, a press or
+    /// the grant, one call in flight with the requests). Only with `context.wallet`. The client shows its own wallet
+    /// window with the bot of the message; on confirmation it sends the transaction (or signs for `bot<bot_id>`), sends
+    /// the outcome to the bot as a query with `call.data` and calls the completion once, from any thread, with the bot's
+    /// answer, or `.rejected` (the user declined), `.badRequest` (the wallet refused it) or a request's failure. Read on
+    /// the main thread when a call is delivered: nil then refuses it (`NOT_ALLOWED`). Main thread.
+    public var onWallet: ((WalletCall, @escaping (Result<WidgetRequestAnswer, WidgetRequestFailure>) -> Void) -> Void)?
     /// Copy this text to the clipboard and show a toast that says what was copied (`TelegramWidget.copyText`, checked:
     /// at most 256 UTF-16 code units, one per press, shared with the link calls; docs/sdk-v1.md §2.15). Main thread.
     public var onCopyText: ((String) -> Void)?
@@ -232,12 +246,14 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.cpuQuotaMs = options.cpuQuotaMs
         config.cpuQuotaWindowMs = options.cpuQuotaWindowMs
         config.cpuKillAfterMs = options.cpuKillAfterMs
+        config.mainThreadQuotaMs = options.mainThreadQuotaMs
         config.maxTimers = options.maxTimers
         config.features = options.features
         config.visible = options.visible
         config.policy = options.policy
         config.themeParams = widgetTheme.params
         config.locale = options.locale
+        config.contentSafeArea = options.contentSafeArea
         config.storage = options.storage
         config.data = options.data
         config.context = options.context
@@ -292,6 +308,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         // The theme variables go first, before the renderer can announce `ready` (a pooled one replays it when onMessage is set).
         toRenderer(widgetTheme.rendererMessage)
+        toRenderer(options.contentSafeArea.rendererMessage)
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
         publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
@@ -368,6 +385,19 @@ public final class WidgetHost: SandboxEngineDelegate {
     @available(*, deprecated, message: "pass a WidgetTheme (SDK v1)")
     public func setTheme(_ theme: String) {
         setTheme(WidgetTheme(colorScheme: theme))
+    }
+
+    /// What the client draws over the widget changed with the bubble's layout (docs/sdk-v1.md §2.17, §5.12): a caption
+    /// added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
+    /// widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
+    public func setContentSafeArea(_ area: WidgetContentSafeArea) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.setContentSafeArea(area) }
+        }
+        guard !destroyed else { return }
+        config.contentSafeArea = area
+        toRenderer(area.rendererMessage)
+        engine.contentSafeArea(area)
     }
 
     /// The bot's data changed (`updateMessageWidgetData`, or a new `public_data` from polling the shared object;
@@ -499,7 +529,10 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
+            let stopped = validator.stopped
             deliver {
+                // A counted cap passed under strict: the widget stops like it does for memory or CPU (the renderer keeps its last render).
+                if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
@@ -519,7 +552,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             let batch = validator.processBinary(binaryOps, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
+            let stopped = validator.stopped
             deliver {
+                if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
@@ -616,6 +651,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
     public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) {
         inOrder {
+            guard self.state.dead == nil else { return }
             if self.state.bridge.count >= WidgetDiagnostics.maxActions { self.state.bridge.removeFirst(WidgetDiagnostics.maxActions / 2) }
             self.state.bridge.append((method, argsJson))
             self.changed()
@@ -624,6 +660,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
     public func engine(_ engine: SandboxEngine, action: WidgetAction) {
         inOrder {
+            guard self.state.dead == nil else { return } // the rest of the task in which the validator stopped the widget
             if self.state.actions.count >= WidgetDiagnostics.maxActions { self.state.actions.removeFirst(WidgetDiagnostics.maxActions / 2) }
             self.state.actions.append(action)
             self.changed()
@@ -655,20 +692,34 @@ public final class WidgetHost: SandboxEngineDelegate {
     /// The engine honours the first call of `respond` only.
     public func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) {
         inOrder {
+            guard self.state.dead == nil else { return }
             self.onMain {
                 guard let onRequest = self.onRequest else { return respond.unsupported() }
                 onRequest(request) { respond($0) }
             }
         }
     }
+    /// A wallet call that passed the engine's gate, to the client's `onWallet` on main, in order with the actions;
+    /// without `onWallet` at delivery the widget gets `NOT_ALLOWED` (`unsupported`).
+    public func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion) {
+        inOrder {
+            guard self.state.dead == nil else { return }
+            self.onMain {
+                guard let onWallet = self.onWallet else { return respond.unsupported() }
+                onWallet(wallet) { respond($0) }
+            }
+        }
+    }
     /// Not an action: the client copies the text and shows what it copied.
     public func engine(_ engine: SandboxEngine, copyText: String) {
         inOrder {
+            guard self.state.dead == nil else { return }
             self.onMain { self.onCopyText?(copyText) }
         }
     }
     public func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) {
         inOrder {
+            guard self.state.dead == nil else { return }
             self.onMain {
                 if let local = storageCommit.local { self.onStorageCommit?(.local, local) }
                 if let session = storageCommit.session { self.onStorageCommit?(.session, session) }
@@ -699,14 +750,19 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
     }
     public func engine(_ engine: SandboxEngine, died reason: String) {
-        executor.paced {
-            if self.state.dead != nil { return }
-            self.state.dead = reason
-            self.changed()
-            self.resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
-            // The renderer stays: last render as fallback, badge from the renderer, no more events or frames.
-            self.toRenderer(Self.json(["type": "frozen", "reason": self.stoppedLabel, "fatal": true]))
-        }
+        executor.paced { self.die(reason) }
+    }
+
+    /// The runtime is gone (memory, CPU, a counted cap): the reason goes into the diagnostics, the renderer keeps the last
+    /// render frozen, the engine is stopped (a no-op when it died by itself). Executor.
+    private func die(_ reason: String) {
+        if state.dead != nil { return }
+        state.dead = reason
+        changed()
+        resolveQuery(json: "{\"error\":\"dead\"}", binary: nil)
+        // The renderer stays: last render as fallback, badge from the renderer, no more events or frames.
+        toRenderer(Self.json(["type": "frozen", "reason": stoppedLabel, "fatal": true]))
+        engine.stop(reason: reason)
     }
 
     /// Trusted script evaluated in the renderer (tests and diagnostics only); "null" from a renderer without script.
@@ -734,6 +790,9 @@ public final class WidgetHost: SandboxEngineDelegate {
             // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
             if options.context.preview { return }
             if let ev = msg["ev"] {
+                // Any pointerdown begins a press, trusted or not: a second finger's is neither trusted nor claimed (`gesture`
+                // is the primary pointer's), and without this its release continued the press before it.
+                if ((ev as? [String: Any])?["type"] as? String) == "pointerdown" { pressBegan() }
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
                 if (msg["trusted"] as? Bool) == true, let gesture = gesture(for: ev) {
                     engine.activationEvent(json: Self.json(ev), gesture: gesture)
@@ -784,6 +843,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s
             // after. Before the preview check: harmless, a preview plays no haptics anyway.
             engine.pressBegan()
+            pressBegan()
             if options.context.preview { return }
             // The renderer core sends x, y and hold (`wants` is y, always false since v0.1.3). Vertical drags are the
             // chat's: the claim the client gets has `y` false whatever the renderer says. A renderer that sends only
@@ -890,6 +950,16 @@ public final class WidgetHost: SandboxEngineDelegate {
         pressOpen = type != "click" && type != "dblclick"
         lastActivationType = type
         return gestureNumber
+    }
+
+    /// A primary press began: the renderer's `gesture` claim, sent for every one, whether the widget listens or not, and
+    /// before the press's own events; or any forwarded `pointerdown`, trusted or not (a second finger's has no claim).
+    /// What follows is a new gesture, not the end of an open one: a finger's pointerdown is not `trusted` (it may become
+    /// the chat's scroll), so without this its release continued a press that had ended without a click (a drag), whose
+    /// gesture was spent. Twin of `GestureCounter.pressBegan` in user-activation.ts, UserActivation.kt and widget_host.h.
+    private func pressBegan() {
+        pressOpen = false
+        lastActivationType = ""
     }
 
     /// A pointer press or release, or a click with a click count (`detail` > 0). Keys never count.

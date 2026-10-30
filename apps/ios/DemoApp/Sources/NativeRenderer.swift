@@ -12,7 +12,10 @@
 // file; the view-level differences (touches vs mouse, CADisplayLink vs a
 // timer) are the `#if` branches below. Mirrors BlitzRenderer.kt /
 // LitehtmlRenderer.kt on Android.
+// Frozen since 2026-10-30 (docs/decisions.md, "The renderer prototypes are frozen"): compiled only in a
+// build with TW_NATIVE_RENDERERS=YES, which also builds and links the engines (project.yml).
 
+#if TW_NATIVE_RENDERERS
 import Foundation
 import QuartzCore
 import WidgetSandbox
@@ -347,4 +350,6 @@ private final class NativeRasterView: NSView {
     override func mouseDragged(with event: NSEvent) { forward(event, action: 1) }
     override func mouseUp(with event: NSEvent) { forward(event, action: 2) }
 }
+#endif
+
 #endif

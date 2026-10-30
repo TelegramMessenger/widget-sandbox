@@ -3,9 +3,9 @@
 // comments there). The shim checks the same calls, but it is untrusted, so the
 // glue checks them again: link URLs, haptic arguments and the 5 + 10/s gate,
 // theme params, the locale, storage commits and preloads, bridge calls (the
-// resize anchor, requests and copyText among them); and what goes into the
-// widget: the bot's data, the viewer, the chat type, a request's answer, the
-// request gate.
+// resize anchor, requests, wallet calls and copyText among them); and what goes
+// into the widget: the bot's data, the viewer, the chat type, a request's
+// answer, the request gate (with the wallet's grant).
 //
 // Pure and side-effect free; checked against tests/fixtures/sdk-policy.json
 // (copied to Tests/WidgetSandboxTests/Fixtures by `pnpm build:ios`), shared
@@ -17,8 +17,8 @@ import Foundation
 
 public enum SdkPolicy {
     public static let maxLinkLength = 256
-    /// Bytes of keys and values (UTF-8) per storage area and message.
-    public static let storageQuotaBytes = 16384
+    /// Bytes of keys and values (UTF-8) per storage area and message (4 KB: a 50-item to-do list; docs/decisions.md, "Strict limits from the start").
+    public static let storageQuotaBytes = 4096
     public static let maxLocaleLength = 35
     public static let defaultLocale = "en-US"
     public static let hapticBurst = 5.0
@@ -83,7 +83,8 @@ public enum SdkPolicy {
         "is_premium": "not a boolean",
     ]
 
-    /// What a refused or failed request rejects with in the widget (`error.code`).
+    /// What a refused or failed request rejects with in the widget (`error.code`); `rejected` and `badRequest` only
+    /// for a wallet call: the user declined in the client's window, the wallet refused the transaction or the payload.
     public enum RequestError: String, CaseIterable {
         case notAllowed = "NOT_ALLOWED"
         case busy = "BUSY"
@@ -91,7 +92,26 @@ public enum SdkPolicy {
         case timeout = "TIMEOUT"
         case failed = "FAILED"
         case invalidAnswer = "INVALID_ANSWER"
+        case rejected = "REJECTED"
+        case badRequest = "BAD_REQUEST"
     }
+
+    // The wallet (docs/sdk-v1.md §2.18): TON Connect's formats, Gram Wallet only.
+
+    /// Messages in one transaction: what Gram Wallet takes (its TON Connect `maxMessages`).
+    public static let maxWalletMessages = 255
+    /// Characters of a message's `payload` or `stateInit` (a bag of cells in base64).
+    public static let maxWalletBocLength = 8192
+    /// Characters of every message's `payload` and `stateInit` together.
+    public static let maxWalletBocTotal = 65536
+    /// UTF-8 bytes of a `signData` text; characters of its `bytes` or `cell` (base64).
+    public static let maxSignDataLength = 4096
+    /// UTF-8 bytes of a `cell` payload's TL-B schema.
+    public static let maxSignDataSchemaBytes = 1024
+    /// After the answer to a call made by a tap (a request or a wallet call) reached the widget, one wallet call may follow without a new tap this long.
+    public static let walletGrantMs = 10000.0
+    /// TON Connect's network ids: the mainnet and the testnet.
+    public static let walletNetworks = ["-239", "-3"]
 
     /// A checked haptic: `impact` / `notification` with their value, `selection` without.
     public struct HapticCall: Equatable {
@@ -106,7 +126,8 @@ public enum SdkPolicy {
     /// check gives it, a string); the resize anchor, which no `WidgetAction` carries (the host keeps the latest one
     /// next to the height it reports); whether the widget watches its shared `public_data` (the host keeps the latest,
     /// the client polls only for widgets that watch); a request to the bot (the request gate, then the client's
-    /// `onRequest`); a text to copy (`onCopyText`). The last four are never a `WidgetAction`.
+    /// `onRequest`; `wallet`: the widget asks the server to attach the user's wallet); a wallet call (the request gate,
+    /// then the client's `onWallet`); a text to copy (`onCopyText`). The last five are never a `WidgetAction`.
     public enum Action: Equatable {
         case ready
         case openLink(String)
@@ -114,7 +135,8 @@ public enum SdkPolicy {
         case haptic(HapticCall)
         case setResizeAnchor(WidgetResizeAnchor)
         case watchPublicData(Bool)
-        case request(id: Int, data: String)
+        case request(id: Int, data: String, wallet: Bool)
+        case wallet(id: Int, call: WalletCall)
         case copyText(String)
     }
 
@@ -231,11 +253,20 @@ public enum SdkPolicy {
             return args.count == 1 ? checkResizeAnchor(args[0]).map { .setResizeAnchor($0) } : nil
         case "watchPublicData":
             // Exactly one JSON boolean (not a number that bridges to one).
-            guard args.count == 1, let on = args[0] as? NSNumber, CFGetTypeID(on) == CFBooleanGetTypeID() else { return nil }
-            return .watchPublicData(on.boolValue)
+            guard args.count == 1, let on = boolean(args[0]) else { return nil }
+            return .watchPublicData(on)
         case "request":
-            guard args.count == 2, let id = integer(args[0], in: 1...Int64(maxRequestId)), let data = checkRequestData(args[1]) else { return nil }
-            return .request(id: Int(id), data: data)
+            guard args.count == 2 || args.count == 3, let id = integer(args[0], in: 1...Int64(maxRequestId)), let data = checkRequestData(args[1]) else { return nil }
+            guard let wallet = args.count == 3 ? checkRequestOptions(args[2]) : false else { return nil }
+            return .request(id: Int(id), data: data, wallet: wallet)
+        case "wallet":
+            // [id, method, the method's argument, data]
+            guard args.count == 4, let id = integer(args[0], in: 1...Int64(maxRequestId)), let data = checkRequestData(args[3]) else { return nil }
+            switch args[1] as? String {
+            case "sendTransaction": return checkWalletTransaction(args[2]).map { .wallet(id: Int(id), call: .sendTransaction($0, data: data)) }
+            case "signData": return checkSignDataPayload(args[2]).map { .wallet(id: Int(id), call: .signData($0, data: data)) }
+            default: return nil
+            }
         case "copyText":
             return args.count == 1 ? checkCopyText(args[0]).map { .copyText($0) } : nil
         default:
@@ -254,6 +285,12 @@ public enum SdkPolicy {
         return n.int64Value
     }
 
+    /// A JSON boolean (not a number that bridges to one).
+    static func boolean(_ value: Any?) -> Bool? {
+        guard let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+        return n.boolValue
+    }
+
     // The TS checks below also refuse a lone surrogate (`wellFormed`). A Swift string never holds one (bridging a
     // Foundation string turns it into U+FFFD) and JSONSerialization refuses a `\ud800` escape, so a bridge call that
     // carries one is `bridge-rejected` before any check: here every string is well-formed.
@@ -263,6 +300,138 @@ public enum SdkPolicy {
         guard let s = data as? String else { return nil }
         let n = utf8Length(s)
         return n >= 1 && n <= maxRequestDataBytes ? s : nil
+    }
+
+    /// Whether a `request`'s options ask for the wallet, or nil: an object with at most `wallet`, a boolean (absent or null: false).
+    public static func checkRequestOptions(_ options: Any?) -> Bool? {
+        guard let o = options as? [String: Any], o.keys.allSatisfy({ $0 == "wallet" }) else { return nil }
+        guard let w = o["wallet"], !(w is NSNull) else { return false }
+        return boolean(w)
+    }
+
+    // MARK: the wallet
+
+    private static func isDigit(_ b: UInt8) -> Bool { b >= 48 && b <= 57 }
+    private static func isHexByte(_ b: UInt8) -> Bool { isDigit(b) || (b >= 65 && b <= 70) || (b >= 97 && b <= 102) }
+    /// A–Z, a–z, 0–9, `+`, `/`, `_`, `-`: base64 and base64url together.
+    private static func isBase64Byte(_ b: UInt8) -> Bool { isDigit(b) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || b == 43 || b == 47 || b == 95 || b == 45 }
+    /// Absent: nil or JSON null (a null the bot wrote).
+    private static func absent(_ v: Any?) -> Bool { v == nil || v is NSNull }
+    private static func onlyKeys(_ o: [String: Any], _ keys: Set<String>) -> Bool { o.keys.allSatisfy(keys.contains) }
+
+    /// A message's destination, or nil: user-friendly only (TON Connect: the wallet must refuse a raw one; the bounce flag is in it).
+    public static func checkWalletDestination(_ address: Any?) -> String? {
+        guard let s = address as? String else { return nil }
+        let u = Array(s.utf8)
+        return u.count == 48 && u.allSatisfy(isBase64Byte) ? s : nil
+    }
+
+    /// A TON address, or nil: raw (`0:` or `-1:` and 64 hex digits) or user-friendly (48 characters of base64 or base64url); a transaction's `from`. The wallet checks the rest.
+    public static func checkWalletAddress(_ address: Any?) -> String? {
+        guard let s = address as? String else { return nil }
+        let u = Array(s.utf8)
+        if u.count == 48 && u.allSatisfy(isBase64Byte) { return s }
+        let prefix = u.starts(with: [48, 58]) ? 2 : u.starts(with: [45, 49, 58]) ? 3 : 0
+        return prefix > 0 && u.count == prefix + 64 && u[prefix...].allSatisfy(isHexByte) ? s : nil
+    }
+
+    /// Base64 or base64url of 1 to `max` characters, with at most two `=` at the end.
+    private static func base64(_ v: Any?, max: Int) -> String? {
+        guard let s = v as? String else { return nil }
+        var u = Array(s.utf8)
+        guard u.count <= max else { return nil }
+        for _ in 0..<2 where u.last == 61 { u.removeLast() }
+        return !u.isEmpty && u.allSatisfy(isBase64Byte) ? s : nil
+    }
+
+    /// Nanotons: a decimal string of at most 37 digits without a leading zero (`0` itself is an amount).
+    private static func isAmount(_ s: String) -> Bool {
+        let u = Array(s.utf8)
+        return (1...37).contains(u.count) && u.allSatisfy(isDigit) && (u.count == 1 || u[0] != 48)
+    }
+
+    /// The optional `network` and `from` of a transaction or a payload; nil when one breaks its rule.
+    private static func walletTarget(_ input: [String: Any]) -> (network: String?, from: String?)? {
+        var out: (network: String?, from: String?) = (nil, nil)
+        if !absent(input["network"]) {
+            guard let n = input["network"] as? String, walletNetworks.contains(n) else { return nil }
+            out.network = n
+        }
+        if !absent(input["from"]) {
+            guard let f = checkWalletAddress(input["from"]) else { return nil }
+            out.from = f
+        }
+        return out
+    }
+
+    /// A transaction for `sendTransaction`, or nil: TON Connect's fields only (`valid_until`, `network`, `from`,
+    /// `messages`), 1–255 messages of `address`, `amount` and optionally `payload` and `stateInit`. `valid_until` an
+    /// integer of 1 to 2^32 − 1, `network` `-239` or `-3`, `from` raw or user-friendly, a message's `address`
+    /// user-friendly only, amounts decimal strings of nanotons (at most 37 digits, no leading zero), payloads base64 of
+    /// at most 8192 characters each and 65536 together. Absent and null fields are left out. The wallet checks the rest
+    /// and refuses with `BAD_REQUEST`.
+    public static func checkWalletTransaction(_ tx: Any?) -> WalletTransaction? {
+        guard let t = tx as? [String: Any], onlyKeys(t, ["valid_until", "network", "from", "messages"]) else { return nil }
+        var validUntil: Int64?
+        if !absent(t["valid_until"]) {
+            guard let v = integer(t["valid_until"], in: 1...4294967295) else { return nil }
+            validUntil = v
+        }
+        guard let target = walletTarget(t), let list = t["messages"] as? [Any], (1...maxWalletMessages).contains(list.count) else { return nil }
+        var messages: [WalletMessage] = []
+        var total = 0
+        for item in list {
+            guard let m = item as? [String: Any], onlyKeys(m, ["address", "amount", "payload", "stateInit"]),
+                  let address = checkWalletDestination(m["address"]), let amount = m["amount"] as? String, isAmount(amount) else { return nil }
+            var message = WalletMessage(address: address, amount: amount)
+            if !absent(m["payload"]) {
+                guard let p = base64(m["payload"], max: maxWalletBocLength) else { return nil }
+                message.payload = p
+                total += p.utf8.count
+            }
+            if !absent(m["stateInit"]) {
+                guard let p = base64(m["stateInit"], max: maxWalletBocLength) else { return nil }
+                message.stateInit = p
+                total += p.utf8.count
+            }
+            messages.append(message)
+        }
+        guard total <= maxWalletBocTotal else { return nil }
+        return WalletTransaction(validUntil: validUntil, network: target.network, from: target.from, messages: messages)
+    }
+
+    /// Text the server and the bot can take: no NUL, 1 to `max` UTF-8 bytes.
+    private static func signText(_ v: Any?, max: Int) -> String? {
+        guard let s = v as? String, !s.isEmpty, hasNoNul(s), utf8Length(s) <= max else { return nil }
+        return s
+    }
+
+    /// A `signData` payload, or nil: TON Connect's three kinds with their fields only, and optionally `network` and
+    /// `from` as a transaction's. `text`: 1–4096 UTF-8 bytes; `binary`: `bytes`, base64 of at most 4096 characters;
+    /// `cell`: `schema` (TL-B, 1–1024 UTF-8 bytes) and `cell`, base64 of at most 4096 characters. Absent and null
+    /// fields are left out. No domain: the client signs for the bot of the message (`bot<bot_id>`).
+    public static func checkSignDataPayload(_ payload: Any?) -> SignDataPayload? {
+        guard let p = payload as? [String: Any] else { return nil }
+        let common: Set<String> = ["type", "network", "from"]
+        var out: SignDataPayload
+        switch p["type"] as? String {
+        case "text":
+            guard onlyKeys(p, common.union(["text"])), let text = signText(p["text"], max: maxSignDataLength) else { return nil }
+            out = SignDataPayload(type: .text, text: text)
+        case "binary":
+            guard onlyKeys(p, common.union(["bytes"])), let bytes = base64(p["bytes"], max: maxSignDataLength) else { return nil }
+            out = SignDataPayload(type: .binary, bytes: bytes)
+        case "cell":
+            guard onlyKeys(p, common.union(["schema", "cell"])), let schema = signText(p["schema"], max: maxSignDataSchemaBytes),
+                  let cell = base64(p["cell"], max: maxSignDataLength) else { return nil }
+            out = SignDataPayload(type: .cell, schema: schema, cell: cell)
+        default:
+            return nil
+        }
+        guard let target = walletTarget(p) else { return nil }
+        out.network = target.network
+        out.from = target.from
+        return out
     }
 
     /// A `copyText` text, or nil: a string of 1–256 UTF-16 code units.
@@ -369,62 +538,103 @@ public enum SdkPolicy {
     }
 
     /// The verdict on a request (docs/sdk-v1.md §2.14): `foreground` (it consumes the task's press) and `background`
-    /// go to the client; the rest are refused: `disabled` (no `canQuery`: a widget sent without `allow_queries`, or a
-    /// forwarded copy of one sent without `fwd_allow_queries`), `busy` (one request in flight per widget), `noActivation` (no press, and no `backgroundQuery`),
-    /// `hidden` (a background request from a widget off screen), `rateLimited` (a background request sooner than 5 s
-    /// after the last one, unless the widget appeared on screen since).
+    /// go to the client; `held` (a background request from a widget off screen) waits in the glue and goes to the
+    /// client when the widget appears on screen (`RequestGate.show`); the rest are refused: `disabled` (no `canQuery`:
+    /// a widget sent without `allow_queries`, or a forwarded copy of one sent without `fwd_allow_queries`), `busy` (one
+    /// request in flight per widget, a held one included), `noActivation` (no press, and no `backgroundQuery`),
+    /// `rateLimited` (a background request sooner than 5 s after the last one, unless the widget appeared on screen since).
+    /// A wallet call (`decideWallet`), or a request that asks for the wallet, goes out only as `foreground` or `granted`
+    /// (no press, but within 10 s of the answer to a call made by a tap); `noWallet` when the client has no wallet for this user.
     public enum RequestVerdict: String {
-        case foreground, background, disabled, busy
+        case foreground, background, held, granted, disabled, busy
+        case noWallet = "no-wallet"
         case noActivation = "no-activation"
-        case hidden
         case rateLimited = "rate-limited"
     }
 
-    /// What the widget's promise rejects with for a refused request; nil for the two that go to the client.
+    /// What the widget's promise rejects with for a refused request; nil for the four that go to the client.
     public static func requestRefusal(_ verdict: RequestVerdict) -> RequestError? {
         switch verdict {
-        case .foreground, .background: return nil
+        case .foreground, .background, .held, .granted: return nil
         case .busy: return .busy
         case .rateLimited: return .rateLimited
-        case .disabled, .noActivation, .hidden: return .notAllowed
+        case .disabled, .noWallet, .noActivation: return .notAllowed
         }
     }
 
     /// The client's sandbox policy for requests, from the server's flags only: on a tap whenever `canQuery`; without
-    /// one only with `backgroundQuery`, only while visible: one when the widget appears on screen (`show`, and at
-    /// creation), then at most one per 5 s counted from the start of the last background request; one request in
-    /// flight. `gesture`: the task has a press no privileged call consumed yet (the glue consumes it on `foreground`).
-    /// `finish` when the answer or the failure has gone into the widget.
+    /// one only with `backgroundQuery`: one when the widget appears on screen (`show`, and at creation), then at most
+    /// one per 5 s counted from the start of the last background request, while it stays visible; one made while it
+    /// is off screen is held (`held`) and is the one of its next appearance (`show` returns true: the glue sends it
+    /// then). One request in flight, a held one included. `gesture`: the task has a press no privileged call consumed
+    /// yet (the glue consumes it on `foreground`). `finish` when the answer or the failure has gone into the widget,
+    /// or when the glue drops a held request (the widget stopped); `answeredAtMs` when an answer with no error went in then.
+    ///
+    /// The wallet (docs/sdk-v1.md §2.18): only with `wallet` (the client has Gram Wallet for this user). A request that
+    /// asks for the wallet (`withWallet`) and a wallet call (`decideWallet`) need the visible widget and a press, or the
+    /// grant: the answer to the last call made by a press or a grant (a request or a wallet call) lets one wallet call
+    /// follow within 10 s. Any call that goes out as `foreground` or `granted` uses up the grant; its answer brings the next one.
     public struct RequestGate {
         private var inFlight = false
+        private var held = false
         private var lastBackground: Double?
+        /// The call in flight went out on a press or the grant: its answer grants one wallet call.
+        private var granting = false
+        private var grantAt: Double?
 
         public init() {}
 
         public var busy: Bool { inFlight }
 
-        public mutating func decide(nowMs now: Double, gesture: Bool, visible: Bool, canQuery: Bool, backgroundQuery: Bool) -> RequestVerdict {
+        public mutating func decide(nowMs now: Double, gesture: Bool, visible: Bool, canQuery: Bool, backgroundQuery: Bool, withWallet: Bool = false, wallet: Bool = false) -> RequestVerdict {
             if !canQuery { return .disabled }
+            if withWallet && !wallet { return .noWallet }
             if inFlight { return .busy }
-            if gesture && visible {
+            if gesture && visible { return out(.foreground) }
+            if !backgroundQuery || withWallet { return .noActivation }
+            if !visible {
                 inFlight = true
-                return .foreground
+                held = true
+                return .held
             }
-            if !backgroundQuery { return .noActivation }
-            if !visible { return .hidden }
             if let lastBackground, now - lastBackground < SdkPolicy.backgroundRequestIntervalMs { return .rateLimited }
             lastBackground = now
             inFlight = true
             return .background
         }
 
-        public mutating func finish() {
-            inFlight = false
+        /// A wallet call (`sendTransaction`, `signData`): on a press, or on the grant within 10 s of its answer.
+        public mutating func decideWallet(nowMs now: Double, gesture: Bool, visible: Bool, canQuery: Bool, wallet: Bool) -> RequestVerdict {
+            if !canQuery { return .disabled }
+            if !wallet { return .noWallet }
+            if inFlight { return .busy }
+            if gesture && visible { return out(.foreground) }
+            if visible, let grantAt, now - grantAt <= SdkPolicy.walletGrantMs { return out(.granted) }
+            return .noActivation
         }
 
-        /// The widget appeared on screen (it was hidden): its next background request may go out at once.
-        public mutating func show() {
+        private mutating func out(_ verdict: RequestVerdict) -> RequestVerdict {
+            inFlight = true
+            granting = true
+            grantAt = nil
+            return verdict
+        }
+
+        public mutating func finish(answeredAtMs: Double? = nil) {
+            if granting, let answeredAtMs { grantAt = answeredAtMs }
+            inFlight = false
+            held = false
+            granting = false
+        }
+
+        /// The widget appeared on screen (it was hidden): its next background request may go out at once. True when a
+        /// held request goes out now, as this appearance's background request (the glue sends it; it stays in flight).
+        public mutating func show(nowMs now: Double) -> Bool {
             lastBackground = nil
+            if !held { return false }
+            held = false
+            lastBackground = now
+            return true
         }
     }
 

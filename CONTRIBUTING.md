@@ -11,7 +11,7 @@ must already be valid on every platform. One page of rules; the commands are in
 | `packages/core/src/sandbox`, `renderer`, `shared`, `host/validator*`, `allowlist`, `css-sanitizer`, `url-policy`, `profile.json` | the shared contract: one JS for every client | the rebuilt bundles with their `.qbc` (`pnpm build:ios`, `build:android`, `build:desktop`), a unit test; after `profile.json`, first `packages/core/scripts/profile-build.ts` |
 | What a widget sees or may do, decided in glue: limits, timers, visibility, the order of ops / anim / queries, Intl, the SDK checks | parity glue, five copies: web worker, Node harness, Swift, Kotlin, C++ | the same change in every copy, or a line in the commit message saying why it is one platform only |
 | `CpuBudget*`, `SdkPolicy*`, the `intl` capability | a policy checked against a fixture in `packages/core/tests/fixtures`: `cpu-budget.json`, `sdk-policy.json`, `intl-cases.json` | all four copies and the fixture together (`intl-cases.json` holds V8's answers: add the case to `packages/core/scripts/intl-cases.ts` and regenerate); `build:ios`, `build:android`, `build:desktop` copy the fixtures into the native tests |
-| What a widget author sees: a profile feature, an SDK call, a limit, a default, who gets a press, a dev-tool flag | the authors' contract | `docs/widget-runtime-profile.md` (the guide and its agent block; its out list is generated: run `profile-build.ts` after `profile.json`), and `docs/changes.md` |
+| What a widget author sees: a profile feature, an SDK call, a limit, a default, who gets a press, a dev-tool flag | the authors' contract | `docs/widget-runtime-profile.md` (the guide and its agent block, which must stand alone: a bot's model sees nothing else; their out lists are generated: run `profile-build.ts` after `profile.json`), and `docs/changes.md` |
 | Your renderer, pools, demo, build files | platform only | nothing else |
 
 If you cannot do every copy yourself, push a branch and ask for the rest; do not push the
@@ -35,6 +35,8 @@ one-platform half to `main`.
 - Glue: the tests of every platform you changed: `xcodebuild test` (macOS and iOS), Android
   JVM and `connectedDebugAndroidTest`, desktop `twidget-tests` and `twidget-run --attacks`.
   Code that never ran on its platform is not done.
+- Not the frozen renderer prototypes (Blitz, the plain litehtml core; `docs/decisions.md`, "The renderer prototypes are
+  frozen"): a change is not checked on them, and "not checked on Blitz/litehtml" is no gap.
 - A new behaviour gets a test that fails without the change.
 - Cost: measure anything that runs per element or per query on a large DOM (500+ elements).
   A widget has 300 ms of CPU per second and at most 500 ms in one task; a quadratic loop
@@ -51,7 +53,7 @@ one-platform half to `main`.
 - Rebase on the latest `main`; rebuild the bundles if the rebase touched `packages/core`.
 - If a release is being prepared, say so before pushing: the release is rebased on top of
   you and re-tested.
-- Never edit generated files by hand: `profile-tables.ts`, `docs/profile-v1.md`, the out list
-  between the `profile:summary` markers of `docs/widget-runtime-profile.md`, the
+- Never edit generated files by hand: `profile-tables.ts`, `docs/profile-v1.md`, the out lists
+  between the `profile:summary` and `profile:agent` markers of `docs/widget-runtime-profile.md`, the
   bundles and `.qbc`, `packages/conformance/{catalogue,manifest,channel}.json`,
   `packages/core/tests/fixtures/intl-cases.json` and the fixtures' copies in the native tests.

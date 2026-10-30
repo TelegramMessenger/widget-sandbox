@@ -114,8 +114,8 @@ test.describe('last render as fallback', () => {
 test.describe('timer limit', () => {
   test('a 100 000-timer flood is refused past maxTimers with a RangeError; the widget stays alive and bounded', async ({ page }) => {
     const f = await openAttack(page, 'timer-flood.html');
-    await expect(f.locator('#status')).toHaveText('done: RangeError: too many timers (max 256)');
-    await expect(f.locator('#count')).toHaveText('256 accepted, 99744 refused');
+    await expect(f.locator('#status')).toHaveText('done: RangeError: too many timers (max 64)');
+    await expect(f.locator('#count')).toHaveText('64 accepted, 99936 refused');
     await page.waitForTimeout(1500);
     const s = await twState(page);
     expect(s.dead).toBeNull();
@@ -125,6 +125,122 @@ test.describe('timer limit', () => {
     await f.locator('#btn').click();
     await expect(f.locator('#clicks')).toHaveText('1');
   });
+
+  test('a timer id the shim asks for again replaces its timer: 1000 forged calls on one id fire its callback once', async ({ page }) => {
+    const f = await openAttack(page, 'timer-id-reuse.html');
+    await expect(f.locator('#p')).toHaveText('fired 1', { timeout: 10_000 });
+    const s = await twState(page);
+    expect(s.dead).toBeNull();
+    expect(s.diags['timer-limit-enforced']).toBeUndefined();
+  });
+});
+
+test.describe('bitmaps', () => {
+  const claimed = fs.readFileSync(path.join(attacksDir, 'mem-huge-bitmaps.html'), 'utf8').match(/id="claims" alt="" src="data:image\/png;base64,([^"]+)"/)![1];
+  test('strict: canvases past 2048² pixels together stop the widget before they reach the page', async ({ page }) => {
+    await openAttack(page, 'mem-huge-bitmaps.html');
+    await waitDead(page);
+    expect((await twState(page)).dead).toMatch(/^Canvas limit exceeded: canvases of \d+ pixels together \(max 4194304\)$/);
+    const sizes = await widgetDom(page).locator('canvas').evaluateAll((cs) => cs.map((c) => (c as HTMLCanvasElement).width * (c as HTMLCanvasElement).height));
+    expect(sizes.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(2048 * 2048);
+  });
+
+  test('compat: the renderer itself never applies a canvas size past 4096 × 4096, and images past 1024² are the placeholder', async ({ page }) => {
+    const f = await openAttack(page, 'mem-huge-bitmaps.html', '&policy=compat');
+    await expect(f.locator('#log')).toHaveText('drawn');
+    const image = (id: string) => f.locator(id).evaluate(async (el: HTMLImageElement) => {
+      await el.decode().catch(() => {});
+      return [el.naturalWidth, el.naturalHeight];
+    });
+    const canvas = (id: string) => f.locator(id).evaluate((el: HTMLCanvasElement) => [el.width, el.height]);
+    const pixels = ([w, h]: number[]) => w * h;
+    await expect.poll(() => image('#small')).toEqual([40, 20]);
+    for (const id of ['#claims', '#past']) expect(pixels(await image(id)), id).toBeLessThanOrEqual(1024 * 1024);
+    for (const id of ['#attr', '#scripted']) expect(pixels(await canvas(id)), id).toBeLessThanOrEqual(4096 * 4096);
+    expect(await canvas('#plain')).toEqual([300, 150]);
+    expect(await f.locator('#css').evaluate((el) => getComputedStyle(el).backgroundImage)).not.toContain(claimed.slice(0, 40));
+    const s = await twState(page);
+    expect(s.dead).toBeNull();
+    expect(s.diags['renderer-violation']?.count).toBeGreaterThanOrEqual(1);
+  });
+});
+
+test.describe('pointers', () => {
+  test('a widget that asks for the mouse every frame never takes a press on the page; its own press is its own', async ({ page }) => {
+    const f = await openAttack(page, 'activation-pointer-capture.html');
+    await page.evaluate(() => {
+      const b = document.createElement('button');
+      b.textContent = 'app';
+      b.style.cssText = 'position:fixed;left:0;top:0;width:120px;height:40px;z-index:99999';
+      (window as any).__appClicks = 0;
+      b.addEventListener('click', () => (window as any).__appClicks++);
+      document.body.appendChild(b);
+    });
+    await page.waitForTimeout(300);
+    await page.mouse.move(60, 20);
+    await page.mouse.down();
+    await page.waitForTimeout(200);
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (window as any).__appClicks)).toBe(1);
+    expect(await page.evaluate(() => (window as any).__tw.state.copiedTexts)).toEqual([]);
+    await f.locator('#t').click();
+    // the dev app's phone mode plays a finger with the mouse: the widget sees pointerType touch
+    await expect.poll(() => page.evaluate(() => (window as any).__tw.state.copiedTexts)).toEqual([expect.stringMatching(/^captured-(mouse|touch)$/)]);
+  });
+});
+
+test.describe("a finger's press", () => {
+  // Real touch input (CDP touch events): the dev app's phone mode and Playwright's clicks play a finger with the mouse,
+  // whose pointerdown is a gesture.
+  test.use({ hasTouch: true });
+  const touches = async (page: Page) => {
+    const cdp = await page.context().newCDPSession(page);
+    const box = (await page.locator(RENDERER_SEL).boundingBox())!;
+    const x = box.x + box.width / 2, y = box.y + 60;
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((p) => ({ ...p, id: 1 })) });
+    return {
+      async swipe(dy: number) {
+        await touch('touchStart', [{ x, y }]);
+        for (let i = 1; i <= 10; i++) { await touch('touchMove', [{ x, y: y + (dy * i) / 10 }]); await page.waitForTimeout(16); }
+        await touch('touchEnd', []);
+      },
+      async tap() {
+        await touch('touchStart', [{ x, y }]);
+        await page.waitForTimeout(60);
+        await touch('touchEnd', []);
+      },
+    };
+  };
+  const seen = (page: Page) => page.evaluate(() => ({ requests: (window as any).__tw.bot.requests.map((r: any) => r.data as string), copied: (window as any).__tw.state.copiedTexts as string[] }));
+
+  test('a swipe that starts on the widget is the chat\'s scroll: no request and no copyText from its pointerdown; a tap still gets its click', async ({ page }) => {
+    await resetCanary();
+    await openAttack(page, 'activation-touch-swipe.html', '&message=group');
+    await page.waitForTimeout(300);
+    const t = await touches(page);
+    await t.swipe(160);
+    await page.waitForTimeout(800);
+    expect(await seen(page)).toEqual({ requests: [], copied: [] });
+    await t.tap();
+    await expect.poll(async () => (await seen(page)).copied).toEqual(['click']);
+    await page.waitForTimeout(300);
+    expect((await seen(page)).requests).toEqual([]);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+});
+
+test.describe('light-dark()', () => {
+  test('no branch of light-dark() fetches anything in the dark theme either', async ({ page }) => {
+    await resetCanary();
+    const outside = watchRequests(page);
+    await page.goto(`/?file=attacks/css-light-dark-url.html&theme=dark${RENDERER_PARAM}`);
+    await page.waitForFunction(() => (window as any).__tw?.state?.loaded, null, { timeout: 60_000 });
+    await page.waitForTimeout(1500);
+    expect(await canaryHits()).toHaveLength(0);
+    expect(outside).toHaveLength(0);
+    expect((await twState(page)).diags['url-blocked']?.count).toBeGreaterThan(0);
+  });
 });
 
 test.describe('memory limit', () => {
@@ -132,16 +248,16 @@ test.describe('memory limit', () => {
   // worker caps the wasm Memory at INITIAL + memoryLimitBytes; the engine then throws the same catchable
   // `InternalError: out of memory` as the native builds do at JS_SetMemoryLimit. tests/unit/memory-limit.test.ts
   // covers the harness; this is the real worker, with the kill, the frozen fallback and the stats.
-  const FOOTPRINT_MB = 16 + 64;
+  const FOOTPRINT_MB = 16 + 8;
 
   test('steady growth without a try/catch is killed with "Memory limit exceeded" and the last render stays frozen', async ({ page }) => {
     const f = await openAttack(page, 'mem-uncaught-growth.html');
     await waitDead(page);
     const s = await twState(page);
-    expect(s.dead).toMatch(/^Memory limit exceeded \(64 MB\)/);
+    expect(s.dead).toMatch(/^Memory limit exceeded \(8 MB\)/);
     // The render before the fatal tick is still there: a count in MB, below the cap.
     const reached = parseInt(await f.locator('#mb').textContent() ?? '', 10);
-    expect(reached).toBeGreaterThanOrEqual(8);
+    expect(reached).toBeGreaterThanOrEqual(4);
     expect(reached).toBeLessThanOrEqual(FOOTPRINT_MB);
     await expect(f.locator('html')).toHaveAttribute('data-tw-frozen', 'fatal');
     await expect(f.locator('[data-tw-badge]')).toHaveText('Widget stopped');
@@ -155,7 +271,7 @@ test.describe('memory limit', () => {
     const s = await twState(page);
     expect(s.dead).toMatch(/^Memory limit exceeded/);
     const reached = parseInt(await f.locator('#mb').textContent() ?? '', 10);
-    expect(reached).toBeGreaterThanOrEqual(8);
+    expect(reached).toBeGreaterThanOrEqual(4);
     expect(reached).toBeLessThanOrEqual(FOOTPRINT_MB);
     await expect(f.locator('#mb')).not.toHaveText(/alloc refused/);
     await expect(f.locator('html')).toHaveAttribute('data-tw-frozen', 'fatal');
@@ -208,7 +324,8 @@ test.describe('requests to the bot', () => {
   test('a widget that rewrites the wire gets nothing over the limits through: the glue re-checks every call', async ({ page }) => {
     const f = await openAttack(page, 'request-forged-wire.html', '&message=group');
     await f.locator('#go').click();
-    await expect.poll(() => diagCount(page, 'bridge-rejected')).toBe(2);
+    // The oversized request, the one with a forged id (the shim forwards it: only the glue's gate says BUSY) and the copyText.
+    await expect.poll(() => diagCount(page, 'bridge-rejected')).toBe(3);
     await page.waitForTimeout(300);
     const b = await bot(page);
     expect(b.requests).toEqual([]);
@@ -226,6 +343,27 @@ test.describe('requests to the bot', () => {
     const b = await bot(page);
     expect(b.requests.length).toBeGreaterThanOrEqual(1);
     expect(b.requests.length).toBeLessThanOrEqual(2);
+    expect((await twState(page)).dead).toBeNull();
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('background requests off screen: none go out while hidden; one per appearance, then one per 5 s', async ({ page }) => {
+    await openAttack(page, 'request-background-flood.html', '&offscreen=1');
+    await page.waitForTimeout(1500);
+    expect((await bot(page)).requests).toEqual([]);
+    const show = async (n: number) => {
+      await page.evaluate(() => (window as any).__tw.setVisible(true));
+      await expect.poll(async () => (await bot(page)).requests.length).toBe(n);
+      await page.waitForTimeout(2500);
+      expect((await bot(page)).requests).toHaveLength(n);
+    };
+    await show(1); // the request held since boot, at once
+    for (const n of [2, 3]) {
+      await page.evaluate(() => (window as any).__tw.setVisible(false));
+      await page.waitForTimeout(1200); // the hidden flood's timers run at 1 Hz: one request is held, the rest BUSY
+      expect((await bot(page)).requests).toHaveLength(n - 1);
+      await show(n);
+    }
     expect((await twState(page)).dead).toBeNull();
     expect(await canaryHits()).toHaveLength(0);
   });
@@ -268,6 +406,53 @@ test.describe('requests to the bot', () => {
     await expect.poll(async () => (await bot(page)).requests).toEqual(['copy-tap']);
     await page.waitForTimeout(800);
     expect((await bot(page)).requests).toEqual(['copy-tap']);
+  });
+});
+
+// ───────────── the wallet (docs/sdk-v1.md §2.18) ─────────────
+
+test.describe('the wallet', () => {
+  const calls = (page: Page) => page.evaluate(() => (window as any).__tw.bot.requests.map((r: any) => (r.kind ? r.kind + ':' : '') + r.data) as string[]);
+  const diagCount = async (page: Page, kind: string) => (await twState(page)).diags[kind]?.count ?? 0;
+
+  test('no wallet window without a real tap, not even on a background request\'s answer; the tap opens one', async ({ page }) => {
+    await resetCanary();
+    const f = await openAttack(page, 'wallet-no-activation.html');
+    await page.waitForTimeout(1000);
+    expect(await calls(page)).toEqual(['bg']); // the background request itself, which grants nothing
+    await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+    await expect(f.locator('#log')).toContainText('canary:TypeError');
+    await expect(f.locator('#log')).toContainText('background-answer:NOT_ALLOWED');
+    expect(await diagCount(page, 'request-blocked')).toBeGreaterThanOrEqual(5);
+    await f.locator('#go').click();
+    await expect(page.locator('.wallet-sheet')).toHaveCount(1);
+    await page.locator('#wallet-decline').click();
+    await expect(f.locator('#log')).toContainText('tap:REJECTED');
+    expect(await calls(page)).toEqual(['bg', 'sendTransaction:tap']);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('a widget that rewrites the wire gets no wallet call through: the glue re-checks every one', async ({ page }) => {
+    await resetCanary();
+    const f = await openAttack(page, 'wallet-forged-wire.html');
+    await f.locator('#go').click();
+    await expect.poll(() => diagCount(page, 'bridge-rejected')).toBe(5);
+    await page.waitForTimeout(500);
+    expect(await calls(page)).toEqual([]);
+    await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+    expect(await canaryHits()).toHaveLength(0);
+  });
+
+  test('one grant, one window: a second call is BUSY, a refusal brings no grant, a later timer gets none', async ({ page }) => {
+    const f = await openAttack(page, 'wallet-grant-reuse.html', '&message=group');
+    await f.locator('#go').click();
+    await expect(page.locator('.wallet-sheet')).toHaveCount(1);
+    await expect(f.locator('#log')).toContainText('second:BUSY');
+    await page.locator('#wallet-decline').click();
+    await expect(f.locator('#log')).toContainText('after-refusal:NOT_ALLOWED');
+    await expect(f.locator('#log')).toContainText('timer:NOT_ALLOWED', { timeout: 5000 });
+    await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+    expect(await calls(page)).toEqual(['order', 'sendTransaction:first']);
   });
 });
 

@@ -1,7 +1,8 @@
 // A fake host for the harness and the tests: records everything the engine
 // emits, runs every ops batch through the TrustedValidator (so what it keeps is
-// exactly what a renderer would receive) and answers layout queries with the
-// same canned values as scripts/sandbox-node.ts.
+// exactly what a renderer would receive), stops the widget as WidgetHost does
+// when the validator's counted cap stops it (strict), and answers layout
+// queries with the same canned values as scripts/sandbox-node.ts.
 #pragma once
 
 #include "twidget/json.h"
@@ -22,8 +23,11 @@ namespace twidget {
 
 class RecordingHost : public SandboxEngineDelegate {
 public:
-    RecordingHost(const std::string& theme, std::shared_ptr<SandboxResources> resources, bool verbose = false)
-        : verbose_(verbose), validator_(theme, std::move(resources), [this](const std::string& k, const std::string& d) { diag("validator:" + k, d); }) {}
+    /// `policy` is the engine's (SandboxConfig::policy): anything but "compat" validates strict, as WidgetHost does.
+    RecordingHost(const std::string& theme, std::shared_ptr<SandboxResources> resources, bool verbose = false, const std::string& policy = "strict")
+        : verbose_(verbose), validator_(theme, std::move(resources), [this](const std::string& k, const std::string& d) { diag("validator:" + k, d); }) {
+        if (isStrictPolicy(policy)) validator_.setPolicy("strict");
+    }
 
     // Recorded state (read under lock()).
     std::vector<std::string> ops;        // raw batches from the sandbox (untrusted)
@@ -47,6 +51,10 @@ public:
     /// The client's side of a request, on the engine thread, outside the lock: answer through `respond` now or keep it
     /// for later. Unset (the default): the client handles no requests, every one is refused (`unsupported`).
     std::function<void(const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)>)> onRequest;
+    /// The wallet calls that passed the glue's checks and gate (`onBridgeWallet`), in order, and the client's side of
+    /// them (unset: every one is refused, `unsupported`).
+    std::vector<WalletCall> walletCalls;
+    std::function<void(const WalletCall&, std::function<void(const WidgetRequestOutcome&)>)> onWallet;
     std::optional<std::string> died;
     int frameRequests = 0;
     bool loaded = false;
@@ -82,12 +90,16 @@ public:
     std::string allRenderOps() const { std::string s; for (auto& o : renderOps) s += o; return s; }
 
     // SandboxEngineDelegate (engine thread)
-    void onOps(SandboxEngine&, const std::string& json) override {
+    void onOps(SandboxEngine& engine, const std::string& json) override {
         std::string clean = validator_.processOps(json);
-        std::lock_guard<std::mutex> l(mutex_);
-        ops.push_back(json);
-        renderOps.push_back(clean);
-        if (verbose_) fprintf(stderr, "ops → %s\n", clean.size() > 2000 ? (clean.substr(0, 2000) + "…").c_str() : clean.c_str());
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            ops.push_back(json);
+            renderOps.push_back(clean);
+            if (verbose_) fprintf(stderr, "ops → %s\n", clean.size() > 2000 ? (clean.substr(0, 2000) + "…").c_str() : clean.c_str());
+        }
+        // A counted cap passed under strict: the widget dies with its reason (onDied), as under WidgetHost.
+        if (std::optional<std::string> reason = validator_.stopped()) engine.stop(*reason);
     }
     QueryAnswer onQuery(SandboxEngine&, const std::string& json) override {
         { std::lock_guard<std::mutex> l(mutex_); queries.push_back(json); }
@@ -141,6 +153,15 @@ public:
             if (verbose_) fprintf(stderr, "[request] %s\n", Json::quote(request.data).c_str());
         }
         if (onRequest) onRequest(request, respond);
+        else respond.unsupported();
+    }
+    void onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) override {
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            walletCalls.push_back(call);
+            if (verbose_) fprintf(stderr, "[wallet] %s\n", call.toJson().dump().c_str());
+        }
+        if (onWallet) onWallet(call, respond);
         else respond.unsupported();
     }
     void onBridgeCopyText(SandboxEngine&, const std::string& text) override {

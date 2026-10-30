@@ -90,6 +90,8 @@ enum BinaryOps {
     struct Decoded {
         var ops: [BinaryOp]
         var tooMany: Bool
+        /// Ops in the batch (`ops` is empty past `maxOps`): the validator's per-batch cap counts them.
+        var count = 0
     }
 
     static func decode(_ payload: BinaryOpsPayload, table: BinaryInternTable, icons: IconExpansion? = nil) -> Result<Decoded, Failure> {
@@ -276,7 +278,7 @@ enum BinaryOps {
         guard count == Int(w[1]) else { return .failure(.count) }
         guard strings.at == b.count else { return .failure(.string) }
         table.commit(reset: reset, added)
-        return .success(Decoded(ops: count > maxOps ? [] : ops, tooMany: count > maxOps))
+        return .success(Decoded(ops: count > maxOps ? [] : ops, tooMany: count > maxOps, count: count))
     }
 
     /// `placeholders`: canvas records stay `{"op":"canvas","id":N,"bin":K}` for `engine(_:ops:canvas:)` instead of being spliced.

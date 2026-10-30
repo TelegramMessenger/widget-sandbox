@@ -15,6 +15,10 @@
 //   - image-set(), image(), src(), cross-fade(): bare strings are URLs there, so
 //     they get the same check; var()/env()/attr() inside them is rejected
 //     because the substituted value cannot be checked statically.
+//   - env(): the engine's own values never reach the renderer. A safe-area inset
+//     becomes the root variable the renderer sets (`env(safe-area-inset-bottom,
+//     8px)` → `var(--tg-content-safe-area-inset-bottom, 8px)`, docs/sdk-v1.md
+//     §2.17); another name resolves to its fallback, or drops the declaration.
 //   - the widget profile (packages/core/profile.json, docs/profile-v1.md): only
 //     its properties, functions, units, pseudo-classes, at-rules and media
 //     features pass; `@supports` is decided here from the profile; nested rules
@@ -26,6 +30,7 @@
 import * as csstree from 'css-tree';
 import { checkUrl, type UrlKind } from './url-policy';
 import { PROFILE_TABLES } from '../shared/profile-tables';
+import { SAFE_AREA_ENV_VARIABLES } from '../shared/sdk-policy';
 import {
   cssFunctionInProfile, cssPropertyInProfile, cssPseudoClassInProfile, cssPseudoElementInProfile, cssUnitInProfile,
   fontShorthandFamilyStart, isGenericFont, supportsCondition,
@@ -141,7 +146,7 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
   }
   let ok = true;
   const fnStack: string[] = [];
-  csstree.walk(value, {
+  const visitor: csstree.WalkOptionsNoVisit = {
     enter(node: csstree.CssNode, item: csstree.ListItem<csstree.CssNode>, list: csstree.List<csstree.CssNode>) {
       if (!ok) return;
       if (node.type === 'Function' && node.name.toLowerCase() === 'light-dark' && list) {
@@ -151,8 +156,33 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
         const chosen = parts[env.colorScheme === 'dark' ? 1 : 0] ?? parts[0];
         const repl = new csstree.List<csstree.CssNode>();
         for (const c of chosen) repl.appendData(c);
+        // The branch takes the function's place behind the walk, which never visits it: it is checked here
+        // (a url() in it reached the renderer unchecked).
+        csstree.walk({ type: 'Value', children: repl } as csstree.Value, visitor);
         list.replace(item, repl);
         return csstree.walk.skip;
+      }
+      if (node.type === 'Function' && node.name.toLowerCase() === 'env' && list) {
+        if (fnStack.some((f) => URL_FUNCTIONS.has(f))) {
+          ok = false;
+          diag('css-dropped', `${where}: env() inside a URL-taking function`);
+          return;
+        }
+        const env = resolveEnv(node);
+        if (env === null) {
+          ok = false;
+          diag('profile', `${where}: ${envLabel(node)}`);
+          return;
+        }
+        if (env !== 'var') {
+          // Another name: its fallback takes the function's place, checked here as light-dark()'s branch is.
+          diag('profile', `${where}: ${envLabel(node)} → its fallback`);
+          const repl = new csstree.List<csstree.CssNode>().fromArray(env);
+          csstree.walk({ type: 'Value', children: repl } as csstree.Value, visitor);
+          list.replace(item, repl);
+          return csstree.walk.skip;
+        }
+        // A safe-area inset is now var(--tg-content-safe-area-inset-…[, fallback]): checked below as a var().
       }
       switch (node.type) {
         case 'Raw':
@@ -215,8 +245,33 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
     leave(node: csstree.CssNode) {
       if (node.type === 'Function') fnStack.pop();
     },
-  });
+  };
+  csstree.walk(value, visitor);
   return ok;
+}
+
+/**
+ * `env()` (docs/sdk-v1.md §2.17). The engine's own values belong to the document (in the shadow renderer, to the chat
+ * page) and come from the view's system insets, so none reaches the renderer: `env(safe-area-inset-bottom[, fb])` is
+ * renamed in place to `var(--tg-content-safe-area-inset-bottom[, fb])`, the root variable the renderer sets ('var');
+ * any other name gives the nodes of its fallback; null drops the declaration (no fallback, or not `env(<name>[, …])`).
+ */
+function resolveEnv(node: csstree.FunctionNode): 'var' | csstree.CssNode[] | null {
+  const args = node.children.toArray();
+  const name = args[0]?.type === 'Identifier' ? args[0].name : null;
+  if (name === null || (args.length > 1 && !(args[1].type === 'Operator' && args[1].value === ','))) return null;
+  const fallback = args.slice(2);
+  if (Object.prototype.hasOwnProperty.call(SAFE_AREA_ENV_VARIABLES, name)) {
+    node.name = 'var';
+    (args[0] as csstree.Identifier).name = SAFE_AREA_ENV_VARIABLES[name];
+    return 'var';
+  }
+  return fallback.length ? fallback : null;
+}
+
+function envLabel(node: csstree.FunctionNode): string {
+  const first = node.children.first;
+  return `env(${truncate(first?.type === 'Identifier' ? first.name : '')})`;
 }
 
 function truncate(s: string): string {
