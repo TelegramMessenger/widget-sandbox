@@ -507,6 +507,28 @@ public final class SandboxEngine {
 
     // MARK: inputs from the host (all asynchronous)
 
+    /// Embedder-trusted code (a local agent acting for the user) run in the widget's own global, as one task under the
+    /// widget's CPU limit; `completion` gets `{"ok":true,"value":…}` or `{"ok":false,"error":…}`, nil when the engine is not running.
+    /// The answer comes out of the QuickJS context and is as hostile as anything else from it; it never reaches the renderer.
+    public func evaluateTrusted(_ code: String, completion: @escaping (String?) -> Void) {
+        queue.async {
+            guard !self.dead, self.started, self.js != nil else {
+                completion(nil)
+                return
+            }
+            var output: String?
+            let wrapped = "(()=>{try{const r=(function(){\n" + code + "\n})();return JSON.stringify({ok:true,value:r===undefined?null:r});}catch(e){return JSON.stringify({ok:false,error:String(e&&e.stack||e)});}})()"
+            self.task("trusted", sliceMs: self.config.cpuLimitMs) {
+                do {
+                    output = try self.js.evaluate(wrapped, filename: "trusted.js").string
+                } catch {
+                    self.handleError(error, where: "trusted.js")
+                }
+            }
+            completion(self.dead ? nil : output)
+        }
+    }
+
     public func event(json: String) { enqueue("event", json) }
     /// A real user input event from the renderer (press, click, key press); every event of one physical gesture carries the same increasing `gesture` number.
     public func activationEvent(json: String, gesture: Int) { enqueue(Self.activationPrefix + String(gesture), json) }

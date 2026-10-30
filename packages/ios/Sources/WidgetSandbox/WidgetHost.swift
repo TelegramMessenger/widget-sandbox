@@ -747,6 +747,13 @@ public final class WidgetHost: SandboxEngineDelegate {
         engine.stop(reason: reason)
     }
 
+    /// Embedder-trusted code run in the widget's sandbox (`SandboxEngine.evaluateTrusted`); completion on the main thread.
+    public func evaluateInWidget(_ code: String, completion: @escaping (String?) -> Void) {
+        engine.evaluateTrusted(code) { value in
+            DispatchQueue.main.async { completion(value) }
+        }
+    }
+
     /// Trusted script evaluated in the renderer (tests and diagnostics only); "null" from a renderer without script.
     public func evaluateInRenderer(_ script: String, completion: @escaping (String) -> Void) {
         guard executor.isCurrent else {
