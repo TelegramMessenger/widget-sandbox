@@ -48,7 +48,7 @@ pnpm workspace). A framework change touches `packages/` only.
   (`picture-check.ts`: the build fails when one differs from the widget drawn through the sandbox, so an out-of-profile
   feature is neutralised in reference mode by a template or `T.mode == 'ref'`). `CLIENTS.md` tells a client team how to
   run it on its renderer. Built and run by `scripts/conformance/{build,run-web}.ts`;
-  `publish-channel.ts` fills the Telegram test group through a test bot; `test-bot.ts` is the reference bot for the cases
+  `publish-channel.ts` fills the Telegram test group through a test bot (`sendWidget` on the beta Bot API); `test-bot.ts` is the reference bot for the cases
   that talk to it (sends them with their layer-233 fields, answers their requests, edits their state; `--self-test`).
 - `packages/stress` — the renderer stress kit that ships with the framework tag: 127 widgets in 19 load ladders
   (`widgets/<load>/<value>.html`: paint effects, document size, churn, text, canvas, SVG, layout queries, CSS rules; the
@@ -209,7 +209,7 @@ corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md):
 corepack pnpm test:compat             # → docs/compat-report.md
 corepack pnpm test:generated          # → docs/compat-report-generated.md
 corepack pnpm test:lifecycle          # off-screen pause (frames stop, timers 1 Hz, visibilitychange)
-corepack pnpm test:htmlbubbles        # 116 Telegram demos ported to classic widgets (corpus/htmlbubbles-ported) → docs/compat-report-htmlbubbles-ported.md; 107–110/116: 6–9 known screenshot-only or timing failures (see corpus/htmlbubbles-ported/README.md)
+corepack pnpm test:htmlbubbles        # 116 Telegram demos ported to classic widgets (corpus/htmlbubbles-ported) → docs/compat-report-htmlbubbles-ported.md; 107–110/116: 6–9 known screenshot-only or timing failures (see corpus/htmlbubbles-ported/README.md); with TW_RENDERER=shadow also 06-trip-lisbon/12-ana and 09-code-review/07-leo-bare (as at v0.3.0)
 TW_RENDERER=shadow corepack pnpm test:attacks   # the same suite on the Shadow DOM renderer (no iframe): must stay at 0 hits / 0 requests; also test:generated / test:common → docs/compat-report-<group>-shadow.md
 corepack pnpm tsx scripts/feed-bench.ts --counts 50,200 --mode ops,host --cv --pool 8,32 --out docs/feed-bench-web.md   # iframe vs shadow renderer in a feed of N bubbles (needs pnpm dev); ops = renderer only, host = full WidgetHost per bubble, --pool = also with a warmed worker pool
 corepack pnpm tsx scripts/feed-report.ts --passes 5 --count 60 --origin http://127.0.0.1:5173   # the feed's bench headless (iframe and shadow × pool on/off × 5 passes × 60 bubbles; --combos iframe:on,shadow:off,…) → docs/feed-report-web.json + .md; needs pnpm dev
@@ -434,13 +434,15 @@ the clients' stress-kit runs.
 2026-10-30: the native renderer prototypes frozen (`docs/decisions.md`, "The renderer prototypes are frozen"): Blitz and
 the plain litehtml core stay in `apps/` but leave the demos' default builds (iOS/macOS `TW_NATIVE_RENDERERS=YES`, Android
 `-Ptw.nativeRenderers=true`), the unit tests (`TW_NATIVE_RENDERERS=1`) and the web runners' and benches' defaults.
-2026-10-30 (unreleased, `docs/changes.md`): the client's time over a widget with no caption below it (Artem, 2026-10-29;
+2026-10-30: v0.4.0 (`docs/changes.md`): the client's time over a widget with no caption below it (Artem, 2026-10-29;
 `docs/decisions.md`, a clarification of profile 1, `P1-safe-area`): `env(safe-area-inset-*)` is in, rewritten by the
 validator to `--tg-content-safe-area-inset-*` root variables the renderer sets like the theme's, plus
 `--tg-content-safe-area-corner-left|right`; the UA layer pads the body by the band; `TelegramWidget.contentSafeAreaInset`
 and `contentSafeAreaChanged`; `contentSafeArea` / `setContentSafeArea` on every host (0 by default); the dev app's **time**
 control (`?time=corner|corner-rtl`); `auto/36-safe-area`, `visual/17-time-corner`; `corpus/safe-area` (7 examples, the
-test group's Safe area topic without captions, `test:safe-area-corpus`).
+test group's Safe area topic without captions, `test:safe-area-corpus`); a caption above the widget (`invert_media`) is as
+none (Artem, 2026-10-30); `publish-channel.ts` sends through `sendWidget` on the beta Bot API; with the prototypes' freeze
+above.
 Open: a reproducible build of `packages/quickjs-wasm/dist`, versions
 and tags (VERSION.json), the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), device pentest of the
 WebView blockers on both platforms.
