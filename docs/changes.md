@@ -3,6 +3,10 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+- Swift bubble integration: `WidgetBubble.setContentSafeArea(_:)` retains the current value for a recreated host and updates live, preparing and adopting hosts after a caption or timestamp edit. This is a Swift bubble lifecycle helper; the shared SDK policy and other host implementations are unchanged.
+
 ## v0.4.0 — release notes (2026-10-30)
 
 The client's time over a widget. A message with a widget and no caption, or with its caption shown above the widget

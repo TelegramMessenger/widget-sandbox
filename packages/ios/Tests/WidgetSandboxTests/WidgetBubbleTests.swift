@@ -2,6 +2,43 @@ import XCTest
 @testable import WidgetSandbox
 
 final class WidgetBubbleTests: XCTestCase {
+    func testContentSafeAreaFollowsCaptionEditsAcrossHostRecreation() throws {
+        let feed = WidgetFeed()
+        feed.schedule = { _ in }
+        feed.delay = { _, _ in }
+        var renderers: [ScriptedSizeRenderer] = []
+        let bubble = WidgetBubble(html: "<p>Time</p>", theme: WidgetTheme(), width: 300, feed: feed, rendererFactory: { _, _, _ in
+            let renderer = ScriptedSizeRenderer(early: 100, settled: 100)
+            renderers.append(renderer)
+            return renderer
+        })
+        bubble.setContentSafeArea(WidgetContentSafeArea(bottom: 24, cornerRight: 64))
+        XCTAssertNotNil(bubble.ensureHost())
+        wait { bubble.hostHasContent }
+        let initial = try XCTUnwrap(renderers.first)
+        XCTAssertEqual(initial.safeAreas.first?["bottom"], 24)
+        XCTAssertEqual(initial.safeAreas.first?["cornerRight"], 64)
+        bubble.setContentSafeArea(WidgetContentSafeArea())
+        wait { initial.safeAreas.last?["bottom"] == 0 }
+        XCTAssertEqual(initial.safeAreas.last?["bottom"], 0)
+        let count = initial.safeAreas.count
+        bubble.setContentSafeArea(WidgetContentSafeArea())
+        XCTAssertEqual(initial.safeAreas.count, count)
+        let space = OneSlotSpace(bubble.slot, rect: CGRect(x: 0, y: 0, width: 300, height: 100))
+        feed.attach(space)
+        space.origin = 100_000
+        feed.update()
+        XCTAssertNil(bubble.host)
+        bubble.setContentSafeArea(WidgetContentSafeArea(bottom: 24, cornerLeft: 90))
+        space.origin = 0
+        feed.update()
+        wait { renderers.count == 2 && bubble.hostHasContent }
+        let recreated = try XCTUnwrap(renderers.last)
+        XCTAssertEqual(recreated.safeAreas.first?["bottom"], 24)
+        XCTAssertEqual(recreated.safeAreas.first?["cornerLeft"], 90)
+        XCTAssertEqual(recreated.safeAreas.first?["cornerRight"], 0)
+    }
+
     private func wait(_ condition: () -> Bool, timeout: TimeInterval = 5) {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() && Date() < deadline {
@@ -286,6 +323,7 @@ private final class ScriptedSizeRenderer: Renderer {
     var onDiag: ((String, String) -> Void)?
     let early: Int
     let settled: Int
+    var safeAreas: [[String: Double]] = []
 
     init(early: Int, settled: Int) {
         self.early = early
@@ -299,6 +337,9 @@ private final class ScriptedSizeRenderer: Renderer {
     func send(_ json: String) {
         guard let data = json.data(using: .utf8), let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let type = message["type"] as? String else {
             return
+        }
+        if type == "safeArea", let inset = message["inset"] as? [String: Double] {
+            safeAreas.append(inset)
         }
         if type == "ops" {
             onMessage?("{\"type\":\"size\",\"width\":300,\"height\":\(early)}")

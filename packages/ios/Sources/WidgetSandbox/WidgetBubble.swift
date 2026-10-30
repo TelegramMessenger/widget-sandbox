@@ -4,7 +4,7 @@ import CoreGraphics
 public final class WidgetBubble {
     public let slot = WidgetFeedSlot()
     public private(set) var html: String
-    public let options: WidgetHost.Options
+    public private(set) var options: WidgetHost.Options
     public private(set) var width: CGFloat
     public private(set) var theme: WidgetTheme
     public private(set) var host: WidgetHost?
@@ -139,6 +139,14 @@ public final class WidgetBubble {
 
     public var displayHeight: CGFloat {
         return height
+    }
+
+    public func setContentSafeArea(_ area: WidgetContentSafeArea) {
+        guard area != options.contentSafeArea else { return }
+        options.contentSafeArea = area
+        host?.setContentSafeArea(area)
+        pendingPrepared?.host.setContentSafeArea(area)
+        adopting?.setContentSafeArea(area)
     }
 
     public func setTheme(_ theme: WidgetTheme) {
