@@ -3,6 +3,56 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.5.0 — release notes (2026-10-30)
+
+The wallet. A widget can ask the user to pay or to sign through Telegram's built-in wallet (Gram Wallet), in TON
+Connect's formats, and the user confirms in the client's own wallet window, which names the bot of the message. The
+widget is the front of a dApp and its bot is the back end: on a tap the widget asks the bot with the user's wallet,
+the bot answers with a fresh transaction, the widget passes it to the wallet without a new tap, and the bot gets the
+outcome (the message hash, or the signature) and answers the widget. A client that uses the framework's glue updates,
+passes `context.wallet` where it has the wallet for the user, and implements `onWallet` with its existing TON Connect
+window (`docs/sdk-v1.md` §2.18, §5.13; `docs/integration.md`, "The wallet"). Until the server ships its side (a
+proposal for a later layer, `docs/decisions.md`, "The wallet"), a client leaves `context.wallet` unset and nothing
+changes: the widget sees `TelegramWidget.wallet === null`.
+
+**The wallet** (`docs/sdk-v1.md` §2.18, §5.13; `docs/decisions.md`, "The wallet"):
+
+- **Widgets:** `TelegramWidget.wallet` (null where the client has no wallet for this user, where the widget may not
+  ask the bot, in a preview) with `sendTransaction(transaction, data)` and `signData(payload, data)`, each resolving
+  with the bot's answer to its outcome; `request(data, { wallet: true })` on a tap gives the bot the user's wallet
+  (created if they had none). A wallet call needs a tap, or follows within 10 s the answer to a call made by a tap
+  (the grant); one call in flight with the requests; new codes `REJECTED` (the user declined) and `BAD_REQUEST` (the
+  wallet refused it). The transaction is TON Connect's `sendTransaction` request: 1–255 messages (what Gram Wallet
+  takes), user-friendly destinations (a raw one is refused, as TON Connect wallets must), `payload` / `stateInit` of
+  at most 8192 base64 characters each and 65536 together; the payload is TON Connect's `signData` (text, bytes, cell),
+  without a domain: the client signs for `bot<bot_id>`.
+- **Hosts (all five glue copies):** `context.wallet`, `WidgetRequest.wallet`, `onWallet(call, complete)` with
+  `WalletCall` (`sendTransaction` with a `WalletTransaction`, `signData` with a `SignDataPayload`, `data`; their
+  JSON forms in TON Connect's field names); `WidgetRequestFailure` gains `rejected` / `badRequest` (a request's
+  failure turns them into `FAILED`). The checks are `sdk-policy` and its three twins on the fixture:
+  `checkWalletTransaction`, `checkSignDataPayload`, `checkRequestOptions`, the `request` and `wallet` bridge calls,
+  `RequestGate.decideWallet` and the grant (`finish(answeredAt)`), verdicts `granted` and `no-wallet`.
+- **Default for every host:** nothing changes until the client passes `context.wallet`.
+- **Dev tooling:** the dev app's mock wallet (the **wallet** box in the Bot (mock) panel, `?wallet=0`, a wallet
+  window over the page with its buttons off for 600 ms, the `shop` bot), `corpus/interactive/05-wallet.html`, the
+  harness's `--wallet`, `--wallet-answer`, `--wallet-error`; attacks `wallet-no-activation`, `wallet-forged-wire`,
+  `wallet-grant-reuse`.
+
+**Known issues:**
+
+- The server's side is a proposal (`docs/decisions.md`, "The wallet": the query types, `with_wallet`, the wallet card
+  in the bot's updates): no client can deliver a wallet call end to end yet; leave `context.wallet` unset until the
+  server ships it. Open there: whether the TON Connect window sends through `wallet.sendTransfer` and which message
+  hash the server keeps, the TEP-81 form of `bot<bot_id>` for a cell signature.
+- No client window yet, no mock wallet in the native demos, no conformance case and no test bot for the wallet (the
+  test widget on @sswidgetbot comes next).
+- Test matrix on this tree: typecheck and unit 830/831 (`showcase-3d`'s size check of `06-cat`, as in v0.4.0); on iframe
+  and shadow attacks 144 (the three `wallet-*` again after `wallet-forged-wire` moved to 256 messages), sdk 45, compat
+  20, activation 4; showcase 27 on iframe; Swift macOS 334 and iOS 27.0 335 with only
+  `IntlBridgeTests.testPluralRulesMatchICU` failing (the OS's ICU, as before), Kotlin 30 JVM + 122 instrumented, C++ 80
+  tests and 113 attacks with 0 leaks. Not run for this release: the conformance set and the other corpora (the
+  renderer and the validator are unchanged).
+
 ## v0.4.0 — release notes (2026-10-30)
 
 The client's time over a widget. A message with a widget and no caption, or with its caption shown above the widget

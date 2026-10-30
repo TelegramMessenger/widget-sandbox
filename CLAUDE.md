@@ -443,7 +443,7 @@ control (`?time=corner|corner-rtl`); `auto/36-safe-area`, `visual/17-time-corner
 test group's Safe area topic without captions, `test:safe-area-corpus`); a caption above the widget (`invert_media`) is as
 none (Artem, 2026-10-30); `publish-channel.ts` sends through `sendWidget` on the beta Bot API; with the prototypes' freeze
 above.
-2026-10-30: the wallet (`docs/sdk-v1.md` §2.18, §5.13; `docs/decisions.md`, "The wallet"; `docs/changes.md`, next release):
+2026-10-30: v0.5.0, the wallet (`docs/sdk-v1.md` §2.18, §5.13; `docs/decisions.md`, "The wallet"; `docs/changes.md`):
 Gram Wallet in TON Connect's formats, no connection: `TelegramWidget.wallet.sendTransaction` / `.signData` (resolving with the
 bot's answer to the outcome), `request(data, { wallet: true })` on a tap, the grant (the answer to a call made by a tap allows
 one wallet call within 10 s); `context.wallet`, `WidgetRequest.wallet`, `onWallet` on every host; the checks in `sdk-policy` and
