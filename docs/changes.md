@@ -62,6 +62,10 @@ does not draw the time keeps v0.3.0's layout.
   pass the band with the time over the bubble. The dev app's reference column gets the band too (`?safeArea=` on the
   reference page). A pitfall they show: a widget that pads for the band itself sets `body { padding: 0 }`, or the
   renderer's default bottom padding comes on top of its own.
+- `scripts/conformance/publish-channel.ts` sends widgets with `sendWidget` on the beta Bot API
+  (`https://api.telegram.org/beta`, the default `TW_BOT_API` until Bot API 10.4 is released), the size anchors as its
+  `width` and `height`: the regular Bot API took an HTML document the test bot turned into a widget, and dropped
+  `show_caption_above_media` (a caption-above post came out with its caption below).
 
 ## v0.3.0 — release notes (2026-10-29)
 
