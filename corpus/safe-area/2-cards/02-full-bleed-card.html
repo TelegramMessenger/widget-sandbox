@@ -14,8 +14,9 @@
   .d { font-size: 14px; opacity: .9 }
   .p { margin: 14px 0 0; font-size: 28px; font-weight: 700 }
   .p small { font-size: 13px; font-weight: 500; opacity: .85 }
-  /* The bottom row: into the band, out of the corner (the physical side the client draws its time on). */
-  .row { display: flex; gap: 8px; align-items: center; padding: 14px max(16px, var(--tg-content-safe-area-corner-right)) 6px max(16px, var(--tg-content-safe-area-corner-left)); margin: 0 -16px }
+  /* The bottom row: into the band, out of the corner (the physical side the client draws its time on); 0px where a client
+     older than v0.4.0 has no such variables. */
+  .row { display: flex; gap: 8px; align-items: center; padding: 14px max(16px, var(--tg-content-safe-area-corner-right, 0px)) 6px max(16px, var(--tg-content-safe-area-corner-left, 0px)); margin: 0 -16px }
   .row button { padding: 7px 16px; background: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); font-weight: 600 }
   .row .g { background: none; color: var(--tg-theme-button-text-color); border: 1px solid; padding: 6px 14px }
   .row .s { flex: 1; text-align: end; font-size: 12px; opacity: .85 }

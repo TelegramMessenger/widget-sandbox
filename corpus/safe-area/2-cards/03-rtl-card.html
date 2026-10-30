@@ -14,8 +14,9 @@
   .d { font-size: 14px; opacity: .9 }
   .p { margin: 14px 0 0; font-size: 28px; font-weight: 700 }
   .p small { font-size: 13px; font-weight: 500; opacity: .85 }
-  /* Physical sides: the client's time is on its interface's side, whatever this widget's direction. */
-  .row { display: flex; gap: 8px; align-items: center; margin: 0 -16px; padding-top: 14px; padding-bottom: 6px; padding-right: max(16px, var(--tg-content-safe-area-corner-right)); padding-left: max(16px, var(--tg-content-safe-area-corner-left)) }
+  /* Physical sides: the client's time is on its interface's side, whatever this widget's direction; 0px where a client
+     older than v0.4.0 has no such variables. */
+  .row { display: flex; gap: 8px; align-items: center; margin: 0 -16px; padding-top: 14px; padding-bottom: 6px; padding-right: max(16px, var(--tg-content-safe-area-corner-right, 0px)); padding-left: max(16px, var(--tg-content-safe-area-corner-left, 0px)) }
   .row button { padding: 7px 16px; background: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); font-weight: 600 }
   .row .s { flex: 1; text-align: end; font-size: 12px; opacity: .85 }
 </style>

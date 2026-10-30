@@ -14,8 +14,9 @@
   .bar i { flex: 1; height: 6px; border-radius: 3px; background: var(--tg-theme-secondary-bg-color) }
   .bar i.on { background: var(--tg-theme-button-color) }
   .steps { display: flex; justify-content: space-between; font-size: 11px; color: var(--tg-theme-hint-color) }
-  /* The last row: into the band, out of the corner; with a caption below both are 0 and it runs to the edges. */
-  .row { display: flex; align-items: center; gap: 8px; margin: 12px -14px 0; padding: 8px max(14px, var(--tg-content-safe-area-corner-right)) max(8px, calc(env(safe-area-inset-bottom) - 18px)) max(14px, var(--tg-content-safe-area-corner-left)); border-top: 1px solid var(--tg-theme-section-separator-color); font-size: 13px }
+  /* The last row: into the band, out of the corner; with a caption below both are 0 and it runs to the edges. The plain
+     padding first: a client older than v0.4.0 drops a declaration with env() whole. */
+  .row { display: flex; align-items: center; gap: 8px; margin: 12px -14px 0; padding: 8px 14px; padding: 8px max(14px, var(--tg-content-safe-area-corner-right, 0px)) max(8px, calc(env(safe-area-inset-bottom) - 18px)) max(14px, var(--tg-content-safe-area-corner-left, 0px)); border-top: 1px solid var(--tg-theme-section-separator-color); font-size: 13px }
   .row b { flex: 1 }
   .row span { color: var(--tg-theme-link-color) }
   #m { font-weight: 600 }

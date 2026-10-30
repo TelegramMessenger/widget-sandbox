@@ -17,13 +17,13 @@ first line says what to check.
 
 | File | What it is | Check | Size | Height at 320 px, band / caption below |
 |---|---|---|---|---|
-| `1-diagnostic/01-what-the-client-passed.html` | the six numbers of `contentSafeAreaInset`, the band (stripes) and the corner (red box) drawn from the variables, live | your time sits in the red box over the stripes and covers nothing else; with a caption below: all 0, no stripes; an edit that adds, removes or moves the caption counts a change | 1497 B | 313 / 289 px |
-| `2-cards/02-full-bleed-card.html` | a trip offer painted to the bubble's edges; its bottom row runs into the band | the Book button sits in the band beside your time, the row ends before it, the card reaches the bubble's bottom edge | 1142 B | 261 / 261 px |
-| `2-cards/03-rtl-card.html` | the same card in Hebrew, `dir=rtl`; the row pads the physical sides | the corner follows your interface, not the widget's direction: in a left-to-right client the time is on its right (its start) and the button keeps out of it | 1181 B | 261 / 261 px |
+| `1-diagnostic/01-what-the-client-passed.html` | the six numbers of `contentSafeAreaInset`, the band (stripes) and the corner (red box) drawn from the variables, live | your time sits in the red box over the stripes and covers nothing else; with a caption below: all 0, no stripes; an edit that adds, removes or moves the caption counts a change | 1585 B | 313 / 289 px |
+| `2-cards/02-full-bleed-card.html` | a trip offer painted to the bubble's edges; its bottom row runs into the band | the Book button sits in the band beside your time, the row ends before it, the card reaches the bubble's bottom edge | 1186 B | 261 / 261 px |
+| `2-cards/03-rtl-card.html` | the same card in Hebrew, `dir=rtl`; the row pads the physical sides | the corner follows your interface, not the widget's direction: in a left-to-right client the time is on its right (its start) and the button keeps out of it | 1225 B | 261 / 261 px |
 | `3-css/04-unstyled-note.html` | a notice with no CSS at all | the renderer's defaults pad the body by the band: the last line ends above your time | 498 B | 313 / 289 px |
-| `3-css/05-model-css.html` | an order styled as models write it: `max(16px, env(safe-area-inset-left))`, `calc(12px + env(safe-area-inset-bottom))`, `@supports`, `env(keyboard-inset-height, 0px)` | the Pay button ends above your time; the `@supports` line says yes; the other `env()` name takes its fallback (a `profile` diagnostic) | 1094 B | 359 / 335 px |
+| `3-css/05-model-css.html` | an order styled as models write it: `max(16px, env(safe-area-inset-left))`, `calc(12px + env(safe-area-inset-bottom))`, `@supports`, `env(keyboard-inset-height, 0px)` | the Pay button ends above your time; the `@supports` line says yes; the other `env()` name takes its fallback (a `profile` diagnostic). It has no fallbacks, as models write it: a client older than v0.4.0 drops each declaration with `env()` whole, so there it has no side padding and the Pay button runs to the bubble's edges | 1094 B | 359 / 335 px |
 | `4-script/06-canvas-chart.html` | a week of cycling on a canvas, laid out from `contentSafeAreaInset` | the bars and day labels end above the band; the week's total is in the band on the side away from your time; it redraws on `contentSafeAreaChanged` and `themeChanged` | 1830 B | 273 / 271 px |
-| `5-caption/07-caption-pair.html` | a parcel tracker posted three times: without a caption, with one below, with one above | without a caption and with it above (`invert_media`): the same band, the courier row runs into it and stops before your time; with it below: every value 0, the row to the edge, the time in the caption's line | 1258 B | 211 / 194 px |
+| `5-caption/07-caption-pair.html` | a parcel tracker posted three times: without a caption, with one below, with one above | without a caption and with it above (`invert_media`): the same band, the courier row runs into it and stops before your time; with it below: every value 0, the row to the edge, the time in the caption's line | 1313 B | 211 / 194 px |
 
 Sizes as the harness counts them (zlib at level 9, limit 4096 B, 3800 B in this repository);
 heights at a 320 px wide bubble with the reference band (24 px, a 64 px corner on the right)
@@ -44,6 +44,10 @@ and with a caption below (`sandbox-node.ts --width 320 [--safe-area 24,64]`).
   `contentSafeAreaChanged` (`06`). Do not read the variables with `getComputedStyle` every
   frame: it is a layout query.
 - Nothing a user taps goes under the time: taps there are the client's.
+- A client older than v0.4.0 drops a declaration with `env()` whole and has none of the variables: write the plain
+  value first (`padding: 12px 14px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom))`) and give each
+  variable a fallback, `var(--tg-content-safe-area-corner-right, 0px)` (`01`, `02`, `03`, `07`); there the widget is
+  laid out as with a caption below.
 - With a caption below the widget every value is 0, and the same file must still look right
   (`07`); with the caption above, it is laid out as without one.
 
