@@ -2057,10 +2057,12 @@ clients' windows are not.
 - **The device's wallet signs, and the bot learns it with the outcome** (the server team, 2026-10-30). With the
   wallet's backup off a device keeps its own key and its own wallet, which can differ from the profile's card. So a
   sent transaction and a signature reach the bot with the wallet that made them (`userWallet`: address, balance,
-  public key), which the client fills from the device, and the profile's card comes only with `with_wallet`. A bot
-  does not put the card's address in `from`. The device's wallet comes from the user's own client: the signature
-  proves the key, the chain proves a payment (its sender), and an address the bot must tie to the key it checks on
-  the chain (the wallet's public key), as a TON Connect back end does with `walletStateInit`.
+  public key, StateInit), which the client fills from the device, and the profile's card comes only with
+  `with_wallet`. A bot does not put the card's address in `from`. The device's wallet comes from the user's own
+  client: the signature proves the key, the chain proves a payment (its sender), and an address the bot must tie to
+  the key: by the wallet's StateInit (its hash is the address, its data holds the key; the server passes it without
+  looking inside) or, once the wallet is deployed, by the chain's `get_public_key`, as a TON Connect back end does
+  with `walletStateInit`.
 - **The grant.** A tap unlocks one call; paying needs two (ask the bot for a fresh transaction, then send it),
   and a transaction prepared earlier would outlive its `valid_until`. So the answer to a call made by a tap grants
   one wallet call within 10 s, and the answer to that call grants the next: a chain that goes on only while the
@@ -2088,7 +2090,7 @@ clients' windows are not.
   type and, for `with_wallet`, the profile's card:
 
   ```tl
-  userWallet flags:# address:string balance:long public_key:flags.0?bytes = UserWallet;
+  userWallet flags:# address:string balance:long public_key:flags.0?bytes state_init:flags.0?bytes = UserWallet;
 
   widgetQueryTypeData flags:# with_wallet:flags.0?true = WidgetQueryType;
   widgetQueryTypeSignData wallet:UserWallet sign_data:DataJSON = WidgetQueryType;
@@ -2102,6 +2104,11 @@ clients' windows are not.
 
   messages.getBotWidgetQueryAnswer peer:InputPeer msg_id:int query_type:WidgetQueryType data:bytes = messages.BotWidgetQueryAnswer;
   ```
+
+  In Bot API 10.4 a `widget_query` (and a copy's `shared_widget_query`) carries the query type as `type`: `data`
+  with the card as `wallet_card` (TonWalletCard), `sign_data` with `sign_data` as JSON, `sent_transaction` with
+  `msg_hash`, the last two with `wallet` (WidgetQueryWallet: `address`, `amount` in nanotons as a decimal string,
+  `public_key` in hex); `state_init` is not in it yet.
 
   Open: which message hash the server keeps (the normalised one, TEP-467, is what toncenter looks up), the TEP-81
   form of `bot<bot_id>` for a cell signature, how jettons and NFTs show in the window.

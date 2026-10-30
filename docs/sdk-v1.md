@@ -722,14 +722,15 @@ TelegramWidget.wallet.signData({ type: 'text', text: 'I accept the terms of orde
   together. `null` fields are left out; any other field (`items`, `extra_currency`, the SDK's `validUntil`) throws
   `TypeError`. The client shows the transaction in its own wallet window
   (each message's amount and destination, the emulated outcome) with the bot of the message; on confirmation it
-  sends it, gives the bot the outcome (the message hash and the device's wallet that sent it: its address, balance
-  and public key; the bot checks the transaction on the chain) and resolves with the bot's answer to it,
-  `{ result }`, as `request` does. The widget never gets the signed message.
+  sends it, gives the bot the outcome (the message hash and the device's wallet that sent it: its address and
+  balance, its key and StateInit where the client has them; the bot checks the transaction on the chain) and resolves
+  with the bot's answer to it, `{ result }`, as `request` does. The widget never gets the signed message.
 - **`wallet.signData(payload, data)`**: `payload` is TON Connect's: `{ type: 'text', text }` (at most 4096 bytes
   of UTF-8, shown to the user), `{ type: 'binary', bytes }` or `{ type: 'cell', schema, cell }` (base64 of at most
   4096 characters, the TL-B schema at most 1024 bytes; the window warns that it cannot show them), optionally with
   `network` and `from`. There is no domain: the client signs for `bot<bot_id>` of the message. The signature goes
-  to the bot with the device's wallet that signed (its address and public key); the bot checks it or passes it on,
+  to the bot with the device's wallet that signed (its address, public key and StateInit: the bot checks the signature
+  with the key and ties the key to the address by the StateInit or on the chain); the bot checks it or passes it on,
   and resolves this with its answer.
 - `data` (1–64 bytes, a request's) is the label the bot gets with the outcome: what the payment or the signature
   is for.
@@ -1442,9 +1443,31 @@ shared state (`public_data`).
   the outcome to the bot as a widget query with `call.data`: `widgetQueryTypeSentTransaction` with the
   transaction's normalised message hash (`msg_hash`), or `widgetQueryTypeSignData` with the signature as TON
   Connect's result (`signature`, `address`, `timestamp`, `domain` = `bot<bot_id>`, `payload`), each with **the
-  device's wallet** (`userWallet`: address, balance, public key), the one that signed: with the wallet's backup off a
-  device can hold another key and another wallet than the profile's card. Complete with the bot's answer as for a
-  request. No second tap: the call already had one. A failure of that query maps as a request's.
+  device's wallet** (`userWallet`: address, balance, public key, StateInit), the one that signed: with the wallet's
+  backup off a device can hold another key and another wallet than the profile's card. Complete with the bot's answer
+  as for a request. No second tap: the call already had one. A failure of that query maps as a request's.
+- **The formats**, as the server takes them (the server team, 2026-10-30); `userWallet` reaches the bot as the client
+  wrote it:
+  - `userWallet.address`: the raw form (`0:` and 64 hex digits) or the user-friendly one (base64url, 48 characters,
+    `UQ…` / `EQ…`), mainnet only: the server refuses a testnet form, parses either and checks it against
+    `sign_data.address`. A bot parses it as well: the two forms are one address;
+  - `userWallet.balance`: nanotons (1 TON = 10⁹), a whole number, the balance the device last knew (toncenter or the
+    app's cache). For display only: the server checks its type alone, and a bot that needs the balance asks the chain;
+    - `userWallet.public_key` and `userWallet.state_init` share `flags.0`: both or neither. Both with
+    `widgetQueryTypeSignData` (the server requires the key and checks its length), and with
+    `widgetQueryTypeSentTransaction` whenever the wallet SDK has them;
+  - `userWallet.public_key`: the 32 bytes of the Ed25519 key, as bytes (not hex or base64), from the wallet SDK or the
+    StateInit's data: the bot checks the signature with it;
+  - `userWallet.state_init`: the wallet contract's StateInit as a bag of cells, what the TON SDK gives as
+    `stateInit.toBoc()` (`wallet.createStateInit()`; a few hundred bytes for a standard wallet; the server takes about
+    1 KB and does not look inside). Its hash is the address, and a standard wallet's data holds the key, so a bot ties
+    the key to the address before the contract is deployed (a new wallet is not on chain until its first transfer, and
+    there is no `connect` with `walletStateInit`). Once the wallet is deployed, the chain's `get_public_key` ties them
+    too;
+  - `msg_hash`: the normalised hash of the external message (TEP-467), 64 lowercase hex digits, by which toncenter
+    and tonapi find the transaction;
+  - `sign_data`: `signData`'s result as is: `signature` in base64, `address` in the raw form, `timestamp` in Unix
+    seconds, `domain`, and `payload` as the widget sent it.
 - The server's API (the query types, `with_wallet`, `userWallet`, the card in the updates; `docs/decisions.md`,
   "The wallet") is agreed and not shipped yet: until it is, leave `context.wallet` unset.
 
