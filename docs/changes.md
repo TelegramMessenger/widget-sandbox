@@ -9,9 +9,17 @@ nothing until the host lists them; "default" items apply to every host.
 
 - Docs: the server's agreed wallet API (`docs/decisions.md`, "The wallet"; `docs/sdk-v1.md` §2.18, §5.13;
   `docs/integration.md`). A sent transaction and a signature reach the bot with the device's wallet (`userWallet`:
-  address, balance, public key), which the client fills: with the wallet's backup off a device can hold another key
-  and another wallet than the profile's card; `with_wallet` brings the profile's card. No code changes: `onWallet`
-  and the framework's checks stay as in v0.5.0.
+  address, balance, public key, StateInit), which the client fills: with the wallet's backup off a device can hold
+  another key and another wallet than the profile's card; `with_wallet` brings the profile's card. No code changes:
+  `onWallet` and the framework's checks stay as in v0.5.0.
+- Docs: the formats of the wallet's outcome as the server takes them (`docs/sdk-v1.md` §5.13): `userWallet.address`
+  raw or user-friendly (mainnet), `balance` in nanotons, `public_key` as its 32 bytes and `state_init` (new in the
+  schema: the wallet's StateInit as a bag of cells, which ties the key to the address of a wallet not deployed yet;
+  the server does not look inside) under one flag, both with a signature, `msg_hash` as 64 hex digits, `sign_data` as
+  TON Connect's result.
+- `corpus/bot-demos/07-wallet.html`: the Gram Wallet test on mainnet (the wallet card, a signature the bot checks, 0.01
+  TON to oneself found on toncenter), sent by `/wallet` from the bot on Telegram Serverless; the dev app's mock bot
+  `gram` plays it.
 
 ## v0.5.0 — release notes (2026-10-30)
 

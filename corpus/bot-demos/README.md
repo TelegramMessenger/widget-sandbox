@@ -2,7 +2,8 @@
 
 Six widgets that a real bot sends to Telegram (`scripts/bot-demos.ts`, Bot API 10.4), each showing one way a widget
 lives in a chat: personal state that never leaves the chat, a shared object every copy follows, a group's list, a game
-between two people sent via the bot, a live quote, a leaderboard for everyone. The protocol of each (its `chatData`,
+between two people sent via the bot, a live quote, a leaderboard for everyone; and a seventh, the wallet test, from the
+bot on Telegram Serverless. The protocol of each (its `chatData`,
 `publicData`, request data and answers) is below; each file's header points here (the bytes go to the widget). The dev app's mock bot plays the same protocol
 (`<meta name="tw-bot">`, `apps/web/src/mock-bot.ts`): open them in the `bot-demos/` group of `corepack pnpm dev`.
 
@@ -14,6 +15,7 @@ between two people sent via the bot, a live quote, a leaderboard for everyone. T
 | `04-tic-tac-toe.html` | `/duel`, inline (a chat with a friend) | via the bot, `allow_queries` | a duel: the first two people to move play, "Your turn" from `viewer`, the board in `chatData`, a forward gets the board as of the forward | 3618 B |
 | `05-ticker.html` | `/ticker`, inline | shared, no requests | a live quote: the bot edits the shared object every 10 s, every copy follows | 3574 B |
 | `06-reaction.html` | `/reaction`, inline | one shared widget for everyone (`sendSharedWidget`) | a reaction test played locally; `score:N` puts your best on one leaderboard shared by every chat, and the answer brings the board at once | 3669 B |
+| `07-wallet.html` | `/wallet` (Serverless only) | private chat, `allow_queries` | the wallet (`docs/sdk-v1.md` §2.18) on mainnet: the profile's wallet card, a text the bot gives, signed on the device and checked by the bot, 0.01 TON from the device's wallet to the card's address, then background `w:st` until toncenter has it | 2054 B |
 
 Sizes as the server counts them (PHP `gzcompress($html, 9)`, limit 4096 B; the harness's Node zlib counts a few bytes
 more on these). The demos stay inside widget profile 1 and use it as written: where a client draws one wrong, the client
@@ -29,6 +31,7 @@ is fixed, not the demo.
 | `04-tic-tac-toe` | `{b,x,o,w,s,bot}`: a forward's snapshot | `{b,x,o,t,w,l,s}`: board, players `[id,name]`, turn, winner `x`/`o`/`d`, its line, score | `ttt:0`–`8`, `ttt:new` (a rematch) → `{ok}` or `{err}` |
 | `05-ticker` | `{s,n,c,p,o,h:[the last 24 prices],t,r}`: symbol, name, currency, price, today's open, history, the bot's time | — | none; `watchPublicData()` |
 | `06-reaction` | `{top:[[name,ms]],plays,r}` | `{best}`: this chat's best | `score:N` → `{rank,best,top,plays,r}` or `{err}` |
+| `07-wallet` | — | `{m,s,t}`: `m` `{a,b}` the card (user-friendly address, nanotons), `s` `{ok,w}` the last signature check, `t` `{h,st,w}` the last transfer (`wait` / `ok` / `fail`) | `w:me` and `w:pay` with `{ wallet: true }` → `{m}` / `{tx}`; `w:text` → `{text}`, then `signData` with `w:sign` → `{s}`; `sendTransaction` with `w:sent` → `{t}`; `w:st` (background, every 5 s while `wait`) → `{t}`; or `{err}` |
 
 `r` is a shared object's revision: the bot raises it on every edit and sends it with the answer too, and a widget keeps
 the newest it has seen. A client's poll may bring an older copy back after the answer or a newer poll; without `r`
@@ -38,3 +41,11 @@ nothing is fine), and puts a move or an answer into its state only once the mess
 Run the bot: `corepack pnpm tsx scripts/bot-demos.ts` with `~/.config/widget-sandbox/widget-bot.env` (the token, and
 `TW_BOT_API=https://api.telegram.org/beta`, `TW_BOT_TEST_ENV=1` for the beta); its state is kept next to that file.
 Only one process may read a bot's updates at a time.
+
+The wallet test is in the Serverless bot only (`apps/bot-demos-serverless/tgcloud/lib/wallet.js`): it checks the
+signature with Ed25519, ties the key to the address by the wallet's StateInit (v3r2, v4r2, v5r1) and the key on chain,
+and finds the transfer by its message hash, both through toncenter on mainnet. Each wallet call goes out on the answer
+to the tap's request (the grant): `w:text` → `signData`, `w:pay` → `sendTransaction`. It reads the wallet's fields as
+Bot API 10.4 has them (`widget_query.type`: `wallet_card`, `sign_data`, `sent_transaction` with `wallet`), and
+`state_init`, which 10.4 does not have yet, by the schema's name; `walletFieldsOf` there, in one place. Until a client
+passes `context.wallet`, the widget says it has no wallet.

@@ -52,6 +52,8 @@ function botMove(b: string): number {
 
 /** The viewer's mock Gram Wallet: what the server would attach (`wallet.card`); 12.5 TON. */
 export const MOCK_WALLET: WalletCard = { address: '0:' + 'f00d'.repeat(16), balance: 12_500_000_000 };
+/** MOCK_WALLET's address in the user-friendly form (non-bounceable, mainnet): what a transaction's message takes. */
+const MOCK_WALLET_FRIENDLY = 'UQDwDfAN8A3wDfAN8A3wDfAN8A3wDfAN8A3wDfAN8A3wDZTR';
 /** The mock shop's address: where its transactions pay. */
 const SHOP_ADDRESS = 'EQ' + 'shop'.repeat(11) + 'Sh';
 const SHOP_ITEMS = [['Coffee', '1500000000'], ['Croissant', '2000000000'], ['Day pass', '5000000000']];
@@ -135,6 +137,30 @@ export const BOTS: Record<string, Bot> = {
     },
   },
   // corpus/bot-demos (notes on the protocol in each file's header; the real bot is scripts/bot-demos.ts).
+  gram: {
+    title: 'bot-demos wallet test: w:me / w:pay with { wallet: true }, w:text, signData → s, sendTransaction → t wait, w:st → ok; chatData {m, s, t}',
+    initial: { chatData: null, publicData: null },
+    answer(data, { wallet, data: d }) {
+      const state = json(d.chatData, {});
+      const out = (part: Record<string, unknown>) => ({ result: JSON.stringify(part), chatData: JSON.stringify({ ...state, ...part }) });
+      if (data === 'w:me') return wallet ? out({ m: { a: MOCK_WALLET_FRIENDLY, b: String(wallet.balance) } }) : { result: JSON.stringify({ err: 'No wallet card came: ask with { wallet: true }' }) };
+      if (data === 'w:text') return { result: JSON.stringify({ text: `Gram Wallet test for @mockbot\nSigned at ${new Date().toISOString().slice(0, 19)}Z\nNonce ${Math.random().toString(16).slice(2, 14)}` }) };
+      if (data === 'w:pay') {
+        if (!wallet) return { result: JSON.stringify({ err: 'No wallet card came: ask with { wallet: true }' }) };
+        return { result: JSON.stringify({ tx: { valid_until: Math.floor(Date.now() / 1000) + 300, network: '-239', messages: [{ address: MOCK_WALLET_FRIENDLY, amount: '10000000' }] } }) };
+      }
+      // The real bot looks the transfer up on toncenter by its message hash; here the chain has it on the first look.
+      if (data === 'w:st') return state.t?.st === 'wait' ? out({ t: { h: state.t.h, st: 'ok', w: 'To the same wallet · fee 0.0031 TON' } }) : { result: JSON.stringify({ t: state.t ?? null }) };
+      return { result: JSON.stringify({ err: 'Unknown request' }) };
+    },
+    wallet(call, { msgHash, data: d }) {
+      const state = json(d.chatData, {});
+      const part = call.method === 'sendTransaction'
+        ? { t: { h: msgHash, st: 'wait', w: 'Waiting for the chain…' } }
+        : { s: { ok: true, w: 'Valid · v4r2, the key on chain' } };
+      return { result: JSON.stringify(part), chatData: JSON.stringify({ ...state, ...part }) };
+    },
+  },
   order: {
     title: 'bot-demos order: order:poll / order:refresh (refresh moves the order one step on), order:cancel while st ≤ 1',
     initial: {
