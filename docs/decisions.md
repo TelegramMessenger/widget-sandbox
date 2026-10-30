@@ -2049,11 +2049,18 @@ clients' windows are not.
   was dropped: with `connect`, `restoreConnection`, `listen` and `ton_proof` missing it would only mislead
   (`connect` → `send` would fail), so the API is two calls of its own on TON Connect's data.
 - **No connection: the bot gets the wallet with a request, on a tap.** `request(data, { wallet: true })` makes the
-  server attach the user's wallet card (address, balance) to the bot's update and create the wallet if there is
-  none (wallets are created on the fly; where the wallet is unavailable by country, the client passes no
-  `context.wallet` and the widget sees `null`). Never in the background: a widget must not create wallets or learn
-  addresses without the user's action. `ton_proof` is not needed: the address comes from the server, and the bot
-  knows who asked.
+  server attach the wallet card of the user's profile (the cloud wallet's address and balance) to the bot's update
+  and create the wallet if there is none (wallets are created on the fly; where the wallet is unavailable by
+  country, the client passes no `context.wallet` and the widget sees `null`). Never in the background: a widget must
+  not create wallets or learn addresses without the user's action. `ton_proof` is not needed: the address comes from
+  the server, and the bot knows who asked.
+- **The device's wallet signs, and the bot learns it with the outcome** (the server team, 2026-10-30). With the
+  wallet's backup off a device keeps its own key and its own wallet, which can differ from the profile's card. So a
+  sent transaction and a signature reach the bot with the wallet that made them (`userWallet`: address, balance,
+  public key), which the client fills from the device, and the profile's card comes only with `with_wallet`. A bot
+  does not put the card's address in `from`. The device's wallet comes from the user's own client: the signature
+  proves the key, the chain proves a payment (its sender), and an address the bot must tie to the key it checks on
+  the chain (the wallet's public key), as a TON Connect back end does with `walletStateInit`.
 - **The grant.** A tap unlocks one call; paying needs two (ask the bot for a fresh transaction, then send it),
   and a transaction prepared earlier would outlive its `valid_until`. So the answer to a call made by a tap grants
   one wallet call within 10 s, and the answer to that call grants the next: a chain that goes on only while the
@@ -2062,12 +2069,12 @@ clients' windows are not.
   quota, and a time window is the same rule in five glue copies (`RequestGate.decideWallet`, the fixture).
 - **The outcome goes to the bot, not to the widget.** The widget has no network: a signature or a signed message
   is of use only to the bot, and 64 bytes of `data` would not carry it. The client sends it to the server as a
-  widget query of its own type (the transaction's normalised message hash, or `signData`'s result as is, with the
-  public key in the card), and the widget gets the bot's answer, as for a request. The bot checks a payment on the
-  chain (the sender is the card's address, the recipients, amounts and order, the trace's success), not by the hash
-  alone.
+  widget query of its own type (the transaction's normalised message hash, or `signData`'s result as is, each with
+  the device's wallet), and the widget gets the bot's answer, as for a request. The bot checks a payment on the
+  chain (the sender is that wallet's address, the recipients, amounts and order, the trace's success), not by the
+  hash alone.
 - **The domain of `signData` is `bot<bot_id>`,** set by the client: a widget has no domain, and a verifier compares
-  the string and checks the signature with the card's public key.
+  the string and checks the signature with the public key of the device's wallet that came with it.
 - **Tap-jacking.** A double tap over the widget is the widget's (v0.1.2): its second tap could land on Confirm in a
   window opened by the first. The client ignores taps on the window for its first 0.5–1 s.
 - **Limits.** 1–255 messages: TON Connect sets no limit of its own (each wallet declares `maxMessages`), Gram Wallet
@@ -2077,9 +2084,24 @@ clients' windows are not.
   user-friendly only (TON Connect: a wallet must refuse a raw one, the bounce flag is in the friendly form); `from`
   may be raw. Any field outside TON Connect's set is refused (`items`, `extra_currency`, which Gram Wallet does not
   take; the SDK's `validUntil` too, rather than a transaction without an expiry).
-- **Server and clients, proposed (not layer 233).** A query type per kind (`widgetQueryTypeData` with
-  `with_wallet`, `widgetQueryTypeSignData` with the result as JSON, `widgetQueryTypeSentTransaction` with
-  `msg_hash`), the bot's update carrying `wallet.card` (with `public_key` for a signature), the server creating the
-  wallet on `with_wallet`, a sent-transaction query accepted only for a hash this user sent. Open: whether the TON
-  Connect window sends through `wallet.sendTransfer` and which hash the server keeps, the TEP-81 form of
-  `bot<bot_id>` for a cell signature, how jettons and NFTs show in the window.
+- **The server's API (agreed 2026-10-30, not shipped yet).** A query type per kind; the bot's update carries the
+  type and, for `with_wallet`, the profile's card:
+
+  ```tl
+  userWallet flags:# address:string balance:long public_key:flags.0?bytes = UserWallet;
+
+  widgetQueryTypeData flags:# with_wallet:flags.0?true = WidgetQueryType;
+  widgetQueryTypeSignData wallet:UserWallet sign_data:DataJSON = WidgetQueryType;
+  widgetQueryTypeSentTransaction wallet:UserWallet msg_hash:string = WidgetQueryType;
+
+  updateBotWidgetQuery flags:# query_id:long query_type:WidgetQueryType user_id:long peer:Peer msg_id:int chat_instance:long chat_type:string data:bytes widget_id:flags.0?long wallet_card:flags.1?wallet.Card = Update;
+  updateInlineBotWidgetQuery flags:# query_id:long query_type:WidgetQueryType user_id:long inline_message_id:InputBotInlineMessageID chat_instance:long chat_type:string data:bytes widget_id:flags.0?long wallet_card:flags.1?wallet.Card = Update;
+  updateBotWidgetCopyQuery flags:# query_id:long query_type:WidgetQueryType user_id:long data:bytes widget_id:long wallet_card:flags.1?wallet.Card = Update;
+
+  ---functions---
+
+  messages.getBotWidgetQueryAnswer peer:InputPeer msg_id:int query_type:WidgetQueryType data:bytes = messages.BotWidgetQueryAnswer;
+  ```
+
+  Open: which message hash the server keeps (the normalised one, TEP-467, is what toncenter looks up), the TEP-81
+  form of `bot<bot_id>` for a cell signature, how jettons and NFTs show in the window.

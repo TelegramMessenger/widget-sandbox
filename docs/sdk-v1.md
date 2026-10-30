@@ -705,10 +705,14 @@ TelegramWidget.wallet.signData({ type: 'text', text: 'I accept the terms of orde
   country where the wallet is not available), where the widget may not ask the bot (no `canQuery`: §2.14's table;
   a forward of a widget sent with `fwd_allow_queries` may) and in a preview. Check it before drawing a pay button.
   The widget never learns the user's address from the client; the bot does (below) and may put it in `result`.
-- **`request(data, { wallet: true })`**, on a tap only: the bot gets the user's wallet card (address and balance)
-  with the request; a user without a wallet gets one created then (a new wallet is empty: the client offers to top
-  it up when it is paid from). Refused (`NOT_ALLOWED`) without `wallet` or without a tap, background requests
-  included. `options` is an object with at most `wallet`, a boolean; anything else throws `TypeError`.
+- **`request(data, { wallet: true })`**, on a tap only: the bot gets the wallet card of the user's profile (the
+  cloud wallet's address and balance) with the request; a user without a wallet gets one created then (a new wallet
+  is empty: the client offers to top it up when it is paid from). Refused (`NOT_ALLOWED`) without `wallet` or
+  without a tap, background requests included. `options` is an object with at most `wallet`, a boolean; anything
+  else throws `TypeError`. The wallet that pays or signs is the one on the device, and it can be another one: with
+  the wallet's backup off a device keeps its own key and its own wallet. So the bot does not put the profile's
+  address in a transaction's `from` (the wallet refuses a `from` that is not its own: `BAD_REQUEST`); it learns the
+  device's wallet with the outcome (below).
 - **`wallet.sendTransaction(transaction, data)`**: `transaction` is TON Connect's `sendTransaction` request with
   its own field names: `{ valid_until?, network?, from?, messages: [{ address, amount, payload?, stateInit? }] }`;
   1–255 messages (what Gram Wallet takes); `valid_until` in Unix seconds; `network` `'-239'` (the mainnet) or
@@ -718,13 +722,15 @@ TelegramWidget.wallet.signData({ type: 'text', text: 'I accept the terms of orde
   together. `null` fields are left out; any other field (`items`, `extra_currency`, the SDK's `validUntil`) throws
   `TypeError`. The client shows the transaction in its own wallet window
   (each message's amount and destination, the emulated outcome) with the bot of the message; on confirmation it
-  sends it, gives the bot the outcome (the message hash; the bot checks the transaction on the chain) and resolves
-  with the bot's answer to it, `{ result }`, as `request` does. The widget never gets the signed message.
+  sends it, gives the bot the outcome (the message hash and the device's wallet that sent it: its address, balance
+  and public key; the bot checks the transaction on the chain) and resolves with the bot's answer to it,
+  `{ result }`, as `request` does. The widget never gets the signed message.
 - **`wallet.signData(payload, data)`**: `payload` is TON Connect's: `{ type: 'text', text }` (at most 4096 bytes
   of UTF-8, shown to the user), `{ type: 'binary', bytes }` or `{ type: 'cell', schema, cell }` (base64 of at most
   4096 characters, the TL-B schema at most 1024 bytes; the window warns that it cannot show them), optionally with
   `network` and `from`. There is no domain: the client signs for `bot<bot_id>` of the message. The signature goes
-  to the bot (with the user's public key), which checks it or passes it on, and resolves this with its answer.
+  to the bot with the device's wallet that signed (its address and public key); the bot checks it or passes it on,
+  and resolves this with its answer.
 - `data` (1–64 bytes, a request's) is the label the bot gets with the outcome: what the payment or the signature
   is for.
 - **When.** On a tap, in its handler, on the visible widget (one call per tap, shared as in §2.14), or **within
@@ -1422,9 +1428,10 @@ shared state (`public_data`).
 - **`context.wallet`**: pass `true` when the client supports Gram Wallet and the wallet is available to this user
   (their country); the widget then gets `TelegramWidget.wallet` wherever it may ask the bot. Whether the user
   already has a wallet is not part of it: one is created when a widget asks for it.
-- **A request with the wallet** (`WidgetRequest.wallet`): call `messages.getBotWidgetQueryAnswer` with the plain
-  query type and `with_wallet`: the server attaches the user's wallet card to the bot's update, creating the wallet
-  if the user has none. The framework let it through only on a tap.
+- **A request with the wallet** (`WidgetRequest.wallet`): call `messages.getBotWidgetQueryAnswer` with
+  `widgetQueryTypeData` and `with_wallet`: the server attaches the cloud wallet's card from the user's profile
+  (`wallet_card`) to the bot's update, creating the wallet if the user has none. The framework let it through only
+  on a tap.
 - **`onWallet`**: show the client's existing TON Connect window over the chat, with the bot of the message in its
   header (name, username, avatar; never anything the widget says about itself) and the emulation of the
   transaction, or the text to sign (a warning for bytes and cells). Ignore touches on it for its first 0.5–1 s: the
@@ -1432,12 +1439,14 @@ shared state (`public_data`).
   the chat before sending; if `valid_until` has passed meanwhile, fail with `badRequest`. Decline → `rejected`;
   the wallet's refusal (network, sender, cells) → `badRequest`.
 - **After the confirmation**: `sendTransaction` goes out the wallet's usual way (`wallet.sendTransfer`); then send
-  the outcome to the bot as a widget query with `call.data`: the transaction's normalised message hash
-  (`msg_hash`), or the signature as TON Connect's result (`signature`, `address`, `timestamp`, `domain` =
-  `bot<bot_id>`, `payload`; the server attaches the wallet card with the public key), and complete with the bot's
-  answer as for a request. No second tap: the call already had one. A failure of that query maps as a request's.
-- The server side (the query types, `with_wallet`, the card in the updates) is a proposal for a later layer, not
-  part of layer 233: `docs/decisions.md`, "The wallet".
+  the outcome to the bot as a widget query with `call.data`: `widgetQueryTypeSentTransaction` with the
+  transaction's normalised message hash (`msg_hash`), or `widgetQueryTypeSignData` with the signature as TON
+  Connect's result (`signature`, `address`, `timestamp`, `domain` = `bot<bot_id>`, `payload`), each with **the
+  device's wallet** (`userWallet`: address, balance, public key), the one that signed: with the wallet's backup off a
+  device can hold another key and another wallet than the profile's card. Complete with the bot's answer as for a
+  request. No second tap: the call already had one. A failure of that query maps as a request's.
+- The server's API (the query types, `with_wallet`, `userWallet`, the card in the updates; `docs/decisions.md`,
+  "The wallet") is agreed and not shipped yet: until it is, leave `context.wallet` unset.
 
 ### 5.12 The time over a widget with no caption below it (§2.17)
 

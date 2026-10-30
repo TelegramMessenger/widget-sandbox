@@ -3,6 +3,14 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release (not tagged yet)
+
+- Docs: the server's agreed wallet API (`docs/decisions.md`, "The wallet"; `docs/sdk-v1.md` §2.18, §5.13;
+  `docs/integration.md`). A sent transaction and a signature reach the bot with the device's wallet (`userWallet`:
+  address, balance, public key), which the client fills: with the wallet's backup off a device can hold another key
+  and another wallet than the profile's card; `with_wallet` brings the profile's card. No code changes: `onWallet`
+  and the framework's checks stay as in v0.5.0.
+
 ## v0.5.0 — release notes (2026-10-30)
 
 The wallet. A widget can ask the user to pay or to sign through Telegram's built-in wallet (Gram Wallet), in TON
