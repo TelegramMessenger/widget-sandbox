@@ -165,6 +165,8 @@ export function countCssRules(css: string): { rules: number; keyframes: number }
     const c = css.charCodeAt(i);
     if (c === 0x22 || c === 0x27) { // a string: skip to its end
       for (i++; i < css.length && css.charCodeAt(i) !== c; i++) if (css.charCodeAt(i) === 0x5c) i++;
+    } else if (c === 0x5c) { // an escape (`.a\{b`, `@keyframes k\}`): the next character is no brace
+      i++;
     } else if (c === 0x2f && css.charCodeAt(i + 1) === 0x2a) { // a comment
       const end = css.indexOf('*/', i + 2);
       i = end < 0 ? css.length : end + 1;
@@ -281,8 +283,22 @@ export class Validator {
     return this.stop(`Attribute limit exceeded: a value of ${length} characters (max ${this.limits.maxAttr})`);
   }
 
-  private overDocumentText(): false {
-    return this.stop(`Text limit exceeded: the document's text is over ${this.limits.textBudget} characters`);
+  /**
+   * The document's counted totals (its text, CSS rules, `@keyframes`) after a whole batch, not op by op: a subtree
+   * replaced in one task (`innerHTML`, `replaceChildren`) or two sheets rewritten in one task pass through a sum of the
+   * old and the new that the document never holds. False when a total is over its cap (the widget stops).
+   */
+  private checkTotals(): boolean {
+    if (this.limits.textBudget && this.totalText > this.limits.textBudget) {
+      return this.stop(`Text limit exceeded: the document's text is over ${this.limits.textBudget} characters`);
+    }
+    if (this.limits.maxCssRules && this.cssRules > this.limits.maxCssRules) {
+      return this.stop(`CSS limit exceeded: ${this.cssRules} rules in the document's stylesheets (max ${this.limits.maxCssRules})`);
+    }
+    if (this.limits.maxKeyframes && this.cssKeyframes > this.limits.maxKeyframes) {
+      return this.stop(`CSS limit exceeded: ${this.cssKeyframes} @keyframes in the document's stylesheets (max ${this.limits.maxKeyframes})`);
+    }
+    return true;
   }
 
   /**
@@ -342,7 +358,7 @@ export class Validator {
     for (const n of this.nodes.values()) {
       if (n.kind === 'el' && n.isStyle && n.rendered) out.push({ op: 'css', id: n.id, text: this.styleText(n) });
     }
-    return out;
+    return this.checkTotals() ? out : [];
   }
 
   private styleText(style: NodeInfo): string {
@@ -353,20 +369,13 @@ export class Validator {
       this.releaseTextSlot(style, 'sheet');
       return '';
     }
+    // Counted here, compared with the caps by checkTotals once every changed sheet of the batch is counted.
     if (this.limits.maxCssRules || this.limits.maxKeyframes) {
       const { rules, keyframes } = countCssRules(text);
       this.cssRules += rules - (style.cssRules ?? 0);
       this.cssKeyframes += keyframes - (style.cssKeyframes ?? 0);
       style.cssRules = rules;
       style.cssKeyframes = keyframes;
-      if (this.limits.maxCssRules && this.cssRules > this.limits.maxCssRules) {
-        this.stop(`CSS limit exceeded: ${this.cssRules} rules in the document's stylesheets (max ${this.limits.maxCssRules})`);
-        return '';
-      }
-      if (this.limits.maxKeyframes && this.cssKeyframes > this.limits.maxKeyframes) {
-        this.stop(`CSS limit exceeded: ${this.cssKeyframes} @keyframes in the document's stylesheets (max ${this.limits.maxKeyframes})`);
-        return '';
-      }
     }
     return text;
   }
@@ -468,6 +477,7 @@ export class Validator {
       if (style) this.out.push({ op: 'css', id, text: this.styleText(style) });
     }
     this.dirtyStyles.clear();
+    if (this.stopReason === null) this.checkTotals();
     const out = this.out;
     this.out = [];
     // A stopped widget's last batch is refused whole: the renderer keeps the last render that fit.
@@ -579,7 +589,6 @@ export class Validator {
     if (!isId(id) || typeof data !== 'string') return false;
     if (data.length > this.limits.maxText) return this.tooLongText(data.length);
     if (this.nodes.has(id) || this.nodes.size >= MAX_NODES) return false;
-    if (this.limits.textBudget && this.totalText + data.length > this.limits.textBudget) return this.overDocumentText();
     const kind = op.op === 'text' ? 'text' : 'comment';
     const complex = kind === 'text' ? complexUnits(data) : 0;
     if (complex && this.limits.complexTextBudget && this.complexText + complex > this.limits.complexTextBudget) {
@@ -603,7 +612,6 @@ export class Validator {
     const node = this.nodes.get(id);
     if (!node || node.kind === 'el' || node.kind === 'doc') return false;
     const textGrowth = data.length - node.data.length;
-    if (textGrowth > 0 && this.limits.textBudget && this.totalText + textGrowth > this.limits.textBudget) return this.overDocumentText();
     const complex = node.kind === 'text' ? complexUnits(data) : 0;
     const growth = complex - (node.complex ?? 0);
     if (growth > 0 && this.limits.complexTextBudget && this.complexText + growth > this.limits.complexTextBudget) {
@@ -907,7 +915,6 @@ export class Validator {
     if (text.length > this.limits.maxText) return this.tooLongText(text.length);
     const previous = node.textSlots?.get(key);
     const lengthDelta = text.length - (previous?.length ?? 0);
-    if (lengthDelta > 0 && this.limits.textBudget && this.totalText + lengthDelta > this.limits.textBudget) return this.overDocumentText();
     const complex = complexUnits(text);
     const complexDelta = complex - (previous?.complex ?? 0);
     if (complexDelta > 0 && this.limits.complexTextBudget && this.complexText + complexDelta > this.limits.complexTextBudget) {

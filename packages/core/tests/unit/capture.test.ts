@@ -140,6 +140,31 @@ describe('capture: moving known nodes into a new subtree', () => {
     assert.ok(all.some((o) => o.op === 'attr' && o.id === rowId && o.value === 'r moved'));
     assert.match(r.probes[0], /^<section><button [^>]*id="row"[^>]*><b>Row<\/b><\/button><\/section>$/);
   });
+
+  it('the same move after the old container left the document: its parent syncs first, the row is still not created again', async () => {
+    const r = await runWidget(`<div id="list"><section id="old"><button id="row"><b>Row</b></button></section></div><script>
+      var list = document.getElementById('list'), row = document.getElementById('row');
+      setTimeout(function () {
+        var fresh = document.createElement('section');
+        list.replaceChildren(fresh);
+        fresh.appendChild(row);
+      }, 1);</script>`, { timerRounds: 3, policy: 'strict', probes: ['list.innerHTML'] });
+    assert.deepEqual(r.diags.filter((d) => d.kind.includes('violation')), []);
+    const all = r.ops.flat() as any[];
+    assert.equal(all.filter((o) => o.op === 'el' && o.attrs?.id === 'row').length, 1);
+    assert.match(r.probes[0], /^<section><button id="row"><b>Row<\/b><\/button><\/section>$/);
+  });
+});
+
+describe('capture: a subtree replaced in one task', () => {
+  it('removes the old children before it creates the new ones, so the validator never holds both texts', async () => {
+    const r = await runWidget(`<div id="a"><p>old text</p></div><script>
+      setTimeout(function () { document.getElementById('a').innerHTML = '<p>new text</p>'; }, 1);</script>`, { timerRounds: 3 });
+    const batch = (r.ops as any[][]).find((b) => b.some((o) => o.op === 'text' && o.data === 'new text'))!;
+    const rm = batch.findIndex((o) => o.op === 'rm');
+    assert.ok(rm >= 0 && rm < batch.findIndex((o) => o.op === 'el'), JSON.stringify(batch));
+    assert.deepEqual(r.diags.filter((d) => d.kind.includes('violation')), []);
+  });
 });
 
 describe('capture: layout query cache', () => {

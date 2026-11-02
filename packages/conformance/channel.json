@@ -1097,9 +1097,9 @@
    "widget": "auto/33-stop-batch.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/33-stop-batch · Strict limits: more than 10 000 DOM changes in one task stop the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/33-stop-batch · Strict limits: more than 10 000 operations in one task stop the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 2109
+   "zlib": 2219
   },
   {
    "widget": "auto/34-stop-css-rules.html",

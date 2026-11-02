@@ -109,7 +109,9 @@ The host validates with `validateAnim` (`validator.ts`; the Swift native node
 model has its twin in `NativeAnimValidator.swift`): `target` must be a rendered
 element, at most 64 keyframes with sorted offsets in [0, 1] and 64 values each,
 times finite and within 24 h, playback rate within ±1000, easings from the CSS
-easing grammar, and at most 1024 live script animations (`animation-limit`).
+easing grammar, and at most 64 live script animations under `strict`, 1024 under
+`compat` (`animation-limit`; a CSS animation or transition the script controls
+does not count, in the shim or here).
 Every keyframe value goes through the same CSS property sanitizer as
 `element.style` (no `url()` other than `#fragment`, no `expression()`), and
 `animation-*` / `transition-*` properties are dropped, and so are the keyframe
@@ -215,7 +217,8 @@ unaffected.
   text ≤ 48 K UTF-16 units, an attribute ≤ 8 K, a batch ≤ 10 000 ops, a canvas op
   ≤ 10 000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`,
   the widget's canvases ≤ 2048² pixels together (a new canvas 300 × 150, then its
-  `width` / `height` and the `r` command); past one the validator reports the fatal `limit` diagnostic (the reason), refuses
+  `width` / `height` and the `r` command; the document's text, rules and `@keyframes` as they stand after the whole
+  batch); past one the validator reports the fatal `limit` diagnostic (the reason), refuses
   the batch and every later one, and the host stops the widget (`docs/decisions.md`,
   "Strict limits from the start"). Under `compat`: text ≤ 2 MB, attribute ≤ 4 MB,
   batch ≤ 200 000 ops, canvas ≤ 500 000 commands, no rule or canvas pixel cap

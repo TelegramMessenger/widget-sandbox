@@ -673,6 +673,11 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   batch whole and every later one; the host stops the widget with that reason, as for memory or CPU, and the bubble
   keeps its last render. The author sees the cause at once. The complex-script budget and text churn still drop:
   a widget in those scripts needs all of its budget, and the numbers did not change.
+- **Totals after the batch** (2026-10-30, the tweb team's move to v0.4.0). The document's text, CSS rules and
+  `@keyframes` are compared with their caps once the whole batch is applied (`checkTotals`): what counts is the document
+  the widget leaves after a task, not the sum of an old and a new subtree in the middle of `innerHTML` or of two sheets
+  rewritten in one task. The batch is in memory whole either way, so nothing grows unbounded meanwhile. The shim helps
+  the budget that drops: it sends the removal of a subtree replaced in one task before the new one.
 - **The shim refuses at the same numbers**, so the author gets an error inside the widget where the host would stop it:
   timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 10 001st command for
   one canvas in one task throws `RangeError`; the validator stops a batch with more, i.e. a tampered shim).

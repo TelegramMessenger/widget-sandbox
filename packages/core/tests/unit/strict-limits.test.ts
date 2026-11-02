@@ -46,6 +46,24 @@ describe('strict limits: CSS rules and @keyframes', () => {
     assert.deepEqual(countCssRules('@supports (display:grid){@container (min-width:1px){a{color:red}}}'), { rules: 1, keyframes: 0 });
   });
 
+  it('an escaped brace in a selector or a @keyframes name is no brace (the tweb audit of v0.4.0)', () => {
+    assert.deepEqual(countCssRules('.a\\{x0{color:red}.b\\}{color:red}'), { rules: 2, keyframes: 0 });
+    assert.deepEqual(countCssRules('@keyframes k\\}0{to{opacity:0}}@keyframes k\\{1{to{opacity:0}}'), { rules: 0, keyframes: 2 });
+    assert.deepEqual(countCssRules('a{content:"\\""}b{color:red}'), { rules: 2, keyframes: 0 }, 'an escape inside a string still ends with it');
+  });
+
+  it('stylesheets rewritten in one batch are compared with the cap together, in either order', () => {
+    for (const order of [[11, 21], [21, 11]]) {
+      const v = validator();
+      v.processOps([...style(10, rules(200)), ...style(20, rules(200, 200))]);
+      const data: Record<number, string> = { 11: rules(300), 21: rules(100, 300) };
+      assert.equal(v.processOps(order.map((id) => ({ op: 'data', id, data: data[id] }))).length, 2, String(order));
+      assert.equal(v.stopped, null, `400 rules after the batch (${order})`);
+      assert.deepEqual(v.processOps([{ op: 'data', id: 21, data: rules(101, 300) }]), []);
+      assert.equal(v.stopped, "CSS limit exceeded: 401 rules in the document's stylesheets (max 400)");
+    }
+  });
+
   it('400 rules over two stylesheets draw; one more stops the widget, and removing a sheet refunds its rules', () => {
     const v = validator();
     assert.equal(v.processOps([...style(10, rules(250)), ...style(20, rules(150, 250))]).filter((o) => o.op === 'css').length, 2);
@@ -69,6 +87,32 @@ describe('strict limits: CSS rules and @keyframes', () => {
     const v = validator('compat');
     assert.equal(v.processOps(style(10, rules(1000))).filter((o) => o.op === 'css').length, 1);
     assert.equal(v.stopped, null);
+  });
+});
+
+describe("strict limits: the document's text after the whole batch", () => {
+  /** A `<p>` `id` with `n` × `ch` as its text (text node `id + 1`), inserted into the body. */
+  const p = (id: number, ch: string, n = 26_000) => [
+    { op: 'el', id, tag: 'p' }, { op: 'text', id: id + 1, data: ch.repeat(n) },
+    { op: 'ins', parent: id, id: id + 1, before: null }, { op: 'ins', parent: 3, id, before: null },
+  ];
+  it('a subtree replaced in one batch counts the document as it ends up, not the old and the new together', () => {
+    const v = validator();
+    v.processOps(p(10, 'x'));
+    assert.equal(v.processOps([...p(20, 'y'), { op: 'rm', id: 10 }]).length, 5);
+    assert.equal(v.stopped, null, '26 K before and after; 52 K only in the middle of the batch');
+    assert.deepEqual(v.processOps(p(30, 'z')), []);
+    assert.equal(v.stopped, "Text limit exceeded: the document's text is over 49152 characters");
+  });
+
+  it('innerHTML replaced by the widget: the shim and the validator together (the tweb audit of v0.4.0)', async () => {
+    const r = await runWidget(`<div id="a"></div><script>
+      var a = document.getElementById('a');
+      a.innerHTML = '<p>' + 'x'.repeat(26000) + '</p>';
+      setTimeout(function () { a.innerHTML = '<p>' + 'y'.repeat(26000) + '</p>'; }, 10);
+    </script>`, { timerRounds: 3 });
+    assert.equal(r.stopped, undefined);
+    assert.ok(r.renderOps.some((o: any) => o.op === 'text' && o.data.startsWith('yyy')));
   });
 });
 
@@ -160,6 +204,21 @@ describe('strict limits: script animations', () => {
       assert.ok(diags.some((d) => d.startsWith('animation-limit')), policy);
       assert.equal(v.stopped, null);
     }
+  });
+});
+
+describe('strict limits: CSS animations the script controls are not script animations', () => {
+  it('80 CSS animations paused by the script all reach the renderer, and no animation-limit (the tweb audit of v0.4.0)', async () => {
+    const html = `<style>@keyframes spin{to{opacity:.2}}.s{animation:spin 1s infinite}</style>${'<div class="s"></div>'.repeat(80)}
+      <script>setTimeout(function () { document.getAnimations().forEach(function (a) { a.pause(); }); }, 10);</script>`;
+    const first = await runWidget(html, { webAnimations: true });
+    const ids = (first.renderOps as any[]).filter((o) => o.op === 'el' && o.tag === 'div').map((o) => o.id);
+    assert.equal(ids.length, 80);
+    const list = ids.map((id, index) => ({ kind: 'animation', id, name: 'spin', index: 0, origin: index, currentTime: 250, playbackRate: 1, paused: false, duration: 1000, delay: 0, iterations: null, direction: 'normal', fill: 'none', easing: 'linear' }));
+    const r = await runWidget(html, { webAnimations: true, timerRounds: 3, answer: (q: any) => (q.q === 'anims' ? { list } : null) });
+    const paused = (r.animOps as any[][]).flat().filter((a) => a.css && a.startTime === null && a.holdTime !== null);
+    assert.equal(new Set(paused.map((a) => a.target)).size, 80, JSON.stringify(r.diags.slice(-3)));
+    assert.ok(!r.diags.some((d) => d.kind === 'animation-limit'));
   });
 });
 

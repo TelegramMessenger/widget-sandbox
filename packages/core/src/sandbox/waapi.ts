@@ -31,6 +31,8 @@ export function createWebAnimations(api: any): any {
   const pendingSet = new Set<any>();
   const dirty = new Set<any>();
   const sent = new Map<any, any>();
+  /** The script animations among `sent`: only they count against MAX_ANIMATIONS (a CSS animation or transition the script controls is the stylesheet's, as in the validator). */
+  const sentScript = new Set<any>();
   const pendingEvents: any[] = [];
   const byTarget = new WeakMap<any, any>();
 
@@ -1561,6 +1563,7 @@ export function createWebAnimations(api: any): any {
         if (sent.has(a._aid)) {
           out.push({ aid: a._aid, remove: true });
           sent.delete(a._aid);
+          sentScript.delete(a._aid);
         }
       }
       const r = record(a);
@@ -1570,16 +1573,18 @@ export function createWebAnimations(api: any): any {
         if (sent.has(a._aid)) {
           out.push({ aid: a._aid, remove: true });
           sent.delete(a._aid);
+          sentScript.delete(a._aid);
         }
         continue;
       }
       const json = JSON.stringify(r);
       if (sent.get(a._aid) === json) continue;
-      if (!sent.has(a._aid) && sent.size >= MAX_ANIMATIONS) {
+      if (!r.css && !sent.has(a._aid) && sentScript.size >= MAX_ANIMATIONS) {
         if (!limitReported) { limitReported = true; diag('animation-limit', `more than ${MAX_ANIMATIONS} live script animations; further ones are not rendered`); }
         continue;
       }
       sent.set(a._aid, json);
+      if (!r.css) sentScript.add(a._aid);
       out.push(r);
     }
     dirty.clear();

@@ -25,6 +25,27 @@ nothing until the host lists them; "default" items apply to every host.
   TON to oneself found on toncenter), sent by `/wallet` from the bot on Telegram Serverless; the dev app's mock bot
   `gram` plays it.
 
+
+**Strict limits: what the tweb team found moving to v0.4.0** (five findings, all from v0.3.0's strict limits; every
+host gets them with the bundles, the Swift `NativeValidator` has its own copy of the first and the fourth):
+
+- The document's text, CSS rules and `@keyframes` are compared with their caps once the whole batch is applied, not op
+  by op (`validator.ts` `checkTotals`, `NativeValidator.swift` the same). A subtree replaced in one task (`innerHTML`,
+  `replaceChildren`) passed through the old and the new text together, so a widget holding more than 24 K characters
+  stopped on its first redraw; two stylesheets rewritten in one task stopped the widget or not depending on which was
+  written first. The caps per value (32 K of text, 8 K per attribute) and per batch (10 000 ops) are unchanged.
+- The shim removes old children before it creates the new ones when nothing under them moved elsewhere (`capture.ts`
+  `syncChildren`), so the complex-script budget (8192 units; it drops the text, it does not stop) no longer refuses the
+  new text of a widget in Arabic, CJK, … that redraws more than 4096 units at once. A node moved out of a removed
+  subtree keeps the old order: its insert goes first.
+- The shim's cap of 64 live script animations counts script animations only (`waapi.ts`): CSS animations and
+  transitions the script controls (`getAnimations()`, `pause()`) are the stylesheet's, as they already were in the
+  validator. Before, past 64 of them the rest were never sent and kept running in the renderer.
+- `countCssRules` (JS and Swift) skips an escaped character outside strings: 201 rules like `.a\{x0{…}` stopped a
+  widget as 402, and 40 blocks like `@keyframes k\}0{…}` passed under the cap of 32 as rules.
+- Conformance `auto/33-stop-batch` passes the ops cap with 10 001 scroll calls instead of 5001 new elements: those needed
+  about 8 MB of heap, so a client's heap could stop the case for memory first; it now stops for the ops at 5 MB.
+
 ## v0.5.0 — release notes (2026-10-30)
 
 The wallet. A widget can ask the user to pay or to sign through Telegram's built-in wallet (Gram Wallet), in TON

@@ -81,6 +81,37 @@ final class StrictLimitsTests: XCTestCase {
         XCTAssertTrue(NativeValidator.countCssRules("@supports (display:grid){@container (min-width:1px){a{color:red}}}") == (1, 0))
         XCTAssertTrue(NativeValidator.countCssRules("@KEYFRAMES x{to{top:0}}@keyframesx{a{b:c}}\u{a0}@keyframes z{to{top:0}}/* open") == (1, 2))
         XCTAssertTrue(NativeValidator.countCssRules("@\u{212A}eyframes q{to{top:0}}") == (0, 1), "lowercased as String.prototype.toLowerCase does (KELVIN SIGN)")
+        // an escaped brace in a selector or a @keyframes name is no brace (the tweb audit of v0.4.0)
+        XCTAssertTrue(NativeValidator.countCssRules(".a\\{x0{color:red}.b\\}{color:red}") == (2, 0))
+        XCTAssertTrue(NativeValidator.countCssRules("@keyframes k\\}0{to{opacity:0}}@keyframes k\\{1{to{opacity:0}}") == (0, 2))
+        XCTAssertTrue(NativeValidator.countCssRules("a{content:\"\\\"\"}b{color:red}") == (2, 0), "an escape inside a string still ends with it")
+    }
+
+    /// The document's totals are compared with the caps after the whole batch (the tweb audit of v0.4.0): two sheets
+    /// rewritten in one task, in either order, and a subtree replaced in one task pass through a sum of the old and the
+    /// new that the document never holds.
+    func testTotalsAreComparedAfterTheWholeBatch() {
+        for native in [false, true] {
+            for order in [[11, 21], [21, 11]] {
+                let v = rig(native: native)
+                _ = v.json(json(style(10, rules(200)) + style(20, rules(200, from: 200))))
+                let data = [11: rules(300), 21: rules(100, from: 300)]
+                XCTAssertEqual(v.json(json(order.map { ["op": "data", "id": $0, "data": data[$0]!] })).0.count, 2, "native \(native), \(order)")
+                XCTAssertNil(v.validator.stopped, "400 rules after the batch (native \(native), \(order))")
+                XCTAssertEqual(v.json(json([["op": "data", "id": 21, "data": rules(101, from: 300)]])).0.count, 0)
+                XCTAssertEqual(v.validator.stopped, "CSS limit exceeded: 401 rules in the document's stylesheets (max 400)")
+            }
+            let p = { (id: Int, ch: String) -> [[String: Any]] in
+                [["op": "el", "id": id, "tag": "p"], ["op": "text", "id": id + 1, "data": String(repeating: ch, count: 26_000)],
+                 ["op": "ins", "parent": id, "id": id + 1, "before": NSNull()], ["op": "ins", "parent": 3, "id": id, "before": NSNull()]]
+            }
+            let t = rig(native: native)
+            _ = t.json(json(p(10, "x")))
+            XCTAssertEqual(t.json(json(p(20, "y") + [["op": "rm", "id": 10]])).0.count, 5, "native \(native)")
+            XCTAssertNil(t.validator.stopped, "26 K before and after; 52 K only in the middle of the batch (native \(native))")
+            XCTAssertEqual(t.json(json(p(30, "z"))).0.count, 0)
+            XCTAssertEqual(t.validator.stopped, "Text limit exceeded: the document's text is over 49152 characters", "native \(native)")
+        }
     }
 
     func testCssRuleAndKeyframeCapsStopOnBothValidatorPaths() {
