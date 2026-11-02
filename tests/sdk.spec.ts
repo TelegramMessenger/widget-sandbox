@@ -392,6 +392,33 @@ test('the poll demo: a tap votes through the mock bot, the widget redraws from t
   expect(data.publicData).toBe('{"v":[3,5,2]}');
 });
 
+test('the wallet demo: a tap pays through the client\'s wallet window, the bot gets the outcome; a decline is REJECTED; without the wallet the widget says so', async ({ page }) => {
+  await page.goto('/?file=interactive/05-wallet.html');
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  const root = page.frameLocator('#sandbox-wrap iframe').locator(':root');
+  await root.locator('.item button').first().click();
+  // The window is the client's, outside the bubble: the bot of the message and what is paid.
+  await expect(page.locator('.wallet-sheet')).toContainText('@shop_bot asks you to send');
+  await expect(page.locator('.wallet-sheet')).toContainText('1.5 TON');
+  await page.locator('#wallet-confirm').click();
+  await expect(root.locator('#note')).toHaveText('Paid for Coffee. Thank you!');
+  await expect(root.locator('#paid')).toHaveText('Paid: Coffee');
+  let state = await tw(page);
+  expect(state.requests.map((r: any) => [r.data, r.kind])).toEqual([['pay:0', 'wallet'], ['paid:0', 'sendTransaction']]);
+  await root.locator('#terms').click();
+  await expect(page.locator('.wallet-sheet pre')).toHaveText('I accept the Corner café terms of 30 October 2026.');
+  await page.locator('#wallet-decline').click();
+  await expect(root.locator('#note')).toHaveText('You declined in the wallet.');
+  state = await tw(page);
+  expect(state.requests.at(-1)).toMatchObject({ data: 'terms', kind: 'signData', error: 'REJECTED' });
+  await page.goto('/?file=interactive/05-wallet.html&wallet=0');
+  await page.waitForFunction(() => (window as any).__tw.state.loaded);
+  await expect(root.locator('#note')).toHaveText('No wallet here: pay in the bot.');
+  await root.locator('.item button').first().click();
+  await expect(page.locator('.wallet-sheet')).toHaveCount(0);
+  expect((await tw(page)).requests).toEqual([]);
+});
+
 test('background requests: allowed in the private chat with the bot (backgroundQuery) while visible, one at once, then one per 5 s', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => { const tw = (window as any).__tw; Object.assign(tw.bot.context, { message: 'private' }); tw.bot.bot = 'echo'; tw.bot.delayMs = 0; });

@@ -112,6 +112,11 @@ public protocol SandboxEngineDelegate: AnyObject {
     /// into the widget. Later calls, and calls after the engine died, are ignored. A delegate without a client side
     /// for requests leaves the default, which refuses it (`NOT_ALLOWED`, reason `unsupported`).
     func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion)
+    /// A wallet call that passed the request gate (docs/sdk-v1.md §2.18): the client shows its own wallet window with
+    /// the bot of the message, sends the transaction (or signs the payload) on the user's confirmation, sends the
+    /// outcome to the bot and calls `respond` once, from any thread, with the bot's answer or a failure (`rejected`,
+    /// `badRequest`, a request's). A delegate without a client side for the wallet leaves the default, which refuses it.
+    func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion)
     /// A checked `copyText` call (docs/sdk-v1.md §2.15): one per press (strict), like the link calls; not an action.
     func engine(_ engine: SandboxEngine, copyText: String)
     func engineLoaded(_ engine: SandboxEngine)
@@ -129,6 +134,7 @@ public extension SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) {}
     func engine(_ engine: SandboxEngine, watchesPublicData: Bool) {}
     func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) { respond.unsupported() }
+    func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion) { respond.unsupported() }
     func engine(_ engine: SandboxEngine, copyText: String) {}
 
     func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
@@ -264,6 +270,12 @@ public final class SandboxEngine {
         .busy: "a request is already in flight",
         .noActivation: "it needs a tap on the visible widget, one request per tap; this message allows no background requests (no background_query)",
         .rateLimited: "background requests at most once per 5 s",
+        .noWallet: "the client has no wallet for this user (no WidgetContext.wallet)",
+    ]
+    /// Where a wallet call's refusal differs from a request's (WALLET_REFUSED in widget-host.ts).
+    private static let walletRefused: [SdkPolicy.RequestVerdict: String] = [
+        .noActivation: "it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each",
+        .busy: "a request or a wallet call is already in flight",
     ]
     private static let activationPrefix = "activation:"
     /// Two full areas of the quota at 12 JSON characters per byte (`\uXXXX` escapes plus the quotes, colon and comma of
@@ -562,6 +574,7 @@ public final class SandboxEngine {
         let noViewer = context.preview || !context.canQuery
         out["chatType"] = Self.orNull(noChatType ? nil : SdkPolicy.checkChatType(context.chatType)?.rawValue)
         out["viewer"] = noViewer ? NSNull() : checkedViewer(context.viewer)
+        out["wallet"] = context.wallet
         return out
     }
 
@@ -965,8 +978,11 @@ public final class SandboxEngine {
                 previewBlockedReported += 1
                 delegate?.engine(self, diag: "preview-blocked", detail: "\(name) ignored: a preview (an inline result not sent yet) takes no actions")
             }
-            if case .request(let id, _) = checked {
+            switch checked {
+            case .request(let id, _, _), .wallet(let id, _):
                 enqueue("bridge", Self.json(["type": "answer", "id": id, "error": SdkPolicy.RequestError.notAllowed.rawValue, "reason": "preview"]))
+            default:
+                break
             }
             return
         }
@@ -978,8 +994,13 @@ public final class SandboxEngine {
             delegate?.engine(self, watchesPublicData: on)
             return
         }
-        if case .request(let id, let data) = checked {
-            request(id: id, data: data)
+        if case .request(let id, let data, let wallet) = checked {
+            request(id: id, data: data, wallet: wallet)
+            return
+        }
+        // A wallet call shares the request gate (a press or the grant, never the background) and goes to the delegate's `wallet`.
+        if case .wallet(let id, let call) = checked {
+            walletCall(id: id, call: call)
             return
         }
         if case .copyText(let text) = checked {
@@ -1033,30 +1054,55 @@ public final class SandboxEngine {
     /// is delivered, by the delegate (WidgetHost: `onRequest` on the main thread, so a client that sets it right after
     /// creating the host gets a request the widget made before that). Every outcome goes back into the widget as a
     /// `bridge` task of its own, never inside the calling task.
-    private func request(id: Int, data: String) {
+    private func request(id: Int, data: String, wallet: Bool) {
         let pressed = config.policy == .compat || (activeGesture > consumedGesture && visible)
-        let verdict = requests.decide(nowMs: Self.nowMs(), gesture: pressed, visible: visible, canQuery: config.context.effective.canQuery, backgroundQuery: config.context.effective.backgroundQuery)
+        let context = config.context.effective
+        let verdict = requests.decide(nowMs: Self.nowMs(), gesture: pressed, visible: visible, canQuery: context.canQuery, backgroundQuery: context.backgroundQuery, withWallet: wallet, wallet: context.wallet)
         if let error = SdkPolicy.requestRefusal(verdict) {
-            let event = refusal(id, reason: verdict.rawValue, error: error, detail: "request refused (\(verdict.rawValue)): \(Self.requestRefused[verdict] ?? verdict.rawValue)")
+            let why = wallet && verdict == .noActivation ? "a request for the wallet needs a tap on the visible widget, one request per tap" : Self.requestRefused[verdict] ?? verdict.rawValue
+            let event = refusal(id, reason: verdict.rawValue, error: error, detail: "request refused (\(verdict.rawValue)): \(why)")
             return enqueue("bridge", event)
         }
         if verdict == .foreground, config.policy == .strict {
             consumedGesture = activeGesture
             activeGesture = 0
         }
-        if verdict == .held { heldRequest = (id, data) } else { deliverRequest(id: id, data: data) }
+        if verdict == .held { heldRequest = (id, data) } else { deliverRequest(id: id, data: data, wallet: wallet) }
+    }
+
+    /// docs/sdk-v1.md §2.18: a wallet call goes out on a press or on the grant (the answer to a call made by a press,
+    /// within 10 s), never in the background; one call in flight with the requests. Its outcome settles like a request's.
+    private func walletCall(id: Int, call: WalletCall) {
+        let pressed = config.policy == .compat || (activeGesture > consumedGesture && visible)
+        let context = config.context.effective
+        let verdict = requests.decideWallet(nowMs: Self.nowMs(), gesture: pressed, visible: visible, canQuery: context.canQuery, wallet: context.wallet)
+        if let error = SdkPolicy.requestRefusal(verdict) {
+            let why = Self.walletRefused[verdict] ?? Self.requestRefused[verdict] ?? verdict.rawValue
+            return enqueue("bridge", refusal(id, reason: verdict.rawValue, error: error, detail: "wallet.\(call.method) refused (\(verdict.rawValue)): \(why)"))
+        }
+        if verdict == .foreground, config.policy == .strict {
+            consumedGesture = activeGesture
+            activeGesture = 0
+        }
+        let respond = completion(id, wallet: true)
+        guard let delegate else { return respond.unsupported() }
+        delegate.engine(self, wallet: call, respond: respond)
+    }
+
+    /// The client answers once, from any thread; the gate and the widget are touched on this thread only.
+    private func completion(_ id: Int, wallet: Bool) -> WidgetRequestCompletion {
+        let once = RequestOnce()
+        return WidgetRequestCompletion { [weak self] outcome in
+            guard once.claim(), let self else { return }
+            self.queue.async { [weak self] in self?.settleRequest(id, outcome, wallet: wallet) }
+        }
     }
 
     /// A request the gate let through, to the delegate; its outcome frees the gate (`settleRequest`).
-    private func deliverRequest(id: Int, data: String) {
-        // The client answers once, from any thread; the gate and the widget are touched on this thread only.
-        let once = RequestOnce()
-        let respond = WidgetRequestCompletion { [weak self] outcome in
-            guard once.claim(), let self else { return }
-            self.queue.async { [weak self] in self?.settleRequest(id, outcome) }
-        }
+    private func deliverRequest(id: Int, data: String, wallet: Bool = false) {
+        let respond = completion(id, wallet: false)
         guard let delegate else { return respond.unsupported() }
-        delegate.engine(self, request: WidgetRequest(data: data), respond: respond)
+        delegate.engine(self, request: WidgetRequest(data: data, wallet: wallet), respond: respond)
     }
 
     /// A refused request `id` (`request-blocked`, at most 20 per widget): the answer event with its error and reason.
@@ -1068,23 +1114,28 @@ public final class SandboxEngine {
         return Self.json(["type": "answer", "id": id, "error": error.rawValue, "reason": reason])
     }
 
-    /// The client's outcome for request `id`, on the engine's thread: the gate is free again; no client side is a
-    /// refusal (`unsupported`); the answer's `result` is checked (`answer-rejected` → `INVALID_ANSWER`) and settles the
-    /// widget's promise (an answer carries no data); a failure becomes its code.
-    private func settleRequest(_ id: Int, _ outcome: WidgetRequestCompletion.Outcome) {
+    /// The client's outcome for request or wallet call `id`, on the engine's thread: the gate is free again (an answer
+    /// brings the grant when the call had a press or the grant); no client side is a refusal (`unsupported`); the
+    /// answer's `result` is checked (`answer-rejected` → `INVALID_ANSWER`) and settles the widget's promise (an answer
+    /// carries no data); a failure becomes its code (the wallet's own codes only for a wallet call).
+    private func settleRequest(_ id: Int, _ outcome: WidgetRequestCompletion.Outcome, wallet: Bool) {
         if dead { return }
-        requests.finish()
         guard case .answer(let result) = outcome else {
-            return enqueueNow("bridge", refusal(id, reason: "unsupported", error: .notAllowed, detail: "request refused: the client handles no requests (WidgetHost.onRequest)"))
+            requests.finish()
+            let detail = wallet ? "wallet call refused: the client handles no wallet calls (WidgetHost.onWallet)" : "request refused: the client handles no requests (WidgetHost.onRequest)"
+            return enqueueNow("bridge", refusal(id, reason: "unsupported", error: .notAllowed, detail: detail))
         }
         var event: [String: Any] = ["type": "answer", "id": id]
         switch result {
         case .failure(let failure):
-            event["error"] = failure.code.rawValue
+            requests.finish()
+            event["error"] = (wallet ? failure.code : failure.requestCode).rawValue
         case .success(let answer):
             if let checked = SdkPolicy.checkRequestAnswer(answer) {
+                requests.finish(answeredAtMs: Self.nowMs())
                 event["result"] = Self.orNull(checked.result)
             } else {
+                requests.finish()
                 delegate?.engine(self, diag: "answer-rejected", detail: "the answer's result is not text of at most \(SdkPolicy.maxRequestResultBytes) bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER")
                 event["error"] = SdkPolicy.RequestError.invalidAnswer.rawValue
             }

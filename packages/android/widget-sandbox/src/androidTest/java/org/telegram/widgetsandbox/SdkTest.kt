@@ -1232,4 +1232,104 @@ class SdkTest {
             instrumentation.runOnMainSync { host.destroy(); bare.destroy() }
         }
     }
+
+    // ── the wallet (docs/sdk-v1.md §2.18): sdk.test.ts and SdkTests.swift ──
+
+    private val tx = WalletTransaction(validUntil = 1900000000L, messages = listOf(WalletMessage("EQ" + "ab".repeat(23), "1500000000")))
+    private val txJson = """{"valid_until":1900000000,"messages":[{"address":"EQ${"ab".repeat(23)}","amount":"1500000000"}]}"""
+    /** A tap asks the bot with the wallet, the answer's transaction goes to `sendTransaction`; every outcome into `log`. */
+    private val payer = "<button>pay</button><script>var log = []; function put(s) { log.push(s); console.log('log=' + log.join(' ')); }" +
+        "document.querySelector('button').onclick = function () { TelegramWidget.request('pay:42', { wallet: true })" +
+        ".then(function (a) { put('tx'); return TelegramWidget.wallet.sendTransaction(JSON.parse(a.result), 'paid:42'); })" +
+        ".then(function (b) { put('ok:' + b.result); }, function (e) { put('err:' + e.code); return TelegramWidget.wallet.sendTransaction(JSON.parse('$txJson'), 'again').catch(function (e2) { put('again:' + e2.code); }); }); };</script>"
+
+    @Test
+    fun walletOnlyWhereTheClientHasItAndTheWidgetMayAsk() {
+        val probe = "<script>console.log('w=' + (TelegramWidget.wallet === null ? 'null' : typeof TelegramWidget.wallet.sendTransaction + Object.isFrozen(TelegramWidget.wallet)));</script>"
+        for ((flags, expect) in listOf(
+            WidgetContext(canQuery = true, backgroundQuery = true, chatType = "private", wallet = true) to "w=functiontrue",
+            WidgetContext(isCopy = true, canQuery = true, wallet = true) to "w=functiontrue",
+            WidgetContext(canQuery = true) to "w=null",
+            WidgetContext(wallet = true) to "w=null",
+            WidgetContext(canQuery = true, preview = true, wallet = true) to "w=null",
+        )) {
+            val (d, engine) = run(probe) { it.context = flags }
+            assertTrue("$flags", waitFor { d.logged().any { it.startsWith("w=") } })
+            assertEquals("$flags", expect, d.logged().first { it.startsWith("w=") })
+            engine.terminate()
+        }
+    }
+
+    @Test
+    fun aTapPaysOnTheAnswerToItsRequest() {
+        val d = RecordingDelegate()
+        d.answer = { _, respond -> respond(Result.success(WidgetRequestAnswer(txJson))) }
+        d.wallet = { _, respond -> respond(Result.success(WidgetRequestAnswer("thanks"))) }
+        val (_, engine) = run(payer, d) { it.context = WidgetContext(canQuery = true, backgroundQuery = true, chatType = "private", wallet = true) }
+        engine.activationEvent(click(idOf(d, "button")), 1)
+        assertTrue(d.log(), waitFor { d.log().contains("ok:") || d.log().contains("err:") })
+        assertEquals("tx ok:thanks", d.log())
+        assertEquals(listOf(WidgetRequest("pay:42", wallet = true)), d.requests.toList())
+        assertEquals(listOf<WalletCall>(WalletCall.SendTransaction(tx, "paid:42")), d.walletCalls.toList())
+        assertEquals("a wallet call is no action", emptyList<WidgetAction>(), d.actions.toList())
+        engine.terminate()
+    }
+
+    @Test
+    fun walletRefusalsAndTheBackground() {
+        val d = RecordingDelegate()
+        d.answer = { _, respond -> respond(Result.success(WidgetRequestAnswer(txJson))) }
+        d.wallet = { _, respond -> respond(Result.failure(WidgetRequestException(WidgetRequestFailure.REJECTED))) }
+        val (_, engine) = run(payer, d) { it.context = WidgetContext(canQuery = true, chatType = "group", wallet = true) }
+        engine.activationEvent(click(idOf(d, "button")), 1)
+        assertTrue(d.log(), waitFor { d.log().contains("again:") })
+        assertEquals("a refusal brings no grant", "tx err:REJECTED again:NOT_ALLOWED", d.log())
+        assertEquals(1, d.walletCalls.size)
+        assertEquals(listOf("wallet.sendTransaction refused (no-activation): it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each"), d.rejected("request-blocked"))
+        engine.terminate()
+
+        // A request's failure REJECTED is FAILED there.
+        val plain = RecordingDelegate().apply { answer = { _, respond -> respond(Result.failure(WidgetRequestException(WidgetRequestFailure.REJECTED))) } }
+        val (_, e2) = run(requester, plain) { it.context = tapOnly }
+        e2.activationEvent(click(idOf(plain, "button")), 1)
+        assertTrue(plain.log(), waitFor { plain.outcomes().isNotEmpty() })
+        assertEquals("err:tap:WidgetRequestError:FAILED", plain.outcomes()[0])
+        e2.terminate()
+
+        // From a timer: neither a wallet call nor a request for the wallet goes out, also in the private chat with the bot.
+        val timer = RecordingDelegate().apply {
+            answer = { _, respond -> respond(Result.success(WidgetRequestAnswer())) }
+            wallet = { _, respond -> respond(Result.success(WidgetRequestAnswer())) }
+        }
+        val html = "<script>var log = []; function put(s) { log.push(s); console.log('log=' + log.join(' ')); } setTimeout(function () {" +
+            "TelegramWidget.wallet.signData({ type: 'text', text: 'x' }, 's').catch(function (e) { put('sign:' + e.code); });" +
+            "TelegramWidget.request('w', { wallet: true }).catch(function (e) { put('rq:' + e.code); }); }, 0);</script>"
+        val (_, e3) = run(html, timer) { it.context = WidgetContext(canQuery = true, backgroundQuery = true, chatType = "private", wallet = true) }
+        assertTrue(timer.log(), waitFor { timer.log().split(" ").size == 2 })
+        assertEquals(listOf("rq:NOT_ALLOWED", "sign:NOT_ALLOWED"), timer.log().split(" ").sorted())
+        assertEquals(0, timer.walletCalls.size + timer.requests.size)
+        e3.terminate()
+    }
+
+    @Test
+    fun signDataOnATapAndNoClientSide() {
+        val html = "<button>s</button><script>document.querySelector('button').onclick = function () {" +
+            "TelegramWidget.wallet.signData({ type: 'text', text: 'I agree', network: null }, 'sign:1').then(function (a) { console.log('ok:' + a.result); }, function (e) { console.log('err:' + e.code); }); };</script>"
+        val flags = WidgetContext(isCopy = true, canQuery = true, wallet = true)
+        val d = RecordingDelegate().apply { wallet = { _, respond -> respond(Result.success(WidgetRequestAnswer("signed"))) } }
+        val (_, engine) = run(html, d) { it.context = flags }
+        engine.activationEvent(click(idOf(d, "button")), 1)
+        assertTrue(waitFor { d.logged().any { it.startsWith("ok:") || it.startsWith("err:") } })
+        assertEquals(listOf("ok:signed"), d.logged().filter { it.startsWith("ok:") || it.startsWith("err:") })
+        assertEquals(listOf<WalletCall>(WalletCall.SignData(SignDataPayload("text", text = "I agree"), "sign:1")), d.walletCalls.toList())
+        engine.terminate()
+
+        val none = RecordingDelegate()
+        val (_, e2) = run(html, none) { it.context = flags }
+        e2.activationEvent(click(idOf(none, "button")), 1)
+        assertTrue(waitFor { none.logged().any { it.startsWith("err:") } })
+        assertEquals(listOf("err:NOT_ALLOWED"), none.logged().filter { it.startsWith("err:") })
+        assertEquals(listOf("wallet call refused: the client handles no wallet calls (onWallet)"), none.rejected("request-blocked"))
+        e2.terminate()
+    }
 }

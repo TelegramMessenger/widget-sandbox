@@ -3,10 +3,74 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release
+## Next release (not tagged yet)
 
 - Swift, opt-in: the engine can run in another process. `SandboxEngine(remote:)` is a client-mode engine whose inputs go out through a `SandboxRemoteChannel`; the other process runs a `SandboxRemoteServer` around a real engine and relays its delegate through a `SandboxRemoteSink` (`RemoteEngine.swift`; macOS Telegram puts it in a sandboxed XPC service). A host turns it on with `SandboxEngine.remoteChannelFactory`; `WidgetHost` and `EnginePool` build their engines through `SandboxEngine.make`, except a host with side channels in a build that installs them, which keeps its engine in process. The client engine re-decides every privileged call on the host's own inputs, as the engine's process may be the widget's: a link, copyText or a foreground request needs a tap the host delivered (one call per tap, within 2 s, visible), a background request the message's flags, visibility, one in flight and 4 s between them (reset when the widget appears), a haptic the host's own gate, and bridge and storage calls are checked again with `SdkPolicy`; ops, queries, listen, preventDefault and anim go to the validator as before. A widget sees the same behaviour (the full Swift suite passes with `TW_ENGINE_LOOPBACK=1`, a DEBUG switch that runs every host's engine through the in-process loopback). Transport and policy glue elsewhere are unchanged; this is Apple-host transport, not shim or quota glue.
 - Swift bubble integration: `WidgetBubble.setContentSafeArea(_:)` retains the current value for a recreated host and updates live, preparing and adopting hosts after a caption or timestamp edit. This is a Swift bubble lifecycle helper; the shared SDK policy and other host implementations are unchanged.
+
+- Docs: the server's agreed wallet API (`docs/decisions.md`, "The wallet"; `docs/sdk-v1.md` §2.18, §5.13;
+  `docs/integration.md`). A sent transaction and a signature reach the bot with the device's wallet (`userWallet`:
+  address, balance, public key, StateInit), which the client fills: with the wallet's backup off a device can hold
+  another key and another wallet than the profile's card; `with_wallet` brings the profile's card. No code changes:
+  `onWallet` and the framework's checks stay as in v0.5.0.
+- Docs: the formats of the wallet's outcome as the server takes them (`docs/sdk-v1.md` §5.13): `userWallet.address`
+  raw or user-friendly (mainnet), `balance` in nanotons, `public_key` as its 32 bytes and `state_init` (new in the
+  schema: the wallet's StateInit as a bag of cells, which ties the key to the address of a wallet not deployed yet;
+  the server does not look inside) under one flag, both with a signature, `msg_hash` as 64 hex digits, `sign_data` as
+  TON Connect's result.
+- `corpus/bot-demos/07-wallet.html`: the Gram Wallet test on mainnet (the wallet card, a signature the bot checks, 0.01
+  TON to oneself found on toncenter), sent by `/wallet` from the bot on Telegram Serverless; the dev app's mock bot
+  `gram` plays it.
+
+## v0.5.0 — release notes (2026-10-30)
+
+The wallet. A widget can ask the user to pay or to sign through Telegram's built-in wallet (Gram Wallet), in TON
+Connect's formats, and the user confirms in the client's own wallet window, which names the bot of the message. The
+widget is the front of a dApp and its bot is the back end: on a tap the widget asks the bot with the user's wallet,
+the bot answers with a fresh transaction, the widget passes it to the wallet without a new tap, and the bot gets the
+outcome (the message hash, or the signature) and answers the widget. A client that uses the framework's glue updates,
+passes `context.wallet` where it has the wallet for the user, and implements `onWallet` with its existing TON Connect
+window (`docs/sdk-v1.md` §2.18, §5.13; `docs/integration.md`, "The wallet"). Until the server ships its side (a
+proposal for a later layer, `docs/decisions.md`, "The wallet"), a client leaves `context.wallet` unset and nothing
+changes: the widget sees `TelegramWidget.wallet === null`.
+
+**The wallet** (`docs/sdk-v1.md` §2.18, §5.13; `docs/decisions.md`, "The wallet"):
+
+- **Widgets:** `TelegramWidget.wallet` (null where the client has no wallet for this user, where the widget may not
+  ask the bot, in a preview) with `sendTransaction(transaction, data)` and `signData(payload, data)`, each resolving
+  with the bot's answer to its outcome; `request(data, { wallet: true })` on a tap gives the bot the user's wallet
+  (created if they had none). A wallet call needs a tap, or follows within 10 s the answer to a call made by a tap
+  (the grant); one call in flight with the requests; new codes `REJECTED` (the user declined) and `BAD_REQUEST` (the
+  wallet refused it). The transaction is TON Connect's `sendTransaction` request: 1–255 messages (what Gram Wallet
+  takes), user-friendly destinations (a raw one is refused, as TON Connect wallets must), `payload` / `stateInit` of
+  at most 8192 base64 characters each and 65536 together; the payload is TON Connect's `signData` (text, bytes, cell),
+  without a domain: the client signs for `bot<bot_id>`.
+- **Hosts (all five glue copies):** `context.wallet`, `WidgetRequest.wallet`, `onWallet(call, complete)` with
+  `WalletCall` (`sendTransaction` with a `WalletTransaction`, `signData` with a `SignDataPayload`, `data`; their
+  JSON forms in TON Connect's field names); `WidgetRequestFailure` gains `rejected` / `badRequest` (a request's
+  failure turns them into `FAILED`). The checks are `sdk-policy` and its three twins on the fixture:
+  `checkWalletTransaction`, `checkSignDataPayload`, `checkRequestOptions`, the `request` and `wallet` bridge calls,
+  `RequestGate.decideWallet` and the grant (`finish(answeredAt)`), verdicts `granted` and `no-wallet`.
+- **Default for every host:** nothing changes until the client passes `context.wallet`.
+- **Dev tooling:** the dev app's mock wallet (the **wallet** box in the Bot (mock) panel, `?wallet=0`, a wallet
+  window over the page with its buttons off for 600 ms, the `shop` bot), `corpus/interactive/05-wallet.html`, the
+  harness's `--wallet`, `--wallet-answer`, `--wallet-error`; attacks `wallet-no-activation`, `wallet-forged-wire`,
+  `wallet-grant-reuse`.
+
+**Known issues:**
+
+- The server's side is a proposal (`docs/decisions.md`, "The wallet": the query types, `with_wallet`, the wallet card
+  in the bot's updates): no client can deliver a wallet call end to end yet; leave `context.wallet` unset until the
+  server ships it. Open there: whether the TON Connect window sends through `wallet.sendTransfer` and which message
+  hash the server keeps, the TEP-81 form of `bot<bot_id>` for a cell signature.
+- No client window yet, no mock wallet in the native demos, no conformance case and no test bot for the wallet (the
+  test widget on @sswidgetbot comes next).
+- Test matrix on this tree: typecheck and unit 830/831 (`showcase-3d`'s size check of `06-cat`, as in v0.4.0); on iframe
+  and shadow attacks 144 (the three `wallet-*` again after `wallet-forged-wire` moved to 256 messages), sdk 45, compat
+  20, activation 4; showcase 27 on iframe; Swift macOS 334 and iOS 27.0 335 with only
+  `IntlBridgeTests.testPluralRulesMatchICU` failing (the OS's ICU, as before), Kotlin 30 JVM + 122 instrumented, C++ 80
+  tests and 113 attacks with 0 leaks. Not run for this release: the conformance set and the other corpora (the
+  renderer and the validator are unchanged).
 
 ## v0.4.0 — release notes (2026-10-30)
 

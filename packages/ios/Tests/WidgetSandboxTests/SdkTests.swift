@@ -904,6 +904,98 @@ final class SdkTests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
     }
+
+    // MARK: the wallet (docs/sdk-v1.md §2.18)
+
+    private static let tx = WalletTransaction(validUntil: 1900000000, messages: [WalletMessage(address: "EQ" + String(repeating: "ab", count: 23), amount: "1500000000")])
+    private static let txJson = #"{"valid_until":1900000000,"messages":[{"address":"EQ"# + String(repeating: "ab", count: 23) + #"","amount":"1500000000"}]}"#
+    /// sdk.test.ts's payer: a tap asks the bot with the wallet, the answer's transaction goes to `sendTransaction`, every outcome into `log`.
+    private static let payer = "<button id='b'>pay</button><script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}" +
+        "document.getElementById('b').onclick=function(){TelegramWidget.request('pay:42',{wallet:true})" +
+        ".then(function(a){out('tx');return TelegramWidget.wallet.sendTransaction(JSON.parse(a.result),'paid:42');})" +
+        ".then(function(b){out('ok:'+b.result);},function(e){out('err:'+e.code);return TelegramWidget.wallet.sendTransaction(JSON.parse('" + txJson + "'),'again').catch(function(e2){out('again:'+e2.code);});});};</script>"
+
+    /// `TelegramWidget.wallet` only where the client has the wallet and the widget may ask the bot; never in a preview.
+    func testWalletOnlyWhereTheClientHasItAndTheWidgetMayAsk() {
+        let probe = "<script>console.log('w='+(TelegramWidget.wallet===null?'null':typeof TelegramWidget.wallet.sendTransaction+Object.isFrozen(TelegramWidget.wallet)));</script>"
+        let cases: [(WidgetContext, String)] = [
+            (WidgetContext(canQuery: true, backgroundQuery: true, chatType: .private, wallet: true), "w=functiontrue"),
+            (WidgetContext(isCopy: true, canQuery: true, wallet: true), "w=functiontrue"),
+            (Self.privateChat, "w=null"),
+            (WidgetContext(chatType: .private, wallet: true), "w=null"),
+            (WidgetContext(canQuery: true, chatType: .private, preview: true, wallet: true), "w=null"),
+        ]
+        for (context, expect) in cases {
+            let h = harness(probe, context)
+            h.pump { h.logs.contains { $0.hasPrefix("w=") } }
+            XCTAssertEqual(h.logs.first { $0.hasPrefix("w=") }, expect, "\(context)")
+        }
+    }
+
+    /// A tap pays: the request asks for the wallet, the bot answers with the transaction, the call on that answer goes
+    /// out without a new tap (the grant), the bot's answer to the payment resolves it.
+    func testATapPaysOnTheAnswerToItsRequest() {
+        var context = Self.privateChat
+        context.wallet = true
+        let h = harness(Self.payer, context)
+        var asked: [WidgetRequest] = []
+        var calls: [WalletCall] = []
+        h.host.onRequest = { request, respond in asked.append(request); respond(.success(WidgetRequestAnswer(result: Self.txJson))) }
+        h.host.onWallet = { call, respond in calls.append(call); respond(.success(WidgetRequestAnswer(result: "thanks"))) }
+        h.click(Self.button)
+        XCTAssertEqual(log(h, entries: 2), "tx ok:thanks")
+        XCTAssertEqual(asked, [WidgetRequest(data: "pay:42", wallet: true)])
+        XCTAssertEqual(calls, [.sendTransaction(Self.tx, data: "paid:42")])
+        XCTAssertEqual(h.actions, [], "a wallet call is no action")
+    }
+
+    /// The user declines: REJECTED, and a refusal brings no grant (the next call needs a tap); a request's failure
+    /// `.rejected` is FAILED there; from a timer neither a wallet call nor a request for the wallet goes out.
+    func testRefusalsAndTheBackground() {
+        let h = harness(Self.payer, WidgetContext(canQuery: true, chatType: .group, wallet: true))
+        var calls = 0
+        h.host.onRequest = { _, respond in respond(.success(WidgetRequestAnswer(result: Self.txJson))) }
+        h.host.onWallet = { _, respond in calls += 1; respond(.failure(.rejected)) }
+        h.click(Self.button)
+        XCTAssertEqual(log(h, entries: 3), "tx err:REJECTED again:NOT_ALLOWED")
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(h.host.diagnostics.diags["request-blocked"]?.details, ["wallet.sendTransaction refused (no-activation): it needs a tap on the visible widget, or the answer to a call made by a tap within 10 s; one call each"])
+
+        let plain = harness(Self.requester, Self.group)
+        plain.host.onRequest = { _, respond in respond(.failure(.rejected)) }
+        plain.click(Self.button)
+        XCTAssertEqual(tapLog(plain, entries: 2), "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:FAILED")
+
+        var context = Self.privateChat
+        context.wallet = true
+        let timer = harness("<script>var log=[];function out(s){log.push(s);console.log('log='+log.join(' '));}setTimeout(function(){" +
+            "TelegramWidget.wallet.signData({type:'text',text:'x'},'s').catch(function(e){out('sign:'+e.code);});" +
+            "TelegramWidget.request('w',{wallet:true}).catch(function(e){out('rq:'+e.code);});},0);</script>", context)
+        timer.host.onRequest = { _, respond in calls += 100; respond(.success(WidgetRequestAnswer())) }
+        timer.host.onWallet = { _, respond in calls += 100; respond(.success(WidgetRequestAnswer())) }
+        XCTAssertEqual(log(timer, entries: 2).split(separator: " ").sorted(), ["rq:NOT_ALLOWED", "sign:NOT_ALLOWED"])
+        XCTAssertEqual(calls, 1, "neither reaches the client")
+    }
+
+    /// signData on a tap with its payload as checked; a client without `onWallet` at delivery refuses (`unsupported`).
+    func testSignDataOnATapAndNoClientSide() {
+        let html = "<button id='b'>s</button><script>document.getElementById('b').onclick=function(){" +
+            "TelegramWidget.wallet.signData({type:'text',text:'I agree',network:null},'sign:1').then(function(a){console.log('ok:'+a.result);},function(e){console.log('err:'+e.code);});};</script>"
+        let context = WidgetContext(isCopy: true, canQuery: true, wallet: true)
+        let h = harness(html, context)
+        var calls: [WalletCall] = []
+        h.host.onWallet = { call, respond in calls.append(call); respond(.success(WidgetRequestAnswer(result: "signed"))) }
+        h.click(Self.button)
+        h.pump { h.logs.contains { $0.hasPrefix("ok:") || $0.hasPrefix("err:") } }
+        XCTAssertTrue(h.logs.contains("ok:signed"), "\(h.logs)")
+        XCTAssertEqual(calls, [.signData(SignDataPayload(type: .text, text: "I agree"), data: "sign:1")])
+
+        let none = harness(html, context)
+        none.click(Self.button)
+        none.pump { none.logs.contains { $0.hasPrefix("err:") } }
+        XCTAssertTrue(none.logs.contains("err:NOT_ALLOWED"), "\(none.logs)")
+        XCTAssertEqual(none.host.diagnostics.diags["request-blocked"]?.details, ["wallet call refused: the client handles no wallet calls (WidgetHost.onWallet)"])
+    }
 }
 
 /// A renderer that announces `ready` only when the test says so (`release`): until then the host has not started the widget.

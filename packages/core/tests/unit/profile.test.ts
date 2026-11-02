@@ -39,8 +39,8 @@ describe('widget profile: the generated files', () => {
     // The agent block stands alone (a bot's model sees nothing else): every out feature by its full title, within ~4K tokens.
     const block = guide.slice(guide.indexOf('<!-- agent-block -->'), guide.indexOf('<!-- /agent-block -->'));
     for (const f of profile.features) if (f.status === 'out') assert.ok(block.includes(f.title), f.id);
-    // 2450 since the client's time over the corner (2026-10-29, docs/sdk-v1.md §2.17) took the block past 2400.
-    assert.ok(block.split(/\s+/).length <= 2450, `agent block: ${block.split(/\s+/).length} words`);
+    // 2450 since the client's time over the corner (2026-10-29, docs/sdk-v1.md §2.17) took the block past 2400; 2600 since the wallet (§2.18).
+    assert.ok(block.split(/\s+/).length <= 2600, `agent block: ${block.split(/\s+/).length} words`);
   });
   it('docs/profile-v1.md lists every feature', () => {
     const doc = fs.readFileSync(path.join(pkgRoot, '..', '..', 'docs', 'profile-v1.md'), 'utf8');

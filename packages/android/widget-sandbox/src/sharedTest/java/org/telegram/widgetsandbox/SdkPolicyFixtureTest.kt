@@ -46,7 +46,7 @@ abstract class SdkPolicyFixtureTest {
     private fun action(o: JSONObject?): BridgeCall? = when (o?.getString("kind")) {
         null -> null
         "setResizeAnchor" -> BridgeCall.SetResizeAnchor(o.getString("edge"))
-        "request" -> BridgeCall.Request(o.getInt("id"), o.getString("data"))
+        "request" -> BridgeCall.Request(o.getInt("id"), o.getString("data"), o.optBoolean("wallet", false))
         "copyText" -> BridgeCall.CopyText(o.getString("text"))
         "watchPublicData" -> BridgeCall.WatchPublicData(o.getBoolean("on"))
         "ready" -> WidgetAction.Ready
@@ -78,10 +78,58 @@ abstract class SdkPolicyFixtureTest {
         }
     }
 
+    /** Deep JSON equality (Android's org.json has no `similar`): the same keys and values, numbers by value. */
+    private fun Any?.sameAs(other: Any?): Boolean = when {
+        this is JSONObject && other is JSONObject -> length() == other.length() && keys().asSequence().all { other.has(it) && opt(it).sameAs(other.opt(it)) }
+        this is JSONArray && other is JSONArray -> length() == other.length() && (0 until length()).all { opt(it).sameAs(other.opt(it)) }
+        this is Number && other is Number -> toDouble() == other.toDouble()
+        else -> this == other
+    }
+
+    /** A checked wallet call as the fixture writes it: `{kind: "wallet", id, call: {method, transaction | payload, data}}`. */
+    private fun walletJson(c: BridgeCall.Wallet): JSONObject {
+        val call = JSONObject().put("method", c.call.method).put("data", c.call.data)
+        when (val w = c.call) {
+            is WalletCall.SendTransaction -> call.put("transaction", w.transaction.json())
+            is WalletCall.SignData -> call.put("payload", w.payload.json())
+        }
+        return JSONObject().put("kind", "wallet").put("id", c.id).put("call", call)
+    }
+
     @Test
     fun bridgeCalls() {
+        var wallets = 0
         for (c in cases("bridge")) {
-            assertEquals("${c.opt("method")} ${c.opt("args")}".take(120), action(c.value("expect") as JSONObject?), SdkPolicy.checkBridgeCall(c.value("method"), c.value("args")))
+            val name = "${c.opt("method")} ${c.opt("args")}".take(120)
+            val expect = c.value("expect") as JSONObject?
+            val got = SdkPolicy.checkBridgeCall(c.value("method"), c.value("args"))
+            if (expect?.getString("kind") == "wallet") {
+                assertTrue(name, got is BridgeCall.Wallet && walletJson(got).sameAs(expect))
+                wallets++
+                continue
+            }
+            assertEquals(name, action(expect), got)
+        }
+        assertEquals("the fixture's valid wallet entries", 3, wallets)
+    }
+
+    @Test
+    fun walletTransactions() {
+        for (c in cases("walletTransactions")) {
+            val expect = expand(c.value("expect")) as JSONObject?
+            val got = SdkPolicy.checkWalletTransaction(expand(c.value("input")))
+            val name = c.optString("note", "${c.opt("input")}".take(120))
+            if (expect == null) assertNull(name, got) else assertTrue(name, got != null && got.json().sameAs(expect))
+        }
+    }
+
+    @Test
+    fun signDataPayloads() {
+        for (c in cases("signDataPayloads")) {
+            val expect = expand(c.value("expect")) as JSONObject?
+            val got = SdkPolicy.checkSignDataPayload(expand(c.value("input")))
+            val name = c.optString("note", "${c.opt("input")}".take(120))
+            if (expect == null) assertNull(name, got) else assertTrue(name, got != null && got.json().sameAs(expect))
         }
     }
 
@@ -179,7 +227,12 @@ abstract class SdkPolicyFixtureTest {
             for (i in 0 until steps.length()) {
                 val s = steps.getJSONObject(i)
                 when (s.getString("op")) {
-                    "finish" -> { gate.finish(); continue }
+                    "finish" -> { gate.finish(if (s.has("answeredAt")) s.getDouble("answeredAt") else null); continue }
+                    "decideWallet" -> {
+                        val got = gate.decideWallet(s.getDouble("at"), gesture = s.getBoolean("gesture"), visible = s.getBoolean("visible"), canQuery = s.getBoolean("canQuery"), wallet = s.getBoolean("wallet"))
+                        assertEquals("${c.getString("name")}, step $i", s.getString("expect"), got.value)
+                        continue
+                    }
                     "show" -> {
                         val busy = gate.busy
                         assertEquals("${c.getString("name")}, step $i", s.getBoolean("expect"), gate.show(s.getDouble("at")))
@@ -187,7 +240,10 @@ abstract class SdkPolicyFixtureTest {
                         continue
                     }
                 }
-                val got = gate.decide(s.getDouble("at"), gesture = s.getBoolean("gesture"), visible = s.getBoolean("visible"), canQuery = s.getBoolean("canQuery"), backgroundQuery = s.getBoolean("backgroundQuery"))
+                val got = gate.decide(
+                    s.getDouble("at"), gesture = s.getBoolean("gesture"), visible = s.getBoolean("visible"), canQuery = s.getBoolean("canQuery"), backgroundQuery = s.getBoolean("backgroundQuery"),
+                    withWallet = s.optBoolean("withWallet", false), wallet = s.optBoolean("wallet", false),
+                )
                 assertEquals("${c.getString("name")}, step $i", s.getString("expect"), got.value)
             }
         }
@@ -286,7 +342,20 @@ abstract class SdkPolicyFixtureTest {
         assertEquals("TIMEOUT", SdkPolicy.requestFailure(WidgetRequestFailure.TIMEOUT))
         assertEquals("FAILED", SdkPolicy.requestFailure(IllegalStateException("offline")))
         assertEquals("FAILED", SdkPolicy.requestFailure("NOT_ALLOWED"))
-        assertEquals(listOf("NOT_ALLOWED", "BUSY", "RATE_LIMITED", "TIMEOUT", "FAILED", "INVALID_ANSWER"), SdkPolicy.REQUEST_ERRORS)
+        assertEquals(listOf("NOT_ALLOWED", "BUSY", "RATE_LIMITED", "TIMEOUT", "FAILED", "INVALID_ANSWER", "REJECTED", "BAD_REQUEST"), SdkPolicy.REQUEST_ERRORS)
+        // A wallet call keeps the wallet's own codes; a request turns them into FAILED.
+        assertEquals("REJECTED", SdkPolicy.walletFailure(WidgetRequestException(WidgetRequestFailure.REJECTED)))
+        assertEquals("BAD_REQUEST", SdkPolicy.walletFailure(WidgetRequestFailure.BAD_REQUEST))
+        assertEquals("TIMEOUT", SdkPolicy.walletFailure(WidgetRequestException(WidgetRequestFailure.TIMEOUT)))
+        assertEquals("FAILED", SdkPolicy.walletFailure(IllegalStateException("offline")))
+        assertEquals("FAILED", SdkPolicy.requestFailure(WidgetRequestException(WidgetRequestFailure.REJECTED)))
+        // Kotlin collections reach the same checks (what a client builds by hand).
+        assertEquals(BridgeCall.Request(1, "x", true), SdkPolicy.checkBridgeCall("request", listOf(1, "x", mapOf("wallet" to true))))
+        assertEquals(
+            WalletTransaction(validUntil = 4294967295L, messages = listOf(WalletMessage("EQ" + "a".repeat(46), "1"))),
+            SdkPolicy.checkWalletTransaction(mapOf("valid_until" to 4294967295L, "messages" to listOf(mapOf("address" to "EQ" + "a".repeat(46), "amount" to "1")))),
+        )
+        assertNull(SdkPolicy.checkSignDataPayload(mapOf("type" to "text", "text" to "a\ud800")))
         assertEquals(listOf("private", "group", "supergroup", "channel"), SdkPolicy.CHAT_TYPES)
         assertFalse(RequestGate().busy)
         assertTrue(RequestGate().apply { decide(0.0, gesture = true, visible = true, canQuery = true, backgroundQuery = false) }.busy)

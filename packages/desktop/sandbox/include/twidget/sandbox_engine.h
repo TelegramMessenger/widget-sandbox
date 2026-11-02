@@ -161,6 +161,12 @@ public:
     /// (decided here, at delivery). Until then every other request of the widget is BUSY. Not an action (never
     /// `onBridgeAction` / `onBridge`). The default handles none.
     virtual void onBridgeRequest(SandboxEngine&, const WidgetRequest&, WidgetRequestResponder respond) { respond.unsupported(); }
+    /// A wallet call (`TelegramWidget.wallet`, docs/sdk-v1.md §2.18) that passed its checks and the request gate (a press
+    /// or the grant; one call in flight with the requests): show the client's own wallet window with the bot of the
+    /// message, send the transaction (or sign the payload) on the user's confirmation, send the outcome to the bot and
+    /// complete `respond` once, from any thread, with the bot's answer or a failure (`Rejected`, `BadRequest`, a
+    /// request's), or `respond.unsupported()`. Not an action. The default handles none.
+    virtual void onBridgeWallet(SandboxEngine&, const WalletCall&, WidgetRequestResponder respond) { respond.unsupported(); }
     /// `TelegramWidget.copyText(text)`: 1–256 UTF-16 code units, well-formed; a privileged call (one per
     /// press, shared with the links and a request's press; `activation-blocked` without one). Not an action.
     virtual void onBridgeCopyText(SandboxEngine&, const std::string& /*text*/) {}
@@ -240,12 +246,16 @@ private:
     void onTimerFired(int id);
     HostReturn hostCall(const std::string& kind, const std::string& arg);
     /// A checked `request` call: the request gate, then the delegate (or held until the widget appears).
-    void request(int64_t id, const std::string& data);
+    void request(int64_t id, const std::string& data, bool wallet = false);
+    /// A checked wallet call: the request gate (a press or the grant), then the delegate.
+    void walletCall(int64_t id, const WalletCall& call);
     /// A request the gate let through, to the delegate; its outcome frees the gate (`answerRequest`).
-    void deliverRequest(int64_t id, const std::string& data);
-    /// A request's outcome back on the engine thread (nullopt: the client handles no requests): the gate frees, the
-    /// answer is checked and goes into the widget.
-    void answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome);
+    void deliverRequest(int64_t id, const std::string& data, bool wallet = false);
+    /// The responder of request or wallet call `id`: once, from any thread, back to `answerRequest` on the engine thread.
+    WidgetRequestResponder responder(int64_t id, bool wallet);
+    /// A request's or wallet call's outcome back on the engine thread (nullopt: the client handles none): the gate frees
+    /// (an answer brings the grant when the call had a press or the grant), the answer is checked and goes into the widget.
+    void answerRequest(int64_t id, const std::optional<WidgetRequestOutcome>& outcome, bool wallet = false);
     /// `request-blocked` (at most 20 per widget) and the `bridge` answer event that refuses request `id`.
     std::string refusal(int64_t id, std::string_view error, std::string_view reason, const std::string& detail);
     /// `{"chatData":…,"publicData":…}` members of `checked` set on `event` (JSON null for none); `data-rejected` when the

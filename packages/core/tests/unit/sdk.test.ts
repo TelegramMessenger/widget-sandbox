@@ -511,3 +511,103 @@ describe("SDK v1: the bot's data, where the widget is, requests, copyText", () =
     assert.equal(diags(r, 'activation-blocked').length, 2);
   });
 });
+
+describe('SDK v1: the wallet (docs/sdk-v1.md §2.18)', () => {
+  const K = WIDGET_MESSAGE_KINDS;
+  const TX = { valid_until: 1900000000, messages: [{ address: 'EQ' + 'ab'.repeat(23), amount: '1500000000', payload: 'te6cckEBAQEADgAAGAAAAABIZWxsbyEhIQ5sm/I=' }] };
+  const payer = `<button id="b">pay</button><script>
+    var log = [];
+    document.getElementById('b').addEventListener('click', function () {
+      TelegramWidget.request('pay:42', { wallet: true })
+        .then(function (a) { log.push('tx'); return TelegramWidget.wallet.sendTransaction(JSON.parse(a.result), 'paid:42'); })
+        .then(function (b) { log.push('ok:' + b.result + ':' + Object.isFrozen(b)); }, function (e) { log.push('err:' + e.code + ':' + e.message); });
+    });
+  </script>`;
+  const press = async (html: string) => [{ type: 'click', targetId: await idOf(html, 'button'), gesture: 1 }];
+
+  it('TelegramWidget.wallet: only where the client has the wallet and the widget may ask the bot; never in a preview', async () => {
+    const probe = ['TelegramWidget.wallet === null ? "null" : [typeof TelegramWidget.wallet.sendTransaction, typeof TelegramWidget.wallet.signData, Object.isFrozen(TelegramWidget.wallet)].join()'];
+    const cases: [object, string][] = [
+      [{ ...K.private, wallet: true }, 'function,function,true'],
+      [{ ...K['live-copy'], wallet: true }, 'function,function,true'],
+      [{ ...K.group, wallet: true }, 'function,function,true'],
+      [K.private, 'null'],
+      [{ ...K['no-queries'], wallet: true }, 'null'],
+      [{ ...K.copy, wallet: true }, 'null'],
+      [{ ...K.preview, wallet: true }, 'null'],
+    ];
+    for (const [context, expect] of cases) assert.deepEqual((await runWidget('<p>x</p>', { context, probes: probe })).probes, [expect], JSON.stringify(context));
+  });
+
+  it('a tap pays: a request with the wallet, the bot answers with the transaction, the call on that answer goes out without a new tap, the bot answers the payment', async () => {
+    const asked: unknown[] = [];
+    const calls: unknown[] = [];
+    const r = await runWidget(payer, {
+      events: await press(payer), context: { ...K.private, wallet: true },
+      onRequest: (q) => { asked.push(q); return { result: JSON.stringify(TX) }; },
+      onWallet: (c) => { calls.push(c); return { result: 'thanks' }; },
+      probes: ['log.join(" ")'],
+    });
+    assert.deepEqual(asked, [{ data: 'pay:42', wallet: true }]);
+    assert.deepEqual(calls, [{ method: 'sendTransaction', transaction: TX, data: 'paid:42' }]);
+    assert.deepEqual(r.requests.map((q) => [q.data, q.wallet, q.verdict]), [['pay:42', true, 'foreground']]);
+    assert.deepEqual(r.walletCalls.map((w) => w.verdict), ['granted']);
+    assert.equal(r.probes[0], 'tx ok:thanks:true');
+  });
+
+  it('the user declines: REJECTED, and a refusal brings no grant (the next call needs a tap); BAD_REQUEST from the wallet reaches the widget', async () => {
+    const html = payer.replace("function (e) { log.push('err:' + e.code + ':' + e.message); }",
+      "function (e) { log.push('err:' + e.code + ':' + e.message); return TelegramWidget.wallet.sendTransaction(" + JSON.stringify(TX) + ", 'again').catch(function (e2) { log.push('again:' + e2.code); }); }");
+    const r = await runWidget(html, {
+      events: await press(html), context: { ...K.group, wallet: true }, onRequest: () => ({ result: JSON.stringify(TX) }), onWallet: () => Promise.reject('REJECTED'),
+      timerRounds: 3, probes: ['log.join(" ")'],
+    });
+    assert.equal(r.probes[0], 'tx err:REJECTED:wallet.sendTransaction: the user declined in the wallet window again:NOT_ALLOWED');
+    assert.deepEqual(r.walletCalls.map((w) => w.verdict), ['granted', 'no-activation']);
+    const bad = await runWidget(payer, { events: await press(payer), context: { ...K.group, wallet: true }, onRequest: () => ({ result: JSON.stringify(TX) }), onWallet: () => Promise.reject({ code: 'BAD_REQUEST' }), probes: ['log.join(" ")'] });
+    assert.match(bad.probes[0], /^tx err:BAD_REQUEST:wallet\.sendTransaction: the wallet refused it/);
+  });
+
+  it('signData on a tap: the payload checked in the widget (a TypeError, nothing sent) and by the glue; the bot answers the signature', async () => {
+    const html = `<button>sign</button><script>
+      var log = [];
+      document.querySelector('button').onclick = function () {
+        try { TelegramWidget.wallet.signData({ type: 'text', text: 'x', domain: 'example.com' }, 'sign:1'); } catch (e) { log.push(e.name); }
+        try { TelegramWidget.wallet.signData({ type: 'text', text: 'x' }, ''); } catch (e) { log.push(e.name); }
+        TelegramWidget.wallet.signData({ type: 'text', text: 'I agree' }, 'sign:1').then(function (a) { log.push('ok:' + a.result); });
+      };
+    </script>`;
+    const calls: unknown[] = [];
+    const r = await runWidget(html, { events: await press(html), context: { ...K['live-copy'], wallet: true }, onWallet: (c) => { calls.push(c); return { result: 'signed' }; }, probes: ['log.join(" ")'] });
+    assert.equal(r.probes[0], 'TypeError TypeError ok:signed');
+    assert.deepEqual(calls, [{ method: 'signData', payload: { type: 'text', text: 'I agree' }, data: 'sign:1' }]);
+    assert.deepEqual(r.walletCalls.map((w) => w.verdict), ['foreground']);
+  });
+
+  it('never in the background: a wallet call or a request for the wallet from a timer is refused, also in the private chat with the bot', async () => {
+    const html = `<script>var log = [];
+      setTimeout(function () {
+        TelegramWidget.wallet.sendTransaction(${JSON.stringify(TX)}, 'x').catch(function (e) { log.push('tx:' + e.code + ':' + /tap/.test(e.message)); });
+        TelegramWidget.request('w', { wallet: true }).catch(function (e) { log.push('rq:' + e.code); });
+      }, 0);</script>`;
+    const r = await runWidget(html, { context: { ...K.private, wallet: true }, onRequest: () => ({}), onWallet: () => ({ result: 'never' }), probes: ['log.join(" ")'] });
+    assert.equal(r.probes[0], 'tx:NOT_ALLOWED:true rq:NOT_ALLOWED');
+    assert.deepEqual(r.walletCalls.map((w) => w.verdict), ['no-activation']);
+    assert.deepEqual(r.requests.map((q) => q.verdict), ['no-activation']);
+  });
+
+  it('without the wallet: a request for it is refused at once; malformed options throw; without onWallet the call is refused (unsupported)', async () => {
+    const html = `<button>b</button><script>var log = [];
+      document.querySelector('button').onclick = function () {
+        try { TelegramWidget.request('x', { wallet: 1 }); } catch (e) { log.push(e.name); }
+        TelegramWidget.request('x', { wallet: true }).catch(function (e) { log.push(e.code + ':' + /no wallet/.test(e.message)); });
+      };</script>`;
+    const r = await runWidget(html, { events: await press(html), context: K.private, onRequest: () => ({}), probes: ['log.join(" ")'] });
+    assert.equal(r.probes[0], 'TypeError NOT_ALLOWED:true');
+    assert.deepEqual(r.requests, []);
+    const signer = '<button>b</button><script>var log = []; document.querySelector("button").onclick = function () { TelegramWidget.wallet.signData({ type: "text", text: "x" }, "s").catch(function (e) { log.push(e.code); }); };</script>';
+    const none = await runWidget(signer, { events: await press(signer), context: { ...K.private, wallet: true }, probes: ['log.join(" ")'] });
+    assert.equal(none.probes[0], 'NOT_ALLOWED');
+    assert.deepEqual(none.walletCalls.map((w) => w.verdict), ['unsupported']);
+  });
+});
