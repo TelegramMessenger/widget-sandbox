@@ -416,11 +416,11 @@ passed that is over 1024 bytes or not text).
 
 A widget is killed, and its last frame kept (§5.7), for one of these reasons the
 host sees in `died` / `onDead`: `CPU limit exceeded` (more than `cpuLimitMs`,
-500 ms, of continuous JS in one task), `Layout query limit exceeded` (its synchronous layout queries
-blocked the renderer for more than 100 ms in one task; the queries also count
+500 ms, of continuous JS in one task), `Layout query limit exceeded` (more than 128 synchronous layout
+queries in one task, or their time past 1000 ms; the queries also count
 toward the host's main-thread window), `Memory limit exceeded (8 MB)`, and, under
 `strict`, a counted cap of the validator (`Text limit exceeded`, `Attribute limit
-exceeded`, `Ops limit exceeded`, `Canvas limit exceeded`, `CSS limit exceeded`; the
+exceeded`, `Node limit exceeded`, `Ops limit exceeded`, `Canvas limit exceeded`, `CSS limit exceeded`; the
 validator's `limit` diagnostic carries the same reason; `docs/decisions.md`, "Strict
 limits from the start").
 

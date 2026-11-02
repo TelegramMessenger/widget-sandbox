@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { CpuBudget, opsCostMs, queryBudgetMs } from '../src/host/cpu-budget.ts';
+import { CpuBudget, opsCostMs, queryLimitHit as queryLimitOf, queryLimitReason } from '../src/host/cpu-budget.ts';
 import { GestureCounter } from '../src/host/user-activation.ts';
 import type { GestureClaim } from '../src/shared/gesture-policy.ts';
 import { formatReports, parseStep, type GestureReport, type GestureStep } from './gesture-run.ts';
@@ -81,6 +81,8 @@ export interface RunResult {
   stopped?: string;
   /** The most layout queries any one task made, and their summed answer time (ms): how close a widget comes to the layout-query budget. */
   maxTaskQueries: number;
+  /** The most nodes the document held after a batch (elements, text, comments; strict stops past 2000). */
+  nodes: number;
   maxTaskQueryMs: number;
   /** Final size of the wasm linear memory: the runtime's footprint, never above INITIAL + memoryLimitBytes. */
   wasmBytes: number;
@@ -272,15 +274,14 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   rt.setMaxStackSize(1 << 20);
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
-  // The layout-query budget of the worker and the native glue (cpu-budget.ts queryBudgetMs): the harness answers queries in-process, so the
+  // The layout-query limit of the worker and the native glue (cpu-budget.ts queryLimitHit): the harness answers queries in-process, so the
   // time is the answer callback's, and the accounting is kept so a slow `answer` reproduces the kill.
   let taskQueryMs = 0;
   let taskQueries = 0;
-  let queryLimitHit = false;
-  let currentSliceMs = 10_000;
+  let queryLimitHit: 'count' | 'time' | null = null;
   let currentKind = 'boot';
   const vm = rt.newContext();
-  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], walletCalls: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
+  const res: RunResult = { theme: toWidgetTheme({ colorScheme: opts.theme ?? 'light', params: opts.themeParams, button: opts.button, text: opts.text }), contentSafeArea: checkContentSafeArea(opts.contentSafeArea), ops: [], renderOps: [], diags: [], logs: [], queries: [], bridge: [], actions: [], storageCommits: [], resizeAnchor: DEFAULT_RESIZE_ANCHOR, resizeAnchors: [], watchesPublicData: false, publicDataWatches: [], requests: [], walletCalls: [], copiedTexts: [], timers: 0, probes: [], throttled: 0, mainThreadMs: 0, maxTaskQueries: 0, nodes: 0, maxTaskQueryMs: 0, wasmBytes: 0, canvasWordBatches: 0, binaryBatches: 0, anims: [], animOps: [], stream: [], morphed: [], listens: [], size: widgetSize(html) };
   const config = { ...LIMIT_DEFAULTS, features: [...(opts.canvasWords ? ['canvasWords'] : []), ...(opts.binaryOps ? ['binaryOps'] : []), ...(opts.webAnimations ? ['webAnimations'] : []), ...(opts.morphUpdates ? ['morphUpdates'] : []), ...(opts.inPlaceText === false ? ['noInPlaceText'] : []), ...(opts.attrFast === false ? ['noAttrFast'] : []), ...(opts.canvasRect === false ? ['noCanvasRect'] : [])], memoryLimitBytes, policy: opts.policy === 'compat' ? 'compat' as const : 'strict' as const, cpuLimitMs: opts.cpuLimitMs ?? 10_000, cpuQuotaMs: opts.cpuQuotaMs ?? 10_000, mainThreadQuotaMs: opts.mainThreadQuotaMs ?? 10_000, maxTimers: opts.maxTimers ?? LIMIT_DEFAULTS.maxTimers, visible: opts.visible !== false, viewport: { innerWidth: opts.width ?? 400, innerHeight: 300, dpr: opts.dpr ?? 1 }, theme: opts.theme ?? 'light', themeParams: checkThemeParams(opts.themeParams), locale: checkLocale(opts.locale) ?? DEFAULT_LOCALE, contentSafeArea: res.contentSafeArea, profile: PROFILE_VERSION, storage: {} as StorageCommit, ...checkData(opts.data), isCopy: copy, canQuery, isPreview: preview, chatType: preview || copy ? null : checkChatType(opts.context?.chatType), viewer: canQuery ? checkViewerFields(opts.context?.viewer) : null, wallet };
   res.diags.push(...dataDiags.splice(0));
   if (opts.storage !== undefined && !preview) {
@@ -326,9 +327,10 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         const answer = clean ? opts.answer?.(clean) ?? defaultAnswer(clean, config.viewport) : { error: 'invalid query' };
         const dt = performance.now() - q0;
         taskQueries++;
-        deadline += dt; // time spent in the answer is not widget CPU time (as in the worker); the query budget below bounds it instead
+        deadline += dt; // time spent in the answer is not widget CPU time (as in the worker); the query limit below bounds it instead
         taskQueryMs += dt;
-        if (taskQueryMs > queryBudgetMs(currentSliceMs)) { queryLimitHit = true; deadline = -Infinity; }
+        queryLimitHit = queryLimitOf(taskQueries, taskQueryMs);
+        if (queryLimitHit) deadline = -Infinity;
         log('query', JSON.stringify(q), '→', JSON.stringify(answer));
         return vm.newString(JSON.stringify(answer));
       }
@@ -482,6 +484,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     res.stream.push({ kind: 'ops', json: JSON.stringify(ops) });
     if (Array.isArray(ops)) taskOpsCostMs += opsCostMs(ops.length, ops.reduce((n, op) => n + (op && op.op === 'canvas' && Array.isArray(op.cmds) ? op.cmds.length : 0), 0));
     const out = validator.processOps(ops);
+    res.nodes = Math.max(res.nodes, validator.nodeCount - 1);
     if (validator.stopped && res.stopped === undefined) {
       res.stopped = validator.stopped;
       log('STOPPED', validator.stopped);
@@ -537,7 +540,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     err.dispose();
     let text = e && typeof e === 'object' ? `${e.name}: ${e.message}\n${e.stack ?? ''}` : String(e);
     if (queryLimitHit && /interrupted/.test(text)) {
-      text = `Layout query limit exceeded: host queries blocked the renderer for more than ${queryBudgetMs(currentSliceMs).toFixed(0)} ms in one ${currentKind} task`;
+      text = queryLimitReason(queryLimitHit, currentKind);
       res.diags.push({ kind: 'query-limit', detail: text });
     }
     res.logs.push({ level: 'error', text: `${where}: ${text}` });
@@ -601,13 +604,19 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     const main = mainBudget.decide(kind, now);
     if (!main.run) { res.throttled++; res.diags.push({ kind: 'cpu-throttled', detail: `${kind} deferred until ${main.retryAt.toFixed(0)} (main-thread window: layout queries and ops)` }); return; }
     deadline = Date.now() + d.sliceMs;
-    currentSliceMs = d.sliceMs;
     currentKind = kind;
     taskQueryMs = 0;
     taskQueries = 0;
     taskOpsCostMs = 0;
-    queryLimitHit = false;
+    queryLimitHit = null;
+    const diags0 = res.diags.length;
     fn(); settle(); pump();
+    // Past the limit but done before the interrupt landed (a loop that ended on the error answers): the glue copies stop it all the same.
+    if (queryLimitHit && !res.diags.slice(diags0).some((d) => d.kind === 'query-limit')) {
+      const text = queryLimitReason(queryLimitHit, kind);
+      res.diags.push({ kind: 'query-limit', detail: text });
+      res.logs.push({ level: 'error', text: `${kind}: ${text}` });
+    }
     res.maxTaskQueries = Math.max(res.maxTaskQueries, taskQueries);
     res.maxTaskQueryMs = Math.max(res.maxTaskQueryMs, taskQueryMs);
     budget.record(kind, performance.now() - now - taskQueryMs, performance.now());
@@ -617,6 +626,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
 
   task('boot', () => tw('boot', JSON.stringify({ html, config })));
   task('boot', () => tw('loaded'));
+  validator.markLoaded(); // as a host does on `loaded`
   /** Answers settled by now go into the widget, one `bridge` task each, in the order of the requests (at most 100 per step: a widget that asks again from every answer would never end). */
   const deliver = async () => {
     for (let n = 0; n < 100 && answers.length; n++) {
@@ -898,6 +908,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(sizeLine(r.size));
   if (size.message) console.log(size.message);
   console.log(`batches ${r.ops.length}, sandbox ops ${r.ops.reduce((n, b) => n + b.length, 0)}, render ops ${r.renderOps.length} (${tags} elements), queries ${r.queries.length}, timers fired ${r.timers}; main thread ${r.mainThreadMs.toFixed(1)} ms (layout queries + 25 µs per op + 2 µs per canvas command; a host allows ${LIMIT_DEFAULTS.mainThreadQuotaMs} ms per second)`);
+  console.log(`nodes: ${r.nodes} (max 2000)${r.nodes > 1500 ? ' — over 1500: close to the node limit, past it the widget stops' : ''}`);
   if (r.stopped) console.log(`STOPPED: ${r.stopped} (a host stops the widget here, the bubble keeps its last render)`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
   if (r.publicDataWatches.length) console.log(`public data: ${r.watchesPublicData ? 'watched' : 'not watched'} (watchPublicData: ${r.publicDataWatches.join(' → ')}): a client polls a shared widget's public_data only while it watches`);

@@ -42,6 +42,8 @@ public:
     std::string setTheme(const std::string& theme);
     std::string rewriteMediaQuery(const std::string& query);
     int nodeCount();
+    /// The loading tasks are over (their ops are in): text changes are rate-limited from now on (validator.ts `markLoaded`).
+    void markLoaded();
     /// Set once a counted cap was passed under strict (the first `limit` diagnostic's detail, e.g. `Text limit exceeded:
     /// a text value of 40000 characters (max 32768)`): the reason the owner stops the widget with. Read it after the call
     /// that passed the cap returns, never from inside the diag sink.

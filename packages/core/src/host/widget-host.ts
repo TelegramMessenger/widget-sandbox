@@ -611,6 +611,8 @@ export class WidgetHost {
       case 'warmed':
         break;
       case 'loaded':
+        // After the loading tasks' ops (the worker posts them first): text changes are rate-limited from here on.
+        this.validator.markLoaded();
         this.opts.onLoaded?.();
         break;
       case 'stats':

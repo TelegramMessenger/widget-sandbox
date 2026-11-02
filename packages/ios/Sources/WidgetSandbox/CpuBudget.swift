@@ -26,10 +26,23 @@ public struct CpuBudget {
     public static let buckets = 10
     /// Kinds that may be postponed. `boot`, `event` and `visibility` always run.
     public static let deferrable: Set<String> = ["timer", "frame", "viewport", "resize", "theme", "bridge"]
-    /// A task's layout queries may block the host for at most this much, whatever its slice (boot included).
-    public static let queryBudgetMs = 100.0
-    /// Layout-query budget of one task (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
-    public static func queryBudgetMs(sliceMs _: Double) -> Double { queryBudgetMs }
+    /// Layout queries the host may answer in one task (cached answers are free), whatever its slice (boot included).
+    public static let queryLimit = 128
+    /// What a task's layout queries may block the host in all: the hang guard behind the count.
+    public static let queryBudgetMs = 1000.0
+    /// Whether a task with `queries` answered layout queries that blocked the host `queryMs` in all is past its limit
+    /// (cpu-budget.ts `queryLimitHit`): `"count"`, `"time"` or nil; past either the task is interrupted and killed.
+    public static func queryLimitHit(queries: Int, queryMs: Double) -> String? {
+        if queries > queryLimit { return "count" }
+        if queryMs > queryBudgetMs { return "time" }
+        return nil
+    }
+    /// The reason a task stopped by `queryLimitHit` is killed with (cpu-budget.ts `queryLimitReason`).
+    public static func queryLimitReason(_ hit: String, kind: String) -> String {
+        hit == "count"
+            ? "Layout query limit exceeded: more than \(queryLimit) layout queries in one \(kind) task"
+            : "Layout query limit exceeded: host queries blocked the renderer for more than \(Int(queryBudgetMs)) ms in one \(kind) task"
+    }
 
     /// Modelled main-thread cost of one op the glue forwards to the validator, and of one canvas command in it.
     public static let opCostMs = 0.025

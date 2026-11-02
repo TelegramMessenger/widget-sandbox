@@ -76,10 +76,18 @@ const OUT_OF_PROFILE = Symbol('out of profile');
 const MAX_ATTR = 8 * 1024;
 const MAX_OPS_PER_BATCH = 10_000;
 /**
- * Canvas commands in one `canvas` op (one canvas, one task). Provisional: the corpora's widgets send at most 237, the
- * projected 3D showcase up to 9 510 a frame; the stress kit's canvas ladder (200 to 16 000) sets the final number.
+ * Nodes in the document (elements, text, comments; detached ones the widget keeps included), compared once a batch is
+ * applied: twice the corpora's largest widget (962). Below the 8 MB heap on every host since the shim hands a long flush
+ * over in parts, so the author sees this reason everywhere, not a memory stop that comes at 2000 nodes on a 64-bit host
+ * and 4000 on a 32-bit one.
  */
-const MAX_CANVAS_CMDS = 10_000;
+const MAX_DOCUMENT_NODES = 2000;
+/**
+ * Canvas commands in one `canvas` op (one canvas, one task): outside the projected 3D showcase no widget draws more than
+ * 237, and the main-thread window (2 µs a command) already holds 4000 a frame to ~13 fps on every client the stress kit
+ * measured (9 510 to ~5 fps); the 3D showcase's meshes stay under 2000 a frame.
+ */
+const MAX_CANVAS_CMDS = 4000;
 const MAX_CSS_RULES = 400;
 const MAX_KEYFRAMES = 32;
 const MAX_LIVE_ANIMS = 64;
@@ -142,12 +150,12 @@ export function policyLimits(policy: ValidatorPolicy) {
   return policy === 'strict'
     ? {
       maxText: MAX_TEXT, maxCanvasString: MAX_TEXT, maxAttr: MAX_ATTR, maxOps: MAX_OPS_PER_BATCH, maxCanvasCmds: MAX_CANVAS_CMDS,
-      maxCssRules: MAX_CSS_RULES, maxKeyframes: MAX_KEYFRAMES, maxLiveAnims: MAX_LIVE_ANIMS, maxCanvasPixels: MAX_CANVAS_PIXELS,
+      maxNodes: MAX_DOCUMENT_NODES, maxCssRules: MAX_CSS_RULES, maxKeyframes: MAX_KEYFRAMES, maxLiveAnims: MAX_LIVE_ANIMS, maxCanvasPixels: MAX_CANVAS_PIXELS,
       complexTextBudget: COMPLEX_TEXT_BUDGET, textBudget: TEXT_BUDGET, stop: true,
     }
     : {
       maxText: COMPAT_MAX_TEXT, maxCanvasString: COMPAT_MAX_ATTR, maxAttr: COMPAT_MAX_ATTR, maxOps: COMPAT_MAX_OPS_PER_BATCH,
-      maxCanvasCmds: COMPAT_MAX_CANVAS_CMDS, maxCssRules: 0, maxKeyframes: 0, maxLiveAnims: COMPAT_MAX_LIVE_ANIMS, maxCanvasPixels: 0,
+      maxCanvasCmds: COMPAT_MAX_CANVAS_CMDS, maxNodes: 0, maxCssRules: 0, maxKeyframes: 0, maxLiveAnims: COMPAT_MAX_LIVE_ANIMS, maxCanvasPixels: 0,
       complexTextBudget: 0, textBudget: 0, stop: false,
     };
 }
@@ -202,7 +210,7 @@ export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
     limits: [MAX_NODES, limits.maxText, limits.maxAttr, limits.maxOps, limits.maxCanvasCmds, LIMBO],
     complexTextBudget: limits.complexTextBudget,
     textBudget: limits.textBudget,
-    cssRules: limits.maxCssRules, keyframes: limits.maxKeyframes, liveAnims: limits.maxLiveAnims, canvasPixels: limits.maxCanvasPixels, stop: limits.stop,
+    documentNodes: limits.maxNodes, cssRules: limits.maxCssRules, keyframes: limits.maxKeyframes, liveAnims: limits.maxLiveAnims, canvasPixels: limits.maxCanvasPixels, stop: limits.stop,
     textAttrs: TEXT_ATTRS, textAttrPrefixes: TEXT_ATTR_PREFIXES,
   };
 }
@@ -240,7 +248,20 @@ export class Validator {
     this.clock = clock;
   }
 
+  /**
+   * Until the host says the widget has loaded (`markLoaded`), inserted text is not charged to the churn bucket: building
+   * the document in the loading tasks, in any number of batches, is bounded by the document's caps alone, so a load never
+   * drops text they allow (a 48 K document of paragraphs lost them past ~45 K, silently, on every host).
+   */
+  private loading = true;
+
+  /** The host's word that the loading tasks are over (their ops are in): from now on text changes are rate-limited. */
+  markLoaded() {
+    this.loading = false;
+  }
+
   private takeChurn(words: number): boolean {
+    if (this.loading) return true;
     const now = this.clock();
     if (this.churnAt !== null) this.churnTokens = Math.min(COMPLEX_TEXT_BUDGET, this.churnTokens + Math.max(0, now - this.churnAt) * COMPLEX_CHURN_PER_SECOND);
     this.churnAt = now;
@@ -289,6 +310,9 @@ export class Validator {
    * old and the new that the document never holds. False when a total is over its cap (the widget stops).
    */
   private checkTotals(): boolean {
+    if (this.limits.maxNodes && this.nodes.size - 1 > this.limits.maxNodes) {
+      return this.stop(`Node limit exceeded: ${this.nodes.size - 1} nodes in the document (max ${this.limits.maxNodes})`);
+    }
     if (this.limits.textBudget && this.totalText > this.limits.textBudget) {
       return this.stop(`Text limit exceeded: the document's text is over ${this.limits.textBudget} characters`);
     }

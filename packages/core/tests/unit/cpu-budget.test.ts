@@ -6,9 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { CpuBudget, opsCostMs, queryBudgetMs } from '../../src/host/cpu-budget.ts';
+import { CpuBudget, opsCostMs, queryLimitHit } from '../../src/host/cpu-budget.ts';
 
-interface Step { at: number; decide?: string; record?: string; cpuMs?: number; expect?: unknown; kill?: boolean; used?: number; queryBudget?: number; opsCost?: [number, number] }
+interface Step { at: number; decide?: string; record?: string; cpuMs?: number; expect?: unknown; kill?: boolean; used?: number; queries?: [number, number]; opsCost?: [number, number] }
 const fixture = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'cpu-budget.json'), 'utf8')) as {
   cases: { name: string; config: ConstructorParameters<typeof CpuBudget>[0]; steps: Step[] }[];
 };
@@ -23,7 +23,7 @@ describe('cpu-budget: shared fixture', () => {
         else if (s.record !== undefined) b.record(s.record, s.cpuMs!, s.at);
         else if (s.kill !== undefined) assert.equal(b.shouldKill(s.at), s.kill, where);
         else if (s.used !== undefined) assert.ok(Math.abs(b.used(s.at) - s.used) < 1e-9, `${where}: used ${b.used(s.at)}, expected ${s.used}`);
-        else if (s.queryBudget !== undefined) assert.equal(queryBudgetMs(s.queryBudget), s.expect, where);
+        else if (s.queries !== undefined) assert.equal(queryLimitHit(s.queries[0], s.queries[1]), s.expect, where);
         else if (s.opsCost !== undefined) assert.ok(Math.abs(opsCostMs(s.opsCost[0], s.opsCost[1]) - (s.expect as number)) < 1e-9, where);
         else assert.fail(`${where}: unknown step`);
       });

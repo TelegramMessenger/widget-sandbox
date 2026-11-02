@@ -306,14 +306,14 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
 - CPU: a budget of 300 ms per second (timers and frames wait beyond it). One
   task may run up to 500 ms, the first run included; one that runs longer stops
   the widget. A task that runs past the second's 300 ms finishes, and what it
-  spent past it makes the next timers and frames wait longer. Layout reads may
-  hold one task 100 ms at most, and what the widget costs the client's main
+  spent past it makes the next timers and frames wait longer. One task may make
+  128 layout reads (and their time is at most 1000 ms), and what the widget costs the client's main
   thread (its layout reads plus about 25 µs per DOM change it sends) is capped
   at 100 ms per second: past it timers and frames wait. 8 MB of memory; 64 live
   timers (`RangeError` past it);
-  50 000 nodes; one text value 32 K characters, the document's text 48 K, an
-  attribute 8 K; 10 000 DOM changes in one task; 400 CSS rules and 32
-  `@keyframes`; 10 000 canvas commands per canvas in one task (the next throws
+  2000 nodes (elements, text, comments); one text value 32 K characters, the document's text 48 K, an
+  attribute 8 K; 10 000 element method calls (`scrollTo`, …) in one task; 400 CSS rules and 32
+  `@keyframes`; 4000 canvas commands per canvas in one task (the next throws
   `RangeError`); 64 running script animations; 2048 × 2048 pixels for all of
   a widget's canvases together (a canvas is 300 × 150 until you size it). Past a
   count or size limit the widget stops, as past the CPU or memory limit: a
@@ -606,11 +606,11 @@ STORAGE, LIFECYCLE, LIMITS
 - Off screen: document.hidden, no animation frames, timers at most 1 Hz.
 - CPU: 300 ms per second (timers and frames wait beyond it, longer after a
   task that ran past it); one task may take 500 ms, longer stops the widget.
-  Layout reads may hold one task 100 ms; they plus about 25 µs per DOM change
+  At most 128 layout reads in one task; they plus about 25 µs per DOM change
   cost the client at most 100 ms per second (frames wait beyond it).
-- Memory 8 MB; 64 live timers and 10 000 canvas commands per canvas per task
-  (RangeError past them); 50 000 nodes; one text value 32 K characters, all
-  text 48 K, an attribute 8 K; 10 000 DOM changes per task; 400 CSS rules, 32
+- Memory 8 MB; 64 live timers and 4000 canvas commands per canvas per task
+  (RangeError past them); 2000 nodes; one text value 32 K characters, all
+  text 48 K, an attribute 8 K; 10 000 element method calls per task; 400 CSS rules, 32
   @keyframes; 64 script animations; 2048 x 2048 canvas pixels together; a
   data: image at most 1024 x 1024 pixels (larger: a placeholder). Past the
   others, or the CPU or memory limit, the widget stops on its last frame

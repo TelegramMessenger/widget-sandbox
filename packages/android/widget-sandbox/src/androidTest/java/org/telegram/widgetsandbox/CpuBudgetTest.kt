@@ -36,7 +36,11 @@ class CpuBudgetTest {
                     step.has("record") -> b.record(step.getString("record"), step.getDouble("cpuMs"), at)
                     step.has("kill") -> assertEquals(where, step.getBoolean("kill"), b.shouldKill(at))
                     step.has("used") -> assertEquals(where, step.getDouble("used"), b.used(at), 1e-9)
-                    step.has("queryBudget") -> assertEquals(where, step.getDouble("expect"), CpuBudget.queryBudgetMs(step.getDouble("queryBudget")), 0.0)
+                    step.has("queries") -> {
+                        val args = step.getJSONArray("queries")
+                        val want = if (step.isNull("expect")) null else step.getString("expect")
+                        assertEquals(where, want, CpuBudget.queryLimitHit(args.getInt(0), args.getDouble(1)))
+                    }
                     step.has("opsCost") -> {
                         val args = step.getJSONArray("opsCost")
                         assertEquals(where, step.getDouble("expect"), CpuBudget.opsCostMs(args.getInt(0), args.getInt(1)), 1e-9)

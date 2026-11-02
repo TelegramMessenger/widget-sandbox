@@ -558,23 +558,32 @@ a.offsetHeight` burned almost no CPU of its own, was never interrupted, and
 kept the renderer answering forever: the host was busy, the widget alive. Found
 by Misha on the macOS client (54bdfa5); now the rule on every host:
 
-- the wall time of a task's queries is summed (`taskQueryMs`); past
-  `queryBudgetMs = 100 ms` (`cpu-budget.ts` and its three twins, checked against
-  `tests/fixtures/cpu-budget.json`; `max(slice, 100 ms)` until the strict limits, so up to
-  500 ms at boot) the task is
-  interrupted at the next poll (the CPU deadline is moved into the past) and
-  killed with "Layout query limit exceeded: host queries blocked the renderer
-  for more than N ms in one <kind> task"; any further query of that task is
-  answered `{"error":"query budget exceeded"}`;
+- the queries the host answers in a task are counted (`taskQueries`) and their
+  wall time summed (`taskQueryMs`); past 128 queries, or past 1000 ms of their
+  time, the hang guard (`queryLimitHit`, `QUERY_LIMIT` / `QUERY_BUDGET_MS` in
+  `cpu-budget.ts` and its three twins, checked against
+  `tests/fixtures/cpu-budget.json`) the task is interrupted at the next poll (the
+  CPU deadline is moved into the past) and killed with "Layout query limit
+  exceeded: more than 128 layout queries in one <kind> task" or "… host queries
+  blocked the renderer for more than 1000 ms in one <kind> task"; any further
+  query of that task is answered `{"error":"query budget exceeded"}`, and a task
+  that ends on those answers before the interrupt lands is killed at its end all
+  the same. Until 2026-11-02 the limit was 100 ms of the queries' time (the
+  slice, up to 500 ms, before the strict limits): in the client teams' runs a
+  widget with one `getBoundingClientRect` at load died on a Redmi Note 8T in the
+  first run after install (a cold first layout over 100 ms), and a query costs
+  0.12 ms on an M5, 0.36 on an iPhone Air, 0.68 on an A55, 1.3 on tdesktop and
+  1.9 on the Redmi. A count stops the same widget on every device; the most
+  query-heavy real widget, `auto/03-layout-a`, makes 47;
 - the query time is charged to the host's main-thread window (with the modelled
   cost of the task's ops; it was charged to the CPU quota with the task's CPU
   until the strict limits): a layout-heavy widget pays for what it costs the host,
   and the window throttles it like a busy one;
 - both counters reset at the start of each task.
 
-The budget is per task, not per widget, so an ordinary widget that measures a
-few elements per frame is far from it (tens of queries at a millisecond each),
-while a forced-layout loop reaches it within the first task. The Node harness
+The limit is per task, not per widget, so an ordinary widget that measures a
+few elements per frame is far from it, while a forced-layout loop reaches it
+within the first task. The Node harness
 keeps the same accounting (its answers are in-process, so only a slow `answer`
 callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
 
@@ -659,11 +668,12 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
 | One text value | 12.9 K (a stylesheet) | 32 K (was 64 K) | stops |
 | The document's text | 21.7 K | 48 K (was 256 K) | stops |
 | An attribute value | 1 066 (an inline style) | 8 K (was 4 MB) | stops |
+| Nodes in the document | 962 (604 elements) | 2000 (was 50 000, not created past it; 2026-11-02) | stops |
 | Ops in one batch | 2 700 | 10 000 (was 200 000) | stops |
 | CSS rules / `@keyframes` | 167 / 12 | 400 / 32 (no cap) | stops |
-| Canvas commands per canvas and task | 237 (the projected 3D showcase: 9 510 a frame) | 10 000 for now (was 400 000 buffered) | `RangeError`; stops past it in a batch |
+| Canvas commands per canvas and task | 237 (the projected 3D showcase: 9 510 a frame, now under 2000) | 4000 (10 000 until 2026-11-02; was 400 000 buffered) | `RangeError`; stops past it in a batch |
 | Web Storage per area | 585 characters | 4 KB (was 16 KB) | `QuotaExceededError` |
-| Layout queries per task | 14.6 ms over a whole run | 100 ms (was the slice, up to 500 ms) | stops |
+| Layout queries per task | 47 (conformance `auto/03-layout-a`) | 128 queries, and 1000 ms of their time (100 ms until 2026-11-02; before that the slice) | stops |
 | Canvas pixels, all of a widget's canvases | 0.41 M (736 × 560) | 2048² = 4.2 M (the audit's 4096²) | stops |
 | A data: image's pixels | 800 (40 × 20) | 1024² = 1 M (the audit's 4096²) | the placeholder |
 
@@ -672,20 +682,34 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   host, and Swift's `NativeValidator`) sets `stopped`, reports the `limit` diagnostic with the reason and refuses that
   batch whole and every later one; the host stops the widget with that reason, as for memory or CPU, and the bubble
   keeps its last render. The author sees the cause at once. The complex-script budget and text churn still drop:
-  a widget in those scripts needs all of its budget, and the numbers did not change.
+  a widget in those scripts needs all of its budget, and the numbers did not change. Text inserted while the widget
+  loads is not charged to the churn bucket (2026-11-02): the host calls the validator's `markLoaded` after the loading
+  tasks' ops, and only then do text changes count against the rate. A 48 K document of paragraphs built by the loading
+  script lost them past ~45 K, silently, on every host; the document's caps bound a load anyway.
 - **Totals after the batch** (2026-10-30, the tweb team's move to v0.4.0). The document's text, CSS rules and
   `@keyframes` are compared with their caps once the whole batch is applied (`checkTotals`): what counts is the document
   the widget leaves after a task, not the sum of an old and a new subtree in the middle of `innerHTML` or of two sheets
   rewritten in one task. The batch is in memory whole either way, so nothing grows unbounded meanwhile. The shim helps
-  the budget that drops: it sends the removal of a subtree replaced in one task before the new one.
+  the budget that drops: it sends the removal of a subtree replaced in one task before the new one. The node count
+  (2026-11-02) is a total too: a document rebuilt in one task never counts twice.
+- **A long flush goes out in parts** (2026-11-02). The shim hands the glue what it has between two nodes once ~1000 ops
+  are buffered (`capture.ts` `sendIfLarge`): in the client teams' runs a document built in one task (2000 elements,
+  ~4000 ops) stopped at the 8 MB heap on 64-bit hosts while it held 4.4 MB; the op buffer and its JSON were the boot's
+  peak, not the document (checked in the C++ harness: the same widget with a flush every 500–1000 elements loads at
+  4.4 MB). The protocol is unchanged and the renderer gets the same ops; the method calls, canvases and animations of a
+  flush stay in its last part, with the staged canvas payloads. The totals above are compared after each part, which
+  the early removal keeps right for a replaced subtree; a rebuild that moves nodes out of the old subtree and passes 1000
+  ops can see old and new together for one part. The ops cap stops a flood of element method calls (`auto/33`), not
+  a large document: the per-task cost of the DOM ops is the main-thread window's.
 - **The shim refuses at the same numbers**, so the author gets an error inside the widget where the host would stop it:
-  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 10 001st command for
+  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 4001st command for
   one canvas in one task throws `RangeError`; the validator stops a batch with more, i.e. a tampered shim).
-- **Canvas commands: 10 000 for now.** The paint-limits draft put 2 000 per send, twice the old corpora's 237; the
-  projected 3D showcase that tmacos added on 2026-10-29 (`corpus/showcase/3d`) draws 1 247 to 9 510 commands a frame, so
-  the cap is 10 000 until the stress kit's canvas ladder (200 to 16 000 commands a frame on the clients' renderers) gives
-  the number. The main-thread window already charges 2 µs a command: 9 510 a frame is about 19 ms, so such a widget
-  turns at a few frames a second under the 100 ms window, and the demos want lighter meshes anyway.
+- **Canvas commands: 4000** (2026-11-02, from the stress kit; 10 000 until then). The cap bounds one frame, not the
+  rate: under strict the main-thread window (2 µs a command) gives 2000 commands a frame ~25 fps, 4000 ~13 and 9 510 ~5
+  on every client measured (A55, iPhone Air, tdesktop, the web; a Redmi Note 8T is slower on its own: 14 fps at 2000).
+  JS per command: iPhone 1.1–1.4 µs, M5 2.7, tdesktop 3.0, A55 4.2–4.4, Redmi 10.9–12.9, so 10 000 in one task was
+  110–130 ms of JS on the Redmi. Outside the projected 3D showcase no widget draws more than 237; the showcase's meshes
+  were lightened to at most 2000 a frame (`corpus/showcase/3d`), so it runs at ~25 fps under strict everywhere.
 - **The main-thread window.** The JS quota (300 ms per second, unchanged: a widget's JS runs on its own thread, and the
   busiest widgets on a weak phone are already throttled by it) no longer pays for what the widget costs the client's main
   thread. That is a second `CpuBudget` in the glue, `mainThreadQuotaMs` = 100 ms per `cpuQuotaWindowMs`: the wall time of
@@ -706,9 +730,17 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   is 40 × 20, and an image across a 320 px bubble at 3× fits.
 - **compat keeps the old caps** and never stops: tests, tooling, and the measuring runs of the stress kit
   (`packages/stress`), which must see the cost past the limits.
-- Not in this change: the count of heavy boxes (shadows, filters, opacity) and the renderer's frame cost of the
-  paint-limits draft, and a lower node cap. They depend on the client renderers, so they wait for the stress kit's
-  numbers from the clients.
+- **The client teams' numbers** (v0.6.0, 2026-11-02). The stress kit ran on a Redmi Note 8T and a Galaxy A55
+  (Android, TwidgetCore), an iPhone Air (iOS, the client's own runtime), tdesktop on an i9 and the web (the reference),
+  plus seven real widgets on the Redmi in strict. Counted limits must not depend on the device, so they were set now:
+  2000 nodes (the heap no longer stops first, since the flush goes out in parts: Android stopped a 2000-node load, the
+  32-bit web and tdesktop a 4000-node one), 4000 canvas commands, 128 layout queries per task, and the heavy-box limit
+  (its own section). Limits in time only slow a widget down and stop it on a hang: the slice is the whole `cpuLimitMs`
+  ("Throttle, not kill"), a layout query's time no longer stops it below the 1000 ms guard, and the renderer's frame
+  time is no stop (the draft's three frames over 50 ms would have stopped widgets within every limit on the Redmi:
+  `complex-text/8192` 80 ms a change, `text-volume/49152` 99 ms, `dom-static/2000` 77 ms). The prices (300 ms/s of JS,
+  the 100 ms/s window at 25/2 µs) stay: the window slows a widget alike on every device; they were checked only on
+  strong and middle devices and can move either way later.
 
 ### Off-screen pause mirrors a background tab
 

@@ -203,8 +203,9 @@ TEST(cpu_budget_shared_fixture) {
             } else if (const Json* used = step.find("used")) {
                 double got = b.used(at);
                 CHECK_MSG(std::fabs(got - used->asNumber()) < 1e-9, where + " used " + std::to_string(got));
-            } else if (const Json* slice = step.find("queryBudget")) {
-                CHECK_MSG(CpuBudget::queryBudgetMs(slice->asNumber()) == step["expect"].asNumber(), where);
+            } else if (const Json* q = step.find("queries")) {
+                std::string want = step["expect"].isNull() ? "" : step["expect"].asString();
+                CHECK_MSG(std::string(CpuBudget::queryLimitHit(int((*q)[0].asNumber()), (*q)[1].asNumber())) == want, where);
             } else if (const Json* cost = step.find("opsCost")) {
                 costSteps++;
                 double got = CpuBudget::opsCostMs((*cost)[0].asNumber(), (*cost)[1].asNumber());
@@ -832,9 +833,9 @@ TEST(cpu_quota_throttles_greedy_timer) {
     CHECK_MSG(ticks < 12, std::to_string(ticks) + " ticks: " + r.logsText());
 }
 
-/// The layout-query budget (CpuBudget::queryBudgetMs): a forced-layout loop burns no JS
+/// The layout-query limit (CpuBudget::queryLimitHit): a forced-layout loop burns no JS
 /// CPU of its own but keeps the host answering queries; with a slow renderer (5 ms per
-/// answer) it is killed with the layout-query reason instead of holding the renderer.
+/// answer) it is killed past 128 answered queries instead of holding the renderer.
 /// The twin of QueryBudgetTests.swift and QueryBudgetTest.kt.
 TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     auto cfg = testConfig();
@@ -848,10 +849,25 @@ TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     auto l = r.host.lock();
     CHECK_MSG(r.host.died.has_value(), "alive after " + std::to_string(seconds) + " s, " + std::to_string(r.host.queries.size()) + " queries");
     CHECK_MSG(r.host.died && r.host.died->rfind("Layout query limit exceeded", 0) == 0, r.host.died.value_or("alive"));
-    // 100 ms whatever the slice (CpuBudget::kQueryBudgetMs), the boot task's included.
-    CHECK_MSG(r.host.died && r.host.died->find("more than 100 ms in one boot task") != std::string::npos, r.host.died.value_or("alive"));
+    // 128 answered queries whatever the slice (CpuBudget::kQueryLimit), the boot task's included.
+    CHECK_MSG(r.host.died && r.host.died->find("more than 128 layout queries in one boot task") != std::string::npos, r.host.died.value_or("alive"));
     CHECK_MSG(seconds < 5, std::to_string(seconds) + " s");
-    CHECK_MSG(r.host.queries.size() < 120, std::to_string(r.host.queries.size()) + " queries");
+    CHECK_MSG(int(r.host.queries.size()) == CpuBudget::kQueryLimit + 1, std::to_string(r.host.queries.size()) + " queries");
+}
+
+/// 30 ms per answer: the 1000 ms guard (CpuBudget::kQueryBudgetMs) fires at the 34th query, and a loop that ends on the
+/// error answers is stopped at the task's end all the same.
+TEST(layout_queries_holding_the_host_past_the_guard_stop_the_widget) {
+    auto cfg = testConfig();
+    cfg.cpuLimitMs = 200;
+    Run r("<div id=a></div><script>const a = document.getElementById('a'); for (let i = 0; i < 60; i++) { a.style.width = i + 'px'; a.offsetHeight; }</script>", cfg, false);
+    r.host.answer = [](const Json&) -> std::optional<std::string> { std::this_thread::sleep_for(std::chrono::milliseconds(30)); return std::nullopt; };
+    r.engine.start();
+    r.host.waitLoaded(10);
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.died && r.host.died->rfind("Layout query limit exceeded: host queries blocked the renderer for more than 1000 ms in one boot task", 0) == 0, r.host.died.value_or("alive"));
+    CHECK_MSG(r.host.queries.size() < 40, std::to_string(r.host.queries.size()) + " queries");
 }
 
 TEST(ordinary_layout_queries_keep_the_widget_alive) {
@@ -1109,7 +1125,7 @@ TEST(strict_limit_defaults) {
     CHECK(c.maxTimers == 64 && o.maxTimers == 64);
     CHECK(c.mainThreadQuotaMs == 100 && o.mainThreadQuotaMs == 100);
     CHECK(c.cpuQuotaMs == 300 && o.cpuQuotaMs == 300 && c.cpuQuotaWindowMs == 1000);
-    CHECK(CpuBudget::queryBudgetMs(500) == 100 && CpuBudget::queryBudgetMs(10) == 100);
+    CHECK(CpuBudget::kQueryLimit == 128 && CpuBudget::kQueryBudgetMs == 1000);
     CHECK(sdk::STORAGE_QUOTA_BYTES == 4096);
 }
 
@@ -1123,18 +1139,18 @@ TEST(default_timer_cap_throws_at_the_65th) {
     CHECK(!r.host.died);
 }
 
-/// The policy reaches the shim in the boot config: under strict a canvas takes 10 000 commands in one task and the next
+/// The policy reaches the shim in the boot config: under strict a canvas takes 4000 commands in one task and the next
 /// throws RangeError in the widget (the validator's per-send cap, so the host does not have to stop it); compat draws all.
 TEST(shim_refuses_canvas_commands_at_the_validators_cap) {
     const std::string html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d');"
-                             "try { for (var i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
+                             "try { for (var i = 0; i < 4001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
     Run strict(html);
     strict.barrier();
     {
         auto l = strict.host.lock();
-        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)"), strict.logsText());
+        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 4000 commands for one canvas in one task (max 4000)"), strict.logsText());
         CHECK_MSG(!strict.host.died, strict.host.died.value_or(""));
-        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",9999,") != std::string::npos, "the 10 000 commands before it are drawn");
+        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",3999,") != std::string::npos, "the 4000 commands before it are drawn");
     }
     SandboxConfig cfg = testConfig();
     cfg.policy = "compat";

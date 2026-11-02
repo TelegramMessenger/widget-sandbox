@@ -20,6 +20,7 @@ function run(ops: unknown[], diags: string[] = [], policy: 'compat' | 'strict' =
     { op: 'el', id: 3, tag: 'body' }, { op: 'ins', parent: 2, id: 3, before: null },
   ];
   v.processOps(base);
+  v.markLoaded();
   return v.processOps(ops);
 }
 const attrsOf = (ops: RenderOp[], id: number) => Object.fromEntries((ops.find((o) => o.op === 'el' && o.id === id) as any)?.attrs ?? []);

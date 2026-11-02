@@ -76,7 +76,8 @@ ${load.step ? `function step(t){${load.step}}\n` : ''}${HARNESS}
 /** The strict limits a level crosses: the table's estimates, with the nodes and the largest batch measured through the sandbox where the build has them. */
 export function crossesOf(w: Pick<ManifestWidget, 'estimates' | 'heavyBoxes' | 'backdropBoxes' | 'measured'>): string[] {
   const all: Partial<Record<LimitKey, number>> = { ...w.estimates, heavyBoxes: w.heavyBoxes, backdropBoxes: w.backdropBoxes };
-  if (w.measured) { all.nodes = w.measured.nodes; all.opsPerBatch = Math.max(w.measured.maxBatchOps, w.estimates.opsPerBatch ?? 0); }
+  // Measured through the sandbox: the shim hands a long flush over in parts (v0.6.0), so the largest batch is the measured one.
+  if (w.measured) { all.nodes = w.measured.nodes; all.opsPerBatch = w.measured.maxBatchOps; }
   return (Object.keys(STRICT_LIMITS) as LimitKey[]).filter((k) => (all[k] ?? 0) > STRICT_LIMITS[k]).map((k) => `${k} ${all[k]} > ${STRICT_LIMITS[k]}`);
 }
 
@@ -94,7 +95,7 @@ export function generate(): { widgets: (ManifestWidget & { html: string })[]; ma
   return {
     widgets,
     manifest: {
-      version: 1, limits: STRICT_LIMITS, run: DEFAULT_RUN,
+      version: 2, limits: STRICT_LIMITS, run: DEFAULT_RUN,
       loads: LOADS.map((l) => ({ id: l.id, title: l.title, stresses: l.stresses, param: l.param, unit: l.unit, levels: l.levels, fit: l.fit ?? null, widgets: l.levels.map((v) => widgetId(l, v)) })),
     },
   };

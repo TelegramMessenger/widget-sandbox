@@ -439,6 +439,8 @@ void WidgetHost::onBridge(SandboxEngine&, const std::string& method, const std::
 }
 
 void WidgetHost::onLoaded(SandboxEngine&) {
+    // On the engine thread after the loading tasks' ops were validated: text changes are rate-limited from here on.
+    validator_.markLoaded();
     double loadedMs = elapsedMs();
     // Through the host thread after the ops of the loading tasks; then one trusted query to the renderer:
     // its answer comes after every size report those ops produced.

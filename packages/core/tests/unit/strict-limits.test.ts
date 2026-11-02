@@ -117,7 +117,8 @@ describe("strict limits: the document's text after the whole batch", () => {
 });
 
 describe('strict limits: ops per batch and canvas commands per send', () => {
-  const texts = (n: number) => Array.from({ length: n }, (_, i) => ({ op: 'text', id: 100 + i, data: '' }));
+  // One text node and its changes: n ops without passing the node cap.
+  const texts = (n: number) => [{ op: 'text', id: 100, data: '' }, ...Array.from({ length: n - 1 }, (_, i) => ({ op: 'data', id: 100, data: String(i % 10) }))];
   it('10 000 ops in a batch pass; 10 001 stop the widget (compat: up to 200 000)', () => {
     const v = validator();
     assert.equal(v.processOps(texts(10_000)).length, 10_000);
@@ -130,15 +131,15 @@ describe('strict limits: ops per batch and canvas commands per send', () => {
 
   const canvas = [{ op: 'el', id: 9, tag: 'canvas' }, { op: 'ins', parent: 3, id: 9, before: null }];
   const cmds = (n: number) => Array.from({ length: n }, (_, i) => ['c', 'fillRect', i, 0, 1, 1]);
-  it('10 000 canvas commands in one send pass; 10 001 stop the widget (compat: no stop)', () => {
+  it('4000 canvas commands in one send pass; 4001 stop the widget (compat: no stop)', () => {
     const v = validator();
     v.processOps(canvas);
-    assert.equal((v.processOps([{ op: 'canvas', id: 9, cmds: cmds(10_000) }])[0] as any).cmds.length, 10_000);
-    assert.deepEqual(v.processOps([{ op: 'canvas', id: 9, cmds: cmds(10_001) }]), []);
-    assert.equal(v.stopped, 'Canvas limit exceeded: 10001 commands in one send (max 10000)');
+    assert.equal((v.processOps([{ op: 'canvas', id: 9, cmds: cmds(4000) }])[0] as any).cmds.length, 4000);
+    assert.deepEqual(v.processOps([{ op: 'canvas', id: 9, cmds: cmds(4001) }]), []);
+    assert.equal(v.stopped, 'Canvas limit exceeded: 4001 commands in one send (max 4000)');
     assert.deepEqual(v.canvasCommands(cmds(1)), [], 'the native canvas-words path is refused too once stopped');
     const w = validator();
-    assert.deepEqual(w.canvasCommands(cmds(10_001)), []);
+    assert.deepEqual(w.canvasCommands(cmds(4001)), []);
     assert.match(w.stopped ?? '', /^Canvas limit exceeded/);
     const c = validator('compat');
     c.processOps(canvas);
@@ -223,14 +224,14 @@ describe('strict limits: CSS animations the script controls are not script anima
 });
 
 describe('strict limits: the shim refuses at the same numbers', () => {
-  it('a canvas takes 10 000 commands in one task; the next throws RangeError in the widget (compat: no throw)', async () => {
+  it('a canvas takes 4000 commands in one task; the next throws RangeError in the widget (compat: no throw)', async () => {
     const html = `<canvas id=c></canvas><script>
       const x = document.getElementById('c').getContext('2d');
-      try { for (let i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); }
+      try { for (let i = 0; i < 4001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); }
       catch (e) { console.log(e.name + ': ' + e.message); }
     </script>`;
     const strict = await runWidget(html);
-    assert.ok(strict.logs.some((l) => l.text === 'RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)'), JSON.stringify(strict.logs));
+    assert.ok(strict.logs.some((l) => l.text === 'RangeError: Canvas limit exceeded: more than 4000 commands for one canvas in one task (max 4000)'), JSON.stringify(strict.logs));
     assert.equal(strict.stopped, undefined, 'the shim stopped short of the cap, so the host did not stop the widget');
     const compat = await runWidget(html, { policy: 'compat' });
     assert.ok(compat.logs.some((l) => l.text === 'drew all'));
@@ -268,5 +269,48 @@ describe('strict limits: the main-thread window', () => {
     const tight = await runWidget(html, { frames: 20, mainThreadQuotaMs: 20 });
     assert.ok(tight.throttled > 0, 'frames were deferred');
     assert.ok(tight.diags.some((d) => d.kind === 'cpu-throttled' && /main-thread window/.test(d.detail)), JSON.stringify(tight.diags.slice(-3)));
+  });
+});
+
+describe('strict limits: nodes in the document', () => {
+  const els = (n: number, from: number) => Array.from({ length: n }, (_, i) => [{ op: 'el', id: from + i, tag: 'div' }, { op: 'ins', parent: 3, id: from + i, before: null }]).flat();
+  it('2000 nodes pass; one more stops the widget once the batch is applied (compat: no cap)', () => {
+    const v = validator();
+    // html and body are two of them.
+    assert.equal(v.processOps(els(1998, 100)).length, 3996);
+    assert.equal(v.stopped, null);
+    assert.deepEqual(v.processOps(els(1, 5000)), []);
+    assert.equal(v.stopped, 'Node limit exceeded: 2001 nodes in the document (max 2000)');
+    const c = validator('compat');
+    c.processOps(els(3000, 100));
+    assert.equal(c.stopped, null);
+  });
+
+  it('a document rebuilt in one batch (old nodes removed after the new ones are made) is compared once it is applied', () => {
+    const v = validator();
+    v.processOps(els(1500, 100));
+    const rebuilt = [...els(1500, 10_000), ...Array.from({ length: 1500 }, (_, i) => ({ op: 'rm', id: 100 + i }))];
+    assert.equal(v.processOps(rebuilt).length, 4500);
+    assert.equal(v.stopped, null);
+  });
+});
+
+describe('strict limits: text inserted while the widget loads', () => {
+  const para = (i: number) => `Paragraph ${i}: ` + 'lorem ipsum dolor sit amet '.repeat(17);
+  const html = (n: number, later = '') => `<div id="t"></div><script>
+    const t = document.getElementById('t');
+    for (let i = 0; i < ${n}; i++) { const p = document.createElement('p'); p.textContent = ${JSON.stringify(para(0))}.replace('0', i); t.appendChild(p); }
+    ${later}</script>`;
+
+  it('a document of ~45 K characters of paragraphs is not charged to the churn bucket at load: no paragraph is dropped', async () => {
+    const r = await runWidget(html(95));
+    assert.equal(r.stopped, undefined);
+    assert.ok(!r.diags.some((d) => d.kind === 'validator:text-churn'), JSON.stringify(r.diags.filter((d) => /churn/.test(d.kind))));
+    assert.equal(r.renderOps.filter((o: any) => o.op === 'text' && o.data.startsWith('Paragraph')).length, 95);
+  });
+
+  it('after the load the same rewrite is rate-limited again', async () => {
+    const r = await runWidget(html(95, `setTimeout(() => { for (const p of t.children) p.textContent = p.textContent + ' again'; }, 1);`), { timerRounds: 3 });
+    assert.ok(r.diags.some((d) => d.kind === 'validator:text-churn'));
   });
 });

@@ -731,6 +731,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         // Through the validation pipeline, so `loaded` is observed after the ops of the loading tasks were sent;
         // then one trusted query to the renderer: its answer comes after every size report those ops produced.
         validate { [self] in
+            validator.markLoaded() // after the loading tasks' ops: text changes are rate-limited from here on
             let deliver = {
                 self.state.loaded = true
                 self.state.loadedMs = loadedMs

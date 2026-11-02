@@ -799,7 +799,7 @@ void SandboxEngine::rejectStorage(const std::string& detail) {
 /// Blocks the engine thread until the host answers (the host must never wait for the engine).
 std::string SandboxEngine::syncQuery(const std::string& json) {
     if (!delegate_) return "{\"error\":\"no host\"}";
-    if (queryLimitHit_) return "{\"error\":\"query budget exceeded\"}";
+    if (!queryLimitHit_.empty()) return "{\"error\":\"query budget exceeded\"}";
     double t0 = nowSeconds();
     QueryAnswer answer = delegate_->onQuery(*this, json);
     double dt = nowSeconds() - t0;
@@ -807,9 +807,10 @@ std::string SandboxEngine::syncQuery(const std::string& json) {
     stats_.queries++;
     stats_.queryMs += dt * 1000;
     taskQueryMs_ += dt * 1000;
-    if (taskQueryMs_ > CpuBudget::queryBudgetMs(currentSliceMs_)) {
-        // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
-        queryLimitHit_ = true;
+    taskQueries_++;
+    queryLimitHit_ = CpuBudget::queryLimitHit(taskQueries_, taskQueryMs_);
+    if (!queryLimitHit_.empty()) {
+        // The host answered every query, but this task has asked too many or held the renderer too long: interrupt it at the next poll.
         js_->cpuDeadline = -std::numeric_limits<double>::infinity();
     }
     lastBinary_ = std::move(answer.binary);
@@ -832,8 +833,8 @@ void SandboxEngine::kill(const std::string& reason) {
 }
 
 void SandboxEngine::handleError(const std::string& text, const std::string& where) {
-    if (js_ && js_->interrupted && queryLimitHit_) {
-        return kill("Layout query limit exceeded: host queries blocked the renderer for more than " + std::to_string(int(CpuBudget::queryBudgetMs(currentSliceMs_))) + " ms in one " + currentKind_ + " task (" + where + ")");
+    if (js_ && js_->interrupted && !queryLimitHit_.empty()) {
+        return kill(CpuBudget::queryLimitReason(queryLimitHit_, currentKind_) + " (" + where + ")");
     }
     if (js_ && js_->interrupted) {
         return kill("CPU limit exceeded: more than " + std::to_string(int(currentSliceMs_)) + " ms of continuous execution (" + where + ")");
@@ -929,13 +930,16 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     currentSliceMs_ = sliceMs;
     excludeMs_ = 0;
     taskQueryMs_ = 0;
+    taskQueries_ = 0;
     taskOpsCostMs_ = 0;
-    queryLimitHit_ = false;
+    queryLimitHit_ = {};
     double c0 = QuickJSContext::threadCpuTime();
     resetDeadline();
     body();
     if (!dead_) settle();
     if (!dead_) pumpScripts();
+    // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
+    if (!dead_ && !queryLimitHit_.empty()) kill(CpuBudget::queryLimitReason(queryLimitHit_, kind));
     stats_.tasks++;
     double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;

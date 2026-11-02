@@ -26,6 +26,35 @@ nothing until the host lists them; "default" items apply to every host.
   `gram` plays it.
 
 
+**Limits from the client teams' stress-kit runs** (Redmi Note 8T, Galaxy A55, iPhone Air, tdesktop on an i9, the web;
+`docs/decisions.md`, "Strict limits from the start", "The client teams' numbers"). Counted limits stop a widget the same
+on every device; limits in time only slow it down and stop it on a hang:
+
+- Default, every host: **at most 2000 nodes** (elements, text, comments) in the document, compared once a batch is
+  applied (`Node limit exceeded: N nodes in the document (max 2000)`; `validator.ts` and the Swift `NativeValidator`
+  from the policy tables). Until now the validator stopped creating nodes past 50 000, and the 8 MB heap stopped a
+  document first: at 2000 nodes on a 64-bit host, at 4000 on a 32-bit one.
+- Default, every host: **the shim hands a long flush over in parts** (`capture.ts`): between two nodes, once about 1000
+  ops are buffered, they go to the glue as a batch of their own; the flush's method calls, canvases and animations stay
+  in its last batch with the staged canvas payloads. A 2000-element document built in one task loaded nowhere on a
+  64-bit host (its op buffer and JSON, not the document, filled the heap); now it reaches the node cap. The protocol is
+  unchanged; a host applies the batches in order as before.
+- Default, every host: **at most 4000 canvas commands** per canvas in one task (10 000 until now): the shim throws
+  `RangeError` on the 4001st, the validator stops a send with more. Under strict the main-thread window already holds
+  4000 a frame to ~13 fps on every client measured. `CanvasBatchFastPath.maxCmdsPerOp` follows (Swift).
+- Default, every host: **at most 128 layout queries in one task**, and their time at most 1000 ms (the hang guard), in
+  place of 100 ms of their time: `queryLimitHit` / `queryLimitReason` in `cpu-budget.ts` and its three twins (the fixture's
+  `queries` steps replace `queryBudget`), the count in all five glue copies; a task that ends on the error answers before
+  the interrupt lands is stopped at its end. A widget with one `getBoundingClientRect` at load died on a Redmi Note 8T in
+  its first run after install (a cold first layout over 100 ms); the most query-heavy real widget makes 47.
+- Default, every host: **text inserted while the widget loads is not charged to the churn bucket**: every host calls the
+  validator's new `markLoaded` after the loading tasks' ops (`__twValidator.markLoaded` in the bundle; the Swift, Kotlin
+  and C++ `TrustedValidator`, `NativeValidator`). A 48 K document of paragraphs built by the loading script lost them past
+  ~45 K, silently, on every host.
+- `packages/stress` version 2: the limits as above (`canvasPerSend` 4000, `layoutQueries` 128 crossed by
+  `layout-queries/256`), `css-rules/400` at the cap instead of over it (the frame's rules count), the largest batch as
+  measured; conformance `auto/37-stop-nodes`, `auto/19-limits` at 4000 commands.
+
 **Strict limits: what the tweb team found moving to v0.4.0** (five findings, all from v0.3.0's strict limits; every
 host gets them with the bundles, the Swift `NativeValidator` has its own copy of the first and the fourth):
 

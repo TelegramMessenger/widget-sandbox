@@ -48,6 +48,14 @@ let generation = 0;
 export const domGeneration = (): number => generation;
 const dirty = new Set<any>();
 let ops: any[] | OpWriter = [];
+/**
+ * Ops after which a long flush hands what it has to the glue between two nodes: a document built in one task (2000
+ * elements, ~4000 ops) stopped at the 8 MB heap on a 64-bit host while it held ~4.4 MB, its op buffer and JSON being the
+ * boot's peak, not the document (the client teams' stress-kit runs, 2026-11).
+ */
+const PARTIAL_BATCH_OPS = 1000;
+/** Ops handed to the glue by `sendIfLarge` so far: the full walk counts what it found across them. */
+let partialSent = 0;
 
 /** Switch the op stream to binary records (`binaryOps` feature); a no-op unless the glue installed `__hostOps`. */
 export function enableBinaryOps(on: boolean) {
@@ -211,6 +219,7 @@ function createNode(node: any): number {
       strays.delete(cid);
       m.kids.push(cid);
       ops.push({ op: 'ins', parent: id, id: cid, before: null });
+      sendIfLarge();
     }
   } else {
     const data = String(node.data ?? '');
@@ -443,6 +452,7 @@ function syncChildren(node: any, id: number, m: Mirror) {
     if (live[i] && mirror.has(live[i])) continue;
     live[i] = createNode(children[i]);
     added.push(children[i]);
+    sendIfLarge();
   }
   const removed: any[] = [];
   for (const [k, kn, early] of gone) {
@@ -453,6 +463,7 @@ function syncChildren(node: any, id: number, m: Mirror) {
       if (!kn || !kn.isConnected) {
         ops.push({ op: 'rm', id: k });
         purge(k);
+        sendIfLarge();
       } else strays.add(k);
     }
     removed.push(kn);
@@ -471,6 +482,7 @@ function syncChildren(node: any, id: number, m: Mirror) {
       else if (cm.parent !== 0 && !added.includes(byId.get(cid))) added.push(byId.get(cid));
       cm.parent = id;
       strays.delete(cid);
+      sendIfLarge();
     }
     before = cid;
   }
@@ -504,6 +516,7 @@ function syncNode(node: any) {
 
 function walkAll(node: any) {
   syncNode(node);
+  sendIfLarge();
   for (const c of childrenOf(node)) walkAll(c);
 }
 
@@ -536,12 +549,12 @@ function flushNow(full: boolean): void {
   for (let i = 0; i < 8 && dirty.size; i++) {
     const batch = [...dirty];
     dirty.clear();
-    for (const node of batch) if (node) syncNode(node);
+    for (const node of batch) if (node) { syncNode(node); sendIfLarge(); }
   }
   if (full) {
-    const before = ops.length;
+    const before = partialSent + ops.length;
     walkAll(document);
-    counters.missed += ops.length - before;
+    counters.missed += partialSent + ops.length - before;
     dirty.clear();
   }
   for (const o of postOps) {
@@ -575,6 +588,25 @@ function send() {
   const json = stringifyOps(batch);
   sendStagedCanvas();
   host('ops', json);
+}
+
+/**
+ * Between two nodes of a flush: once the buffer holds `PARTIAL_BATCH_OPS`, hand it to the glue, so the op buffer and its
+ * JSON never hold a whole large document. Only DOM ops go: the method calls, canvases and animations of the flush follow
+ * in its last batch, as before, and the staged canvas payloads stay with it.
+ */
+function sendIfLarge() {
+  if (ops.length < PARTIAL_BATCH_OPS) return;
+  partialSent += ops.length;
+  if (ops instanceof OpWriter) {
+    invalidateLayout(ops.boxNeutral);
+    ops.flush();
+    return;
+  }
+  const batch = ops;
+  ops = [];
+  invalidateLayout(batch.every(boxNeutral));
+  host('ops', stringifyOps(batch));
 }
 
 /** End-of-task flush, with the periodic full walk as a safety net. */

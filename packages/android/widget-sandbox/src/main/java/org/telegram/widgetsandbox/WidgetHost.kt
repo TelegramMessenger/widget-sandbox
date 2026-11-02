@@ -708,7 +708,11 @@ class WidgetHost(
     }
     override fun onLoaded(engine: SandboxEngine) {
         val loadedMs = sinceCreatedMs()
-        main.post { diagnostics.loaded = true; diagnostics.loadedMs = loadedMs; changed() }
+        main.post {
+            // After the loading tasks' ops (posted before this): text changes are rate-limited from here on.
+            if (!destroyed) validator.markLoaded()
+            diagnostics.loaded = true; diagnostics.loadedMs = loadedMs; changed()
+        }
     }
     override fun onStats(engine: SandboxEngine, stats: SandboxStats) {
         main.post {

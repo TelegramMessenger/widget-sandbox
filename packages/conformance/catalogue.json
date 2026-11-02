@@ -4002,7 +4002,7 @@
     {
       "id": "limit.nodes",
       "area": "limit",
-      "title": "At most 50 000 nodes",
+      "title": "At most 2000 nodes (elements, text, comments) in the document once a batch is applied; past it the widget stops (strict)",
       "status": "in",
       "decision": "P1",
       "today": "kept"
@@ -4018,7 +4018,7 @@
     {
       "id": "limit.cpu",
       "area": "limit",
-      "title": "CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task",
+      "title": "CPU quota 300 ms of JS per second (timers deferred, not killed; a task that runs past it makes the next ones wait longer); one task may run 500 ms; at most 128 layout queries in one task, and their time at most 1000 ms; past these the widget stops",
       "status": "in",
       "decision": "P1",
       "today": "kept"
@@ -4050,7 +4050,7 @@
     {
       "id": "limit.batch",
       "area": "limit",
-      "title": "At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict)",
+      "title": "At most 10 000 operations in one batch (the shim hands a task's DOM changes over in batches of about 1000, its element method calls in one); past it the widget stops (strict)",
       "status": "in",
       "decision": "L1",
       "today": "kept"
@@ -4066,7 +4066,7 @@
     {
       "id": "limit.canvas-commands",
       "area": "limit",
-      "title": "At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers)",
+      "title": "At most 4000 canvas commands per canvas in one task (RangeError past it; strict)",
       "status": "in",
       "decision": "L1",
       "today": "kept"

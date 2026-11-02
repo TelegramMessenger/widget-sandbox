@@ -12,7 +12,7 @@ import { newQuickJSWASMModuleFromVariant, newVariant, type QuickJSContext, type 
 // QuickJS built from the TelegramMessenger/quickjs fork (packages/quickjs-wasm, decisions.md).
 import baseVariant from '@telegram/widget-sandbox-quickjs';
 import wasmUrl from '@telegram/widget-sandbox-quickjs/wasm?url';
-import { CpuBudget, opsCostMs, queryBudgetMs } from './cpu-budget';
+import { CpuBudget, opsCostMs, queryLimitHit as queryLimitOf, queryLimitReason } from './cpu-budget';
 import { LIMIT_DEFAULTS, MAX_ANIM_BATCH_BYTES, MAX_TIMER_DELAY_MS, SAB_BIN_LEN, SAB_HEADER, SAB_JSON_LEN, SAB_STATE, WASM_INITIAL_PAGES, WASM_PAGE_BYTES, type HostToWorker, type SandboxConfig, type Stats, type WorkerToHost } from '../shared/protocol';
 
 import { STORAGE_QUOTA_BYTES } from '../shared/sdk-policy';
@@ -41,9 +41,10 @@ let interrupted = false;
 let deadline = 0;
 /** Wall time this task's layout queries have blocked for, and whether that passed the task's query budget (docs/decisions.md, Runtime limits). */
 let taskQueryMs = 0;
+let taskQueries = 0;
 /** Modelled main-thread cost of the ops this task sent (cpu-budget.ts `opsCostMs`). */
 let taskOpsCostMs = 0;
-let queryLimitHit = false;
+let queryLimitHit: 'count' | 'time' | null = null;
 /** Slice given to the running task (for the kill message); the boot task gets cpuLimitMs. */
 let currentSliceMs = 0;
 let currentKind = 'boot';
@@ -154,9 +155,10 @@ function syncQuery(queryJson: string): string {
   stats.queries++;
   stats.queryMs += dt;
   taskQueryMs += dt;
-  if (taskQueryMs > queryBudgetMs(currentSliceMs)) {
-    // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
-    queryLimitHit = true;
+  taskQueries++;
+  queryLimitHit = queryLimitOf(taskQueries, taskQueryMs);
+  if (queryLimitHit) {
+    // The host answered every query, but this task has asked too many or held the renderer too long: interrupt it at the next poll.
     deadline = -Infinity;
   }
   if (res === 'timed-out') {
@@ -296,7 +298,7 @@ function describeError(err: QuickJSHandle): string {
 function handleError(err: QuickJSHandle, where: string) {
   const text = describeError(err);
   if (interrupted && queryLimitHit) {
-    return kill(`Layout query limit exceeded: host queries blocked the renderer for more than ${queryBudgetMs(currentSliceMs).toFixed(0)} ms in one ${currentKind} task (${where})`);
+    return kill(`${queryLimitReason(queryLimitHit, currentKind)} (${where})`);
   }
   if (interrupted) {
     return kill(`CPU limit exceeded: more than ${currentSliceMs.toFixed(0)} ms of continuous execution (${where})`);
@@ -386,8 +388,9 @@ function task(kind: string, sliceMs: number, fn: () => void) {
   currentSliceMs = sliceMs;
   excludeMs = 0;
   taskQueryMs = 0;
+  taskQueries = 0;
   taskOpsCostMs = 0;
-  queryLimitHit = false;
+  queryLimitHit = null;
   const t0 = performance.now();
   const q0 = stats.queryMs;
   resetDeadline();
@@ -395,6 +398,8 @@ function task(kind: string, sliceMs: number, fn: () => void) {
     fn();
     if (!dead) settle();
     if (!dead) pumpScripts();
+    // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
+    if (!dead && queryLimitHit) kill(queryLimitReason(queryLimitHit, kind));
   } catch (e) {
     kill('sandbox glue error: ' + (e as Error).message);
   }

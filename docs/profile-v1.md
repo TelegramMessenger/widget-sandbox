@@ -347,15 +347,15 @@ the renderer read their tables from this profile (`src/shared/profile-tables.ts`
 |---|---|---|---|---|
 | `limit.text-node` | Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict) | in |  | D5 |
 | `limit.text-budget` | Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict) | in |  | D5 |
-| `limit.nodes` | At most 50 000 nodes | in |  | P1 |
+| `limit.nodes` | At most 2000 nodes (elements, text, comments) in the document once a batch is applied; past it the widget stops (strict) | in |  | P1 |
 | `limit.timers` | At most 64 live timers (RangeError past it) | in |  | P1 |
-| `limit.cpu` | CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task | in |  | P1 |
+| `limit.cpu` | CPU quota 300 ms of JS per second (timers deferred, not killed; a task that runs past it makes the next ones wait longer); one task may run 500 ms; at most 128 layout queries in one task, and their time at most 1000 ms; past these the widget stops | in |  | P1 |
 | `limit.memory` | QuickJS heap 8 MB | in |  | P1 |
 | `limit.storage` | localStorage 4 KB per message (QuotaExceededError) | in |  | D17 |
 | `limit.attribute` | Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict) | in |  | L1 |
-| `limit.batch` | At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict) | in |  | L1 |
+| `limit.batch` | At most 10 000 operations in one batch (the shim hands a task's DOM changes over in batches of about 1000, its element method calls in one); past it the widget stops (strict) | in |  | L1 |
 | `limit.css-rules` | At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict) | in |  | L1 |
-| `limit.canvas-commands` | At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers) | in |  | L1 |
+| `limit.canvas-commands` | At most 4000 canvas commands per canvas in one task (RangeError past it; strict) | in |  | L1 |
 | `limit.animations` | At most 64 running script animations (further ones are not rendered; strict) | in |  | L1 |
 | `limit.main-thread` | The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it) | in |  | L1 |
 | `limit.canvas-pixels` | A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096) | in |  | L1 |

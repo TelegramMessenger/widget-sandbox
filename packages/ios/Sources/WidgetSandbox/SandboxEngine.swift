@@ -218,9 +218,11 @@ public final class SandboxEngine {
     /// JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms.
     private var excludeMs = 0.0
     private var taskQueryMs = 0.0
+    private var taskQueries = 0
     /// Modelled main-thread cost of the ops this task sent (`CpuBudget.opsCostMs`).
     private var taskOpsCostMs = 0.0
-    private var queryLimitHit = false
+    /// `"count"` / `"time"` once this task is past its layout-query limit (`CpuBudget.queryLimitHit`).
+    private var queryLimitHit: String?
     private var lastThrottleDiag = -Double.infinity
     private var throttledSinceDiag: [String: Int] = [:]
     private static func nowMs() -> Double { CACurrentMediaTime() * 1000 }
@@ -1003,7 +1005,7 @@ public final class SandboxEngine {
     private func syncQuery(_ json: String) -> String {
         guard let delegate else { return "{\"error\":\"no host\"}" }
         let t0 = CACurrentMediaTime()
-        if queryLimitHit {
+        if queryLimitHit != nil {
             return "{\"error\":\"query budget exceeded\"}"
         }
         let (answer, binary) = delegate.engine(self, query: json)
@@ -1012,9 +1014,10 @@ public final class SandboxEngine {
         stats.queries += 1
         stats.queryMs += dt * 1000
         taskQueryMs += dt * 1000
-        if taskQueryMs > CpuBudget.queryBudgetMs(sliceMs: currentSliceMs) {
-            // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
-            queryLimitHit = true
+        taskQueries += 1
+        queryLimitHit = CpuBudget.queryLimitHit(queries: taskQueries, queryMs: taskQueryMs)
+        if queryLimitHit != nil {
+            // The host answered every query, but this task has asked too many or held the renderer too long: interrupt it at the next poll.
             js.cpuDeadline = -.infinity
         }
         lastBinary = binary
@@ -1044,8 +1047,8 @@ public final class SandboxEngine {
 
     private func handleError(_ error: Error, where location: String) {
         let text = (error as? QuickJSError)?.description ?? String(describing: error)
-        if js?.interrupted == true, queryLimitHit {
-            return kill("Layout query limit exceeded: host queries blocked the renderer for more than \(Int(CpuBudget.queryBudgetMs(sliceMs: currentSliceMs))) ms in one \(currentKind) task (\(location))")
+        if js?.interrupted == true, let hit = queryLimitHit {
+            return kill("\(CpuBudget.queryLimitReason(hit, kind: currentKind)) (\(location))")
         }
         if js?.interrupted == true {
             return kill("CPU limit exceeded: more than \(Int(currentSliceMs)) ms of continuous execution (\(location))")
@@ -1142,13 +1145,16 @@ public final class SandboxEngine {
         currentSliceMs = sliceMs
         excludeMs = 0
         taskQueryMs = 0
+        taskQueries = 0
         taskOpsCostMs = 0
-        queryLimitHit = false
+        queryLimitHit = nil
         let c0 = QuickJSContext.threadCPUTime()
         resetDeadline()
         body()
         if !dead { settle() }
         if !dead { pumpScripts() }
+        // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
+        if !dead, let hit = queryLimitHit { kill(CpuBudget.queryLimitReason(hit, kind: kind)) }
         stats.tasks += 1
         let cpuMs = (QuickJSContext.threadCPUTime() - c0) * 1000 - excludeMs
         stats.jsMs += cpuMs

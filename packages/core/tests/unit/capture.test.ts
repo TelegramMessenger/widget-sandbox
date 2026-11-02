@@ -178,3 +178,41 @@ describe('capture: layout query cache', () => {
     assert.deepEqual(kinds, ['box', 'rect', 'rect', 'box']);
   });
 });
+
+describe('capture: a long flush goes out in parts', () => {
+  const build = (n: number, extra = '') => `<div id="list"></div><script>
+    const list = document.getElementById('list');
+    for (let i = 0; i < ${n}; i++) { const d = document.createElement('div'); d.className = 'row'; d.textContent = 'row ' + i; list.appendChild(d); }
+    ${extra}</script>`;
+
+  it('hands the glue at most ~1000 ops at a time between nodes, and the renderer gets the whole document', async () => {
+    const r = await runWidget(build(900), { policy: 'compat' });
+    const sizes = r.ops.map((b) => b.length);
+    assert.ok(sizes.length >= 3, `batches ${sizes.join(',')}`);
+    assert.ok(sizes.every((n) => n < 1100), `batches ${sizes.join(',')}`);
+    assert.equal(r.renderOps.filter((o: any) => o.op === 'el' && o.tag === 'div').length, 901);
+    assert.equal(r.renderOps.filter((o: any) => o.op === 'text' && /^row \d+$/.test(o.data)).length, 900);
+  });
+
+  it('a subtree built in one createNode (innerHTML of a detached root) is split too', async () => {
+    const r = await runWidget(`<div id="list"></div><script>
+      const root = document.createElement('section');
+      root.innerHTML = Array.from({ length: 900 }, (_, i) => '<p>p' + i + '</p>').join('');
+      document.getElementById('list').appendChild(root);</script>`, { policy: 'compat' });
+    assert.ok(r.ops.length >= 2, `batches ${r.ops.map((b) => b.length).join(',')}`);
+    assert.equal(r.renderOps.filter((o: any) => o.op === 'el' && o.tag === 'p').length, 900);
+  });
+
+  it('canvas commands staged in the flush stay with its last batch (canvas words)', async () => {
+    const r = await runWidget(build(900, `const c = document.createElement('canvas'); document.body.appendChild(c);
+      const x = c.getContext('2d'); for (let i = 0; i < 50; i++) x.fillRect(i, 0, 1, 1);`), { policy: 'compat', canvasWords: true });
+    const cmds = r.renderOps.filter((o: any) => o.op === 'canvas').flatMap((o: any) => o.cmds);
+    assert.equal(cmds.filter((c: any) => c[1] === 'fillRect').length, 50);
+  });
+
+  it('a document of 2000 rows stops at the node cap, not at the 8 MB heap', async () => {
+    const r = await runWidget(build(1000));
+    assert.match(r.stopped ?? '', /^Node limit exceeded: \d+ nodes in the document \(max 2000\)$/);
+    assert.ok(!r.logs.some((l) => /out of memory|Memory limit/i.test(l.text)), JSON.stringify(r.logs.slice(0, 3)));
+  });
+});

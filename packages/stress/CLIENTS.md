@@ -1,12 +1,12 @@
 # Running the stress kit in your client
 
 For client teams (iOS, Android, macOS, desktop, web). The widget limits are strict from the start (`docs/decisions.md`,
-"Strict limits from the start"). In force: 10 000 ops per batch, 400 CSS rules, 10 000 canvas commands per canvas in one
-task, 48 K of document text, 2048² pixels of canvases together and 1024² per data: image, and the main-thread window (layout queries plus 25 µs per op and 2 µs per canvas command, at
-most 100 ms per second). Proposed, and waiting for this kit's numbers: at most 16 boxes with a blurred shadow, a filter, a
-backdrop filter or transparency (2 of them with a backdrop filter), 2000 nodes, and a renderer's own frame cost charged to
-the widget. We chose those numbers on Chrome on a fast Mac and one iPhone measurement. They have to hold on **your renderer on a weak phone**, and only you
-can run your renderer. This kit measures what each kind of load costs on it, level by level, on both sides of every
+"Strict limits from the start"). In force since v0.6.0, set from your runs of this kit's version 1 (2026-11): 2000 nodes,
+10 000 ops per batch, 400 CSS rules, 4000 canvas commands per canvas in one task, 128 layout queries per task, 48 K of
+document text, 2048² pixels of canvases together and 1024² per data: image, at most 16 boxes with a blurred shadow, a
+filter, a backdrop filter or transparency (2 of them with a backdrop filter), and the main-thread window (layout queries
+plus 25 µs per op and 2 µs per canvas command, at most 100 ms per second). Still open: a renderer's own frame cost charged
+to the widget. The numbers have to hold on **your renderer on a weak phone**, and only you can run your renderer. This kit measures what each kind of load costs on it, level by level, on both sides of every
 limit. You write a small runner in a debug build of your client, run it on the devices below, and send the run files
 back. The maintainers turn them into the numbers in the framework: the renderer cost model, and the limits themselves.
 A limit only goes down from here, never up (relaxing later is possible, tightening breaks widgets that already work).
@@ -197,8 +197,8 @@ Send the run files and `summary.md` to the widget-sandbox maintainers, or open a
 - The renderer's cost in the CPU quota: an own renderer reports its time per frame, a WebView renderer is charged by a
   model, `A` µs per changed heavy box and `B` µs per other changed box. The heavy moving loads give `A`, `style-churn`,
   `gradient-moving` and `clip-moving` give `B`, on your weakest device.
-- The limits: in force, 10 000 ops per batch, 400 CSS rules, 10 000 canvas commands (provisional: the canvas ladder sets the number) and the main-thread window;
-  proposed, 16 heavy boxes and 2 with a backdrop filter, and 2000 nodes. If your weak device cannot hold the full frame
-  rate at a level that is within a limit, the limit goes down.
+- The limits: 2000 nodes, 10 000 ops per batch, 400 CSS rules, 4000 canvas commands, 128 layout queries per task, 16
+  heavy boxes and 2 with a backdrop filter, and the main-thread window. If your weak device cannot hold the full frame
+  rate at a level that is within a limit, tell us: the numbers were checked on strong and middle devices only.
 - The text, canvas, SVG and query loads tell whether those limits are about right on your renderer, or need a cost of
   their own.

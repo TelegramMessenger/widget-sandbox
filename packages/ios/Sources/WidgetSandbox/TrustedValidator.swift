@@ -136,6 +136,7 @@ public final class TrustedValidator {
             globalThis.__v_nativeScrolling = (v) => __twValidator.setNativeScrolling(v);
             globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);
             globalThis.__v_nodeCount = () => __twValidator.nodeCount();
+            globalThis.__v_markLoaded = () => { __twValidator.markLoaded(); return ''; };
             globalThis.__v_isCanvas = (id) => __twValidator.isCanvas(Number(id)) ? 1 : 0;
             globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };
             globalThis.__v_tables = () => __twValidator.tables();
@@ -184,6 +185,7 @@ public final class TrustedValidator {
             icons = nil
             policy = .compat
             scriptStop = nil
+            loaded = false
         }
         _ = str("__v_create", [theme])
         thread.sync { [self] in js?.collectGarbage() }
@@ -235,6 +237,7 @@ public final class TrustedValidator {
             native = NativeValidator(tables: tables, oracle: self) { [weak self] k, d in
                 self?.onDiag(k, d.firstIndex(of: "\u{0}").map { String(d[..<$0]) } ?? d)
             }
+            if loaded { native?.markLoaded() }
             _ = str("__v_native", ["1"])
         }
     }
@@ -418,6 +421,17 @@ public final class TrustedValidator {
     }
 
     public var nodeCount: Int { thread.sync { [self] in native?.nodeCount ?? Int((try? js?.call("__v_nodeCount"))?.number ?? 0) } }
+
+    /// The loading tasks are over (their ops are in): text changes are rate-limited from now on (validator.ts `markLoaded`).
+    public func markLoaded() {
+        thread.sync { [self] in
+            loaded = true
+            _ = str("__v_markLoaded", [])
+            native?.markLoaded()
+        }
+    }
+    /// `markLoaded` was called: a native model made later starts loaded too. Validator's thread.
+    private var loaded = false
 }
 
 extension TrustedValidator: NativeValidatorOracle {

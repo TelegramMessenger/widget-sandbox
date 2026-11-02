@@ -310,11 +310,13 @@ private:
     double currentSliceMs_ = 0;
     std::string currentKind_ = "boot";
     double excludeMs_ = 0;
-    /// Wall time this task's layout queries have blocked for, and whether that passed the task's query budget.
+    /// Wall time this task's layout queries have blocked for, how many the host answered, and which limit they passed
+    /// (CpuBudget::queryLimitHit: "count", "time", or empty).
     double taskQueryMs_ = 0;
+    int taskQueries_ = 0;
     /// Modelled main-thread cost of the ops this task sent (CpuBudget::opsCostMs).
     double taskOpsCostMs_ = 0;
-    bool queryLimitHit_ = false;
+    std::string_view queryLimitHit_;
     double lastThrottleDiag_ = -1e300;
     std::map<std::string, int> throttledSinceDiag_;
     std::vector<std::pair<std::string, std::string>> pendingBeforeBoot_;

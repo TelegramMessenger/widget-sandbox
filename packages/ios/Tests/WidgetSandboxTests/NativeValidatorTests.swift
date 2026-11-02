@@ -13,6 +13,7 @@ final class NativeValidatorDifferentialTests: XCTestCase {
             validator.setPolicy(policy)
             if native { validator.useNativeModel(true) }
             XCTAssertEqual(validator.usesNativeModel, native)
+            validator.markLoaded() // a loaded widget: text changes are rate-limited from the first batch
         }
 
         func json(_ batch: String) -> (NSArray, Int, [String]) {

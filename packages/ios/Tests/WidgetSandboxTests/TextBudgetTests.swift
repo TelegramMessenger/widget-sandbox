@@ -114,6 +114,17 @@ final class TextBudgetTests: XCTestCase {
         }
     }
 
+    /// The twin of strict-limits.test.ts "text inserted while the widget loads": ~45 K characters of paragraphs built by
+    /// the loading script are not charged to the churn bucket; the host's `markLoaded` starts it.
+    func testTextInsertedWhileLoadingIsNotChargedToTheChurnBucket() {
+        let js = "for(var i=0;i<95;i++){var q=document.createElement('p');q.textContent='Paragraph '+i+': '+'lorem ipsum dolor sit amet '.repeat(17);document.body.appendChild(q);}"
+        for binary in [true, false] {
+            let r = churn(binary: binary, js: js, seconds: 0.8)
+            XCTAssertEqual(r.churnDiags, 0, "binary \(binary)")
+            XCTAssertTrue(r.renderer.messages.contains { $0.contains("Paragraph 94:") }, "binary \(binary)")
+        }
+    }
+
     func testTickerTextNeverHitsTheChurnLimit() {
         let js = "var p=document.getElementById('p'),n=0;setInterval(function(){n++;p.textContent='BTC $'+(60000+n)+' \\u25B2 +'+(n%7)+'.0% \\u00B7 ETH $'+(3000+n%50)+' \\u092E\\u0947\\u0930\\u093E';},10);"
         for binary in [true, false] {

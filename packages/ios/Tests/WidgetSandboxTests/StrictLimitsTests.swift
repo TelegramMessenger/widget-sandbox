@@ -53,15 +53,15 @@ final class StrictLimitsTests: XCTestCase {
         XCTAssertEqual(options.memoryLimitBytes, 8 * 1024 * 1024)
         XCTAssertEqual(options.maxTimers, 64)
         XCTAssertEqual(options.mainThreadQuotaMs, 100)
-        XCTAssertEqual(CpuBudget.queryBudgetMs, 100)
-        XCTAssertEqual(CpuBudget.queryBudgetMs(sliceMs: 500), 100)
+        XCTAssertEqual(CpuBudget.queryLimit, 128)
+        XCTAssertEqual(CpuBudget.queryBudgetMs, 1000)
         XCTAssertEqual(CpuBudget.opsCostMs(ops: 4000, canvasCommands: 0), 100, accuracy: 1e-9)
         XCTAssertEqual(CpuBudget.opsCostMs(ops: 1, canvasCommands: 2000), 4.025, accuracy: 1e-9)
     }
 
     func testTablesCarryThePolicyCaps() throws {
         let strict = try XCTUnwrap(NativeValidatorTables(json: Rig(native: true, policy: .strict).validator.tablesJSON()))
-        XCTAssertEqual([strict.maxText, strict.maxAttr, strict.maxOps, strict.maxCanvasCommands], [32768, 8192, 10_000, 10_000])
+        XCTAssertEqual([strict.maxText, strict.maxAttr, strict.maxOps, strict.maxCanvasCommands], [32768, 8192, 10_000, 4000])
         XCTAssertEqual([strict.textBudget, strict.maxCssRules, strict.maxKeyframes, strict.maxLiveAnims], [49152, 400, 32, 64])
         XCTAssertEqual(strict.maxCanvasPixels, 2048 * 2048)
         XCTAssertTrue(strict.stop)
@@ -144,8 +144,29 @@ final class StrictLimitsTests: XCTestCase {
 
     // MARK: ops per batch, canvas commands per send
 
+    /// The twin of strict-limits.test.ts "nodes in the document": compared once the batch is applied, on both paths.
+    func testNodeCapStopsOnEveryPath() {
+        let els = { (n: Int, from: Int) in (0..<n).flatMap { [["op": "el", "id": from + $0, "tag": "div"], ["op": "ins", "parent": 3, "id": from + $0, "before": NSNull()]] as [[String: Any]] } }
+        for native in [false, true] {
+            let v = rig(native: native)
+            XCTAssertEqual(v.json(json(els(1998, 100))).0.count, 3996, "native \(native)") // html and body are two of them
+            XCTAssertNil(v.validator.stopped)
+            XCTAssertEqual(v.json(json(els(1, 5000))).0.count, 0)
+            XCTAssertEqual(v.validator.stopped, "Node limit exceeded: 2001 nodes in the document (max 2000)", "native \(native)")
+            // A document rebuilt in one batch, the old nodes removed after the new ones are made.
+            let r = rig(native: native)
+            _ = r.json(json(els(1500, 100)))
+            XCTAssertEqual(r.json(json(els(1500, 10_000) + (0..<1500).map { ["op": "rm", "id": 100 + $0] })).0.count, 4500, "native \(native)")
+            XCTAssertNil(r.validator.stopped)
+            let compat = rig(native: native, policy: .compat)
+            _ = compat.json(json(els(3000, 100)))
+            XCTAssertNil(compat.validator.stopped)
+        }
+    }
+
     func testOpsPerBatchCapStopsOnEveryPath() {
-        let texts = { (n: Int, from: Int) in (0..<n).map { ["op": "text", "id": from + $0, "data": ""] as [String: Any] } }
+        // One text node and its changes: n ops without passing the node cap.
+        let texts = { (n: Int, from: Int) in [["op": "text", "id": from, "data": ""] as [String: Any]] + (1..<n).map { ["op": "data", "id": from, "data": String($0 % 10)] as [String: Any] } }
         for native in [false, true] {
             let v = rig(native: native)
             XCTAssertEqual(v.json(json(texts(10_000, 100))).0.count, 10_000)
@@ -170,13 +191,13 @@ final class StrictLimitsTests: XCTestCase {
 
     func testCanvasCommandsPerSendStopOnEveryPath() {
         let cmds = { (n: Int) in (0..<n).map { ["c", "fillRect", $0, 0, 1, 1] as [Any] } }
-        let reason = "Canvas limit exceeded: 10001 commands in one send (max 10000)"
+        let reason = "Canvas limit exceeded: 4001 commands in one send (max 4000)"
         for native in [false, true] {
             let v = rig(native: native)
             _ = v.json(json(Self.canvas))
-            let fits = v.json(json([["op": "canvas", "id": 9, "cmds": cmds(10_000)]])).0 as! [[String: Any]]
-            XCTAssertEqual((fits.first?["cmds"] as? [Any])?.count, 10_000)
-            XCTAssertEqual(v.json(json([["op": "canvas", "id": 9, "cmds": cmds(10_001)]])).0.count, 0)
+            let fits = v.json(json([["op": "canvas", "id": 9, "cmds": cmds(4000)]])).0 as! [[String: Any]]
+            XCTAssertEqual((fits.first?["cmds"] as? [Any])?.count, 4000)
+            XCTAssertEqual(v.json(json([["op": "canvas", "id": 9, "cmds": cmds(4001)]])).0.count, 0)
             XCTAssertEqual(v.validator.stopped, reason, "native \(native)")
             let compat = rig(native: native, policy: .compat)
             _ = compat.json(json(Self.canvas))
@@ -184,7 +205,7 @@ final class StrictLimitsTests: XCTestCase {
             XCTAssertEqual((all.first?["cmds"] as? [Any])?.count, 10_001)
         }
         // Canvas words through the native model (binary ops).
-        for (count, stops) in [(10_000, false), (10_001, true)] {
+        for (count, stops) in [(4000, false), (4001, true)] {
             let v = rig(native: true)
             var encoder = BinaryOpsEncoder()
             encoder.begin(reset: true)
@@ -195,13 +216,13 @@ final class StrictLimitsTests: XCTestCase {
             XCTAssertEqual(out.0.count, stops ? 0 : 3, "\(count)")
             XCTAssertEqual(v.validator.stopped, stops ? reason : nil)
         }
-        // The canvas-word shortcut of the script validator's host takes 10 000; 10 001 go through the validator, which stops.
-        for (count, stops) in [(10_000, false), (10_001, true)] {
+        // The canvas-word shortcut of the script validator's host takes 4000; 4001 go through the validator, which stops.
+        for (count, stops) in [(4000, false), (4001, true)] {
             let v = rig(native: false)
             _ = v.json(json(Self.canvas))
             let result = v.validator.processOpsForRenderer("[{\"op\":\"canvas\",\"id\":9,\"bin\":7}]", canvas: [7: fillRects(count)], typed: true)
             if stops {
-                guard case .empty = result else { return XCTFail("10001 commands reached the renderer") }
+                guard case .empty = result else { return XCTFail("4001 commands reached the renderer") }
                 XCTAssertEqual(v.validator.stopped, reason)
                 XCTAssertEqual(v.validator.nativeCanvasBatches, 0)
                 guard case .empty = v.validator.processOpsForRenderer("[{\"op\":\"canvas\",\"id\":9,\"bin\":7}]", canvas: [7: fillRects(1)], typed: true) else { return XCTFail("a stopped validator took the shortcut") }
@@ -539,7 +560,7 @@ final class StrictLimitsTests: XCTestCase {
     /// The boot config carries the policy: under strict the shim throws at the validator's 10 000 commands per canvas
     /// and task, so the author sees the error where the host would stop the widget; compat draws them all.
     func testTheShimRefusesTheCanvasCommandPastTheCapUnderStrict() {
-        let html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d'); try { for (var i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>"
+        let html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d'); try { for (var i = 0; i < 4001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>"
         for policy in [SandboxPolicy.strict, .compat] {
             let d = RecordingDelegate()
             var config = SandboxConfig(innerWidth: 300, innerHeight: 200, devicePixelRatio: 2, theme: "light")
@@ -550,7 +571,7 @@ final class StrictLimitsTests: XCTestCase {
             engine.start()
             wait(for: [d.loaded], timeout: 20)
             engine.queue.sync {}
-            let expected = policy == .strict ? "RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)" : "drew all"
+            let expected = policy == .strict ? "RangeError: Canvas limit exceeded: more than 4000 commands for one canvas in one task (max 4000)" : "drew all"
             XCTAssertTrue(d.logs.contains { $0.1 == expected }, "\(policy): \(d.logs)")
             engine.terminate()
         }

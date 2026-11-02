@@ -20,6 +20,7 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <string_view>
 
 namespace twidget {
@@ -36,10 +37,23 @@ public:
     static constexpr int kBuckets = 10;
     /// Kinds that may be postponed. `boot`, `event` and `visibility` always run.
     static bool deferrable(std::string_view kind);
-    /// A task's layout queries may block the host for at most this much, whatever its slice (boot included).
-    static constexpr double kQueryBudgetMs = 100;
-    /// Layout-query budget of one task (cpu-budget.ts `queryBudgetMs`): past it the task is interrupted and killed.
-    static double queryBudgetMs(double /*sliceMs*/) { return kQueryBudgetMs; }
+    /// Layout queries the host may answer in one task (cached answers are free), whatever its slice (boot included).
+    static constexpr int kQueryLimit = 128;
+    /// What a task's layout queries may block the host in all: the hang guard behind the count.
+    static constexpr double kQueryBudgetMs = 1000;
+    /// Whether a task with `queries` answered layout queries that blocked the host `queryMs` in all is past its limit
+    /// (cpu-budget.ts `queryLimitHit`): "count", "time" or "" (none); past either the task is interrupted and killed.
+    static std::string_view queryLimitHit(int queries, double queryMs) {
+        if (queries > kQueryLimit) return "count";
+        if (queryMs > kQueryBudgetMs) return "time";
+        return "";
+    }
+    /// The reason a task stopped by `queryLimitHit` is killed with (cpu-budget.ts `queryLimitReason`).
+    static std::string queryLimitReason(std::string_view hit, const std::string& kind) {
+        return hit == "count"
+            ? "Layout query limit exceeded: more than " + std::to_string(kQueryLimit) + " layout queries in one " + kind + " task"
+            : "Layout query limit exceeded: host queries blocked the renderer for more than " + std::to_string(int(kQueryBudgetMs)) + " ms in one " + kind + " task";
+    }
     /// Modelled main-thread cost of one op the glue forwards to the validator, and of one canvas command in it.
     static constexpr double kOpCostMs = 0.025;
     static constexpr double kCanvasCommandCostMs = 0.002;

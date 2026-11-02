@@ -97,6 +97,7 @@ class TrustedValidator private constructor(
                 globalThis.__v_setTheme = (t) => __twValidator.setTheme(t);
                 globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);
                 globalThis.__v_nodeCount = () => __twValidator.nodeCount();
+                globalThis.__v_markLoaded = () => { __twValidator.markLoaded(); return ''; };
                 globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };
                 """.trimIndent(),
                 "validator-glue.js",
@@ -142,6 +143,8 @@ class TrustedValidator private constructor(
     fun setTheme(theme: String): String = str("__v_setTheme", listOf(theme)).ifEmpty { "[]" }
     fun rewriteMediaQuery(query: String): String = str("__v_rewriteMediaQuery", listOf(query))
     val nodeCount: Int get() = thread.sync { (try { js?.call("__v_nodeCount")?.number } catch (e: QuickJSException) { null } ?: 0.0).toInt() }
+    /** The loading tasks are over (their ops are in): text changes are rate-limited from now on (validator.ts `markLoaded`). */
+    fun markLoaded() { str("__v_markLoaded", emptyList()) }
 
     /** Frees the context; stops the thread when it is the validator's own. A pooled validator is recycled by ValidatorPool instead. */
     override fun close() {

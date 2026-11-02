@@ -36,10 +36,20 @@ class CpuBudget(
         const val BUCKETS = 10
         /** Kinds that may be postponed. `boot`, `event` and `visibility` always run. */
         val DEFERRABLE = setOf("timer", "frame", "viewport", "resize", "theme", "bridge")
-        /** A task's layout queries may block the host for at most this much, whatever its slice (boot included). */
-        const val QUERY_BUDGET_MS = 100.0
-        /** Layout-query budget of one task (cpu-budget.ts `queryBudgetMs`): the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU; past this the task is interrupted and killed. */
-        fun queryBudgetMs(@Suppress("UNUSED_PARAMETER") sliceMs: Double): Double = QUERY_BUDGET_MS
+        /** Layout queries the host may answer in one task (cached answers are free), whatever its slice (boot included). */
+        const val QUERY_LIMIT = 128
+        /** What a task's layout queries may block the host in all: the hang guard behind the count. */
+        const val QUERY_BUDGET_MS = 1000.0
+        /** Whether a task with [queries] answered layout queries that blocked the host [queryMs] in all is past its limit (cpu-budget.ts `queryLimitHit`): `"count"`, `"time"` or null; the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU, and past either the task is interrupted and killed. */
+        fun queryLimitHit(queries: Int, queryMs: Double): String? = when {
+            queries > QUERY_LIMIT -> "count"
+            queryMs > QUERY_BUDGET_MS -> "time"
+            else -> null
+        }
+        /** The reason a task stopped by [queryLimitHit] is killed with (cpu-budget.ts `queryLimitReason`). */
+        fun queryLimitReason(hit: String, kind: String): String =
+            if (hit == "count") "Layout query limit exceeded: more than $QUERY_LIMIT layout queries in one $kind task"
+            else "Layout query limit exceeded: host queries blocked the renderer for more than ${QUERY_BUDGET_MS.toInt()} ms in one $kind task"
 
         /** Modelled main-thread cost of one op the engine forwards to the validator, and of one canvas command in it. */
         const val OP_COST_MS = 0.025

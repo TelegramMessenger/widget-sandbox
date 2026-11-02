@@ -42,6 +42,8 @@ struct NativeValidatorTables {
     var limbo = 0
     var complexTextBudget = 0
     var textBudget = 0
+    /// Nodes in the document, compared once a batch is applied (validator.ts `MAX_DOCUMENT_NODES`); 0 = no cap (compat).
+    var maxDocumentNodes = 0
     /// CSS rules and `@keyframes` over the document's stylesheets (validator.ts `countCssRules`); 0 = no cap.
     var maxCssRules = 0
     var maxKeyframes = 0
@@ -118,6 +120,7 @@ struct NativeValidatorTables {
         limbo = Int(numbers[5])
         complexTextBudget = Int(root["complexTextBudget"]?.number ?? 0)
         textBudget = Int(root["textBudget"]?.number ?? 0)
+        maxDocumentNodes = Int(root["documentNodes"]?.number ?? 0)
         maxCssRules = Int(root["cssRules"]?.number ?? 0)
         maxKeyframes = Int(root["keyframes"]?.number ?? 0)
         maxLiveAnims = Int(root["liveAnims"]?.number ?? 1024)
@@ -285,6 +288,9 @@ final class NativeValidator {
     /// sum of the old and the new that the document never holds. False when a total is over its cap (the widget stops).
     @discardableResult
     private func checkTotals() -> Bool {
+        if tables.maxDocumentNodes > 0, nodes.count - 1 > tables.maxDocumentNodes {
+            return stop("Node limit exceeded: \(nodes.count - 1) nodes in the document (max \(tables.maxDocumentNodes))")
+        }
         if tables.textBudget > 0, totalText > tables.textBudget {
             return stop("Text limit exceeded: the document's text is over \(tables.textBudget) characters")
         }
@@ -892,7 +898,12 @@ final class NativeValidator {
         return max(count, (units + 1023) / 1024)
     }
 
+    /// Until the host says the widget has loaded, inserted text is not charged to the churn bucket (validator.ts `loading`).
+    private var loading = true
+    func markLoaded() { loading = false }
+
     private func takeChurn(_ words: Int) -> Bool {
+        if loading { return true }
         let now = clock()
         if let at = churnAt {
             churnTokens = min(Double(Self.complexTextBudget), churnTokens + max(0, now - at) * Self.complexChurnPerSecond)

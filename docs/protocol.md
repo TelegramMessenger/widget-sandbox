@@ -28,7 +28,9 @@ attributes on its own (defense in depth).
 
 `{ type: 'ops', ops: SandboxOp[] }` — applied in order, at most 10 000 per
 batch under `strict` (past it the widget stops), 200 000 under `compat`. The sandbox flushes a batch at the end of every task (event, timer,
-frame, script) and *before* every sync query.
+frame, script) and *before* every sync query; a long flush goes out in several batches, split between two nodes once
+about 1000 ops are buffered (since v0.6.0; its `call` ops, canvases and animations go in its last batch, with the staged
+canvas payloads). A host applies them in order, as it always did.
 
 | op | fields | meaning |
 |---|---|---|
@@ -213,11 +215,11 @@ unaffected.
   fonts) and unknown at-rules dropped; `url()`, `image-set()`, `image()`,
   `src()`, `cross-fade()` only with `data:` images or a fragment;
   `var()`/`env()`/`attr()` inside URL-taking functions rejected.
-- Sizes under `strict`: ≤ 50 000 nodes, a text value ≤ 32 K and the document's
+- Sizes under `strict`: ≤ 2000 nodes in the document, a text value ≤ 32 K and the document's
   text ≤ 48 K UTF-16 units, an attribute ≤ 8 K, a batch ≤ 10 000 ops, a canvas op
-  ≤ 10 000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`,
+  ≤ 4000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`,
   the widget's canvases ≤ 2048² pixels together (a new canvas 300 × 150, then its
-  `width` / `height` and the `r` command; the document's text, rules and `@keyframes` as they stand after the whole
+  `width` / `height` and the `r` command; the nodes, the document's text, rules and `@keyframes` as they stand after the whole
   batch); past one the validator reports the fatal `limit` diagnostic (the reason), refuses
   the batch and every later one, and the host stops the widget (`docs/decisions.md`,
   "Strict limits from the start"). Under `compat`: text ≤ 2 MB, attribute ≤ 4 MB,

@@ -36,11 +36,27 @@ export type Decision =
 export const BUCKETS = 10;
 /** Kinds that may be postponed. `boot`, `event` and `visibility` always run. */
 export const DEFERRABLE: ReadonlySet<string> = new Set(['timer', 'frame', 'viewport', 'resize', 'theme', 'bridge']);
-/** A task's layout queries may block the host for at most this much, whatever its slice (boot included). */
-export const QUERY_BUDGET_MS = 100;
-/** Layout-query budget of one task: the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU; past this the task is interrupted and killed. */
-export function queryBudgetMs(_sliceMs: number): number {
-  return QUERY_BUDGET_MS;
+/** Layout queries the host may answer in one task (cached answers are free), whatever its slice (boot included). */
+export const QUERY_LIMIT = 128;
+/** What a task's layout queries may block the host in all: the hang guard behind the count. */
+export const QUERY_BUDGET_MS = 1000;
+/**
+ * Whether a task with `queries` answered layout queries that blocked the host `queryMs` in all is past its limit, and
+ * which: the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever
+ * burning widget CPU; past either the task is interrupted and killed. The count stops the same widget on every device
+ * (the time of a query does not: a cold first layout on a slow phone takes over 100 ms); their time also counts toward
+ * the main-thread window, which slows the widget down instead.
+ */
+export function queryLimitHit(queries: number, queryMs: number): 'count' | 'time' | null {
+  if (queries > QUERY_LIMIT) return 'count';
+  if (queryMs > QUERY_BUDGET_MS) return 'time';
+  return null;
+}
+/** The reason a task stopped by `queryLimitHit` is killed with. */
+export function queryLimitReason(hit: 'count' | 'time', kind: string): string {
+  return hit === 'count'
+    ? `Layout query limit exceeded: more than ${QUERY_LIMIT} layout queries in one ${kind} task`
+    : `Layout query limit exceeded: host queries blocked the renderer for more than ${QUERY_BUDGET_MS} ms in one ${kind} task`;
 }
 
 /** Modelled main-thread cost of one op the glue forwards to the validator, and of one canvas command in it. */
