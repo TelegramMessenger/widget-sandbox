@@ -2,7 +2,8 @@
 
 These self-contained profile-1 widgets use canvas 2D to project, shade and depth-sort
 small 3D scenes. The planet uses perspective ray/sphere intersections and
-normal-based lighting, presented through supported canvas fillRect color runs. They use no WebGL, CSS 3D transforms, bundled library, image asset,
+normal-based lighting, presented as one horizontal canvas gradient per 2 px band of the disc,
+clipped to its circle. They use no WebGL, CSS 3D transforms, bundled library, image asset,
 network access or experimental native side channel. The models and planet surface are procedural illustrations; the molecules are
 educational shapes.
 
@@ -32,6 +33,42 @@ vertical angle survives recreation. The planet has a fixed 128×128 backing,
 throttles active redraws to 250 ms, and uses no pixel read-back/image-data APIs.
 Both chat themes and widths 200–600 px are supported; the 200 px layout uses a
 shorter viewport. Controls keep a 20 px inset from the leading edge.
+
+## Frame budget
+
+A frame is at most 2000 canvas commands in every state: each model, pose, tide and
+molecule, the whole orbit, every elevation (the cat's full ±1.3 mouse pitch included), both
+zoom bounds, both themes and widths 200–600 px. That is half the strict cap of 4000 commands
+per canvas in one task; at 2 µs a command in the host's main-thread window it is about
+25 frames a second on every client. Worst frames in the Node harness (v0.6.0):
+
+| File | Worst frame | Before v0.6.0 |
+|---|---|---|
+| `01-robot.html` | 1369 (resting pose) | 4144 (resting pose) |
+| `02-camera.html` | 605 | 1247 |
+| `03-orbits.html` | 1964 (the band budget's ceiling, zoom 1.3) | 20 668 (zoom 1.3, clouds) |
+| `04-island.html` | 993 | 2976 |
+| `05-molecules.html` | 704 (methane) | 8164 (methane) |
+| `06-cat.html` | 1675 | 7606 |
+
+The meshes stay inside it this way. Closed solids (boxes, balls, the cat's tail) skip the
+faces turned away from the eye, and a ball's pole quads are triangles (so a ball's top is lit
+like its sides; the old pole facets had no normal and drew at the darkest shade). A face is filled once,
+without the same-colour outline stroke it used to get: each polygon is pushed out a hair from
+its centre (0.008 units per camera axis) instead, which hides the anti-aliasing seams. The
+floor grid is one stroked path under the model; the cat, whose eye can go below the floor,
+keeps it as depth-sorted faces. The molecules' bond beads are shaded discs, not 32-face balls.
+The cat's large balls have 10 × 5 facets, its tail is a hexagonal tube with three stripe bands,
+and its flat markings (pupils, nose line, forehead and toe stripes) are single faces.
+
+The planet samples 64 bands of 2 px. Each band is one gradient whose stops keep every sample
+within a tolerance that scales with its brightness (dark tones are held tighter); if a frame
+would pass 1880 band commands, the tolerance grows until it fits. The glow around the disc is
+one radial gradient, the stars two paths. The surface, clouds, terminator and highlight are
+still computed per sample; the limb is now a smooth circle instead of pixel steps.
+
+`showcase-3d.test.ts` draws every widget through these states under the strict policy and
+fails past 2000 commands in one frame.
 
 ## Run the checks
 
