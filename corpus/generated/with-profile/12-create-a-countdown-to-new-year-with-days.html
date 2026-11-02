@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>New Year Countdown</title>
 <style>
-  :root { color-scheme: light dark; --bg: #eef2ff; --fg: #1e1b4b; --muted: #4338ca; --box: #fff; --line: #c7d2fe; --num: #4338ca; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #0f0a2e; --fg: #fff; --muted: #a5b4fc; --box: rgba(255,255,255,.08); --line: rgba(255,255,255,.15); --num: #fbbf24; } }
+  :root { color-scheme: light dark; --bg: #eef2ff; --fg: #1e1b4b; --muted: #4338ca; --box: #fff; --line: #c7d2fe; --num: #4338ca; --dim: rgba(67,56,202,.2); }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f0a2e; --fg: #fff; --muted: #a5b4fc; --box: rgba(255,255,255,.08); --line: rgba(255,255,255,.15); --num: #fbbf24; --dim: rgba(251,191,36,.2); } }
   body { margin: 0; padding: 20px 14px; font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); text-align: center; }
   h2 { font-size: 19px; margin: 0 0 4px; }
   .sub { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
@@ -16,7 +16,7 @@
   .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 4px; }
   .stars { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: -1; }
   .star { position: absolute; width: 2px; height: 2px; background: var(--num); border-radius: 50%; animation: twinkle 2s infinite alternate; }
-  @keyframes twinkle { from { opacity: .2; } to { opacity: 1; } }
+  @keyframes twinkle { from { background: var(--dim); } to { background: var(--num); } }
 </style>
 </head>
 <body>

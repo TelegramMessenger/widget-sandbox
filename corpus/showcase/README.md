@@ -69,6 +69,10 @@ like at its best within the profile every client draws.
   button), no WebGL or CSS 3D transforms (flips are `scaleX` / `scaleY`), no SVG `<pattern>`, no
   `text-shadow` (a `drop-shadow()` filter instead), no `user-select`, no
   keyboard or focus, no inner scrolling, no named fonts.
+- At most 16 heavy boxes (a blurred shadow, a filter, a backdrop-filter, `opacity` below 1, or an animation of one
+  of them; v0.6.0, `docs/decisions.md` "Heavy boxes"): muted text and small details take a colour
+  (`--muted`, `rgba()`, `fill-opacity` / `stroke-opacity` in SVG), not `opacity`. `travel/04-weather` and
+  `life/01-fitness-rings` were reworked that way (18 each before).
 - State lives in JS, the DOM is updated in place; lists may be rebuilt with a
   template literal, the whole widget never is. No `top`/`parent`/`self`/
   `window`/`document` as global names.
