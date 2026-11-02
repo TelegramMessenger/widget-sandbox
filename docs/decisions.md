@@ -747,6 +747,20 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   purpose). `dist/QUICKJS_VERSION` names the fork commit; `build.sh` defaults to
   the `packages/ios/Sources/CQuickJS/quickjs` submodule, so the wasm and the
   native builds come from the same commit.
+- Reproducible since v0.6.0 (Nov 2026): the same fork commit and the pinned
+  emscripten (6.0.12; `build.sh --docker` uses the emsdk image by digest) give
+  the same bytes on any machine. Before, `dist/` differed from a rebuild only in
+  the amalgamation's `__FILE__`, the random temporary directory in the assert
+  messages of the data segment; `-ffile-prefix-map` removes it (the wasm was
+  rebuilt once for that, 64 bytes shorter, nothing else changed), and the
+  version string is the commit's first 7 hex digits instead of `git describe`.
+  `dist.sha256` lists every `dist/` file; `build.sh --check` rebuilds in a
+  temporary directory and compares (CI's `wasm.yml` when an input changes), and
+  the unit suite checks `dist/` against the list and `QUICKJS_VERSION` against
+  the submodule on every commit. Checked: macOS arm64 with Homebrew's
+  emscripten 6.0.12 and the emsdk 6.0.12 image on Linux arm64 give identical
+  files. A new emscripten is a deliberate change: both pins in `build.sh`, then
+  `dist/` and `dist.sha256` in one commit.
 - Behaviour change, now the same on every platform: out-of-memory is
   uncatchable in quickjs-ng 0.17, so a widget that hits the cap is stopped
   (`Memory limit exceeded`, last render frozen) even inside `try/catch`.
