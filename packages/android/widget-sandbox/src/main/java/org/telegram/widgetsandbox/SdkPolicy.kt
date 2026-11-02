@@ -239,8 +239,8 @@ object SdkPolicy {
     const val HAPTIC_SERIES_GAP_MS = 10000
     /** A press whose end the host never saw (the finger left the view) counts as lifted this long after it began. */
     const val HAPTIC_PRESS_MAX_MS = 30000
-    /** The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts; docs/profile-v1.md). */
-    const val PROFILE_VERSION = 1
+    /** The widget profile this glue enforces (VERSION.json's `profile`, as `PROFILE_VERSION` in profile-tables.ts; docs/profile-v1.md). */
+    const val PROFILE_VERSION = WidgetSandboxVersion.PROFILE
     /** Until the widget calls `setResizeAnchor`: the bubble grows and shrinks downward (docs/sdk-v1.md §2.12). */
     const val DEFAULT_RESIZE_ANCHOR = "top"
     /** The edges of the bubble that can stay put on screen when the widget's height changes (`setResizeAnchor`). */

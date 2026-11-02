@@ -31,7 +31,7 @@ the tag, never a branch: `main` moves, and the JS bundles, the native
 bytecode and the QuickJS submodule change together, so a mixed checkout does
 not boot.
 
-- **SwiftPM (iOS, macOS)**: `.package(url: "https://github.com/TelegramMessenger/widget-sandbox.git", exact: "0.1.1")`
+- **SwiftPM (iOS, macOS)**: `.package(url: "https://github.com/TelegramMessenger/widget-sandbox.git", exact: "0.6.0")`
   (SwiftPM reads the `v` prefix of the tag). The manifest is the repo-root
   `Package.swift`; SwiftPM clones the QuickJS submodule itself. A registry or
   zip copy without the submodule does not build.
@@ -44,7 +44,7 @@ not boot.
   as `apps/android` does. The AAR carries the native library (arm64-v8a, x86_64)
   and the bundles as assets; a Maven publication comes later.
 - **npm (web)**: `@telegram/widget-sandbox` lives in `packages/core`. With pnpm:
-  `"@telegram/widget-sandbox": "github:TelegramMessenger/widget-sandbox#v0.1.1&path:packages/core"`;
+  `"@telegram/widget-sandbox": "github:TelegramMessenger/widget-sandbox#v0.6.0&path:packages/core"`;
   with another package manager, a checkout at the tag and a `file:` / workspace
   dependency on `packages/core`. The package is not on the npm registry yet.
 
@@ -52,6 +52,40 @@ What you get at a tag is one state of the framework: the three JS bundles, the
 `.qbc` bytecode next to them, the QuickJS submodule they were compiled with,
 `packages/quickjs-wasm/dist` for the web, and `packages/conformance` (below).
 Never mix files from two tags.
+
+**`VERSION.json`** at the repository root names that state (since v0.6.0):
+
+```json
+{ "version": "0.6.0", "protocol": 1, "profile": 1, "sdk": 1 }
+```
+
+| field | what it is |
+|---|---|
+| `version` | the release, semver; the tag is `v` + it (`package.json`, `packages/core/package.json` and the Android library's `version` repeat it) |
+| `protocol` | the wire between the glue and the bundles (`docs/protocol.md`: the config, the host calls, the messages, the validator's API); it changes when a bundle needs glue it cannot run without |
+| `profile` | the widget profile, `TelegramWidget.profile` (`docs/profile-v1.md`; `packages/core/profile.json` repeats it) |
+| `sdk` | the widget SDK (`docs/sdk-v1.md`); an addition to SDK v1 does not change it |
+
+`pnpm build:ios|android|desktop` stamps all four on the first line of every
+bundle (`/* widget-sandbox version=0.6.0 protocol=1 profile=1 sdk=1 */`) and
+writes them into the glue as constants: `WidgetSandboxVersion` (Swift and
+Kotlin) and `twidget::version` (C++, `twidget/version.h`), which also give the
+glue its `profile`. **The native glue refuses a bundle without a stamp or with
+another `protocol`, `profile` or `sdk`**, the way it refuses a stale `.qbc`,
+except that there is nothing to fall back to: the engine stops at boot, before
+any widget code, with the diagnostic `bundle-mismatch` (its detail names the
+bundle, both versions and the fix) and dies with `sandbox bundle failed to
+load`; the validator loads nothing and answers every batch empty. The release
+itself is not compared: bundles of another release with the same three numbers
+run. A `bundle-mismatch` means your copy mixes two releases (a resources folder
+not updated with the code, a bundle copied over by hand): take the bundles and
+the glue from the same tag. The web host builds its bundles from the same
+`packages/core` sources as the rest of the page, so it has nothing to compare.
+A client that loads the bundles from a resource layout of its own gets the same
+check (Swift `SandboxResources(sandboxBundle:rendererBundle:validatorBundle:sandboxBytecode:validatorBytecode:)`,
+the fields of the C++ `SandboxResources`); `SandboxResources.refusal` (Swift,
+Kotlin) and `BundleStamp::refusal(resources)` (C++) give the reason before any
+widget starts, for a startup check of your own.
 
 ## Policy and features
 

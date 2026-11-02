@@ -14,6 +14,13 @@ forwarded to the renderer without passing through `Validator`
 (`packages/core/src/host/validator.ts`); the renderer additionally refuses forbidden tags and
 attributes on its own (defense in depth).
 
+This page is protocol 1 (`protocol` in `VERSION.json`). A change that a glue of the previous
+release cannot run with (a config field it must send, a host call or message it does not
+handle, a change to the validator's API) bumps it in the same commit; an addition the old glue
+can ignore does not. Every native bundle carries the number on its first line and the native
+glue refuses a bundle of another protocol before it runs (`bundle-mismatch`,
+`docs/integration.md` "Pinning a release").
+
 ## Node ids
 
 - Every node that the sandbox wants rendered gets a **stable integer id** chosen
@@ -551,7 +558,7 @@ client's duties are in docs/sdk-v1.md.
 | `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |
 | `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
 | `contentSafeArea` | all 0 | the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left, cornerLeft, cornerRight}`; the shim checks it (an inset 0–64, a corner 0–200, else 0): `TelegramWidget.contentSafeAreaInset` |
-| `profile` | 1 | the widget profile the glue enforces; the shim reports `profile-mismatch` when its bundle's differs |
+| `profile` | 1 | the widget profile the glue enforces (`VERSION.json`'s `profile`); the shim reports `profile-mismatch` when its bundle's differs |
 | `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (4096 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
 | `chatData`, `publicData` | `null` | the chat state and the shared state, which only the bot writes, checked by the glue (text of 1–1024 bytes of UTF-8 without a NUL, else `null` and `data-rejected`); a copy's `chatData` is `null` |
 | `isCopy` | `false` | a forwarded copy (the server's `is_copy`; the widget's `isForward`) |

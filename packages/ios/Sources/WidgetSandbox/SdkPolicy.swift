@@ -33,8 +33,8 @@ public enum SdkPolicy {
     public static let hapticSeriesGapMs = 10000.0
     /// A press whose end the host never saw (the finger left the view) counts as lifted this long after it began.
     public static let hapticPressMaxMs = 30000.0
-    /// The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts); the shim reports a mismatch with its own.
-    public static let profileVersion = 1
+    /// The widget profile this glue enforces (VERSION.json's `profile`, as `PROFILE_VERSION` in profile-tables.ts); the shim reports a mismatch with its own.
+    public static let profileVersion = WidgetSandboxVersion.profileVersion
 
     public static let themeKeys = [
         "bg_color", "text_color", "hint_color", "link_color", "button_color", "button_text_color",

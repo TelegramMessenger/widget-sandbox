@@ -7,6 +7,7 @@
 // No test framework dependency: `twidget-tests [filter]`, exit code = failures.
 
 #include "../harness/recording_host.h"
+#include "twidget/bundle_stamp.h"
 #include "twidget/cpu_budget.h"
 #include "twidget/gesture_policy.h"
 #ifdef _WIN32
@@ -2767,6 +2768,88 @@ TEST(shipped_bytecode_is_used_and_no_library_is_bundled) {
     std::vector<std::pair<std::string, std::string>> diags;
     TrustedValidator v("light", RES, [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
     for (auto& d : diags) CHECK_MSG(d.first != "bytecode", d.second);
+}
+
+// ───────────── VERSION.json's stamp on the bundles (bundle_stamp.h) ─────────────
+
+/// `source` with its first line replaced by `line` (empty: removed).
+static std::string restamped(const std::string& source, const std::string& line) {
+    size_t nl = source.find('\n');
+    std::string rest = nl == std::string::npos ? "" : source.substr(nl + 1);
+    return line.empty() ? rest : line + "\n" + rest;
+}
+
+static std::shared_ptr<SandboxResources> resourcesWith(const char* which, const std::string& line) {
+    auto res = std::make_shared<SandboxResources>(*RES);
+    std::string& bundle = std::string(which) == "sandbox" ? res->sandboxBundle : std::string(which) == "validator" ? res->validatorBundle : res->rendererBundle;
+    bundle = restamped(bundle, line);
+    return res;
+}
+
+TEST(bundle_stamp_shipped_and_parsed) {
+    auto mine = BundleStamp::glue();
+    CHECK_MSG(!BundleStamp::refusal(*RES), BundleStamp::refusal(*RES).value_or(""));
+    for (const std::string* source : {&RES->sandboxBundle, &RES->validatorBundle, &RES->rendererBundle}) {
+        auto stamp = BundleStamp::parse(*source);
+        CHECK_MSG(stamp && *stamp == mine, "a shipped bundle is not this release's; run pnpm build:desktop: " + source->substr(0, 80));
+    }
+    CHECK(sdk::PROFILE_VERSION == version::PROFILE);
+    auto parsed = BundleStamp::parse("/* widget-sandbox version=1.2.3-rc.1 protocol=7 profile=2 sdk=3 later=x */\n\"use strict\";");
+    CHECK(parsed && *parsed == (BundleStamp{"1.2.3-rc.1", 7, 2, 3}));
+    CHECK(BundleStamp::parse(mine.line()) == mine);
+    for (const char* line : {
+             "\"use strict\";(()=>{", "/* widget-sandbox */", "/* widget-sandbox version=0.6.0 protocol=1 profile=1 */",
+             "/* widget-sandbox version=0.6.0 protocol=x profile=1 sdk=1 */", "/* widget-sandbox version=0.6.0 protocol=-1 profile=1 sdk=1 */",
+             "/* widget-sandbox version= protocol=1 profile=1 sdk=1 */", "/* widget-sandbox version=0.6.0  protocol=1 profile=1 sdk=1 */",
+             "/* widget-sandbox version=0.6.0 protocol=1 profile=1 sdk=1", "\n/* widget-sandbox version=0.6.0 protocol=1 profile=1 sdk=1 */",
+             "/* widget-sandbox version=0.6.0 protocol=1234567 profile=1 sdk=1 */"}) {
+        CHECK_MSG(!BundleStamp::parse(line), line);
+    }
+    CHECK_MSG(!BundleStamp::refusal(BundleStamp{"0.0.1", mine.protocol, mine.profile, mine.sdk}.line(), "x.js"), "another release with the same numbers runs");
+    auto other = BundleStamp::refusal(BundleStamp{"9.9.9", mine.protocol + 1, mine.profile, mine.sdk}.line(), "sandbox-bundle.js").value_or("");
+    CHECK_MSG(other.rfind("sandbox-bundle.js is widget-sandbox 9.9.9 (protocol " + std::to_string(mine.protocol + 1) + ",", 0) == 0, other);
+    CHECK_MSG(other.find("this glue is " + mine.describe()) != std::string::npos, other);
+    CHECK(BundleStamp::refusal(BundleStamp{"9.9.9", mine.protocol, mine.profile + 1, mine.sdk}.line(), "x.js"));
+    CHECK(BundleStamp::refusal(BundleStamp{"9.9.9", mine.protocol, mine.profile, mine.sdk + 1}.line(), "x.js"));
+    auto none = BundleStamp::refusal("\"use strict\";", "validator-bundle.js").value_or("");
+    CHECK_MSG(none.rfind("validator-bundle.js has no version stamp", 0) == 0, none);
+    CHECK(BundleStamp::refusal(*resourcesWith("renderer", BundleStamp{"9.9.9", mine.protocol, mine.profile, 99}.line())).value_or("").rfind("renderer-bundle.js is ", 0) == 0);
+}
+
+/// Bundles of another release: the engine dies at boot with `bundle-mismatch` before any widget code runs, and the
+/// validator loads no bundle (every call answers empty).
+TEST(bundle_stamp_engine_and_validator_refuse_another_release) {
+    auto mine = BundleStamp::glue();
+    std::vector<std::pair<const char*, std::string>> cases = {
+        {"sandbox", BundleStamp{"9.9.9", mine.protocol + 1, mine.profile, mine.sdk}.line()},
+        {"sandbox", ""},
+        {"validator", BundleStamp{"9.9.9", mine.protocol, mine.profile + 1, mine.sdk}.line()},
+        {"renderer", BundleStamp{"9.9.9", mine.protocol, mine.profile, mine.sdk + 1}.line()},
+    };
+    for (auto& [which, line] : cases) {
+        auto res = resourcesWith(which, line);
+        std::string refusal = BundleStamp::refusal(*res).value_or("");
+        CHECK(!refusal.empty());
+        RecordingHost host("light", res, false);
+        SandboxConfig cfg = testConfig();
+        SandboxEngine engine("<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>", cfg, res);
+        engine.setDelegate(&host);
+        engine.start();
+        CHECK(host.waitLoaded(20));
+        engine.thread().sync([] {});
+        auto l = host.lock();
+        CHECK_MSG(host.died == std::optional<std::string>("sandbox bundle failed to load"), std::string(which) + ": " + host.died.value_or("alive"));
+        int mismatches = 0;
+        for (auto& d : host.diags) if (d.first == "bundle-mismatch") { mismatches++; CHECK_MSG(d.second == refusal, d.second); }
+        CHECK_MSG(mismatches == 1, which);
+        CHECK_MSG(host.countDiag("validator:bundle-mismatch") == 1, which);
+        CHECK(!host.hasLog("widget ran"));
+        CHECK(host.ops.empty());
+    }
+    std::vector<std::pair<std::string, std::string>> diags;
+    TrustedValidator v("light", resourcesWith("validator", ""), [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
+    CHECK(v.processOps("[{\"op\":\"el\",\"id\":2,\"tag\":\"p\"}]") == "[]");
+    CHECK_MSG(!diags.empty() && diags[0].first == "bundle-mismatch", diags.empty() ? "none" : diags[0].first);
 }
 
 TEST(validator_diag_bridge) {

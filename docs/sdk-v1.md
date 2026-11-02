@@ -769,7 +769,7 @@ one policy with a shared JSON fixture, as `cpu-budget` does:
 | `themeParams` | `Record<ThemeKey, '#rrggbb'>` | client | |
 | `locale` | BCP 47 string, at most 35 characters | client | |
 | `contentSafeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }`, CSS px | client (§2.17, §5.12; all 0 when absent); the shim checks it: an inset 0–64, a corner 0–200, two decimals, else 0 | |
-| `profile` | integer | glue (its own constant; `VERSION.json` once it exists) | the shim reports `profile-mismatch` when it differs from the bundle's |
+| `profile` | integer | glue (`WidgetSandboxVersion` / `twidget::version`, generated from `VERSION.json`'s `profile`) | the shim reports `profile-mismatch` when it differs from the bundle's; the native glue does not start a bundle stamped with another profile (`bundle-mismatch`, `docs/integration.md` "Pinning a release") |
 | `storage` | `{ local: Record<string, string>, session: Record<string, string> }` | client (the preload), glue checks the quota | |
 | `policy` | `'strict'` | glue default | |
 | `chatData`, `publicData` | `string \| null` | client (`data`: the chat state and the shared state), glue checks: text of 1–1024 bytes without a NUL, else `null` (`data-rejected`); a copy's `chatData` is dropped | |

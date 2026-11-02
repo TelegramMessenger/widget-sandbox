@@ -122,6 +122,19 @@ arm64): sandbox bundle boot 38–74 ms → 20–22 ms, Chart.js 18 ms → 4 ms; 
 remainder is the bundle's own top-level execution, which bytecode cannot remove
 (QuickJS has no heap snapshots).
 
+### Version stamp (v0.6.0)
+
+`build-native-bundles.ts` writes `VERSION.json` on the first line of each of
+the three bundles (`/* widget-sandbox version=0.6.0 protocol=1 profile=1 sdk=1 */`)
+and into the glue as constants (`WidgetSandboxVersion.swift` / `.kt`,
+`twidget/version.h`). Before it evaluates a bundle (the `.qbc` or the source)
+the engine checks the stamps of the whole set (`BundleStamp.swift` / `.kt`,
+`bundle_stamp.cpp`, one parser in three copies with the format's tests in
+`version.test.ts`): no stamp, or another protocol, profile or sdk, and it dies
+at boot with `bundle-mismatch`; the validator loads nothing. A port reads the
+stamp from the source it already has for the `.qbc` check, so the check costs
+one line's parse.
+
 ### Lifecycle
 
 One QuickJS runtime per visible widget; when a message scrolls out of view,

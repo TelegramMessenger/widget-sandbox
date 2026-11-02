@@ -923,6 +923,11 @@ class SandboxEngine(
      * matches the source, else the source. Returns "bytecode" or "source" for the diag.
      */
     private fun evalBundle(source: String, bytecode: ByteArray?, filename: String): String {
+        // Bundles of another release are refused before anything runs, as a stale `.qbc` is (BundleStamp.kt).
+        resources.refusal?.let {
+            delegate?.onDiag(this, "bundle-mismatch", it)
+            return "failed"
+        }
         val ctx = js
         if (ctx != null && bytecode != null) {
             try {
