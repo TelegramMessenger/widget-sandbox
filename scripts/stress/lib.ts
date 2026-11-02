@@ -34,7 +34,7 @@ export interface ManifestWidget {
   size: { raw: number; zlib: number };
 }
 export interface Manifest {
-  version: 1;
+  version: 2;
   limits: typeof STRICT_LIMITS;
   run: { warmupMs: number; measureMs: number; width: number };
   loads: { id: string; title: string; stresses: string; param: string; unit: string; levels: number[]; fit: 'heavy' | 'plain' | null; widgets: string[] }[];
