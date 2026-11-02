@@ -309,6 +309,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         // The theme variables go first, before the renderer can announce `ready` (a pooled one replays it when onMessage is set).
         toRenderer(widgetTheme.rendererMessage)
         toRenderer(options.contentSafeArea.rendererMessage)
+        // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
+        toRenderer("{\"type\":\"policy\",\"policy\":\"\(options.policy.rawValue)\"}")
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
         publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
@@ -853,6 +855,17 @@ public final class WidgetHost: SandboxEngineDelegate {
         case "release":
             // The primary press ended (pointerup or pointercancel, listened to or not).
             engine.pressEnded()
+        case "limit":
+            // Past a paint limit (16 heavy boxes, 2 with backdrop-filter; the WebView renderer's message or a client
+            // renderer's `limitExceeded`): the renderer drew the frame without the effects, and the widget stops as for
+            // memory or CPU. compat counts nothing.
+            guard let limit = (msg["code"] as? String).flatMap(WidgetPaintLimit.init(rawValue:)), let count = (msg["count"] as? NSNumber)?.doubleValue, count.isFinite, count >= 0 else {
+                return diag("renderer-violation", "a limit report with an unknown code or no count")
+            }
+            if options.policy == .compat || state.dead != nil { return }
+            let reason = limit.message(count: Int(count))
+            diag(limit.rawValue, reason)
+            die(reason)
         case "violation":
             diag("renderer-violation", msg["detail"] as? String ?? "")
         default:

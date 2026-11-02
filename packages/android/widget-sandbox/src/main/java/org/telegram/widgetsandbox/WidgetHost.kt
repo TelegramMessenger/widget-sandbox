@@ -465,6 +465,8 @@ class WidgetHost(
         // The theme goes first (queued until `ready`, which flushes it before the engine starts).
         toRenderer(themeMessage())
         toRenderer(safeAreaMessage(options.contentSafeArea))
+        // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
+        toRenderer(JSONObject().put("type", "policy").put("policy", if (isStrictPolicy(options.policy)) "strict" else "compat").toString())
         // The engine starts once the renderer announced itself, so the very first
         // layout queries have something to measure.
         renderer.load()
@@ -814,6 +816,22 @@ class WidgetHost(
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
             "media" -> engine.theme(scheme, theme.params)
             "violation" -> diag("renderer-violation", msg.optString("detail"))
+            "limit" -> {
+                // Past a paint limit (16 heavy boxes, 2 with backdrop-filter; the WebView renderer's message or a client
+                // renderer's `limitExceeded`): the renderer drew the frame without the effects, and the widget stops as
+                // for memory or CPU. compat counts nothing.
+                val limit = WidgetPaintLimit.of(msg.optString("code"))
+                val count = msg.opt("count") as? Number
+                if (limit == null || count == null || !count.toDouble().isFinite() || count.toDouble() < 0) {
+                    diag("renderer-violation", "a limit report with an unknown code or no count")
+                    return
+                }
+                if (!isStrictPolicy(options.policy) || diagnostics.dead != null) return
+                val reason = limit.message(count.toDouble().toInt())
+                diag(limit.code, reason)
+                die(reason)
+                engine.stop(reason)
+            }
         }
     }
 

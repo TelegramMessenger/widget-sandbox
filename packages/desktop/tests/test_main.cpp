@@ -1195,6 +1195,45 @@ TEST(text_over_the_cap_stops_the_widget) {
     CHECK(rendered.find("never") != std::string::npos);
 }
 
+/// The paint limit (docs/decisions.md "Heavy boxes"): a renderer that counts reports it with Renderer::limitExceeded,
+/// the host stops the widget like a counted cap (`dead` with the reason, the diagnostic, the renderer frozen); the
+/// renderer learns the policy first; compat ignores the report, and a malformed one is a renderer violation.
+TEST(paint_limit_stops_the_widget) {
+    CHECK(paintLimitMessage(WidgetPaintLimit::Paint, 17) == "Paint limit exceeded: 17 boxes with shadows, filters or transparency (max 16)");
+    CHECK(paintLimitMessage(WidgetPaintLimit::Backdrop, 3) == "Paint limit exceeded: 3 boxes with backdrop-filter (max 2)");
+    CHECK(paintLimitFromCode("backdrop-limit") == WidgetPaintLimit::Backdrop && !paintLimitFromCode("render-budget"));
+    const std::string html = "<p id=p>x</p><script>setInterval(function () { document.getElementById('p').textContent += '.'; }, 20);</script>";
+    for (WidgetPaintLimit code : {WidgetPaintLimit::Paint, WidgetPaintLimit::Backdrop}) {
+        ScriptedRenderer* renderer = nullptr;
+        WidgetHost host(html, WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+        host.start();
+        CHECK(host.waitLoaded(20));
+        std::vector<Json> policy = renderer->sent("policy");
+        CHECK_MSG(policy.size() == 1 && policy[0]["policy"].asString() == "strict", std::to_string(policy.size()) + " policy messages");
+        int count = code == WidgetPaintLimit::Paint ? 17 : 3;
+        renderer->limitExceeded(code, count);
+        CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.dead.has_value(); }, 5));
+        WidgetDiagnostics d = host.diagnostics();
+        CHECK_MSG(d.dead == std::optional<std::string>(paintLimitMessage(code, count)), d.dead.value_or("alive"));
+        CHECK(d.countDiag(paintLimitCode(code)) == 1);
+        CHECK(renderer->sent("frozen").size() == 1);
+        CHECK(host.probe("1") == "ERROR no runtime");
+    }
+    WidgetHostOptions compat;
+    compat.policy = "compat";
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host(html, WidgetTheme{}, 300, compat, RES, scripted(renderer));
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK(renderer->sent("policy").size() == 1 && renderer->sent("policy")[0]["policy"].asString() == "compat");
+    renderer->limitExceeded(WidgetPaintLimit::Paint, 40);
+    renderer->onMessage("{\"type\":\"limit\",\"code\":\"paint-limit\"}");
+    sleepMs(150);
+    WidgetDiagnostics d = host.diagnostics();
+    CHECK_MSG(!d.dead, d.dead.value_or(""));
+    CHECK(d.countDiag("renderer-violation") == 1);
+}
+
 /// The main-thread window (mainThreadQuotaMs): the modelled cost of what a task sent (25 µs per op, 2 µs per canvas
 /// command) plus its layout queries, apart from the JS quota. Past it frames are deferred and `cpu-throttled` names the
 /// main-thread budget; with the default 100 ms the same frames all run. The canvas widget sends one op per frame, so
