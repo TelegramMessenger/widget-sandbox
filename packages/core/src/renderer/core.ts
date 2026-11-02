@@ -18,6 +18,7 @@ import { EVENT_TYPES, type CanvasCmd, type HostToRenderer, type Query, type Rend
 import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
 import { THEME_VARIABLES, contentSafeAreaVariables, themeVariables } from '../shared/sdk-policy';
 import { GestureArbiter, claimOf, type GestureClaim, type GestureVerdict, type PointerKind } from '../shared/gesture-policy';
+import { PaintCounter, animationPaint, boxPaint, boxShadowBlurred, boxShadowWithoutBlur, hidesSubtree, type BoxPaint, type PaintKeyframe, type PaintVerdict } from '../shared/paint-policy';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
 import { TOUCH_ACTION_CLAIM, engineTouchAction } from './touch-action';
 
@@ -94,6 +95,9 @@ const htmlStyleOf = getter(HTMLElement.prototype, 'style');
 const svgStyleOf = getter(SVGElement.prototype, 'style');
 const styleOf = (el: Element): CSSStyleDeclaration => (el instanceof SVGElement ? svgStyleOf(el) : htmlStyleOf(el));
 const sheetOf = getter(HTMLStyleElement.prototype, 'sheet');
+const isConnectedOf = getter(Node.prototype, 'isConnected');
+const matches = uncurry(Element.prototype.matches);
+const getAnimationsOf = uncurry(Element.prototype.getAnimations);
 
 /** Defense in depth: the validator never emits these, but the renderer refuses them regardless. */
 const FORBIDDEN_TAGS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'link', 'meta', 'base', 'portal', 'noscript', 'set', 'template', 'audio', 'video', 'source', 'track',
@@ -119,6 +123,10 @@ const ENGINE_GESTURES = new Set(['dblclick', 'contextmenu']);
 /** Compatibility mouse events: they carry no pointerId, so they follow the press the bubble took. */
 const MOUSE_COMPAT = new Set(['mousedown', 'mouseup', 'mousemove', 'click']);
 const ENTER_LEAVE = ['pointerenter', 'pointerleave', 'mouseenter', 'mouseleave'];
+/** Rule 5 of the heavy-box count (paint-policy.ts): a CSS animation or transition from its start event to its end or cancel. */
+const PAINT_ANIMATION_EVENTS = ['animationstart', 'animationend', 'animationcancel', 'transitionstart', 'transitionend', 'transitioncancel'];
+/** What moves :hover / :active (and a details element's `open`) without an op. */
+const PAINT_INPUT_EVENTS = ['pointerover', 'pointerout', 'pointerdown', 'pointerup', 'pointercancel', 'toggle'];
 const noop = () => {};
 /**
  * Input that belongs to the chat, never to the widget (D4, docs/profile-v1.md):
@@ -174,6 +182,7 @@ function forget(node: Node) {
     canvases.delete(id);
     if (node instanceof Element) resizeObserver.unobserve(node);
     if (node instanceof HTMLCanvasElement) { canvasPixelsTotal -= canvasPixels.get(node) ?? 0; canvasPixels.delete(node); }
+    if (node instanceof HTMLStyleElement) widgetStyles.delete(node);
   }
   for (let c = firstChildOf(node); c; c = nextSiblingOf(c)) forget(c);
 }
@@ -855,13 +864,19 @@ function onEvent(e: Event) {
 // ───────────────────────── size reporting ─────────────────────────
 
 let lastSize = '';
+let lastViewport = '';
 function reportSize() {
-  const msg: RendererToHost = { type: 'size', width: HTML.clientWidth, height: env.docHeight(), ...env.viewport() };
+  const viewport = env.viewport();
+  const msg: RendererToHost = { type: 'size', width: HTML.clientWidth, height: env.docHeight(), ...viewport };
   const key = JSON.stringify(msg);
   if (key !== lastSize) {
     lastSize = key;
     post(msg);
   }
+  // @media, @container and viewport units follow the bubble's size: every box is counted again
+  const vp = viewport.innerWidth + 'x' + viewport.innerHeight;
+  if (vp !== lastViewport) { lastViewport = vp; paintEverything(); }
+  if (paintPending && isConnectedOf(HTML)) { paintPending = false; schedulePaint(); }
 }
 
 const resizeObserver = new ResizeObserver((entries) => {
@@ -873,13 +888,448 @@ const resizeObserver = new ResizeObserver((entries) => {
   if (out.length) post({ type: 'resize', entries: out });
 });
 
+// ───────────────────────── heavy boxes (paint-policy.ts, docs/decisions.md "Heavy boxes") ─────────────────────────
+//
+// Before a frame is drawn the renderer knows how many of the widget's boxes are heavy (a blurred shadow, a filter, a
+// backdrop-filter, opacity below 1, or an animation of one of them): past 16 (2 with backdrop-filter) it draws the
+// widget without those effects and reports `limit`; the host stops it. The count is kept incrementally: an applied
+// batch, a pointer that moves :hover / :active and an animation event mark the boxes they can reach, and one count per
+// frame (requestAnimationFrame, before the frame is drawn) recomputes those boxes from their computed values; a
+// stylesheet, the theme, the safe area and the viewport recompute every box. Under `compat` nothing is counted.
+
+/** Counted unless the host says `compat` (fail closed: before the host's `policy`, and for any other value). */
+let paintOn = true;
+/** `policy.paintReports` (tooling): post the counts whenever they change. */
+let paintReports = false;
+let lastPaintReport = '';
+const paint = new PaintCounter<number>();
+/** Elements whose computed values, and their subtrees', may have changed since the last count. */
+const paintDirty = new Set<Element>();
+/** Elements whose own values may have changed (the chain a press goes through, when only the UA layer's `button:active` can match). */
+const paintDirtySelf = new Set<Element>();
+/** Every box is recomputed at the next count (a stylesheet, the theme, the safe area, the viewport; the first count). */
+let paintAll = true;
+let paintFrame = 0;
+/** Changes wait for a count while the tree is off the page (a Shadow DOM renderer built before it is attached). */
+let paintPending = false;
+/** Past a limit: the widget is drawn without effects, takes no more ops, and waits for the host's `frozen`. */
+let paintStopped = false;
+/** What the widget's stylesheets use: how far a change reaches beyond the element and its subtree; `styleAttr`: a selector on the style attribute. */
+let paintSheets = { siblings: false, structural: false, hover: false, active: false, styleAttr: false };
+/**
+ * Inline properties that can change whether a box is heavy, on the element or below it (a custom property can feed
+ * `opacity: var(--x)`; prefixed aliases match too); any other inline property (transform, left, background, …)
+ * cannot, unless a selector reads the style attribute. Animations and transitions it starts are rule 5, their events.
+ */
+const PAINT_STYLE_PROPS = /^--|opacity|filter|box-shadow|^display$|^all$/i;
+/** The same in a whole style attribute (a declaration of one of them; an escape may spell one). */
+const PAINT_STYLE_TEXT = /--|\\|(?:opacity|filter|box-shadow|display|all)\s*:/i;
+/** Elements whose inline style may declare one of them (an over-estimate: set by an op that wrote one, cleared when the attribute is replaced). */
+const inlineHeavy = new WeakSet<Element>();
+/** The elements a `::before` / `::after` rule may match (its selectors without the pseudo-element): only theirs are computed. */
+let pseudoSelector = '';
+let paintSheetsDirty = true;
+const widgetStyles = new Set<HTMLStyleElement>();
+const styleConnected = new WeakMap<HTMLStyleElement, boolean>();
+/** The renderer's Web Animations counted under rule 5: animation id → the box key. */
+const scriptedCounted = new Map<number, number>();
+let scriptedPaint = new WeakMap<Animation, BoxPaint | null>();
+const scriptedListened = new WeakSet<Animation>();
+/** Box keys: the element, its ::before, its ::after. */
+const BEFORE = 1, AFTER = 2;
+const backdropOf = (cs: CSSStyleDeclaration) => cs.getPropertyValue('backdrop-filter') || cs.getPropertyValue('-webkit-backdrop-filter');
+
+function schedulePaint() {
+  if (paintFrame || !paintOn || paintStopped || frozen) return;
+  paintFrame = requestAnimationFrame(countPaint);
+}
+
+/** `el` (and everything under it) may have changed; with a sibling combinator or a structural pseudo-class in the widget's sheets, its siblings too. */
+function paintChanged(el: Node | null | undefined, siblings = false) {
+  if (!paintOn || paintStopped || !(el instanceof Element)) return;
+  const parent = siblings && (paintSheets.siblings || paintSheets.structural) ? parentNodeOf(el) : null;
+  paintDirty.add(parent instanceof Element && ids.has(parent) ? parent : el);
+  schedulePaint();
+}
+
+function paintEverything() {
+  if (!paintOn || paintStopped) return;
+  paintAll = true;
+  schedulePaint();
+}
+
+/** Before an op: a node about to leave its place (rm, or ins of a node already in the tree) takes its boxes with it. */
+function paintBefore(op: RenderOp) {
+  if (op.op !== 'rm' && op.op !== 'ins') return;
+  const node = nodes.get(op.id);
+  if (!node || node === HTML || node === HEAD || node === BODY) return;
+  const parent = parentNodeOf(node);
+  if (!parent) return;
+  if (node instanceof Element) clearBoxes(node);
+  // its old siblings may match differently (`+`, `~`, :nth-child(), :last-child, :empty)
+  if (paintSheets.siblings || paintSheets.structural) paintChanged(parent);
+}
+
+/** After an op: what it can have changed (the subtree of an element whose attribute or style changed, an inserted subtree). */
+function paintAfter(op: RenderOp) {
+  switch (op.op) {
+    case 'el': {
+      const el = nodes.get(op.id);
+      if (el instanceof HTMLStyleElement) widgetStyles.add(el);
+      if (el instanceof Element) for (const [name, value] of op.attrs) if (name.toLowerCase() === 'style' && PAINT_STYLE_TEXT.test(value)) inlineHeavy.add(el);
+      if (op.adopt) paintChanged(el);
+      return;
+    }
+    case 'style': {
+      if (!paintSheets.styleAttr && !PAINT_STYLE_PROPS.test(op.name)) return;
+      const el = nodes.get(op.id);
+      if (el instanceof Element) inlineHeavy.add(el);
+      paintChanged(el, true);
+      return;
+    }
+    case 'attr': case 'rattr': {
+      const el = nodes.get(op.id);
+      if (!(el instanceof Element)) return;
+      if (el instanceof HTMLStyleElement) { paintSheetsDirty = true; paintEverything(); return; }
+      // a style attribute that neither had nor has a declaration of a heavy property changes no box (as a style op)
+      if (op.name.toLowerCase() === 'style') {
+        const had = inlineHeavy.has(el), has = op.op === 'attr' && PAINT_STYLE_TEXT.test(op.value);
+        if (has) inlineHeavy.add(el);
+        else inlineHeavy.delete(el);
+        if (!had && !has && !paintSheets.styleAttr) return;
+      }
+      paintChanged(el, true);
+      return;
+    }
+    case 'ins': {
+      if (op.parent === 0) return;
+      const node = nodes.get(op.id);
+      if (node instanceof Element) paintChanged(node, true);
+      else if (node && paintSheets.structural) paintChanged(parentNodeOf(node), true);
+      return;
+    }
+    case 'data':
+      // :empty
+      if (paintSheets.structural) paintChanged(parentNodeOf(nodes.get(op.id) ?? null), true);
+      return;
+    case 'css':
+      paintSheetsDirty = true;
+      paintEverything();
+      return;
+  }
+}
+
+/** The widget's stylesheets, read again when one changed or was connected or removed: what a change reaches, and which elements may have pseudo-element boxes. */
+function refreshSheets() {
+  let changed = paintSheetsDirty;
+  for (const el of widgetStyles) {
+    const on = isConnectedOf(el) as boolean;
+    if (styleConnected.get(el) !== on) { styleConnected.set(el, on); changed = true; }
+  }
+  if (!changed) return;
+  paintSheetsDirty = false;
+  paintAll = true;
+  const flags = { siblings: false, structural: false, hover: false, active: false, styleAttr: false };
+  const pseudo: string[] = [];
+  const inspect = (selector: string) => {
+    const bare = selector.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""').replace(/\[[^\]]*\]/g, '[]');
+    if (/[+~]/.test(bare.replace(/:nth-[a-z-]+\([^)]*\)/gi, ''))) flags.siblings = true;
+    if (/:(nth-|first-child|last-child|only-child|first-of-type|last-of-type|only-of-type|empty)/i.test(bare)) flags.structural = true;
+    if (/:hover/i.test(bare)) flags.hover = true;
+    if (/:active/i.test(bare)) flags.active = true;
+    if (/\[\s*style\b/i.test(selector)) flags.styleAttr = true;
+    if (!/::?(before|after)\b/i.test(bare)) return;
+    // the selectors of the list that name a pseudo-element, without it: a superset of the elements it can match
+    let depth = 0, from = 0;
+    const parts: string[] = [];
+    for (let i = 0; i <= selector.length; i++) {
+      const c = selector[i];
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      else if ((c === ',' && depth === 0) || c === undefined) { parts.push(selector.slice(from, i)); from = i + 1; }
+    }
+    for (const part of parts) {
+      if (!/::?(before|after)\b/i.test(part)) continue;
+      pseudo.push(part.replace(/(^|[\s>+~(,])::?(before|after)\b/gi, '$1*').replace(/::?(before|after)\b/gi, '').trim() || '*');
+    }
+  };
+  const walk = (rules: CSSRuleList) => {
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i] as CSSRule & { selectorText?: string; cssRules?: CSSRuleList };
+      if (typeof r.selectorText === 'string') inspect(r.selectorText);
+      if (r.cssRules) walk(r.cssRules);
+    }
+  };
+  for (const el of widgetStyles) {
+    const sheet = sheetOf(el) as CSSStyleSheet | null;
+    if (sheet) try { walk(sheet.cssRules); } catch {}
+  }
+  paintSheets = flags;
+  pseudoSelector = pseudo.join(',');
+  if (pseudoSelector) try { matches(HTML, pseudoSelector); } catch { pseudoSelector = '*'; }
+}
+
+/** The boxes of `el` and of everything under it are gone (display: none, removed, moved away). */
+function clearBoxes(el: Element) {
+  const id = ids.get(el);
+  if (id !== undefined) { paint.removeBox(id * 4); paint.removeBox(id * 4 + BEFORE); paint.removeBox(id * 4 + AFTER); }
+  for (let c = firstChildOf(el); c; c = nextSiblingOf(c)) if (c instanceof Element) clearBoxes(c);
+}
+
+function stylePaint(cs: CSSStyleDeclaration, display: string, pseudo: boolean): BoxPaint | null {
+  return boxPaint({ display, content: pseudo ? cs.content : undefined, boxShadow: cs.boxShadow, filter: cs.filter, backdropFilter: backdropOf(cs), opacity: cs.opacity }, pseudo);
+}
+
+function pseudoPaint(el: Element, key: number, which: '::before' | '::after') {
+  const cs = getComputedStyle(el, which);
+  paint.setBox(key, stylePaint(cs, cs.display, true));
+}
+
+/** Recomputes the boxes of `el` and of its subtree (`hidden`: an ancestor is display: none). */
+function scanBoxes(el: Element, hidden: boolean) {
+  const id = ids.get(el);
+  // the renderer's own elements (the stopped badge) are no boxes of the widget's
+  if (id === undefined) return;
+  if (hidden) return clearBoxes(el);
+  const cs = getComputedStyle(el);
+  const display = cs.display;
+  if (hidesSubtree(display)) return clearBoxes(el);
+  const key = id * 4;
+  paint.setBox(key, stylePaint(cs, display, false));
+  if (pseudoSelector && matches(el, pseudoSelector)) {
+    pseudoPaint(el, key + BEFORE, '::before');
+    pseudoPaint(el, key + AFTER, '::after');
+  } else {
+    paint.setBox(key + BEFORE, null);
+    paint.setBox(key + AFTER, null);
+  }
+  for (let c = firstChildOf(el); c; c = nextSiblingOf(c)) if (c instanceof Element) scanBoxes(c, false);
+}
+
+/** Whether `n` or an element above it (up to the widget's root) is display: none; remembered for one count. */
+function hiddenAt(n: Node | null, memo: Map<Node, boolean>): boolean {
+  if (!(n instanceof Element)) return false;
+  let v = memo.get(n);
+  if (v !== undefined) return v;
+  v = hidesSubtree(getComputedStyle(n).display) || (n !== HTML && hiddenAt(parentNodeOf(n), memo));
+  memo.set(n, v);
+  return v;
+}
+
+function coveredByDirty(el: Element): boolean {
+  for (let p = el === HTML ? null : parentNodeOf(el); p instanceof Element; p = p === HTML ? null : parentNodeOf(p)) if (paintDirty.has(p)) return true;
+  return false;
+}
+
+/** Rule 5 for the renderer's own Web Animations (the shim's `webAnimations`): counted while `running`. */
+function syncScriptedPaint() {
+  for (const [aid, key] of scriptedCounted) {
+    if (animations.scripted.has(aid)) continue;
+    paint.endAnimation(key, 'w:' + aid);
+    scriptedCounted.delete(aid);
+  }
+  for (const [aid, a] of animations.scripted) {
+    if (!scriptedListened.has(a)) {
+      scriptedListened.add(a);
+      a.addEventListener('finish', schedulePaint);
+      a.addEventListener('cancel', schedulePaint);
+    }
+    const name = 'w:' + aid;
+    let key = -1;
+    let p: BoxPaint | null | undefined = null;
+    const effect = a.effect as KeyframeEffect | null;
+    const id = a.playState === 'running' && effect?.target ? ids.get(effect.target) : undefined;
+    if (id !== undefined) {
+      p = scriptedPaint.get(a);
+      if (p === undefined) {
+        let frames: ComputedKeyframe[] = [];
+        try { frames = effect!.getKeyframes(); } catch {}
+        p = animationPaint(frames as unknown as PaintKeyframe[]);
+        scriptedPaint.set(a, p);
+      }
+      if (p) key = id * 4;
+    }
+    const was = scriptedCounted.get(aid);
+    if (was !== undefined && (was !== key || !paint.animating(was, name))) {
+      paint.endAnimation(was, name);
+      scriptedCounted.delete(aid);
+      const target = nodes.get(Math.floor(was / 4));
+      if (target instanceof Element) { paintDirtySelf.add(target); schedulePaint(); }
+    }
+    if (p && key >= 0 && !paint.animating(key, name)) { paint.startAnimation(key, name, p); scriptedCounted.set(aid, key); }
+  }
+}
+
+function countPaint() {
+  paintFrame = 0;
+  if (!paintOn || paintStopped || frozen || !HTML || !ids.has(HTML)) return;
+  // no computed values off the page: counted once the tree is laid out (reportSize)
+  if (!isConnectedOf(HTML)) { paintPending = true; return; }
+  refreshSheets();
+  if (paintAll) {
+    paintAll = false;
+    paintDirty.clear();
+    paintDirtySelf.clear();
+    scanBoxes(HTML, false);
+  } else {
+    const memo = new Map<Node, boolean>();
+    for (const el of paintDirty) {
+      if (!ids.has(el) || !isConnectedOf(el) || coveredByDirty(el)) continue;
+      scanBoxes(el, el !== HTML && hiddenAt(parentNodeOf(el), memo));
+    }
+    for (const el of paintDirtySelf) {
+      const id = ids.get(el);
+      if (id === undefined || paintDirty.has(el) || !isConnectedOf(el) || coveredByDirty(el) || hiddenAt(el, memo)) continue;
+      const cs = getComputedStyle(el);
+      paint.setBox(id * 4, stylePaint(cs, cs.display, false));
+      if (pseudoSelector && matches(el, pseudoSelector)) {
+        pseudoPaint(el, id * 4 + BEFORE, '::before');
+        pseudoPaint(el, id * 4 + AFTER, '::after');
+      }
+    }
+    paintDirty.clear();
+    paintDirtySelf.clear();
+  }
+  if (animations.scripted.size || scriptedCounted.size) syncScriptedPaint();
+  if (paintReports) {
+    const key = paint.heavy + ':' + paint.backdrop;
+    if (key !== lastPaintReport) { lastPaintReport = key; post({ type: 'paint', heavy: paint.heavy, backdrop: paint.backdrop }); }
+  }
+  const verdict = paint.check();
+  if (verdict) stopPaint(verdict);
+}
+
+/** A CSS animation or transition starts or ends: rule 5 (from its start event until its end or cancel event). */
+function onPaintAnimation(e: Event) {
+  if (!paintOn || paintStopped || frozen) return;
+  const el = e.target;
+  const id = el instanceof Element ? ids.get(el) : undefined;
+  if (id === undefined) return;
+  const ev = e as AnimationEvent & TransitionEvent;
+  const pseudo = ev.pseudoElement || '';
+  const slot = pseudo === '' ? 0 : pseudo === '::before' ? BEFORE : pseudo === '::after' ? AFTER : -1;
+  if (slot < 0) return;
+  const key = id * 4 + slot;
+  const transition = e.type.startsWith('transition');
+  const name = transition ? 't:' + ev.propertyName : 'a:' + ev.animationName;
+  if (e.type === 'animationstart' || e.type === 'transitionstart') {
+    const p = cssAnimationPaint(el as Element, transition, transition ? ev.propertyName : ev.animationName, pseudo);
+    if (!p) return;
+    paint.startAnimation(key, name, p);
+  } else {
+    if (!paint.animating(key, name)) return;
+    paint.endAnimation(key, name);
+    // its values were last read while the animation applied: read them again
+    paintDirtySelf.add(el as Element);
+  }
+  schedulePaint();
+}
+
+/**
+ * What the CSS animation `name` (or the transition of property `name`) running on `el` or its pseudo-element adds,
+ * from its keyframes (a transition's: its two ends). A transition the engine no longer lists counts by its property
+ * alone (its values unknown); an animation it no longer lists has ended (its end event follows).
+ */
+function cssAnimationPaint(el: Element, transition: boolean, name: string, pseudo: string): BoxPaint | null {
+  const Kind = transition ? (typeof CSSTransition === 'undefined' ? null : CSSTransition) : (typeof CSSAnimation === 'undefined' ? null : CSSAnimation);
+  if (Kind) {
+    for (const a of getAnimationsOf(el, pseudo ? { subtree: true } : undefined) as Animation[]) {
+      if (!(a instanceof Kind) || (transition ? (a as CSSTransition).transitionProperty : (a as CSSAnimation).animationName) !== name) continue;
+      const effect = a.effect as KeyframeEffect | null;
+      if (!effect || effect.target !== el || (effect.pseudoElement ?? '') !== pseudo) continue;
+      try { return animationPaint(effect.getKeyframes() as unknown as PaintKeyframe[]); } catch { break; }
+    }
+  }
+  return transition ? animationPaint([{ offset: 0, [name]: null }, { offset: 1, [name]: null }]) : null;
+}
+
+/** :hover and :active move with the pointer, without ops: the elements whose state changed (and their subtrees) are counted again. */
+function onPaintInput(e: Event) {
+  if (!paintOn || paintStopped || frozen) return;
+  const type = e.type;
+  if (type === 'toggle') return paintChanged(e.target as Node, true);
+  if (type === 'pointerover' || type === 'pointerout') {
+    if (!paintSheets.hover) return;
+    // the target's chain and the related target's, without their common part
+    const a = chainOf(e.target), b = chainOf((e as PointerEvent).relatedTarget);
+    const inA = new Set(a), inB = new Set(b);
+    for (const el of a) if (!inB.has(el)) paintChanged(el, true);
+    for (const el of b) if (!inA.has(el)) paintChanged(el, true);
+    return;
+  }
+  // a press: :active on the target and every element above it; with no :active rule of the widget's only the UA
+  // layer's `button:active` can match, which changes the element itself
+  for (const el of chainOf(e.target)) {
+    if (paintSheets.active) paintChanged(el, true);
+    else { paintDirtySelf.add(el); schedulePaint(); }
+  }
+}
+
+/** The widget's elements from `t` up to its root. */
+function chainOf(t: EventTarget | null): Element[] {
+  const out: Element[] = [];
+  for (let n: Node | null = t instanceof Element ? t : null; n instanceof Element; n = n === HTML ? null : parentNodeOf(n)) if (ids.has(n)) out.push(n);
+  return out;
+}
+
+/**
+ * Past a limit (paint-policy.ts): the frame is drawn without the effects that cost (blurred shadows, filters,
+ * backdrop-filter, opacity), animations stop where they are, and the host hears it (`limit`) and stops the widget;
+ * until its `frozen` the renderer takes no more ops. Trusted renderer content only.
+ */
+function stopPaint(v: PaintVerdict) {
+  paintStopped = true;
+  if (paintFrame) { cancelAnimationFrame(paintFrame); paintFrame = 0; }
+  drawWithoutEffects();
+  post({ type: 'limit', code: v.code, count: v.count });
+}
+
+/**
+ * A layer declared before every other one: its !important declarations beat every declaration of the widget's
+ * stylesheets, layered or not, and the animations. Pseudo-elements lose their shadows; elements keep their shadows
+ * without blur (set inline below, as are what their inline styles would otherwise keep).
+ */
+const NO_EFFECTS_CSS = '@layer tw-no-effects{*,::before,::after{filter:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;opacity:1!important;transition:none!important}::before,::after{box-shadow:none!important}}';
+
+function drawWithoutEffects() {
+  // Transitions would beat any declaration: they end; animations (CSS and the renderer's Web Animations) pause.
+  try {
+    for (const a of getAnimationsOf(HTML, { subtree: true }) as Animation[]) {
+      try { if (typeof CSSTransition !== 'undefined' && a instanceof CSSTransition) a.cancel(); else a.pause(); } catch {}
+    }
+  } catch {}
+  // Read before the layer goes in: a box that was fully transparent stays invisible (hidden) rather than turning opaque.
+  const fixes: [CSSStyleDeclaration, string, string][] = [];
+  const visit = (el: Element) => {
+    if (!ids.has(el)) return;
+    const cs = getComputedStyle(el);
+    if (hidesSubtree(cs.display)) return;
+    const style = styleOf(el);
+    if (parseFloat(cs.opacity) === 0) fixes.push([style, 'visibility', 'hidden']);
+    if (boxShadowBlurred(cs.boxShadow)) fixes.push([style, 'box-shadow', boxShadowWithoutBlur(cs.boxShadow)]);
+    // the element's own declarations would beat the layer: they go
+    for (const prop of ['filter', 'backdrop-filter', '-webkit-backdrop-filter', 'opacity']) if (style.getPropertyValue(prop)) fixes.push([style, prop, '']);
+    for (let c = firstChildOf(el); c; c = nextSiblingOf(c)) if (c instanceof Element) visit(c);
+  };
+  visit(HTML);
+  const sheet = createElement(doc, 'style');
+  setTextContent(sheet, NO_EFFECTS_CSS);
+  insertBefore(HEAD, sheet, firstChildOf(HEAD));
+  for (const [style, prop, value] of fixes) {
+    if (value) style.setProperty(prop, value, 'important');
+    else style.removeProperty(prop);
+  }
+}
+
 // ───────────────────────── wiring ─────────────────────────
 
 function onMessage(msg: HostToRenderer) {
   switch (msg.type) {
     case 'ops':
+      if (paintStopped) break;
       for (const op of msg.ops) {
-        try { applyOp(op); } catch (e) { violation('op failed: ' + String(e)); }
+        try { if (paintOn) paintBefore(op); applyOp(op); } catch (e) { violation('op failed: ' + String(e)); }
+        if (paintOn) try { paintAfter(op); } catch {}
       }
       syncCanvas();
       reportSize();
@@ -897,10 +1347,14 @@ function onMessage(msg: HostToRenderer) {
       preventKeys = new Set(msg.keys);
       break;
     case 'anim':
+      if (paintStopped) break;
       try { applyAnims(animations, msg.now, msg.anims, (id) => nodes.get(id)); } catch (e) { violation('anim failed: ' + String(e)); }
+      // rule 5 for the renderer's Web Animations: their keyframes may have changed, and whether they run
+      scriptedPaint = new WeakMap();
+      schedulePaint();
       break;
     case 'requestFrame':
-      if (frozen || frameReq) break;
+      if (frozen || paintStopped || frameReq) break;
       frameReq = requestAnimationFrame((time) => { frameReq = 0; post({ type: 'frame', time }); });
       break;
     case 'frozen':
@@ -916,12 +1370,25 @@ function onMessage(msg: HostToRenderer) {
       env.frameColorScheme?.(themeVars['--tg-color-scheme'] === 'dark' ? 'dark' : 'light');
       canvasDirty = true;
       syncCanvas();
+      paintEverything();
       break;
     case 'safeArea':
       // The UA layer's body padding follows the band; the size observers report the new height.
       safeAreaVars = contentSafeAreaVariables(msg.inset);
       applyThemeVariables();
+      paintEverything();
       break;
+    case 'policy': {
+      // compat counts nothing (the stress kit's measuring runs); anything else is strict
+      const on = msg.policy !== 'compat';
+      paintReports = msg.paintReports === true;
+      lastPaintReport = '';
+      if (on && !paintOn) paintAll = true;
+      paintOn = on;
+      if (!on && paintFrame) { cancelAnimationFrame(paintFrame); paintFrame = 0; }
+      schedulePaint();
+      break;
+    }
   }
 }
 
@@ -1076,6 +1543,8 @@ function init(s: Send) {
   // capturing listener; a shadow root is no element, so without this the widget never gets pointerenter / mouseenter.
   if (root instanceof ShadowRoot) for (const type of ENTER_LEAVE) root.host.addEventListener(type, noop, true);
   for (const type of ['auxclick', 'dragstart', 'dblclick']) root.addEventListener(type, (e) => e.preventDefault(), true);
+  for (const type of PAINT_ANIMATION_EVENTS) root.addEventListener(type, onPaintAnimation, true);
+  for (const type of PAINT_INPUT_EVENTS) root.addEventListener(type, onPaintInput, true);
   sizeObservers = [new ResizeObserver(reportSize), new ResizeObserver(reportSize)];
   sizeObservers[0].observe(HTML);
   sizeObservers[1].observe(BODY);
@@ -1095,6 +1564,9 @@ function destroy() {
   ownPointers.clear();
   fingersDown.clear();
   if (root instanceof ShadowRoot) for (const type of ENTER_LEAVE) root.host.removeEventListener(type, noop, true);
+  for (const type of PAINT_ANIMATION_EVENTS) root.removeEventListener(type, onPaintAnimation, true);
+  for (const type of PAINT_INPUT_EVENTS) root.removeEventListener(type, onPaintInput, true);
+  if (paintFrame) { cancelAnimationFrame(paintFrame); paintFrame = 0; }
   for (const o of sizeObservers) o.disconnect();
   sizeObservers = [];
   offViewport?.();

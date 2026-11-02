@@ -19,6 +19,7 @@ import {
   type WidgetUser, type WidgetViewer,
 } from '../shared/sdk-policy';
 import { PROFILE_VERSION } from '../shared/profile-tables';
+import { checkPaintLimit, paintLimitMessage } from '../shared/paint-policy';
 import type { BubbleAction, Gesture, GestureClaim } from '../shared/gesture-policy';
 import type { Renderer, RendererFactory } from './renderer';
 import type { PooledWorker, WorkerPool } from './worker-pool';
@@ -236,6 +237,8 @@ export class WidgetHost {
     this.renderer.load();
     this.toRenderer({ type: 'theme', theme: this.widgetTheme });
     this.toRenderer({ type: 'safeArea', inset: this.safeArea });
+    // Under strict the renderer counts heavy boxes and reports `limit` past them (paint-policy.ts); compat counts nothing.
+    this.toRenderer({ type: 'policy', policy: this.policy });
     if (opts.bubbleGestures && !preview) this.setBubbleGestures(opts.bubbleGestures);
 
     // ── sandbox ──
@@ -702,6 +705,20 @@ export class WidgetHost {
         // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
         this.toWorker({ type: 'theme', theme: this.theme, themeParams: this.widgetTheme.params });
         break;
+      case 'limit': {
+        // Past a paint limit (16 heavy boxes, 2 with backdrop-filter; docs/decisions.md "Heavy boxes"): the renderer drew
+        // the frame without the effects, the widget stops like it does for memory or CPU. compat counts nothing.
+        const limit = checkPaintLimit(msg.code, msg.count);
+        if (!limit) {
+          this.opts.onDiag?.('renderer-violation', 'a limit report with an unknown code or no count');
+          break;
+        }
+        if (this.policy === 'compat' || this.dead) break;
+        const reason = paintLimitMessage(limit.code, limit.count);
+        this.opts.onDiag?.(limit.code, reason);
+        this.die(reason);
+        break;
+      }
       case 'violation':
         this.opts.onDiag?.('renderer-violation', String(msg.detail).slice(0, 4000));
         break;
