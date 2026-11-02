@@ -51,6 +51,15 @@ on every device; limits in time only slow it down and stop it on a hang:
   validator's new `markLoaded` after the loading tasks' ops (`__twValidator.markLoaded` in the bundle; the Swift, Kotlin
   and C++ `TrustedValidator`, `NativeValidator`). A 48 K document of paragraphs built by the loading script lost them past
   ~45 K, silently, on every host.
+- `corpus/showcase/3d`: the six projected 3D widgets draw at most 2000 canvas commands a frame in every state (every
+  model, pose, elevation with the cat's full mouse pitch, both zoom bounds, both themes, 200–600 px), about 25 fps at the
+  main-thread window's 2 µs a command. Before: robot 4144, camera 1247, planet 20 668 (past even the old cap at zoom 1.3),
+  island 2976, molecules 8164, cat 7606; now 1369, 605, ≤ 1964, 993, 704, 1675. Closed solids skip back faces and a
+  ball's poles are triangles (its top is now lit like its sides); a face is filled once without its outline stroke; the
+  floor grid is one path; bond beads are discs; the cat's large balls have 10 × 5 facets and its tail is a striped tube;
+  the planet draws each 2 px band of its disc as one gradient under a command budget, clipped to a smooth circle. Same
+  scenes, controls, storage and behaviour; `showcase-3d.test.ts` checks the budget under strict (39 tests). `06-cat` is
+  3798 B after zlib with this machine's Node (3746 B with the server's), so its size check passes here too.
 - `packages/stress` version 2: the limits as above (`canvasPerSend` 4000, `layoutQueries` 128 crossed by
   `layout-queries/256`), `css-rules/400` at the cap instead of over it (the frame's rules count), the largest batch as
   measured; conformance `auto/37-stop-nodes`, `auto/19-limits` at 4000 commands.
