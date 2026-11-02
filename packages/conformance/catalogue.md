@@ -1,6 +1,6 @@
 # Widget profile feature catalogue
 
-Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 277 features: 199 in (4 conditional on every renderer drawing them), 78 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
+Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/conformance/emit-catalogue.ts`); machine-readable: [catalogue.json](catalogue.json). 279 features: 201 in (4 conditional on every renderer drawing them), 78 out, 0 candidates. Decision `proposed` marks this catalogue's own proposals (0).
 
 | Area | Features | in | out | candidate | covered by tests |
 |---|---|---|---|---|---|
@@ -14,9 +14,9 @@ Generated from `scripts/conformance/catalogue.ts` (`corepack pnpm tsx scripts/co
 | js | 34 | 25 | 9 | 0 | 34 |
 | sdk | 18 | 17 | 1 | 0 | 18 |
 | input | 14 | 9 | 5 | 0 | 14 |
-| limit | 19 | 19 | 0 | 0 | 13 |
+| limit | 21 | 21 | 0 | 0 | 15 |
 | behaviour | 17 | 17 | 0 | 0 | 17 |
-| **all** | 277 | 199 | 78 | 0 | 271 |
+| **all** | 279 | 201 | 78 | 0 | 273 |
 
 Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it, D3a), **decision** (see the legend at the end), **today** (what the pipeline of the tag does with it under `strict`: profile 1 enforced, SDK v1; legend below), **tests** (conformance widgets that judge it).
 
@@ -329,6 +329,8 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 | `limit.animations` | At most 64 running script animations (further ones are not rendered; strict) | in | L1 | kept |  |  |
 | `limit.main-thread` | The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it) | in | L1 | host |  |  |
 | `limit.canvas-pixels` | A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096) | in | L1 | kept |  | auto/35-stop-canvas-pixels |
+| `limit.paint-heavy` | At most 16 heavy boxes at once: a blurred box-shadow, a filter, a backdrop-filter, opacity below 1, or a running animation of one of them (shadows animated without blur do not count); elements under display: none and a ::before / ::after without content are no boxes; past it the widget stops (strict; every renderer counts on the computed style) | in | L2 | host |  | auto/37-paint-counted, auto/38-stop-paint-load, auto/39-stop-paint-class, auto/40-stop-paint-animation, auto/41-stop-paint-web-animation, auto/42-stop-paint-before |
+| `limit.paint-backdrop` | Of the heavy boxes at most 2 with backdrop-filter; past it the widget stops (strict) | in | L2 | host |  | auto/37-paint-counted, auto/43-stop-paint-backdrop |
 | `limit.image-pixels` | A data: image of at most 1024 × 1024 pixels, as its bytes say (larger: the placeholder); bytes of none of the profile's image formats are a broken image | in | L1 | kept |  | auto/19-limits |
 | `limit.url-length` | openLink / openTelegramLink URLs of at most 256 characters (TypeError past it) | in | SDK | kept |  | auto/16-sdk-taps-a, visual/sdk/03-link-rejected |
 | `limit.event-handlers` | At most 16 handlers per event type in onEvent (more are ignored) | in | SDK | kept |  | auto/20-client-behaviour |
@@ -383,6 +385,7 @@ Columns: **status** (in / out / candidate; "in*" = in if every renderer draws it
 - **D14**: Theme: themeParams + --tg-theme-*, theme change event
 - **D17**: State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory
 - **L1**: Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)
+- **L2**: Heavy boxes (Artem, 2026-11-02, after the client teams' stress-kit runs on five devices): at most 16 heavy boxes at once (a blurred box-shadow layer, a filter, a backdrop-filter, opacity below 1, or a running animation of filter, backdrop-filter or opacity, or of box-shadow through a blurred layer), of them at most 2 with backdrop-filter; every renderer counts on the computed style (packages/core/src/shared/paint-policy.ts and its fixture) and past either the widget stops. A tightening of profile 1 (widgets were not launched yet), not profile 2
 - **D18**: Text is not selectable by default; a widget enables selection with user-select: text (2026-10-20, replaces "Text selection forbidden")
 - **D20**: Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits
 - **D21**: No accessibility in v1

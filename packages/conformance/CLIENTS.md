@@ -52,9 +52,14 @@ Build it as a test target or a debug mode in your client. For every entry of `ma
 2. **Focus the chat input**, or a stand-in text field, before loading the widget.
 3. **Load the widget HTML** and observe the validated ops. Every platform has the same renderer seam, so wrap your renderer: see "Reading the ops" below.
 4. **Wait** for `status` `done`, or `awaiting` when the test has `actions`. Give up after 20 s and record what you have.
-   A test with `stops` in the manifest (`auto/31-stop-*`…`34`) passes a counted limit on purpose: your host must stop it
-   (`onDead` / the diagnostics' reason) with a reason that starts with `stops`, e.g. `Text limit exceeded`. Wait for the
-   death instead of `done` and record the reason in `dead`; the report passes the test only on that stop.
+   A test with `stops` in the manifest (`auto/31-stop-*`…`35`, `auto/38`…`43-stop-paint-*`) passes a limit on purpose:
+   your host must stop it (`onDead` / the diagnostics' reason) with a reason that starts with `stops`, e.g. `Text limit
+   exceeded`. Wait for the death instead of `done` and record the reason in `dead`; the report passes the test only on
+   that stop. The `stop-paint` tests pass the paint limit (17 heavy boxes, 3 with backdrop-filter: at load, by a class,
+   a CSS animation, a Web Animation, a `::before`): the validator cannot see it, your renderer counts and reports it
+   through the seam's `limitExceeded` (`docs/integration.md`, "Heavy boxes"; the rule's fixture is
+   `packages/core/tests/fixtures/paint-policy.json`). `auto/37-paint-counted` must run: 16 heavy boxes, 2 of them with
+   backdrop-filter, next to boxes that do not count.
 5. **Record `chatFocused`**: does the chat input still have the keyboard focus? The profile has no keyboard (D4), so a widget must never take the focus.
 6. **Perform the `actions`**, if any, in order, with real input. Coordinates are widget CSS px from the widget's top-left. A target name means the centre of `targets[name]` in the **latest** published value, because the widget re-measures after every update. Leave about 350 ms between actions. Then wait up to 10 s for `done`.
 

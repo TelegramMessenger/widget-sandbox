@@ -1135,6 +1135,62 @@
    "caption": "auto/36-safe-area · The client's time over a widget with no caption below it: env(safe-area-inset-*) with and without a fallback, other env() names, CSS.supports, the --tg-content-safe-area-* variables and TelegramWidget.contentSafeAreaInset agree, the corner on its side. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it). Sent with its caption above the widget (invert_media): your time over the widget's bottom corner, as without a caption.",
    "photos": [],
    "zlib": 3052
+  },
+  {
+   "widget": "auto/37-paint-counted.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/37-paint-counted · Paint limit: 16 heavy boxes (2 of them with backdrop-filter) draw; shadows without blur, a display: none subtree, a ::before without content and a pulse without blur are not counted (display: contents is out of profile 1: the validator removes it). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2531
+  },
+  {
+   "widget": "auto/38-stop-paint-load.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/38-stop-paint-load · Paint limit: 17 boxes with a blurred shadow at load stop the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2175
+  },
+  {
+   "widget": "auto/39-stop-paint-class.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/39-stop-paint-class · Paint limit: a class change that makes a 17th box heavy (opacity below 1) stops the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2309
+  },
+  {
+   "widget": "auto/40-stop-paint-animation.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/40-stop-paint-animation · Paint limit: a CSS animation of opacity on 17 boxes stops the widget (heavy for the whole animation). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2304
+  },
+  {
+   "widget": "auto/41-stop-paint-web-animation.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/41-stop-paint-web-animation · Paint limit: a Web Animation of opacity running on 17 boxes stops the widget (needs the webAnimations feature, D5). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2327
+  },
+  {
+   "widget": "auto/42-stop-paint-before.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/42-stop-paint-before · Paint limit: a ::before with a filter is a heavy box of its own; next to 16 heavy elements it stops the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2356
+  },
+  {
+   "widget": "auto/43-stop-paint-backdrop.html",
+   "width": 0,
+   "height": 0,
+   "caption": "auto/43-stop-paint-backdrop · Paint limit: two boxes with backdrop-filter run, a third stops the widget. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "photos": [],
+   "zlib": 2362
   }
  ],
  "bot": {
