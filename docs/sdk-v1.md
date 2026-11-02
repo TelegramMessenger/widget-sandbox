@@ -415,8 +415,8 @@ broke the limits) and `data-rejected` (a chat state or shared state the client
 passed that is over 1024 bytes or not text).
 
 A widget is killed, and its last frame kept (§5.7), for one of these reasons the
-host sees in `died` / `onDead`: `CPU limit exceeded` (more than the task's slice
-of continuous JS), `Layout query limit exceeded` (its synchronous layout queries
+host sees in `died` / `onDead`: `CPU limit exceeded` (more than `cpuLimitMs`,
+500 ms, of continuous JS in one task), `Layout query limit exceeded` (its synchronous layout queries
 blocked the renderer for more than 100 ms in one task; the queries also count
 toward the host's main-thread window), `Memory limit exceeded (8 MB)`, and, under
 `strict`, a counted cap of the validator (`Text limit exceeded`, `Attribute limit

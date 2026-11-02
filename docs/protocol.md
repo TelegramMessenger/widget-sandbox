@@ -559,13 +559,14 @@ The policy that counts and decides lives in trusted glue only:
 (one fixture, `packages/core/tests/fixtures/cpu-budget.json`). The shim gets `maxTimers`
 through `boot` and the visibility signal; it enforces nothing the host relies
 on. Before each task the glue asks `decide(kind, now)`: `{run, sliceMs}` sets
-the interrupt deadline (`min(cpuLimitMs, max(remaining, 50))`, `boot` always
-gets `cpuLimitMs`), `{run: false, retryAt}` puts the task in the deferred
+the interrupt deadline (always `cpuLimitMs`: what a task spends past the quota
+is a debt of at most one more quota, `record(kind, cpuMs, now)` after the task),
+`{run: false, retryAt}` puts the task in the deferred
 queue (frames collapse into one, one fire per timer id, order kept) and a
 single wake-up timer. A task that overruns its slice is reported as
-`CPU limit exceeded: more than N ms … (…; CPU quota: … left, so this timer
-task got N ms)`. Diagnostics: `cpu-throttled` at most once per second;
-`stats.throttledTasks`, `stats.cpuWindowMs`.
+`CPU limit exceeded: more than N ms of continuous execution (…)`. Diagnostics:
+`cpu-throttled` at most once per second; `stats.throttledTasks`,
+`stats.cpuWindowMs` (the window plus the debt).
 
 ### `visibility {visible}`
 

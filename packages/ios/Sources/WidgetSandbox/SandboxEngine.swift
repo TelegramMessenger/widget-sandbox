@@ -1048,9 +1048,7 @@ public final class SandboxEngine {
             return kill("Layout query limit exceeded: host queries blocked the renderer for more than \(Int(CpuBudget.queryBudgetMs(sliceMs: currentSliceMs))) ms in one \(currentKind) task (\(location))")
         }
         if js?.interrupted == true {
-            // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
-            let quota = currentSliceMs < config.cpuLimitMs ? "; CPU quota: \(Int(max(0, config.cpuQuotaMs - budget.used(Self.nowMs())))) ms of \(Int(config.cpuQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms left, so this \(currentKind) task got \(Int(currentSliceMs)) ms" : ""
-            return kill("CPU limit exceeded: more than \(Int(currentSliceMs)) ms of continuous execution (\(location)\(quota))")
+            return kill("CPU limit exceeded: more than \(Int(currentSliceMs)) ms of continuous execution (\(location))")
         }
         if text.lowercased().contains("out of memory") { return kill("Memory limit exceeded (\(config.memoryLimitBytes >> 20) MB)") }
         delegate?.engine(self, log: "error", text: String(("Uncaught " + text).prefix(4000)))

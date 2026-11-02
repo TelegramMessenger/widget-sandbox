@@ -3,7 +3,9 @@
 // A sliding window of `cpuQuotaWindowMs` in ten buckets; a widget may spend
 // `cpuQuotaMs` of JS time per window, beyond that deferrable tasks are
 // postponed until the oldest busy bucket leaves the window — never dropped or
-// killed. Events always run with a floor of 50 ms.
+// killed. Events always run. Every task gets the whole `cpuLimitMs` slice; what
+// it spends past the quota is a debt (at most one more quota) that enters the
+// window as its buckets leave.
 //
 // The engine keeps two of them (docs/decisions.md, "Strict limits from the start"):
 // the JS quota (`cpuQuotaMs`, JS time only) and the main-thread window
@@ -17,6 +19,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cmath>
 #include <string_view>
 
 namespace twidget {
@@ -31,8 +34,6 @@ struct CpuDecision {
 class CpuBudget {
 public:
     static constexpr int kBuckets = 10;
-    /// Minimum slice any task gets, so user input is handled even with the quota spent.
-    static constexpr double kFloorMs = 50;
     /// Kinds that may be postponed. `boot`, `event` and `visibility` always run.
     static bool deferrable(std::string_view kind);
     /// A task's layout queries may block the host for at most this much, whatever its slice (boot included).
@@ -48,11 +49,11 @@ public:
 
     CpuBudget(double cpuLimitMs, double cpuQuotaMs, double cpuQuotaWindowMs, double cpuKillAfterMs);
 
-    /// Account `cpuMs` of widget JS time for a task that ended at `now`.
+    /// Account `cpuMs` of widget JS time for a task that ended at `now`: into the window up to the quota, the rest is the debt.
     void record(std::string_view kind, double cpuMs, double now);
-    /// JS time used in the window ending now.
-    double used(double now) const;
-    /// Before a task: run it with this slice for the interrupt handler, or retry at `retryAt`.
+    /// JS time charged now: the window ending now plus the debt.
+    double used(double now);
+    /// Before a task: run it with the whole slice for the interrupt handler, or retry at `retryAt`.
     CpuDecision decide(std::string_view kind, double now);
     /// Length of the current uninterrupted throttling stretch (0 when not throttled).
     double throttledFor(double now) const;
@@ -61,10 +62,18 @@ public:
 
 private:
     double oldestStart(double now) const;
+    /// Bucket `b`'s slot, emptied when it still holds an older bucket.
+    int slot(double b);
+    /// Time in the window that ends with bucket `b`.
+    double windowAt(double b) const;
+    /// Moves the debt into the window, bucket by bucket since the last call, as the buckets that filled it leave.
+    void settle(double now);
 
     double cpuLimitMs_, cpuQuotaMs_, windowMs_, cpuKillAfterMs_, bucketMs_;
     std::array<double, kBuckets> starts_{};
     std::array<double, kBuckets> ms_{};
+    double debtMs_ = 0;          // time spent past the quota, not in the window yet: at most one quota
+    double settled_ = -INFINITY; // the last bucket the debt was settled at
     double throttledSince_ = -1;
     double lastThrottleAt_ = -1;
 };

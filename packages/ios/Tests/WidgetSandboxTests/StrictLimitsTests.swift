@@ -584,7 +584,7 @@ final class StrictLimitsTests: XCTestCase {
     func testTheMainThreadWindowDefersFrames() {
         let html = "<div id=list></div><script>var list = document.getElementById('list'); for (var i = 0; i < 200; i++) list.appendChild(document.createElement('span')); var n = 0;" +
             "function frame() { n++; for (var s = list.firstChild; s; s = s.nextSibling) s.textContent = String(n); console.log('frame'); requestAnimationFrame(frame); } requestAnimationFrame(frame);</script>"
-        func run(mainThreadQuotaMs: Double) -> (frames: Int, diags: [(String, String)], died: String?) {
+        func run(mainThreadQuotaMs: Double, seconds: Double) -> (frames: Int, diags: [(String, String)], died: String?) {
             let d = FrameDriver()
             var config = SandboxConfig(innerWidth: 300, innerHeight: 200, devicePixelRatio: 2, theme: "light")
             config.cpuLimitMs = 2000
@@ -594,19 +594,20 @@ final class StrictLimitsTests: XCTestCase {
             engine.delegate = d
             engine.start()
             wait(for: [d.loaded], timeout: 20)
-            RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+            RunLoop.current.run(until: Date().addingTimeInterval(seconds))
             engine.queue.sync {}
             let result = d.lock.withLock { (d.frames, d.diags, d.died) }
             engine.terminate()
             return result
         }
-        let open = run(mainThreadQuotaMs: 100_000)
+        let open = run(mainThreadQuotaMs: 100_000, seconds: 1.5)
         XCTAssertNil(open.died)
         XCTAssertGreaterThan(open.frames, 10)
         XCTAssertFalse(open.diags.contains { $0.0 == "cpu-throttled" }, "\(open.diags.filter { $0.0 == "cpu-throttled" })")
-        let tight = run(mainThreadQuotaMs: 2)
+        // The boot's 200 spans (about 5 ms) spend the window and leave a debt of one more: the first frame comes at about 2 s.
+        let tight = run(mainThreadQuotaMs: 2, seconds: 2.5)
         XCTAssertNil(tight.died)
-        XCTAssertLessThanOrEqual(tight.frames, 4, "frames through a 2 ms window in 1.5 s")
+        XCTAssertLessThanOrEqual(tight.frames, 4, "frames through a 2 ms window in 2.5 s")
         XCTAssertGreaterThanOrEqual(tight.frames, 1)
         XCTAssertTrue(tight.diags.contains { $0.0 == "cpu-throttled" && $0.1.contains("main-thread budget used by layout queries and ops") }, "\(tight.diags)")
     }

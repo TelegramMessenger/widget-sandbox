@@ -120,7 +120,7 @@ describe('shim: visibility', () => {
 
 describe('harness: cpu quota', () => {
   it('defers timers once the widget has burnt its quota, but still runs events', async () => {
-    // Each timer tick burns ~40 ms (under the 50 ms floor); with a 100 ms/s quota the fourth tick and the frame are deferred.
+    // Each timer tick burns ~40 ms; with a 100 ms/s quota the third overruns it (a debt) and the fourth tick and the frame are deferred.
     const r = await runWidget(`<script>var ticks = 0; function burn() { var t = performance.now(); while (performance.now() - t < 40) {} ticks++; }
       for (var i = 0; i < 4; i++) setTimeout(burn, 1);</script>`, { cpuQuotaMs: 100, timerRounds: 1, script: [{ probe: 'ticks' }] });
     assert.equal(r.probes[0], '3');
@@ -131,6 +131,14 @@ describe('harness: cpu quota', () => {
     });
     assert.equal(r2.probes[0], '1', 'events run even with the quota spent');
     assert.equal(r2.throttled, 0);
+  });
+  it('a timer task started with little quota left finishes: the overrun is a debt, not a stop', async () => {
+    // 06-cat on a slow phone: the second 70 ms tick starts with 30 ms of a 100 ms/s quota left (it used to get a 50 ms slice and stop).
+    const r = await runWidget(`<script>var ticks = 0; function burn() { var t = performance.now(); while (performance.now() - t < 70) {} ticks++; }
+      for (var i = 0; i < 3; i++) setTimeout(burn, 1);</script>`, { cpuQuotaMs: 100, timerRounds: 1, script: [{ probe: 'ticks' }] });
+    assert.deepEqual(errorsOf(r), []);
+    assert.equal(r.probes[0], '2');
+    assert.equal(r.throttled, 2, 'the third timer and the frame wait for the debt');
   });
 });
 

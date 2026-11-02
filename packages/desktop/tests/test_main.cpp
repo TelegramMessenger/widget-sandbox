@@ -200,6 +200,9 @@ TEST(cpu_budget_shared_fixture) {
                 b.record(kind->asString(), step["cpuMs"].asNumber(), at);
             } else if (const Json* kill = step.find("kill")) {
                 CHECK_MSG(b.shouldKill(at) == kill->asBool(), where);
+            } else if (const Json* used = step.find("used")) {
+                double got = b.used(at);
+                CHECK_MSG(std::fabs(got - used->asNumber()) < 1e-9, where + " used " + std::to_string(got));
             } else if (const Json* slice = step.find("queryBudget")) {
                 CHECK_MSG(CpuBudget::queryBudgetMs(slice->asNumber()) == step["expect"].asNumber(), where);
             } else if (const Json* cost = step.find("opsCost")) {

@@ -500,14 +500,18 @@ information.
   transitions) needs. `cpuKillAfterMs` (default 0 = off) brings back the kill
   for products that want it: sustained throttling, no gap longer than one
   window, for that long.
-- Events always run with a floor of 50 ms so the widget answers the user even
-  with the budget spent; the floor applies to every slice (`min(cpuLimitMs,
-  max(remaining, 50))`), `boot` always gets the full `cpuLimitMs`. The flip
-  side, accepted: a task that overruns its slice while the window is nearly
-  full is killed like an infinite loop would be, and the message says why
-  (`…; CPU quota: 12 ms of 300 ms per 1000 ms left, so this timer task got
-  50 ms`). So under the defaults the effective per-task cap outside boot is
-  300 ms, not 500.
+- Events always run, so the widget answers the user even with the budget
+  spent. Every task gets the whole `cpuLimitMs` slice (500 ms), the hang
+  guard, whatever the window holds; what a task spends past the quota is a
+  debt of at most one more quota that enters the window as its buckets leave,
+  so the quota holds over time and the next timers and frames wait for it.
+- Until 2026-11-02 the slice was the quota left, at least 50 ms (`min(cpuLimitMs,
+  max(remaining, 50))`), and a task that overran it was killed like an
+  infinite loop. That stop depends on the device: in the client teams'
+  stress-kit runs a 3D showcase widget's 70 ms timer task, started with 15 ms
+  of the quota left, died on a Redmi Note 8T in three runs out of three, while
+  an A55 and an iPhone ran it. A slice cut to the quota left stopped widgets
+  a fast phone runs; the hang guard alone stops the same widgets everywhere.
 - Our own cost is not the widget's: evaluating the sandbox bundle (~0.5 s of
   source eval on the web, ~150 ms on an iOS debug build) is excluded from the
   boot task's recorded time, otherwise every widget would spend its first

@@ -299,9 +299,7 @@ function handleError(err: QuickJSHandle, where: string) {
     return kill(`Layout query limit exceeded: host queries blocked the renderer for more than ${queryBudgetMs(currentSliceMs).toFixed(0)} ms in one ${currentKind} task (${where})`);
   }
   if (interrupted) {
-    // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
-    const quota = currentSliceMs < config.cpuLimitMs ? `; CPU quota: ${Math.max(0, config.cpuQuotaMs - budget.used(performance.now())).toFixed(0)} ms of ${config.cpuQuotaMs} ms per ${config.cpuQuotaWindowMs} ms left, so this ${currentKind} task got ${currentSliceMs.toFixed(0)} ms` : '';
-    return kill(`CPU limit exceeded: more than ${currentSliceMs.toFixed(0)} ms of continuous execution (${where}${quota})`);
+    return kill(`CPU limit exceeded: more than ${currentSliceMs.toFixed(0)} ms of continuous execution (${where})`);
   }
   if (/out of memory/i.test(text)) return kill(`Memory limit exceeded (${config.memoryLimitBytes >> 20} MB)`);
   post({ type: 'log', level: 'error', text: `Uncaught ${text}`.slice(0, MAX_LOG) });

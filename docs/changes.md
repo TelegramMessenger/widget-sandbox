@@ -5,6 +5,12 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Next release (not tagged yet)
 
+- Default, every host: every task gets the whole `cpuLimitMs` slice (500 ms), whatever the CPU quota has left; what a
+  task spends past the quota is a debt (at most one more quota) that holds the next timers and frames until the window
+  has room (`cpu-budget.ts` and its three twins; `tests/fixtures/cpu-budget.json` gains a `used` step; `docs/decisions.md`,
+  "Throttle, not kill"). Until now a task started with little quota left got `max(remaining, 50 ms)` and was stopped
+  when it ran longer, so a slow phone stopped widgets a fast one runs (a 3D showcase widget on a Redmi Note 8T, three
+  runs out of three). The `CPU limit exceeded` message lost its quota part. The main-thread window follows the same rule.
 - Docs: the server's agreed wallet API (`docs/decisions.md`, "The wallet"; `docs/sdk-v1.md` §2.18, §5.13;
   `docs/integration.md`). A sent transaction and a signature reach the bot with the device's wallet (`userWallet`:
   address, balance, public key, StateInit), which the client fills: with the wallet's backup off a device can hold

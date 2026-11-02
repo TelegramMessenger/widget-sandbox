@@ -303,13 +303,14 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   Storage and the widget's state survive: keep the user's own choices in
   `localStorage`; what the whole chat sees (a board, the votes) belongs in the
   chat state, which the bot writes.
-- CPU: a budget of 300 ms per second (timers and frames wait beyond it). The
-  first run may take up to 500 ms; every later task runs within what is left of
-  the second's 300 ms (an event gets at least 50 ms), and one that runs past
-  its share stops the widget. Layout reads may hold one task 100 ms at most, and
-  what the widget costs the client's main thread (its layout reads plus about
-  25 µs per DOM change it sends) is capped at 100 ms per second: past it timers
-  and frames wait. 8 MB of memory; 64 live timers (`RangeError` past it);
+- CPU: a budget of 300 ms per second (timers and frames wait beyond it). One
+  task may run up to 500 ms, the first run included; one that runs longer stops
+  the widget. A task that runs past the second's 300 ms finishes, and what it
+  spent past it makes the next timers and frames wait longer. Layout reads may
+  hold one task 100 ms at most, and what the widget costs the client's main
+  thread (its layout reads plus about 25 µs per DOM change it sends) is capped
+  at 100 ms per second: past it timers and frames wait. 8 MB of memory; 64 live
+  timers (`RangeError` past it);
   50 000 nodes; one text value 32 K characters, the document's text 48 K, an
   attribute 8 K; 10 000 DOM changes in one task; 400 CSS rules and 32
   `@keyframes`; 10 000 canvas commands per canvas in one task (the next throws
@@ -603,8 +604,8 @@ STORAGE, LIFECYCLE, LIMITS
 - The widget can be destroyed and recreated at any time: restore from
   localStorage and the state on load, and draw the first frame synchronously.
 - Off screen: document.hidden, no animation frames, timers at most 1 Hz.
-- CPU: 300 ms per second (timers and frames wait beyond it); the first run
-  may take 500 ms, a later task what is left of the 300 ms (at least 50 ms).
+- CPU: 300 ms per second (timers and frames wait beyond it, longer after a
+  task that ran past it); one task may take 500 ms, longer stops the widget.
   Layout reads may hold one task 100 ms; they plus about 25 µs per DOM change
   cost the client at most 100 ms per second (frames wait beyond it).
 - Memory 8 MB; 64 live timers and 10 000 canvas commands per canvas per task

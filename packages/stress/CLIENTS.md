@@ -85,7 +85,7 @@ limits too:
 |---|---|---|
 | `policy` | `compat` | the caps from before the strict profile and no stops: the levels past a strict limit keep running |
 | `cpuLimitMs` | 500 (the default) | one task's slice; no stress widget comes near it |
-| `cpuQuotaMs` / `cpuQuotaWindowMs` | 10 000 / 1000 | far above the window: the JS quota never defers a task and every task keeps its full slice (a quota equal to the window still cuts a busy widget's slice to the 50 ms floor and kills it) |
+| `cpuQuotaMs` / `cpuQuotaWindowMs` | 10 000 / 1000 | far above the window: the JS quota never defers a task (up to v0.5.0 a quota equal to the window also cut a busy widget's slice to 50 ms and stopped it; since then every task gets the whole `cpuLimitMs`) |
 | `mainThreadQuotaMs` | 10 000 | the main-thread window (layout queries + 25 µs per validated op + 2 µs per canvas command; default 100 per second), out of the way the same way. It arrives with the strict limits; on a tag without it, leave it out and record `null` |
 | `maxTimers` | 256 | |
 | `memoryLimitBytes` | 64 MB | the strict default is 8 MB |

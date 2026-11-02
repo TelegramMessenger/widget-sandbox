@@ -836,13 +836,7 @@ void SandboxEngine::handleError(const std::string& text, const std::string& wher
         return kill("Layout query limit exceeded: host queries blocked the renderer for more than " + std::to_string(int(CpuBudget::queryBudgetMs(currentSliceMs_))) + " ms in one " + currentKind_ + " task (" + where + ")");
     }
     if (js_ && js_->interrupted) {
-        // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
-        std::string quota;
-        if (currentSliceMs_ < config_.cpuLimitMs) {
-            quota = "; CPU quota: " + std::to_string(int(std::max(0.0, config_.cpuQuotaMs - budget_.used(nowMs())))) + " ms of " + std::to_string(int(config_.cpuQuotaMs)) +
-                    " ms per " + std::to_string(int(config_.cpuQuotaWindowMs)) + " ms left, so this " + currentKind_ + " task got " + std::to_string(int(currentSliceMs_)) + " ms";
-        }
-        return kill("CPU limit exceeded: more than " + std::to_string(int(currentSliceMs_)) + " ms of continuous execution (" + where + quota + ")");
+        return kill("CPU limit exceeded: more than " + std::to_string(int(currentSliceMs_)) + " ms of continuous execution (" + where + ")");
     }
     std::string lower = text;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return char(std::tolower(c)); });
