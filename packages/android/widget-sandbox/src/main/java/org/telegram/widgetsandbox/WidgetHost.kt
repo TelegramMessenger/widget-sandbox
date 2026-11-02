@@ -454,6 +454,8 @@ class WidgetHost(
         if (isStrictPolicy(options.policy)) validator.setPolicy("strict")
         engine = SandboxEngine(html, config, resources)
         engine.delegate = this
+        // The validator's time on the widget's messages counts against its JS quota (docs/decisions.md, "The validator's time counts").
+        validator.cpuSink = { ms -> engine.chargeValidator(ms) }
         renderer.onDiag = { k, d -> diag(k, d) }
         renderer.onMessage = { json -> onRenderer(json) }
         // A preview takes no input: the renderer leaves every press to the client (the inline-results list) at once.

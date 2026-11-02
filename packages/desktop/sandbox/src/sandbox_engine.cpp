@@ -955,6 +955,20 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     postStats(false);
 }
 
+void SandboxEngine::chargeValidator(double ms) {
+    if (!(ms > 0)) return;
+    auto record = [this, ms] {
+        if (dead_) return;
+        double now = nowMs();
+        budget_.record("validator", ms, now);
+        stats_.validatorMs += ms;
+        stats_.cpuWindowMs = budget_.used(now);
+        postStats(false);
+    };
+    if (thread_.isCurrent()) record();
+    else thread_.async(record);
+}
+
 /// At most one stats message per 200 ms, but the last state always gets out.
 void SandboxEngine::postStats(bool force) {
     double now = nowSeconds();

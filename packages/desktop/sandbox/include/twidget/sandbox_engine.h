@@ -105,6 +105,8 @@ struct SandboxStats {
     /// Tasks deferred by the CPU quota or the main-thread window; JS time used in the current quota window at the time of the report.
     int throttledTasks = 0;
     double cpuWindowMs = 0;
+    /// The validator's CPU time on this widget's messages (`chargeValidator`), charged to the JS quota next to `jsMs`.
+    double validatorMs = 0;
 };
 
 struct QueryAnswer {
@@ -198,6 +200,10 @@ public:
     /// callback such as `onOps`) at once, and the task that is still on the stack is interrupted; from any other
     /// thread asynchronously.
     void stop(const std::string& reason);
+    /// The validator's CPU time for this widget's messages (TrustedValidator's CPU sink, `ms` of its thread's clock):
+    /// recorded against the JS quota on the engine thread as it arrives (`stats.validatorMs`; with the debt rule a late
+    /// record still counts in full). From the engine thread at once, from any other thread asynchronously.
+    void chargeValidator(double ms);
 
     // Inputs from the host (all asynchronous). A preview (`WidgetContext::preview`) takes no input: events are dropped.
     void event(const std::string& json);

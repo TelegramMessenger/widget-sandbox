@@ -75,6 +75,8 @@ public struct SandboxStats {
     public var jsMs = 0.0, tasks = 0, memoryBytes = 0, ops = 0, queries = 0, queryMs = 0.0, queryCacheHits = 0, missedMutations = 0
     /// Tasks deferred by the CPU quota; JS time used in the current quota window at the time of the report.
     public var throttledTasks = 0, cpuWindowMs = 0.0
+    /// The validator's CPU time on this widget's messages (`chargeValidator`), charged to the JS quota next to `jsMs`.
+    public var validatorMs = 0.0
 }
 
 /// All delegate calls happen on the engine's queue, never on the main thread.
@@ -1168,6 +1170,21 @@ public final class SandboxEngine {
             stats.memoryBytes = js.memoryUsed
         }
         postStats(force: false)
+    }
+
+    /// The validator's CPU time for this widget's messages (TrustedValidator's CPU sink, ms of its thread's clock):
+    /// recorded against the JS quota on the engine's thread as it arrives (`stats.validatorMs`; with the debt rule a late
+    /// record still counts in full; docs/decisions.md, "The validator's time counts"). Any thread.
+    public func chargeValidator(ms: Double) {
+        guard ms > 0 else { return }
+        queue.async { [weak self] in
+            guard let self, !self.dead else { return }
+            let now = Self.nowMs()
+            self.budget.record("validator", cpuMs: ms, now: now)
+            self.stats.validatorMs += ms
+            self.stats.cpuWindowMs = self.budget.used(now)
+            self.postStats(force: false)
+        }
     }
 
     private var trailingStats: JSThread.Scheduled?

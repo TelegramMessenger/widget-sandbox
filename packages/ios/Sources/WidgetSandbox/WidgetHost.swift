@@ -277,6 +277,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         #endif
         validator.useNativeModel(engine.runtimeFeatures.contains("binaryOps"))
         engine.delegate = self
+        // The validator's time on the widget's messages counts against its JS quota (docs/decisions.md, "The validator's time counts").
+        validator.setCpuSink { [weak engine] ms in engine?.chargeValidator(ms: ms) }
         let channels = sideChannels
         engine.afterBoot = { js in channels.forEach { $0.install(in: js) } }
         for channel in channels {

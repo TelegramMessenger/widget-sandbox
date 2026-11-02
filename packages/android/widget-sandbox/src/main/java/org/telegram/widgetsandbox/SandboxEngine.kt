@@ -85,6 +85,8 @@ data class SandboxStats(
     var throttledTasks: Int = 0,
     /** JS time used in the current quota window at the time of the report. */
     var cpuWindowMs: Double = 0.0,
+    /** The validator's CPU time on this widget's messages ([SandboxEngine.chargeValidator]), charged to the JS quota next to [jsMs]. */
+    var validatorMs: Double = 0.0,
 )
 
 private const val ACTIVATION_PREFIX = "activation:"
@@ -1014,6 +1016,23 @@ class SandboxEngine(
             stats.memoryBytes = js?.memoryUsed ?: 0
         }
         postStats(force = false)
+    }
+
+    /**
+     * The validator's CPU time for this widget's messages ([TrustedValidator.cpuSink], ms of its thread's clock):
+     * recorded against the JS quota on the engine thread as it arrives ([SandboxStats.validatorMs]; with the debt rule a
+     * late record still counts in full; docs/decisions.md, "The validator's time counts"). Any thread.
+     */
+    fun chargeValidator(ms: Double) {
+        if (!(ms > 0)) return
+        thread.post {
+            if (dead) return@post
+            val now = nowMs()
+            budget.record("validator", ms, now)
+            stats.validatorMs += ms
+            stats.cpuWindowMs = budget.used(now)
+            postStats(force = false)
+        }
     }
 
     private var trailingStats: JSThread.Scheduled? = null

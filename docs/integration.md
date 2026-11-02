@@ -7,10 +7,11 @@ callbacks. The HTML you pass is the whole widget (inline CSS and JS); nothing
 in it can reach the network.
 
 The same `Options` exist everywhere with the same defaults (`memoryLimitBytes`
-8 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000,
-`mainThreadQuotaMs` 100 (the host's main-thread work for the widget: its layout
-queries and the modelled cost of its ops), `maxTimers` 64, `visible`, `policy`
-`strict`), see `packages/core/src/shared/protocol.ts` and `docs/decisions.md`,
+8 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000 (the
+widget's JS time and, on the native hosts, the validator's CPU time for it:
+`stats.validatorMs`), `mainThreadQuotaMs` 100 (the host's main-thread work for
+the widget: its layout queries and the modelled cost of its ops), `maxTimers`
+64, `visible`, `policy` `strict`), see `packages/core/src/shared/protocol.ts` and `docs/decisions.md`,
 "Strict limits from the start". Keep the defaults in a product build; `policy`
 `compat` and wider quotas are for tests and the stress kit's measuring runs.
 Call `setVisible(false)` when the bubble leaves the screen (frames stop, timers

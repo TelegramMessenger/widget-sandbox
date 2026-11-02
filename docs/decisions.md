@@ -548,6 +548,71 @@ The TypeScript validator and Swift native validator enforce the same accounting.
   throttle or kill a widget early there; the quota policy (`cpu-budget.ts` and
   its twins) is unchanged, only what the native glue feeds it.
 
+### The validator's time counts (2026-11-02)
+
+The client teams' stress-kit runs (v0.5.0) found the validator outside every limit. On the native hosts it is the JS
+validator in a QuickJS context of its own on a thread of its own (`TrustedValidator` in Swift, Kotlin and C++), and one
+style op cost 134 µs there on a Galaxy A55 (43 µs on a Mac, 3 µs in V8 on the web), 94 % of it css-tree parsing,
+walking and writing the one declaration. `opacity-moving/128` kept it busy about 900 ms a second, nearly a core, while
+its JS used 92 ms of the 300 ms quota and the main-thread window charged the modelled 25 µs per op. Two changes
+(Artem, 2026-11-02):
+
+- **A fast path in `css-sanitizer.ts`** (`fastStyleValue`: one JS for every platform, in the validator bundle).
+  `sanitizeStyleProperty` (style ops, anim keyframe values, SVG `font-family`) first tries one linear scan over
+  `[0-9A-Za-z.%#(),-]` and the space: numbers, lengths, percentages, `#` colours, keywords and the profile's functions
+  of them, checked by the full path's rules (units, functions, keyword sets, rewrites, the transform / rotate /
+  translate / scale checks, `background-clip: text`) and written with css-tree's whitespace between tokens. It only
+  accepts; everything else goes through css-tree, which decides and reports as before: escapes, strings, comments,
+  `url()`, `var()`, `env()`, `attr()`, `light-dark()`, `!`, operators (`calc(100% - 1px)`), exponents, viewport units
+  (the shadow scope rewrites them), fonts, filters, `color-scheme`, `sticky`, scrolling overflow, values over 256
+  characters. Its alphabet has no character that starts a URL, a string, an escape or a comment, so not even a wrong
+  table could let a URL through (invariant 4), and what it accepts does not depend on the `CssEnv`.
+- **Checked against css-tree byte for byte**, diagnostics included (`tests/unit/css-fast-path.test.ts`): every
+  declaration of `corpus/**` (the attacks too), the conformance set and the stress kit, in all 32 envs (both schemes,
+  document and shadow scope, strict and compat, reduced motion, native scrolling; 5 403 declarations, 4 100 taken),
+  each of their values under every profile property (896 K declarations, 635 K taken), a generated set (every pair of
+  token kinds with every separator, the edge cases, a seeded fuzz; 1.2 M, 495 K taken), the shapes moving widgets send,
+  and the validator with the fast path on and off. Once, outside the suite: every style op the 513 widgets of the
+  corpora, the conformance set and the stress kit sent in 40 frames (426 169 distinct values, 426 145 taken) gave the
+  same answer, and the validator's output over their 10 568 batches was byte-identical.
+- **What it gives** (a Mac with other builds running; an A55 is about 3.1 times slower):
+
+  | | before | after |
+  |---|---|---|
+  | QuickJS, the sanitizer alone per style op (the stress kit's `transform`, `hsl()`) | 42–49 µs | 2.2–2.3 µs |
+  | QuickJS, the same for a two-stop gradient | 59 µs | 3.4 µs |
+  | QuickJS, the showcase's style ops on average | 18 µs | 0.95 µs |
+  | QuickJS end to end per style op (`TrustedValidator::processOps` + `nodeCount`: the hops, JSON, the validator), compat | 42–63 µs | 3.6–5.0 µs |
+  | the same, strict and shadow scope | 44–64 µs | 4.5–6.3 µs |
+  | `opacity-moving/128`: one batch of 256 style ops | 11.8 ms | 0.93 ms |
+  | the showcase's 27 widgets: every batch of a 40-frame run | 21.8 ms | 13.1 ms |
+  | V8, `processOps` per op of the moving stress levels | 3.6 µs | 0.17–0.22 µs |
+  | V8, `processOps` per op of the showcase | 0.43–0.53 µs | 0.19–0.21 µs |
+
+  On an A55 that is about 12–15 µs instead of 134 per style op, and `opacity-moving/128` costs the validator about
+  75 ms a second instead of 900, plus its wake-ups (below).
+- **Its CPU time is charged to the widget's JS quota on the native hosts.** `TrustedValidator` measures its thread's
+  CPU time (`CLOCK_THREAD_CPUTIME_ID`, the JS quota's clock) around each call made for the widget's messages (ops
+  batches: JSON, for a renderer, binary; queries and their media rewrite; `listen`, `preventDefault`, anim batches) and
+  hands it to a sink `WidgetHost` sets; `SandboxEngine.chargeValidator` records it with `CpuBudget.record` on the engine
+  thread as it arrives. The budget belongs to the engine thread and the validator's is never that one, so the time is
+  posted, not shared; with the debt rule a record after the task counts in full. It shows as `stats.validatorMs` next
+  to `jsMs`, and `cpuWindowMs` includes it. A shared validator thread (the pools, Swift's `sharedValidatorThread`)
+  changes nothing: a call's CPU time on it is that call's. Not charged: what the host asks for itself (the stylesheets
+  again on a theme change, their warm-up at boot, a pool's reset). The JS quota is the right meter because the
+  validator works for this widget alone, on its own thread, like the widget's JS: a weak phone throttles the widget
+  earlier, and three busy widgets can no longer take the big cores unseen. The policy and its fixture are unchanged
+  (one more `record`); the tests are `ValidatorTimeTests.swift`, `ValidatorCpuTest.kt` (JVM) and `ValidatorTimeTest.kt`
+  (device), and desktop `validator_time_counts_against_the_js_quota` and `widget_host_charges_the_validators_time`.
+- **The main-thread window stays a model** (25 µs per op, 2 µs per canvas command): it prices the host's shared thread,
+  and on the native hosts the validator is not on it.
+- **The web is not charged.** It validates on the page's main thread in V8 (the worker sends ops asynchronously),
+  now about 0.2 µs per op of a moving widget, and stays modelled by the main-thread window; the web worker and the Node
+  harness have no validator thread, so their copies of the glue do not charge it.
+- Open: the A55's "about 1 ms per batch" is the validator thread waking (a small batch costs 10–20 µs on a Mac, 60–76 µs
+  after 8 ms idle), not computation, and CPU time does not count it. A pipeline of depth one would hide it, after a
+  decision on how a widget stops past a counted cap with batches in flight.
+
 ### Layout queries are bounded per task and charged to the quota (Oct 2026)
 
 A synchronous layout query (`offsetHeight`, `getBoundingClientRect`,
