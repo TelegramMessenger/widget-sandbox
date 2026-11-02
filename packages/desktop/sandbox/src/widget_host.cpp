@@ -117,6 +117,8 @@ void WidgetHost::start() {
         // Queued until the renderer is ready, so the variables are its first message, before any ops.
         toRenderer(themeMessage());
         toRenderer(safeAreaMessage(config_.contentSafeArea));
+        // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
+        toRenderer(std::string("{\"type\":\"policy\",\"policy\":\"") + (isStrictPolicy(options_.policy) ? "strict" : "compat") + "\"}");
         renderer_->load();
     });
 }
@@ -580,6 +582,21 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         engine_.theme(theme_, widgetTheme_.params);
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
+    } else if (type == "limit") {
+        // Past a paint limit (16 heavy boxes, 2 with backdrop-filter; Renderer::limitExceeded): the renderer drew the frame
+        // without the effects, and the widget stops as for memory or CPU (onDied: the reason in the diagnostics, the
+        // renderer frozen). compat counts nothing.
+        std::optional<WidgetPaintLimit> limit = msg["code"].isString() ? paintLimitFromCode(msg["code"].asString()) : std::nullopt;
+        double count = msg["count"].isNumber() ? msg["count"].asNumber() : -1;
+        if (!limit || !std::isfinite(count) || count < 0) return diag("renderer-violation", "a limit report with an unknown code or no count");
+        if (!isStrictPolicy(options_.policy)) return;
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            if (diagnostics_.dead) return;
+        }
+        std::string reason = paintLimitMessage(*limit, int(count));
+        diag(paintLimitCode(*limit), reason);
+        engine_.stop(reason);
     } else if (type == "release") {
         // The primary press ended (pointerup or pointercancel; renderer-made): the haptic gate's 5 s touch window starts.
         engine_.pressEnded();

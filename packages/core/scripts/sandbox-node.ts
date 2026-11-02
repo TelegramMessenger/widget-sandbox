@@ -28,6 +28,7 @@ import {
   type WidgetData, type WidgetRequest, type WidgetRequestAnswer, type WidgetTheme,
 } from '../src/shared/sdk-policy.ts';
 import { PROFILE_VERSION } from '../src/shared/profile-tables.ts';
+import { PAINT_BACKDROP_BOXES, PAINT_HEAVY_BOXES, checkPaintLimit, paintLimitMessage } from '../src/shared/paint-policy.ts';
 import { formatIntl } from '../src/shared/intl.ts';
 import { decodeBinaryOps } from '../src/shared/binary-ops-decode.ts';
 import { Validator } from '../src/host/validator.ts';
@@ -98,6 +99,11 @@ export interface RunResult {
   height?: number;
   /** One report per `gestures` step: target, claim, the policy's outcome, what the widget received, a hint. */
   gestures?: GestureReport[];
+  /**
+   * With `gestures` or `layout`: the heavy boxes the renderer counted (paint-policy.ts; strict only): at the end and the
+   * most at once, and of them with backdrop-filter. Past 16 (2) the renderer reports the limit and `stopped` is set.
+   */
+  paint?: { heavy: number; backdrop: number; peakHeavy: number; peakBackdrop: number };
   /** Event types the widget listens for (the shim's `listen`, validated). */
   listens: string[];
   /** The HTML's size as the server counts it: zlib at level 9 and UTF-8 bytes (widget-size.ts has the limits). */
@@ -746,6 +752,22 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
         case 'release': haptics.release(now()); break;
         case 'bubble': current?.bubble.push(String(msg.action) + (msg.edge ? ' (edge strip)' : '')); break;
         case 'size': if (Number.isFinite(msg.height)) res.height = msg.height; break;
+        case 'paint': {
+          const p = (res.paint ??= { heavy: 0, backdrop: 0, peakHeavy: 0, peakBackdrop: 0 });
+          p.heavy = Number(msg.heavy) || 0;
+          p.backdrop = Number(msg.backdrop) || 0;
+          p.peakHeavy = Math.max(p.peakHeavy, p.heavy);
+          p.peakBackdrop = Math.max(p.peakBackdrop, p.backdrop);
+          break;
+        }
+        case 'limit': {
+          // as WidgetHost: the renderer drew the frame without the effects, the host stops the widget (strict only)
+          const limit = checkPaintLimit(msg.code, msg.count);
+          if (!limit || config.policy === 'compat' || res.stopped !== undefined) break;
+          res.stopped = paintLimitMessage(limit.code, limit.count);
+          res.diags.push({ kind: limit.code, detail: res.stopped });
+          break;
+        }
       }
     });
     const flush = () => {
@@ -757,6 +779,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
     try {
       r.send({ type: 'theme', theme: res.theme });
       r.send({ type: 'safeArea', inset: res.contentSafeArea });
+      r.send({ type: 'policy', policy: config.policy, paintReports: true });
       r.send({ type: 'arbitrate', bubble: true, touch: !desktop });
       flush();
       await r.settle();
@@ -911,6 +934,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   console.log(`nodes: ${r.nodes} (max 2000)${r.nodes > 1500 ? ' — over 1500: close to the node limit, past it the widget stops' : ''}`);
   if (r.stopped) console.log(`STOPPED: ${r.stopped} (a host stops the widget here, the bubble keeps its last render)`);
   if (r.height !== undefined) console.log(`height ${Math.ceil(r.height)} px at width ${width ?? 400} px (a bubble shows 50–600 px, the rest is clipped)`);
+  if (r.paint) {
+    const p = r.paint;
+    const most = p.peakHeavy > p.heavy || p.peakBackdrop > p.backdrop ? ` (at most ${p.peakHeavy}, ${p.peakBackdrop} with backdrop-filter)` : '';
+    console.log(`paint: ${p.heavy} heavy boxes (max ${PAINT_HEAVY_BOXES}), ${p.backdrop} with backdrop-filter (max ${PAINT_BACKDROP_BOXES})${most}: boxes with a blurred shadow, a filter, a backdrop-filter, opacity below 1, or an animation of one of them`);
+    if (!r.stopped && (p.peakHeavy > 12 || p.peakBackdrop >= PAINT_BACKDROP_BOXES)) console.log(`warning: close to the paint limit; past ${PAINT_HEAVY_BOXES} heavy boxes (${PAINT_BACKDROP_BOXES} with backdrop-filter) the widget stops. Mute text and small details with colour (--tg-theme-hint-color, rgba(), fill-opacity / stroke-opacity in SVG) instead of opacity`);
+  }
   if (r.publicDataWatches.length) console.log(`public data: ${r.watchesPublicData ? 'watched' : 'not watched'} (watchPublicData: ${r.publicDataWatches.join(' → ')}): a client polls a shared widget's public_data only while it watches`);
   const sa = r.contentSafeArea;
   if (sa.bottom || sa.cornerLeft || sa.cornerRight) console.log(`content safe area: the client's time over the bottom ${sa.bottom} px, its corner ${sa.cornerRight ? `${sa.cornerRight} px on the right` : sa.cornerLeft ? `${sa.cornerLeft} px on the left` : 'none'}`);

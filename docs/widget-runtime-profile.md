@@ -156,7 +156,7 @@ stylesheets, fonts and images are never loaded. The full list, generated
 from the profile:
 
 <!-- profile:summary -->
-*Generated from `packages/core/profile.json` (profile 1): 277 features, 199 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
+*Generated from `packages/core/profile.json` (profile 1): 279 features, 201 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
 
 - **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> (any non-data: URL) · Form controls: form, input, select, option, optgroup, textarea, label, fieldset, legend, datalist, output · progress, meter · dialog, popover attribute · audio, video, source, track · script, iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, … · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
@@ -168,7 +168,7 @@ from the profile:
 - **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open, form submission · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
 - **TelegramWidget (SDK v1)** (17 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
-- **Limits** (19 in, 0 out)
+- **Limits** (21 in, 0 out)
 - **Client behaviour** (17 in, 0 out)
 <!-- /profile:summary -->
 
@@ -321,6 +321,14 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   badge.
 - A `data:` image: PNG, JPEG, GIF or WebP of at most 1024 × 1024 pixels (larger:
   the placeholder); other bytes behind an image type are a broken image.
+- Paint: at most 16 elements at once with a blurred shadow, a `filter`, a
+  `backdrop-filter` or transparency (`opacity` below 1), animated ones included
+  (a `::before` / `::after` counts as an element of its own), and of them at most
+  2 with `backdrop-filter`; past it the widget stops (`Paint limit exceeded`).
+  Mute text and small details with colour (`--tg-theme-hint-color`, `rgba()`,
+  `fill-opacity` / `stroke-opacity` in SVG), not `opacity`: it looks the same and
+  costs nothing. A shadow without blur (a ring, an inset border) and an element
+  under `display: none` do not count.
 - Keep the first render synchronous and fast; animate with
   `requestAnimationFrame`, never read layout in every frame.
 
@@ -375,7 +383,9 @@ The names a bot uses; the whole mapping and what the beta does are in
   `--public-data` the rest, `--answer '{"result":"ok"}'` (or `--answer-error
   TIMEOUT`) answers every request, `--set-data '{…}'` is the bot's edit of the state, `--offscreen`
   starts the widget off screen and then shows it, as Telegram's clients do; a `request`
-  line per request says whether it went out and what came back.
+  line per request says whether it went out and what came back. With `--width` a
+  `paint:` line counts the elements with a blurred shadow, a filter or transparency
+  (16 at most; a warning past 12).
 - **The dev app** (`corepack pnpm dev`): drop the file, pick a width (200–600 or
   free), toggle dark, and use the mouse as a finger (`gestures: phone`, the
   default): the bubble takes holds and swipes as a phone does and says so over
@@ -615,6 +625,11 @@ STORAGE, LIFECYCLE, LIMITS
   data: image at most 1024 x 1024 pixels (larger: a placeholder). Past the
   others, or the CPU or memory limit, the widget stops on its last frame
   ("Widget stopped").
+- At most 16 elements at once with a blurred box-shadow, filter,
+  backdrop-filter or opacity below 1 (animated ones and ::before/::after
+  too), 2 with backdrop-filter; past it the widget stops. Mute with colour
+  (var(--tg-theme-hint-color), rgba(), fill-opacity), never opacity; a shadow
+  without blur is free.
 - Animate with CSS or requestAnimationFrame; change only what moved, do not
   rebuild the DOM every frame.
 
