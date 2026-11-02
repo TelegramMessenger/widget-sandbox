@@ -218,7 +218,9 @@ stops like at any limit (`onDead` / `WidgetDiagnostics.dead`: `Paint limit excee
 transparency (max 16)` or `Paint limit exceeded: 3 boxes with backdrop-filter (max 2)`, the diagnostic `paint-limit` /
 `backdrop-limit`). A box is heavy when its computed style has a blurred `box-shadow` layer, a `filter`, a
 `backdrop-filter` or `opacity` below 1, or while an animation of one of them runs on it (`docs/decisions.md`, "Heavy
-boxes"). Only the renderer knows the cascade, so **the renderer counts**:
+boxes"). The opacity of a `<button>` that is disabled or held down (`:active`) is its own dimming and does not count,
+so the client-styled button's disabled and pressed looks never stop a widget. Only the renderer knows the cascade, so
+**the renderer counts**:
 
 - **The framework's WebView renderer** (`RendererWebView` on iOS, macOS and Android, the iframe and Shadow DOM
   renderers on the web) counts by itself, before each frame it draws, and reports to the host. Nothing to do; keep
@@ -232,7 +234,7 @@ boxes"). Only the renderer knows the cascade, so **the renderer counts**:
 - **Count against the fixture.** The rule is `packages/core/src/shared/paint-policy.ts` (`boxPaint`,
   `animationPaint`, `PaintCounter`) and `packages/core/tests/fixtures/paint-policy.json` is its contract: computed
   values to heavy or not (blur 0, inset without blur, opacity 0.999 and 1, `brightness(1)`, a `::before` with `content:
-  none`, `visibility: hidden`), keyframes to an animation that counts or not, and sequences of batches and animation
+  none`, `visibility: hidden`, a disabled or pressed `<button>` dimmed, one with a blurred shadow), keyframes to an animation that counts or not, and sequences of batches and animation
   events to the counts and the moment of the stop. Count after a whole batch (never op by op), when an animation of
   the rule starts or ends (CSS animation and transition events, a Web Animation that runs), and when the cascade changes
   without an op (the theme, the safe area, the bubble's width, `:hover`, `:active`). You may recount only the boxes a

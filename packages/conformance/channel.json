@@ -1140,9 +1140,9 @@
    "widget": "auto/37-paint-counted.html",
    "width": 0,
    "height": 0,
-   "caption": "auto/37-paint-counted · Paint limit: 16 heavy boxes (2 of them with backdrop-filter) draw; shadows without blur, a display: none subtree, a ::before without content and a pulse without blur are not counted (display: contents is out of profile 1: the validator removes it). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
+   "caption": "auto/37-paint-counted · Paint limit: 16 heavy boxes (2 of them with backdrop-filter) draw; shadows without blur, a display: none subtree, a ::before without content, a pulse without blur and 20 disabled buttons dimmed by the client are not counted (display: contents is out of profile 1: the validator removes it). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
-   "zlib": 2531
+   "zlib": 2719
   },
   {
    "widget": "auto/38-stop-paint-load.html",

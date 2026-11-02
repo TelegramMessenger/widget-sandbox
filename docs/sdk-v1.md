@@ -1523,7 +1523,7 @@ shared state (`public_data`).
 
 The framework's WebView renderer counts by itself. A client renderer counts the boxes it lays out that are heavy, by
 the rule of `packages/core/src/shared/paint-policy.ts` on the computed style (a blurred shadow, a filter, a
-backdrop-filter, opacity below 1, or an animation of one of them), checks the fixture
+backdrop-filter, opacity below 1 but a disabled or pressed `<button>`'s own dimming, or an animation of one of them), checks the fixture
 `packages/core/tests/fixtures/paint-policy.json`, and past 16 (or 2 with backdrop-filter) calls the seam's
 `limitExceeded(code, count)` before it draws that frame. It draws the stopped widget without those effects; the host
 does the rest (`docs/integration.md`, "Heavy boxes").

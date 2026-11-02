@@ -8454,7 +8454,7 @@
    "id": "auto/37-paint-counted",
    "set": "auto",
    "file": "auto/37-paint-counted.html",
-   "title": "Paint limit: 16 heavy boxes (2 of them with backdrop-filter) draw; shadows without blur, a display: none subtree, a ::before without content and a pulse without blur are not counted (display: contents is out of profile 1: the validator removes it)",
+   "title": "Paint limit: 16 heavy boxes (2 of them with backdrop-filter) draw; shadows without blur, a display: none subtree, a ::before without content, a pulse without blur and 20 disabled buttons dimmed by the client are not counted (display: contents is out of profile 1: the validator removes it)",
    "kind": [
     "self"
    ],
@@ -8493,11 +8493,18 @@
      "native": {
       "chromium": "pass"
      }
+    },
+    {
+     "id": "limit.paint-heavy",
+     "name": "20 disabled buttons dimmed by the client (its own opacity) are not counted",
+     "native": {
+      "chromium": "pass"
+     }
     }
    ],
    "stages": [],
-   "bytes": 6264,
-   "zlib": 2531
+   "bytes": 7151,
+   "zlib": 2719
   },
   {
    "id": "auto/38-stop-paint-load",

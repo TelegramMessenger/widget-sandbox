@@ -8,13 +8,15 @@
 //   1. a `box-shadow` layer with a blur radius above 0 (inset alike; offsets and spread do not matter),
 //   2. `filter` other than `none`,
 //   3. `backdrop-filter` other than `none`,
-//   4. `opacity` below 1 (0 too),
+//   4. `opacity` below 1 (0 too), except on a `<button>` that is disabled (the `disabled` attribute) or pressed
+//      (`:active`): that is the button's own static dimming (the UA layer's client-styled button, or the author's),
 //
 // or 5. a running animation changes `filter`, `backdrop-filter` or `opacity`, or changes `box-shadow` through a
 // blurred layer (a keyframe with one, or a missing first or last keyframe: the box's own value, unknown to the rule): a
 // CSS animation from `animationstart` until `animationend` / `animationcancel`, a CSS transition from `transitionstart`
 // until `transitionend` / `transitioncancel` (its keyframes are its two ends), a Web Animation while it is `running`;
-// for the whole time of the animation, whatever the value at a given moment. An animation of shadows without blur (a
+// for the whole time of the animation, whatever the value at a given moment (an animation of a dimmed button's
+// opacity counts like any other). An animation of shadows without blur (a
 // ring, an inset fill) is no heavier than the ring itself. The value counts, not the picture: `opacity: 0.999` and
 // `filter: brightness(1)` are heavy;
 // `visibility`, clipping, being on screen, `transform`, `will-change` and engine layers do not matter.
@@ -48,6 +50,12 @@ export interface PaintStyle {
   filter?: string;
   backdropFilter?: string;
   opacity?: string | number;
+  /**
+   * The element is a `<button>` with the `disabled` attribute (`disabled`) or held down (`pressed`, `:active`): its
+   * `opacity` is the button's own dimming and does not make it heavy. Absent for anything else, and ignored for a
+   * pseudo-element (a button's ::before is a box of its own).
+   */
+  button?: 'disabled' | 'pressed';
 }
 
 /** What one box adds: to the heavy count, and to the backdrop-filter count. */
@@ -142,8 +150,8 @@ export function hidesSubtree(display: string | undefined): boolean {
 
 /**
  * The box an element (or, with `pseudo`, its ::before / ::after) builds and what it adds, from its computed values;
- * null when it builds none (`display: none` or `contents`; a pseudo-element whose content is none / normal). Rules 1–4;
- * a running animation (rule 5) is PaintCounter's.
+ * null when it builds none (`display: none` or `contents`; a pseudo-element whose content is none / normal). Rules 1–4
+ * (a disabled or pressed `<button>`'s opacity aside); a running animation (rule 5) is PaintCounter's.
  */
 export function boxPaint(style: PaintStyle, pseudo = false): BoxPaint | null {
   const display = word(style.display);
@@ -153,7 +161,8 @@ export function boxPaint(style: PaintStyle, pseudo = false): BoxPaint | null {
     if (content === '' || content === 'none' || content === 'normal') return null;
   }
   const backdrop = !isNone(style.backdropFilter);
-  const heavy = backdrop || !isNone(style.filter) || transparent(style.opacity) || boxShadowBlurred(style.boxShadow);
+  const dimmedButton = !pseudo && (style.button === 'disabled' || style.button === 'pressed');
+  const heavy = backdrop || !isNone(style.filter) || (!dimmedButton && transparent(style.opacity)) || boxShadowBlurred(style.boxShadow);
   return { heavy, backdrop };
 }
 
