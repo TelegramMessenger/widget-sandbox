@@ -930,7 +930,7 @@ CPU, 3.9 ms (16: 25.4 ms). The corpora's largest real use was 40 heavy boxes in 
   rebuilt once for that, 64 bytes shorter, nothing else changed), and the
   version string is the commit's first 7 hex digits instead of `git describe`.
   `dist.sha256` lists every `dist/` file; `build.sh --check` rebuilds in a
-  temporary directory and compares (CI's `wasm.yml` when an input changes), and
+  temporary directory and compares (the `wasm.yml` job on the branch `claude/ci` when an input changes), and
   the unit suite checks `dist/` against the list and `QUICKJS_VERSION` against
   the submodule on every commit. Checked: macOS arm64 with Homebrew's
   emscripten 6.0.12 and the emsdk 6.0.12 image on Linux arm64 give identical
@@ -1100,7 +1100,7 @@ patch from the fork's owner.
   `BC_VERSION`. Any mismatch is an exception; the glue falls back to the source
   and reports a `bytecode` diag. A test on each platform boots a widget with a
   bundled library and asserts `(bytecode)` in the `boot` and `library` diags and
-  no fallback, so a `.js` committed without its `.qbc` fails CI, not a phone.
+  no fallback, so a `.js` committed without its `.qbc` fails the tests, not a phone.
 - **Only our own code goes through `JS_ReadObject`.** It has no verifier
   (quickjs.h says so); widget scripts keep going through the parser. Debug
   info is kept for shim stack traces, source text is stripped.

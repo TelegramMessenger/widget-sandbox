@@ -3,7 +3,21 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Next release (not tagged yet)
+## v0.6.0 — release notes (2026-11-02)
+
+The limits for the launch. The client teams ran the stress kit on five devices (a Redmi Note 8T and a Galaxy A55 on
+Android, an iPhone Air, tdesktop on an i9, the web) and seven real widgets on the slow phone; their numbers set the
+counted limits, which stop a widget the same way on every device and can only be loosened later, and turned the stops
+in time into slowdowns. With them: the heavy-box limit that each renderer counts, a cheaper validator whose time now
+counts on the native hosts, the tweb team's five fixes to v0.3.0's strict limits, and the release plumbing open since
+v0.1.0 (`VERSION.json` with stamped bundles, a reproducible wasm; CI waits on a branch). A client updates its glue and bundles together
+(a mixed pair now refuses to start), implements the heavy-box count in its own renderer against
+`packages/core/tests/fixtures/paint-policy.json` and reports it through the seam's `limitExceeded`, and reruns the
+conformance set (`auto/37`–`44` are new).
+
+**Limits from the client teams' stress-kit runs** (Redmi Note 8T, Galaxy A55, iPhone Air, tdesktop on an i9, the web;
+`docs/decisions.md`, "Strict limits from the start", "The client teams' numbers"). Counted limits stop a widget the same
+on every device; limits in time only slow it down and stop it on a hang:
 
 - Default, every host: every task gets the whole `cpuLimitMs` slice (500 ms), whatever the CPU quota has left; what a
   task spends past the quota is a debt (at most one more quota) that holds the next timers and frames until the window
@@ -11,25 +25,6 @@ nothing until the host lists them; "default" items apply to every host.
   "Throttle, not kill"). Until now a task started with little quota left got `max(remaining, 50 ms)` and was stopped
   when it ran longer, so a slow phone stopped widgets a fast one runs (a 3D showcase widget on a Redmi Note 8T, three
   runs out of three). The `CPU limit exceeded` message lost its quota part. The main-thread window follows the same rule.
-- Docs: the server's agreed wallet API (`docs/decisions.md`, "The wallet"; `docs/sdk-v1.md` §2.18, §5.13;
-  `docs/integration.md`). A sent transaction and a signature reach the bot with the device's wallet (`userWallet`:
-  address, balance, public key, StateInit), which the client fills: with the wallet's backup off a device can hold
-  another key and another wallet than the profile's card; `with_wallet` brings the profile's card. No code changes:
-  `onWallet` and the framework's checks stay as in v0.5.0.
-- Docs: the formats of the wallet's outcome as the server takes them (`docs/sdk-v1.md` §5.13): `userWallet.address`
-  raw or user-friendly (mainnet), `balance` in nanotons, `public_key` as its 32 bytes and `state_init` (new in the
-  schema: the wallet's StateInit as a bag of cells, which ties the key to the address of a wallet not deployed yet;
-  the server does not look inside) under one flag, both with a signature, `msg_hash` as 64 hex digits, `sign_data` as
-  TON Connect's result.
-- `corpus/bot-demos/07-wallet.html`: the Gram Wallet test on mainnet (the wallet card, a signature the bot checks, 0.01
-  TON to oneself found on toncenter), sent by `/wallet` from the bot on Telegram Serverless; the dev app's mock bot
-  `gram` plays it.
-
-
-**Limits from the client teams' stress-kit runs** (Redmi Note 8T, Galaxy A55, iPhone Air, tdesktop on an i9, the web;
-`docs/decisions.md`, "Strict limits from the start", "The client teams' numbers"). Counted limits stop a widget the same
-on every device; limits in time only slow it down and stop it on a hang:
-
 - Default, every host: **at most 2000 nodes** (elements, text, comments) in the document, compared once a batch is
   applied (`Node limit exceeded: N nodes in the document (max 2000)`; `validator.ts` and the Swift `NativeValidator`
   from the policy tables). Until now the validator stopped creating nodes past 50 000, and the 8 MB heap stopped a
@@ -51,6 +46,21 @@ on every device; limits in time only slow it down and stop it on a hang:
   validator's new `markLoaded` after the loading tasks' ops (`__twValidator.markLoaded` in the bundle; the Swift, Kotlin
   and C++ `TrustedValidator`, `NativeValidator`). A 48 K document of paragraphs built by the loading script lost them past
   ~45 K, silently, on every host.
+- Default, every host: **at most 16 heavy boxes at once, of them at most 2 with `backdrop-filter`**; past either the
+  widget stops (`docs/decisions.md`, "Heavy boxes"; `L2`, `limit.paint-heavy`, `limit.paint-backdrop` in profile 1). A
+  box is heavy with a blurred `box-shadow` layer, a `filter`, a `backdrop-filter` or `opacity` below 1, or while an
+  animation of `filter`, `backdrop-filter`, `opacity`, or of `box-shadow` through a blurred layer, runs on it; a
+  `<button>` that is disabled or held down is not heavy for its `opacity` (the client's own dimming: a calendar of
+  disabled days runs). 16 moving heavy boxes cost the renderer 1–8 ms a frame on all four clients measured. The renderer
+  counts on the computed style before each frame (`packages/core/src/shared/paint-policy.ts`); past the limit it draws
+  the widget without those effects and reports `{ type: 'limit', code, count }`, and the host stops it with `Paint limit
+  exceeded: N boxes with shadows, filters or transparency (max 16)` or `… N boxes with backdrop-filter (max 2)` and the
+  diagnostic `paint-limit` / `backdrop-limit`. New host → renderer `{ type: 'policy', policy }` at load: compat counts
+  nothing. **A client's own renderer** counts against `packages/core/tests/fixtures/paint-policy.json` and calls the
+  seam's new `limitExceeded(code, count)` (`Renderer.swift` with `WidgetPaintLimit`, `Renderer.kt`, `renderer.h`). The
+  harness's `--width` prints a `paint:` line. Six corpus widgets mute with colour instead of `opacity` now
+  (`showcase/life/01-fitness-rings`, `showcase/travel/04-weather`, the generated countdowns, two gesture examples).
+  Conformance `auto/37-paint-counted` and the stop cases `auto/38`–`43`; attacks `paint-*` (six).
 - `corpus/showcase/3d`: the six projected 3D widgets draw at most 2000 canvas commands a frame in every state (every
   model, pose, elevation with the cat's full mouse pitch, both zoom bounds, both themes, 200–600 px), about 25 fps at the
   main-thread window's 2 µs a command. Before: robot 4144, camera 1247, planet 20 668 (past even the old cap at zoom 1.3),
@@ -81,7 +91,7 @@ on every device; limits in time only slow it down and stop it on a hang:
   thread and stays modelled by the main-thread window. A host that drives `SandboxEngine` and `TrustedValidator` itself,
   not through `WidgetHost`, wires them the same way (the desktop harness does).
 
-**Versions, CI, a reproducible wasm** (open since v0.1.0):
+**Versions and a reproducible wasm** (open since v0.1.0):
 
 - Default, every native host: `VERSION.json` at the repository root names the release and the versions the glue and the
   bundles share (`version` 0.6.0, `protocol` 1, `profile` 1, `sdk` 1; `docs/integration.md`, "Pinning a release").
@@ -100,11 +110,7 @@ on every device; limits in time only slow it down and stop it on a hang:
   emscripten 6.0.12 pinned in `build.sh` (`--docker`: the emsdk image by digest), `dist.sha256`, `build.sh --check`. The
   wasm is rebuilt once: the assert messages' source path is `vendor/quickjs-ng/quickjs-amalgam.c` instead of a random
   temporary directory (64 bytes shorter); nothing else changed.
-- CI: `.github/workflows/ci.yml` on every push and pull request to `main` (typecheck, unit tests, the shipped bundles
-  against a fresh build, `test:attacks` on both web renderers, the C++ core with its attack run, `xcodebuild test` on
-  macOS, the Android JVM tests) and `wasm.yml` (`build.sh --check --docker` when the wasm's inputs change); 06-cat's size
-  check (Node's zlib 3835 B, the server's 3786 B) runs as a non-blocking step. `CONTRIBUTING.md` §6, "Cut a release". No
-  workflow has run on GitHub yet.
+- `CONTRIBUTING.md` §6, "Cut a release": bumping `VERSION.json` and the files it checks, the test matrix, the tag.
 
 **Strict limits: what the tweb team found moving to v0.4.0** (five findings, all from v0.3.0's strict limits; every
 host gets them with the bundles, the Swift `NativeValidator` has its own copy of the first and the fourth):
@@ -125,6 +131,51 @@ host gets them with the bundles, the Swift `NativeValidator` has its own copy of
   widget as 402, and 40 blocks like `@keyframes k\}0{…}` passed under the cap of 32 as rules.
 - Conformance `auto/33-stop-batch` passes the ops cap with 10 001 scroll calls instead of 5001 new elements: those needed
   about 8 MB of heap, so a client's heap could stop the case for memory first; it now stops for the ops at 5 MB.
+
+**Wallet docs** (no code changes: `onWallet` and the framework's checks stay as in v0.5.0):
+
+- Docs: the server's agreed wallet API (`docs/decisions.md`, "The wallet"; `docs/sdk-v1.md` §2.18, §5.13;
+  `docs/integration.md`). A sent transaction and a signature reach the bot with the device's wallet (`userWallet`:
+  address, balance, public key, StateInit), which the client fills: with the wallet's backup off a device can hold
+  another key and another wallet than the profile's card; `with_wallet` brings the profile's card.
+- Docs: the formats of the wallet's outcome as the server takes them (`docs/sdk-v1.md` §5.13): `userWallet.address`
+  raw or user-friendly (mainnet), `balance` in nanotons, `public_key` as its 32 bytes and `state_init` (new in the
+  schema: the wallet's StateInit as a bag of cells, which ties the key to the address of a wallet not deployed yet;
+  the server does not look inside) under one flag, both with a signature, `msg_hash` as 64 hex digits, `sign_data` as
+  TON Connect's result.
+- `corpus/bot-demos/07-wallet.html`: the Gram Wallet test on mainnet (the wallet card, a signature the bot checks,
+  0.01 TON to oneself found on toncenter); its bot is not in this repository, the dev app's mock bot `gram` plays it.
+
+**Known issues:**
+
+- No client renderer has reported the conformance set or the attack corpus yet (only the web's are in
+  `packages/conformance/results`); the heavy-box count is new work for every client's own renderer.
+- No CI in this tag. The GitHub Actions workflows (`ci.yml` on every push and pull request to `main`: typecheck, unit
+  tests, the shipped bundles against a fresh build, `test:attacks` on both web renderers, the C++ core with its attack
+  run, `xcodebuild test` on macOS, the Android JVM tests; `wasm.yml`: `build.sh --check --docker` when the wasm's inputs
+  change) wait on the branch `claude/ci`: pushing workflow files needs a token with the `workflow` scope, and they have
+  never run on GitHub (checked with actionlint only).
+- The prices (300 ms/s of JS, the 100 ms/s window at 25 / 2 µs) were measured only on strong and middle devices: no weak
+  iPhone and no web on weak hardware in the data. They can move either way without breaking widgets.
+- A CSS animation that makes a box heavy is counted at its `animationstart`, a frame after the engine starts it; a
+  limit reached through ops is always stopped before the frame. `display: contents` (out of profile 1) is in the
+  paint fixture but cannot be a conformance case.
+- A long flush goes out in parts and the totals are compared after each part: a rebuild that moves nodes out of the old
+  subtree and passes ~1000 ops can see the old and the new text or nodes together for one part.
+- The QuickJS fork (c24d6b0): `a.length = 0` on a sparse array whose first index is above 0 leaves about half of its
+  elements readable (V8 clears them; found while lightening the 3D showcase, which now avoids it).
+- The Android team reports that the server takes `msg_hash` only in base64 (2026-10-31); `docs/sdk-v1.md` §5.13 says
+  64 hex digits. To settle with the server before a client ships the wallet.
+- `htmlbubbles-ported`: 110 / 116 on the iframe renderer, the six known screenshot-only rows; not run on shadow for
+  this release.
+- Test matrix on this tree (9c64646 and the docs after it): typecheck and unit 934 / 934; on iframe and shadow attacks 157
+  (119 files, the six `paint-*` stopped by the heavy-box limit) and showcase 27; on iframe sdk 45, gestures 28 (both
+  renderers inside the suite), activation 4, lifecycle 6, compat 20, generated 40, common 32, defaults 6, the safe-area,
+  resize and gesture corpora (7, 3, 8); the conformance set on iframe and shadow, light and dark: 182 / 3 / 0 in the
+  profile, 77 out neutralised, 135 / 135 automatic runs, 0 errors; Swift macOS 351 and iOS 27.0 (iPhone 17 simulator)
+  353 with only `IntlBridgeTests.testPluralRulesMatchICU` failing (the OS's ICU, as before); Kotlin 37 JVM + 128
+  instrumented (AVD twidget-35); C++ 86 tests and 119 attacks with 0 leaks. Not checked: the native demos on a simulator
+  or emulator, a real phone.
 
 ## v0.5.0 — release notes (2026-10-30)
 

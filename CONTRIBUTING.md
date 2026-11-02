@@ -29,7 +29,7 @@ one-platform half to `main`.
 
 ## 3. Test what you changed
 
-- Always: `pnpm typecheck`, `pnpm test:unit` (CI runs both, `.github/workflows/ci.yml`).
+- Always: `pnpm typecheck`, `pnpm test:unit`.
 - Shim, validator or renderer JS: `pnpm test:attacks` on both renderers
   (`TW_RENDERER=shadow` too, 0 hits), the conformance run (`scripts/conformance/run-web.ts`,
   then `packages/conformance/tools/report.mjs` for `packages/conformance/results`),
@@ -55,13 +55,9 @@ one-platform half to `main`.
 - Rebase on the latest `main`; rebuild the bundles if the rebase touched `packages/core`.
 - If a release is being prepared, say so before pushing: the release is rebased on top of
   you and re-tested.
-- CI must be green (`.github/workflows/ci.yml` on every push and pull request to `main`:
-  typecheck, unit tests, the shipped bundles against a fresh build, `test:attacks` on both web
-  renderers, the C++ core and its attack run, `xcodebuild test` on macOS, the Android JVM tests;
-  `wasm.yml` rebuilds `packages/quickjs-wasm/dist` when its inputs change). CI does not replace
-  §3: the iOS simulator, the Android instrumented tests, the corpora and the conformance run are
-  still yours. A failure on a timing-sensitive test (`docs/changes.md`, known issues) is re-run
-  once; a second failure is real.
+- There is no CI in `main` yet (the GitHub Actions workflows wait on the branch `claude/ci`), so
+  §3 is the check. A failure on a timing-sensitive test (`docs/changes.md`, known issues) is
+  re-run once; a second failure is real.
 - Never edit generated files by hand: `profile-tables.ts`, `docs/profile-v1.md`, the out lists
   between the `profile:summary` and `profile:agent` markers of `docs/widget-runtime-profile.md`, the
   bundles and `.qbc`, `packages/conformance/{catalogue,manifest,channel}.json`,
@@ -80,4 +76,5 @@ one-platform half to `main`.
   (`packages/core/tests/unit/version.test.ts` names any file left behind, and every native glue
   refuses bundles of another protocol, profile or sdk), the release notes in `docs/changes.md`,
   `CLAUDE.md`'s status.
-- CI green on the release commit, then the annotated tag `v<version>` on it.
+- §3's matrix green on the release commit (its results in the release notes), then the annotated
+  tag `v<version>` on it.
