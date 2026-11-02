@@ -55,6 +55,48 @@ on every device; limits in time only slow it down and stop it on a hang:
   `layout-queries/256`), `css-rules/400` at the cap instead of over it (the frame's rules count), the largest batch as
   measured; conformance `auto/37-stop-nodes`, `auto/19-limits` at 4000 commands.
 
+**The validator: cheaper, and its time counts** (`docs/decisions.md`, "The validator's time counts"):
+
+- Default, every host (with the bundles): the validator takes simple style values without css-tree (`css-sanitizer.ts`
+  `fastStyleValue`): numbers, lengths, percentages, `#` colours, keywords and the profile's functions of them, over
+  `[0-9A-Za-z.%#(),-]` and the space, written as css-tree writes them; anything else goes through css-tree as before. The
+  output is byte-identical: `tests/unit/css-fast-path.test.ts` runs both paths over every declaration of the corpora, the
+  conformance set and the stress kit in all 32 envs, each value under every property, and a generated set. A style op of
+  a moving widget now costs the validator about 4 µs end to end in the native hosts' QuickJS instead of 45 on a Mac
+  (about 12–15 µs instead of 134 on a Galaxy A55), and 0.2 µs instead of 3.6 in V8.
+- Default, Swift, Kotlin, C++: the validator's CPU time for a widget's messages (ops, queries, `listen`,
+  `preventDefault`, anim), measured on its own thread, counts against the widget's JS quota: `TrustedValidator` reports it
+  to a CPU sink (`setCpuSink` / `cpuSink`), `WidgetHost` passes it to `SandboxEngine.chargeValidator`, which records it on
+  the engine thread; `stats.validatorMs` next to `jsMs`, and `cpuWindowMs` includes it. Until now `opacity-moving/128`
+  kept an A55's validator thread busy about 900 ms a second outside every limit. The web validates in V8 on its main
+  thread and stays modelled by the main-thread window. A host that drives `SandboxEngine` and `TrustedValidator` itself,
+  not through `WidgetHost`, wires them the same way (the desktop harness does).
+
+**Versions, CI, a reproducible wasm** (open since v0.1.0):
+
+- Default, every native host: `VERSION.json` at the repository root names the release and the versions the glue and the
+  bundles share (`version` 0.6.0, `protocol` 1, `profile` 1, `sdk` 1; `docs/integration.md`, "Pinning a release").
+  `pnpm build:ios|android|desktop` stamps it on the first line of each bundle (`/* widget-sandbox version=0.6.0 protocol=1
+  profile=1 sdk=1 */`) and writes it into the glue (`WidgetSandboxVersion.swift` / `.kt`, `twidget/version.h`; the glue's
+  `profile` comes from it). Before the engine evaluates a bundle it checks the stamps of all three (`BundleStamp.swift` /
+  `.kt`, `bundle_stamp.cpp`): without one, or with another protocol, profile or sdk, it stops at boot with
+  `bundle-mismatch` and `sandbox bundle failed to load`, and the validator loads nothing; the release itself is not
+  compared. A client that ships its tag's bundles sees nothing; one that mixes two releases fails at the first widget
+  instead of misbehaving. New: Swift `SandboxResources(sandboxBundle:rendererBundle:validatorBundle:sandboxBytecode:validatorBytecode:)`,
+  `SandboxResources.refusal` (Swift, Kotlin), `BundleStamp::refusal` (C++). Native only: the web worker and the Node
+  harness build their bundle from the same sources. `package.json`, `packages/core/package.json` and the Android library
+  are at 0.6.0; `tests/unit/version.test.ts` fails when any of them, `profile.json`, the platform constants or a shipped
+  bundle's stamp disagrees.
+- `packages/quickjs-wasm/dist` is reproducible (`docs/decisions.md`, "QuickJS for the web and Node from our fork"):
+  emscripten 6.0.12 pinned in `build.sh` (`--docker`: the emsdk image by digest), `dist.sha256`, `build.sh --check`. The
+  wasm is rebuilt once: the assert messages' source path is `vendor/quickjs-ng/quickjs-amalgam.c` instead of a random
+  temporary directory (64 bytes shorter); nothing else changed.
+- CI: `.github/workflows/ci.yml` on every push and pull request to `main` (typecheck, unit tests, the shipped bundles
+  against a fresh build, `test:attacks` on both web renderers, the C++ core with its attack run, `xcodebuild test` on
+  macOS, the Android JVM tests) and `wasm.yml` (`build.sh --check --docker` when the wasm's inputs change); 06-cat's size
+  check (Node's zlib 3835 B, the server's 3786 B) runs as a non-blocking step. `CONTRIBUTING.md` §6, "Cut a release". No
+  workflow has run on GitHub yet.
+
 **Strict limits: what the tweb team found moving to v0.4.0** (five findings, all from v0.3.0's strict limits; every
 host gets them with the bundles, the Swift `NativeValidator` has its own copy of the first and the fourth):
 
