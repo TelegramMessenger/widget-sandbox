@@ -41,6 +41,7 @@ object ValidatorPool {
     fun recycle(validator: TrustedValidator) {
         if (idle.size >= maxOf(targetSize * 2, 1)) { validator.close(); return }
         validator.onDiag = { _, _ -> }
+        validator.cpuSink = null
         validator.perform { validator.reset("light") }
         idle.add(validator)
         recycled += 1

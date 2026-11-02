@@ -116,6 +116,21 @@ class TrustedValidator private constructor(
         stopped = null
     }
 
+    private val meter = CpuMeter { js?.threadCpuNanos() ?: 0L }
+
+    /**
+     * Called on the validator's thread with the CPU time (ms, its thread's clock) of each call made for the widget's
+     * messages: [processOps], [validateQuery], [rewriteMediaQuery], [validateListen], [validatePreventDefault],
+     * [validateAnim]. The host records it against the widget's JS quota ([SandboxEngine.chargeValidator];
+     * docs/decisions.md, "The validator's time counts"). Null: nothing is measured.
+     */
+    var cpuSink: ((Double) -> Unit)?
+        get() = meter.sink
+        set(value) { meter.sink = value }
+
+    /** [str] measured for the CPU sink. */
+    private fun metered(name: String, args: List<String>): String = thread.sync { meter.measure { str(name, args) } }
+
     /** Runs `block` on the validator's thread after everything queued before it; the validator's methods are inline there. */
     fun perform(block: () -> Unit) = thread.post(block)
 
@@ -130,22 +145,49 @@ class TrustedValidator private constructor(
     }
 
     /** Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived). */
-    fun processOps(json: String): String = str("__v_processOps", listOf(json)).ifEmpty { "[]" }
+    fun processOps(json: String): String = metered("__v_processOps", listOf(json)).ifEmpty { "[]" }
 
     /** Untrusted query → clean query JSON, or null if rejected. */
-    fun validateQuery(json: String): String? = str("__v_validateQuery", listOf(json)).ifEmpty { null }
+    fun validateQuery(json: String): String? = metered("__v_validateQuery", listOf(json)).ifEmpty { null }
 
-    fun validateListen(json: String): String = str("__v_validateListen", listOf(json)).ifEmpty { "[]" }
-    fun validatePreventDefault(json: String): String = str("__v_validatePreventDefault", listOf(json)).ifEmpty { "[]" }
+    fun validateListen(json: String): String = metered("__v_validateListen", listOf(json)).ifEmpty { "[]" }
+    fun validatePreventDefault(json: String): String = metered("__v_validatePreventDefault", listOf(json)).ifEmpty { "[]" }
     fun setPolicy(policy: String) { str("__v_setPolicy", listOf(policy)) }
-    fun validateAnim(json: String): String = str("__v_validateAnim", listOf(json)).ifEmpty { "[]" }
+    fun validateAnim(json: String): String = metered("__v_validateAnim", listOf(json)).ifEmpty { "[]" }
     fun setTheme(theme: String): String = str("__v_setTheme", listOf(theme)).ifEmpty { "[]" }
-    fun rewriteMediaQuery(query: String): String = str("__v_rewriteMediaQuery", listOf(query))
+    fun rewriteMediaQuery(query: String): String = metered("__v_rewriteMediaQuery", listOf(query))
     val nodeCount: Int get() = thread.sync { (try { js?.call("__v_nodeCount")?.number } catch (e: QuickJSException) { null } ?: 0.0).toInt() }
 
     /** Frees the context; stops the thread when it is the validator's own. A pooled validator is recycled by ValidatorPool instead. */
     override fun close() {
         thread.post { js?.close(); js = null }
         if (ownsThread) thread.stop()
+    }
+}
+
+/**
+ * The validator's time on the widget's messages: the CPU time of the calling thread around a call, reported to [sink]
+ * once per outermost call (a call inside a measured one is part of it). Pure, so the JVM tests check it with a fake
+ * clock; [TrustedValidator] runs it on its thread with QuickJS's thread clock.
+ */
+class CpuMeter(private val clockNanos: () -> Long) {
+    @Volatile var sink: ((Double) -> Unit)? = null
+    /** The measuring thread only. */
+    private var depth = 0
+
+    fun <T> measure(block: () -> T): T {
+        val sink = sink
+        if (sink == null || depth > 0) {
+            depth++
+            try { return block() } finally { depth-- }
+        }
+        depth = 1
+        val t0 = clockNanos()
+        try {
+            return block()
+        } finally {
+            depth = 0
+            sink((clockNanos() - t0) / 1e6)
+        }
     }
 }

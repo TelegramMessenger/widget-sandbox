@@ -93,6 +93,8 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
       viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {
     if (!renderer_) throw std::runtime_error("WidgetHost: the renderer factory returned nothing");
     if (isStrictPolicy(options.policy)) validator_.setPolicy("strict");
+    // The validator's time on the widget's messages counts against its JS quota (docs/decisions.md, "The validator's time counts").
+    validator_.setCpuSink([this](double ms) { engine_.chargeValidator(ms); });
     engine_.setDelegate(this);
     renderer_->onDiag = [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); };
     // The widget boots once the renderer announced itself, so the very first layout queries have something to measure.
@@ -105,6 +107,7 @@ WidgetHost::~WidgetHost() {
     // while every member is still alive, and only then do the members go.
     engine_.thread().join();
     hostThread_.join();
+    validator_.setCpuSink(nullptr);
 }
 
 void WidgetHost::start() {

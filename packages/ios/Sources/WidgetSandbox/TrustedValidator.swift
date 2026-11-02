@@ -175,6 +175,36 @@ public final class TrustedValidator {
         }
     }
 
+    // MARK: the validator's time
+
+    /// The validator's thread only: where the CPU time of a call for the widget's messages goes, and how deep the calls
+    /// that are measured nest (a call inside one, `processOps` in `processOpsForRenderer`, counts once).
+    private var cpuSink: ((Double) -> Void)?
+    private var meterDepth = 0
+
+    /// Called on the validator's thread with the CPU time (ms, its thread's clock) of each call made for the widget's
+    /// messages: the ops batches (JSON, for a renderer, binary), queries and their media rewrite, listen, preventDefault
+    /// and anim batches. The host records it against the widget's JS quota (`SandboxEngine.chargeValidator`;
+    /// docs/decisions.md, "The validator's time counts"). Nil: nothing is measured. Takes effect before any later call.
+    public func setCpuSink(_ sink: ((Double) -> Void)?) {
+        thread.async { [self] in cpuSink = sink }
+    }
+
+    /// On the validator's thread: `body`, its CPU time reported to the sink when it is the outermost measured call.
+    private func metered<T>(_ body: () -> T) -> T {
+        guard let sink = cpuSink, meterDepth == 0 else {
+            meterDepth += 1
+            defer { meterDepth -= 1 }
+            return body()
+        }
+        meterDepth = 1
+        let t0 = QuickJSContext.threadCPUTime()
+        let result = body()
+        meterDepth = 0
+        sink((QuickJSContext.threadCPUTime() - t0) * 1000)
+        return result
+    }
+
     /// A fresh validator instance in the same context (the bundle stays
     /// evaluated): how a pool recycles a validator for the next widget.
     public func reset(theme: String) {
@@ -184,6 +214,7 @@ public final class TrustedValidator {
             icons = nil
             policy = .compat
             scriptStop = nil
+            cpuSink = nil
         }
         _ = str("__v_create", [theme])
         thread.sync { [self] in js?.collectGarbage() }
@@ -275,19 +306,21 @@ public final class TrustedValidator {
 
     /// A binary ops batch through the native model (`useNativeModel(true)` first).
     public func processBinary(_ payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch] = [:], typed: Bool) -> RenderBatch {
-        thread.sync { [self] in
-            guard let native else {
-                onDiag("protocol-violation", "binary ops without the native model")
-                return .empty
-            }
-            icons?.beginBatch()
-            switch BinaryOps.decode(payload, table: native.intern, icons: icons) {
-            case .failure(let failure):
-                onDiag("protocol-violation", "malformed binary ops batch (\(failure))")
-                return .empty
-            case .success(let decoded):
-                return restoreIcons(Self.render(native.process(decoded, canvas: canvas), typed: typed))
-            }
+        thread.sync { [self] in metered { processBinaryNow(payload, canvas: canvas, typed: typed) } }
+    }
+
+    private func processBinaryNow(_ payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch], typed: Bool) -> RenderBatch {
+        guard let native else {
+            onDiag("protocol-violation", "binary ops without the native model")
+            return .empty
+        }
+        icons?.beginBatch()
+        switch BinaryOps.decode(payload, table: native.intern, icons: icons) {
+        case .failure(let failure):
+            onDiag("protocol-violation", "malformed binary ops batch (\(failure))")
+            return .empty
+        case .success(let decoded):
+            return restoreIcons(Self.render(native.process(decoded, canvas: canvas), typed: typed))
         }
     }
 
@@ -317,19 +350,21 @@ public final class TrustedValidator {
     /// Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived).
     /// One turn of the validator's thread: the stand-ins of a batch are the expansion's of that batch.
     public func processOps(_ json: String) -> String {
-        thread.sync { [self] in
-            let json = expandIcons(json)
-            if let native {
-                guard let value = JSONText.parse(json) else {
-                    onDiag("protocol-violation", "ops batch is not valid JSON")
-                    return "[]"
-                }
-                let ops = native.process(json: value)
-                return ops.isEmpty ? "[]" : restoreIcons(WidgetOp.json(ops))
+        thread.sync { [self] in metered { processOpsNow(json) } }
+    }
+
+    private func processOpsNow(_ json: String) -> String {
+        let json = expandIcons(json)
+        if let native {
+            guard let value = JSONText.parse(json) else {
+                onDiag("protocol-violation", "ops batch is not valid JSON")
+                return "[]"
             }
-            let out = str("__v_processOps", [json])
-            return out.isEmpty ? "[]" : restoreIcons(out)
+            let ops = native.process(json: value)
+            return ops.isEmpty ? "[]" : restoreIcons(WidgetOp.json(ops))
         }
+        let out = str("__v_processOps", [json])
+        return out.isEmpty ? "[]" : restoreIcons(out)
     }
 
     /// What a renderer gets for one ops batch: nothing, the JSON array, or typed ops for a renderer that takes them.
@@ -348,23 +383,25 @@ public final class TrustedValidator {
     /// on known canvas elements goes to the renderer as typed canvas ops without any JSON; anything else is
     /// spliced back into JSON and validated by the JS validator as before.
     public func processOpsForRenderer(_ json: String, canvas: [Int: WidgetCanvasBatch] = [:], typed: Bool) -> RenderBatch {
-        thread.sync { [self] in
-            guard let js else { return .empty }
-            // A stopped widget gets nothing; the shortcut takes payloads within the strict caps only (10 000 commands, 32 KB
-            // strings: `CanvasBatchFastPath`), anything bigger goes through the validator, which stops the widget there.
-            // Under strict a payload that resizes its canvas (`r`) goes there too: the validator counts the widget's canvas
-            // pixels and stops it past 2048².
-            if (native?.stopReason ?? scriptStop) != nil { return .empty }
-            if typed, !canvas.isEmpty, let list = CanvasWords.only(json, canvas),
-               list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch)
-                   && (policy != .strict || (CanvasWords.textCharges($0.batch).isEmpty && CanvasWords.resizes($0.batch).isEmpty)) }) {
-                nativeCanvasBatches += 1
-                return .ops(list.map { WidgetOp(canvas: $0.id, batch: $0.batch) })
-            }
-            let out = processOps(canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
-            if out == "[]" { return .empty }
-            return typed ? Self.typedOps(out) : .json(out)
+        thread.sync { [self] in metered { processOpsForRendererNow(json, canvas: canvas, typed: typed) } }
+    }
+
+    private func processOpsForRendererNow(_ json: String, canvas: [Int: WidgetCanvasBatch], typed: Bool) -> RenderBatch {
+        guard let js else { return .empty }
+        // A stopped widget gets nothing; the shortcut takes payloads within the strict caps only (10 000 commands, 32 KB
+        // strings: `CanvasBatchFastPath`), anything bigger goes through the validator, which stops the widget there.
+        // Under strict a payload that resizes its canvas (`r`) goes there too: the validator counts the widget's canvas
+        // pixels and stops it past 2048².
+        if (native?.stopReason ?? scriptStop) != nil { return .empty }
+        if typed, !canvas.isEmpty, let list = CanvasWords.only(json, canvas),
+           list.allSatisfy({ ((try? js.call("__v_isCanvas", [String($0.id)]))?.number ?? 0) == 1 && CanvasWords.envelope($0.batch)
+               && (policy != .strict || (CanvasWords.textCharges($0.batch).isEmpty && CanvasWords.resizes($0.batch).isEmpty)) }) {
+            nativeCanvasBatches += 1
+            return .ops(list.map { WidgetOp(canvas: $0.id, batch: $0.batch) })
         }
+        let out = processOps(canvas.isEmpty ? json : CanvasWords.splice(json, canvas))
+        if out == "[]" { return .empty }
+        return typed ? Self.typedOps(out) : .json(out)
     }
 
     static func typedOps(_ json: String) -> RenderBatch {
@@ -380,25 +417,34 @@ public final class TrustedValidator {
 
     /// Untrusted query → clean query JSON, or nil if rejected.
     public func validateQuery(_ json: String) -> String? {
-        let out = str("__v_validateQuery", [json])
+        let out = measured("__v_validateQuery", [json])
         return out.isEmpty ? nil : out
     }
 
-    public func validateListen(_ json: String) -> String { str("__v_validateListen", [json]).nilIfEmpty ?? "[]" }
-    public func validatePreventDefault(_ json: String) -> String { str("__v_validatePreventDefault", [json]).nilIfEmpty ?? "[]" }
+    /// `str` measured for the CPU sink.
+    private func measured(_ name: String, _ args: [String]) -> String {
+        thread.sync { [self] in metered { str(name, args) } }
+    }
+
+    public func validateListen(_ json: String) -> String { measured("__v_validateListen", [json]).nilIfEmpty ?? "[]" }
+    public func validatePreventDefault(_ json: String) -> String { measured("__v_validatePreventDefault", [json]).nilIfEmpty ?? "[]" }
     public func validateAnim(_ json: String) -> String {
         if json.utf8.count > 4 << 20, json.utf16.count > 4 << 20 { return "[]" }
-        if let native = thread.sync({ [self] in self.native }) {
-            return thread.sync { [self] in
-                guard let value = JSONText.parse(json) else {
-                    onDiag("protocol-violation", "anim batch is not valid JSON")
-                    return "[]"
-                }
-                return native.validateAnim(json: value).json
+        return thread.sync { [self] in metered { validateAnimNow(json) } }
+    }
+
+    /// On the validator's thread.
+    private func validateAnimNow(_ json: String) -> String {
+        if let native {
+            guard let value = JSONText.parse(json) else {
+                onDiag("protocol-violation", "anim batch is not valid JSON")
+                return "[]"
             }
+            return native.validateAnim(json: value).json
         }
         return str("__v_validateAnim", [json]).nilIfEmpty ?? "[]"
     }
+
     /// The stylesheets again, sanitized for the scheme: the validator keeps them with the stand-ins.
     public func setTheme(_ theme: String) -> String {
         thread.sync { [self] in
@@ -408,13 +454,13 @@ public final class TrustedValidator {
             return ops.isEmpty ? "[]" : restoreIcons(WidgetOp.json(ops))
         }
     }
-    public func rewriteMediaQuery(_ query: String) -> String { str("__v_rewriteMediaQuery", [query]) }
+    public func rewriteMediaQuery(_ query: String) -> String { measured("__v_rewriteMediaQuery", [query]) }
     public var memoryUsage: [String: Int]? { thread.sync { [self] in js?.memoryUsage } }
     public func collectGarbage() { thread.async { [self] in js?.collectGarbage() } }
 
     /// `processOps` and the node count after it, read in the same turn of the validator's thread.
     public func processOpsCounted(_ json: String) -> (ops: String, nodes: Int) {
-        thread.sync { [self] in (processOps(json), nodeCount) }
+        thread.sync { [self] in metered { (processOps(json), nodeCount) } }
     }
 
     public var nodeCount: Int { thread.sync { [self] in native?.nodeCount ?? Int((try? js?.call("__v_nodeCount"))?.number ?? 0) } }

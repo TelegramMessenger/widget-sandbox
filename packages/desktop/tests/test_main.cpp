@@ -1233,6 +1233,56 @@ TEST(main_thread_window_defers_frames) {
     }
 }
 
+/// The validator's time counts against the JS quota (docs/decisions.md, "The validator's time counts"): a charge from
+/// another thread is recorded on the engine thread, shows in the stats and defers the widget's timers like its own JS
+/// time would. The twin of ValidatorTimeTests.swift and ValidatorCpuTest.kt.
+TEST(validator_time_counts_against_the_js_quota) {
+    auto ticksIn = [](double charge, double& validatorMs, std::string& throttled) {
+        SandboxConfig cfg = testConfig();
+        cfg.cpuQuotaMs = 100;
+        Run r("<script>var ticks = 0; setInterval(function () { ticks++; }, 20);</script>", cfg);
+        int before = std::atoi(r.engine.probe("ticks").c_str());
+        if (charge > 0) std::thread([&] { r.engine.chargeValidator(charge); }).join();
+        sleepMs(600);
+        r.barrier();
+        int ticks = std::atoi(r.engine.probe("ticks").c_str()) - before;
+        sleepMs(250); // the trailing stats report
+        auto l = r.host.lock();
+        CHECK_MSG(!r.host.died, r.host.died.value_or(""));
+        validatorMs = r.host.stats.validatorMs;
+        throttled.clear();
+        for (auto& [k, d] : r.host.diags) if (k == "cpu-throttled") throttled += d + "\n";
+        return ticks;
+    };
+    double validatorMs = 0;
+    std::string throttled;
+    int free = ticksIn(0, validatorMs, throttled);
+    CHECK_MSG(free > 10 && validatorMs == 0 && throttled.empty(), std::to_string(free) + " ticks, " + std::to_string(validatorMs) + " ms; " + throttled);
+    int charged = ticksIn(300, validatorMs, throttled);
+    CHECK_MSG(charged < 3, std::to_string(charged) + " ticks after 300 ms of validation against a 100 ms quota");
+    CHECK_MSG(validatorMs == 300, std::to_string(validatorMs));
+    CHECK_MSG(throttled.find("ms per 1000 ms budget used") != std::string::npos, throttled);
+}
+
+/// WidgetHost measures the validator's CPU time on its thread and charges it to the widget: a batch of style ops that
+/// css-tree has to parse shows up in `stats.validatorMs`.
+TEST(widget_host_charges_the_validators_time) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<div id=d></div><script>var d = document.getElementById('d');"
+                    "for (var i = 0; i < 300; i++) d.style.setProperty('--v' + (i % 7), 'var(--x, ' + i + 'px) calc(' + i + 'px + 1em)');"
+                    "TelegramWidget.ready();</script>",
+                    WidgetTheme(), 300, WidgetHostOptions(), RES, scripted(renderer));
+    host.start();
+    CHECK(host.waitLoaded(20));
+    double validatorMs = 0;
+    for (int i = 0; i < 100 && validatorMs <= 0; i++) {
+        sleepMs(20);
+        validatorMs = host.diagnostics().stats.validatorMs;
+    }
+    CHECK_MSG(validatorMs > 0, std::to_string(validatorMs));
+    CHECK_MSG(validatorMs < 2000, std::to_string(validatorMs));
+}
+
 /// Any pointerdown begins a press, trusted or not: a second finger's is neither trusted (it may become the chat's scroll)
 /// nor claimed (`gesture` is the primary pointer's), so its release is a new gesture, not the one before it, spent.
 TEST(an_untrusted_pointerdown_begins_a_new_gesture) {
