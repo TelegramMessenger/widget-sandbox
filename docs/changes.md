@@ -62,7 +62,7 @@ on every device; limits in time only slow it down and stop it on a hang:
   3798 B after zlib with this machine's Node (3746 B with the server's), so its size check passes here too.
 - `packages/stress` version 2: the limits as above (`canvasPerSend` 4000, `layoutQueries` 128 crossed by
   `layout-queries/256`), `css-rules/400` at the cap instead of over it (the frame's rules count), the largest batch as
-  measured; conformance `auto/37-stop-nodes`, `auto/19-limits` at 4000 commands.
+  measured; conformance `auto/44-stop-nodes`, `auto/19-limits` at 4000 commands.
 
 **The validator: cheaper, and its time counts** (`docs/decisions.md`, "The validator's time counts"):
 
