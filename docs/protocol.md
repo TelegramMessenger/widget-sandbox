@@ -538,7 +538,7 @@ client's duties are in docs/sdk-v1.md.
 |---|---|---|
 | `memoryLimitBytes` | 8 MB | QuickJS heap limit; exceeding it kills the runtime |
 | `cpuLimitMs` | 500 | longest continuous run of widget JS in one task (interrupt handler); exceeding it kills |
-| `cpuQuotaMs` / `cpuQuotaWindowMs` | 300 / 1000 | JS time the widget may spend per sliding window (ten buckets); beyond it timers, frames, resize/viewport/theme/bridge tasks are **deferred**, never killed; events always run with at least 50 ms |
+| `cpuQuotaMs` / `cpuQuotaWindowMs` | 300 / 1000 | JS time the widget may spend per sliding window (ten buckets); on the native hosts also the validator's CPU time for its messages (`stats.validatorMs`); beyond it timers, frames, resize/viewport/theme/bridge tasks are **deferred**, never killed; events always run with at least 50 ms |
 | `cpuKillAfterMs` | 0 (off) | kill once throttling has lasted this long without a gap longer than one window |
 | `mainThreadQuotaMs` | 100 | the host's main-thread work for the widget per `cpuQuotaWindowMs`: the wall time its layout queries block the renderer plus 25 µs per op and 2 µs per canvas command the glue forwards (`opsCostMs`); beyond it the same tasks are deferred, apart from the JS quota (which counts JS time only) |
 | `maxTimers` | 64 | live `setTimeout` + `setInterval` slots; the shim throws `RangeError` past it, the glue refuses as a backstop; timer delays are clamped to 24 h |
@@ -567,9 +567,16 @@ is a debt of at most one more quota, `record(kind, cpuMs, now)` after the task),
 `{run: false, retryAt}` puts the task in the deferred
 queue (frames collapse into one, one fire per timer id, order kept) and a
 single wake-up timer. A task that overruns its slice is reported as
-`CPU limit exceeded: more than N ms of continuous execution (…)`. Diagnostics:
-`cpu-throttled` at most once per second; `stats.throttledTasks`,
-`stats.cpuWindowMs` (the window plus the debt).
+`CPU limit exceeded: more than N ms of continuous execution (…)`. On the native
+hosts the validator measures its thread's CPU time per call for the widget's
+messages (ops, queries, `listen`, `preventDefault`, anim) and the engine records
+it the same way when it arrives, `record('validator', ms, now)`
+(`SandboxEngine.chargeValidator`; docs/decisions.md, "The validator's time
+counts"); the web, which validates on its main thread in V8, leaves it to the
+main-thread window. Diagnostics: `cpu-throttled` at most once per second;
+`stats.throttledTasks`, `stats.cpuWindowMs` (the window plus the debt, the
+validator's records included), `stats.validatorMs` (the validator's time charged
+so far; native hosts).
 
 ### `visibility {visible}`
 
