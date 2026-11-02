@@ -64,6 +64,11 @@ class TrustedValidator private constructor(
 
     /** On the validator's thread. */
     private fun build(theme: String, resources: SandboxResources) {
+        // Bundles of another release are refused before anything runs (BundleStamp.kt): no context, every call answers empty.
+        resources.refusal?.let {
+            onDiag("bundle-mismatch", it)
+            return
+        }
         val ctx = QuickJSContext(256L shl 20, JSThread.JS_STACK_LIMIT)
         try {
             ctx.registerFunction("__diag") { args ->

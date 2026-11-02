@@ -1,5 +1,6 @@
 #include "twidget/sandbox_engine.h"
 
+#include "twidget/bundle_stamp.h"
 #include "twidget/json.h"
 
 #include <algorithm>
@@ -868,6 +869,11 @@ void SandboxEngine::settle() {
 }
 
 std::string SandboxEngine::evalBundle(const std::string& source, const std::vector<uint8_t>& bytecode, const std::string& filename) {
+    // Bundles of another release are refused before anything runs, as a stale `.qbc` is (bundle_stamp.h).
+    if (auto refusal = BundleStamp::refusal(*resources_)) {
+        if (delegate_) delegate_->onDiag(*this, "bundle-mismatch", *refusal);
+        return "failed";
+    }
     if (!bytecode.empty()) {
         try {
             js_->evaluateBytecode(bytecode, source);

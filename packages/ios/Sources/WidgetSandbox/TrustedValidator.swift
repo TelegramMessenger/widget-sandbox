@@ -102,6 +102,11 @@ public final class TrustedValidator {
 
     /// On the validator's thread.
     private func build(theme: String, resources: SandboxResources) throws {
+        // Bundles of another release are refused before anything runs (BundleStamp.swift).
+        if let refusal = resources.refusal {
+            onDiag("bundle-mismatch", refusal)
+            throw BundleStamp.Refused(reason: refusal)
+        }
         let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit)
         self.js = js
         var fromBytecode = false

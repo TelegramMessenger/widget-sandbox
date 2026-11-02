@@ -1,5 +1,7 @@
 #include "twidget/trusted_validator.h"
 
+#include "twidget/bundle_stamp.h"
+
 namespace twidget {
 
 TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag)
@@ -16,6 +18,12 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
             if (onDiag_) onDiag_(kind, detail);
             return HostReturn::undefined();
         });
+        // Bundles of another release are refused before anything runs (bundle_stamp.h): no bundle, every call
+        // answers empty (`validator-error`).
+        if (auto refusal = BundleStamp::refusal(*resources)) {
+            if (onDiag_) onDiag_("bundle-mismatch", *refusal);
+            return;
+        }
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
         bool fromBytecode = false;
         if (!resources->validatorBytecode.empty()) {

@@ -1081,6 +1081,12 @@ public final class SandboxEngine {
     /// One of our own bundles: the precompiled `.qbc` when shipped and matching the source,
     /// else the source. Returns "bytecode" or "source" for the diag.
     private func evalBundle(_ source: String, bytecode: Data?, filename: String) -> String {
+        // Bundles of another release are refused before anything runs, as a stale `.qbc` is (BundleStamp.swift).
+        // A prewarm that fails is retried by start(), which reports it.
+        if let refusal = resources.refusal {
+            if !prewarming { delegate?.engine(self, diag: "bundle-mismatch", detail: refusal) }
+            return "failed"
+        }
         if let bytecode {
             do {
                 try js.evaluateBytecode(bytecode, source: source)
@@ -1315,9 +1321,13 @@ public final class SandboxResources {
     /// Precompiled bytecode of the bundles (`.qbc` next to the `.js`, built together; nil when not shipped).
     public let sandboxBytecode: Data?
     public let validatorBytecode: Data?
+    /// Why this glue refuses these bundles (the first bundle whose stamp is not this glue's protocol, profile and
+    /// sdk, BundleStamp.swift), nil when it runs them: the engine dies at boot with `bundle-mismatch`, the validator
+    /// does not build.
+    public let refusal: String?
 
     /// `bundle` defaults to the package's resource bundle.
-    public init(bundle: Bundle? = nil) {
+    public convenience init(bundle: Bundle? = nil) {
         let bundle = bundle ?? Bundle.module
         func read(_ name: String, _ ext: String, _ sub: String) -> String {
             guard let url = bundle.url(forResource: name, withExtension: ext, subdirectory: sub), let s = try? String(contentsOf: url, encoding: .utf8) else {
@@ -1325,11 +1335,22 @@ public final class SandboxResources {
             }
             return s
         }
-        sandboxBundle = read("sandbox-bundle", "js", "WidgetJS")
-        rendererBundle = read("renderer-bundle", "js", "WidgetJS")
-        validatorBundle = read("validator-bundle", "js", "WidgetJS")
-        sandboxBytecode = bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) }
-        validatorBytecode = bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) }
+        self.init(sandboxBundle: read("sandbox-bundle", "js", "WidgetJS"), rendererBundle: read("renderer-bundle", "js", "WidgetJS"),
+                  validatorBundle: read("validator-bundle", "js", "WidgetJS"),
+                  sandboxBytecode: bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) },
+                  validatorBytecode: bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) })
+    }
+
+    /// Bundles from elsewhere (a client's own resource layout, tests).
+    public init(sandboxBundle: String, rendererBundle: String, validatorBundle: String, sandboxBytecode: Data?, validatorBytecode: Data?) {
+        self.sandboxBundle = sandboxBundle
+        self.rendererBundle = rendererBundle
+        self.validatorBundle = validatorBundle
+        self.sandboxBytecode = sandboxBytecode
+        self.validatorBytecode = validatorBytecode
+        refusal = BundleStamp.refusal(sandboxBundle, name: "sandbox-bundle.js")
+            ?? BundleStamp.refusal(validatorBundle, name: "validator-bundle.js")
+            ?? BundleStamp.refusal(rendererBundle, name: "renderer-bundle.js")
     }
 }
 
