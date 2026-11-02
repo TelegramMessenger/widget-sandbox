@@ -161,6 +161,9 @@ public final class SandboxEngine {
             delegateLock.lock()
             _delegate = newValue
             delegateLock.unlock()
+            if remote != nil, newValue != nil {
+                queue.async { self.deliverPendingDeath() }
+            }
         }
     }
 
@@ -172,6 +175,7 @@ public final class SandboxEngine {
     private var grants: [(gesture: Int, atMs: Double)] = []
     private var grantConsumed = 0
     private var remoteTaskOpen = false
+    private var pendingDeath: String?
     private var remoteRequestsInFlight = 0
     private var remoteLastBackgroundMs = -Double.infinity
 
@@ -1405,10 +1409,17 @@ extension SandboxEngine {
     private func remoteKill(_ reason: String, tellRemote: Bool) {
         if dead { return }
         dead = true
-        delegate?.engine(self, died: String(reason.prefix(Self.remoteTextLimit)))
+        let reason = String(reason.prefix(Self.remoteTextLimit))
+        guard let delegate else {
+            pendingDeath = reason
+            if tellRemote { remote?.stop(reason: reason) }
+            remote?.close()
+            return
+        }
+        delegate.engine(self, died: reason)
         if remoteTaskOpen {
             remoteTaskOpen = false
-            delegate?.engineTaskCompleted(self)
+            delegate.engineTaskCompleted(self)
         }
         if tellRemote { remote?.stop(reason: reason) }
         remote?.close()
@@ -1441,6 +1452,13 @@ extension SandboxEngine {
         }
         spendGrant()
         return true
+    }
+
+    /// A death the engine's process reported before the host set the delegate (a refused `open`) reaches it then.
+    private func deliverPendingDeath() {
+        guard let reason = pendingDeath, let delegate else { return }
+        pendingDeath = nil
+        delegate.engine(self, died: reason)
     }
 
     func clientTaskStarted() {

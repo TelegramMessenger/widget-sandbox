@@ -331,6 +331,18 @@ final class RemoteEngineTests: XCTestCase {
         XCTAssertTrue(channel.closed)
     }
 
+    func testADeathBeforeTheDelegateReachesItLater() {
+        channel = Channel()
+        engine = SandboxEngine(remote: channel, features: [])
+        channel.sink!.remoteDied("refused at open")
+        settle()
+        delegate = Delegate()
+        engine.delegate = delegate
+        settle()
+        XCTAssertEqual(delegate.died, ["refused at open"])
+        XCTAssertTrue(channel.closed)
+    }
+
     func testTerminateTellsTheEngineAndCloses() {
         make()
         engine.terminate()
