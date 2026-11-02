@@ -285,6 +285,39 @@ describe('renderer core: heavy boxes', () => {
     await page.close();
   });
 
+  it('disabled buttons dimmed by the UA layer do not count: 30 of them next to 16 heavy boxes run, and keep their dimming when stopped', async () => {
+    const page = await shadowPage();
+    const buttons: Node[] = Array.from({ length: 30 }, (_, i) => ({ tag: 'button', attrs: [['disabled', ''], ['data-k', `b${i}`]], children: [{ tag: '', text: String(i) }] }));
+    const ids = await load(page, `.h{${SHADOW};width:10px;height:10px}`, [...buttons, ...divs(16, 'h')]);
+    assert.equal((await computed(page, 'b0')).opacity, '0.5');
+    assert.deepEqual(await limits(page), []);
+    // a blurred shadow on one of them still counts: the 17th
+    await send(page, { type: 'ops', ops: [{ op: 'attr', id: ids.b1, name: 'style', value: 'box-shadow:0 2px 6px #000' }] });
+    await frames(page);
+    assert.deepEqual(await limits(page), [{ type: 'limit', code: 'paint-limit', count: 17 }]);
+    assert.equal((await computed(page, 'b0')).opacity, '0.5');
+    assert.equal((await computed(page, 'b1')).boxShadow, 'none');
+    await page.close();
+  });
+
+  it('a pressed button\'s dimming does not count; an enabled button with opacity does', async () => {
+    const page = await shadowPage();
+    const ids = await load(page, `.h{${SHADOW};width:10px;height:10px}button{width:120px;height:40px}`, [...divs(16, 'h'), { tag: 'button', attrs: [['data-k', 'btn']], children: [{ tag: '', text: 'press' }] }]);
+    const box = await page.evaluate(() => { const r = (window as any).__dom.querySelector('[data-k="btn"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await page.mouse.move(box.x, box.y);
+    await page.mouse.down();
+    await frames(page, 3);
+    const pressed = (await computed(page, 'btn')).opacity;
+    await page.mouse.up();
+    await frames(page, 2);
+    assert.equal(pressed, '0.7');
+    assert.deepEqual(await limits(page), []);
+    await send(page, { type: 'ops', ops: [{ op: 'attr', id: ids.btn, name: 'style', value: 'opacity:.6' }] });
+    await frames(page);
+    assert.deepEqual(await limits(page), [{ type: 'limit', code: 'paint-limit', count: 17 }]);
+    await page.close();
+  });
+
   it('compat counts nothing', async () => {
     const page = await shadowPage('compat');
     await load(page, `.h{${SHADOW};width:10px;height:10px}`, divs(40, 'h'));

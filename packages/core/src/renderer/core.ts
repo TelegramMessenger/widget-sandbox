@@ -1076,8 +1076,16 @@ function clearBoxes(el: Element) {
   for (let c = firstChildOf(el); c; c = nextSiblingOf(c)) if (c instanceof Element) clearBoxes(c);
 }
 
-function stylePaint(cs: CSSStyleDeclaration, display: string, pseudo: boolean): BoxPaint | null {
-  return boxPaint({ display, content: pseudo ? cs.content : undefined, boxShadow: cs.boxShadow, filter: cs.filter, backdropFilter: backdropOf(cs), opacity: cs.opacity }, pseudo);
+/** A `<button>` that is disabled or held down: its opacity is the button's own dimming, not a heavy effect (paint-policy.ts). */
+function buttonState(el: Element): 'disabled' | 'pressed' | undefined {
+  if (!(el instanceof HTMLButtonElement)) return undefined;
+  if (getAttribute(el, 'disabled') !== null) return 'disabled';
+  return matches(el, ':active') ? 'pressed' : undefined;
+}
+
+/** What a box adds, from its computed values; `el` for an element's own box (a pseudo-element's has none). */
+function stylePaint(cs: CSSStyleDeclaration, display: string, pseudo: boolean, el?: Element): BoxPaint | null {
+  return boxPaint({ display, content: pseudo ? cs.content : undefined, boxShadow: cs.boxShadow, filter: cs.filter, backdropFilter: backdropOf(cs), opacity: cs.opacity, button: el ? buttonState(el) : undefined }, pseudo);
 }
 
 function pseudoPaint(el: Element, key: number, which: '::before' | '::after') {
@@ -1095,7 +1103,7 @@ function scanBoxes(el: Element, hidden: boolean) {
   const display = cs.display;
   if (hidesSubtree(display)) return clearBoxes(el);
   const key = id * 4;
-  paint.setBox(key, stylePaint(cs, display, false));
+  paint.setBox(key, stylePaint(cs, display, false, el));
   if (pseudoSelector && matches(el, pseudoSelector)) {
     pseudoPaint(el, key + BEFORE, '::before');
     pseudoPaint(el, key + AFTER, '::after');
@@ -1181,7 +1189,7 @@ function countPaint() {
       const id = ids.get(el);
       if (id === undefined || paintDirty.has(el) || !isConnectedOf(el) || coveredByDirty(el) || hiddenAt(el, memo)) continue;
       const cs = getComputedStyle(el);
-      paint.setBox(id * 4, stylePaint(cs, cs.display, false));
+      paint.setBox(id * 4, stylePaint(cs, cs.display, false, el));
       if (pseudoSelector && matches(el, pseudoSelector)) {
         pseudoPaint(el, id * 4 + BEFORE, '::before');
         pseudoPaint(el, id * 4 + AFTER, '::after');
@@ -1287,9 +1295,11 @@ function stopPaint(v: PaintVerdict) {
 /**
  * A layer declared before every other one: its !important declarations beat every declaration of the widget's
  * stylesheets, layered or not, and the animations. Pseudo-elements lose their shadows; elements keep their shadows
- * without blur (set inline below, as are what their inline styles would otherwise keep).
+ * without blur (set inline below, as are what their inline styles would otherwise keep). A disabled button keeps its
+ * dimming: it is no heavy effect.
  */
-const NO_EFFECTS_CSS = '@layer tw-no-effects{*,::before,::after{filter:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;opacity:1!important;transition:none!important}::before,::after{box-shadow:none!important}}';
+const NO_EFFECTS_CSS = '@layer tw-no-effects{*,::before,::after{filter:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;transition:none!important}' +
+  ':not(button[disabled]),::before,::after{opacity:1!important}::before,::after{box-shadow:none!important}}';
 
 function drawWithoutEffects() {
   // Transitions would beat any declaration: they end; animations (CSS and the renderer's Web Animations) pause.
@@ -1308,7 +1318,9 @@ function drawWithoutEffects() {
     if (parseFloat(cs.opacity) === 0) fixes.push([style, 'visibility', 'hidden']);
     if (boxShadowBlurred(cs.boxShadow)) fixes.push([style, 'box-shadow', boxShadowWithoutBlur(cs.boxShadow)]);
     // the element's own declarations would beat the layer: they go
-    for (const prop of ['filter', 'backdrop-filter', '-webkit-backdrop-filter', 'opacity']) if (style.getPropertyValue(prop)) fixes.push([style, prop, '']);
+    for (const prop of ['filter', 'backdrop-filter', '-webkit-backdrop-filter', 'opacity']) {
+      if (style.getPropertyValue(prop) && !(prop === 'opacity' && buttonState(el) === 'disabled')) fixes.push([style, prop, '']);
+    }
     for (let c = firstChildOf(el); c; c = nextSiblingOf(c)) if (c instanceof Element) visit(c);
   };
   visit(HTML);

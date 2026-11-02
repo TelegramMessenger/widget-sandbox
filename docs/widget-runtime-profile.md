@@ -327,8 +327,9 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   2 with `backdrop-filter`; past it the widget stops (`Paint limit exceeded`).
   Mute text and small details with colour (`--tg-theme-hint-color`, `rgba()`,
   `fill-opacity` / `stroke-opacity` in SVG), not `opacity`: it looks the same and
-  costs nothing. A shadow without blur (a ring, an inset border) and an element
-  under `display: none` do not count.
+  costs nothing. A shadow without blur (a ring, an inset border), an element
+  under `display: none` and the dimming of a disabled or pressed `<button>`
+  (its `opacity`) do not count.
 - Keep the first render synchronous and fast; animate with
   `requestAnimationFrame`, never read layout in every frame.
 

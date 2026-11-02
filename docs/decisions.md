@@ -831,13 +831,21 @@ CPU, 3.9 ms (16: 25.4 ms). The corpora's largest real use was 40 heavy boxes in 
   out of profile 1 anyway, builds none), and a `::before` / `::after` whose `content` is not `none` / `normal`; SVG
   elements alike; the widget's root and body count, the renderer's own nodes do not. A box is heavy when its computed
   `box-shadow` has a layer with a blur above 0 (inset too), its `filter` or `backdrop-filter` is not `none`, its
-  `opacity` is below 1, or while an animation runs on it that changes `filter`, `backdrop-filter` or `opacity`, or
+  `opacity` is below 1 (unless it is a `<button>` that is disabled or pressed: below), or while an animation runs on
+  it that changes `filter`, `backdrop-filter` or `opacity`, or
   `box-shadow` through a blurred layer: a CSS animation from `animationstart` to its end or cancel, a transition likewise,
   a Web Animation while `running`, whatever the value at the moment. The value counts, not the picture (`opacity: .999`,
   `brightness(1)`); `visibility`, clipping, being on screen, `transform` and engine layers do not. An animation of
   shadows without blur (a ring, an inset fill that pulses: `htmlbubbles-ported/10-game-night/08-kai` sparkles 23 cells
   so) costs what the ring costs, so it is not heavy; a keyframe list that leaves the first or last value to the box's
   own is.
+- **A disabled or pressed `<button>`'s opacity is its own dimming** (2026-11-02, with the limit): the UA layer's
+  client-styled button dims a disabled one to `--tg-button-disabled-opacity` (0.5) and a pressed one to
+  `--tg-button-pressed-opacity` (0.7), so a calendar with 17 past days disabled or a poll after the vote would stop.
+  The `opacity` of a `<button>` with the `disabled` attribute or held down (`:active`) does not make it heavy, the
+  author's own as well (the same static dimming); a blurred shadow, a filter, a backdrop-filter or an animation of its
+  opacity still do, and its `::before` / `::after` are boxes of their own. The stopped frame keeps a disabled button's
+  dimming.
 - **At most 16 at once, of them at most 2 with `backdrop-filter`.** Past either the widget stops, as at a counted cap:
   `Paint limit exceeded: 17 boxes with shadows, filters or transparency (max 16)` or `... 3 boxes with backdrop-filter
   (max 2)`, the diagnostic `paint-limit` / `backdrop-limit`. Stop rather than drop the effects of the boxes past the
@@ -875,8 +883,7 @@ CPU, 3.9 ms (16: 25.4 ms). The corpora's largest real use was 40 heavy boxes in 
 - **Not decided here**: a renderer's frame time as a stop (the draft's §4.3: "50 ms three frames in a row" would stop
   widgets on the Redmi that live within every limit elsewhere, and a stop must not depend on the device; rejected), the
   renderer's frame cost in the quota (the draft's §4: a slowdown, later), and the validator's clamps of shadow layers,
-  blur radii and filter functions (the draft's §5). Open: the UA layer mutes a disabled `<button>` with `opacity`
-  (`--tg-button-disabled-opacity`) and a pressed one too, so each counts; a poll of 17 disabled options would stop.
+  blur radii and filter functions (the draft's §5).
 
 ### Off-screen pause mirrors a background tab
 
