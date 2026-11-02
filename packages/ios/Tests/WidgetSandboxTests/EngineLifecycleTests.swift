@@ -118,7 +118,9 @@ final class EngineLifecycleTests: XCTestCase {
         engine.start(html: "<canvas id=c></canvas><script>var c=document.getElementById('c').getContext('2d');c.fillRect(0,0,1,1);c.fillText('x',0,0);</script>", config: config)
         wait(for: [d.loaded], timeout: 20)
         engine.queue.sync {}
-        XCTAssertGreaterThan(engine.queue.sync { engine.canvasWordPayloads }, 0)
+        if !engine.isRemote {
+            XCTAssertGreaterThan(engine.queue.sync { engine.canvasWordPayloads }, 0)
+        }
         engine.terminate()
         pool.targetSize = 0
         pool.drain()

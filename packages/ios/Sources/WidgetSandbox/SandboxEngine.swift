@@ -167,6 +167,26 @@ public final class SandboxEngine {
     private var html = ""
     public private(set) var config: SandboxConfig
     private let resources: SandboxResources
+    private let remote: SandboxRemoteChannel?
+    private var remoteClient: SandboxRemoteClient?
+    private var grants: [(gesture: Int, atMs: Double)] = []
+    private var grantConsumed = 0
+    private var remoteTaskOpen = false
+    private var remoteRequestsInFlight = 0
+    private var remoteLastBackgroundMs = -Double.infinity
+
+    /// Set by a host whose engines run in another process: `make` builds client-mode engines through it.
+    public static var remoteChannelFactory: ((Set<String>) -> SandboxRemoteChannel)?
+
+    /// Side channels get the engine's QuickJS context, which a remote engine does not have; they only work in builds
+    /// that install them (`Widget3DChannel`), and only such hosts keep their engine in process.
+    #if DEBUG || TWIDGET_EXPERIMENTAL_3D
+    public static let sideChannelsInstall = true
+    #else
+    public static let sideChannelsInstall = false
+    #endif
+
+    public var isRemote: Bool { remote != nil }
     private var js: QuickJSContext!
     /// Set by `prewarm()`: the runtime exists and the sandbox bundle has been evaluated, no widget yet.
     private var prewarmed = false
@@ -251,6 +271,7 @@ public final class SandboxEngine {
         self.config = config
         self.runtimeFeatures = config.features
         self.resources = resources
+        self.remote = nil
         visible = config.visible
         budget = CpuBudget(config: config)
         mainBudget = Self.mainBudget(config)
@@ -265,13 +286,44 @@ public final class SandboxEngine {
     public init(resources: SandboxResources = .shared, features: Set<String> = []) {
         self.resources = resources
         self.runtimeFeatures = features
+        self.remote = nil
         config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
         visible = true
         budget = CpuBudget(config: config)
         mainBudget = Self.mainBudget(config)
     }
 
-    deinit { queue.stop() }
+    /// A client-mode engine: no runtime here, the widget runs behind `remote` (RemoteEngine.swift).
+    public init(remote: SandboxRemoteChannel, features: Set<String> = []) {
+        self.resources = .shared
+        self.runtimeFeatures = features
+        self.remote = remote
+        config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
+        visible = true
+        budget = CpuBudget(config: config)
+        mainBudget = Self.mainBudget(config)
+        let client = SandboxRemoteClient(self)
+        remoteClient = client
+        remote.attach(client)
+    }
+
+    /// The engine a host or pool should use: a client-mode one when the host set `remoteChannelFactory`.
+    public static func make(resources: SandboxResources = .shared, features: Set<String> = []) -> SandboxEngine {
+        if let factory = remoteChannelFactory {
+            return SandboxEngine(remote: factory(features), features: features)
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["TW_ENGINE_LOOPBACK"] == "1" {
+            return SandboxEngine(remote: SandboxLoopbackChannel(features: features, resources: resources), features: features)
+        }
+        #endif
+        return SandboxEngine(resources: resources, features: features)
+    }
+
+    deinit {
+        remote?.close()
+        queue.stop()
+    }
 
     // MARK: lifecycle
 
@@ -279,6 +331,14 @@ public final class SandboxEngine {
     public func prewarm() {
         if prewarmRequested { return }
         prewarmRequested = true
+        if let remote {
+            queue.async {
+                guard !self.dead, !self.started else { return }
+                self.prewarmed = true
+                remote.prewarm(features: self.runtimeFeatures)
+            }
+            return
+        }
         queue.async {
             guard !self.started && !self.dead else { return }
             // A prewarm that hits a limit (a busy machine) must not leave a dead
@@ -327,9 +387,18 @@ public final class SandboxEngine {
 
     /// `JS_ComputeMemoryUsage` of the widget's runtime, nil once it is gone (diagnostics and memory tests).
     public var memoryUsage: [String: Int]? { queue.sync { self.js?.memoryUsage } }
-    public func collectGarbage() { queue.async { self.js?.collectGarbage() } }
+    public func collectGarbage() {
+        if let remote {
+            queue.async { if !self.dead { remote.collectGarbage() } }
+            return
+        }
+        queue.async { self.js?.collectGarbage() }
+    }
 
     public func start() {
+        if remote != nil {
+            return start(html: html, config: config)
+        }
         queue.async { self.boot() }
     }
 
@@ -341,6 +410,12 @@ public final class SandboxEngine {
             self.visible = config.visible
             self.budget = CpuBudget(config: config)
             self.mainBudget = Self.mainBudget(config)
+            if let remote = self.remote {
+                guard !self.dead else { return }
+                self.started = true
+                remote.start(html: html, config: config)
+                return
+            }
             self.boot()
         }
     }
@@ -512,6 +587,14 @@ public final class SandboxEngine {
     /// The answer comes out of the QuickJS context and is as hostile as anything else from it; it never reaches the renderer.
     public func evaluateTrusted(_ code: String, completion: @escaping (String?) -> Void) {
         queue.async {
+            if let remote = self.remote {
+                guard !self.dead, self.started else { return completion(nil) }
+                remote.evaluateTrusted(code) { [weak self] value in
+                    guard let self else { return completion(nil) }
+                    self.queue.async { completion(self.dead ? nil : value.map { String($0.prefix(1 << 20)) }) }
+                }
+                return
+            }
             guard !self.dead, self.started, self.js != nil else {
                 completion(nil)
                 return
@@ -529,10 +612,30 @@ public final class SandboxEngine {
         }
     }
 
-    public func event(json: String) { enqueue("event", json) }
+    public func event(json: String) {
+        if let remote { return queue.async { if !self.dead { remote.event(json) } } }
+        enqueue("event", json)
+    }
     /// A real user input event from the renderer (press, click, key press); every event of one physical gesture carries the same increasing `gesture` number.
-    public func activationEvent(json: String, gesture: Int) { enqueue(Self.activationPrefix + String(gesture), json) }
-    public func frame(time: Double) { enqueue("frame", String(Self.coarseNowMs(time))) }
+    public func activationEvent(json: String, gesture: Int) {
+        if let remote {
+            let now = Self.nowMs()
+            return queue.async {
+                guard !self.dead else { return }
+                if self.visible, gesture > self.grantConsumed, !self.grants.contains(where: { $0.gesture == gesture }) {
+                    self.grants.append((gesture, now))
+                    self.grants.sort { $0.gesture < $1.gesture }
+                    if self.grants.count > 32 { self.grants.removeFirst(self.grants.count - 32) }
+                }
+                remote.activationEvent(json, gesture: gesture)
+            }
+        }
+        enqueue(Self.activationPrefix + String(gesture), json)
+    }
+    public func frame(time: Double) {
+        if let remote { return queue.async { if !self.dead { remote.frame(time) } } }
+        enqueue("frame", String(Self.coarseNowMs(time)))
+    }
 
     /// Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets.
     static let clockResolutionMs = 0.1
@@ -541,11 +644,16 @@ public final class SandboxEngine {
         (ms / clockResolutionMs).rounded(.down) * clockResolutionMs
     }
     public func viewport(innerWidth: Double, innerHeight: Double, dpr: Double) {
+        if let remote { return queue.async { if !self.dead { remote.viewport(innerWidth: innerWidth, innerHeight: innerHeight, dpr: dpr) } } }
         enqueue("viewport", Self.json(["innerWidth": innerWidth, "innerHeight": innerHeight, "dpr": dpr]))
     }
-    public func resize(entriesJson: String) { enqueue("resize", entriesJson) }
+    public func resize(entriesJson: String) {
+        if let remote { return queue.async { if !self.dead { remote.resize(entriesJson) } } }
+        enqueue("resize", entriesJson)
+    }
     /// The chat's theme changed: the colour scheme and the palette (checked here), in one task (docs/sdk-v1.md §3.3).
     public func theme(_ theme: String, params: [String: String] = [:]) {
+        if let remote { return queue.async { if !self.dead { remote.theme(theme, params: params) } } }
         enqueue("theme", Self.json(["theme": theme, "themeParams": SdkPolicy.checkThemeParams(params)]))
     }
 
@@ -554,6 +662,10 @@ public final class SandboxEngine {
     public func contentSafeArea(_ area: WidgetContentSafeArea) {
         queue.async {
             if self.dead { return }
+            if let remote = self.remote {
+                if !self.started { self.config.contentSafeArea = area }
+                return remote.contentSafeArea(area)
+            }
             guard self.started else { self.config.contentSafeArea = area; return }
             self.enqueueNow("safeArea", Self.json(area.json))
         }
@@ -566,6 +678,10 @@ public final class SandboxEngine {
     public func setData(_ data: WidgetData) {
         queue.async {
             if self.dead { return }
+            if let remote = self.remote {
+                if !self.started { self.config.data = data }
+                return remote.setData(data)
+            }
             guard self.started else { self.config.data = data; return }
             var event = self.dataFields(SdkPolicy.checkWidgetData(data, copy: self.config.context.effective.isCopy))
             event["type"] = "data"
@@ -578,6 +694,14 @@ public final class SandboxEngine {
     /// (feature off, unreadable document, engine dead or not booted), and is called on the engine's queue.
     public func morph(html: String, completion: @escaping (Bool) -> Void) {
         queue.async {
+            if let remote = self.remote {
+                guard !self.dead, self.started, self.runtimeFeatures.contains("morphUpdates"), self.config.features.contains("morphUpdates") else { return completion(false) }
+                remote.morph(html: html) { [weak self] applied in
+                    guard let self else { return completion(false) }
+                    self.queue.async { completion(applied && !self.dead) }
+                }
+                return
+            }
             guard !self.dead, self.js != nil, self.runtimeFeatures.contains("morphUpdates"), self.config.features.contains("morphUpdates") else {
                 completion(false)
                 return
@@ -595,12 +719,20 @@ public final class SandboxEngine {
     /// events; the time is taken here, on the caller's thread.
     public func pressBegan() {
         let now = Self.nowMs()
-        queue.async { if !self.dead { self.haptics.press(nowMs: now) } }
+        queue.async {
+            if self.dead { return }
+            self.haptics.press(nowMs: now)
+            self.remote?.pressBegan()
+        }
     }
 
     public func pressEnded() {
         let now = Self.nowMs()
-        queue.async { if !self.dead { self.haptics.release(nowMs: now) } }
+        queue.async {
+            if self.dead { return }
+            self.haptics.release(nowMs: now)
+            self.remote?.pressEnded()
+        }
     }
 
     /// The host knows whether the widget is on screen; the sandbox does not.
@@ -608,6 +740,10 @@ public final class SandboxEngine {
         queue.async {
             if self.dead || self.visible == v { return }
             self.visible = v
+            if let remote = self.remote {
+                if v { self.remoteLastBackgroundMs = -Double.infinity }
+                return remote.setVisible(v)
+            }
             // On screen again: the widget's next background request may go out at once, the one it made off screen now
             // (docs/sdk-v1.md §2.14), before the widget hears it is visible.
             if v, self.requests.show(nowMs: Self.nowMs()), let held = self.heldRequest {
@@ -995,6 +1131,7 @@ public final class SandboxEngine {
     // MARK: running code
 
     private func kill(_ reason: String) {
+        if remote != nil { return remoteKill(reason, tellRemote: true) }
         if prewarming {
             prewarmFailed = true
             return
@@ -1236,6 +1373,272 @@ public final class SandboxEngine {
         }
         return count
     }
+}
+
+// MARK: - Client mode (RemoteEngine.swift)
+
+extension SandboxEngine {
+    static let remoteGrantWindowMs = 2000.0
+    static let remoteBackgroundIntervalMs = 4000.0
+    static let remoteTextLimit = 4000
+    static let remoteMessageLimit = 1 << 20
+    static let remoteOpsLimit = 32 << 20
+    static let remoteLevels: Set<String> = ["log", "info", "warn", "error", "debug"]
+
+    private func clientDeliver(_ block: @escaping (SandboxEngineDelegate) -> Void) {
+        queue.async {
+            guard !self.dead, let delegate = self.delegate else { return }
+            block(delegate)
+        }
+    }
+
+    private func clientViolation(_ detail: String) {
+        queue.async {
+            guard !self.dead, self.rejectedBridgeReported < 20 else { return }
+            self.rejectedBridgeReported += 1
+            self.delegate?.engine(self, diag: "protocol-violation", detail: detail)
+        }
+    }
+
+    /// The engine is gone for this host: it hears `died` once and, if a task was open, its end (the engine's own
+    /// end of that task cannot arrive once the channel is closed), as an engine that dies in a task says both.
+    private func remoteKill(_ reason: String, tellRemote: Bool) {
+        if dead { return }
+        dead = true
+        delegate?.engine(self, died: String(reason.prefix(Self.remoteTextLimit)))
+        if remoteTaskOpen {
+            remoteTaskOpen = false
+            delegate?.engineTaskCompleted(self)
+        }
+        if tellRemote { remote?.stop(reason: reason) }
+        remote?.close()
+    }
+
+    /// Taps this host delivered while the widget was visible, not yet spent and at most `remoteGrantWindowMs` old,
+    /// oldest first; each allows one privileged call, as each gesture does in process.
+    private func liveGrants() -> Bool {
+        let now = Self.nowMs()
+        grants.removeAll { now - $0.atMs > Self.remoteGrantWindowMs || $0.gesture <= grantConsumed }
+        return visible && !grants.isEmpty
+    }
+
+    private func spendGrant() {
+        guard let first = grants.first else { return }
+        grantConsumed = first.gesture
+        grants.removeFirst()
+    }
+
+    /// Strict: a privileged call needs a tap this host delivered (`liveGrants`), one call per tap. The engine's own
+    /// in-task rule ran first.
+    private func clientActivation(_ name: String) -> Bool {
+        guard config.policy == .strict, SdkPolicy.privilegedMethods.contains(name) else { return true }
+        guard liveGrants() else {
+            if blockedBridgeReported < 20 {
+                blockedBridgeReported += 1
+                delegate?.engine(self, diag: "activation-blocked", detail: "\(name) ignored by the host: no tap on the visible widget allows it")
+            }
+            return false
+        }
+        spendGrant()
+        return true
+    }
+
+    func clientTaskStarted() {
+        queue.async {
+            guard !self.dead else { return }
+            self.remoteTaskOpen = true
+            self.delegate?.engineTaskStarted(self)
+        }
+    }
+
+    func clientTaskCompleted() {
+        queue.async {
+            guard self.remoteTaskOpen else { return }
+            self.remoteTaskOpen = false
+            self.delegate?.engineTaskCompleted(self)
+        }
+    }
+
+    func clientOps(_ json: String, canvas: [Int: WidgetCanvasBatch]) {
+        guard json.utf8.count <= Self.remoteOpsLimit else { return clientViolation("an ops batch over \(Self.remoteOpsLimit >> 20) MB") }
+        clientDeliver { $0.engine(self, ops: json, canvas: canvas) }
+    }
+
+    func clientBinaryOps(_ payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) {
+        clientDeliver { $0.engine(self, binaryOps: payload, canvas: canvas) }
+    }
+
+    func clientQuery(_ json: String) -> (json: String, binary: Data?) {
+        guard json.utf8.count <= Self.remoteMessageLimit else { return ("{\"error\":\"invalid query\"}", nil) }
+        return queue.sync { () -> (json: String, binary: Data?) in
+            guard !self.dead, let delegate = self.delegate else { return ("{\"error\":\"dead\"}", nil) }
+            return delegate.engine(self, query: json)
+        }
+    }
+
+    func clientListen(_ json: String) {
+        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("listen over 1 MB") }
+        clientDeliver { $0.engine(self, listen: json) }
+    }
+
+    func clientPreventDefault(_ json: String) {
+        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("preventDefault over 1 MB") }
+        clientDeliver { $0.engine(self, preventDefault: json) }
+    }
+
+    func clientAnim(_ json: String) {
+        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("anim over 1 MB") }
+        clientDeliver { $0.engine(self, anim: json) }
+    }
+
+    func clientRequestsFrame() {
+        queue.async {
+            guard !self.dead, self.visible else { return }
+            self.delegate?.engineRequestsFrame(self)
+        }
+    }
+
+    func clientLog(level: String, text: String) {
+        let level = Self.remoteLevels.contains(level) ? level : "log"
+        let text = String(text.prefix(Self.remoteTextLimit))
+        clientDeliver { $0.engine(self, log: level, text: text) }
+    }
+
+    func clientDiag(kind: String, detail: String) {
+        let kind = String(kind.prefix(64)), detail = String(detail.prefix(Self.remoteTextLimit))
+        clientDeliver { $0.engine(self, diag: kind, detail: detail) }
+    }
+
+    func clientBridge(method: String, argsJson: String) {
+        queue.async {
+            guard !self.dead else { return }
+            guard method.utf8.count <= 64, argsJson.utf8.count <= Self.remoteMessageLimit, let args = Self.parse(argsJson) as? [Any],
+                  let checked = SdkPolicy.checkBridgeCall(method, args), let action = WidgetAction(checked) else {
+                if self.rejectedBridgeReported < 20 {
+                    self.rejectedBridgeReported += 1
+                    self.delegate?.engine(self, diag: "bridge-rejected", detail: "\(method.prefix(64)): rejected by the host (unknown method or malformed arguments)")
+                }
+                return
+            }
+            if self.config.context.preview, !SdkPolicy.allowedInPreview(method) { return }
+            guard self.clientActivation(method) else { return }
+            if case .haptic = checked {
+                guard case .play = self.haptics.decide(nowMs: Self.nowMs(), visible: self.visible) else { return }
+            }
+            self.delegate?.engine(self, action: action)
+            self.delegate?.engine(self, bridge: method, argsJson: argsJson)
+        }
+    }
+
+    func clientCopyText(_ text: String) {
+        queue.async {
+            guard !self.dead, !self.config.context.preview else { return }
+            guard case .copyText(let checked)? = SdkPolicy.checkBridgeCall("copyText", [text]) else {
+                if self.rejectedBridgeReported < 20 {
+                    self.rejectedBridgeReported += 1
+                    self.delegate?.engine(self, diag: "bridge-rejected", detail: "copyText: rejected by the host")
+                }
+                return
+            }
+            guard self.clientActivation("copyText") else { return }
+            self.delegate?.engine(self, copyText: checked)
+        }
+    }
+
+    /// The request gate again, on the host's own inputs: the message's flags, one request in flight, a tap it
+    /// delivered for a foreground one, background ones only when the server allows them, visible, and not more
+    /// often than `remoteBackgroundIntervalMs` (reset when the widget appears, as the engine's gate is). A refusal
+    /// still answers the engine so the widget's promise settles.
+    func clientRequest(id: Int, data: String) {
+        queue.async {
+            guard !self.dead, let remote = self.remote else { return }
+            let refuse = { (failure: WidgetRequestFailure) in remote.answer(request: id, outcome: .failure(failure)) }
+            guard case .request(_, let checked)? = SdkPolicy.checkBridgeCall("request", [1, data]) else { return refuse(.notAllowed) }
+            let context = self.config.context.effective
+            guard !context.preview, context.canQuery, self.remoteRequestsInFlight == 0 else { return refuse(.notAllowed) }
+            let now = Self.nowMs()
+            let pressed = self.config.policy == .compat || self.liveGrants()
+            if pressed {
+                if self.config.policy == .strict { self.spendGrant() }
+            } else {
+                guard context.backgroundQuery, self.visible, now - self.remoteLastBackgroundMs >= Self.remoteBackgroundIntervalMs else { return refuse(.rateLimited) }
+                self.remoteLastBackgroundMs = now
+            }
+            self.remoteRequestsInFlight += 1
+            let once = RequestOnce()
+            let respond = WidgetRequestCompletion { [weak self] outcome in
+                guard once.claim(), let self else { return }
+                self.queue.async {
+                    self.remoteRequestsInFlight = max(0, self.remoteRequestsInFlight - 1)
+                    self.remote?.answer(request: id, outcome: SandboxRemoteOutcome(outcome))
+                }
+            }
+            guard let delegate = self.delegate else { return respond.unsupported() }
+            delegate.engine(self, request: WidgetRequest(data: checked), respond: respond)
+        }
+    }
+
+    func clientStorage(_ json: String) {
+        queue.async {
+            guard !self.dead, !self.config.context.preview else { return }
+            guard json.utf16.count <= Self.maxStorageCommitChars, let commit = SdkPolicy.checkStorageCommit(Self.parse(json)), !commit.isEmpty else {
+                if self.rejectedStorageReported < 20 {
+                    self.rejectedStorageReported += 1
+                    self.delegate?.engine(self, diag: "storage-rejected", detail: "a storage commit the host refused")
+                }
+                return
+            }
+            self.delegate?.engine(self, storageCommit: commit)
+        }
+    }
+
+    func clientResizeAnchor(_ edge: String) {
+        guard let anchor = WidgetResizeAnchor(rawValue: edge) else { return clientViolation("resize anchor \(edge.prefix(16))") }
+        clientDeliver { $0.engine(self, resizeAnchor: anchor) }
+    }
+
+    func clientWatchesPublicData(_ on: Bool) {
+        queue.async {
+            guard !self.dead, !self.config.context.preview else { return }
+            self.delegate?.engine(self, watchesPublicData: on)
+        }
+    }
+
+    func clientLoaded() { clientDeliver { $0.engineLoaded(self) } }
+    func clientStats(_ stats: SandboxStats) { clientDeliver { $0.engine(self, stats: stats) } }
+    func clientDied(_ reason: String) { queue.async { self.remoteKill(reason, tellRemote: false) } }
+    func clientDisconnected() { queue.async { self.remoteKill("the widget engine process ended", tellRemote: false) } }
+}
+
+/// The client engine's ear on its channel; holds the engine weakly so the channel never keeps it alive.
+public final class SandboxRemoteClient: SandboxRemoteSink {
+    private weak var engine: SandboxEngine?
+
+    init(_ engine: SandboxEngine) {
+        self.engine = engine
+    }
+
+    public func remoteTaskStarted() { engine?.clientTaskStarted() }
+    public func remoteTaskCompleted() { engine?.clientTaskCompleted() }
+    public func remoteOps(_ json: String, canvas: [Int: WidgetCanvasBatch]) { engine?.clientOps(json, canvas: canvas) }
+    public func remoteBinaryOps(_ payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) { engine?.clientBinaryOps(payload, canvas: canvas) }
+    public func remoteQuery(_ json: String) -> (json: String, binary: Data?) { engine?.clientQuery(json) ?? ("{\"error\":\"dead\"}", nil) }
+    public func remoteListen(_ json: String) { engine?.clientListen(json) }
+    public func remotePreventDefault(_ json: String) { engine?.clientPreventDefault(json) }
+    public func remoteAnim(_ json: String) { engine?.clientAnim(json) }
+    public func remoteRequestsFrame() { engine?.clientRequestsFrame() }
+    public func remoteLog(level: String, text: String) { engine?.clientLog(level: level, text: text) }
+    public func remoteDiag(kind: String, detail: String) { engine?.clientDiag(kind: kind, detail: detail) }
+    public func remoteBridge(method: String, argsJson: String) { engine?.clientBridge(method: method, argsJson: argsJson) }
+    public func remoteCopyText(_ text: String) { engine?.clientCopyText(text) }
+    public func remoteRequest(id: Int, data: String) { engine?.clientRequest(id: id, data: data) }
+    public func remoteStorage(_ commitJson: String) { engine?.clientStorage(commitJson) }
+    public func remoteResizeAnchor(_ edge: String) { engine?.clientResizeAnchor(edge) }
+    public func remoteWatchesPublicData(_ on: Bool) { engine?.clientWatchesPublicData(on) }
+    public func remoteLoaded() { engine?.clientLoaded() }
+    public func remoteStats(_ stats: SandboxStats) { engine?.clientStats(stats) }
+    public func remoteDied(_ reason: String) { engine?.clientDied(reason) }
+    public func remoteDisconnected() { engine?.clientDisconnected() }
 }
 
 /// How a delegate completes a request (`engine(_:request:respond:)`): `respond(.success(answer))` or

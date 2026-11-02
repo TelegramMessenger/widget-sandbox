@@ -251,11 +251,14 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.data = options.data
         config.context = options.context
         self.config = config
-        if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
+        let keepsEngineInProcess = !sideChannels.isEmpty && SandboxEngine.sideChannelsInstall
+        if !keepsEngineInProcess, options.pools, let pooled = EnginePool.shared.take(features: options.features) {
             engine = pooled
             prewarmed.append("engine")
-        } else {
+        } else if keepsEngineInProcess {
             engine = SandboxEngine(resources: resources, features: options.features)
+        } else {
+            engine = SandboxEngine.make(resources: resources, features: options.features)
         }
         state.prewarmed = prewarmed.joined(separator: "+")
         validator.setAssetResolver(options.assetResolver)
