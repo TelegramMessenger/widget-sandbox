@@ -625,12 +625,11 @@ STORAGE, LIFECYCLE, LIMITS
   data: image at most 1024 x 1024 pixels (larger: a placeholder). Past the
   others, or the CPU or memory limit, the widget stops on its last frame
   ("Widget stopped").
-- At most 16 elements at once with a blurred box-shadow, a filter, a
-  backdrop-filter or opacity below 1, animated ones and ::before/::after
-  included, at most 2 of them with backdrop-filter; past it the widget stops.
-  Mute text and details with colour (var(--tg-theme-hint-color), rgba(),
-  fill-opacity/stroke-opacity in SVG), never with opacity; a shadow without
-  blur is free.
+- At most 16 elements at once with a blurred box-shadow, filter,
+  backdrop-filter or opacity below 1 (animated ones and ::before/::after
+  too), 2 with backdrop-filter; past it the widget stops. Mute with colour
+  (var(--tg-theme-hint-color), rgba(), fill-opacity), never opacity; a shadow
+  without blur is free.
 - Animate with CSS or requestAnimationFrame; change only what moved, do not
   rebuild the DOM every frame.
 
