@@ -1,5 +1,7 @@
 #include "twidget/trusted_validator.h"
 
+#include "twidget/bundle_stamp.h"
+
 namespace twidget {
 
 TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag)
@@ -16,6 +18,12 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
             if (onDiag_) onDiag_(kind, detail);
             return HostReturn::undefined();
         });
+        // Bundles of another release are refused before anything runs (bundle_stamp.h): no bundle, every call
+        // answers empty (`validator-error`).
+        if (auto refusal = BundleStamp::refusal(*resources)) {
+            if (onDiag_) onDiag_("bundle-mismatch", *refusal);
+            return;
+        }
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
         bool fromBytecode = false;
         if (!resources->validatorBytecode.empty()) {
@@ -33,6 +41,7 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
             "globalThis.__v_setTheme = (t) => __twValidator.setTheme(t);"
             "globalThis.__v_rewriteMediaQuery = (q) => __twValidator.rewriteMediaQuery(q);"
             "globalThis.__v_nodeCount = () => __twValidator.nodeCount();"
+            "globalThis.__v_markLoaded = () => { __twValidator.markLoaded(); return ''; };"
             "globalThis.__v_create = (t) => { __twValidator.create(t); return ''; };"
             "globalThis.__v_setPolicy = (p) => __twValidator.setPolicy ? __twValidator.setPolicy(p) : '';",
             "validator-glue.js");
@@ -56,23 +65,38 @@ std::string TrustedValidator::str(const char* name, const std::vector<std::strin
     });
 }
 
+void TrustedValidator::setCpuSink(CpuSink sink) {
+    thread_.sync([&] { cpuSink_ = std::move(sink); });
+}
+
+std::string TrustedValidator::metered(const char* name, const std::vector<std::string>& args) {
+    return thread_.sync([&]() -> std::string {
+        if (!cpuSink_) return str(name, args);
+        double t0 = QuickJSContext::threadCpuTime();
+        std::string out = str(name, args);
+        cpuSink_((QuickJSContext::threadCpuTime() - t0) * 1000);
+        return out;
+    });
+}
+
 std::string TrustedValidator::processOps(const std::string& json) {
-    std::string out = str("__v_processOps", {json});
+    std::string out = metered("__v_processOps", {json});
     return out.empty() ? "[]" : out;
 }
 
 std::optional<std::string> TrustedValidator::validateQuery(const std::string& json) {
-    std::string out = str("__v_validateQuery", {json});
+    std::string out = metered("__v_validateQuery", {json});
     if (out.empty()) return std::nullopt;
     return out;
 }
 
-std::string TrustedValidator::validateListen(const std::string& json) { auto s = str("__v_validateListen", {json}); return s.empty() ? "[]" : s; }
+std::string TrustedValidator::validateListen(const std::string& json) { auto s = metered("__v_validateListen", {json}); return s.empty() ? "[]" : s; }
 void TrustedValidator::setPolicy(const std::string& policy) { str("__v_setPolicy", {policy}); }
-std::string TrustedValidator::validatePreventDefault(const std::string& json) { auto s = str("__v_validatePreventDefault", {json}); return s.empty() ? "[]" : s; }
-std::string TrustedValidator::validateAnim(const std::string& json) { auto s = str("__v_validateAnim", {json}); return s.empty() ? "[]" : s; }
+void TrustedValidator::markLoaded() { str("__v_markLoaded", {}); }
+std::string TrustedValidator::validatePreventDefault(const std::string& json) { auto s = metered("__v_validatePreventDefault", {json}); return s.empty() ? "[]" : s; }
+std::string TrustedValidator::validateAnim(const std::string& json) { auto s = metered("__v_validateAnim", {json}); return s.empty() ? "[]" : s; }
 std::string TrustedValidator::setTheme(const std::string& theme) { auto s = str("__v_setTheme", {theme}); return s.empty() ? "[]" : s; }
-std::string TrustedValidator::rewriteMediaQuery(const std::string& query) { return str("__v_rewriteMediaQuery", {query}); }
+std::string TrustedValidator::rewriteMediaQuery(const std::string& query) { return metered("__v_rewriteMediaQuery", {query}); }
 
 std::optional<std::string> TrustedValidator::stopped() const {
     std::lock_guard<std::mutex> l(stoppedMutex_);

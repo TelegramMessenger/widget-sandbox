@@ -49,6 +49,7 @@ add_library(twidget-sandbox STATIC
     sandbox/src/sdk_policy.cpp
     sandbox/src/gesture_policy.cpp
     sandbox/src/resources.cpp
+    sandbox/src/bundle_stamp.cpp
     sandbox/src/intl.cpp
     sandbox/src/trusted_validator.cpp
     sandbox/src/sandbox_engine.cpp

@@ -193,6 +193,33 @@ class WidgetHostTest {
         }
     }
 
+    /** The paint limit (docs/decisions.md "Heavy boxes"): the WebView renderer stops a widget with 17 heavy boxes, compat counts nothing. */
+    @Test
+    fun seventeenHeavyBoxesStopTheWidget() {
+        val html = "<style>.b{display:inline-block;width:12px;height:12px;margin:2px;box-shadow:0 2px 6px rgba(0,0,0,.4)}</style>" + "<div class=b></div>".repeat(17)
+        ActivityScenario.launch(TestActivity::class.java).use { scenario ->
+            for (policy in listOf("strict", "compat")) {
+                lateinit var host: WidgetHost
+                val latestRef = AtomicReference(WidgetDiagnostics())
+                scenario.onActivity { activity ->
+                    host = WidgetHost(activity, html, WidgetTheme(), 360.0, WidgetHost.Options(policy = policy))
+                    host.onChange = { latestRef.set(it) }
+                    activity.show(host.view)
+                }
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+                while (System.nanoTime() < deadline && latestRef.get().dead == null && !(policy == "compat" && latestRef.get().firstContentMs != null)) Thread.sleep(50)
+                Thread.sleep(800)
+                if (policy == "strict") {
+                    assertEquals(WidgetPaintLimit.PAINT.message(17), latestRef.get().dead)
+                    assertEquals(1, latestRef.get().diags["paint-limit"]?.count)
+                } else {
+                    assertNull(latestRef.get().dead)
+                }
+                instrumentation.runOnMainSync { host.destroy() }
+            }
+        }
+    }
+
     /** Memory and CPU limits are configurable from the public host API (not the case on iOS yet). */
     @Test
     fun limitsAreConfigurableFromTheHostApi() {

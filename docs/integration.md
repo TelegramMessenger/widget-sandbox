@@ -7,10 +7,11 @@ callbacks. The HTML you pass is the whole widget (inline CSS and JS); nothing
 in it can reach the network.
 
 The same `Options` exist everywhere with the same defaults (`memoryLimitBytes`
-8 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000,
-`mainThreadQuotaMs` 100 (the host's main-thread work for the widget: its layout
-queries and the modelled cost of its ops), `maxTimers` 64, `visible`, `policy`
-`strict`), see `packages/core/src/shared/protocol.ts` and `docs/decisions.md`,
+8 MB, `cpuLimitMs` 500, `cpuQuotaMs` 300 per `cpuQuotaWindowMs` 1000 (the
+widget's JS time and, on the native hosts, the validator's CPU time for it:
+`stats.validatorMs`), `mainThreadQuotaMs` 100 (the host's main-thread work for
+the widget: its layout queries and the modelled cost of its ops), `maxTimers`
+64, `visible`, `policy` `strict`), see `packages/core/src/shared/protocol.ts` and `docs/decisions.md`,
 "Strict limits from the start". Keep the defaults in a product build; `policy`
 `compat` and wider quotas are for tests and the stress kit's measuring runs.
 Call `setVisible(false)` when the bubble leaves the screen (frames stop, timers
@@ -20,8 +21,8 @@ keeps the last frame with a "Widget stopped" badge (`stoppedLabel`) and `onDead`
 fires — destroy or re-create, your choice.
 
 The rest of this page is in the order a client team meets it: pinning a
-release, the policy and features, the widget payload, bubble sizing, input,
-forwarding, then the per-platform API and the conformance set.
+release, the policy and features, the widget payload, bubble sizing, heavy boxes,
+input, forwarding, then the per-platform API and the conformance set.
 
 ## Pinning a release
 
@@ -30,7 +31,7 @@ the tag, never a branch: `main` moves, and the JS bundles, the native
 bytecode and the QuickJS submodule change together, so a mixed checkout does
 not boot.
 
-- **SwiftPM (iOS, macOS)**: `.package(url: "https://github.com/TelegramMessenger/widget-sandbox.git", exact: "0.1.1")`
+- **SwiftPM (iOS, macOS)**: `.package(url: "https://github.com/TelegramMessenger/widget-sandbox.git", exact: "0.6.0")`
   (SwiftPM reads the `v` prefix of the tag). The manifest is the repo-root
   `Package.swift`; SwiftPM clones the QuickJS submodule itself. A registry or
   zip copy without the submodule does not build.
@@ -43,7 +44,7 @@ not boot.
   as `apps/android` does. The AAR carries the native library (arm64-v8a, x86_64)
   and the bundles as assets; a Maven publication comes later.
 - **npm (web)**: `@telegram/widget-sandbox` lives in `packages/core`. With pnpm:
-  `"@telegram/widget-sandbox": "github:TelegramMessenger/widget-sandbox#v0.1.1&path:packages/core"`;
+  `"@telegram/widget-sandbox": "github:TelegramMessenger/widget-sandbox#v0.6.0&path:packages/core"`;
   with another package manager, a checkout at the tag and a `file:` / workspace
   dependency on `packages/core`. The package is not on the npm registry yet.
 
@@ -51,6 +52,40 @@ What you get at a tag is one state of the framework: the three JS bundles, the
 `.qbc` bytecode next to them, the QuickJS submodule they were compiled with,
 `packages/quickjs-wasm/dist` for the web, and `packages/conformance` (below).
 Never mix files from two tags.
+
+**`VERSION.json`** at the repository root names that state (since v0.6.0):
+
+```json
+{ "version": "0.6.0", "protocol": 1, "profile": 1, "sdk": 1 }
+```
+
+| field | what it is |
+|---|---|
+| `version` | the release, semver; the tag is `v` + it (`package.json`, `packages/core/package.json` and the Android library's `version` repeat it) |
+| `protocol` | the wire between the glue and the bundles (`docs/protocol.md`: the config, the host calls, the messages, the validator's API); it changes when a bundle needs glue it cannot run without |
+| `profile` | the widget profile, `TelegramWidget.profile` (`docs/profile-v1.md`; `packages/core/profile.json` repeats it) |
+| `sdk` | the widget SDK (`docs/sdk-v1.md`); an addition to SDK v1 does not change it |
+
+`pnpm build:ios|android|desktop` stamps all four on the first line of every
+bundle (`/* widget-sandbox version=0.6.0 protocol=1 profile=1 sdk=1 */`) and
+writes them into the glue as constants: `WidgetSandboxVersion` (Swift and
+Kotlin) and `twidget::version` (C++, `twidget/version.h`), which also give the
+glue its `profile`. **The native glue refuses a bundle without a stamp or with
+another `protocol`, `profile` or `sdk`**, the way it refuses a stale `.qbc`,
+except that there is nothing to fall back to: the engine stops at boot, before
+any widget code, with the diagnostic `bundle-mismatch` (its detail names the
+bundle, both versions and the fix) and dies with `sandbox bundle failed to
+load`; the validator loads nothing and answers every batch empty. The release
+itself is not compared: bundles of another release with the same three numbers
+run. A `bundle-mismatch` means your copy mixes two releases (a resources folder
+not updated with the code, a bundle copied over by hand): take the bundles and
+the glue from the same tag. The web host builds its bundles from the same
+`packages/core` sources as the rest of the page, so it has nothing to compare.
+A client that loads the bundles from a resource layout of its own gets the same
+check (Swift `SandboxResources(sandboxBundle:rendererBundle:validatorBundle:sandboxBytecode:validatorBytecode:)`,
+the fields of the C++ `SandboxResources`); `SandboxResources.refusal` (Swift,
+Kotlin) and `BundleStamp::refusal(resources)` (C++) give the reason before any
+widget starts, for a startup check of your own.
 
 ## Policy and features
 
@@ -210,6 +245,37 @@ nothing keeps v0.3.0's behaviour (all 0). The dev app's **time** control and
 are its conformance cases (sent without a caption, and once more with the caption
 above), and `corpus/safe-area` has examples (its `07` is posted three times: no
 caption, a caption below, a caption above).
+
+## Heavy boxes
+
+Since v0.6.0 a widget has at most 16 heavy boxes at once, of them at most 2 with `backdrop-filter`; past either it
+stops like at any limit (`onDead` / `WidgetDiagnostics.dead`: `Paint limit exceeded: 17 boxes with shadows, filters or
+transparency (max 16)` or `Paint limit exceeded: 3 boxes with backdrop-filter (max 2)`, the diagnostic `paint-limit` /
+`backdrop-limit`). A box is heavy when its computed style has a blurred `box-shadow` layer, a `filter`, a
+`backdrop-filter` or `opacity` below 1, or while an animation of one of them runs on it (`docs/decisions.md`, "Heavy
+boxes"). The opacity of a `<button>` that is disabled or held down (`:active`) is its own dimming and does not count,
+so the client-styled button's disabled and pressed looks never stop a widget. Only the renderer knows the cascade, so
+**the renderer counts**:
+
+- **The framework's WebView renderer** (`RendererWebView` on iOS, macOS and Android, the iframe and Shadow DOM
+  renderers on the web) counts by itself, before each frame it draws, and reports to the host. Nothing to do; keep
+  `policy` `strict` (under `compat` nothing is counted).
+- **A renderer of your own** behind the `Renderer` seam counts the same rule and calls the seam once, before it draws
+  the frame that would pass the limit: `renderer.limitExceeded(.paint, count: 17)` (Swift),
+  `limitExceeded(WidgetPaintLimit.PAINT, 17)` (Kotlin), `limitExceeded(WidgetPaintLimit::Paint, 17)` (C++); the
+  WebView renderer's message on the web is `{ type: 'limit', code, count }` (`docs/protocol.md`). The host does the
+  rest. The renderer then draws the stopped widget without those effects (no blurred shadow, filter, backdrop-filter
+  or transparency; animations stopped): the frozen frame costs nothing while the chat scrolls.
+- **Count against the fixture.** The rule is `packages/core/src/shared/paint-policy.ts` (`boxPaint`,
+  `animationPaint`, `PaintCounter`) and `packages/core/tests/fixtures/paint-policy.json` is its contract: computed
+  values to heavy or not (blur 0, inset without blur, opacity 0.999 and 1, `brightness(1)`, a `::before` with `content:
+  none`, `visibility: hidden`, a disabled or pressed `<button>` dimmed, one with a blurred shadow), keyframes to an animation that counts or not, and sequences of batches and animation
+  events to the counts and the moment of the stop. Count after a whole batch (never op by op), when an animation of
+  the rule starts or ends (CSS animation and transition events, a Web Animation that runs), and when the cascade changes
+  without an op (the theme, the safe area, the bubble's width, `:hover`, `:active`). You may recount only the boxes a
+  change reaches (the changed elements and their subtrees, the parent's subtree with a sibling combinator or a structural
+  pseudo-class in the widget's sheets, all of them for a stylesheet change). The conformance set has the cases
+  (`auto/37`–`43`).
 
 ## Input
 

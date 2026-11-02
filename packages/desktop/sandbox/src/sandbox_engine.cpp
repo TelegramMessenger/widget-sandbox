@@ -1,5 +1,6 @@
 #include "twidget/sandbox_engine.h"
 
+#include "twidget/bundle_stamp.h"
 #include "twidget/json.h"
 
 #include <algorithm>
@@ -799,7 +800,7 @@ void SandboxEngine::rejectStorage(const std::string& detail) {
 /// Blocks the engine thread until the host answers (the host must never wait for the engine).
 std::string SandboxEngine::syncQuery(const std::string& json) {
     if (!delegate_) return "{\"error\":\"no host\"}";
-    if (queryLimitHit_) return "{\"error\":\"query budget exceeded\"}";
+    if (!queryLimitHit_.empty()) return "{\"error\":\"query budget exceeded\"}";
     double t0 = nowSeconds();
     QueryAnswer answer = delegate_->onQuery(*this, json);
     double dt = nowSeconds() - t0;
@@ -807,9 +808,10 @@ std::string SandboxEngine::syncQuery(const std::string& json) {
     stats_.queries++;
     stats_.queryMs += dt * 1000;
     taskQueryMs_ += dt * 1000;
-    if (taskQueryMs_ > CpuBudget::queryBudgetMs(currentSliceMs_)) {
-        // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
-        queryLimitHit_ = true;
+    taskQueries_++;
+    queryLimitHit_ = CpuBudget::queryLimitHit(taskQueries_, taskQueryMs_);
+    if (!queryLimitHit_.empty()) {
+        // The host answered every query, but this task has asked too many or held the renderer too long: interrupt it at the next poll.
         js_->cpuDeadline = -std::numeric_limits<double>::infinity();
     }
     lastBinary_ = std::move(answer.binary);
@@ -832,17 +834,11 @@ void SandboxEngine::kill(const std::string& reason) {
 }
 
 void SandboxEngine::handleError(const std::string& text, const std::string& where) {
-    if (js_ && js_->interrupted && queryLimitHit_) {
-        return kill("Layout query limit exceeded: host queries blocked the renderer for more than " + std::to_string(int(CpuBudget::queryBudgetMs(currentSliceMs_))) + " ms in one " + currentKind_ + " task (" + where + ")");
+    if (js_ && js_->interrupted && !queryLimitHit_.empty()) {
+        return kill(CpuBudget::queryLimitReason(queryLimitHit_, currentKind_) + " (" + where + ")");
     }
     if (js_ && js_->interrupted) {
-        // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
-        std::string quota;
-        if (currentSliceMs_ < config_.cpuLimitMs) {
-            quota = "; CPU quota: " + std::to_string(int(std::max(0.0, config_.cpuQuotaMs - budget_.used(nowMs())))) + " ms of " + std::to_string(int(config_.cpuQuotaMs)) +
-                    " ms per " + std::to_string(int(config_.cpuQuotaWindowMs)) + " ms left, so this " + currentKind_ + " task got " + std::to_string(int(currentSliceMs_)) + " ms";
-        }
-        return kill("CPU limit exceeded: more than " + std::to_string(int(currentSliceMs_)) + " ms of continuous execution (" + where + quota + ")");
+        return kill("CPU limit exceeded: more than " + std::to_string(int(currentSliceMs_)) + " ms of continuous execution (" + where + ")");
     }
     std::string lower = text;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return char(std::tolower(c)); });
@@ -874,6 +870,11 @@ void SandboxEngine::settle() {
 }
 
 std::string SandboxEngine::evalBundle(const std::string& source, const std::vector<uint8_t>& bytecode, const std::string& filename) {
+    // Bundles of another release are refused before anything runs, as a stale `.qbc` is (bundle_stamp.h).
+    if (auto refusal = BundleStamp::refusal(*resources_)) {
+        if (delegate_) delegate_->onDiag(*this, "bundle-mismatch", *refusal);
+        return "failed";
+    }
     if (!bytecode.empty()) {
         try {
             js_->evaluateBytecode(bytecode, source);
@@ -935,13 +936,16 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     currentSliceMs_ = sliceMs;
     excludeMs_ = 0;
     taskQueryMs_ = 0;
+    taskQueries_ = 0;
     taskOpsCostMs_ = 0;
-    queryLimitHit_ = false;
+    queryLimitHit_ = {};
     double c0 = QuickJSContext::threadCpuTime();
     resetDeadline();
     body();
     if (!dead_) settle();
     if (!dead_) pumpScripts();
+    // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
+    if (!dead_ && !queryLimitHit_.empty()) kill(CpuBudget::queryLimitReason(queryLimitHit_, kind));
     stats_.tasks++;
     double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;
@@ -955,6 +959,20 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
         stats_.memoryBytes = js_->memoryUsed();
     }
     postStats(false);
+}
+
+void SandboxEngine::chargeValidator(double ms) {
+    if (!(ms > 0)) return;
+    auto record = [this, ms] {
+        if (dead_) return;
+        double now = nowMs();
+        budget_.record("validator", ms, now);
+        stats_.validatorMs += ms;
+        stats_.cpuWindowMs = budget_.used(now);
+        postStats(false);
+    };
+    if (thread_.isCurrent()) record();
+    else thread_.async(record);
 }
 
 /// At most one stats message per 200 ms, but the last state always gets out.

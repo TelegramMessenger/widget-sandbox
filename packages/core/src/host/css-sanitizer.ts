@@ -727,8 +727,227 @@ export function sanitizeStyleAttribute(css: string, diag: Diag, env: CssEnv = DE
 
 const PROPERTY_NAME = /^-{0,2}[a-zA-Z_][\w-]*$/;
 
+// ───────────── the fast path of a style op ─────────────
+//
+// A moving widget sends style ops every frame (a transform, a colour, a gradient), and css-tree's parse, walks and
+// generate cost ~40 µs per op in the native hosts' QuickJS (docs/decisions.md, "The validator's time counts"). The
+// fast path takes the simple values — numbers, lengths, percentages, #colours, keywords and in-profile functions of
+// them — in one linear scan over the characters [0-9A-Za-z.%#(),-] and the space, applies the full path's rules for
+// them and returns what the full path returns: css-tree's serialisation (its whitespace between tokens,
+// tokenBefore.safe). It only ever accepts. Escapes, strings, comments, url(), var(), env(), attr(), light-dark(), `!`,
+// `;`, operators (+ - * /), exponents, viewport units (the shadow scope rewrites them), unknown functions or units, the
+// properties the full path rewrites or reduces (fonts, filters, color-scheme, sticky, scrolling overflow,
+// `background-clip: text`), a keyword outside a property's set and values over FAST_MAX characters all return
+// undefined and go through css-tree, which decides and reports. Nothing it accepts depends on the CssEnv.
+// tests/unit/css-fast-path.test.ts runs both paths over every declaration of the corpora, the conformance set and the
+// stress kit, the shapes moving widgets send and a generated set, in every env.
+
+const FAST_MAX = 256;
+const T_IDENT = 1, T_FUNC = 2, T_HASH = 3, T_NUM = 4, T_PCT = 5, T_DIM = 6, T_COMMA = 7, T_CLOSE = 8;
+/**
+ * css-tree's generator between two tokens: `SPACE_BEFORE[prev]` has bit `next` set when it emits a space (the pairs of
+ * tokenBefore.safe among these token types; prev 0 is the start). A number, percentage or dimension that starts with
+ * `-` is looked up as the delim `-` instead (`MINUS_SPACE`).
+ */
+const bits = (...ts: number[]) => ts.reduce((m, t) => m | (1 << t), 0);
+const SPACE_BEFORE: number[] = [];
+SPACE_BEFORE[0] = 0;
+SPACE_BEFORE[T_IDENT] = bits(T_IDENT, T_FUNC, T_NUM, T_PCT, T_DIM, T_HASH);
+SPACE_BEFORE[T_FUNC] = 0;
+SPACE_BEFORE[T_HASH] = bits(T_IDENT, T_FUNC, T_NUM, T_PCT, T_DIM, T_HASH);
+SPACE_BEFORE[T_NUM] = bits(T_IDENT, T_FUNC, T_NUM, T_PCT, T_DIM);
+SPACE_BEFORE[T_PCT] = bits(T_PCT, T_DIM, T_FUNC);
+SPACE_BEFORE[T_DIM] = bits(T_IDENT, T_FUNC, T_NUM, T_PCT, T_DIM, T_HASH);
+SPACE_BEFORE[T_COMMA] = 0;
+SPACE_BEFORE[T_CLOSE] = bits(T_IDENT, T_FUNC, T_PCT, T_DIM, T_HASH);
+const MINUS_SPACE = bits(T_IDENT, T_HASH, T_DIM, T_PCT, T_CLOSE);
+
+/**
+ * The profile's functions less those that substitute, pick a branch or take a URL (the full path rewrites or checks
+ * them), and never a 3D transform function (the full path drops them).
+ */
+const FAST_FUNCTIONS = new Set<string>(PROFILE_CSS.functions.filter((f) => !SUBSTITUTION_FUNCTIONS.has(f) && !URL_FUNCTIONS.has(f) && f !== 'url' && f !== 'light-dark' && !TRANSFORM_3D.has(f)));
+/** The profile's units less the viewport units (the shadow scope makes them container units). */
+const FAST_UNITS = new Set<string>(PROFILE_CSS.units.filter((u) => !Object.prototype.hasOwnProperty.call(CONTAINER_UNITS, u)));
+
+/** What valueInProfile checks for a property, as far as the fast path takes it. */
+interface FastRule {
+  keywords?: readonly string[];
+  rewrite?: Record<string, string>;
+  kind?: 'rotate' | 'translate' | 'clip';
+}
+const FAST_CUSTOM: FastRule = {};
+/** The profile's properties the fast path takes (lowercase, as written), with their rules; the others always go the full path. */
+const FAST_PROPS = new Map<string, FastRule>();
+for (const prop of PROFILE_CSS.properties) {
+  if (FORBIDDEN_PROPERTIES.has(prop) || FILTER_PROPERTIES.has(prop) || prop === 'color-scheme' || prop === 'font' || prop === 'font-family') continue;
+  const overflow = prop === 'overflow' || prop === 'overflow-x' || prop === 'overflow-y';
+  FAST_PROPS.set(prop, {
+    keywords: VALUE_SETS[prop],
+    rewrite: REWRITES[overflow ? 'overflow' : prop],
+    kind: prop === 'rotate' ? 'rotate' : prop === 'translate' || prop === 'scale' ? 'translate' : prop === 'background-clip' ? 'clip' : undefined,
+  });
+}
+
+/**
+ * Character classes of the fast alphabet, read as `c < 128 ? CHAR[c] : 0` (charCodeAt past the end is NaN: class 0).
+ * C_NAME: the ident code points it has, a letter, a digit or `-` (`_`, escapes and non-ASCII are outside it).
+ */
+const C_DIGIT = 1, C_LETTER = 2, C_NAME = 4;
+const CHAR = new Uint8Array(128);
+for (let c = 0x30; c <= 0x39; c++) CHAR[c] = C_DIGIT | C_NAME;
+for (let c = 0x41; c <= 0x5a; c++) CHAR[c] = CHAR[c + 0x20] = C_LETTER | C_NAME;
+CHAR[0x2d] = C_NAME;
+
+let fastPathOn = true;
+/** Tests and benchmarks only: false sends every style op through css-tree (the reference the fast path is checked against). */
+export function setCssFastPath(on: boolean): void {
+  fastPathOn = on;
+}
+
+/**
+ * The fast path of `sanitizeStyleProperty` (see above): the clean value of a simple declaration, exactly as the full
+ * path would return it with no diagnostic, or undefined when the full path has to decide (an empty value included).
+ */
+export function fastStyleValue(name: string, value: string): string | undefined {
+  const n = value.length;
+  if (n === 0 || n > FAST_MAX) return undefined;
+  let rule = FAST_PROPS.get(name);
+  const custom = rule === undefined && name.charCodeAt(0) === 0x2d && name.charCodeAt(1) === 0x2d && PROPERTY_NAME.test(name);
+  if (custom) rule = FAST_CUSTOM;
+  if (rule === undefined) return undefined;
+  /** The output when the input is not css-tree's serialisation already; undefined while it is (then the input is returned). */
+  let out: string | undefined;
+  let prev = 0;
+  let prevEnd = 0;
+  let depth = 0;
+  let topItems = 0, topNonComma = 0, topNumbers = 0;
+  /** The last top-level ident (the value's only item when `single`), lowercased when the rule reads it. */
+  let lastTopIdent = '';
+  let lastTopStart = -1;
+  const readsIdents = rule.rewrite !== undefined || rule.kind === 'clip' || rule.kind === 'rotate';
+  let i = 0;
+  while (i < n) {
+    const start = i;
+    const c = value.charCodeAt(i);
+    const k = c < 128 ? CHAR[c] : 0;
+    let type: number;
+    let minus = false;
+    if (c === 0x20) { i++; continue; }
+    if (k & C_DIGIT || c === 0x2e || c === 0x2d) {
+      const c1 = value.charCodeAt(i + 1);
+      const k1 = c1 < 128 ? CHAR[c1] : 0;
+      let numeric = (k | k1) & C_DIGIT;
+      if (!numeric && c === 0x2d && c1 === 0x2e) { const c2 = value.charCodeAt(i + 2); numeric = c2 < 128 ? CHAR[c2] & C_DIGIT : 0; }
+      if (c === 0x2e && !(k1 & C_DIGIT)) numeric = 0;
+      if (numeric) {
+        // A number: [-] digits [. digits] | [-] . digits; then a unit, `%` or nothing.
+        minus = c === 0x2d;
+        if (minus) i++;
+        let d = value.charCodeAt(i);
+        while (d >= 0x30 && d <= 0x39) d = value.charCodeAt(++i);
+        if (d === 0x2e) {
+          const d1 = value.charCodeAt(i + 1);
+          if (d1 >= 0x30 && d1 <= 0x39) {
+            i++;
+            do d = value.charCodeAt(++i); while (d >= 0x30 && d <= 0x39);
+          }
+        }
+        const u1 = value.charCodeAt(i + 1);
+        if (d === 0x65 || d === 0x45) {
+          // An exponent (`1e3`, `1e-3`): the full path's.
+          if ((u1 >= 0x30 && u1 <= 0x39) || ((u1 === 0x2d || u1 === 0x2b) && (value.charCodeAt(i + 2) >= 0x30 && value.charCodeAt(i + 2) <= 0x39))) return undefined;
+        }
+        const ku = d < 128 ? CHAR[d] : 0;
+        if (d === 0x25) { i++; type = T_PCT; }
+        else if (ku & C_LETTER || (d === 0x2d && ((u1 < 128 ? CHAR[u1] : 0) & C_LETTER || u1 === 0x2d))) {
+          // A unit: the ident sequence that follows (`10px`, also `10-x`, `10px-2px`).
+          const unitStart = i;
+          do d = value.charCodeAt(++i); while (d < 128 && CHAR[d] & C_NAME);
+          const unit = value.slice(unitStart, i);
+          if (!FAST_UNITS.has(unit) && !FAST_UNITS.has(unit.toLowerCase())) return undefined;
+          type = T_DIM;
+        } else type = T_NUM;
+      } else if (c === 0x2d && (k1 & C_LETTER || c1 === 0x2d)) {
+        let d = c1;
+        do d = value.charCodeAt(++i); while (d < 128 && CHAR[d] & C_NAME);
+        type = T_IDENT;
+      } else return undefined; // `.` or `-` alone: a delim (an operator)
+    } else if (k & C_LETTER) {
+      let d = c;
+      do d = value.charCodeAt(++i); while (d < 128 && CHAR[d] & C_NAME);
+      type = T_IDENT;
+    } else if (c === 0x23) {
+      let d = c;
+      do d = value.charCodeAt(++i); while (d < 128 && CHAR[d] & C_NAME);
+      if (i === start + 1) return undefined; // `#` alone
+      type = T_HASH;
+    } else if (c === 0x2c) {
+      i++;
+      if (prev === 0 || prev === T_FUNC || prev === T_COMMA) return undefined;
+      type = T_COMMA;
+    } else if (c === 0x29) {
+      i++;
+      if (depth === 0 || prev === T_COMMA) return undefined;
+      depth--;
+      type = T_CLOSE;
+    } else return undefined;
+
+    if (type === T_IDENT && i < n && value.charCodeAt(i) === 0x28) {
+      // A function token: `name(`.
+      const fn = value.slice(start, i);
+      if (!FAST_FUNCTIONS.has(fn) && !FAST_FUNCTIONS.has(fn.toLowerCase())) return undefined;
+      i++;
+      type = T_FUNC;
+    }
+    if (depth === 0 && type !== T_CLOSE) {
+      topItems++;
+      if (type !== T_COMMA) topNonComma++;
+      if (type === T_NUM) topNumbers++;
+      if (type === T_IDENT) {
+        lastTopStart = start;
+        if (readsIdents) {
+          lastTopIdent = value.slice(start, i).toLowerCase();
+          if (rule.rewrite && Object.prototype.hasOwnProperty.call(rule.rewrite, lastTopIdent)) return undefined;
+          if (rule.kind === 'clip' && lastTopIdent === 'text') return undefined;
+          if (rule.kind === 'rotate' && (lastTopIdent === 'x' || lastTopIdent === 'y' || lastTopIdent === 'z')) return undefined;
+        }
+      }
+    }
+    if (type === T_FUNC) depth++;
+
+    const space = (minus ? MINUS_SPACE >> prev : SPACE_BEFORE[prev] >> type) & 1;
+    if (out === undefined) {
+      if (start - prevEnd !== space) out = value.slice(0, prevEnd) + (space ? ' ' : '') + value.slice(start, i);
+    } else out += (space ? ' ' : '') + value.slice(start, i);
+    prev = type;
+    prevEnd = i;
+  }
+  if (prev === 0 || depth !== 0 || prev === T_COMMA) return undefined;
+  if (out === undefined && prevEnd !== n) out = value.slice(0, prevEnd); // trailing spaces
+  if (!custom) {
+    const single = topItems === 1 && prev === T_IDENT;
+    if (single && !readsIdents) lastTopIdent = value.slice(lastTopStart, prevEnd).toLowerCase();
+    if (!(single && GLOBAL_KEYWORDS.has(lastTopIdent))) {
+      if (rule.keywords && !(single && rule.keywords.includes(lastTopIdent))) return undefined;
+      if (rule.kind === 'rotate' && topNumbers > 1) return undefined;
+      if (rule.kind === 'translate' && topNonComma > 2) return undefined;
+    }
+  }
+  return out ?? value;
+}
+
 /** Sanitize a single property set via CSSOM. Returns null if it must be dropped. */
 export function sanitizeStyleProperty(name: string, value: string, diag: Diag, env: CssEnv = DEFAULT_ENV): { name: string; value: string } | null {
+  if (fastPathOn) {
+    const fast = fastStyleValue(name, value);
+    if (fast !== undefined) return { name, value: fast };
+  }
+  return sanitizeStylePropertyFull(name, value, diag, env);
+}
+
+/** `sanitizeStyleProperty` through css-tree alone (the reference of the fast path). */
+export function sanitizeStylePropertyFull(name: string, value: string, diag: Diag, env: CssEnv = DEFAULT_ENV): { name: string; value: string } | null {
   if (!PROPERTY_NAME.test(name)) return null;
   if (value === '') return { name, value: '' };
   try {

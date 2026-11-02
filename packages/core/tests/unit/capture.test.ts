@@ -140,6 +140,31 @@ describe('capture: moving known nodes into a new subtree', () => {
     assert.ok(all.some((o) => o.op === 'attr' && o.id === rowId && o.value === 'r moved'));
     assert.match(r.probes[0], /^<section><button [^>]*id="row"[^>]*><b>Row<\/b><\/button><\/section>$/);
   });
+
+  it('the same move after the old container left the document: its parent syncs first, the row is still not created again', async () => {
+    const r = await runWidget(`<div id="list"><section id="old"><button id="row"><b>Row</b></button></section></div><script>
+      var list = document.getElementById('list'), row = document.getElementById('row');
+      setTimeout(function () {
+        var fresh = document.createElement('section');
+        list.replaceChildren(fresh);
+        fresh.appendChild(row);
+      }, 1);</script>`, { timerRounds: 3, policy: 'strict', probes: ['list.innerHTML'] });
+    assert.deepEqual(r.diags.filter((d) => d.kind.includes('violation')), []);
+    const all = r.ops.flat() as any[];
+    assert.equal(all.filter((o) => o.op === 'el' && o.attrs?.id === 'row').length, 1);
+    assert.match(r.probes[0], /^<section><button id="row"><b>Row<\/b><\/button><\/section>$/);
+  });
+});
+
+describe('capture: a subtree replaced in one task', () => {
+  it('removes the old children before it creates the new ones, so the validator never holds both texts', async () => {
+    const r = await runWidget(`<div id="a"><p>old text</p></div><script>
+      setTimeout(function () { document.getElementById('a').innerHTML = '<p>new text</p>'; }, 1);</script>`, { timerRounds: 3 });
+    const batch = (r.ops as any[][]).find((b) => b.some((o) => o.op === 'text' && o.data === 'new text'))!;
+    const rm = batch.findIndex((o) => o.op === 'rm');
+    assert.ok(rm >= 0 && rm < batch.findIndex((o) => o.op === 'el'), JSON.stringify(batch));
+    assert.deepEqual(r.diags.filter((d) => d.kind.includes('violation')), []);
+  });
 });
 
 describe('capture: layout query cache', () => {
@@ -151,5 +176,43 @@ describe('capture: layout query cache', () => {
       s.style.height = '60px'; h.push(s.offsetHeight);</script>`, { timerRounds: 0, probes: ['h.length'], binaryOps: binary });
     const kinds = r.queries.map((q: any) => q.q);
     assert.deepEqual(kinds, ['box', 'rect', 'rect', 'box']);
+  });
+});
+
+describe('capture: a long flush goes out in parts', () => {
+  const build = (n: number, extra = '') => `<div id="list"></div><script>
+    const list = document.getElementById('list');
+    for (let i = 0; i < ${n}; i++) { const d = document.createElement('div'); d.className = 'row'; d.textContent = 'row ' + i; list.appendChild(d); }
+    ${extra}</script>`;
+
+  it('hands the glue at most ~1000 ops at a time between nodes, and the renderer gets the whole document', async () => {
+    const r = await runWidget(build(900), { policy: 'compat' });
+    const sizes = r.ops.map((b) => b.length);
+    assert.ok(sizes.length >= 3, `batches ${sizes.join(',')}`);
+    assert.ok(sizes.every((n) => n < 1100), `batches ${sizes.join(',')}`);
+    assert.equal(r.renderOps.filter((o: any) => o.op === 'el' && o.tag === 'div').length, 901);
+    assert.equal(r.renderOps.filter((o: any) => o.op === 'text' && /^row \d+$/.test(o.data)).length, 900);
+  });
+
+  it('a subtree built in one createNode (innerHTML of a detached root) is split too', async () => {
+    const r = await runWidget(`<div id="list"></div><script>
+      const root = document.createElement('section');
+      root.innerHTML = Array.from({ length: 900 }, (_, i) => '<p>p' + i + '</p>').join('');
+      document.getElementById('list').appendChild(root);</script>`, { policy: 'compat' });
+    assert.ok(r.ops.length >= 2, `batches ${r.ops.map((b) => b.length).join(',')}`);
+    assert.equal(r.renderOps.filter((o: any) => o.op === 'el' && o.tag === 'p').length, 900);
+  });
+
+  it('canvas commands staged in the flush stay with its last batch (canvas words)', async () => {
+    const r = await runWidget(build(900, `const c = document.createElement('canvas'); document.body.appendChild(c);
+      const x = c.getContext('2d'); for (let i = 0; i < 50; i++) x.fillRect(i, 0, 1, 1);`), { policy: 'compat', canvasWords: true });
+    const cmds = r.renderOps.filter((o: any) => o.op === 'canvas').flatMap((o: any) => o.cmds);
+    assert.equal(cmds.filter((c: any) => c[1] === 'fillRect').length, 50);
+  });
+
+  it('a document of 2000 rows stops at the node cap, not at the 8 MB heap', async () => {
+    const r = await runWidget(build(1000));
+    assert.match(r.stopped ?? '', /^Node limit exceeded: \d+ nodes in the document \(max 2000\)$/);
+    assert.ok(!r.logs.some((l) => /out of memory|Memory limit/i.test(l.text)), JSON.stringify(r.logs.slice(0, 3)));
   });
 });

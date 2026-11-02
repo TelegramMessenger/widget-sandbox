@@ -24,8 +24,10 @@ final class CpuBudgetTests: XCTestCase {
                     b.record(kind, cpuMs: (step["cpuMs"] as! NSNumber).doubleValue, now: at)
                 } else if let kill = step["kill"] as? Bool {
                     XCTAssertEqual(b.shouldKill(at), kill, where_)
-                } else if let slice = step["queryBudget"] as? NSNumber {
-                    XCTAssertEqual(CpuBudget.queryBudgetMs(sliceMs: slice.doubleValue), (step["expect"] as! NSNumber).doubleValue, where_)
+                } else if let used = step["used"] as? NSNumber {
+                    XCTAssertEqual(b.used(at), used.doubleValue, accuracy: 1e-9, where_)
+                } else if let q = step["queries"] as? [NSNumber] {
+                    XCTAssertEqual(CpuBudget.queryLimitHit(queries: q[0].intValue, queryMs: q[1].doubleValue), step["expect"] as? String, where_)
                 } else if let cost = step["opsCost"] as? [NSNumber] {
                     XCTAssertEqual(CpuBudget.opsCostMs(ops: cost[0].intValue, canvasCommands: cost[1].intValue), (step["expect"] as! NSNumber).doubleValue, accuracy: 1e-9, where_)
                 } else {

@@ -1,6 +1,6 @@
 # Compat report — resize
 
-Generated 2026-10-30T01:35:40.711Z by `CORPUS_GROUP=resize pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-11-02T12:26:49.416Z by `CORPUS_GROUP=resize pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## 1-default: 1 / 1 pass (100%)
 

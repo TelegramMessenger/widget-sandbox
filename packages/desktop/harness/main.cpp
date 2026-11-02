@@ -273,6 +273,8 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     {
         SandboxEngine engine(html, config, res);
         engine.setDelegate(&host);
+        // As WidgetHost: the validator's time on the widget's messages counts against its JS quota.
+        host.validator().setCpuSink([&engine](double ms) { engine.chargeValidator(ms); });
         engine.start();
         host.waitLoaded(30);
         // An event with a numeric `gesture` is a trusted press (as the Node harness's `gesture: n`); the rest are untrusted.
@@ -293,6 +295,8 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
         if (opts.setData) engine.setData(*opts.setData); // after the presses' answers; before the probes, which wait for it
         for (const auto& p : opts.probes) out.probeResults.push_back(engine.probe(p));
         engine.terminate();
+        engine.thread().join();
+        host.validator().setCpuSink(nullptr);
     }
     auto l = host.lock();
     out.loaded = host.loaded;
@@ -580,8 +584,8 @@ int main(int argc, char** argv) {
     RunOutcome r = runWidget(readFile(file), opts, res, config);
     for (size_t i = 0; i < r.probeResults.size(); i++) printf("probe[%zu] %s → %s\n", i, opts.probes[i].c_str(), r.probeResults[i].c_str());
     if (opts.printOps) printf("%s\n", r.renderOpsJson.c_str());
-    printf("\nbatches %d, render ops %d (%d elements), queries %d, tasks %d, js %.0f ms, memory %zu KB%s\n", r.batches, r.renderOps, r.elements, r.queries,
-           r.stats.tasks, r.stats.jsMs, r.stats.memoryBytes / 1024, r.died ? (" — DEAD: " + *r.died).c_str() : "");
+    printf("\nbatches %d, render ops %d (%d elements), queries %d, tasks %d, js %.0f ms, validator %.0f ms, memory %zu KB%s\n", r.batches, r.renderOps, r.elements, r.queries,
+           r.stats.tasks, r.stats.jsMs, r.stats.validatorMs, r.stats.memoryBytes / 1024, r.died ? (" — DEAD: " + *r.died).c_str() : "");
     if (opts.blitz || opts.litehtml) {
         printf("%-6s height %.0f px, frame %u×%u px, paint %.1f ms, init %.1f ms, loaded %.0f ms, rendered %.0f ms\n", opts.blitz ? "blitz" : "lite", r.height, r.frameW, r.frameH, r.paintMs, r.initMs, r.loadedMs, r.renderedMs);
         std::string written = writePng(r, opts.png);

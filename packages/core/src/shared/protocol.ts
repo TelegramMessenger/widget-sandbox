@@ -4,6 +4,7 @@
 import { PROFILE_EVENTS } from './profile-tables';
 import type { ChatType, ContentSafeArea, RequestError, StorageCommit, ThemeParams, WidgetTheme, WidgetUser } from './sdk-policy';
 import type { BubbleAction, Gesture } from './gesture-policy';
+import type { PaintLimitCode } from './paint-policy';
 
 export type NodeId = number;
 /** The widget's Document node. Never rendered; parent of the <html> element. */
@@ -170,7 +171,13 @@ export type HostToRenderer =
    * the renderer only gives the widget the double taps and holds it claims. `touch`: arbitrate a mouse's primary
    * button as a finger (the dev app reproducing a phone). `rtl`: the leading edge is the right one.
    */
-  | { type: 'arbitrate'; bubble: boolean; touch?: boolean; rtl?: boolean };
+  | { type: 'arbitrate'; bubble: boolean; touch?: boolean; rtl?: boolean }
+  /**
+   * The host's policy (`SandboxConfig.policy`), sent at load: under `strict` (also before this message, and for anything
+   * but exactly `compat`) the renderer counts heavy boxes (paint-policy.ts) and reports `limit` past them; under `compat`
+   * it counts nothing. `paintReports` (tooling: the Node harness): also report the counts on every change (`paint`).
+   */
+  | { type: 'policy'; policy: SandboxPolicy; paintReports?: boolean };
 
 export type RendererToHost =
   | { type: 'ready' }
@@ -198,6 +205,14 @@ export type RendererToHost =
   | { type: 'release' }
   /** With `arbitrate` `bubble` on: the bubble took a press (`action`); (x, y): the pointer then, in widget coordinates. */
   | { type: 'bubble'; action: BubbleAction; gesture: Gesture; x: number; y: number; edge: boolean }
+  /**
+   * Past a paint limit (paint-policy.ts, docs/decisions.md "Heavy boxes"): more than 16 heavy boxes (`paint-limit`, with
+   * their count) or more than 2 with backdrop-filter (`backdrop-limit`). The renderer has already drawn the frame without
+   * the effects; the host stops the widget (`die`) with `paintLimitMessage(code, count)`. Once per widget, strict only.
+   */
+  | { type: 'limit'; code: PaintLimitCode; count: number }
+  /** With `policy` `paintReports`: the heavy-box counts whenever they change (tooling; a host ignores it). */
+  | { type: 'paint'; heavy: number; backdrop: number }
   | { type: 'violation'; detail: string };
 
 // ───────────── worker ⇄ host envelope ─────────────

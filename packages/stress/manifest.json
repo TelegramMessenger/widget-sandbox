@@ -1,12 +1,13 @@
 {
- "version": 1,
+ "version": 2,
  "limits": {
   "heavyBoxes": 16,
   "backdropBoxes": 2,
   "nodes": 2000,
   "opsPerBatch": 10000,
   "cssRules": 400,
-  "canvasPerSend": 10000,
+  "canvasPerSend": 4000,
+  "layoutQueries": 128,
   "docText": 49152,
   "textValue": 32768,
   "attr": 8192,
@@ -909,7 +910,7 @@
    },
    "measured": {
     "nodes": 531,
-    "maxBatchOps": 1026,
+    "maxBatchOps": 1025,
     "height": 325
    }
   },
@@ -1040,7 +1041,7 @@
    },
    "measured": {
     "nodes": 531,
-    "maxBatchOps": 1025,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -1067,7 +1068,7 @@
    },
    "measured": {
     "nodes": 1043,
-    "maxBatchOps": 2049,
+    "maxBatchOps": 1025,
     "height": 325
    }
   },
@@ -1095,7 +1096,7 @@
    },
    "measured": {
     "nodes": 2019,
-    "maxBatchOps": 4001,
+    "maxBatchOps": 2001,
     "height": 325
    }
   },
@@ -1305,7 +1306,7 @@
    },
    "measured": {
     "nodes": 531,
-    "maxBatchOps": 1026,
+    "maxBatchOps": 1025,
     "height": 325
    }
   },
@@ -1965,7 +1966,7 @@
    },
    "measured": {
     "nodes": 531,
-    "maxBatchOps": 1026,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -1989,7 +1990,7 @@
    },
    "measured": {
     "nodes": 1019,
-    "maxBatchOps": 2002,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2109,7 +2110,7 @@
    },
    "measured": {
     "nodes": 531,
-    "maxBatchOps": 1025,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2133,7 +2134,7 @@
    },
    "measured": {
     "nodes": 1043,
-    "maxBatchOps": 2049,
+    "maxBatchOps": 1025,
     "height": 325
    }
   },
@@ -2159,7 +2160,7 @@
    },
    "measured": {
     "nodes": 2019,
-    "maxBatchOps": 4001,
+    "maxBatchOps": 2001,
     "height": 325
    }
   },
@@ -2231,7 +2232,7 @@
    },
    "measured": {
     "nodes": 519,
-    "maxBatchOps": 1001,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2255,7 +2256,7 @@
    },
    "measured": {
     "nodes": 1019,
-    "maxBatchOps": 2001,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2281,7 +2282,7 @@
    },
    "measured": {
     "nodes": 2019,
-    "maxBatchOps": 4001,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2307,7 +2308,7 @@
    },
    "measured": {
     "nodes": 3019,
-    "maxBatchOps": 6001,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2333,7 +2334,7 @@
    },
    "measured": {
     "nodes": 4019,
-    "maxBatchOps": 8001,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2381,7 +2382,7 @@
    },
    "measured": {
     "nodes": 535,
-    "maxBatchOps": 1033,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2405,7 +2406,7 @@
    },
    "measured": {
     "nodes": 1035,
-    "maxBatchOps": 2033,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2431,7 +2432,7 @@
    },
    "measured": {
     "nodes": 2035,
-    "maxBatchOps": 4033,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2457,7 +2458,7 @@
    },
    "measured": {
     "nodes": 3035,
-    "maxBatchOps": 6033,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2483,7 +2484,7 @@
    },
    "measured": {
     "nodes": 4035,
-    "maxBatchOps": 8033,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2555,7 +2556,7 @@
    },
    "measured": {
     "nodes": 531,
-    "maxBatchOps": 1025,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -2581,7 +2582,7 @@
    },
    "measured": {
     "nodes": 2019,
-    "maxBatchOps": 4001,
+    "maxBatchOps": 2001,
     "height": 325
    }
   },
@@ -2607,7 +2608,7 @@
    },
    "measured": {
     "nodes": 4019,
-    "maxBatchOps": 8001,
+    "maxBatchOps": 4001,
     "height": 325
    }
   },
@@ -2625,8 +2626,7 @@
     "opsPerBatch": 9000
    },
    "crosses": [
-    "nodes 6019 > 2000",
-    "opsPerBatch 12001 > 10000"
+    "nodes 6019 > 2000"
    ],
    "size": {
     "raw": 2103,
@@ -2634,7 +2634,7 @@
    },
    "measured": {
     "nodes": 6019,
-    "maxBatchOps": 12001,
+    "maxBatchOps": 6001,
     "height": 325
    }
   },
@@ -2652,8 +2652,7 @@
     "opsPerBatch": 12000
    },
    "crosses": [
-    "nodes 8019 > 2000",
-    "opsPerBatch 16001 > 10000"
+    "nodes 8019 > 2000"
    ],
    "size": {
     "raw": 2103,
@@ -2661,7 +2660,7 @@
    },
    "measured": {
     "nodes": 8019,
-    "maxBatchOps": 16001,
+    "maxBatchOps": 8001,
     "height": 325
    }
   },
@@ -2809,7 +2808,7 @@
    },
    "measured": {
     "nodes": 569,
-    "maxBatchOps": 1101,
+    "maxBatchOps": 1000,
     "height": 325
    }
   },
@@ -3200,7 +3199,9 @@
     "canvasPerSend": 4001,
     "nodes": 10
    },
-   "crosses": [],
+   "crosses": [
+    "canvasPerSend 4001 > 4000"
+   ],
    "size": {
     "raw": 1820,
     "zlib": 1044
@@ -3224,7 +3225,9 @@
     "canvasPerSend": 8001,
     "nodes": 10
    },
-   "crosses": [],
+   "crosses": [
+    "canvasPerSend 8001 > 4000"
+   ],
    "size": {
     "raw": 1820,
     "zlib": 1044
@@ -3249,7 +3252,7 @@
     "nodes": 10
    },
    "crosses": [
-    "canvasPerSend 16001 > 10000"
+    "canvasPerSend 16001 > 4000"
    ],
    "size": {
     "raw": 1826,
@@ -3421,7 +3424,8 @@
    "backdropBoxes": 0,
    "changedBoxes": 0,
    "estimates": {
-    "nodes": 50
+    "nodes": 50,
+    "layoutQueries": 0
    },
    "crosses": [],
    "size": {
@@ -3444,7 +3448,8 @@
    "backdropBoxes": 0,
    "changedBoxes": 1,
    "estimates": {
-    "nodes": 50
+    "nodes": 50,
+    "layoutQueries": 1
    },
    "crosses": [],
    "size": {
@@ -3467,7 +3472,8 @@
    "backdropBoxes": 0,
    "changedBoxes": 4,
    "estimates": {
-    "nodes": 50
+    "nodes": 50,
+    "layoutQueries": 4
    },
    "crosses": [],
    "size": {
@@ -3490,7 +3496,8 @@
    "backdropBoxes": 0,
    "changedBoxes": 16,
    "estimates": {
-    "nodes": 50
+    "nodes": 50,
+    "layoutQueries": 16
    },
    "crosses": [],
    "size": {
@@ -3513,7 +3520,8 @@
    "backdropBoxes": 0,
    "changedBoxes": 40,
    "estimates": {
-    "nodes": 50
+    "nodes": 50,
+    "layoutQueries": 64
    },
    "crosses": [],
    "size": {
@@ -3536,9 +3544,12 @@
    "backdropBoxes": 0,
    "changedBoxes": 40,
    "estimates": {
-    "nodes": 50
+    "nodes": 50,
+    "layoutQueries": 256
    },
-   "crosses": [],
+   "crosses": [
+    "layoutQueries 256 > 128"
+   ],
    "size": {
     "raw": 1699,
     "zlib": 1001
@@ -3565,8 +3576,8 @@
    },
    "crosses": [],
    "size": {
-    "raw": 1956,
-    "zlib": 1124
+    "raw": 1958,
+    "zlib": 1125
    },
    "measured": {
     "nodes": 93,
@@ -3590,8 +3601,8 @@
    },
    "crosses": [],
    "size": {
-    "raw": 1962,
-    "zlib": 1125
+    "raw": 1964,
+    "zlib": 1127
    },
    "measured": {
     "nodes": 93,
@@ -3615,8 +3626,8 @@
    },
    "crosses": [],
    "size": {
-    "raw": 1962,
-    "zlib": 1125
+    "raw": 1964,
+    "zlib": 1128
    },
    "measured": {
     "nodes": 95,
@@ -3642,8 +3653,8 @@
     "cssRules 800 > 400"
    ],
    "size": {
-    "raw": 1962,
-    "zlib": 1125
+    "raw": 1964,
+    "zlib": 1127
    },
    "measured": {
     "nodes": 99,
@@ -3669,8 +3680,8 @@
     "cssRules 1600 > 400"
    ],
    "size": {
-    "raw": 1968,
-    "zlib": 1124
+    "raw": 1970,
+    "zlib": 1126
    },
    "measured": {
     "nodes": 107,
@@ -3696,8 +3707,8 @@
     "cssRules 3200 > 400"
    ],
    "size": {
-    "raw": 1968,
-    "zlib": 1125
+    "raw": 1970,
+    "zlib": 1126
    },
    "measured": {
     "nodes": 123,

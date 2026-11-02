@@ -5,14 +5,15 @@
 // of 2026-10-28): paint effects, document size, change per frame, text, canvas, SVG, layout queries, CSS rules.
 // The ladders cross the strict limits on purpose, so the data shows the cost on both sides of each one.
 
-/** The strict limits a level can cross (widget profile 1 after the 2026-10-28 review). `est` per level is rough. */
+/** The strict limits a level can cross (widget profile 1, set from the client teams' runs of v0.3.0's kit in v0.6.0). `est` per level is rough. */
 export const STRICT_LIMITS = {
   heavyBoxes: 16, // boxes with a blurred box-shadow, filter, backdrop-filter or opacity < 1 at once
   backdropBoxes: 2, // of those, with backdrop-filter
   nodes: 2000, // elements, text and comments in the document
-  opsPerBatch: 10_000, // validated ops in one batch
+  opsPerBatch: 10_000, // validated ops in one batch (the shim hands a flush's DOM ops over in parts of ~1000 since v0.6.0)
   cssRules: 400, // style rules in the document
-  canvasPerSend: 10_000, // canvas commands in one send (provisional; this ladder sets it)
+  canvasPerSend: 4000, // canvas commands in one send
+  layoutQueries: 128, // layout queries the host answers in one task
   docText: 49_152, // text of the document (text, styles, visible attributes)
   textValue: 32_768, // one text value (a text node, a stylesheet, an attribute's text)
   attr: 8192, // one attribute value
@@ -183,7 +184,7 @@ export const LOADS: Load[] = [
   {
     id: 'layout-queries', title: 'Layout queries per frame', stresses: 'N pairs of a style write and a getBoundingClientRect read per frame on 40 bars: each read forces a layout, answered synchronously by the renderer',
     param: 'queries', unit: 'queries per frame', levels: [0, 1, 4, 16, 64, 256],
-    changed: (n) => Math.min(n, 40), est: () => ({ nodes: 50 }),
+    changed: (n) => Math.min(n, 40), est: (n) => ({ nodes: 50, layoutQueries: n }),
     css: '.q{height:5px;margin:1px 0;background:#4a90e2}',
     setup: `var a=mk(40,'q'),sum=0`,
     step: `for(var k=0;k<N;k++){a[k%40].style.width=((t/10+k*7)%280|0)+'px';sum+=a[(k+1)%40].getBoundingClientRect().width}`,
@@ -193,7 +194,8 @@ export const LOADS: Load[] = [
     param: 'rules', unit: 'rules', levels: [50, 200, 400, 800, 1600, 3200],
     changed: () => 72, est: (n) => ({ cssRules: n, nodes: 80, opsPerBatch: 80 * 3 }),
     css: '.g{display:flex;gap:2px;margin:2px}.g i{display:block;width:30px;height:30px;background:#ccc}',
-    setup: `var css='';for(var i=0;i<N;i++){css+='.k'+(i%8)+' .r'+(i%64)+'{background:hsl('+(i*7%360)+',60%,'+(35+i%40)+'%)}';if(i%200==199||i==N-1){var y=document.createElement('style');y.textContent=css;document.head.appendChild(y);css=''}}var g=mk(8,'g');g.forEach(function(e,j){for(var i=0;i<8;i++){var b=document.createElement('i');b.className='r'+(j*8+i);e.appendChild(b)}});var fr=0`,
+    // The frame's three rules and the load's two count too: N rules in all, so the 400 level is at the cap, not over it.
+    setup: `var css='';for(var i=0;i<N-5;i++){css+='.k'+(i%8)+' .r'+(i%64)+'{background:hsl('+(i*7%360)+',60%,'+(35+i%40)+'%)}';if(i%200==199||i==N-6){var y=document.createElement('style');y.textContent=css;document.head.appendChild(y);css=''}}var g=mk(8,'g');g.forEach(function(e,j){for(var i=0;i<8;i++){var b=document.createElement('i');b.className='r'+(j*8+i);e.appendChild(b)}});var fr=0`,
     step: `fr++;for(var j=0;j<8;j++)g[j].className='g k'+((j+fr)%8)`,
   },
 ];

@@ -3,6 +3,9 @@
 // precompiled bytecode and the shared test fixture — into
 // packages/ios, packages/android or packages/desktop. The demo apps' corpus
 // copy is a separate step (scripts/sync-demo-corpus.ts at the repo root).
+// Every bundle's first line is the stamp of VERSION.json (scripts/version.ts), and the
+// target's platform constants (WidgetSandboxVersion.swift / .kt, twidget/version.h) are
+// written from the same file: the glue refuses a bundle whose stamp is not its own.
 //
 // Usage: pnpm build:ios        (= pnpm -C packages/core build:native ios + the corpus sync)
 //        pnpm build:macos      (same outputs as ios: one Swift package)
@@ -16,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rendererBuildOptions, sandboxBuildOptions, validatorBuildOptions } from './sandbox-build.ts';
+import { assertVersionsAgree, bundleStamp, platformConstants, readVersion } from './version.ts';
 
 /** The repo root; the native packages are siblings of this one under packages/. */
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -47,8 +51,13 @@ fs.mkdirSync(res, { recursive: true });
 fs.rmSync(path.join(res, 'libs'), { recursive: true, force: true });
 fs.rmSync(path.join(res, 'libraries.json'), { force: true });
 
+// VERSION.json and every file that repeats one of its numbers must agree before anything is stamped.
+const version = readVersion();
+assertVersionsAgree(version);
+const stamp = bundleStamp(version);
+
 async function emit(name: string, options: Parameters<typeof build>[0]) {
-  const out = await build(options);
+  const out = await build({ ...options, banner: { js: stamp } });
   const text = out.outputFiles![0].text;
   fs.writeFileSync(path.join(res, name), text);
   console.log(`${name}: ${(text.length / 1024).toFixed(0)} KB`);
@@ -85,8 +94,12 @@ function buildQjsc(): string {
     '-Wno-unused-parameter', ...sources, ...(process.platform === 'win32' ? [] : ['-lm']), '-o', bin], { stdio: 'inherit' });
   return bin;
 }
-// Test fixtures shared with the native ports (one source of truth: packages/core/tests/fixtures).
+// Test fixtures shared with the native ports (one source of truth: packages/core/tests/fixtures),
+// and the platform constants the glue compares each bundle's stamp with.
 if (!outDir) {
+  const constants = platformConstants(version)[targetName === 'macos' ? 'ios' : targetName];
+  fs.writeFileSync(path.join(root, constants.path), constants.text);
+  console.log(`${constants.path}: ${stamp}`);
   fs.mkdirSync(path.join(root, target.fixtures), { recursive: true });
   for (const f of ['cpu-budget.json', 'sdk-policy.json', 'gesture-policy.json', 'intl-cases.json']) fs.copyFileSync(path.join(pkgRoot, 'tests', 'fixtures', f), path.join(root, target.fixtures, f));
   console.log(`fixtures copied to ${target.fixtures}`);

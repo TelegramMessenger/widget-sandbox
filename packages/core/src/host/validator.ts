@@ -76,10 +76,18 @@ const OUT_OF_PROFILE = Symbol('out of profile');
 const MAX_ATTR = 8 * 1024;
 const MAX_OPS_PER_BATCH = 10_000;
 /**
- * Canvas commands in one `canvas` op (one canvas, one task). Provisional: the corpora's widgets send at most 237, the
- * projected 3D showcase up to 9 510 a frame; the stress kit's canvas ladder (200 to 16 000) sets the final number.
+ * Nodes in the document (elements, text, comments; detached ones the widget keeps included), compared once a batch is
+ * applied: twice the corpora's largest widget (962). Below the 8 MB heap on every host since the shim hands a long flush
+ * over in parts, so the author sees this reason everywhere, not a memory stop that comes at 2000 nodes on a 64-bit host
+ * and 4000 on a 32-bit one.
  */
-const MAX_CANVAS_CMDS = 10_000;
+const MAX_DOCUMENT_NODES = 2000;
+/**
+ * Canvas commands in one `canvas` op (one canvas, one task): outside the projected 3D showcase no widget draws more than
+ * 237, and the main-thread window (2 µs a command) already holds 4000 a frame to ~13 fps on every client the stress kit
+ * measured (9 510 to ~5 fps); the 3D showcase's meshes stay under 2000 a frame.
+ */
+const MAX_CANVAS_CMDS = 4000;
 const MAX_CSS_RULES = 400;
 const MAX_KEYFRAMES = 32;
 const MAX_LIVE_ANIMS = 64;
@@ -142,12 +150,12 @@ export function policyLimits(policy: ValidatorPolicy) {
   return policy === 'strict'
     ? {
       maxText: MAX_TEXT, maxCanvasString: MAX_TEXT, maxAttr: MAX_ATTR, maxOps: MAX_OPS_PER_BATCH, maxCanvasCmds: MAX_CANVAS_CMDS,
-      maxCssRules: MAX_CSS_RULES, maxKeyframes: MAX_KEYFRAMES, maxLiveAnims: MAX_LIVE_ANIMS, maxCanvasPixels: MAX_CANVAS_PIXELS,
+      maxNodes: MAX_DOCUMENT_NODES, maxCssRules: MAX_CSS_RULES, maxKeyframes: MAX_KEYFRAMES, maxLiveAnims: MAX_LIVE_ANIMS, maxCanvasPixels: MAX_CANVAS_PIXELS,
       complexTextBudget: COMPLEX_TEXT_BUDGET, textBudget: TEXT_BUDGET, stop: true,
     }
     : {
       maxText: COMPAT_MAX_TEXT, maxCanvasString: COMPAT_MAX_ATTR, maxAttr: COMPAT_MAX_ATTR, maxOps: COMPAT_MAX_OPS_PER_BATCH,
-      maxCanvasCmds: COMPAT_MAX_CANVAS_CMDS, maxCssRules: 0, maxKeyframes: 0, maxLiveAnims: COMPAT_MAX_LIVE_ANIMS, maxCanvasPixels: 0,
+      maxCanvasCmds: COMPAT_MAX_CANVAS_CMDS, maxNodes: 0, maxCssRules: 0, maxKeyframes: 0, maxLiveAnims: COMPAT_MAX_LIVE_ANIMS, maxCanvasPixels: 0,
       complexTextBudget: 0, textBudget: 0, stop: false,
     };
 }
@@ -165,6 +173,8 @@ export function countCssRules(css: string): { rules: number; keyframes: number }
     const c = css.charCodeAt(i);
     if (c === 0x22 || c === 0x27) { // a string: skip to its end
       for (i++; i < css.length && css.charCodeAt(i) !== c; i++) if (css.charCodeAt(i) === 0x5c) i++;
+    } else if (c === 0x5c) { // an escape (`.a\{b`, `@keyframes k\}`): the next character is no brace
+      i++;
     } else if (c === 0x2f && css.charCodeAt(i + 1) === 0x2a) { // a comment
       const end = css.indexOf('*/', i + 2);
       i = end < 0 ? css.length : end + 1;
@@ -200,7 +210,7 @@ export function validatorTables(policy: ValidatorPolicy = 'compat'): unknown {
     limits: [MAX_NODES, limits.maxText, limits.maxAttr, limits.maxOps, limits.maxCanvasCmds, LIMBO],
     complexTextBudget: limits.complexTextBudget,
     textBudget: limits.textBudget,
-    cssRules: limits.maxCssRules, keyframes: limits.maxKeyframes, liveAnims: limits.maxLiveAnims, canvasPixels: limits.maxCanvasPixels, stop: limits.stop,
+    documentNodes: limits.maxNodes, cssRules: limits.maxCssRules, keyframes: limits.maxKeyframes, liveAnims: limits.maxLiveAnims, canvasPixels: limits.maxCanvasPixels, stop: limits.stop,
     textAttrs: TEXT_ATTRS, textAttrPrefixes: TEXT_ATTR_PREFIXES,
   };
 }
@@ -238,7 +248,20 @@ export class Validator {
     this.clock = clock;
   }
 
+  /**
+   * Until the host says the widget has loaded (`markLoaded`), inserted text is not charged to the churn bucket: building
+   * the document in the loading tasks, in any number of batches, is bounded by the document's caps alone, so a load never
+   * drops text they allow (a 48 K document of paragraphs lost them past ~45 K, silently, on every host).
+   */
+  private loading = true;
+
+  /** The host's word that the loading tasks are over (their ops are in): from now on text changes are rate-limited. */
+  markLoaded() {
+    this.loading = false;
+  }
+
   private takeChurn(words: number): boolean {
+    if (this.loading) return true;
     const now = this.clock();
     if (this.churnAt !== null) this.churnTokens = Math.min(COMPLEX_TEXT_BUDGET, this.churnTokens + Math.max(0, now - this.churnAt) * COMPLEX_CHURN_PER_SECOND);
     this.churnAt = now;
@@ -281,8 +304,25 @@ export class Validator {
     return this.stop(`Attribute limit exceeded: a value of ${length} characters (max ${this.limits.maxAttr})`);
   }
 
-  private overDocumentText(): false {
-    return this.stop(`Text limit exceeded: the document's text is over ${this.limits.textBudget} characters`);
+  /**
+   * The document's counted totals (its text, CSS rules, `@keyframes`) after a whole batch, not op by op: a subtree
+   * replaced in one task (`innerHTML`, `replaceChildren`) or two sheets rewritten in one task pass through a sum of the
+   * old and the new that the document never holds. False when a total is over its cap (the widget stops).
+   */
+  private checkTotals(): boolean {
+    if (this.limits.maxNodes && this.nodes.size - 1 > this.limits.maxNodes) {
+      return this.stop(`Node limit exceeded: ${this.nodes.size - 1} nodes in the document (max ${this.limits.maxNodes})`);
+    }
+    if (this.limits.textBudget && this.totalText > this.limits.textBudget) {
+      return this.stop(`Text limit exceeded: the document's text is over ${this.limits.textBudget} characters`);
+    }
+    if (this.limits.maxCssRules && this.cssRules > this.limits.maxCssRules) {
+      return this.stop(`CSS limit exceeded: ${this.cssRules} rules in the document's stylesheets (max ${this.limits.maxCssRules})`);
+    }
+    if (this.limits.maxKeyframes && this.cssKeyframes > this.limits.maxKeyframes) {
+      return this.stop(`CSS limit exceeded: ${this.cssKeyframes} @keyframes in the document's stylesheets (max ${this.limits.maxKeyframes})`);
+    }
+    return true;
   }
 
   /**
@@ -342,7 +382,7 @@ export class Validator {
     for (const n of this.nodes.values()) {
       if (n.kind === 'el' && n.isStyle && n.rendered) out.push({ op: 'css', id: n.id, text: this.styleText(n) });
     }
-    return out;
+    return this.checkTotals() ? out : [];
   }
 
   private styleText(style: NodeInfo): string {
@@ -353,20 +393,13 @@ export class Validator {
       this.releaseTextSlot(style, 'sheet');
       return '';
     }
+    // Counted here, compared with the caps by checkTotals once every changed sheet of the batch is counted.
     if (this.limits.maxCssRules || this.limits.maxKeyframes) {
       const { rules, keyframes } = countCssRules(text);
       this.cssRules += rules - (style.cssRules ?? 0);
       this.cssKeyframes += keyframes - (style.cssKeyframes ?? 0);
       style.cssRules = rules;
       style.cssKeyframes = keyframes;
-      if (this.limits.maxCssRules && this.cssRules > this.limits.maxCssRules) {
-        this.stop(`CSS limit exceeded: ${this.cssRules} rules in the document's stylesheets (max ${this.limits.maxCssRules})`);
-        return '';
-      }
-      if (this.limits.maxKeyframes && this.cssKeyframes > this.limits.maxKeyframes) {
-        this.stop(`CSS limit exceeded: ${this.cssKeyframes} @keyframes in the document's stylesheets (max ${this.limits.maxKeyframes})`);
-        return '';
-      }
     }
     return text;
   }
@@ -468,6 +501,7 @@ export class Validator {
       if (style) this.out.push({ op: 'css', id, text: this.styleText(style) });
     }
     this.dirtyStyles.clear();
+    if (this.stopReason === null) this.checkTotals();
     const out = this.out;
     this.out = [];
     // A stopped widget's last batch is refused whole: the renderer keeps the last render that fit.
@@ -579,7 +613,6 @@ export class Validator {
     if (!isId(id) || typeof data !== 'string') return false;
     if (data.length > this.limits.maxText) return this.tooLongText(data.length);
     if (this.nodes.has(id) || this.nodes.size >= MAX_NODES) return false;
-    if (this.limits.textBudget && this.totalText + data.length > this.limits.textBudget) return this.overDocumentText();
     const kind = op.op === 'text' ? 'text' : 'comment';
     const complex = kind === 'text' ? complexUnits(data) : 0;
     if (complex && this.limits.complexTextBudget && this.complexText + complex > this.limits.complexTextBudget) {
@@ -603,7 +636,6 @@ export class Validator {
     const node = this.nodes.get(id);
     if (!node || node.kind === 'el' || node.kind === 'doc') return false;
     const textGrowth = data.length - node.data.length;
-    if (textGrowth > 0 && this.limits.textBudget && this.totalText + textGrowth > this.limits.textBudget) return this.overDocumentText();
     const complex = node.kind === 'text' ? complexUnits(data) : 0;
     const growth = complex - (node.complex ?? 0);
     if (growth > 0 && this.limits.complexTextBudget && this.complexText + growth > this.limits.complexTextBudget) {
@@ -907,7 +939,6 @@ export class Validator {
     if (text.length > this.limits.maxText) return this.tooLongText(text.length);
     const previous = node.textSlots?.get(key);
     const lengthDelta = text.length - (previous?.length ?? 0);
-    if (lengthDelta > 0 && this.limits.textBudget && this.totalText + lengthDelta > this.limits.textBudget) return this.overDocumentText();
     const complex = complexUnits(text);
     const complexDelta = complex - (previous?.complex ?? 0);
     if (complexDelta > 0 && this.limits.complexTextBudget && this.complexText + complexDelta > this.limits.complexTextBudget) {

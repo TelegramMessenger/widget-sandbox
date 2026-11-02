@@ -49,9 +49,9 @@ nothing from the previous frame. Static loads keep only the measuring loop and t
 | `text-volume` | Text volume: N characters of Latin text in paragraphs, one counter changing every frame | 1024, 4096, 16384, 49152, **65536**, **131072** chars |  |
 | `complex-text` | Complex scripts: N characters of Arabic, Hebrew, Devanagari, Thai and CJK text; one 128-character paragraph is rewritten every frame (shaping on change) | 256, 1024, 2048, 4096, 8192, **16384** chars |  |
 | `emoji` | Emoji: N colour emoji in rows of 32, eight of them cycling every frame | 50, 200, 500, 1000, 2000, 4000 emoji |  |
-| `canvas-cmds` | Canvas commands per frame: a 600×600 canvas (300 px on screen) redrawn every frame with N commands (fillStyle + fillRect pairs) | 200, 1000, 2000, 4000, 8000, **16000** commands per frame |  |
+| `canvas-cmds` | Canvas commands per frame: a 600×600 canvas (300 px on screen) redrawn every frame with N commands (fillStyle + fillRect pairs) | 200, 1000, 2000, **4000**, **8000**, **16000** commands per frame |  |
 | `svg-path` | SVG path, morphing: one SVG path of N line segments whose d attribute is rewritten every frame | 50, 200, 500, **1000**, **2000**, **4000** segments |  |
-| `layout-queries` | Layout queries per frame: N pairs of a style write and a getBoundingClientRect read per frame on 40 bars: each read forces a layout, answered synchronously by the renderer | 0, 1, 4, 16, 64, 256 queries per frame |  |
+| `layout-queries` | Layout queries per frame: N pairs of a style write and a getBoundingClientRect read per frame on 40 bars: each read forces a layout, answered synchronously by the renderer | 0, 1, 4, 16, 64, **256** queries per frame |  |
 | `css-rules` | CSS rules: N descendant style rules in stylesheets of 200 rules each; 8 containers change class every frame, so 64 boxes match against all N again | 50, 200, 400, **800**, **1600**, **3200** rules |  |
 <!-- /stress:loads -->
 

@@ -1,15 +1,15 @@
 # Conformance results
 
-Generated 2026-10-30 02:29 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ e10abd4; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ e10abd4; policy strict, features webAnimations).
+Generated 2026-11-02 12:44 UTC by `packages/conformance/tools/report.mjs` (profile 1; web iframe — Chromium 153.0.8010.12 (headless, Playwright) @ 9c64646; web shadow — Chromium 153.0.8010.12 (headless, Playwright) @ 9c64646; policy strict, features webAnimations).
 
 Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail, ⏳ expected to fail (not implemented yet: D23, the profile in the validator, …), ❗ passes although expected to fail, – not applicable here, · not tested. For **out** features "pass" means *neutralised as the profile says*. The native columns are a plain browser engine without the pipeline: a reference for the tests, not an expectation.
 
 ## Totals
 
-| Renderer | in (199) ✅ / ◐ / ❌ / ⏳ | out (78) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
+| Renderer | in (201) ✅ / ◐ / ❌ / ⏳ | out (78) neutralised ✅ / not yet ⏳ / ❌ | auto runs loaded | errors |
 |---|---|---|---|---|
-| web iframe | 179 / 3 / 0 / 0 | 77 / 0 / 0 | 119 / 119 | 0 |
-| web shadow | 179 / 3 / 0 / 0 | 77 / 0 / 0 | 119 / 119 | 0 |
+| web iframe | 182 / 3 / 0 / 0 | 77 / 0 / 0 | 135 / 135 | 0 |
+| web shadow | 182 / 3 / 0 / 0 | 77 / 0 / 0 | 135 / 135 | 0 |
 
 ## In the profile
 
@@ -180,7 +180,7 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `input.prevent-default` | ✅ | ✅ | ✅ |
 | `limit.text-node` | ✅ | ✅ | ✅ |
 | `limit.text-budget` | ✅ | ✅ | ✅ |
-| `limit.nodes` | · | · | · |
+| `limit.nodes` | ✅ | ✅ | – |
 | `limit.timers` | ✅ | ✅ | – |
 | `limit.cpu` | · | · | · |
 | `limit.memory` | · | · | · |
@@ -192,6 +192,8 @@ Verdict per catalogue ID over the automatic set: ✅ pass, ◐ partly, ❌ fail,
 | `limit.animations` | · | · | · |
 | `limit.main-thread` | · | · | · |
 | `limit.canvas-pixels` | ✅ | ✅ | – |
+| `limit.paint-heavy` | ✅ | ✅ | ✅ |
+| `limit.paint-backdrop` | ✅ | ✅ | ✅ |
 | `limit.image-pixels` | ✅ | ✅ | ✅ |
 | `limit.url-length` | ✅ | ✅ | – |
 | `limit.event-handlers` | ✅ | ✅ | – |

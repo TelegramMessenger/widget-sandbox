@@ -42,19 +42,32 @@ public:
     std::string setTheme(const std::string& theme);
     std::string rewriteMediaQuery(const std::string& query);
     int nodeCount();
+    /// The loading tasks are over (their ops are in): text changes are rate-limited from now on (validator.ts `markLoaded`).
+    void markLoaded();
     /// Set once a counted cap was passed under strict (the first `limit` diagnostic's detail, e.g. `Text limit exceeded:
     /// a text value of 40000 characters (max 32768)`): the reason the owner stops the widget with. Read it after the call
     /// that passed the cap returns, never from inside the diag sink.
     std::optional<std::string> stopped() const;
 
+    /// Called on the validator's thread with the CPU time (ms, its thread's clock) of each call made for the widget's
+    /// messages: `processOps`, `validateQuery`, `rewriteMediaQuery`, `validateListen`, `validatePreventDefault`,
+    /// `validateAnim`. The owner records it against the widget's JS quota (WidgetHost → SandboxEngine::chargeValidator;
+    /// docs/decisions.md, "The validator's time counts"). Empty: nothing is measured.
+    using CpuSink = std::function<void(double ms)>;
+    void setCpuSink(CpuSink sink);
+
 private:
     std::string str(const char* name, const std::vector<std::string>& args);
+    /// `str` measured for the CPU sink.
+    std::string metered(const char* name, const std::vector<std::string>& args);
 
     JSThread thread_;
     std::unique_ptr<QuickJSContext> js_;
     DiagSink onDiag_;
     mutable std::mutex stoppedMutex_;
     std::optional<std::string> stopped_;
+    /// The validator's thread only.
+    CpuSink cpuSink_;
 };
 
 } // namespace twidget

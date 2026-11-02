@@ -53,15 +53,15 @@ final class StrictLimitsTests: XCTestCase {
         XCTAssertEqual(options.memoryLimitBytes, 8 * 1024 * 1024)
         XCTAssertEqual(options.maxTimers, 64)
         XCTAssertEqual(options.mainThreadQuotaMs, 100)
-        XCTAssertEqual(CpuBudget.queryBudgetMs, 100)
-        XCTAssertEqual(CpuBudget.queryBudgetMs(sliceMs: 500), 100)
+        XCTAssertEqual(CpuBudget.queryLimit, 128)
+        XCTAssertEqual(CpuBudget.queryBudgetMs, 1000)
         XCTAssertEqual(CpuBudget.opsCostMs(ops: 4000, canvasCommands: 0), 100, accuracy: 1e-9)
         XCTAssertEqual(CpuBudget.opsCostMs(ops: 1, canvasCommands: 2000), 4.025, accuracy: 1e-9)
     }
 
     func testTablesCarryThePolicyCaps() throws {
         let strict = try XCTUnwrap(NativeValidatorTables(json: Rig(native: true, policy: .strict).validator.tablesJSON()))
-        XCTAssertEqual([strict.maxText, strict.maxAttr, strict.maxOps, strict.maxCanvasCommands], [32768, 8192, 10_000, 10_000])
+        XCTAssertEqual([strict.maxText, strict.maxAttr, strict.maxOps, strict.maxCanvasCommands], [32768, 8192, 10_000, 4000])
         XCTAssertEqual([strict.textBudget, strict.maxCssRules, strict.maxKeyframes, strict.maxLiveAnims], [49152, 400, 32, 64])
         XCTAssertEqual(strict.maxCanvasPixels, 2048 * 2048)
         XCTAssertTrue(strict.stop)
@@ -81,6 +81,37 @@ final class StrictLimitsTests: XCTestCase {
         XCTAssertTrue(NativeValidator.countCssRules("@supports (display:grid){@container (min-width:1px){a{color:red}}}") == (1, 0))
         XCTAssertTrue(NativeValidator.countCssRules("@KEYFRAMES x{to{top:0}}@keyframesx{a{b:c}}\u{a0}@keyframes z{to{top:0}}/* open") == (1, 2))
         XCTAssertTrue(NativeValidator.countCssRules("@\u{212A}eyframes q{to{top:0}}") == (0, 1), "lowercased as String.prototype.toLowerCase does (KELVIN SIGN)")
+        // an escaped brace in a selector or a @keyframes name is no brace (the tweb audit of v0.4.0)
+        XCTAssertTrue(NativeValidator.countCssRules(".a\\{x0{color:red}.b\\}{color:red}") == (2, 0))
+        XCTAssertTrue(NativeValidator.countCssRules("@keyframes k\\}0{to{opacity:0}}@keyframes k\\{1{to{opacity:0}}") == (0, 2))
+        XCTAssertTrue(NativeValidator.countCssRules("a{content:\"\\\"\"}b{color:red}") == (2, 0), "an escape inside a string still ends with it")
+    }
+
+    /// The document's totals are compared with the caps after the whole batch (the tweb audit of v0.4.0): two sheets
+    /// rewritten in one task, in either order, and a subtree replaced in one task pass through a sum of the old and the
+    /// new that the document never holds.
+    func testTotalsAreComparedAfterTheWholeBatch() {
+        for native in [false, true] {
+            for order in [[11, 21], [21, 11]] {
+                let v = rig(native: native)
+                _ = v.json(json(style(10, rules(200)) + style(20, rules(200, from: 200))))
+                let data = [11: rules(300), 21: rules(100, from: 300)]
+                XCTAssertEqual(v.json(json(order.map { ["op": "data", "id": $0, "data": data[$0]!] })).0.count, 2, "native \(native), \(order)")
+                XCTAssertNil(v.validator.stopped, "400 rules after the batch (native \(native), \(order))")
+                XCTAssertEqual(v.json(json([["op": "data", "id": 21, "data": rules(101, from: 300)]])).0.count, 0)
+                XCTAssertEqual(v.validator.stopped, "CSS limit exceeded: 401 rules in the document's stylesheets (max 400)")
+            }
+            let p = { (id: Int, ch: String) -> [[String: Any]] in
+                [["op": "el", "id": id, "tag": "p"], ["op": "text", "id": id + 1, "data": String(repeating: ch, count: 26_000)],
+                 ["op": "ins", "parent": id, "id": id + 1, "before": NSNull()], ["op": "ins", "parent": 3, "id": id, "before": NSNull()]]
+            }
+            let t = rig(native: native)
+            _ = t.json(json(p(10, "x")))
+            XCTAssertEqual(t.json(json(p(20, "y") + [["op": "rm", "id": 10]])).0.count, 5, "native \(native)")
+            XCTAssertNil(t.validator.stopped, "26 K before and after; 52 K only in the middle of the batch (native \(native))")
+            XCTAssertEqual(t.json(json(p(30, "z"))).0.count, 0)
+            XCTAssertEqual(t.validator.stopped, "Text limit exceeded: the document's text is over 49152 characters", "native \(native)")
+        }
     }
 
     func testCssRuleAndKeyframeCapsStopOnBothValidatorPaths() {
@@ -113,8 +144,29 @@ final class StrictLimitsTests: XCTestCase {
 
     // MARK: ops per batch, canvas commands per send
 
+    /// The twin of strict-limits.test.ts "nodes in the document": compared once the batch is applied, on both paths.
+    func testNodeCapStopsOnEveryPath() {
+        let els = { (n: Int, from: Int) in (0..<n).flatMap { [["op": "el", "id": from + $0, "tag": "div"], ["op": "ins", "parent": 3, "id": from + $0, "before": NSNull()]] as [[String: Any]] } }
+        for native in [false, true] {
+            let v = rig(native: native)
+            XCTAssertEqual(v.json(json(els(1998, 100))).0.count, 3996, "native \(native)") // html and body are two of them
+            XCTAssertNil(v.validator.stopped)
+            XCTAssertEqual(v.json(json(els(1, 5000))).0.count, 0)
+            XCTAssertEqual(v.validator.stopped, "Node limit exceeded: 2001 nodes in the document (max 2000)", "native \(native)")
+            // A document rebuilt in one batch, the old nodes removed after the new ones are made.
+            let r = rig(native: native)
+            _ = r.json(json(els(1500, 100)))
+            XCTAssertEqual(r.json(json(els(1500, 10_000) + (0..<1500).map { ["op": "rm", "id": 100 + $0] })).0.count, 4500, "native \(native)")
+            XCTAssertNil(r.validator.stopped)
+            let compat = rig(native: native, policy: .compat)
+            _ = compat.json(json(els(3000, 100)))
+            XCTAssertNil(compat.validator.stopped)
+        }
+    }
+
     func testOpsPerBatchCapStopsOnEveryPath() {
-        let texts = { (n: Int, from: Int) in (0..<n).map { ["op": "text", "id": from + $0, "data": ""] as [String: Any] } }
+        // One text node and its changes: n ops without passing the node cap.
+        let texts = { (n: Int, from: Int) in [["op": "text", "id": from, "data": ""] as [String: Any]] + (1..<n).map { ["op": "data", "id": from, "data": String($0 % 10)] as [String: Any] } }
         for native in [false, true] {
             let v = rig(native: native)
             XCTAssertEqual(v.json(json(texts(10_000, 100))).0.count, 10_000)
@@ -139,13 +191,13 @@ final class StrictLimitsTests: XCTestCase {
 
     func testCanvasCommandsPerSendStopOnEveryPath() {
         let cmds = { (n: Int) in (0..<n).map { ["c", "fillRect", $0, 0, 1, 1] as [Any] } }
-        let reason = "Canvas limit exceeded: 10001 commands in one send (max 10000)"
+        let reason = "Canvas limit exceeded: 4001 commands in one send (max 4000)"
         for native in [false, true] {
             let v = rig(native: native)
             _ = v.json(json(Self.canvas))
-            let fits = v.json(json([["op": "canvas", "id": 9, "cmds": cmds(10_000)]])).0 as! [[String: Any]]
-            XCTAssertEqual((fits.first?["cmds"] as? [Any])?.count, 10_000)
-            XCTAssertEqual(v.json(json([["op": "canvas", "id": 9, "cmds": cmds(10_001)]])).0.count, 0)
+            let fits = v.json(json([["op": "canvas", "id": 9, "cmds": cmds(4000)]])).0 as! [[String: Any]]
+            XCTAssertEqual((fits.first?["cmds"] as? [Any])?.count, 4000)
+            XCTAssertEqual(v.json(json([["op": "canvas", "id": 9, "cmds": cmds(4001)]])).0.count, 0)
             XCTAssertEqual(v.validator.stopped, reason, "native \(native)")
             let compat = rig(native: native, policy: .compat)
             _ = compat.json(json(Self.canvas))
@@ -153,7 +205,7 @@ final class StrictLimitsTests: XCTestCase {
             XCTAssertEqual((all.first?["cmds"] as? [Any])?.count, 10_001)
         }
         // Canvas words through the native model (binary ops).
-        for (count, stops) in [(10_000, false), (10_001, true)] {
+        for (count, stops) in [(4000, false), (4001, true)] {
             let v = rig(native: true)
             var encoder = BinaryOpsEncoder()
             encoder.begin(reset: true)
@@ -164,13 +216,13 @@ final class StrictLimitsTests: XCTestCase {
             XCTAssertEqual(out.0.count, stops ? 0 : 3, "\(count)")
             XCTAssertEqual(v.validator.stopped, stops ? reason : nil)
         }
-        // The canvas-word shortcut of the script validator's host takes 10 000; 10 001 go through the validator, which stops.
-        for (count, stops) in [(10_000, false), (10_001, true)] {
+        // The canvas-word shortcut of the script validator's host takes 4000; 4001 go through the validator, which stops.
+        for (count, stops) in [(4000, false), (4001, true)] {
             let v = rig(native: false)
             _ = v.json(json(Self.canvas))
             let result = v.validator.processOpsForRenderer("[{\"op\":\"canvas\",\"id\":9,\"bin\":7}]", canvas: [7: fillRects(count)], typed: true)
             if stops {
-                guard case .empty = result else { return XCTFail("10001 commands reached the renderer") }
+                guard case .empty = result else { return XCTFail("4001 commands reached the renderer") }
                 XCTAssertEqual(v.validator.stopped, reason)
                 XCTAssertEqual(v.validator.nativeCanvasBatches, 0)
                 guard case .empty = v.validator.processOpsForRenderer("[{\"op\":\"canvas\",\"id\":9,\"bin\":7}]", canvas: [7: fillRects(1)], typed: true) else { return XCTFail("a stopped validator took the shortcut") }
@@ -508,7 +560,7 @@ final class StrictLimitsTests: XCTestCase {
     /// The boot config carries the policy: under strict the shim throws at the validator's 10 000 commands per canvas
     /// and task, so the author sees the error where the host would stop the widget; compat draws them all.
     func testTheShimRefusesTheCanvasCommandPastTheCapUnderStrict() {
-        let html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d'); try { for (var i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>"
+        let html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d'); try { for (var i = 0; i < 4001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>"
         for policy in [SandboxPolicy.strict, .compat] {
             let d = RecordingDelegate()
             var config = SandboxConfig(innerWidth: 300, innerHeight: 200, devicePixelRatio: 2, theme: "light")
@@ -519,7 +571,7 @@ final class StrictLimitsTests: XCTestCase {
             engine.start()
             wait(for: [d.loaded], timeout: 20)
             engine.queue.sync {}
-            let expected = policy == .strict ? "RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)" : "drew all"
+            let expected = policy == .strict ? "RangeError: Canvas limit exceeded: more than 4000 commands for one canvas in one task (max 4000)" : "drew all"
             XCTAssertTrue(d.logs.contains { $0.1 == expected }, "\(policy): \(d.logs)")
             engine.terminate()
         }
@@ -584,7 +636,7 @@ final class StrictLimitsTests: XCTestCase {
     func testTheMainThreadWindowDefersFrames() {
         let html = "<div id=list></div><script>var list = document.getElementById('list'); for (var i = 0; i < 200; i++) list.appendChild(document.createElement('span')); var n = 0;" +
             "function frame() { n++; for (var s = list.firstChild; s; s = s.nextSibling) s.textContent = String(n); console.log('frame'); requestAnimationFrame(frame); } requestAnimationFrame(frame);</script>"
-        func run(mainThreadQuotaMs: Double) -> (frames: Int, diags: [(String, String)], died: String?) {
+        func run(mainThreadQuotaMs: Double, seconds: Double) -> (frames: Int, diags: [(String, String)], died: String?) {
             let d = FrameDriver()
             var config = SandboxConfig(innerWidth: 300, innerHeight: 200, devicePixelRatio: 2, theme: "light")
             config.cpuLimitMs = 2000
@@ -594,19 +646,20 @@ final class StrictLimitsTests: XCTestCase {
             engine.delegate = d
             engine.start()
             wait(for: [d.loaded], timeout: 20)
-            RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+            RunLoop.current.run(until: Date().addingTimeInterval(seconds))
             engine.queue.sync {}
             let result = d.lock.withLock { (d.frames, d.diags, d.died) }
             engine.terminate()
             return result
         }
-        let open = run(mainThreadQuotaMs: 100_000)
+        let open = run(mainThreadQuotaMs: 100_000, seconds: 1.5)
         XCTAssertNil(open.died)
         XCTAssertGreaterThan(open.frames, 10)
         XCTAssertFalse(open.diags.contains { $0.0 == "cpu-throttled" }, "\(open.diags.filter { $0.0 == "cpu-throttled" })")
-        let tight = run(mainThreadQuotaMs: 2)
+        // The boot's 200 spans (about 5 ms) spend the window and leave a debt of one more: the first frame comes at about 2 s.
+        let tight = run(mainThreadQuotaMs: 2, seconds: 2.5)
         XCTAssertNil(tight.died)
-        XCTAssertLessThanOrEqual(tight.frames, 4, "frames through a 2 ms window in 1.5 s")
+        XCTAssertLessThanOrEqual(tight.frames, 4, "frames through a 2 ms window in 2.5 s")
         XCTAssertGreaterThanOrEqual(tight.frames, 1)
         XCTAssertTrue(tight.diags.contains { $0.0 == "cpu-throttled" && $0.1.contains("main-thread budget used by layout queries and ops") }, "\(tight.diags)")
     }

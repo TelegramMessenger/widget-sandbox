@@ -135,6 +135,63 @@ test.describe('timer limit', () => {
   });
 });
 
+// The paint limit (docs/decisions.md, "Heavy boxes"): the renderer counts the widget's heavy boxes before each frame and
+// stops it past 16 (2 with backdrop-filter). Each corpus/attacks/paint-* is stopped with its count, its last frame drawn
+// without the effects (no blurred shadow, filter, backdrop-filter or transparency on any of its elements) under the
+// badge, and the page keeps its frame rate.
+test.describe('paint limit', () => {
+  const PAINT = (n: number) => new RegExp(`^Paint limit exceeded: ${n} boxes with shadows, filters or transparency \\(max 16\\)$`);
+  const cases: [string, RegExp, string][] = [
+    ['paint-shadow-layers.html', PAINT(120), 'paint-limit'],
+    ['paint-nested-filters.html', PAINT(60), 'paint-limit'],
+    ['paint-heavy-17.html', PAINT(17), 'paint-limit'],
+    ['paint-animation-17.html', PAINT(17), 'paint-limit'],
+    ['paint-ars.html', PAINT(250), 'paint-limit'],
+    ['paint-backdrop-3.html', /^Paint limit exceeded: 3 boxes with backdrop-filter \(max 2\)$/, 'backdrop-limit'],
+  ];
+  /** The widget's elements that still draw an effect: a blurred shadow layer, a filter, a backdrop-filter, opacity below 1. */
+  const effectsLeft = (page: Page) => widgetDom(page).locator('[data-tw-frozen]').evaluate((root) => [root, ...Array.from(root.querySelectorAll('*'))]
+    .filter((el) => !el.hasAttribute('data-tw-badge'))
+    .filter((el) => {
+      const cs = getComputedStyle(el);
+      const blurred = cs.boxShadow !== 'none' && cs.boxShadow.replace(/\([^)]*\)/g, '').split(',').some((l) => {
+        const n = l.trim().split(/\s+/).filter((t) => /^-?[\d.]+px$/.test(t));
+        return n.length >= 3 && parseFloat(n[2]) > 0;
+      });
+      return blurred || cs.filter !== 'none' || (cs.backdropFilter || 'none') !== 'none' || parseFloat(cs.opacity) < 1;
+    }).length);
+  const pageFps = (page: Page) => page.evaluate(async () => {
+    let n = 0;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 1000) { await new Promise((r) => requestAnimationFrame(r)); n++; }
+    return n;
+  });
+
+  for (const [file, reason, code] of cases) {
+    test(`${file}: stopped by the paint limit, its last frame without the effects, the page at full rate`, async ({ page }) => {
+      const f = await openAttack(page, file);
+      await waitDead(page);
+      const s = await twState(page);
+      expect(s.dead).toMatch(reason);
+      expect(s.diags[code]?.details).toEqual([s.dead]);
+      await expect(f.locator('[data-tw-badge]')).toHaveText('Widget stopped');
+      expect(await effectsLeft(page)).toBe(0);
+      expect(await pageFps(page)).toBeGreaterThan(40);
+    });
+  }
+
+  test('compat counts nothing: 17 heavy boxes draw with their effects', async ({ page }) => {
+    const f = await openAttack(page, 'paint-heavy-17.html', '&policy=compat');
+    await expect(f.locator('#p')).toHaveText('drawn');
+    await page.waitForTimeout(500);
+    const s = await twState(page);
+    expect(s.dead).toBeNull();
+    expect(s.diags['paint-limit']).toBeUndefined();
+    const shadows = await f.locator('.b').evaluateAll((els) => els.filter((el) => getComputedStyle(el).boxShadow !== 'none').length);
+    expect(shadows).toBe(17);
+  });
+});
+
 test.describe('bitmaps', () => {
   const claimed = fs.readFileSync(path.join(attacksDir, 'mem-huge-bitmaps.html'), 'utf8').match(/id="claims" alt="" src="data:image\/png;base64,([^"]+)"/)![1];
   test('strict: canvases past 2048² pixels together stop the widget before they reach the page', async ({ page }) => {
@@ -465,7 +522,7 @@ test.describe('cpu quota', () => {
     const s = await twState(page);
     // Which limit fires first depends on the renderer's answer time: the iframe's round trip makes the query budget the binding one
     // ("Layout query limit exceeded"), the Shadow DOM renderer answers fast enough for the loop's own CPU to reach the slice first.
-    expect(s.dead).toMatch(/^(Layout query limit exceeded: host queries blocked the renderer for more than \d+ ms in one boot task|CPU limit exceeded: more than \d+ ms of continuous execution)/);
+    expect(s.dead).toMatch(/^(Layout query limit exceeded: (more than 128 layout queries|host queries blocked the renderer for more than \d+ ms) in one boot task|CPU limit exceeded: more than \d+ ms of continuous execution)/);
     // The main thread answered the queries all along and is free now: a round trip through the page is instant.
     expect(Date.now() - t0).toBeLessThan(15_000);
     expect(await page.evaluate(() => 1 + 1)).toBe(2);

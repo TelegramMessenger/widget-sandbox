@@ -15,6 +15,7 @@
     "D14": "Theme: themeParams + --tg-theme-*, theme change event",
     "D17": "State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory",
     "L1": "Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)",
+    "L2": "Heavy boxes (Artem, 2026-11-02, after the client teams' stress-kit runs on five devices): at most 16 heavy boxes at once (a blurred box-shadow layer, a filter, a backdrop-filter, opacity below 1 but a disabled or pressed <button>'s, or a running animation of filter, backdrop-filter or opacity, or of box-shadow through a blurred layer), of them at most 2 with backdrop-filter; every renderer counts on the computed style (packages/core/src/shared/paint-policy.ts and its fixture) and past either the widget stops. A tightening of profile 1 (widgets were not launched yet), not profile 2",
     "D18": "Text is not selectable by default; a widget enables selection with user-select: text (2026-10-20, replaces \"Text selection forbidden\")",
     "D20": "Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits",
     "D21": "No accessibility in v1",
@@ -4002,7 +4003,7 @@
     {
       "id": "limit.nodes",
       "area": "limit",
-      "title": "At most 50 000 nodes",
+      "title": "At most 2000 nodes (elements, text, comments) in the document once a batch is applied; past it the widget stops (strict)",
       "status": "in",
       "decision": "P1",
       "today": "kept"
@@ -4018,7 +4019,7 @@
     {
       "id": "limit.cpu",
       "area": "limit",
-      "title": "CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task",
+      "title": "CPU quota 300 ms of JS per second (timers deferred, not killed; a task that runs past it makes the next ones wait longer); one task may run 500 ms; at most 128 layout queries in one task, and their time at most 1000 ms; past these the widget stops",
       "status": "in",
       "decision": "P1",
       "today": "kept"
@@ -4050,7 +4051,7 @@
     {
       "id": "limit.batch",
       "area": "limit",
-      "title": "At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict)",
+      "title": "At most 10 000 operations in one batch (the shim hands a task's DOM changes over in batches of about 1000, its element method calls in one); past it the widget stops (strict)",
       "status": "in",
       "decision": "L1",
       "today": "kept"
@@ -4066,7 +4067,7 @@
     {
       "id": "limit.canvas-commands",
       "area": "limit",
-      "title": "At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers)",
+      "title": "At most 4000 canvas commands per canvas in one task (RangeError past it; strict)",
       "status": "in",
       "decision": "L1",
       "today": "kept"
@@ -4094,6 +4095,22 @@
       "status": "in",
       "decision": "L1",
       "today": "kept"
+    },
+    {
+      "id": "limit.paint-heavy",
+      "area": "limit",
+      "title": "At most 16 heavy boxes at once: a blurred box-shadow, a filter, a backdrop-filter, opacity below 1, or a running animation of one of them (shadows animated without blur do not count, nor the opacity of a disabled or pressed <button>: its own dimming); elements under display: none and a ::before / ::after without content are no boxes; past it the widget stops (strict; every renderer counts on the computed style)",
+      "status": "in",
+      "decision": "L2",
+      "today": "host"
+    },
+    {
+      "id": "limit.paint-backdrop",
+      "area": "limit",
+      "title": "Of the heavy boxes at most 2 with backdrop-filter; past it the widget stops (strict)",
+      "status": "in",
+      "decision": "L2",
+      "today": "host"
     },
     {
       "id": "limit.image-pixels",

@@ -23,10 +23,10 @@ const DEFAULTS: Record<string, any> = {
  * Commands one canvas may buffer in one task: the validator's per-send cap. Strict (the default): the next command
  * throws RangeError, so the author sees the error where the host would stop the widget; compat: dropped, as before.
  */
-let maxBuffered = 10_000;
+let maxBuffered = 4000;
 let throwPastLimit = true;
 export function setCanvasLimits(strict: boolean) {
-  maxBuffered = strict ? 10_000 : 400_000;
+  maxBuffered = strict ? 4000 : 400_000;
   throwPastLimit = strict;
 }
 

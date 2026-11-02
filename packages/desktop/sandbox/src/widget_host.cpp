@@ -93,6 +93,8 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
       viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {
     if (!renderer_) throw std::runtime_error("WidgetHost: the renderer factory returned nothing");
     if (isStrictPolicy(options.policy)) validator_.setPolicy("strict");
+    // The validator's time on the widget's messages counts against its JS quota (docs/decisions.md, "The validator's time counts").
+    validator_.setCpuSink([this](double ms) { engine_.chargeValidator(ms); });
     engine_.setDelegate(this);
     renderer_->onDiag = [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); };
     // The widget boots once the renderer announced itself, so the very first layout queries have something to measure.
@@ -105,6 +107,7 @@ WidgetHost::~WidgetHost() {
     // while every member is still alive, and only then do the members go.
     engine_.thread().join();
     hostThread_.join();
+    validator_.setCpuSink(nullptr);
 }
 
 void WidgetHost::start() {
@@ -114,6 +117,8 @@ void WidgetHost::start() {
         // Queued until the renderer is ready, so the variables are its first message, before any ops.
         toRenderer(themeMessage());
         toRenderer(safeAreaMessage(config_.contentSafeArea));
+        // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
+        toRenderer(std::string("{\"type\":\"policy\",\"policy\":\"") + (isStrictPolicy(options_.policy) ? "strict" : "compat") + "\"}");
         renderer_->load();
     });
 }
@@ -439,6 +444,8 @@ void WidgetHost::onBridge(SandboxEngine&, const std::string& method, const std::
 }
 
 void WidgetHost::onLoaded(SandboxEngine&) {
+    // On the engine thread after the loading tasks' ops were validated: text changes are rate-limited from here on.
+    validator_.markLoaded();
     double loadedMs = elapsedMs();
     // Through the host thread after the ops of the loading tasks; then one trusted query to the renderer:
     // its answer comes after every size report those ops produced.
@@ -575,6 +582,21 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         engine_.theme(theme_, widgetTheme_.params);
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
+    } else if (type == "limit") {
+        // Past a paint limit (16 heavy boxes, 2 with backdrop-filter; Renderer::limitExceeded): the renderer drew the frame
+        // without the effects, and the widget stops as for memory or CPU (onDied: the reason in the diagnostics, the
+        // renderer frozen). compat counts nothing.
+        std::optional<WidgetPaintLimit> limit = msg["code"].isString() ? paintLimitFromCode(msg["code"].asString()) : std::nullopt;
+        double count = msg["count"].isNumber() ? msg["count"].asNumber() : -1;
+        if (!limit || !std::isfinite(count) || count < 0) return diag("renderer-violation", "a limit report with an unknown code or no count");
+        if (!isStrictPolicy(options_.policy)) return;
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            if (diagnostics_.dead) return;
+        }
+        std::string reason = paintLimitMessage(*limit, int(count));
+        diag(paintLimitCode(*limit), reason);
+        engine_.stop(reason);
     } else if (type == "release") {
         // The primary press ended (pointerup or pointercancel; renderer-made): the haptic gate's 5 s touch window starts.
         engine_.pressEnded();

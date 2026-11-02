@@ -500,14 +500,18 @@ information.
   transitions) needs. `cpuKillAfterMs` (default 0 = off) brings back the kill
   for products that want it: sustained throttling, no gap longer than one
   window, for that long.
-- Events always run with a floor of 50 ms so the widget answers the user even
-  with the budget spent; the floor applies to every slice (`min(cpuLimitMs,
-  max(remaining, 50))`), `boot` always gets the full `cpuLimitMs`. The flip
-  side, accepted: a task that overruns its slice while the window is nearly
-  full is killed like an infinite loop would be, and the message says why
-  (`…; CPU quota: 12 ms of 300 ms per 1000 ms left, so this timer task got
-  50 ms`). So under the defaults the effective per-task cap outside boot is
-  300 ms, not 500.
+- Events always run, so the widget answers the user even with the budget
+  spent. Every task gets the whole `cpuLimitMs` slice (500 ms), the hang
+  guard, whatever the window holds; what a task spends past the quota is a
+  debt of at most one more quota that enters the window as its buckets leave,
+  so the quota holds over time and the next timers and frames wait for it.
+- Until 2026-11-02 the slice was the quota left, at least 50 ms (`min(cpuLimitMs,
+  max(remaining, 50))`), and a task that overran it was killed like an
+  infinite loop. That stop depends on the device: in the client teams'
+  stress-kit runs a 3D showcase widget's 70 ms timer task, started with 15 ms
+  of the quota left, died on a Redmi Note 8T in three runs out of three, while
+  an A55 and an iPhone ran it. A slice cut to the quota left stopped widgets
+  a fast phone runs; the hang guard alone stops the same widgets everywhere.
 - Our own cost is not the widget's: evaluating the sandbox bundle (~0.5 s of
   source eval on the web, ~150 ms on an iOS debug build) is excluded from the
   boot task's recorded time, otherwise every widget would spend its first
@@ -544,6 +548,71 @@ The TypeScript validator and Swift native validator enforce the same accounting.
   throttle or kill a widget early there; the quota policy (`cpu-budget.ts` and
   its twins) is unchanged, only what the native glue feeds it.
 
+### The validator's time counts (2026-11-02)
+
+The client teams' stress-kit runs (v0.5.0) found the validator outside every limit. On the native hosts it is the JS
+validator in a QuickJS context of its own on a thread of its own (`TrustedValidator` in Swift, Kotlin and C++), and one
+style op cost 134 µs there on a Galaxy A55 (43 µs on a Mac, 3 µs in V8 on the web), 94 % of it css-tree parsing,
+walking and writing the one declaration. `opacity-moving/128` kept it busy about 900 ms a second, nearly a core, while
+its JS used 92 ms of the 300 ms quota and the main-thread window charged the modelled 25 µs per op. Two changes
+(Artem, 2026-11-02):
+
+- **A fast path in `css-sanitizer.ts`** (`fastStyleValue`: one JS for every platform, in the validator bundle).
+  `sanitizeStyleProperty` (style ops, anim keyframe values, SVG `font-family`) first tries one linear scan over
+  `[0-9A-Za-z.%#(),-]` and the space: numbers, lengths, percentages, `#` colours, keywords and the profile's functions
+  of them, checked by the full path's rules (units, functions, keyword sets, rewrites, the transform / rotate /
+  translate / scale checks, `background-clip: text`) and written with css-tree's whitespace between tokens. It only
+  accepts; everything else goes through css-tree, which decides and reports as before: escapes, strings, comments,
+  `url()`, `var()`, `env()`, `attr()`, `light-dark()`, `!`, operators (`calc(100% - 1px)`), exponents, viewport units
+  (the shadow scope rewrites them), fonts, filters, `color-scheme`, `sticky`, scrolling overflow, values over 256
+  characters. Its alphabet has no character that starts a URL, a string, an escape or a comment, so not even a wrong
+  table could let a URL through (invariant 4), and what it accepts does not depend on the `CssEnv`.
+- **Checked against css-tree byte for byte**, diagnostics included (`tests/unit/css-fast-path.test.ts`): every
+  declaration of `corpus/**` (the attacks too), the conformance set and the stress kit, in all 32 envs (both schemes,
+  document and shadow scope, strict and compat, reduced motion, native scrolling; 5 403 declarations, 4 100 taken),
+  each of their values under every profile property (896 K declarations, 635 K taken), a generated set (every pair of
+  token kinds with every separator, the edge cases, a seeded fuzz; 1.2 M, 495 K taken), the shapes moving widgets send,
+  and the validator with the fast path on and off. Once, outside the suite: every style op the 513 widgets of the
+  corpora, the conformance set and the stress kit sent in 40 frames (426 169 distinct values, 426 145 taken) gave the
+  same answer, and the validator's output over their 10 568 batches was byte-identical.
+- **What it gives** (a Mac with other builds running; an A55 is about 3.1 times slower):
+
+  | | before | after |
+  |---|---|---|
+  | QuickJS, the sanitizer alone per style op (the stress kit's `transform`, `hsl()`) | 42–49 µs | 2.2–2.3 µs |
+  | QuickJS, the same for a two-stop gradient | 59 µs | 3.4 µs |
+  | QuickJS, the showcase's style ops on average | 18 µs | 0.95 µs |
+  | QuickJS end to end per style op (`TrustedValidator::processOps` + `nodeCount`: the hops, JSON, the validator), compat | 42–63 µs | 3.6–5.0 µs |
+  | the same, strict and shadow scope | 44–64 µs | 4.5–6.3 µs |
+  | `opacity-moving/128`: one batch of 256 style ops | 11.8 ms | 0.93 ms |
+  | the showcase's 27 widgets: every batch of a 40-frame run | 21.8 ms | 13.1 ms |
+  | V8, `processOps` per op of the moving stress levels | 3.6 µs | 0.17–0.22 µs |
+  | V8, `processOps` per op of the showcase | 0.43–0.53 µs | 0.19–0.21 µs |
+
+  On an A55 that is about 12–15 µs instead of 134 per style op, and `opacity-moving/128` costs the validator about
+  75 ms a second instead of 900, plus its wake-ups (below).
+- **Its CPU time is charged to the widget's JS quota on the native hosts.** `TrustedValidator` measures its thread's
+  CPU time (`CLOCK_THREAD_CPUTIME_ID`, the JS quota's clock) around each call made for the widget's messages (ops
+  batches: JSON, for a renderer, binary; queries and their media rewrite; `listen`, `preventDefault`, anim batches) and
+  hands it to a sink `WidgetHost` sets; `SandboxEngine.chargeValidator` records it with `CpuBudget.record` on the engine
+  thread as it arrives. The budget belongs to the engine thread and the validator's is never that one, so the time is
+  posted, not shared; with the debt rule a record after the task counts in full. It shows as `stats.validatorMs` next
+  to `jsMs`, and `cpuWindowMs` includes it. A shared validator thread (the pools, Swift's `sharedValidatorThread`)
+  changes nothing: a call's CPU time on it is that call's. Not charged: what the host asks for itself (the stylesheets
+  again on a theme change, their warm-up at boot, a pool's reset). The JS quota is the right meter because the
+  validator works for this widget alone, on its own thread, like the widget's JS: a weak phone throttles the widget
+  earlier, and three busy widgets can no longer take the big cores unseen. The policy and its fixture are unchanged
+  (one more `record`); the tests are `ValidatorTimeTests.swift`, `ValidatorCpuTest.kt` (JVM) and `ValidatorTimeTest.kt`
+  (device), and desktop `validator_time_counts_against_the_js_quota` and `widget_host_charges_the_validators_time`.
+- **The main-thread window stays a model** (25 µs per op, 2 µs per canvas command): it prices the host's shared thread,
+  and on the native hosts the validator is not on it.
+- **The web is not charged.** It validates on the page's main thread in V8 (the worker sends ops asynchronously),
+  now about 0.2 µs per op of a moving widget, and stays modelled by the main-thread window; the web worker and the Node
+  harness have no validator thread, so their copies of the glue do not charge it.
+- Open: the A55's "about 1 ms per batch" is the validator thread waking (a small batch costs 10–20 µs on a Mac, 60–76 µs
+  after 8 ms idle), not computation, and CPU time does not count it. A pipeline of depth one would hide it, after a
+  decision on how a widget stops past a counted cap with batches in flight.
+
 ### Layout queries are bounded per task and charged to the quota (Oct 2026)
 
 A synchronous layout query (`offsetHeight`, `getBoundingClientRect`,
@@ -554,23 +623,32 @@ a.offsetHeight` burned almost no CPU of its own, was never interrupted, and
 kept the renderer answering forever: the host was busy, the widget alive. Found
 by Misha on the macOS client (54bdfa5); now the rule on every host:
 
-- the wall time of a task's queries is summed (`taskQueryMs`); past
-  `queryBudgetMs = 100 ms` (`cpu-budget.ts` and its three twins, checked against
-  `tests/fixtures/cpu-budget.json`; `max(slice, 100 ms)` until the strict limits, so up to
-  500 ms at boot) the task is
-  interrupted at the next poll (the CPU deadline is moved into the past) and
-  killed with "Layout query limit exceeded: host queries blocked the renderer
-  for more than N ms in one <kind> task"; any further query of that task is
-  answered `{"error":"query budget exceeded"}`;
+- the queries the host answers in a task are counted (`taskQueries`) and their
+  wall time summed (`taskQueryMs`); past 128 queries, or past 1000 ms of their
+  time, the hang guard (`queryLimitHit`, `QUERY_LIMIT` / `QUERY_BUDGET_MS` in
+  `cpu-budget.ts` and its three twins, checked against
+  `tests/fixtures/cpu-budget.json`) the task is interrupted at the next poll (the
+  CPU deadline is moved into the past) and killed with "Layout query limit
+  exceeded: more than 128 layout queries in one <kind> task" or "… host queries
+  blocked the renderer for more than 1000 ms in one <kind> task"; any further
+  query of that task is answered `{"error":"query budget exceeded"}`, and a task
+  that ends on those answers before the interrupt lands is killed at its end all
+  the same. Until 2026-11-02 the limit was 100 ms of the queries' time (the
+  slice, up to 500 ms, before the strict limits): in the client teams' runs a
+  widget with one `getBoundingClientRect` at load died on a Redmi Note 8T in the
+  first run after install (a cold first layout over 100 ms), and a query costs
+  0.12 ms on an M5, 0.36 on an iPhone Air, 0.68 on an A55, 1.3 on tdesktop and
+  1.9 on the Redmi. A count stops the same widget on every device; the most
+  query-heavy real widget, `auto/03-layout-a`, makes 47;
 - the query time is charged to the host's main-thread window (with the modelled
   cost of the task's ops; it was charged to the CPU quota with the task's CPU
   until the strict limits): a layout-heavy widget pays for what it costs the host,
   and the window throttles it like a busy one;
 - both counters reset at the start of each task.
 
-The budget is per task, not per widget, so an ordinary widget that measures a
-few elements per frame is far from it (tens of queries at a millisecond each),
-while a forced-layout loop reaches it within the first task. The Node harness
+The limit is per task, not per widget, so an ordinary widget that measures a
+few elements per frame is far from it, while a forced-layout loop reaches it
+within the first task. The Node harness
 keeps the same accounting (its answers are in-process, so only a slow `answer`
 callback can trip it). `corpus/attacks/layout-query-loop.html` is the attack.
 
@@ -655,11 +733,12 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
 | One text value | 12.9 K (a stylesheet) | 32 K (was 64 K) | stops |
 | The document's text | 21.7 K | 48 K (was 256 K) | stops |
 | An attribute value | 1 066 (an inline style) | 8 K (was 4 MB) | stops |
+| Nodes in the document | 962 (604 elements) | 2000 (was 50 000, not created past it; 2026-11-02) | stops |
 | Ops in one batch | 2 700 | 10 000 (was 200 000) | stops |
 | CSS rules / `@keyframes` | 167 / 12 | 400 / 32 (no cap) | stops |
-| Canvas commands per canvas and task | 237 (the projected 3D showcase: 9 510 a frame) | 10 000 for now (was 400 000 buffered) | `RangeError`; stops past it in a batch |
+| Canvas commands per canvas and task | 237 (the projected 3D showcase: 9 510 a frame, now under 2000) | 4000 (10 000 until 2026-11-02; was 400 000 buffered) | `RangeError`; stops past it in a batch |
 | Web Storage per area | 585 characters | 4 KB (was 16 KB) | `QuotaExceededError` |
-| Layout queries per task | 14.6 ms over a whole run | 100 ms (was the slice, up to 500 ms) | stops |
+| Layout queries per task | 47 (conformance `auto/03-layout-a`) | 128 queries, and 1000 ms of their time (100 ms until 2026-11-02; before that the slice) | stops |
 | Canvas pixels, all of a widget's canvases | 0.41 M (736 × 560) | 2048² = 4.2 M (the audit's 4096²) | stops |
 | A data: image's pixels | 800 (40 × 20) | 1024² = 1 M (the audit's 4096²) | the placeholder |
 
@@ -668,15 +747,34 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   host, and Swift's `NativeValidator`) sets `stopped`, reports the `limit` diagnostic with the reason and refuses that
   batch whole and every later one; the host stops the widget with that reason, as for memory or CPU, and the bubble
   keeps its last render. The author sees the cause at once. The complex-script budget and text churn still drop:
-  a widget in those scripts needs all of its budget, and the numbers did not change.
+  a widget in those scripts needs all of its budget, and the numbers did not change. Text inserted while the widget
+  loads is not charged to the churn bucket (2026-11-02): the host calls the validator's `markLoaded` after the loading
+  tasks' ops, and only then do text changes count against the rate. A 48 K document of paragraphs built by the loading
+  script lost them past ~45 K, silently, on every host; the document's caps bound a load anyway.
+- **Totals after the batch** (2026-10-30, the tweb team's move to v0.4.0). The document's text, CSS rules and
+  `@keyframes` are compared with their caps once the whole batch is applied (`checkTotals`): what counts is the document
+  the widget leaves after a task, not the sum of an old and a new subtree in the middle of `innerHTML` or of two sheets
+  rewritten in one task. The batch is in memory whole either way, so nothing grows unbounded meanwhile. The shim helps
+  the budget that drops: it sends the removal of a subtree replaced in one task before the new one. The node count
+  (2026-11-02) is a total too: a document rebuilt in one task never counts twice.
+- **A long flush goes out in parts** (2026-11-02). The shim hands the glue what it has between two nodes once ~1000 ops
+  are buffered (`capture.ts` `sendIfLarge`): in the client teams' runs a document built in one task (2000 elements,
+  ~4000 ops) stopped at the 8 MB heap on 64-bit hosts while it held 4.4 MB; the op buffer and its JSON were the boot's
+  peak, not the document (checked in the C++ harness: the same widget with a flush every 500–1000 elements loads at
+  4.4 MB). The protocol is unchanged and the renderer gets the same ops; the method calls, canvases and animations of a
+  flush stay in its last part, with the staged canvas payloads. The totals above are compared after each part, which
+  the early removal keeps right for a replaced subtree; a rebuild that moves nodes out of the old subtree and passes 1000
+  ops can see old and new together for one part. The ops cap stops a flood of element method calls (`auto/33`), not
+  a large document: the per-task cost of the DOM ops is the main-thread window's.
 - **The shim refuses at the same numbers**, so the author gets an error inside the widget where the host would stop it:
-  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 10 001st command for
+  timers (`RangeError`), script animations (not rendered, `animation-limit`) and canvas commands (the 4001st command for
   one canvas in one task throws `RangeError`; the validator stops a batch with more, i.e. a tampered shim).
-- **Canvas commands: 10 000 for now.** The paint-limits draft put 2 000 per send, twice the old corpora's 237; the
-  projected 3D showcase that tmacos added on 2026-10-29 (`corpus/showcase/3d`) draws 1 247 to 9 510 commands a frame, so
-  the cap is 10 000 until the stress kit's canvas ladder (200 to 16 000 commands a frame on the clients' renderers) gives
-  the number. The main-thread window already charges 2 µs a command: 9 510 a frame is about 19 ms, so such a widget
-  turns at a few frames a second under the 100 ms window, and the demos want lighter meshes anyway.
+- **Canvas commands: 4000** (2026-11-02, from the stress kit; 10 000 until then). The cap bounds one frame, not the
+  rate: under strict the main-thread window (2 µs a command) gives 2000 commands a frame ~25 fps, 4000 ~13 and 9 510 ~5
+  on every client measured (A55, iPhone Air, tdesktop, the web; a Redmi Note 8T is slower on its own: 14 fps at 2000).
+  JS per command: iPhone 1.1–1.4 µs, M5 2.7, tdesktop 3.0, A55 4.2–4.4, Redmi 10.9–12.9, so 10 000 in one task was
+  110–130 ms of JS on the Redmi. Outside the projected 3D showcase no widget draws more than 237; the showcase's meshes
+  were lightened to at most 2000 a frame (`corpus/showcase/3d`), so it runs at ~25 fps under strict everywhere.
 - **The main-thread window.** The JS quota (300 ms per second, unchanged: a widget's JS runs on its own thread, and the
   busiest widgets on a weak phone are already throttled by it) no longer pays for what the widget costs the client's main
   thread. That is a second `CpuBudget` in the glue, `mainThreadQuotaMs` = 100 ms per `cpuQuotaWindowMs`: the wall time of
@@ -697,9 +795,95 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   is 40 × 20, and an image across a 320 px bubble at 3× fits.
 - **compat keeps the old caps** and never stops: tests, tooling, and the measuring runs of the stress kit
   (`packages/stress`), which must see the cost past the limits.
-- Not in this change: the count of heavy boxes (shadows, filters, opacity) and the renderer's frame cost of the
-  paint-limits draft, and a lower node cap. They depend on the client renderers, so they wait for the stress kit's
-  numbers from the clients.
+- **The client teams' numbers** (v0.6.0, 2026-11-02). The stress kit ran on a Redmi Note 8T and a Galaxy A55
+  (Android, TwidgetCore), an iPhone Air (iOS, the client's own runtime), tdesktop on an i9 and the web (the reference),
+  plus seven real widgets on the Redmi in strict. Counted limits must not depend on the device, so they were set now:
+  2000 nodes (the heap no longer stops first, since the flush goes out in parts: Android stopped a 2000-node load, the
+  32-bit web and tdesktop a 4000-node one), 4000 canvas commands, 128 layout queries per task, and the heavy-box limit
+  (its own section). Limits in time only slow a widget down and stop it on a hang: the slice is the whole `cpuLimitMs`
+  ("Throttle, not kill"), a layout query's time no longer stops it below the 1000 ms guard, and the renderer's frame
+  time is no stop (the draft's three frames over 50 ms would have stopped widgets within every limit on the Redmi:
+  `complex-text/8192` 80 ms a change, `text-volume/49152` 99 ms, `dom-static/2000` 77 ms). The prices (300 ms/s of JS,
+  the 100 ms/s window at 25/2 µs) stay: the window slows a widget alike on every device; they were checked only on
+  strong and middle devices and can move either way later.
+
+### Heavy boxes: 16, of them 2 with backdrop-filter (2026-11-02)
+
+The count of heavy boxes the strict limits left for the stress kit's numbers (Artem, 2026-11-02, after the client teams'
+runs on five devices; the rule was the paint-limits draft's §3). A blurred shadow, a filter, a backdrop-filter or
+transparency on a box that changes is what costs a renderer, not the number of boxes or the rate of change as such:
+
+| Renderer time a frame, 16 moving heavy boxes (stress kit, measure pass) | A55 | Redmi Note 8T | iPhone Air (hot) | tdesktop (CPU) |
+|---|---|---|---|---|
+| `shadow-moving/16` | 3.4 ms | 4.5 | 5.0 | 3.7 |
+| `ars-cell/16` (every effect) | 4.8 | 5.3 | 5.9 | 8.1 |
+| `opacity-moving/16` | 2.9 | 3.5 | 4.2 | 1.2 |
+| `filter-moving/16` | 3.6 | 3.5 | 3.6 | 7.4 |
+| `ars-cell/64`, for comparison | 16.6 | 21.4 | 29.7 | 30.7 |
+
+16 cost 1–8 ms a frame on all four clients, under half a 60 Hz frame even on the Redmi and the hot iPhone; 64 cost more
+than a frame everywhere. Two backdrop-filter panels cost the iPhone 7.3 ms (16: 14.1 ms) and tdesktop, which blurs on the
+CPU, 3.9 ms (16: 25.4 ms). The corpora's largest real use was 40 heavy boxes in one widget and 340 of 346 had at most
+16 (measured on 2026-10-28 over the corpora and the conformance set).
+
+- **The rule** (`packages/core/src/shared/paint-policy.ts`, `tests/fixtures/paint-policy.json`). A box is what the
+  renderer lays out: an element whose `display` is not `none`, under no `display: none` ancestor (`display: contents`,
+  out of profile 1 anyway, builds none), and a `::before` / `::after` whose `content` is not `none` / `normal`; SVG
+  elements alike; the widget's root and body count, the renderer's own nodes do not. A box is heavy when its computed
+  `box-shadow` has a layer with a blur above 0 (inset too), its `filter` or `backdrop-filter` is not `none`, its
+  `opacity` is below 1 (unless it is a `<button>` that is disabled or pressed: below), or while an animation runs on
+  it that changes `filter`, `backdrop-filter` or `opacity`, or
+  `box-shadow` through a blurred layer: a CSS animation from `animationstart` to its end or cancel, a transition likewise,
+  a Web Animation while `running`, whatever the value at the moment. The value counts, not the picture (`opacity: .999`,
+  `brightness(1)`); `visibility`, clipping, being on screen, `transform` and engine layers do not. An animation of
+  shadows without blur (a ring, an inset fill that pulses: `htmlbubbles-ported/10-game-night/08-kai` sparkles 23 cells
+  so) costs what the ring costs, so it is not heavy; a keyframe list that leaves the first or last value to the box's
+  own is.
+- **A disabled or pressed `<button>`'s opacity is its own dimming** (2026-11-02, with the limit): the UA layer's
+  client-styled button dims a disabled one to `--tg-button-disabled-opacity` (0.5) and a pressed one to
+  `--tg-button-pressed-opacity` (0.7), so a calendar with 17 past days disabled or a poll after the vote would stop.
+  The `opacity` of a `<button>` with the `disabled` attribute or held down (`:active`) does not make it heavy, the
+  author's own as well (the same static dimming); a blurred shadow, a filter, a backdrop-filter or an animation of its
+  opacity still do, and its `::before` / `::after` are boxes of their own. The stopped frame keeps a disabled button's
+  dimming.
+- **At most 16 at once, of them at most 2 with `backdrop-filter`.** Past either the widget stops, as at a counted cap:
+  `Paint limit exceeded: 17 boxes with shadows, filters or transparency (max 16)` or `... 3 boxes with backdrop-filter
+  (max 2)`, the diagnostic `paint-limit` / `backdrop-limit`. Stop rather than drop the effects of the boxes past the
+  limit: the author sees the cause at once and the look does not depend on the DOM order. A tightening of profile 1
+  (`L2` in `profile.json`, `limit.paint-heavy`, `limit.paint-backdrop`), not profile 2: widgets were not launched.
+- **Counted by the renderer, not the validator.** The validator knows no cascade: an upper bound from the rightmost
+  compound of each selector inflated small counts (2 → 26, 0 → 19 in the corpora) and knows nothing of `:hover` and
+  animations. The computed style is the same on every client, so a widget passes or stops everywhere alike, and the
+  fixture makes the count the same. When: before each frame the renderer draws, after a batch (counted whole, never op by
+  op), when an animation of the rule starts or ends, and when the cascade changes without an op (the theme, the safe
+  area, the bubble's width, `:hover`, `:active`).
+- **The framework's WebView renderer** (`renderer/core.ts`: iframe, Shadow DOM, WKWebView, Android WebView) keeps the
+  count incrementally and checks it in `requestAnimationFrame`: a batch marks the subtrees it can reach (the parent's
+  with a sibling combinator or a structural pseudo-class in the widget's sheets), a stylesheet, the theme, the safe area
+  and the viewport recount everything, `pointerover` / `out` and a press recount the elements whose `:hover` /
+  `:active` changed, the animation events and the renderer's Web Animations feed rule 5. Inline styles that touch no
+  heavy property (transform, positions, colours) mark nothing, unless a selector reads the style attribute. Cost in
+  Chromium on an M5 Max, 1000 boxes all changed every frame: nothing for style ops of `transform`, +0.1 ms a frame when
+  the style attribute is rewritten, 0.65 ms when every box changes class (2.7 ms when every box also matches a
+  `::before` rule), next to 1.3–4.3 ms of the renderer's own main-thread work there; the main-thread window lets such
+  a widget about 4 frames a second. Past a limit it reports `{ type: 'limit', code, count }` (`docs/protocol.md`).
+- **A client's own renderer** counts the same rule against the fixture and calls the seam's `limitExceeded(code,
+  count)` (`Renderer.swift`, `Renderer.kt`, `renderer.h`); every host turns it into the stop (`docs/integration.md`).
+- **The stopped widget is drawn without the effects**: no blurred shadow (a layer without blur stays), filter,
+  backdrop-filter or transparency, animations paused, then the usual badge. A fully transparent box is hidden rather
+  than turned opaque (an overlay faded out stays out of sight). The frozen frame then costs nothing while the chat
+  scrolls. The WebView renderer draws it so before the frame in which the count went past the limit (for a CSS
+  animation, the frame its start event arrives in, one after the engine starts it), with a first cascade layer of
+  `!important` declarations and the elements' own inline values replaced, and takes no more ops.
+- **compat counts nothing**: the stress kit's measuring runs must see the cost past the limits.
+- **Corpora.** Six widgets went past 16, each muting with `opacity`: `showcase/travel/04-weather` and
+  `life/01-fitness-rings` (18), both `generated/…/12-…countdown` (twinkling stars), `gestures` `08-wheel-picker-y` (34)
+  and `07-range-slider-x` (18). They mute with colour now (`rgba()`, `--tg-theme-hint-color`, `fill-opacity` /
+  `stroke-opacity`), which looks the same. The most left in a widget is 14.
+- **Not decided here**: a renderer's frame time as a stop (the draft's §4.3: "50 ms three frames in a row" would stop
+  widgets on the Redmi that live within every limit elsewhere, and a stop must not depend on the device; rejected), the
+  renderer's frame cost in the quota (the draft's §4: a slowdown, later), and the validator's clamps of shadow layers,
+  blur radii and filter functions (the draft's §5).
 
 ### Off-screen pause mirrors a background tab
 
@@ -738,6 +922,20 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   purpose). `dist/QUICKJS_VERSION` names the fork commit; `build.sh` defaults to
   the `packages/ios/Sources/CQuickJS/quickjs` submodule, so the wasm and the
   native builds come from the same commit.
+- Reproducible since v0.6.0 (Nov 2026): the same fork commit and the pinned
+  emscripten (6.0.12; `build.sh --docker` uses the emsdk image by digest) give
+  the same bytes on any machine. Before, `dist/` differed from a rebuild only in
+  the amalgamation's `__FILE__`, the random temporary directory in the assert
+  messages of the data segment; `-ffile-prefix-map` removes it (the wasm was
+  rebuilt once for that, 64 bytes shorter, nothing else changed), and the
+  version string is the commit's first 7 hex digits instead of `git describe`.
+  `dist.sha256` lists every `dist/` file; `build.sh --check` rebuilds in a
+  temporary directory and compares (the `wasm.yml` job on the branch `claude/ci` when an input changes), and
+  the unit suite checks `dist/` against the list and `QUICKJS_VERSION` against
+  the submodule on every commit. Checked: macOS arm64 with Homebrew's
+  emscripten 6.0.12 and the emsdk 6.0.12 image on Linux arm64 give identical
+  files. A new emscripten is a deliberate change: both pins in `build.sh`, then
+  `dist/` and `dist.sha256` in one commit.
 - Behaviour change, now the same on every platform: out-of-memory is
   uncatchable in quickjs-ng 0.17, so a widget that hits the cap is stopped
   (`Memory limit exceeded`, last render frozen) even inside `try/catch`.
@@ -902,7 +1100,7 @@ patch from the fork's owner.
   `BC_VERSION`. Any mismatch is an exception; the glue falls back to the source
   and reports a `bytecode` diag. A test on each platform boots a widget with a
   bundled library and asserts `(bytecode)` in the `boot` and `library` diags and
-  no fallback, so a `.js` committed without its `.qbc` fails CI, not a phone.
+  no fallback, so a `.js` committed without its `.qbc` fails the tests, not a phone.
 - **Only our own code goes through `JS_ReadObject`.** It has no verifier
   (quickjs.h says so); widget scripts keep going through the parser. Debug
   info is kept for shim stack traces, source text is stripped.
