@@ -15,6 +15,7 @@
   .th.on { box-shadow: 0 0 0 6px rgba(51, 144, 236, .25), 0 1px 4px rgba(0, 0, 0, .35) }
   #hist { display: flex; align-items: flex-end; gap: 2px; height: 50px; margin: 10px 8px 0 }
   #hist i { flex: 1; border-radius: 2px 2px 0 0; background: var(--tg-theme-button-color) }
+  #hist i.off { background: rgba(128, 128, 128, .3) }
   .ends { display: flex; justify-content: space-between; margin: 4px 8px 0; font-size: 12px; color: var(--tg-theme-hint-color) }
   .st { margin: 8px 0 0; font-size: 13px }
 </style>
@@ -45,7 +46,7 @@ function draw() {
   $('fill').style.width = pct(hi) - pct(lo) + '%';
   $('val').textContent = '€' + lo + ' – €' + hi;
   $('n').textContent = prices.filter(function (p) { return p >= lo && p <= hi; }).length + ' of ' + prices.length + ' hotels';
-  bars.forEach(function (b, c) { var v = MIN + c * STEP; b.style.opacity = v >= lo && v < hi ? 1 : 0.25; });
+  bars.forEach(function (b, c) { var v = MIN + c * STEP; b.className = v >= lo && v < hi ? '' : 'off'; });
 }
 draw();
 function hap() { try { TelegramWidget.HapticFeedback.selectionChanged(); } catch (_) {} }

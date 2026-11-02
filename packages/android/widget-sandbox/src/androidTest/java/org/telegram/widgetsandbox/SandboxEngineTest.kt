@@ -344,14 +344,14 @@ class SandboxEngineTest {
         engine.terminate()
     }
 
-    /** The boot config carries the policy: under strict the shim refuses the 10 001st canvas command of a task with RangeError (the validator's per-send cap), under compat it draws on. */
+    /** The boot config carries the policy: under strict the shim refuses the 4001st canvas command of a task with RangeError (the validator's per-send cap), under compat it draws on. */
     @Test
     fun canvasCommandCapReachesTheShim() {
         val html = "<canvas id=\"c\"></canvas><script>var x = document.getElementById('c').getContext('2d');" +
-            "try { for (var i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>"
+            "try { for (var i = 0; i < 4001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>"
         val (d, engine) = run(html)
         engine.thread.sync {}
-        assertTrue("${d.logs}", d.logs.any { it.second == "RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)" })
+        assertTrue("${d.logs}", d.logs.any { it.second == "RangeError: Canvas limit exceeded: more than 4000 commands for one canvas in one task (max 4000)" })
         assertNull(d.died)
         engine.terminate()
         val (c, compat) = run(html) { it.policy = "compat" }
@@ -406,7 +406,8 @@ class SandboxEngineTest {
         assertEquals(config.maxTimers, options.maxTimers)
         assertEquals(config.mainThreadQuotaMs, options.mainThreadQuotaMs, 0.0)
         assertEquals(4096, SdkPolicy.STORAGE_QUOTA_BYTES)
-        assertEquals(100.0, CpuBudget.queryBudgetMs(500.0), 0.0)
+        assertEquals(128, CpuBudget.QUERY_LIMIT)
+        assertEquals(1000.0, CpuBudget.QUERY_BUDGET_MS, 0.0)
     }
 
     @Test

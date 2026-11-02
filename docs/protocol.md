@@ -5,14 +5,21 @@ Three trust domains exchange plain JSON messages:
 ```
 sandbox (QuickJS, UNTRUSTED) ──ops / queries / listen / pd / raf / log / diag / bridge / storage──▶ host (trusted)
 sandbox ◀── events / timer & frame ticks / query results / viewport / theme / safeArea / visibility ──── host
-host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / safeArea / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
-host ◀── events / query results / size / resize / frame / media / gesture / bubble / violation ──── renderer
+host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / safeArea / policy / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
+host ◀── events / query results / size / resize / frame / media / gesture / bubble / limit / violation ──── renderer
 ```
 
 Type definitions live in `packages/core/src/shared/protocol.ts`. Nothing from the sandbox is
 forwarded to the renderer without passing through `Validator`
 (`packages/core/src/host/validator.ts`); the renderer additionally refuses forbidden tags and
 attributes on its own (defense in depth).
+
+This page is protocol 1 (`protocol` in `VERSION.json`). A change that a glue of the previous
+release cannot run with (a config field it must send, a host call or message it does not
+handle, a change to the validator's API) bumps it in the same commit; an addition the old glue
+can ignore does not. Every native bundle carries the number on its first line and the native
+glue refuses a bundle of another protocol before it runs (`bundle-mismatch`,
+`docs/integration.md` "Pinning a release").
 
 ## Node ids
 
@@ -28,7 +35,9 @@ attributes on its own (defense in depth).
 
 `{ type: 'ops', ops: SandboxOp[] }` — applied in order, at most 10 000 per
 batch under `strict` (past it the widget stops), 200 000 under `compat`. The sandbox flushes a batch at the end of every task (event, timer,
-frame, script) and *before* every sync query.
+frame, script) and *before* every sync query; a long flush goes out in several batches, split between two nodes once
+about 1000 ops are buffered (since v0.6.0; its `call` ops, canvases and animations go in its last batch, with the staged
+canvas payloads). A host applies them in order, as it always did.
 
 | op | fields | meaning |
 |---|---|---|
@@ -109,7 +118,9 @@ The host validates with `validateAnim` (`validator.ts`; the Swift native node
 model has its twin in `NativeAnimValidator.swift`): `target` must be a rendered
 element, at most 64 keyframes with sorted offsets in [0, 1] and 64 values each,
 times finite and within 24 h, playback rate within ±1000, easings from the CSS
-easing grammar, and at most 1024 live script animations (`animation-limit`).
+easing grammar, and at most 64 live script animations under `strict`, 1024 under
+`compat` (`animation-limit`; a CSS animation or transition the script controls
+does not count, in the shim or here).
 Every keyframe value goes through the same CSS property sanitizer as
 `element.style` (no `url()` other than `#fragment`, no `expression()`), and
 `animation-*` / `transition-*` properties are dropped, and so are the keyframe
@@ -211,11 +222,12 @@ unaffected.
   fonts) and unknown at-rules dropped; `url()`, `image-set()`, `image()`,
   `src()`, `cross-fade()` only with `data:` images or a fragment;
   `var()`/`env()`/`attr()` inside URL-taking functions rejected.
-- Sizes under `strict`: ≤ 50 000 nodes, a text value ≤ 32 K and the document's
+- Sizes under `strict`: ≤ 2000 nodes in the document, a text value ≤ 32 K and the document's
   text ≤ 48 K UTF-16 units, an attribute ≤ 8 K, a batch ≤ 10 000 ops, a canvas op
-  ≤ 10 000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`,
+  ≤ 4000 commands, the document's stylesheets ≤ 400 rules and 32 `@keyframes`,
   the widget's canvases ≤ 2048² pixels together (a new canvas 300 × 150, then its
-  `width` / `height` and the `r` command); past one the validator reports the fatal `limit` diagnostic (the reason), refuses
+  `width` / `height` and the `r` command; the nodes, the document's text, rules and `@keyframes` as they stand after the whole
+  batch); past one the validator reports the fatal `limit` diagnostic (the reason), refuses
   the batch and every later one, and the host stops the widget (`docs/decisions.md`,
   "Strict limits from the start"). Under `compat`: text ≤ 2 MB, attribute ≤ 4 MB,
   batch ≤ 200 000 ops, canvas ≤ 500 000 commands, no rule or canvas pixel cap
@@ -405,7 +417,26 @@ stops forwarding events, sets `data-tw-frozen="fatal"|"paused"` on `<html>`
 (`pointer-events: none`, a slight grayscale when fatal) and shows a small badge
 with `reason` (a renderer element, never in the widget's node table). The host
 sends it from its death path; the iframe / WKWebView / WebView stays on screen
-until the owner calls `destroy()`.
+until the owner calls `destroy()`. And `policy {policy, paintReports?}`, the host's
+`SandboxConfig.policy`, sent at load right after `safeArea`: under `strict` (also before
+it arrives, and for any value but exactly `compat`) the renderer counts heavy boxes
+(`packages/core/src/shared/paint-policy.ts`, decisions.md "Heavy boxes"), under `compat`
+it counts nothing; `paintReports` (tooling: the Node harness) asks for
+`paint {heavy, backdrop}` whenever the counts change, which a host ignores.
+
+Renderer → host, besides events, results and sizes: `limit {code, count}`, past a paint
+limit: `paint-limit` with the number of heavy boxes (more than 16: a blurred shadow, a
+filter, a backdrop-filter, opacity below 1, or an animation of one of them) or
+`backdrop-limit` with the number of boxes with backdrop-filter (more than 2). Once per
+widget, and only under `strict`. The renderer has already drawn that frame without the
+effects (no blurred shadow layer, filter, backdrop-filter or transparency; animations
+paused) and takes no more ops. The host stops the widget like a counted cap: the
+diagnostic `paint-limit` / `backdrop-limit` with the reason, then its death path with
+`Paint limit exceeded: 17 boxes with shadows, filters or transparency (max 16)` or
+`Paint limit exceeded: 3 boxes with backdrop-filter (max 2)` (`paintLimitMessage`);
+`compat` ignores it, an unknown code or a count that is no number from 0 is a
+`renderer-violation`. A client's own renderer sends the same message through the seam's
+`limitExceeded(code, count)` (`Renderer.swift`, `Renderer.kt`, `renderer.h`).
 
 Worker → host (payload untrusted unless noted): `ops`, `query`, `listen
 {types}`, `pd {keys}`, `anim {anims, now}` (`now` from the glue), `raf`, `log {level, text}`, `diag {kind, detail}`,
@@ -535,7 +566,7 @@ client's duties are in docs/sdk-v1.md.
 |---|---|---|
 | `memoryLimitBytes` | 8 MB | QuickJS heap limit; exceeding it kills the runtime |
 | `cpuLimitMs` | 500 | longest continuous run of widget JS in one task (interrupt handler); exceeding it kills |
-| `cpuQuotaMs` / `cpuQuotaWindowMs` | 300 / 1000 | JS time the widget may spend per sliding window (ten buckets); beyond it timers, frames, resize/viewport/theme/bridge tasks are **deferred**, never killed; events always run with at least 50 ms |
+| `cpuQuotaMs` / `cpuQuotaWindowMs` | 300 / 1000 | JS time the widget may spend per sliding window (ten buckets); on the native hosts also the validator's CPU time for its messages (`stats.validatorMs`); beyond it timers, frames, resize/viewport/theme/bridge tasks are **deferred**, never killed; events always run with at least 50 ms |
 | `cpuKillAfterMs` | 0 (off) | kill once throttling has lasted this long without a gap longer than one window |
 | `mainThreadQuotaMs` | 100 | the host's main-thread work for the widget per `cpuQuotaWindowMs`: the wall time its layout queries block the renderer plus 25 µs per op and 2 µs per canvas command the glue forwards (`opsCostMs`); beyond it the same tasks are deferred, apart from the JS quota (which counts JS time only) |
 | `maxTimers` | 64 | live `setTimeout` + `setInterval` slots; the shim throws `RangeError` past it, the glue refuses as a backstop; timer delays are clamped to 24 h |
@@ -546,7 +577,7 @@ client's duties are in docs/sdk-v1.md.
 | `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |
 | `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
 | `contentSafeArea` | all 0 | the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left, cornerLeft, cornerRight}`; the shim checks it (an inset 0–64, a corner 0–200, else 0): `TelegramWidget.contentSafeAreaInset` |
-| `profile` | 1 | the widget profile the glue enforces; the shim reports `profile-mismatch` when its bundle's differs |
+| `profile` | 1 | the widget profile the glue enforces (`VERSION.json`'s `profile`); the shim reports `profile-mismatch` when its bundle's differs |
 | `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (4096 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
 | `chatData`, `publicData` | `null` | the chat state and the shared state, which only the bot writes, checked by the glue (text of 1–1024 bytes of UTF-8 without a NUL, else `null` and `data-rejected`); a copy's `chatData` is `null` |
 | `isCopy` | `false` | a forwarded copy (the server's `is_copy`; the widget's `isForward`) |
@@ -559,13 +590,21 @@ The policy that counts and decides lives in trusted glue only:
 (one fixture, `packages/core/tests/fixtures/cpu-budget.json`). The shim gets `maxTimers`
 through `boot` and the visibility signal; it enforces nothing the host relies
 on. Before each task the glue asks `decide(kind, now)`: `{run, sliceMs}` sets
-the interrupt deadline (`min(cpuLimitMs, max(remaining, 50))`, `boot` always
-gets `cpuLimitMs`), `{run: false, retryAt}` puts the task in the deferred
+the interrupt deadline (always `cpuLimitMs`: what a task spends past the quota
+is a debt of at most one more quota, `record(kind, cpuMs, now)` after the task),
+`{run: false, retryAt}` puts the task in the deferred
 queue (frames collapse into one, one fire per timer id, order kept) and a
 single wake-up timer. A task that overruns its slice is reported as
-`CPU limit exceeded: more than N ms … (…; CPU quota: … left, so this timer
-task got N ms)`. Diagnostics: `cpu-throttled` at most once per second;
-`stats.throttledTasks`, `stats.cpuWindowMs`.
+`CPU limit exceeded: more than N ms of continuous execution (…)`. On the native
+hosts the validator measures its thread's CPU time per call for the widget's
+messages (ops, queries, `listen`, `preventDefault`, anim) and the engine records
+it the same way when it arrives, `record('validator', ms, now)`
+(`SandboxEngine.chargeValidator`; docs/decisions.md, "The validator's time
+counts"); the web, which validates on its main thread in V8, leaves it to the
+main-thread window. Diagnostics: `cpu-throttled` at most once per second;
+`stats.throttledTasks`, `stats.cpuWindowMs` (the window plus the debt, the
+validator's records included), `stats.validatorMs` (the validator's time charged
+so far; native hosts).
 
 ### `visibility {visible}`
 

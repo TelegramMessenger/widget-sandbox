@@ -454,6 +454,8 @@ class WidgetHost(
         if (isStrictPolicy(options.policy)) validator.setPolicy("strict")
         engine = SandboxEngine(html, config, resources)
         engine.delegate = this
+        // The validator's time on the widget's messages counts against its JS quota (docs/decisions.md, "The validator's time counts").
+        validator.cpuSink = { ms -> engine.chargeValidator(ms) }
         renderer.onDiag = { k, d -> diag(k, d) }
         renderer.onMessage = { json -> onRenderer(json) }
         // A preview takes no input: the renderer leaves every press to the client (the inline-results list) at once.
@@ -465,6 +467,8 @@ class WidgetHost(
         // The theme goes first (queued until `ready`, which flushes it before the engine starts).
         toRenderer(themeMessage())
         toRenderer(safeAreaMessage(options.contentSafeArea))
+        // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
+        toRenderer(JSONObject().put("type", "policy").put("policy", if (isStrictPolicy(options.policy)) "strict" else "compat").toString())
         // The engine starts once the renderer announced itself, so the very first
         // layout queries have something to measure.
         renderer.load()
@@ -708,7 +712,11 @@ class WidgetHost(
     }
     override fun onLoaded(engine: SandboxEngine) {
         val loadedMs = sinceCreatedMs()
-        main.post { diagnostics.loaded = true; diagnostics.loadedMs = loadedMs; changed() }
+        main.post {
+            // After the loading tasks' ops (posted before this): text changes are rate-limited from here on.
+            if (!destroyed) validator.markLoaded()
+            diagnostics.loaded = true; diagnostics.loadedMs = loadedMs; changed()
+        }
     }
     override fun onStats(engine: SandboxEngine, stats: SandboxStats) {
         main.post {
@@ -814,6 +822,22 @@ class WidgetHost(
             // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
             "media" -> engine.theme(scheme, theme.params)
             "violation" -> diag("renderer-violation", msg.optString("detail"))
+            "limit" -> {
+                // Past a paint limit (16 heavy boxes, 2 with backdrop-filter; the WebView renderer's message or a client
+                // renderer's `limitExceeded`): the renderer drew the frame without the effects, and the widget stops as
+                // for memory or CPU. compat counts nothing.
+                val limit = WidgetPaintLimit.of(msg.optString("code"))
+                val count = msg.opt("count") as? Number
+                if (limit == null || count == null || !count.toDouble().isFinite() || count.toDouble() < 0) {
+                    diag("renderer-violation", "a limit report with an unknown code or no count")
+                    return
+                }
+                if (!isStrictPolicy(options.policy) || diagnostics.dead != null) return
+                val reason = limit.message(count.toDouble().toInt())
+                diag(limit.code, reason)
+                die(reason)
+                engine.stop(reason)
+            }
         }
     }
 

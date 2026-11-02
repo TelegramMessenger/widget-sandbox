@@ -115,3 +115,9 @@ scope) with no `validator:profile` or `validator:css-dropped` line, no
 `[error]`, no `script-skipped` or `unsupported` diagnostic, with clicks on the
 first four buttons and scripted taps on the charts, cells and timers.
 `pnpm test:generated` (pixel diff against Chrome) was not run with this change.
+
+## The paint limit, 2026-11-02
+
+Since v0.6.0 a widget with more than 16 heavy boxes stops (`docs/decisions.md`, "Heavy boxes"). Both
+`12-create-a-countdown-to-new-year-with-days.html` twinkled their 30 and 40 stars with an `opacity` animation; their
+stars now twinkle with the alpha of their background colour, which looks the same and costs nothing.

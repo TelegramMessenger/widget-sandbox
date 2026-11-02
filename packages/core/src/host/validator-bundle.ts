@@ -10,6 +10,7 @@
 //   __twValidator.setTheme('light'|'dark')  → json RenderOp[] (re-emitted stylesheets)
 //   __twValidator.rewriteMediaQuery(query)  → string
 //   __twValidator.nodeCount()               → number
+//   __twValidator.markLoaded()              → the loading tasks are over: text changes are rate-limited from now on
 //   __twValidator.isCanvas(id)              → boolean (would a canvas op for id be accepted)
 //   __twValidator.stopped()                 → '' or the reason a counted cap stopped the widget (strict)
 // Diagnostics are reported through `__diag(kind, detail)` if the host defines it. Kind `limit` is fatal: a
@@ -66,6 +67,9 @@ const v = () => {
   },
   nodeCount() {
     return v().nodeCount;
+  },
+  markLoaded() {
+    v().markLoaded();
   },
   isCanvas(id: number) {
     return v().isCanvas(Number(id));

@@ -9,11 +9,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * The layout-query budget (CpuBudget.queryBudgetMs, 100 ms per task whatever its
- * slice): a widget whose loop forces layout on every iteration burns no JS CPU of
- * its own but keeps the host answering queries; it is killed with the layout-query
- * reason instead of holding the renderer, and the host is never blocked for long.
- * The twin of QueryBudgetTests.swift.
+ * The layout-query limit (CpuBudget.queryLimitHit: 128 answered queries per task, or
+ * 1000 ms of their time, whatever its slice): a widget whose loop forces layout on every
+ * iteration burns no JS CPU of its own but keeps the host answering queries; it is killed
+ * with the layout-query reason instead of holding the renderer, and the host is never
+ * blocked for long. The twin of QueryBudgetTests.swift.
  */
 @RunWith(AndroidJUnit4::class)
 class QueryBudgetTest {
@@ -22,7 +22,7 @@ class QueryBudgetTest {
     /**
      * Every query costs the host [delayMs] of wall time, like a slow renderer. The delay is
      * large against one loop iteration's CPU on the emulator's debug interpreter, so the
-     * query budget (100 ms, not the CPU slice of 200 ms) is the limit that fires.
+     * layout-query limit, not the CPU slice, is the limit that fires.
      */
     private class SlowHost(private val delayMs: Long) : SandboxEngine.Delegate {
         @Volatile var died: String? = null
@@ -47,8 +47,8 @@ class QueryBudgetTest {
     }
 
     /** Boots the widget and waits until it is loaded or dead (the emulator boots slowly under load), at most [waitMs]. */
-    private fun run(script: String, delayMs: Long, waitMs: Long): Pair<SlowHost, SandboxEngine> {
-        val config = SandboxConfig(innerWidth = 300.0, innerHeight = 200.0, devicePixelRatio = 2.0, theme = "light", cpuLimitMs = 200.0)
+    private fun run(script: String, delayMs: Long, waitMs: Long, cpuLimitMs: Double = 200.0): Pair<SlowHost, SandboxEngine> {
+        val config = SandboxConfig(innerWidth = 300.0, innerHeight = 200.0, devicePixelRatio = 2.0, theme = "light", cpuLimitMs = cpuLimitMs)
         val host = SlowHost(delayMs)
         val engine = SandboxEngine("<div id=a></div><script>$script</script>", config, resources)
         engine.delegate = host
@@ -62,13 +62,25 @@ class QueryBudgetTest {
     @Test
     fun forcedLayoutLoopIsKilledInsteadOfBlockingTheHost() {
         val started = System.currentTimeMillis()
-        // 20 ms per answer: 5 queries pass the 100 ms budget while the loop has burnt far less CPU than the 200 ms slice.
-        val (host, engine) = run("const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }", delayMs = 20, waitMs = 30_000)
+        // 5 ms per answer: the 129th query passes the count (645 ms, under the 1000 ms guard); the slice is wide so the loop's own CPU on the
+        // emulator's interpreter never decides it.
+        val (host, engine) = run("const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }", delayMs = 5, waitMs = 30_000, cpuLimitMs = 3000.0)
         val died = host.died
         assertNotNull("alive after ${System.currentTimeMillis() - started} ms, ${host.queryCount} queries", died)
-        assertTrue(died!!, died.startsWith("Layout query limit exceeded: host queries blocked the renderer for more than 100 ms in one boot task"))
+        assertTrue(died!!, died.startsWith("Layout query limit exceeded: more than 128 layout queries in one boot task"))
         // From the first query (the boot itself is slow on a loaded emulator) to the kill: the host was never held for long.
         assertTrue("${host.diedAt - host.firstQueryAt} ms from the first query to the kill", host.diedAt - host.firstQueryAt < 5_000)
+        assertTrue("${host.queryCount} queries", host.queryCount == CpuBudget.QUERY_LIMIT + 1)
+        engine.terminate()
+    }
+
+    @Test
+    fun queriesThatHoldTheHostPastTheGuardStopTheWidget() {
+        // 30 ms per answer: the 1000 ms guard fires at the 34th query; the loop that ends on the error answers is stopped at the task's end.
+        val (host, engine) = run("const a = document.getElementById('a'); for (let i = 0; i < 60; i++) { a.style.width = i + 'px'; a.offsetHeight; }", delayMs = 30, waitMs = 30_000, cpuLimitMs = 3000.0)
+        val died = host.died
+        assertNotNull("alive, ${host.queryCount} queries", died)
+        assertTrue(died!!, died.startsWith("Layout query limit exceeded: host queries blocked the renderer for more than 1000 ms in one boot task"))
         assertTrue("${host.queryCount} queries", host.queryCount < 40)
         engine.terminate()
     }

@@ -42,6 +42,8 @@ struct NativeValidatorTables {
     var limbo = 0
     var complexTextBudget = 0
     var textBudget = 0
+    /// Nodes in the document, compared once a batch is applied (validator.ts `MAX_DOCUMENT_NODES`); 0 = no cap (compat).
+    var maxDocumentNodes = 0
     /// CSS rules and `@keyframes` over the document's stylesheets (validator.ts `countCssRules`); 0 = no cap.
     var maxCssRules = 0
     var maxKeyframes = 0
@@ -118,6 +120,7 @@ struct NativeValidatorTables {
         limbo = Int(numbers[5])
         complexTextBudget = Int(root["complexTextBudget"]?.number ?? 0)
         textBudget = Int(root["textBudget"]?.number ?? 0)
+        maxDocumentNodes = Int(root["documentNodes"]?.number ?? 0)
         maxCssRules = Int(root["cssRules"]?.number ?? 0)
         maxKeyframes = Int(root["keyframes"]?.number ?? 0)
         maxLiveAnims = Int(root["liveAnims"]?.number ?? 1024)
@@ -280,8 +283,24 @@ final class NativeValidator {
         stop("Attribute limit exceeded: a value of \(length) characters (max \(tables.maxAttr))")
     }
 
-    private func overDocumentText() -> Bool {
-        stop("Text limit exceeded: the document's text is over \(tables.textBudget) characters")
+    /// The document's counted totals (its text, CSS rules, `@keyframes`) after a whole batch, not op by op
+    /// (validator.ts `checkTotals`): a subtree replaced in one task or two sheets rewritten in one task pass through a
+    /// sum of the old and the new that the document never holds. False when a total is over its cap (the widget stops).
+    @discardableResult
+    private func checkTotals() -> Bool {
+        if tables.maxDocumentNodes > 0, nodes.count - 1 > tables.maxDocumentNodes {
+            return stop("Node limit exceeded: \(nodes.count - 1) nodes in the document (max \(tables.maxDocumentNodes))")
+        }
+        if tables.textBudget > 0, totalText > tables.textBudget {
+            return stop("Text limit exceeded: the document's text is over \(tables.textBudget) characters")
+        }
+        if tables.maxCssRules > 0, cssRules > tables.maxCssRules {
+            return stop("CSS limit exceeded: \(cssRules) rules in the document's stylesheets (max \(tables.maxCssRules))")
+        }
+        if tables.maxKeyframes > 0, cssKeyframes > tables.maxKeyframes {
+            return stop("CSS limit exceeded: \(cssKeyframes) @keyframes in the document's stylesheets (max \(tables.maxKeyframes))")
+        }
+        return true
     }
 
     private func tooManyCanvasCommands(_ count: Int) -> Bool {
@@ -459,6 +478,7 @@ final class NativeValidator {
             }
             dirtyStyles.removeAll()
         }
+        if stopReason == nil { checkTotals() }
         let result = out
         out = []
         // A stopped widget's last batch is refused whole: the renderer keeps the last render that fit.
@@ -470,7 +490,8 @@ final class NativeValidator {
         for n in nodes.values where n.kind == .element && n.isStyle && n.rendered { styles.append(n) }
         styleCache.removeAll()
         styleCacheSize = 0
-        return styles.sorted { $0.seq < $1.seq }.map { WidgetOp(css: $0.id, text: styleText($0)) }
+        let ops = styles.sorted { $0.seq < $1.seq }.map { WidgetOp(css: $0.id, text: styleText($0)) }
+        return checkTotals() ? ops : []
     }
 
     private func styleText(_ style: Node) -> String {
@@ -482,27 +503,20 @@ final class NativeValidator {
             releaseTextSlot(style, key: "sheet")
             return ""
         }
+        // Counted here, compared with the caps by checkTotals once every changed sheet of the batch is counted.
         if tables.maxCssRules > 0 || tables.maxKeyframes > 0 {
             let counted = Self.countCssRules(text)
             cssRules += counted.rules - style.cssRules
             cssKeyframes += counted.keyframes - style.cssKeyframes
             style.cssRules = counted.rules
             style.cssKeyframes = counted.keyframes
-            if tables.maxCssRules > 0, cssRules > tables.maxCssRules {
-                stop("CSS limit exceeded: \(cssRules) rules in the document's stylesheets (max \(tables.maxCssRules))")
-                return ""
-            }
-            if tables.maxKeyframes > 0, cssKeyframes > tables.maxKeyframes {
-                stop("CSS limit exceeded: \(cssKeyframes) @keyframes in the document's stylesheets (max \(tables.maxKeyframes))")
-                return ""
-            }
         }
         return text
     }
 
     /// validator.ts `countCssRules`: style rules and `@keyframes` blocks in a sanitized stylesheet, over UTF-16 units; a
     /// rule inside `@media` / `@supports` / `@container` / `@layer` counts, the keyframe selectors inside `@keyframes`
-    /// do not; strings and comments are skipped.
+    /// do not; strings, comments and escaped characters are skipped.
     static func countCssRules(_ css: String) -> (rules: Int, keyframes: Int) {
         enum Block { case rule, at, keyframes, frame }
         let u = Array(css.utf16)
@@ -519,6 +533,8 @@ final class NativeValidator {
                     if u[i] == 0x5c { i += 1 }
                     i += 1
                 }
+            } else if c == 0x5c { // an escape (`.a\{b`, `@keyframes k\}`): the next character is no brace
+                i += 1
             } else if c == 0x2f && i + 1 < n && u[i + 1] == 0x2a { // a comment
                 var end = i + 2
                 while end + 1 < n && !(u[end] == 0x2a && u[end + 1] == 0x2f) { end += 1 }
@@ -882,7 +898,12 @@ final class NativeValidator {
         return max(count, (units + 1023) / 1024)
     }
 
+    /// Until the host says the widget has loaded, inserted text is not charged to the churn bucket (validator.ts `loading`).
+    private var loading = true
+    func markLoaded() { loading = false }
+
     private func takeChurn(_ words: Int) -> Bool {
+        if loading { return true }
         let now = clock()
         if let at = churnAt {
             churnTokens = min(Double(Self.complexTextBudget), churnTokens + max(0, now - at) * Self.complexChurnPerSecond)
@@ -912,7 +933,6 @@ final class NativeValidator {
     private func characterData(_ id: Int, _ data: String, text: Bool) -> Bool {
         guard nodes[id] == nil, nodes.count < tables.maxNodes else { return false }
         let length = data.utf16.count
-        if tables.textBudget > 0, totalText + length > tables.textBudget { return overDocumentText() }
         let units = text ? Self.complexUnits(data) : 0
         if units > 0, tables.complexTextBudget > 0, complexText + units > tables.complexTextBudget { return overTextBudget() }
         if tables.textBudget > 0, Self.chargesChurn(data), !takeChurn(Self.textWork(data)) { return overChurn() }
@@ -928,7 +948,6 @@ final class NativeValidator {
     private func setData(_ id: Int, _ data: String) -> Bool {
         guard let node = nodes[id], node.kind != .element, node.kind != .document else { return false }
         let textDelta = data.utf16.count - node.data.utf16.count
-        if textDelta > 0, tables.textBudget > 0, totalText + textDelta > tables.textBudget { return overDocumentText() }
         let units = node.kind == .text ? Self.complexUnits(data) : 0
         let delta = units - node.complex
         if delta > 0, tables.complexTextBudget > 0, complexText + delta > tables.complexTextBudget { return overTextBudget() }
@@ -1230,7 +1249,6 @@ final class NativeValidator {
         if length > tables.maxText { return tooLongText(length) }
         let previous = node.textSlots[key]
         let lengthDelta = length - (previous?.length ?? 0)
-        if lengthDelta > 0, tables.textBudget > 0, totalText + lengthDelta > tables.textBudget { return overDocumentText() }
         let complex = Self.complexUnits(text)
         let complexDelta = complex - (previous?.complex ?? 0)
         if complexDelta > 0, tables.complexTextBudget > 0, complexText + complexDelta > tables.complexTextBudget { return overTextBudget() }

@@ -85,6 +85,8 @@ data class SandboxStats(
     var throttledTasks: Int = 0,
     /** JS time used in the current quota window at the time of the report. */
     var cpuWindowMs: Double = 0.0,
+    /** The validator's CPU time on this widget's messages ([SandboxEngine.chargeValidator]), charged to the JS quota next to [jsMs]. */
+    var validatorMs: Double = 0.0,
 )
 
 private const val ACTIVATION_PREFIX = "activation:"
@@ -215,11 +217,12 @@ class SandboxEngine(
     private val mainBudget = CpuBudget(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0.0)
     /** Slice given to the running task in ms (for the kill message); the boot task gets cpuLimitMs. */
     private var currentSliceMs = 0.0
-    /** Wall time this task's layout queries have blocked for, and whether that passed the task's query budget. */
+    /** Wall time this task's layout queries have blocked for, how many the host answered, and which limit they passed. */
     private var taskQueryMs = 0.0
+    private var taskQueries = 0
     /** Modelled main-thread cost of the ops this task sent ([CpuBudget.opsCostMs]). */
     private var taskOpsCostMs = 0.0
-    private var queryLimitHit = false
+    private var queryLimitHit: String? = null
     /** Set from any thread by [stop]: the host stopped the widget; the engine dies at the widget's next host call or task. */
     @Volatile private var stopReason: String? = null
     private var currentKind = "boot"
@@ -844,7 +847,7 @@ class SandboxEngine(
     /** Blocks the engine thread until the host answers (the host must never wait for the engine). */
     private fun syncQuery(json: String): String {
         val delegate = delegate ?: return "{\"error\":\"no host\"}"
-        if (queryLimitHit) return "{\"error\":\"query budget exceeded\"}"
+        if (queryLimitHit != null) return "{\"error\":\"query budget exceeded\"}"
         val t0 = nowNs()
         val answer = delegate.onQuery(this, json)
         val dt = nowNs() - t0
@@ -852,9 +855,10 @@ class SandboxEngine(
         stats.queries += 1
         stats.queryMs += dt / 1e6
         taskQueryMs += dt / 1e6
-        if (taskQueryMs > CpuBudget.queryBudgetMs(currentSliceMs)) {
-            // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
-            queryLimitHit = true
+        taskQueries += 1
+        queryLimitHit = CpuBudget.queryLimitHit(taskQueries, taskQueryMs)
+        if (queryLimitHit != null) {
+            // The host answered every query, but this task has asked too many or held the renderer too long: interrupt it at the next poll.
             js?.cpuDeadlineNanos = Long.MIN_VALUE
         }
         lastBinary = answer.binary
@@ -878,13 +882,12 @@ class SandboxEngine(
 
     private fun handleError(error: QuickJSException, location: String) {
         val text = error.message ?: error.toString()
-        if (js?.interrupted == true && queryLimitHit) {
-            return kill("Layout query limit exceeded: host queries blocked the renderer for more than ${CpuBudget.queryBudgetMs(currentSliceMs).toInt()} ms in one $currentKind task ($location)")
+        val hit = queryLimitHit
+        if (js?.interrupted == true && hit != null) {
+            return kill("${CpuBudget.queryLimitReason(hit, currentKind)} ($location)")
         }
         if (js?.interrupted == true) {
-            // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
-            val quota = if (currentSliceMs < config.cpuLimitMs) "; CPU quota: ${maxOf(0.0, config.cpuQuotaMs - budget.used(nowMs())).toInt()} ms of ${config.cpuQuotaMs.toInt()} ms per ${config.cpuQuotaWindowMs.toInt()} ms left, so this $currentKind task got ${currentSliceMs.toInt()} ms" else ""
-            return kill("CPU limit exceeded: more than ${currentSliceMs.toInt()} ms of continuous execution ($location$quota)")
+            return kill("CPU limit exceeded: more than ${currentSliceMs.toInt()} ms of continuous execution ($location)")
         }
         if (text.lowercase().contains("out of memory")) return kill("Memory limit exceeded (${config.memoryLimitBytes shr 20} MB)")
         delegate?.onLog(this, "error", ("Uncaught $text").take(4000))
@@ -920,6 +923,11 @@ class SandboxEngine(
      * matches the source, else the source. Returns "bytecode" or "source" for the diag.
      */
     private fun evalBundle(source: String, bytecode: ByteArray?, filename: String): String {
+        // Bundles of another release are refused before anything runs, as a stale `.qbc` is (BundleStamp.kt).
+        resources.refusal?.let {
+            delegate?.onDiag(this, "bundle-mismatch", it)
+            return "failed"
+        }
         val ctx = js
         if (ctx != null && bytecode != null) {
             try {
@@ -991,13 +999,16 @@ class SandboxEngine(
         currentSliceMs = sliceMs
         excludeMs = 0.0
         taskQueryMs = 0.0
+        taskQueries = 0
         taskOpsCostMs = 0.0
-        queryLimitHit = false
+        queryLimitHit = null
         val c0 = js?.threadCpuNanos() ?: 0L
         resetDeadline()
         body()
         if (!dead) settle()
         if (!dead) pumpScripts()
+        // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
+        queryLimitHit?.let { if (!dead) kill(CpuBudget.queryLimitReason(it, kind)) }
         stats.tasks += 1
         val cpuMs = ((js?.threadCpuNanos() ?: c0) - c0) / 1e6 - excludeMs
         stats.jsMs += cpuMs
@@ -1010,6 +1021,23 @@ class SandboxEngine(
             stats.memoryBytes = js?.memoryUsed ?: 0
         }
         postStats(force = false)
+    }
+
+    /**
+     * The validator's CPU time for this widget's messages ([TrustedValidator.cpuSink], ms of its thread's clock):
+     * recorded against the JS quota on the engine thread as it arrives ([SandboxStats.validatorMs]; with the debt rule a
+     * late record still counts in full; docs/decisions.md, "The validator's time counts"). Any thread.
+     */
+    fun chargeValidator(ms: Double) {
+        if (!(ms > 0)) return
+        thread.post {
+            if (dead) return@post
+            val now = nowMs()
+            budget.record("validator", ms, now)
+            stats.validatorMs += ms
+            stats.cpuWindowMs = budget.used(now)
+            postStats(force = false)
+        }
     }
 
     private var trailingStats: JSThread.Scheduled? = null

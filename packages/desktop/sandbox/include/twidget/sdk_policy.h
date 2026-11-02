@@ -20,6 +20,7 @@
 #pragma once
 
 #include "twidget/json.h"
+#include "twidget/version.h"
 
 #include <array>
 #include <cstdint>
@@ -213,8 +214,8 @@ inline constexpr double HAPTIC_SERIES_GAP_MS = 10000;
 inline constexpr double HAPTIC_PRESS_MAX_MS = 30000;
 /// Handlers per `onEvent` type in the shim (here for completeness; the glue never sees them).
 inline constexpr int MAX_HANDLERS_PER_EVENT = 16;
-/// The widget profile this glue enforces (`PROFILE_VERSION` in profile-tables.ts; docs/profile-v1.md).
-inline constexpr int PROFILE_VERSION = 1;
+/// The widget profile this glue enforces (VERSION.json's `profile`, as `PROFILE_VERSION` in profile-tables.ts; docs/profile-v1.md).
+inline constexpr int PROFILE_VERSION = version::PROFILE;
 /// Two full areas of the quota at 12 JSON bytes per byte (`\uXXXX` escapes plus the quotes, colon and
 /// comma of tiny pairs): a longer `storage` host call cannot be within the quota (worker.ts
 /// MAX_STORAGE_COMMIT_CHARS; JSON bytes ≥ JSON characters, and the bound holds for bytes too).

@@ -7,6 +7,7 @@
 // No test framework dependency: `twidget-tests [filter]`, exit code = failures.
 
 #include "../harness/recording_host.h"
+#include "twidget/bundle_stamp.h"
 #include "twidget/cpu_budget.h"
 #include "twidget/gesture_policy.h"
 #ifdef _WIN32
@@ -200,8 +201,12 @@ TEST(cpu_budget_shared_fixture) {
                 b.record(kind->asString(), step["cpuMs"].asNumber(), at);
             } else if (const Json* kill = step.find("kill")) {
                 CHECK_MSG(b.shouldKill(at) == kill->asBool(), where);
-            } else if (const Json* slice = step.find("queryBudget")) {
-                CHECK_MSG(CpuBudget::queryBudgetMs(slice->asNumber()) == step["expect"].asNumber(), where);
+            } else if (const Json* used = step.find("used")) {
+                double got = b.used(at);
+                CHECK_MSG(std::fabs(got - used->asNumber()) < 1e-9, where + " used " + std::to_string(got));
+            } else if (const Json* q = step.find("queries")) {
+                std::string want = step["expect"].isNull() ? "" : step["expect"].asString();
+                CHECK_MSG(std::string(CpuBudget::queryLimitHit(int((*q)[0].asNumber()), (*q)[1].asNumber())) == want, where);
             } else if (const Json* cost = step.find("opsCost")) {
                 costSteps++;
                 double got = CpuBudget::opsCostMs((*cost)[0].asNumber(), (*cost)[1].asNumber());
@@ -829,9 +834,9 @@ TEST(cpu_quota_throttles_greedy_timer) {
     CHECK_MSG(ticks < 12, std::to_string(ticks) + " ticks: " + r.logsText());
 }
 
-/// The layout-query budget (CpuBudget::queryBudgetMs): a forced-layout loop burns no JS
+/// The layout-query limit (CpuBudget::queryLimitHit): a forced-layout loop burns no JS
 /// CPU of its own but keeps the host answering queries; with a slow renderer (5 ms per
-/// answer) it is killed with the layout-query reason instead of holding the renderer.
+/// answer) it is killed past 128 answered queries instead of holding the renderer.
 /// The twin of QueryBudgetTests.swift and QueryBudgetTest.kt.
 TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     auto cfg = testConfig();
@@ -845,10 +850,25 @@ TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     auto l = r.host.lock();
     CHECK_MSG(r.host.died.has_value(), "alive after " + std::to_string(seconds) + " s, " + std::to_string(r.host.queries.size()) + " queries");
     CHECK_MSG(r.host.died && r.host.died->rfind("Layout query limit exceeded", 0) == 0, r.host.died.value_or("alive"));
-    // 100 ms whatever the slice (CpuBudget::kQueryBudgetMs), the boot task's included.
-    CHECK_MSG(r.host.died && r.host.died->find("more than 100 ms in one boot task") != std::string::npos, r.host.died.value_or("alive"));
+    // 128 answered queries whatever the slice (CpuBudget::kQueryLimit), the boot task's included.
+    CHECK_MSG(r.host.died && r.host.died->find("more than 128 layout queries in one boot task") != std::string::npos, r.host.died.value_or("alive"));
     CHECK_MSG(seconds < 5, std::to_string(seconds) + " s");
-    CHECK_MSG(r.host.queries.size() < 120, std::to_string(r.host.queries.size()) + " queries");
+    CHECK_MSG(int(r.host.queries.size()) == CpuBudget::kQueryLimit + 1, std::to_string(r.host.queries.size()) + " queries");
+}
+
+/// 30 ms per answer: the 1000 ms guard (CpuBudget::kQueryBudgetMs) fires at the 34th query, and a loop that ends on the
+/// error answers is stopped at the task's end all the same.
+TEST(layout_queries_holding_the_host_past_the_guard_stop_the_widget) {
+    auto cfg = testConfig();
+    cfg.cpuLimitMs = 200;
+    Run r("<div id=a></div><script>const a = document.getElementById('a'); for (let i = 0; i < 60; i++) { a.style.width = i + 'px'; a.offsetHeight; }</script>", cfg, false);
+    r.host.answer = [](const Json&) -> std::optional<std::string> { std::this_thread::sleep_for(std::chrono::milliseconds(30)); return std::nullopt; };
+    r.engine.start();
+    r.host.waitLoaded(10);
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.died && r.host.died->rfind("Layout query limit exceeded: host queries blocked the renderer for more than 1000 ms in one boot task", 0) == 0, r.host.died.value_or("alive"));
+    CHECK_MSG(r.host.queries.size() < 40, std::to_string(r.host.queries.size()) + " queries");
 }
 
 TEST(ordinary_layout_queries_keep_the_widget_alive) {
@@ -1106,7 +1126,7 @@ TEST(strict_limit_defaults) {
     CHECK(c.maxTimers == 64 && o.maxTimers == 64);
     CHECK(c.mainThreadQuotaMs == 100 && o.mainThreadQuotaMs == 100);
     CHECK(c.cpuQuotaMs == 300 && o.cpuQuotaMs == 300 && c.cpuQuotaWindowMs == 1000);
-    CHECK(CpuBudget::queryBudgetMs(500) == 100 && CpuBudget::queryBudgetMs(10) == 100);
+    CHECK(CpuBudget::kQueryLimit == 128 && CpuBudget::kQueryBudgetMs == 1000);
     CHECK(sdk::STORAGE_QUOTA_BYTES == 4096);
 }
 
@@ -1120,18 +1140,18 @@ TEST(default_timer_cap_throws_at_the_65th) {
     CHECK(!r.host.died);
 }
 
-/// The policy reaches the shim in the boot config: under strict a canvas takes 10 000 commands in one task and the next
+/// The policy reaches the shim in the boot config: under strict a canvas takes 4000 commands in one task and the next
 /// throws RangeError in the widget (the validator's per-send cap, so the host does not have to stop it); compat draws all.
 TEST(shim_refuses_canvas_commands_at_the_validators_cap) {
     const std::string html = "<canvas id=c></canvas><script>var x = document.getElementById('c').getContext('2d');"
-                             "try { for (var i = 0; i < 10001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
+                             "try { for (var i = 0; i < 4001; i++) x.fillRect(i, 0, 1, 1); console.log('drew all'); } catch (e) { console.log(e.name + ': ' + e.message); }</script>";
     Run strict(html);
     strict.barrier();
     {
         auto l = strict.host.lock();
-        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 10000 commands for one canvas in one task (max 10000)"), strict.logsText());
+        CHECK_MSG(strict.host.hasLog("RangeError: Canvas limit exceeded: more than 4000 commands for one canvas in one task (max 4000)"), strict.logsText());
         CHECK_MSG(!strict.host.died, strict.host.died.value_or(""));
-        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",9999,") != std::string::npos, "the 10 000 commands before it are drawn");
+        CHECK_MSG(strict.host.allRenderOps().find("[\"c\",\"fillRect\",3999,") != std::string::npos, "the 4000 commands before it are drawn");
     }
     SandboxConfig cfg = testConfig();
     cfg.policy = "compat";
@@ -1192,6 +1212,45 @@ TEST(text_over_the_cap_stops_the_widget) {
     CHECK(rendered.find("never") != std::string::npos);
 }
 
+/// The paint limit (docs/decisions.md "Heavy boxes"): a renderer that counts reports it with Renderer::limitExceeded,
+/// the host stops the widget like a counted cap (`dead` with the reason, the diagnostic, the renderer frozen); the
+/// renderer learns the policy first; compat ignores the report, and a malformed one is a renderer violation.
+TEST(paint_limit_stops_the_widget) {
+    CHECK(paintLimitMessage(WidgetPaintLimit::Paint, 17) == "Paint limit exceeded: 17 boxes with shadows, filters or transparency (max 16)");
+    CHECK(paintLimitMessage(WidgetPaintLimit::Backdrop, 3) == "Paint limit exceeded: 3 boxes with backdrop-filter (max 2)");
+    CHECK(paintLimitFromCode("backdrop-limit") == WidgetPaintLimit::Backdrop && !paintLimitFromCode("render-budget"));
+    const std::string html = "<p id=p>x</p><script>setInterval(function () { document.getElementById('p').textContent += '.'; }, 20);</script>";
+    for (WidgetPaintLimit code : {WidgetPaintLimit::Paint, WidgetPaintLimit::Backdrop}) {
+        ScriptedRenderer* renderer = nullptr;
+        WidgetHost host(html, WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+        host.start();
+        CHECK(host.waitLoaded(20));
+        std::vector<Json> policy = renderer->sent("policy");
+        CHECK_MSG(policy.size() == 1 && policy[0]["policy"].asString() == "strict", std::to_string(policy.size()) + " policy messages");
+        int count = code == WidgetPaintLimit::Paint ? 17 : 3;
+        renderer->limitExceeded(code, count);
+        CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.dead.has_value(); }, 5));
+        WidgetDiagnostics d = host.diagnostics();
+        CHECK_MSG(d.dead == std::optional<std::string>(paintLimitMessage(code, count)), d.dead.value_or("alive"));
+        CHECK(d.countDiag(paintLimitCode(code)) == 1);
+        CHECK(renderer->sent("frozen").size() == 1);
+        CHECK(host.probe("1") == "ERROR no runtime");
+    }
+    WidgetHostOptions compat;
+    compat.policy = "compat";
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host(html, WidgetTheme{}, 300, compat, RES, scripted(renderer));
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK(renderer->sent("policy").size() == 1 && renderer->sent("policy")[0]["policy"].asString() == "compat");
+    renderer->limitExceeded(WidgetPaintLimit::Paint, 40);
+    renderer->onMessage("{\"type\":\"limit\",\"code\":\"paint-limit\"}");
+    sleepMs(150);
+    WidgetDiagnostics d = host.diagnostics();
+    CHECK_MSG(!d.dead, d.dead.value_or(""));
+    CHECK(d.countDiag("renderer-violation") == 1);
+}
+
 /// The main-thread window (mainThreadQuotaMs): the modelled cost of what a task sent (25 µs per op, 2 µs per canvas
 /// command) plus its layout queries, apart from the JS quota. Past it frames are deferred and `cpu-throttled` names the
 /// main-thread budget; with the default 100 ms the same frames all run. The canvas widget sends one op per frame, so
@@ -1228,6 +1287,56 @@ TEST(main_thread_window_defers_frames) {
         CHECK_MSG(frames < 3, std::string(which) + ": " + std::to_string(frames) + " frames under a 2 ms window");
         CHECK_MSG(throttled.find("main-thread budget used by layout queries and ops") != std::string::npos, std::string(which) + ": " + throttled);
     }
+}
+
+/// The validator's time counts against the JS quota (docs/decisions.md, "The validator's time counts"): a charge from
+/// another thread is recorded on the engine thread, shows in the stats and defers the widget's timers like its own JS
+/// time would. The twin of ValidatorTimeTests.swift and ValidatorCpuTest.kt.
+TEST(validator_time_counts_against_the_js_quota) {
+    auto ticksIn = [](double charge, double& validatorMs, std::string& throttled) {
+        SandboxConfig cfg = testConfig();
+        cfg.cpuQuotaMs = 100;
+        Run r("<script>var ticks = 0; setInterval(function () { ticks++; }, 20);</script>", cfg);
+        int before = std::atoi(r.engine.probe("ticks").c_str());
+        if (charge > 0) std::thread([&] { r.engine.chargeValidator(charge); }).join();
+        sleepMs(600);
+        r.barrier();
+        int ticks = std::atoi(r.engine.probe("ticks").c_str()) - before;
+        sleepMs(250); // the trailing stats report
+        auto l = r.host.lock();
+        CHECK_MSG(!r.host.died, r.host.died.value_or(""));
+        validatorMs = r.host.stats.validatorMs;
+        throttled.clear();
+        for (auto& [k, d] : r.host.diags) if (k == "cpu-throttled") throttled += d + "\n";
+        return ticks;
+    };
+    double validatorMs = 0;
+    std::string throttled;
+    int free = ticksIn(0, validatorMs, throttled);
+    CHECK_MSG(free > 10 && validatorMs == 0 && throttled.empty(), std::to_string(free) + " ticks, " + std::to_string(validatorMs) + " ms; " + throttled);
+    int charged = ticksIn(300, validatorMs, throttled);
+    CHECK_MSG(charged < 3, std::to_string(charged) + " ticks after 300 ms of validation against a 100 ms quota");
+    CHECK_MSG(validatorMs == 300, std::to_string(validatorMs));
+    CHECK_MSG(throttled.find("ms per 1000 ms budget used") != std::string::npos, throttled);
+}
+
+/// WidgetHost measures the validator's CPU time on its thread and charges it to the widget: a batch of style ops that
+/// css-tree has to parse shows up in `stats.validatorMs`.
+TEST(widget_host_charges_the_validators_time) {
+    ScriptedRenderer* renderer = nullptr;
+    WidgetHost host("<div id=d></div><script>var d = document.getElementById('d');"
+                    "for (var i = 0; i < 300; i++) d.style.setProperty('--v' + (i % 7), 'var(--x, ' + i + 'px) calc(' + i + 'px + 1em)');"
+                    "TelegramWidget.ready();</script>",
+                    WidgetTheme(), 300, WidgetHostOptions(), RES, scripted(renderer));
+    host.start();
+    CHECK(host.waitLoaded(20));
+    double validatorMs = 0;
+    for (int i = 0; i < 100 && validatorMs <= 0; i++) {
+        sleepMs(20);
+        validatorMs = host.diagnostics().stats.validatorMs;
+    }
+    CHECK_MSG(validatorMs > 0, std::to_string(validatorMs));
+    CHECK_MSG(validatorMs < 2000, std::to_string(validatorMs));
 }
 
 /// Any pointerdown begins a press, trusted or not: a second finger's is neither trusted (it may become the chat's scroll)
@@ -2698,6 +2807,88 @@ TEST(shipped_bytecode_is_used_and_no_library_is_bundled) {
     std::vector<std::pair<std::string, std::string>> diags;
     TrustedValidator v("light", RES, [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
     for (auto& d : diags) CHECK_MSG(d.first != "bytecode", d.second);
+}
+
+// ───────────── VERSION.json's stamp on the bundles (bundle_stamp.h) ─────────────
+
+/// `source` with its first line replaced by `line` (empty: removed).
+static std::string restamped(const std::string& source, const std::string& line) {
+    size_t nl = source.find('\n');
+    std::string rest = nl == std::string::npos ? "" : source.substr(nl + 1);
+    return line.empty() ? rest : line + "\n" + rest;
+}
+
+static std::shared_ptr<SandboxResources> resourcesWith(const char* which, const std::string& line) {
+    auto res = std::make_shared<SandboxResources>(*RES);
+    std::string& bundle = std::string(which) == "sandbox" ? res->sandboxBundle : std::string(which) == "validator" ? res->validatorBundle : res->rendererBundle;
+    bundle = restamped(bundle, line);
+    return res;
+}
+
+TEST(bundle_stamp_shipped_and_parsed) {
+    auto mine = BundleStamp::glue();
+    CHECK_MSG(!BundleStamp::refusal(*RES), BundleStamp::refusal(*RES).value_or(""));
+    for (const std::string* source : {&RES->sandboxBundle, &RES->validatorBundle, &RES->rendererBundle}) {
+        auto stamp = BundleStamp::parse(*source);
+        CHECK_MSG(stamp && *stamp == mine, "a shipped bundle is not this release's; run pnpm build:desktop: " + source->substr(0, 80));
+    }
+    CHECK(sdk::PROFILE_VERSION == version::PROFILE);
+    auto parsed = BundleStamp::parse("/* widget-sandbox version=1.2.3-rc.1 protocol=7 profile=2 sdk=3 later=x */\n\"use strict\";");
+    CHECK(parsed && *parsed == (BundleStamp{"1.2.3-rc.1", 7, 2, 3}));
+    CHECK(BundleStamp::parse(mine.line()) == mine);
+    for (const char* line : {
+             "\"use strict\";(()=>{", "/* widget-sandbox */", "/* widget-sandbox version=0.6.0 protocol=1 profile=1 */",
+             "/* widget-sandbox version=0.6.0 protocol=x profile=1 sdk=1 */", "/* widget-sandbox version=0.6.0 protocol=-1 profile=1 sdk=1 */",
+             "/* widget-sandbox version= protocol=1 profile=1 sdk=1 */", "/* widget-sandbox version=0.6.0  protocol=1 profile=1 sdk=1 */",
+             "/* widget-sandbox version=0.6.0 protocol=1 profile=1 sdk=1", "\n/* widget-sandbox version=0.6.0 protocol=1 profile=1 sdk=1 */",
+             "/* widget-sandbox version=0.6.0 protocol=1234567 profile=1 sdk=1 */"}) {
+        CHECK_MSG(!BundleStamp::parse(line), line);
+    }
+    CHECK_MSG(!BundleStamp::refusal(BundleStamp{"0.0.1", mine.protocol, mine.profile, mine.sdk}.line(), "x.js"), "another release with the same numbers runs");
+    auto other = BundleStamp::refusal(BundleStamp{"9.9.9", mine.protocol + 1, mine.profile, mine.sdk}.line(), "sandbox-bundle.js").value_or("");
+    CHECK_MSG(other.rfind("sandbox-bundle.js is widget-sandbox 9.9.9 (protocol " + std::to_string(mine.protocol + 1) + ",", 0) == 0, other);
+    CHECK_MSG(other.find("this glue is " + mine.describe()) != std::string::npos, other);
+    CHECK(BundleStamp::refusal(BundleStamp{"9.9.9", mine.protocol, mine.profile + 1, mine.sdk}.line(), "x.js"));
+    CHECK(BundleStamp::refusal(BundleStamp{"9.9.9", mine.protocol, mine.profile, mine.sdk + 1}.line(), "x.js"));
+    auto none = BundleStamp::refusal("\"use strict\";", "validator-bundle.js").value_or("");
+    CHECK_MSG(none.rfind("validator-bundle.js has no version stamp", 0) == 0, none);
+    CHECK(BundleStamp::refusal(*resourcesWith("renderer", BundleStamp{"9.9.9", mine.protocol, mine.profile, 99}.line())).value_or("").rfind("renderer-bundle.js is ", 0) == 0);
+}
+
+/// Bundles of another release: the engine dies at boot with `bundle-mismatch` before any widget code runs, and the
+/// validator loads no bundle (every call answers empty).
+TEST(bundle_stamp_engine_and_validator_refuse_another_release) {
+    auto mine = BundleStamp::glue();
+    std::vector<std::pair<const char*, std::string>> cases = {
+        {"sandbox", BundleStamp{"9.9.9", mine.protocol + 1, mine.profile, mine.sdk}.line()},
+        {"sandbox", ""},
+        {"validator", BundleStamp{"9.9.9", mine.protocol, mine.profile + 1, mine.sdk}.line()},
+        {"renderer", BundleStamp{"9.9.9", mine.protocol, mine.profile, mine.sdk + 1}.line()},
+    };
+    for (auto& [which, line] : cases) {
+        auto res = resourcesWith(which, line);
+        std::string refusal = BundleStamp::refusal(*res).value_or("");
+        CHECK(!refusal.empty());
+        RecordingHost host("light", res, false);
+        SandboxConfig cfg = testConfig();
+        SandboxEngine engine("<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>", cfg, res);
+        engine.setDelegate(&host);
+        engine.start();
+        CHECK(host.waitLoaded(20));
+        engine.thread().sync([] {});
+        auto l = host.lock();
+        CHECK_MSG(host.died == std::optional<std::string>("sandbox bundle failed to load"), std::string(which) + ": " + host.died.value_or("alive"));
+        int mismatches = 0;
+        for (auto& d : host.diags) if (d.first == "bundle-mismatch") { mismatches++; CHECK_MSG(d.second == refusal, d.second); }
+        CHECK_MSG(mismatches == 1, which);
+        CHECK_MSG(host.countDiag("validator:bundle-mismatch") == 1, which);
+        CHECK(!host.hasLog("widget ran"));
+        CHECK(host.ops.empty());
+    }
+    std::vector<std::pair<std::string, std::string>> diags;
+    TrustedValidator v("light", resourcesWith("validator", ""), [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
+    CHECK(v.processOps("[{\"op\":\"el\",\"id\":2,\"tag\":\"p\"}]") == "[]");
+    CHECK_MSG(!diags.empty() && diags[0].first == "bundle-mismatch", diags.empty() ? "none" : diags[0].first);
 }
 
 TEST(validator_diag_bridge) {

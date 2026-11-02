@@ -156,7 +156,7 @@ stylesheets, fonts and images are never loaded. The full list, generated
 from the profile:
 
 <!-- profile:summary -->
-*Generated from `packages/core/profile.json` (profile 1): 277 features, 199 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
+*Generated from `packages/core/profile.json` (profile 1): 279 features, 201 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
 
 - **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> (any non-data: URL) · Form controls: form, input, select, option, optgroup, textarea, label, fieldset, legend, datalist, output · progress, meter · dialog, popover attribute · audio, video, source, track · script, iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, … · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
@@ -168,7 +168,7 @@ from the profile:
 - **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open, form submission · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
 - **TelegramWidget (SDK v1)** (17 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
-- **Limits** (19 in, 0 out)
+- **Limits** (21 in, 0 out)
 - **Client behaviour** (17 in, 0 out)
 <!-- /profile:summary -->
 
@@ -303,16 +303,17 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   Storage and the widget's state survive: keep the user's own choices in
   `localStorage`; what the whole chat sees (a board, the votes) belongs in the
   chat state, which the bot writes.
-- CPU: a budget of 300 ms per second (timers and frames wait beyond it). The
-  first run may take up to 500 ms; every later task runs within what is left of
-  the second's 300 ms (an event gets at least 50 ms), and one that runs past
-  its share stops the widget. Layout reads may hold one task 100 ms at most, and
-  what the widget costs the client's main thread (its layout reads plus about
-  25 µs per DOM change it sends) is capped at 100 ms per second: past it timers
-  and frames wait. 8 MB of memory; 64 live timers (`RangeError` past it);
-  50 000 nodes; one text value 32 K characters, the document's text 48 K, an
-  attribute 8 K; 10 000 DOM changes in one task; 400 CSS rules and 32
-  `@keyframes`; 10 000 canvas commands per canvas in one task (the next throws
+- CPU: a budget of 300 ms per second (timers and frames wait beyond it). One
+  task may run up to 500 ms, the first run included; one that runs longer stops
+  the widget. A task that runs past the second's 300 ms finishes, and what it
+  spent past it makes the next timers and frames wait longer. One task may make
+  128 layout reads (and their time is at most 1000 ms), and what the widget costs the client's main
+  thread (its layout reads plus about 25 µs per DOM change it sends) is capped
+  at 100 ms per second: past it timers and frames wait. 8 MB of memory; 64 live
+  timers (`RangeError` past it);
+  2000 nodes (elements, text, comments); one text value 32 K characters, the document's text 48 K, an
+  attribute 8 K; 10 000 element method calls (`scrollTo`, …) in one task; 400 CSS rules and 32
+  `@keyframes`; 4000 canvas commands per canvas in one task (the next throws
   `RangeError`); 64 running script animations; 2048 × 2048 pixels for all of
   a widget's canvases together (a canvas is 300 × 150 until you size it). Past a
   count or size limit the widget stops, as past the CPU or memory limit: a
@@ -320,6 +321,15 @@ TelegramWidget.isForward; TelegramWidget.viewer; TelegramWidget.chatType; // a f
   badge.
 - A `data:` image: PNG, JPEG, GIF or WebP of at most 1024 × 1024 pixels (larger:
   the placeholder); other bytes behind an image type are a broken image.
+- Paint: at most 16 elements at once with a blurred shadow, a `filter`, a
+  `backdrop-filter` or transparency (`opacity` below 1), animated ones included
+  (a `::before` / `::after` counts as an element of its own), and of them at most
+  2 with `backdrop-filter`; past it the widget stops (`Paint limit exceeded`).
+  Mute text and small details with colour (`--tg-theme-hint-color`, `rgba()`,
+  `fill-opacity` / `stroke-opacity` in SVG), not `opacity`: it looks the same and
+  costs nothing. A shadow without blur (a ring, an inset border), an element
+  under `display: none` and the dimming of a disabled or pressed `<button>`
+  (its `opacity`) do not count.
 - Keep the first render synchronous and fast; animate with
   `requestAnimationFrame`, never read layout in every frame.
 
@@ -374,7 +384,9 @@ The names a bot uses; the whole mapping and what the beta does are in
   `--public-data` the rest, `--answer '{"result":"ok"}'` (or `--answer-error
   TIMEOUT`) answers every request, `--set-data '{…}'` is the bot's edit of the state, `--offscreen`
   starts the widget off screen and then shows it, as Telegram's clients do; a `request`
-  line per request says whether it went out and what came back.
+  line per request says whether it went out and what came back. With `--width` a
+  `paint:` line counts the elements with a blurred shadow, a filter or transparency
+  (16 at most; a warning past 12).
 - **The dev app** (`corepack pnpm dev`): drop the file, pick a width (200–600 or
   free), toggle dark, and use the mouse as a finger (`gestures: phone`, the
   default): the bubble takes holds and swipes as a phone does and says so over
@@ -603,17 +615,22 @@ STORAGE, LIFECYCLE, LIMITS
 - The widget can be destroyed and recreated at any time: restore from
   localStorage and the state on load, and draw the first frame synchronously.
 - Off screen: document.hidden, no animation frames, timers at most 1 Hz.
-- CPU: 300 ms per second (timers and frames wait beyond it); the first run
-  may take 500 ms, a later task what is left of the 300 ms (at least 50 ms).
-  Layout reads may hold one task 100 ms; they plus about 25 µs per DOM change
+- CPU: 300 ms per second (timers and frames wait beyond it, longer after a
+  task that ran past it); one task may take 500 ms, longer stops the widget.
+  At most 128 layout reads in one task; they plus about 25 µs per DOM change
   cost the client at most 100 ms per second (frames wait beyond it).
-- Memory 8 MB; 64 live timers and 10 000 canvas commands per canvas per task
-  (RangeError past them); 50 000 nodes; one text value 32 K characters, all
-  text 48 K, an attribute 8 K; 10 000 DOM changes per task; 400 CSS rules, 32
+- Memory 8 MB; 64 live timers and 4000 canvas commands per canvas per task
+  (RangeError past them); 2000 nodes; one text value 32 K characters, all
+  text 48 K, an attribute 8 K; 10 000 element method calls per task; 400 CSS rules, 32
   @keyframes; 64 script animations; 2048 x 2048 canvas pixels together; a
   data: image at most 1024 x 1024 pixels (larger: a placeholder). Past the
   others, or the CPU or memory limit, the widget stops on its last frame
   ("Widget stopped").
+- At most 16 elements at once with a blurred box-shadow, filter,
+  backdrop-filter or opacity below 1 (animated ones and ::before/::after
+  too), 2 with backdrop-filter; past it the widget stops. Mute with colour
+  (var(--tg-theme-hint-color), rgba(), fill-opacity), never opacity; a shadow
+  without blur is free.
 - Animate with CSS or requestAnimationFrame; change only what moved, do not
   rebuild the DOM every frame.
 

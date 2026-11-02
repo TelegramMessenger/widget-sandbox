@@ -44,10 +44,19 @@ final class QueryBudgetTests: XCTestCase {
         let (engine, host) = run("const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }", delay: 0.005, wait: 10)
         let died = engine.queue.sync { host.died }
         XCTAssertTrue(died?.hasPrefix("Layout query limit exceeded") ?? false, died ?? "alive")
-        // 100 ms whatever the slice (the boot task here has 200 ms of CPU).
-        XCTAssertTrue(died?.contains("more than 100 ms in one boot task") ?? false, died ?? "alive")
+        // 128 answered queries whatever the slice (the boot task here has 200 ms of CPU); 129 × 5 ms stays under the 1000 ms guard.
+        XCTAssertTrue(died?.contains("more than 128 layout queries in one boot task") ?? false, died ?? "alive")
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
-        XCTAssertLessThan(engine.queue.sync { host.queries }, 120)
+        XCTAssertEqual(engine.queue.sync { host.queries }, CpuBudget.queryLimit + 1)
+        engine.terminate()
+    }
+
+    func testQueriesThatHoldTheHostPastTheGuardStopTheWidget() {
+        // 30 ms per answer: the time guard (1000 ms) fires at the 34th query, and the loop that ends on the error answers is stopped at the task's end.
+        let (engine, host) = run("const a = document.getElementById('a'); for (let i = 0; i < 60; i++) { a.style.width = i + 'px'; a.offsetHeight; }", delay: 0.03, wait: 10)
+        let died = engine.queue.sync { host.died }
+        XCTAssertTrue(died?.hasPrefix("Layout query limit exceeded: host queries blocked the renderer for more than 1000 ms in one boot task") ?? false, died ?? "alive")
+        XCTAssertLessThan(engine.queue.sync { host.queries }, 40)
         engine.terminate()
     }
 

@@ -34,6 +34,11 @@ interface Mirror {
 let nextId = DOCUMENT_ID + 1;
 const byId = new Map<number, any>();
 const mirror = new Map<number, Mirror>();
+/**
+ * Nodes that left their parent for another one in the document whose sync has not run yet: their mirror parent (and the
+ * validator's) stays the old one until that insert, so an old ancestor of one must not be removed before it.
+ */
+const strays = new Set<number>();
 let generation = 0;
 /**
  * Bumped by the mutations that can change which elements a live collection holds: an element
@@ -43,6 +48,14 @@ let generation = 0;
 export const domGeneration = (): number => generation;
 const dirty = new Set<any>();
 let ops: any[] | OpWriter = [];
+/**
+ * Ops after which a long flush hands what it has to the glue between two nodes: a document built in one task (2000
+ * elements, ~4000 ops) stopped at the 8 MB heap on a 64-bit host while it held ~4.4 MB, its op buffer and JSON being the
+ * boot's peak, not the document (the client teams' stress-kit runs, 2026-11).
+ */
+const PARTIAL_BATCH_OPS = 1000;
+/** Ops handed to the glue by `sendIfLarge` so far: the full walk counts what it found across them. */
+let partialSent = 0;
 
 /** Switch the op stream to binary records (`binaryOps` feature); a no-op unless the glue installed `__hostOps`. */
 export function enableBinaryOps(on: boolean) {
@@ -203,8 +216,10 @@ function createNode(node: any): number {
       const known = c[ID];
       const cid = known !== undefined && mirror.has(known) ? known : createNode(c);
       mirror.get(cid)!.parent = id;
+      strays.delete(cid);
       m.kids.push(cid);
       ops.push({ op: 'ins', parent: id, id: cid, before: null });
+      sendIfLarge();
     }
   } else {
     const data = String(node.data ?? '');
@@ -219,9 +234,29 @@ export function ensureCreated(node: any): number {
   return mirroredId(node) || createNode(node);
 }
 
+/** Has a node under `id` in the mirror moved to another parent since the last sync (into the document or a new subtree)? */
+function holdsMoved(id: number): boolean {
+  const node = byId.get(id);
+  for (const k of mirror.get(id)?.kids ?? []) {
+    if (mirror.get(k)?.parent !== id) continue;
+    if (byId.get(k)?.parentNode !== node || holdsMoved(k)) return true;
+  }
+  return false;
+}
+
+/** Is a stray still under `id` by the mirror's parents (bounded: a parent written mid-flush may close a loop)? */
+function strayUnder(id: number): boolean {
+  for (const s of strays) {
+    let p = mirror.get(s)?.parent;
+    for (let n = 0; p && n < mirror.size; n++, p = mirror.get(p)?.parent) if (p === id) return true;
+  }
+  return false;
+}
+
 function purge(id: number) {
   const m = mirror.get(id);
   if (!m) return;
+  strays.delete(id);
   mirror.delete(id);
   byId.delete(id);
   for (const k of m.kids) if (mirror.get(k)?.parent === id) purge(k);
@@ -382,32 +417,56 @@ function syncChildren(node: any, id: number, m: Mirror) {
     if (!c && i === m.kids.length) return;
     if (m.kids.length === 1 && reuseSoleText(node, id, m.kids[0])) return;
   }
+  // One pass over the children: the known ones' ids, 0 where a node is still to be created (after the removals below).
+  const children: any[] = [];
   const live: number[] = [];
-  const added: any[] = [];
+  const liveSet = new Set<number>();
   for (const c of childrenOf(node)) {
-    let cid = c[ID];
-    if (cid === undefined || !mirror.has(cid)) {
-      cid = createNode(c);
-      added.push(c);
-    }
-    live.push(cid);
+    const cid = c[ID];
+    const known = cid !== undefined && mirror.has(cid) ? cid : 0;
+    children.push(c);
+    live.push(known);
+    if (known) liveSet.add(known);
   }
-  const liveSet = new Set(live);
   const old = m.kids.filter((k) => mirror.get(k)?.parent === id);
   const kept: number[] = [];
-  const removed: any[] = [];
+  const gone: [number, any, boolean][] = [];
   for (const k of old) {
     if (liveSet.has(k)) {
       kept.push(k);
       continue;
     }
     const kn = byId.get(k);
-    removed.push(kn);
-    // Still in the document → it moved; its new parent emits the insert.
-    if (!kn || !kn.isConnected) {
+    // Removed for good (no new parent, nothing under it moved away): its rm goes before the new children are created, so
+    // a subtree replaced in one task (innerHTML, replaceChildren) never has the validator hold the old and the new text
+    // together (the complex-script budget drops what passes it). Anything else keeps the order below.
+    const early = !!kn && kn.parentNode === null && !holdsMoved(k) && !strayUnder(k);
+    if (early) {
       ops.push({ op: 'rm', id: k });
       purge(k);
     }
+    gone.push([k, kn, early]);
+  }
+  const added: any[] = [];
+  for (let i = 0; i < live.length; i++) {
+    if (live[i] && mirror.has(live[i])) continue;
+    live[i] = createNode(children[i]);
+    added.push(children[i]);
+    sendIfLarge();
+  }
+  const removed: any[] = [];
+  for (const [k, kn, early] of gone) {
+    if (!early) {
+      // Taken into one of the new children above: not removed.
+      if (mirror.get(k)?.parent !== id) continue;
+      // Still in the document → it moved; its new parent emits the insert.
+      if (!kn || !kn.isConnected) {
+        ops.push({ op: 'rm', id: k });
+        purge(k);
+        sendIfLarge();
+      } else strays.add(k);
+    }
+    removed.push(kn);
   }
   let j = kept.length - 1;
   const moved = new Set<number>();
@@ -422,6 +481,8 @@ function syncChildren(node: any, id: number, m: Mirror) {
       if (cm.parent === id) moved.add(cid);
       else if (cm.parent !== 0 && !added.includes(byId.get(cid))) added.push(byId.get(cid));
       cm.parent = id;
+      strays.delete(cid);
+      sendIfLarge();
     }
     before = cid;
   }
@@ -455,6 +516,7 @@ function syncNode(node: any) {
 
 function walkAll(node: any) {
   syncNode(node);
+  sendIfLarge();
   for (const c of childrenOf(node)) walkAll(c);
 }
 
@@ -487,12 +549,12 @@ function flushNow(full: boolean): void {
   for (let i = 0; i < 8 && dirty.size; i++) {
     const batch = [...dirty];
     dirty.clear();
-    for (const node of batch) if (node) syncNode(node);
+    for (const node of batch) if (node) { syncNode(node); sendIfLarge(); }
   }
   if (full) {
-    const before = ops.length;
+    const before = partialSent + ops.length;
     walkAll(document);
-    counters.missed += ops.length - before;
+    counters.missed += partialSent + ops.length - before;
     dirty.clear();
   }
   for (const o of postOps) {
@@ -526,6 +588,25 @@ function send() {
   const json = stringifyOps(batch);
   sendStagedCanvas();
   host('ops', json);
+}
+
+/**
+ * Between two nodes of a flush: once the buffer holds `PARTIAL_BATCH_OPS`, hand it to the glue, so the op buffer and its
+ * JSON never hold a whole large document. Only DOM ops go: the method calls, canvases and animations of the flush follow
+ * in its last batch, as before, and the staged canvas payloads stay with it.
+ */
+function sendIfLarge() {
+  if (ops.length < PARTIAL_BATCH_OPS) return;
+  partialSent += ops.length;
+  if (ops instanceof OpWriter) {
+    invalidateLayout(ops.boxNeutral);
+    ops.flush();
+    return;
+  }
+  const batch = ops;
+  ops = [];
+  invalidateLayout(batch.every(boxNeutral));
+  host('ops', stringifyOps(batch));
 }
 
 /** End-of-task flush, with the periodic full walk as a safety net. */

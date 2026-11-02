@@ -6,6 +6,17 @@ import { runWidget } from '../../scripts/sandbox-node.ts';
 const corpus = new URL('../../../../corpus/showcase/3d/', import.meta.url);
 const files = fs.readdirSync(corpus).filter(file => file.endsWith('.html')).sort();
 const state = 'JSON.stringify({yaw,pitch,zoom,variant,drag})';
+/** The frame budget (corpus/showcase/3d/README.md): at most 2000 canvas commands a frame in every state. */
+const FRAME_COMMANDS = 2000;
+/** Each widget's elevation range (the cat's mouse pitch included) and model count. */
+const ranges: Record<string, { pitch: number[]; variants: number }> = {
+  '01-robot.html': { pitch: [-.15, .4, .95], variants: 3 },
+  '02-camera.html': { pitch: [-.15, .4, .95], variants: 2 },
+  '03-orbits.html': { pitch: [-.8, 0, .8], variants: 2 },
+  '04-island.html': { pitch: [-.15, .4, .95], variants: 3 },
+  '05-molecules.html': { pitch: [-.15, .4, .95], variants: 3 },
+  '06-cat.html': { pitch: [-1.3, -.6, 0, .6, 1.3], variants: 2 },
+};
 
 describe('projected 3D showcase widgets', () => {
   it('contains exactly six self-contained widgets', () => {
@@ -31,6 +42,34 @@ describe('projected 3D showcase widgets', () => {
         assert.ok(result.canvasWordBatches > 0);
         assert.equal(result.timers, 0);
       }
+    });
+
+    it(`${file}: draws at most ${FRAME_COMMANDS} canvas commands a frame in every state (strict)`, async () => {
+      // Every model, elevation (the cat's full mouse pitch), both zoom bounds and the whole orbit, in both themes and
+      // at 200, 360 and 600 px; each state is set and drawn directly, one frame (one canvas op) per probe.
+      const { pitch, variants } = ranges[file];
+      let worst = 0;
+      for (const [theme, width, yawSteps] of [['light', 360, 8], ['dark', 200, 4], ['light', 600, 4]] as const) {
+        const height = width <= 260 ? 190 : 240;
+        const states: string[] = [];
+        for (let variant = 0; variant < variants; variant++) for (const zoom of [.7, 1.3]) for (const p of pitch)
+          for (let i = 0; i < yawSteps; i++) states.push(`yaw=${(-Math.PI + i * 2 * Math.PI / yawSteps).toFixed(4)},pitch=${p},zoom=${zoom},variant=${variant}`);
+        for (let start = 0; start < states.length; start += 40) {
+          const part = states.slice(start, start + 40);
+          const result = await runWidget(html, { policy: 'strict', theme, width, timerRounds: 1,
+            answer: query => query.q === 'rect' ? { x: 0, y: 0, width, height, top: 0, left: 0, right: width, bottom: height }
+              : query.q === 'matchMedia' ? { matches: theme === 'dark' } : undefined,
+            script: part.map(expression => ({ probe: `(${expression},draw(),0)` })) });
+          assert.equal(result.stopped, undefined);
+          assert.deepEqual(result.diags, []);
+          assert.deepEqual(result.logs.filter(log => log.level === 'error'), []);
+          assert.deepEqual(result.probes, part.map(() => '0'));
+          const frames = result.renderOps.flatMap(op => op.op === 'canvas' ? [op.cmds.length] : []);
+          assert.equal(frames.length, part.length + 1);
+          worst = Math.max(worst, ...frames);
+        }
+      }
+      assert.ok(worst <= FRAME_COMMANDS, `${worst} canvas commands in one frame`);
     });
 
     it(`${file}: redraws without querying the host's media state`, async () => {

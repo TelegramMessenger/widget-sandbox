@@ -37,7 +37,9 @@ first lines still describe the question as it was asked.
 
 ## The widgets
 
-Sizes as the server counts them (zlib -9, limit 4096 B); heights at a 320 px wide bubble.
+Sizes as the server counts them (zlib -9, limit 4096 B); heights at a 320 px wide bubble. Since v0.6.0 (the heavy-box
+paint limit, `docs/decisions.md` "Heavy boxes") 08 mutes the wheel's other numbers with `--tg-theme-hint-color` and
+07 the bars outside the range with a grey, where both had `opacity` (34 and 18 boxes past the limit of 16).
 
 | File | `touch-action` | What it is | Try | Size | Height |
 |---|---|---|---|---|---|
@@ -46,11 +48,11 @@ Sizes as the server counts them (zlib -9, limit 4096 B); heights at a 320 px wid
 | `1-pairs/02-joystick-x.html` | `pan-y` | the same game | the same; then start sideways and steer up | 1887 B | 435 px |
 | `1-pairs/03-2048-xy.html` | `none` | 2048: swipe in four directions, equal tiles merge; score, best and the game are kept | play a few moves | 2478 B | 404 px |
 | `1-pairs/04-2048-x.html` | `pan-y` | the same game | swipe up or down | 2490 B | 404 px |
-| `3-vertical/08-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2202 B | 294 px |
+| `3-vertical/08-wheel-picker-y.html` | `pan-x` | an alarm time picker: hour and minute wheels with momentum and snap | spin, flick, tap a number; start sideways | 2198 B | 294 px |
 | **Fine with horizontal only** | | | | | |
 | `2-horizontal/05-paddle-x.html` | `pan-y` | Brick breaker: slide anywhere to move the paddle, tap to serve | play it | 2073 B | 353 px |
 | `2-horizontal/06-card-carousel-x.html` | `pan-y` | trips on cards with peeking neighbours, flick, snap, dots | swipe and flick, tap a card, drag up over a card | 2063 B | 310 px |
-| `2-horizontal/07-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2009 B | 274 px |
+| `2-horizontal/07-range-slider-x.html` | `pan-y` | a two-thumb price filter from divs, with a histogram and haptic steps | slide either thumb, press the track; start a drag up on the track | 2016 B | 274 px |
 
 ## What the rule changed
 

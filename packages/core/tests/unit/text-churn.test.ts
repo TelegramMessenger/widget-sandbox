@@ -14,6 +14,7 @@ function rig(policy: 'compat' | 'strict' = 'strict') {
   let now = 1000;
   v.setClock(() => now);
   v.processOps(BASE);
+  v.markLoaded();
   return { v, diags, advance: (s: number) => { now += s; } };
 }
 

@@ -75,6 +75,8 @@ public struct SandboxStats {
     public var jsMs = 0.0, tasks = 0, memoryBytes = 0, ops = 0, queries = 0, queryMs = 0.0, queryCacheHits = 0, missedMutations = 0
     /// Tasks deferred by the CPU quota; JS time used in the current quota window at the time of the report.
     public var throttledTasks = 0, cpuWindowMs = 0.0
+    /// The validator's CPU time on this widget's messages (`chargeValidator`), charged to the JS quota next to `jsMs`.
+    public var validatorMs = 0.0
 }
 
 /// All delegate calls happen on the engine's queue, never on the main thread.
@@ -218,9 +220,11 @@ public final class SandboxEngine {
     /// JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms.
     private var excludeMs = 0.0
     private var taskQueryMs = 0.0
+    private var taskQueries = 0
     /// Modelled main-thread cost of the ops this task sent (`CpuBudget.opsCostMs`).
     private var taskOpsCostMs = 0.0
-    private var queryLimitHit = false
+    /// `"count"` / `"time"` once this task is past its layout-query limit (`CpuBudget.queryLimitHit`).
+    private var queryLimitHit: String?
     private var lastThrottleDiag = -Double.infinity
     private var throttledSinceDiag: [String: Int] = [:]
     private static func nowMs() -> Double { CACurrentMediaTime() * 1000 }
@@ -1003,7 +1007,7 @@ public final class SandboxEngine {
     private func syncQuery(_ json: String) -> String {
         guard let delegate else { return "{\"error\":\"no host\"}" }
         let t0 = CACurrentMediaTime()
-        if queryLimitHit {
+        if queryLimitHit != nil {
             return "{\"error\":\"query budget exceeded\"}"
         }
         let (answer, binary) = delegate.engine(self, query: json)
@@ -1012,9 +1016,10 @@ public final class SandboxEngine {
         stats.queries += 1
         stats.queryMs += dt * 1000
         taskQueryMs += dt * 1000
-        if taskQueryMs > CpuBudget.queryBudgetMs(sliceMs: currentSliceMs) {
-            // The host answered every query, but this task has held the renderer for longer than it may: interrupt it at the next poll.
-            queryLimitHit = true
+        taskQueries += 1
+        queryLimitHit = CpuBudget.queryLimitHit(queries: taskQueries, queryMs: taskQueryMs)
+        if queryLimitHit != nil {
+            // The host answered every query, but this task has asked too many or held the renderer too long: interrupt it at the next poll.
             js.cpuDeadline = -.infinity
         }
         lastBinary = binary
@@ -1044,13 +1049,11 @@ public final class SandboxEngine {
 
     private func handleError(_ error: Error, where location: String) {
         let text = (error as? QuickJSError)?.description ?? String(describing: error)
-        if js?.interrupted == true, queryLimitHit {
-            return kill("Layout query limit exceeded: host queries blocked the renderer for more than \(Int(CpuBudget.queryBudgetMs(sliceMs: currentSliceMs))) ms in one \(currentKind) task (\(location))")
+        if js?.interrupted == true, let hit = queryLimitHit {
+            return kill("\(CpuBudget.queryLimitReason(hit, kind: currentKind)) (\(location))")
         }
         if js?.interrupted == true {
-            // The slice is cpuLimitMs unless the CPU quota shrank it; say so, the fix differs (infinite loop vs. a widget that was already over budget).
-            let quota = currentSliceMs < config.cpuLimitMs ? "; CPU quota: \(Int(max(0, config.cpuQuotaMs - budget.used(Self.nowMs())))) ms of \(Int(config.cpuQuotaMs)) ms per \(Int(config.cpuQuotaWindowMs)) ms left, so this \(currentKind) task got \(Int(currentSliceMs)) ms" : ""
-            return kill("CPU limit exceeded: more than \(Int(currentSliceMs)) ms of continuous execution (\(location)\(quota))")
+            return kill("CPU limit exceeded: more than \(Int(currentSliceMs)) ms of continuous execution (\(location))")
         }
         if text.lowercased().contains("out of memory") { return kill("Memory limit exceeded (\(config.memoryLimitBytes >> 20) MB)") }
         delegate?.engine(self, log: "error", text: String(("Uncaught " + text).prefix(4000)))
@@ -1083,6 +1086,12 @@ public final class SandboxEngine {
     /// One of our own bundles: the precompiled `.qbc` when shipped and matching the source,
     /// else the source. Returns "bytecode" or "source" for the diag.
     private func evalBundle(_ source: String, bytecode: Data?, filename: String) -> String {
+        // Bundles of another release are refused before anything runs, as a stale `.qbc` is (BundleStamp.swift).
+        // A prewarm that fails is retried by start(), which reports it.
+        if let refusal = resources.refusal {
+            if !prewarming { delegate?.engine(self, diag: "bundle-mismatch", detail: refusal) }
+            return "failed"
+        }
         if let bytecode {
             do {
                 try js.evaluateBytecode(bytecode, source: source)
@@ -1144,13 +1153,16 @@ public final class SandboxEngine {
         currentSliceMs = sliceMs
         excludeMs = 0
         taskQueryMs = 0
+        taskQueries = 0
         taskOpsCostMs = 0
-        queryLimitHit = false
+        queryLimitHit = nil
         let c0 = QuickJSContext.threadCPUTime()
         resetDeadline()
         body()
         if !dead { settle() }
         if !dead { pumpScripts() }
+        // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
+        if !dead, let hit = queryLimitHit { kill(CpuBudget.queryLimitReason(hit, kind: kind)) }
         stats.tasks += 1
         let cpuMs = (QuickJSContext.threadCPUTime() - c0) * 1000 - excludeMs
         stats.jsMs += cpuMs
@@ -1164,6 +1176,21 @@ public final class SandboxEngine {
             stats.memoryBytes = js.memoryUsed
         }
         postStats(force: false)
+    }
+
+    /// The validator's CPU time for this widget's messages (TrustedValidator's CPU sink, ms of its thread's clock):
+    /// recorded against the JS quota on the engine's thread as it arrives (`stats.validatorMs`; with the debt rule a late
+    /// record still counts in full; docs/decisions.md, "The validator's time counts"). Any thread.
+    public func chargeValidator(ms: Double) {
+        guard ms > 0 else { return }
+        queue.async { [weak self] in
+            guard let self, !self.dead else { return }
+            let now = Self.nowMs()
+            self.budget.record("validator", cpuMs: ms, now: now)
+            self.stats.validatorMs += ms
+            self.stats.cpuWindowMs = self.budget.used(now)
+            self.postStats(force: false)
+        }
     }
 
     private var trailingStats: JSThread.Scheduled?
@@ -1317,9 +1344,13 @@ public final class SandboxResources {
     /// Precompiled bytecode of the bundles (`.qbc` next to the `.js`, built together; nil when not shipped).
     public let sandboxBytecode: Data?
     public let validatorBytecode: Data?
+    /// Why this glue refuses these bundles (the first bundle whose stamp is not this glue's protocol, profile and
+    /// sdk, BundleStamp.swift), nil when it runs them: the engine dies at boot with `bundle-mismatch`, the validator
+    /// does not build.
+    public let refusal: String?
 
     /// `bundle` defaults to the package's resource bundle.
-    public init(bundle: Bundle? = nil) {
+    public convenience init(bundle: Bundle? = nil) {
         let bundle = bundle ?? Bundle.module
         func read(_ name: String, _ ext: String, _ sub: String) -> String {
             guard let url = bundle.url(forResource: name, withExtension: ext, subdirectory: sub), let s = try? String(contentsOf: url, encoding: .utf8) else {
@@ -1327,11 +1358,22 @@ public final class SandboxResources {
             }
             return s
         }
-        sandboxBundle = read("sandbox-bundle", "js", "WidgetJS")
-        rendererBundle = read("renderer-bundle", "js", "WidgetJS")
-        validatorBundle = read("validator-bundle", "js", "WidgetJS")
-        sandboxBytecode = bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) }
-        validatorBytecode = bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) }
+        self.init(sandboxBundle: read("sandbox-bundle", "js", "WidgetJS"), rendererBundle: read("renderer-bundle", "js", "WidgetJS"),
+                  validatorBundle: read("validator-bundle", "js", "WidgetJS"),
+                  sandboxBytecode: bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) },
+                  validatorBytecode: bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) })
+    }
+
+    /// Bundles from elsewhere (a client's own resource layout, tests).
+    public init(sandboxBundle: String, rendererBundle: String, validatorBundle: String, sandboxBytecode: Data?, validatorBytecode: Data?) {
+        self.sandboxBundle = sandboxBundle
+        self.rendererBundle = rendererBundle
+        self.validatorBundle = validatorBundle
+        self.sandboxBytecode = sandboxBytecode
+        self.validatorBytecode = validatorBytecode
+        refusal = BundleStamp.refusal(sandboxBundle, name: "sandbox-bundle.js")
+            ?? BundleStamp.refusal(validatorBundle, name: "validator-bundle.js")
+            ?? BundleStamp.refusal(rendererBundle, name: "renderer-bundle.js")
     }
 }
 

@@ -2,7 +2,13 @@
 // `cpuQuotaWindowMs` split into ten buckets; a widget may spend `cpuQuotaMs`
 // of JS time per window. Beyond that, deferrable tasks (timers, frames, …) are
 // postponed to the moment the oldest busy bucket leaves the window — they are
-// never dropped or killed. Events always run, with a floor of EVENT_FLOOR_MS.
+// never dropped or killed. Events always run.
+//
+// Every task gets the whole `cpuLimitMs` slice, the hang guard, whatever the
+// window holds: a slice cut to the quota left would stop a widget on a slow
+// phone that a fast one runs. What a task spends past the quota is a debt (at
+// most one more quota) that enters the window as its buckets leave, so the
+// quota holds over time.
 //
 // The glue keeps two of them (docs/decisions.md, "Strict limits from the start"):
 // the JS quota (`cpuQuotaMs`, JS time only) and the main-thread window
@@ -28,15 +34,29 @@ export type Decision =
   | { run: false; retryAt: number };
 
 export const BUCKETS = 10;
-/** Minimum slice any task gets, so user input is handled even with the quota spent. */
-export const FLOOR_MS = 50;
 /** Kinds that may be postponed. `boot`, `event` and `visibility` always run. */
 export const DEFERRABLE: ReadonlySet<string> = new Set(['timer', 'frame', 'viewport', 'resize', 'theme', 'bridge']);
-/** A task's layout queries may block the host for at most this much, whatever its slice (boot included). */
-export const QUERY_BUDGET_MS = 100;
-/** Layout-query budget of one task: the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever burning widget CPU; past this the task is interrupted and killed. */
-export function queryBudgetMs(_sliceMs: number): number {
-  return QUERY_BUDGET_MS;
+/** Layout queries the host may answer in one task (cached answers are free), whatever its slice (boot included). */
+export const QUERY_LIMIT = 128;
+/** What a task's layout queries may block the host in all: the hang guard behind the count. */
+export const QUERY_BUDGET_MS = 1000;
+/**
+ * Whether a task with `queries` answered layout queries that blocked the host `queryMs` in all is past its limit, and
+ * which: the host answers queries synchronously, so a forced-layout loop would hold the renderer hostage without ever
+ * burning widget CPU; past either the task is interrupted and killed. The count stops the same widget on every device
+ * (the time of a query does not: a cold first layout on a slow phone takes over 100 ms); their time also counts toward
+ * the main-thread window, which slows the widget down instead.
+ */
+export function queryLimitHit(queries: number, queryMs: number): 'count' | 'time' | null {
+  if (queries > QUERY_LIMIT) return 'count';
+  if (queryMs > QUERY_BUDGET_MS) return 'time';
+  return null;
+}
+/** The reason a task stopped by `queryLimitHit` is killed with. */
+export function queryLimitReason(hit: 'count' | 'time', kind: string): string {
+  return hit === 'count'
+    ? `Layout query limit exceeded: more than ${QUERY_LIMIT} layout queries in one ${kind} task`
+    : `Layout query limit exceeded: host queries blocked the renderer for more than ${QUERY_BUDGET_MS} ms in one ${kind} task`;
 }
 
 /** Modelled main-thread cost of one op the glue forwards to the validator, and of one canvas command in it. */
@@ -50,6 +70,10 @@ export function opsCostMs(ops: number, canvasCommands: number): number {
 export class CpuBudget {
   private readonly bucketMs: number;
   private readonly buckets: { start: number; ms: number }[] = [];
+  /** Time spent past the quota, not in the window yet: at most one quota. */
+  private debtMs = 0;
+  /** The last bucket the debt was settled at. */
+  private settled = -Infinity;
   private throttledSince = -1;
   private lastThrottleAt = -1;
 
@@ -58,26 +82,56 @@ export class CpuBudget {
     for (let i = 0; i < BUCKETS; i++) this.buckets.push({ start: -Infinity, ms: 0 });
   }
 
-  /** Account `cpuMs` of widget JS time for a task that ended at `now`. */
-  record(_kind: TaskKind | string, cpuMs: number, now: number): void {
-    const b = Math.floor(now / this.bucketMs);
+  /** Bucket `b`'s slot, emptied when it still holds an older bucket. */
+  private slot(b: number): { start: number; ms: number } {
     const slot = this.buckets[((b % BUCKETS) + BUCKETS) % BUCKETS];
     const start = b * this.bucketMs;
     if (slot.start !== start) { slot.start = start; slot.ms = 0; }
-    if (cpuMs > 0) slot.ms += cpuMs; // NaN and negatives are ignored
+    return slot;
   }
 
-  /** JS time used in the window ending now (the ten bucket slots cover exactly one window). */
-  used(now: number): number {
-    const oldest = (Math.floor(now / this.bucketMs) - BUCKETS + 1) * this.bucketMs;
+  /** Time in the window that ends with bucket `b` (the ten bucket slots cover exactly one window). */
+  private windowAt(b: number): number {
+    const oldest = (b - BUCKETS + 1) * this.bucketMs;
     let sum = 0;
     for (const s of this.buckets) if (s.start >= oldest) sum += s.ms;
     return sum;
   }
 
-  /** Before a task: run it with this slice for the interrupt handler, or retry at `retryAt`. */
+  /** Moves the debt into the window, bucket by bucket since the last call, as the buckets that filled it leave. */
+  private settle(now: number): void {
+    const cur = Math.floor(now / this.bucketMs);
+    if (this.debtMs > 0) {
+      // At most one quota: the window has room for all of it within one window, for any float residue within two.
+      const last = Math.min(cur, this.settled + 2 * BUCKETS);
+      for (let b = this.settled + 1; b <= last && this.debtMs > 0; b++) {
+        const pay = Math.min(this.debtMs, this.cfg.cpuQuotaMs - this.windowAt(b));
+        if (pay > 0) { this.slot(b).ms += pay; this.debtMs -= pay; }
+      }
+      if (last < cur) this.debtMs = 0;
+    }
+    if (cur > this.settled) this.settled = cur;
+  }
+
+  /** Account `cpuMs` of widget JS time for a task that ended at `now`: into the window up to the quota, the rest is the debt. */
+  record(_kind: TaskKind | string, cpuMs: number, now: number): void {
+    this.settle(now);
+    const b = Math.floor(now / this.bucketMs);
+    const slot = this.slot(b);
+    if (!(cpuMs > 0)) return; // NaN and negatives are ignored
+    const into = Math.min(cpuMs, Math.max(0, this.cfg.cpuQuotaMs - this.windowAt(b) - this.debtMs));
+    slot.ms += into;
+    this.debtMs = Math.min(this.cfg.cpuQuotaMs, this.debtMs + cpuMs - into);
+  }
+
+  /** JS time charged now: the window ending now plus the debt. */
+  used(now: number): number {
+    this.settle(now);
+    return this.windowAt(Math.floor(now / this.bucketMs)) + this.debtMs;
+  }
+
+  /** Before a task: run it with the whole slice for the interrupt handler, or retry at `retryAt`. */
   decide(kind: TaskKind | string, now: number): Decision {
-    if (kind === 'boot') return { run: true, sliceMs: this.cfg.cpuLimitMs };
     const remaining = this.cfg.cpuQuotaMs - this.used(now);
     if (DEFERRABLE.has(kind) && remaining <= 0) {
       // A throttling stretch continues while deferrals are at most one window apart.
@@ -90,7 +144,7 @@ export class CpuBudget {
       if (retryAt <= now) retryAt = now + this.bucketMs;
       return { run: false, retryAt };
     }
-    return { run: true, sliceMs: Math.min(this.cfg.cpuLimitMs, Math.max(remaining, FLOOR_MS)) };
+    return { run: true, sliceMs: this.cfg.cpuLimitMs };
   }
 
   /** Length of the current uninterrupted throttling stretch (0 when not throttled). */

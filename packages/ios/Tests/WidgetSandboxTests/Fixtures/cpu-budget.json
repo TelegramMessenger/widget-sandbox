@@ -1,8 +1,8 @@
 {
-  "_": "Shared fixture for src/host/cpu-budget.ts, ios CpuBudget.swift, android CpuBudget.kt and desktop cpu_budget.cpp (copies made by scripts/build-native-bundles.ts). Steps run in order on one budget: decide {kind} → expect, record {kind, cpuMs}, kill → expect boolean, queryBudget {sliceMs} → expect ms (the layout-query budget of a task: 100 ms, whatever the slice), opsCost [ops, canvasCommands] → expect ms (the modelled main-thread cost: 0.025 ms per op, 0.002 ms per canvas command; compare within 1e-9). Times in ms.",
+  "_": "Shared fixture for src/host/cpu-budget.ts, ios CpuBudget.swift, android CpuBudget.kt and desktop cpu_budget.cpp (copies made by scripts/build-native-bundles.ts). Steps run in order on one budget: decide {kind} → expect, record {kind, cpuMs}, kill → expect boolean, used → the JS time charged at that moment (the window plus the debt; compare within 1e-9), queries [count, ms] → expect \"count\" | \"time\" | null (the layout-query limit of a task: past 128 queries the host answered, or past 1000 ms of their time in all, whatever the slice; the count first), opsCost [ops, canvasCommands] → expect ms (the modelled main-thread cost: 0.025 ms per op, 0.002 ms per canvas command; compare within 1e-9). Times in ms.",
   "cases": [
     {
-      "name": "fresh window: the full quota, capped by cpuLimitMs",
+      "name": "fresh window: every task gets cpuLimitMs",
       "config": {
         "cpuLimitMs": 500,
         "cpuQuotaMs": 300,
@@ -15,7 +15,7 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
         },
         {
@@ -23,7 +23,7 @@
           "decide": "frame",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
         },
         {
@@ -31,8 +31,12 @@
           "decide": "event",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
+        },
+        {
+          "at": 0,
+          "used": 0
         },
         {
           "at": 0,
@@ -41,7 +45,7 @@
       ]
     },
     {
-      "name": "cpuLimitMs below the quota caps the slice",
+      "name": "cpuLimitMs below the quota is still the slice",
       "config": {
         "cpuLimitMs": 200,
         "cpuQuotaMs": 300,
@@ -68,7 +72,7 @@
       ]
     },
     {
-      "name": "boot always gets cpuLimitMs, whatever the window holds",
+      "name": "boot always runs, whatever the window holds; past the quota it leaves a debt",
       "config": {
         "cpuLimitMs": 500,
         "cpuQuotaMs": 300,
@@ -80,6 +84,10 @@
           "at": 0,
           "record": "boot",
           "cpuMs": 400
+        },
+        {
+          "at": 0,
+          "used": 400
         },
         {
           "at": 10,
@@ -96,11 +104,27 @@
             "run": false,
             "retryAt": 1000
           }
+        },
+        {
+          "at": 999,
+          "used": 400
+        },
+        {
+          "at": 1000,
+          "used": 100
+        },
+        {
+          "at": 1000,
+          "decide": "timer",
+          "expect": {
+            "run": true,
+            "sliceMs": 500
+          }
         }
       ]
     },
     {
-      "name": "exhaustion defers deferrable kinds until the oldest busy bucket leaves the window; events keep the floor",
+      "name": "exhaustion defers deferrable kinds until the oldest busy bucket leaves the window; events always run",
       "config": {
         "cpuLimitMs": 500,
         "cpuQuotaMs": 300,
@@ -118,13 +142,17 @@
           "decide": "frame",
           "expect": {
             "run": true,
-            "sliceMs": 180
+            "sliceMs": 500
           }
         },
         {
           "at": 250,
           "record": "frame",
           "cpuMs": 200
+        },
+        {
+          "at": 250,
+          "used": 320
         },
         {
           "at": 300,
@@ -155,7 +183,7 @@
           "decide": "event",
           "expect": {
             "run": true,
-            "sliceMs": 50
+            "sliceMs": 500
           }
         },
         {
@@ -163,7 +191,7 @@
           "decide": "visibility",
           "expect": {
             "run": true,
-            "sliceMs": 50
+            "sliceMs": 500
           }
         },
         {
@@ -176,32 +204,36 @@
         },
         {
           "at": 1000,
+          "used": 200
+        },
+        {
+          "at": 1000,
           "decide": "frame",
           "expect": {
             "run": true,
-            "sliceMs": 100
+            "sliceMs": 500
           }
         },
         {
           "at": 1199,
-          "decide": "frame",
-          "expect": {
-            "run": true,
-            "sliceMs": 100
-          }
+          "used": 200
+        },
+        {
+          "at": 1200,
+          "used": 20
         },
         {
           "at": 1200,
           "decide": "frame",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
         }
       ]
     },
     {
-      "name": "the slice never drops below the floor while quota remains",
+      "name": "a task started with little quota left finishes; what it spent past the quota is a debt",
       "config": {
         "cpuLimitMs": 500,
         "cpuQuotaMs": 300,
@@ -219,7 +251,7 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 50
+            "sliceMs": 500
           }
         },
         {
@@ -232,13 +264,17 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 50
+            "sliceMs": 500
           }
         },
         {
           "at": 20,
           "record": "timer",
           "cpuMs": 60
+        },
+        {
+          "at": 20,
+          "used": 350
         },
         {
           "at": 30,
@@ -253,7 +289,91 @@
           "decide": "event",
           "expect": {
             "run": true,
-            "sliceMs": 50
+            "sliceMs": 500
+          }
+        },
+        {
+          "at": 999,
+          "used": 350
+        },
+        {
+          "at": 1000,
+          "used": 50
+        },
+        {
+          "at": 1000,
+          "decide": "timer",
+          "expect": {
+            "run": true,
+            "sliceMs": 500
+          }
+        },
+        {
+          "at": 1999,
+          "used": 50
+        },
+        {
+          "at": 2000,
+          "used": 0
+        }
+      ]
+    },
+    {
+      "name": "the debt is at most one quota",
+      "config": {
+        "cpuLimitMs": 500,
+        "cpuQuotaMs": 300,
+        "cpuQuotaWindowMs": 1000,
+        "cpuKillAfterMs": 0
+      },
+      "steps": [
+        {
+          "at": 0,
+          "record": "timer",
+          "cpuMs": 50000
+        },
+        {
+          "at": 0,
+          "used": 600
+        },
+        {
+          "at": 1,
+          "decide": "event",
+          "expect": {
+            "run": true,
+            "sliceMs": 500
+          }
+        },
+        {
+          "at": 1,
+          "decide": "timer",
+          "expect": {
+            "run": false,
+            "retryAt": 1000
+          }
+        },
+        {
+          "at": 1000,
+          "used": 300
+        },
+        {
+          "at": 1000,
+          "decide": "timer",
+          "expect": {
+            "run": false,
+            "retryAt": 2000
+          }
+        },
+        {
+          "at": 2000,
+          "used": 0
+        },
+        {
+          "at": 2000,
+          "decide": "timer",
+          "expect": {
+            "run": true,
+            "sliceMs": 500
           }
         }
       ]
@@ -292,8 +412,16 @@
           "at": 1100,
           "decide": "timer",
           "expect": {
+            "run": false,
+            "retryAt": 2100
+          }
+        },
+        {
+          "at": 2100,
+          "decide": "timer",
+          "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 5000
           }
         }
       ]
@@ -325,8 +453,12 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
+        },
+        {
+          "at": 1900,
+          "used": 100
         }
       ]
     },
@@ -365,7 +497,70 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 100
+            "sliceMs": 500
+          }
+        }
+      ]
+    },
+    {
+      "name": "the debt enters the window at the bucket that had room, even when nothing asked in between",
+      "config": {
+        "cpuLimitMs": 500,
+        "cpuQuotaMs": 300,
+        "cpuQuotaWindowMs": 1000,
+        "cpuKillAfterMs": 0
+      },
+      "steps": [
+        {
+          "at": 50,
+          "record": "timer",
+          "cpuMs": 250
+        },
+        {
+          "at": 950,
+          "record": "timer",
+          "cpuMs": 250
+        },
+        {
+          "at": 950,
+          "used": 500
+        },
+        {
+          "at": 2000,
+          "used": 0
+        },
+        {
+          "at": 2000,
+          "decide": "timer",
+          "expect": {
+            "run": true,
+            "sliceMs": 500
+          }
+        },
+        {
+          "at": 2050,
+          "record": "timer",
+          "cpuMs": 300
+        },
+        {
+          "at": 2060,
+          "record": "timer",
+          "cpuMs": 200
+        },
+        {
+          "at": 2060,
+          "used": 500
+        },
+        {
+          "at": 9000,
+          "used": 0
+        },
+        {
+          "at": 9000,
+          "decide": "timer",
+          "expect": {
+            "run": true,
+            "sliceMs": 500
           }
         }
       ]
@@ -401,7 +596,7 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
         },
         {
@@ -426,7 +621,7 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
         },
         {
@@ -475,7 +670,7 @@
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
         },
         {
@@ -488,7 +683,7 @@
           "decide": "timer",
           "expect": {
             "run": false,
-            "retryAt": 2500
+            "retryAt": 2000
           }
         },
         {
@@ -496,11 +691,19 @@
           "kill": false
         },
         {
+          "at": 2000,
+          "decide": "timer",
+          "expect": {
+            "run": false,
+            "retryAt": 2500
+          }
+        },
+        {
           "at": 2500,
           "decide": "timer",
           "expect": {
             "run": true,
-            "sliceMs": 300
+            "sliceMs": 500
           }
         },
         {
@@ -513,7 +716,7 @@
           "decide": "timer",
           "expect": {
             "run": false,
-            "retryAt": 3500
+            "retryAt": 3000
           }
         },
         {
@@ -560,14 +763,22 @@
           "at": 1000,
           "decide": "frame",
           "expect": {
+            "run": false,
+            "retryAt": 2000
+          }
+        },
+        {
+          "at": 2000,
+          "decide": "frame",
+          "expect": {
             "run": true,
-            "sliceMs": 100
+            "sliceMs": 500
           }
         }
       ]
     },
     {
-      "name": "layout-query budget: 100 ms, whatever the slice",
+      "name": "layout-query limit: 128 queries the host answered, or 1000 ms of their time, in one task",
       "config": {
         "cpuLimitMs": 500,
         "cpuQuotaMs": 300,
@@ -577,28 +788,83 @@
       "steps": [
         {
           "at": 0,
-          "queryBudget": 500,
-          "expect": 100
+          "queries": [
+            0,
+            0
+          ],
+          "expect": null
         },
         {
           "at": 0,
-          "queryBudget": 300,
-          "expect": 100
+          "queries": [
+            1,
+            0.5
+          ],
+          "expect": null
         },
         {
           "at": 0,
-          "queryBudget": 100,
-          "expect": 100
+          "queries": [
+            47,
+            30
+          ],
+          "expect": null
         },
         {
           "at": 0,
-          "queryBudget": 50,
-          "expect": 100
+          "queries": [
+            128,
+            999
+          ],
+          "expect": null
         },
         {
           "at": 0,
-          "queryBudget": 0,
-          "expect": 100
+          "queries": [
+            128,
+            1000
+          ],
+          "expect": null
+        },
+        {
+          "at": 0,
+          "queries": [
+            129,
+            10
+          ],
+          "expect": "count"
+        },
+        {
+          "at": 0,
+          "queries": [
+            129,
+            5000
+          ],
+          "expect": "count"
+        },
+        {
+          "at": 0,
+          "queries": [
+            500,
+            0
+          ],
+          "expect": "count"
+        },
+        {
+          "at": 0,
+          "queries": [
+            40,
+            1000.5
+          ],
+          "expect": "time"
+        },
+        {
+          "at": 0,
+          "queries": [
+            1,
+            1500
+          ],
+          "expect": "time"
         }
       ]
     },
@@ -677,7 +943,7 @@
           "decide": "event",
           "expect": {
             "run": true,
-            "sliceMs": 50
+            "sliceMs": 500
           }
         }
       ]

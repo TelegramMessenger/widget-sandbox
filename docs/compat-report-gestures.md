@@ -1,6 +1,6 @@
 # Compat report — gestures
 
-Generated 2026-10-30T01:34:52.727Z by `CORPUS_GROUP=gestures pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
+Generated 2026-11-02T12:27:21.219Z by `CORPUS_GROUP=gestures pnpm test:generated`. Pass = loaded without JS errors and screenshot within 3% of the native reference after clicking up to 4 buttons.
 
 ## 1-pairs: 4 / 4 pass (100%)
 

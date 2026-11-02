@@ -352,18 +352,20 @@ inp('prevent-default', 'preventDefault on pointer events keeps the gesture in th
 const lim = (id: string, title: string, st: Status, d: string, t: Today, x: Partial<Feature> = {}) => add('limit', 'limit.' + id, title, st, d, t, x);
 lim('text-node', 'Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict)', 'in', 'D5', 'kept');
 lim('text-budget', 'Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict)', 'in', 'D5', 'kept');
-lim('nodes', 'At most 50 000 nodes', 'in', 'today', 'kept');
+lim('nodes', "At most 2000 nodes (elements, text, comments) in the document once a batch is applied; past it the widget stops (strict)", 'in', 'today', 'kept');
 lim('timers', 'At most 64 live timers (RangeError past it)', 'in', 'today', 'kept');
-lim('cpu', 'CPU quota 300 ms of JS per second (timers deferred, not killed); 500 ms per task slice; layout queries may block the host for at most 100 ms per task', 'in', 'today', 'kept');
+lim('cpu', "CPU quota 300 ms of JS per second (timers deferred, not killed; a task that runs past it makes the next ones wait longer); one task may run 500 ms; at most 128 layout queries in one task, and their time at most 1000 ms; past these the widget stops", 'in', 'today', 'kept');
 lim('memory', 'QuickJS heap 8 MB', 'in', 'today', 'kept');
 lim('storage', 'localStorage and sessionStorage: 4 KB per area and message (4096 bytes of keys and values in UTF-8); over it setItem throws QuotaExceededError and stores nothing', 'in', 'SDK', 'kept');
 lim('attribute', 'Attribute and inline-style values up to 8 K UTF-16 units; past it the widget stops (strict)', 'in', 'L1', 'kept');
-lim('batch', "At most 10 000 operations in one batch (one task's DOM changes); past it the widget stops (strict)", 'in', 'L1', 'kept');
+lim('batch', "At most 10 000 operations in one batch (the shim hands a task's DOM changes over in batches of about 1000, its element method calls in one); past it the widget stops (strict)", 'in', 'L1', 'kept');
 lim('css-rules', "At most 400 CSS rules and 32 @keyframes in the document's stylesheets; past them the widget stops (strict)", 'in', 'L1', 'kept');
-lim('canvas-commands', "At most 10 000 canvas commands per canvas in one task (RangeError past it; strict; provisional until the stress kit's numbers)", 'in', 'L1', 'kept');
+lim('canvas-commands', "At most 4000 canvas commands per canvas in one task (RangeError past it; strict)", 'in', 'L1', 'kept');
 lim('animations', 'At most 64 running script animations (further ones are not rendered; strict)', 'in', 'L1', 'kept');
 lim('main-thread', "The host's main-thread work for a widget, its layout queries plus 25 µs per operation and 2 µs per canvas command, at most 100 ms per second (timers and frames deferred past it)", 'in', 'L1', 'host');
 lim('canvas-pixels', "A widget's canvases hold at most 2048 × 2048 pixels together; past it the widget stops (strict; the renderer itself never applies a size past 4096 × 4096)", 'in', 'L1', 'kept');
+lim('paint-heavy', 'At most 16 heavy boxes at once: a blurred box-shadow, a filter, a backdrop-filter, opacity below 1, or a running animation of one of them (shadows animated without blur do not count, nor the opacity of a disabled or pressed <button>: its own dimming); elements under display: none and a ::before / ::after without content are no boxes; past it the widget stops (strict; every renderer counts on the computed style)', 'in', 'L2', 'host');
+lim('paint-backdrop', 'Of the heavy boxes at most 2 with backdrop-filter; past it the widget stops (strict)', 'in', 'L2', 'host');
 lim('image-pixels', "A data: image of at most 1024 × 1024 pixels, as its bytes say (larger: the placeholder); bytes of none of the profile's image formats are a broken image", 'in', 'L1', 'kept');
 lim('url-length', 'openLink / openTelegramLink URLs of at most 256 characters (TypeError past it)', 'in', 'SDK', 'kept');
 lim('event-handlers', 'At most 16 handlers per event type in onEvent (more are ignored)', 'in', 'SDK', 'kept');
@@ -526,6 +528,7 @@ export const DECISIONS: Record<string, string> = {
   D14: 'Theme: themeParams + --tg-theme-*, theme change event',
   D17: 'State: localStorage per (account, chat, message id): the chat the message is in, as message ids are unique only within a chat (supergroups); 4 KB, QuotaExceededError; sessionStorage in memory',
   L1: 'Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)',
+  L2: 'Heavy boxes (Artem, 2026-11-02, after the client teams\' stress-kit runs on five devices): at most 16 heavy boxes at once (a blurred box-shadow layer, a filter, a backdrop-filter, opacity below 1 but a disabled or pressed <button>\'s, or a running animation of filter, backdrop-filter or opacity, or of box-shadow through a blurred layer), of them at most 2 with backdrop-filter; every renderer counts on the computed style (packages/core/src/shared/paint-policy.ts and its fixture) and past either the widget stops. A tightening of profile 1 (widgets were not launched yet), not profile 2',
   D18: 'Text is not selectable by default; user-select: text enables it (2026-10-20)',
   D20: 'Mini-HTML (2026-10-17): a widget is one HTML document of at most 4 KB compressed and 32 KB uncompressed, delivered in the message; the server compresses the HTML from the bot (zlib at level 9 since 2026-10-24) and enforces both limits',
   D21: 'No accessibility in v1',
