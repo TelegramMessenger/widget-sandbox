@@ -1622,7 +1622,7 @@ extension SandboxEngine {
         queue.async {
             guard !self.dead, let remote = self.remote else { return }
             let refuse = { (failure: WidgetRequestFailure) in remote.answer(request: id, outcome: .failure(failure)) }
-            guard case .request(_, let checked)? = SdkPolicy.checkBridgeCall("request", [1, data]) else { return refuse(.notAllowed) }
+            guard case .request(_, let checked, _)? = SdkPolicy.checkBridgeCall("request", [1, data]) else { return refuse(.notAllowed) }
             let context = self.config.context.effective
             guard !context.preview, context.canQuery, self.remoteRequestsInFlight == 0 else { return refuse(.notAllowed) }
             let now = Self.nowMs()
