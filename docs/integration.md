@@ -20,8 +20,8 @@ keeps the last frame with a "Widget stopped" badge (`stoppedLabel`) and `onDead`
 fires — destroy or re-create, your choice.
 
 The rest of this page is in the order a client team meets it: pinning a
-release, the policy and features, the widget payload, bubble sizing, input,
-forwarding, then the per-platform API and the conformance set.
+release, the policy and features, the widget payload, bubble sizing, heavy boxes,
+input, forwarding, then the per-platform API and the conformance set.
 
 ## Pinning a release
 
@@ -210,6 +210,35 @@ nothing keeps v0.3.0's behaviour (all 0). The dev app's **time** control and
 are its conformance cases (sent without a caption, and once more with the caption
 above), and `corpus/safe-area` has examples (its `07` is posted three times: no
 caption, a caption below, a caption above).
+
+## Heavy boxes
+
+Since v0.6.0 a widget has at most 16 heavy boxes at once, of them at most 2 with `backdrop-filter`; past either it
+stops like at any limit (`onDead` / `WidgetDiagnostics.dead`: `Paint limit exceeded: 17 boxes with shadows, filters or
+transparency (max 16)` or `Paint limit exceeded: 3 boxes with backdrop-filter (max 2)`, the diagnostic `paint-limit` /
+`backdrop-limit`). A box is heavy when its computed style has a blurred `box-shadow` layer, a `filter`, a
+`backdrop-filter` or `opacity` below 1, or while an animation of one of them runs on it (`docs/decisions.md`, "Heavy
+boxes"). Only the renderer knows the cascade, so **the renderer counts**:
+
+- **The framework's WebView renderer** (`RendererWebView` on iOS, macOS and Android, the iframe and Shadow DOM
+  renderers on the web) counts by itself, before each frame it draws, and reports to the host. Nothing to do; keep
+  `policy` `strict` (under `compat` nothing is counted).
+- **A renderer of your own** behind the `Renderer` seam counts the same rule and calls the seam once, before it draws
+  the frame that would pass the limit: `renderer.limitExceeded(.paint, count: 17)` (Swift),
+  `limitExceeded(WidgetPaintLimit.PAINT, 17)` (Kotlin), `limitExceeded(WidgetPaintLimit::Paint, 17)` (C++); the
+  WebView renderer's message on the web is `{ type: 'limit', code, count }` (`docs/protocol.md`). The host does the
+  rest. The renderer then draws the stopped widget without those effects (no blurred shadow, filter, backdrop-filter
+  or transparency; animations stopped): the frozen frame costs nothing while the chat scrolls.
+- **Count against the fixture.** The rule is `packages/core/src/shared/paint-policy.ts` (`boxPaint`,
+  `animationPaint`, `PaintCounter`) and `packages/core/tests/fixtures/paint-policy.json` is its contract: computed
+  values to heavy or not (blur 0, inset without blur, opacity 0.999 and 1, `brightness(1)`, a `::before` with `content:
+  none`, `visibility: hidden`), keyframes to an animation that counts or not, and sequences of batches and animation
+  events to the counts and the moment of the stop. Count after a whole batch (never op by op), when an animation of
+  the rule starts or ends (CSS animation and transition events, a Web Animation that runs), and when the cascade changes
+  without an op (the theme, the safe area, the bubble's width, `:hover`, `:active`). You may recount only the boxes a
+  change reaches (the changed elements and their subtrees, the parent's subtree with a sibling combinator or a structural
+  pseudo-class in the widget's sheets, all of them for a stylesheet change). The conformance set has the cases
+  (`auto/37`–`43`).
 
 ## Input
 

@@ -710,6 +710,77 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   paint-limits draft, and a lower node cap. They depend on the client renderers, so they wait for the stress kit's
   numbers from the clients.
 
+### Heavy boxes: 16, of them 2 with backdrop-filter (2026-11-02)
+
+The count of heavy boxes the strict limits left for the stress kit's numbers (Artem, 2026-11-02, after the client teams'
+runs on five devices; the rule was the paint-limits draft's §3). A blurred shadow, a filter, a backdrop-filter or
+transparency on a box that changes is what costs a renderer, not the number of boxes or the rate of change as such:
+
+| Renderer time a frame, 16 moving heavy boxes (stress kit, measure pass) | A55 | Redmi Note 8T | iPhone Air (hot) | tdesktop (CPU) |
+|---|---|---|---|---|
+| `shadow-moving/16` | 3.4 ms | 4.5 | 5.0 | 3.7 |
+| `ars-cell/16` (every effect) | 4.8 | 5.3 | 5.9 | 8.1 |
+| `opacity-moving/16` | 2.9 | 3.5 | 4.2 | 1.2 |
+| `filter-moving/16` | 3.6 | 3.5 | 3.6 | 7.4 |
+| `ars-cell/64`, for comparison | 16.6 | 21.4 | 29.7 | 30.7 |
+
+16 cost 1–8 ms a frame on all four clients, under half a 60 Hz frame even on the Redmi and the hot iPhone; 64 cost more
+than a frame everywhere. Two backdrop-filter panels cost the iPhone 7.3 ms (16: 14.1 ms) and tdesktop, which blurs on the
+CPU, 3.9 ms (16: 25.4 ms). The corpora's largest real use was 40 heavy boxes in one widget and 340 of 346 had at most
+16 (measured on 2026-10-28 over the corpora and the conformance set).
+
+- **The rule** (`packages/core/src/shared/paint-policy.ts`, `tests/fixtures/paint-policy.json`). A box is what the
+  renderer lays out: an element whose `display` is not `none`, under no `display: none` ancestor (`display: contents`,
+  out of profile 1 anyway, builds none), and a `::before` / `::after` whose `content` is not `none` / `normal`; SVG
+  elements alike; the widget's root and body count, the renderer's own nodes do not. A box is heavy when its computed
+  `box-shadow` has a layer with a blur above 0 (inset too), its `filter` or `backdrop-filter` is not `none`, its
+  `opacity` is below 1, or while an animation runs on it that changes `filter`, `backdrop-filter` or `opacity`, or
+  `box-shadow` through a blurred layer: a CSS animation from `animationstart` to its end or cancel, a transition likewise,
+  a Web Animation while `running`, whatever the value at the moment. The value counts, not the picture (`opacity: .999`,
+  `brightness(1)`); `visibility`, clipping, being on screen, `transform` and engine layers do not. An animation of
+  shadows without blur (a ring, an inset fill that pulses: `htmlbubbles-ported/10-game-night/08-kai` sparkles 23 cells
+  so) costs what the ring costs, so it is not heavy; a keyframe list that leaves the first or last value to the box's
+  own is.
+- **At most 16 at once, of them at most 2 with `backdrop-filter`.** Past either the widget stops, as at a counted cap:
+  `Paint limit exceeded: 17 boxes with shadows, filters or transparency (max 16)` or `... 3 boxes with backdrop-filter
+  (max 2)`, the diagnostic `paint-limit` / `backdrop-limit`. Stop rather than drop the effects of the boxes past the
+  limit: the author sees the cause at once and the look does not depend on the DOM order. A tightening of profile 1
+  (`L2` in `profile.json`, `limit.paint-heavy`, `limit.paint-backdrop`), not profile 2: widgets were not launched.
+- **Counted by the renderer, not the validator.** The validator knows no cascade: an upper bound from the rightmost
+  compound of each selector inflated small counts (2 → 26, 0 → 19 in the corpora) and knows nothing of `:hover` and
+  animations. The computed style is the same on every client, so a widget passes or stops everywhere alike, and the
+  fixture makes the count the same. When: before each frame the renderer draws, after a batch (counted whole, never op by
+  op), when an animation of the rule starts or ends, and when the cascade changes without an op (the theme, the safe
+  area, the bubble's width, `:hover`, `:active`).
+- **The framework's WebView renderer** (`renderer/core.ts`: iframe, Shadow DOM, WKWebView, Android WebView) keeps the
+  count incrementally and checks it in `requestAnimationFrame`: a batch marks the subtrees it can reach (the parent's
+  with a sibling combinator or a structural pseudo-class in the widget's sheets), a stylesheet, the theme, the safe area
+  and the viewport recount everything, `pointerover` / `out` and a press recount the elements whose `:hover` /
+  `:active` changed, the animation events and the renderer's Web Animations feed rule 5. Inline styles that touch no
+  heavy property (transform, positions, colours) mark nothing, unless a selector reads the style attribute. Cost in
+  Chromium on an M5 Max, 1000 boxes all changed every frame: nothing for style ops of `transform`, +0.1 ms a frame when
+  the style attribute is rewritten, 0.65 ms when every box changes class (2.7 ms when every box also matches a
+  `::before` rule), next to 1.3–4.3 ms of the renderer's own main-thread work there; the main-thread window lets such
+  a widget about 4 frames a second. Past a limit it reports `{ type: 'limit', code, count }` (`docs/protocol.md`).
+- **A client's own renderer** counts the same rule against the fixture and calls the seam's `limitExceeded(code,
+  count)` (`Renderer.swift`, `Renderer.kt`, `renderer.h`); every host turns it into the stop (`docs/integration.md`).
+- **The stopped widget is drawn without the effects**: no blurred shadow (a layer without blur stays), filter,
+  backdrop-filter or transparency, animations paused, then the usual badge. A fully transparent box is hidden rather
+  than turned opaque (an overlay faded out stays out of sight). The frozen frame then costs nothing while the chat
+  scrolls. The WebView renderer draws it so before the frame in which the count went past the limit (for a CSS
+  animation, the frame its start event arrives in, one after the engine starts it), with a first cascade layer of
+  `!important` declarations and the elements' own inline values replaced, and takes no more ops.
+- **compat counts nothing**: the stress kit's measuring runs must see the cost past the limits.
+- **Corpora.** Six widgets went past 16, each muting with `opacity`: `showcase/travel/04-weather` and
+  `life/01-fitness-rings` (18), both `generated/…/12-…countdown` (twinkling stars), `gestures` `08-wheel-picker-y` (34)
+  and `07-range-slider-x` (18). They mute with colour now (`rgba()`, `--tg-theme-hint-color`, `fill-opacity` /
+  `stroke-opacity`), which looks the same. The most left in a widget is 14.
+- **Not decided here**: a renderer's frame time as a stop (the draft's §4.3: "50 ms three frames in a row" would stop
+  widgets on the Redmi that live within every limit elsewhere, and a stop must not depend on the device; rejected), the
+  renderer's frame cost in the quota (the draft's §4: a slowdown, later), and the validator's clamps of shadow layers,
+  blur radii and filter functions (the draft's §5). Open: the UA layer mutes a disabled `<button>` with `opacity`
+  (`--tg-button-disabled-opacity`) and a pressed one too, so each counts; a poll of 17 disabled options would stop.
+
 ### Off-screen pause mirrors a background tab
 
 - The host knows visibility, the sandbox does not: `setVisible(false)` stops

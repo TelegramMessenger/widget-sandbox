@@ -5,8 +5,8 @@ Three trust domains exchange plain JSON messages:
 ```
 sandbox (QuickJS, UNTRUSTED) ──ops / queries / listen / pd / raf / log / diag / bridge / storage──▶ host (trusted)
 sandbox ◀── events / timer & frame ticks / query results / viewport / theme / safeArea / visibility ──── host
-host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / safeArea / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
-host ◀── events / query results / size / resize / frame / media / gesture / bubble / violation ──── renderer
+host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / safeArea / policy / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
+host ◀── events / query results / size / resize / frame / media / gesture / bubble / limit / violation ──── renderer
 ```
 
 Type definitions live in `packages/core/src/shared/protocol.ts`. Nothing from the sandbox is
@@ -408,7 +408,26 @@ stops forwarding events, sets `data-tw-frozen="fatal"|"paused"` on `<html>`
 (`pointer-events: none`, a slight grayscale when fatal) and shows a small badge
 with `reason` (a renderer element, never in the widget's node table). The host
 sends it from its death path; the iframe / WKWebView / WebView stays on screen
-until the owner calls `destroy()`.
+until the owner calls `destroy()`. And `policy {policy, paintReports?}`, the host's
+`SandboxConfig.policy`, sent at load right after `safeArea`: under `strict` (also before
+it arrives, and for any value but exactly `compat`) the renderer counts heavy boxes
+(`packages/core/src/shared/paint-policy.ts`, decisions.md "Heavy boxes"), under `compat`
+it counts nothing; `paintReports` (tooling: the Node harness) asks for
+`paint {heavy, backdrop}` whenever the counts change, which a host ignores.
+
+Renderer → host, besides events, results and sizes: `limit {code, count}`, past a paint
+limit: `paint-limit` with the number of heavy boxes (more than 16: a blurred shadow, a
+filter, a backdrop-filter, opacity below 1, or an animation of one of them) or
+`backdrop-limit` with the number of boxes with backdrop-filter (more than 2). Once per
+widget, and only under `strict`. The renderer has already drawn that frame without the
+effects (no blurred shadow layer, filter, backdrop-filter or transparency; animations
+paused) and takes no more ops. The host stops the widget like a counted cap: the
+diagnostic `paint-limit` / `backdrop-limit` with the reason, then its death path with
+`Paint limit exceeded: 17 boxes with shadows, filters or transparency (max 16)` or
+`Paint limit exceeded: 3 boxes with backdrop-filter (max 2)` (`paintLimitMessage`);
+`compat` ignores it, an unknown code or a count that is no number from 0 is a
+`renderer-violation`. A client's own renderer sends the same message through the seam's
+`limitExceeded(code, count)` (`Renderer.swift`, `Renderer.kt`, `renderer.h`).
 
 Worker → host (payload untrusted unless noted): `ops`, `query`, `listen
 {types}`, `pd {keys}`, `anim {anims, now}` (`now` from the glue), `raf`, `log {level, text}`, `diag {kind, detail}`,

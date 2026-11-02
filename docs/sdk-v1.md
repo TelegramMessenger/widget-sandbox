@@ -422,7 +422,13 @@ toward the host's main-thread window), `Memory limit exceeded (8 MB)`, and, unde
 `strict`, a counted cap of the validator (`Text limit exceeded`, `Attribute limit
 exceeded`, `Ops limit exceeded`, `Canvas limit exceeded`, `CSS limit exceeded`; the
 validator's `limit` diagnostic carries the same reason; `docs/decisions.md`, "Strict
-limits from the start").
+limits from the start") or the renderer's paint limit (v0.6.0: `Paint limit exceeded: N
+boxes with shadows, filters or transparency (max 16)` or `Paint limit exceeded: N boxes
+with backdrop-filter (max 2)`, more than 16 heavy boxes at once or more than 2 of them
+with backdrop-filter; the diagnostic `paint-limit` / `backdrop-limit` carries the same
+reason; `docs/decisions.md`, "Heavy boxes"). The paint limit's last frame is drawn
+without the effects (no blurred shadow, filter, backdrop-filter or transparency,
+animations stopped).
 
 ### 2.12 Resize anchor (v0.1.3)
 
@@ -880,6 +886,7 @@ for the widget's state and the answers to `request`.
 | `theme` | `{ type: 'theme', theme: { colorScheme, params, button, text } }`: the renderer core builds the variables of §2.3 and §2.4 (`themeVariables`) and sets them on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer); the colour scheme itself still goes to the renderer element (`color-scheme`, the WebView's appearance) as before. A native renderer does the same with its own copy of `themeVariables` (`apps/renderer-litehtml/src/theme.cpp`) |
 | `safeArea` | `{ type: 'safeArea', inset: { top, right, bottom, left, cornerLeft, cornerRight } }` (§2.17): the renderer core sets the six `--tg-content-safe-area-*` variables (`contentSafeAreaVariables`) on the root next to the theme's, 0 until the first one; hosts send it right after `theme` and on every `setContentSafeArea`. The litehtml prototype's twin is `theme::safe_area_variables`; Blitz ignores it (the fallback of a widget's `env()` then applies) |
 
+| `policy` | `{ type: 'policy', policy, paintReports? }` (v0.6.0): the host's policy, right after `safeArea`. Under `strict` (also before it arrives, and for anything but exactly `compat`) the renderer core counts heavy boxes (`paint-policy.ts`) and reports `limit`; under `compat` it counts nothing. `paintReports` (tooling) asks for `paint { heavy, backdrop }` on every change |
 | `arbitrate` | `{ type: 'arbitrate', bubble, touch?, rtl? }` (v0.1.2): `bubble` true, the renderer plays the bubble itself with the gesture policy (the web hosts, `bubbleGestures`): a press the bubble takes ends for the widget with `pointercancel` and the host gets `bubble`. `touch`: a mouse's primary button arbitrates as a finger (and the widget sees `pointerType: 'touch'`). `rtl`: the edge strip is on the right. Native hosts leave it off: their own recognizers take the presses |
 
 The renderer takes only variable names from the fixed list above and values
@@ -895,6 +902,7 @@ safe-area inset of 0–64 px and a corner of 0–200 px).
 | `bubble` | `{ action, gesture, x, y, edge }` with `arbitrate` `bubble` on (v0.1.2): the bubble took a press: `action` `menu` \| `swipe` \| `scroll` \| `back`; (x, y) where the pointer was, widget coordinates; `edge`: it started in the leading edge strip |
 | `size` | the content height |
 | `event` | `trusted: true` only for real input |
+| `limit` | `{ code, count }` (v0.6.0), past a paint limit, once, strict only: `paint-limit` with the number of heavy boxes (more than 16) or `backdrop-limit` with the number of boxes with backdrop-filter (more than 2). The renderer has drawn that frame without the effects and takes no more ops; the host stops the widget with `Paint limit exceeded: …` (§2.11's reasons). A client's own renderer sends it through the seam's `limitExceeded(code, count)` (§4.1–§4.3) |
 
 ## 4. Host interface per platform
 
@@ -931,6 +939,9 @@ var onGestureClaim: ((WidgetGestureClaim) -> Void)?   // every primary pointerdo
 func setTheme(_ theme: WidgetTheme)
 func setContentSafeArea(_ area: WidgetContentSafeArea)   // only with the bubble's layout (a caption edit or move), never per frame
 func setVisible(_ visible: Bool); func snapshot(completion:); func destroy()
+// the renderer seam (rendererFactory), v0.6.0: a renderer of your own reports the paint limit, once, before it draws that frame (§5.14)
+public enum WidgetPaintLimit: String { case paint = "paint-limit", backdrop = "backdrop-limit" }   // maxHeavyBoxes 16, maxBackdropBoxes 2; message(count:)
+extension Renderer { func limitExceeded(_ code: WidgetPaintLimit, count: Int) }
 ```
 
 The widget's state and requests (§2.13–§2.15, §5.11):
@@ -979,6 +990,9 @@ var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   //
 var onGesture: ((WidgetGestureClaim) -> Unit)?             // v0.1.2: x, y, hold (y always false since v0.1.3); drive the bubble's recognizers with GestureArbiter (§5.5)
 var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)?    // deprecated since v0.1.2: called right after onGesture
 fun setTheme(theme: WidgetTheme); fun setContentSafeArea(area: WidgetContentSafeArea); fun setVisible(visible: Boolean); fun destroy()
+// the renderer seam (rendererFactory), v0.6.0: a renderer of your own reports the paint limit, once, before it draws that frame (§5.14)
+enum class WidgetPaintLimit(val code: String) { PAINT("paint-limit"), BACKDROP("backdrop-limit") }   // MAX_HEAVY_BOXES 16, MAX_BACKDROP_BOXES 2; message(count)
+interface Renderer { …; fun limitExceeded(code: WidgetPaintLimit, count: Int) /* default: posts the limit message to WidgetHost */ }
 ```
 
 The widget's state and requests:
@@ -1027,6 +1041,9 @@ std::function<void(const std::string& area, const std::map<std::string, std::str
 std::function<void(const WidgetGestureClaim&)> onGesture;          // v0.1.2: x, y, hold (y always false since v0.1.3; twidget/gesture_policy.h, GestureArbiter)
 std::function<void(bool x, bool y)> onGestureClaim;                 // deprecated since v0.1.2: called right after onGesture
 void start(); void setTheme(const WidgetTheme&); void setContentSafeArea(const WidgetContentSafeArea&); void setVisible(bool); void destroy();
+// the renderer seam (RendererFactory), v0.6.0: a renderer of your own reports the paint limit, once, before it draws that frame (§5.14)
+enum class WidgetPaintLimit { Paint, Backdrop };   // kMaxHeavyBoxes 16, kMaxBackdropBoxes 2; paintLimitCode, paintLimitMessage, paintLimitFromCode
+void Renderer::limitExceeded(WidgetPaintLimit code, int count);
 ```
 
 The widget's state and requests:
@@ -1107,7 +1124,10 @@ widget on the real renderer core in headless Chromium after load: `RunResult.ges
 reports per press the element, its `touch-action` claim, the policy's outcome, the events
 the widget received and a hint; `height` is the laid-out content height. From a shell:
 `sandbox-node.ts widget.html --width 360 --hold 120,40 --double-tap 120,40 --swipe 60,80,120,0`
-(`--desktop` for a desktop client's bubble, `--json` for the full result).
+(`--desktop` for a desktop client's bubble, `--json` for the full result). With `width` the
+renderer also counts heavy boxes (v0.6.0): `RunResult.paint` (`heavy`, `backdrop` at the end, `peakHeavy`,
+`peakBackdrop`), a `paint: N heavy boxes (max 16), M with backdrop-filter (max 2)` line with a warning past 12, and
+past the limit `stopped` with the renderer's reason, as a host stops the widget.
 
 The widget's state and requests: `data`, `context` (`WIDGET_MESSAGE_KINDS` in
 `sdk-policy.ts` has the server's flags per kind of message) and `onRequest`
@@ -1498,6 +1518,15 @@ shared state (`public_data`).
 - What the widget sees and how a widget handles it: §2.17. The renderer's UA
   layer pads an unstyled body by the band, so such a widget is that much taller
   with no caption below it.
+
+### 5.14 Heavy boxes, with a renderer of your own (v0.6.0)
+
+The framework's WebView renderer counts by itself. A client renderer counts the boxes it lays out that are heavy, by
+the rule of `packages/core/src/shared/paint-policy.ts` on the computed style (a blurred shadow, a filter, a
+backdrop-filter, opacity below 1, or an animation of one of them), checks the fixture
+`packages/core/tests/fixtures/paint-policy.json`, and past 16 (or 2 with backdrop-filter) calls the seam's
+`limitExceeded(code, count)` before it draws that frame. It draws the stopped widget without those effects; the host
+does the rest (`docs/integration.md`, "Heavy boxes").
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 
