@@ -66,7 +66,7 @@ public final class EnginePool {
     private func refill() {
         while count < targetSize {
             let t0 = CACurrentMediaTime()
-            let e = SandboxEngine(resources: resources, features: features)
+            let e = SandboxEngine.make(resources: resources, features: features)
             e.prewarm()
             lock.lock()
             idle.append(e)

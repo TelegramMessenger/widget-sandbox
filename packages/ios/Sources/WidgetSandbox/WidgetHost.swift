@@ -258,11 +258,14 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.data = options.data
         config.context = options.context
         self.config = config
-        if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
+        let keepsEngineInProcess = !sideChannels.isEmpty && SandboxEngine.sideChannelsInstall
+        if !keepsEngineInProcess, options.pools, let pooled = EnginePool.shared.take(features: options.features) {
             engine = pooled
             prewarmed.append("engine")
-        } else {
+        } else if keepsEngineInProcess {
             engine = SandboxEngine(resources: resources, features: options.features)
+        } else {
+            engine = SandboxEngine.make(resources: resources, features: options.features)
         }
         state.prewarmed = prewarmed.joined(separator: "+")
         validator.setAssetResolver(options.assetResolver)
@@ -768,6 +771,13 @@ public final class WidgetHost: SandboxEngineDelegate {
         // The renderer stays: last render as fallback, badge from the renderer, no more events or frames.
         toRenderer(Self.json(["type": "frozen", "reason": stoppedLabel, "fatal": true]))
         engine.stop(reason: reason)
+    }
+
+    /// Embedder-trusted code run in the widget's sandbox (`SandboxEngine.evaluateTrusted`); completion on the main thread.
+    public func evaluateInWidget(_ code: String, completion: @escaping (String?) -> Void) {
+        engine.evaluateTrusted(code) { value in
+            DispatchQueue.main.async { completion(value) }
+        }
     }
 
     /// Trusted script evaluated in the renderer (tests and diagnostics only); "null" from a renderer without script.
