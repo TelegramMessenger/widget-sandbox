@@ -184,8 +184,6 @@ public final class SandboxEngine {
     private var grantConsumed = 0
     private var remoteTaskOpen = false
     private var pendingDeath: String?
-    private var remoteRequestsInFlight = 0
-    private var remoteLastBackgroundMs = -Double.infinity
 
     /// Set by a host whose engines run in another process: `make` builds client-mode engines through it.
     public static var remoteChannelFactory: ((Set<String>) -> SandboxRemoteChannel)?
@@ -762,7 +760,7 @@ public final class SandboxEngine {
             if self.dead || self.visible == v { return }
             self.visible = v
             if let remote = self.remote {
-                if v { self.remoteLastBackgroundMs = -Double.infinity }
+                if v { _ = self.requests.show(nowMs: Self.nowMs()) }
                 return remote.setVisible(v)
             }
             // On screen again: the widget's next background request may go out at once, the one it made off screen now
@@ -1461,7 +1459,6 @@ public final class SandboxEngine {
 
 extension SandboxEngine {
     static let remoteGrantWindowMs = 2000.0
-    static let remoteBackgroundIntervalMs = 4000.0
     static let remoteTextLimit = 4000
     static let remoteMessageLimit = 1 << 20
     static let remoteOpsLimit = 32 << 20
@@ -1641,36 +1638,50 @@ extension SandboxEngine {
         }
     }
 
-    /// The request gate again, on the host's own inputs: the message's flags, one request in flight, a tap it
-    /// delivered for a foreground one, background ones only when the server allows them, visible, and not more
-    /// often than `remoteBackgroundIntervalMs` (reset when the widget appears, as the engine's gate is). A refusal
-    /// still answers the engine so the widget's promise settles.
-    func clientRequest(id: Int, data: String) {
+    fileprivate enum ClientRequest {
+        case bot(WidgetRequest)
+        case wallet(WalletCall)
+    }
+
+    fileprivate func clientRequest(id: Int, request: ClientRequest?) {
         queue.async {
             guard !self.dead, let remote = self.remote else { return }
             let refuse = { (failure: WidgetRequestFailure) in remote.answer(request: id, outcome: .failure(failure)) }
-            guard case .request(_, let checked, _)? = SdkPolicy.checkBridgeCall("request", [1, data]) else { return refuse(.notAllowed) }
             let context = self.config.context.effective
-            guard !context.preview, context.canQuery, self.remoteRequestsInFlight == 0 else { return refuse(.notAllowed) }
+            guard let request, !context.preview, context.canQuery, !self.requests.busy else { return refuse(.notAllowed) }
             let now = Self.nowMs()
             let pressed = self.config.policy == .compat || self.liveGrants()
-            if pressed {
-                if self.config.policy == .strict { self.spendGrant() }
-            } else {
-                guard context.backgroundQuery, self.visible, now - self.remoteLastBackgroundMs >= Self.remoteBackgroundIntervalMs else { return refuse(.rateLimited) }
-                self.remoteLastBackgroundMs = now
+            let verdict: SdkPolicy.RequestVerdict
+            switch request {
+            case let .bot(value):
+                guard self.visible else { return refuse(.rateLimited) }
+                verdict = self.requests.decide(nowMs: now, gesture: pressed, visible: self.visible, canQuery: context.canQuery, backgroundQuery: context.backgroundQuery, withWallet: value.wallet, wallet: context.wallet)
+                if verdict == .noActivation, !value.wallet { return refuse(.rateLimited) }
+            case .wallet:
+                verdict = self.requests.decideWallet(nowMs: now, gesture: pressed, visible: self.visible, canQuery: context.canQuery, wallet: context.wallet)
             }
-            self.remoteRequestsInFlight += 1
+            if let error = SdkPolicy.requestRefusal(verdict) {
+                return refuse(error == .rateLimited ? .rateLimited : .notAllowed)
+            }
+            if verdict == .foreground, self.config.policy == .strict { self.spendGrant() }
             let once = RequestOnce()
             let respond = WidgetRequestCompletion { [weak self] outcome in
                 guard once.claim(), let self else { return }
                 self.queue.async {
-                    self.remoteRequestsInFlight = max(0, self.remoteRequestsInFlight - 1)
+                    guard !self.dead else { return }
+                    if case .answer(.success(let answer)) = outcome, SdkPolicy.checkRequestAnswer(answer) != nil {
+                        self.requests.finish(answeredAtMs: Self.nowMs())
+                    } else {
+                        self.requests.finish()
+                    }
                     self.remote?.answer(request: id, outcome: SandboxRemoteOutcome(outcome))
                 }
             }
             guard let delegate = self.delegate else { return respond.unsupported() }
-            delegate.engine(self, request: WidgetRequest(data: checked), respond: respond)
+            switch request {
+            case let .bot(value): delegate.engine(self, request: value, respond: respond)
+            case let .wallet(call): delegate.engine(self, wallet: call, respond: respond)
+            }
         }
     }
 
@@ -1727,7 +1738,14 @@ public final class SandboxRemoteClient: SandboxRemoteSink {
     public func remoteDiag(kind: String, detail: String) { engine?.clientDiag(kind: kind, detail: detail) }
     public func remoteBridge(method: String, argsJson: String) { engine?.clientBridge(method: method, argsJson: argsJson) }
     public func remoteCopyText(_ text: String) { engine?.clientCopyText(text) }
-    public func remoteRequest(id: Int, data: String) { engine?.clientRequest(id: id, data: data) }
+    public func remoteRequest(id: Int, data: String, wallet: Bool) {
+        let request = SdkPolicy.checkRequestData(data).map { SandboxEngine.ClientRequest.bot(WidgetRequest(data: $0, wallet: wallet)) }
+        engine?.clientRequest(id: id, request: request)
+    }
+
+    public func remoteWallet(id: Int, payload: Data) {
+        engine?.clientRequest(id: id, request: SandboxRemoteCoding.decodeWallet(payload).map(SandboxEngine.ClientRequest.wallet))
+    }
     public func remoteStorage(_ commitJson: String) { engine?.clientStorage(commitJson) }
     public func remoteResizeAnchor(_ edge: String) { engine?.clientResizeAnchor(edge) }
     public func remoteWatchesPublicData(_ on: Bool) { engine?.clientWatchesPublicData(on) }

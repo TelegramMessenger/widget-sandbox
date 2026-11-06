@@ -78,7 +78,8 @@ public protocol SandboxRemoteSink: AnyObject {
     func remoteDiag(kind: String, detail: String)
     func remoteBridge(method: String, argsJson: String)
     func remoteCopyText(_ text: String)
-    func remoteRequest(id: Int, data: String)
+    func remoteRequest(id: Int, data: String, wallet: Bool)
+    func remoteWallet(id: Int, payload: Data)
     func remoteStorage(_ commitJson: String)
     func remoteResizeAnchor(_ edge: String)
     func remoteWatchesPublicData(_ on: Bool)
@@ -162,6 +163,14 @@ public final class SandboxRemoteServer: SandboxEngineDelegate {
     public func engine(_ engine: SandboxEngine, died reason: String) { sink.remoteDied(reason) }
 
     public func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) {
+        forward(respond) { sink.remoteRequest(id: $0, data: request.data, wallet: request.wallet) }
+    }
+
+    public func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion) {
+        forward(respond) { sink.remoteWallet(id: $0, payload: SandboxRemoteCoding.encode(wallet: wallet)) }
+    }
+
+    private func forward(_ respond: WidgetRequestCompletion, send: (Int) -> Void) {
         lock.lock()
         if closed {
             lock.unlock()
@@ -171,7 +180,7 @@ public final class SandboxRemoteServer: SandboxEngineDelegate {
         let id = nextRequest
         pending[id] = respond
         lock.unlock()
-        sink.remoteRequest(id: id, data: request.data)
+        send(id)
     }
 }
 
@@ -242,7 +251,7 @@ public enum SandboxRemoteCoding {
     public static func encode(config: SandboxConfig) -> Data {
         var context: [String: Any] = [
             "isCopy": config.context.isCopy, "canQuery": config.context.canQuery,
-            "backgroundQuery": config.context.backgroundQuery, "preview": config.context.preview,
+            "backgroundQuery": config.context.backgroundQuery, "preview": config.context.preview, "wallet": config.context.wallet,
         ]
         if let chatType = config.context.chatType { context["chatType"] = chatType.rawValue }
         if let viewer = config.context.viewer { context["viewer"] = viewer.json }
@@ -287,6 +296,7 @@ public enum SandboxRemoteCoding {
             context.canQuery = c["canQuery"] as? Bool ?? false
             context.backgroundQuery = c["backgroundQuery"] as? Bool ?? false
             context.preview = c["preview"] as? Bool ?? false
+            context.wallet = c["wallet"] as? Bool ?? false
             context.chatType = (c["chatType"] as? String).flatMap(WidgetChatType.init(rawValue:))
             if let v = c["viewer"] as? [String: Any], let id = (v["id"] as? NSNumber)?.int64Value {
                 context.viewer = WidgetViewer(id: id, firstName: v["first_name"] as? String, lastName: v["last_name"] as? String, username: v["username"] as? String, isPremium: v["is_premium"] as? Bool ?? false)
@@ -318,6 +328,22 @@ public enum SandboxRemoteCoding {
         return WidgetData(chatData: o["chatData"] as? String, publicData: o["publicData"] as? String)
     }
 
+    public static func encode(wallet: WalletCall) -> Data {
+        let payload: [String: Any]
+        switch wallet {
+        case let .sendTransaction(transaction, _): payload = transaction.json
+        case let .signData(data, _): payload = data.json
+        }
+        return (try? JSONSerialization.data(withJSONObject: [1, wallet.method, payload, wallet.data])) ?? Data()
+    }
+
+    static func decodeWallet(_ data: Data) -> WalletCall? {
+        guard data.count <= SandboxEngine.remoteMessageLimit,
+              let args = try? JSONSerialization.jsonObject(with: data),
+              case let .wallet(_, call)? = SdkPolicy.checkBridgeCall("wallet", args) else { return nil }
+        return call
+    }
+
     public static func encode(outcome: SandboxRemoteOutcome) -> Data {
         let object: [String: Any]
         switch outcome {
@@ -336,6 +362,8 @@ public enum SandboxRemoteCoding {
             case .timeout: return .failure(.timeout)
             case .rateLimited: return .failure(.rateLimited)
             case .failed: return .failure(.failed)
+            case .rejected: return .failure(.rejected)
+            case .badRequest: return .failure(.badRequest)
             default: return .failure(.notAllowed)
             }
         }
@@ -392,6 +420,8 @@ public enum SandboxRemoteCoding {
     }
 
     public static func decodeCanvas(_ data: Data) -> [Int: WidgetCanvasBatch]? {
+        let maxBytes = 4 + 16 * maxCanvasBatches + 8 * maxCanvasWords + 4 * maxCanvasStrings + maxCanvasStringBytes
+        guard data.count <= maxBytes else { return nil }
         let bytes = [UInt8](data)
         var i = 0
         func u32() -> Int? {

@@ -36,6 +36,7 @@ final class RemoteEngineTests: XCTestCase {
         var actions: [WidgetAction] = []
         var copies: [String] = []
         var requests: [(WidgetRequest, WidgetRequestCompletion)] = []
+        var walletCalls: [(WalletCall, WidgetRequestCompletion)] = []
         var commits: [SdkPolicy.StorageCommit] = []
         var diags: [String] = []
         var died: [String] = []
@@ -53,6 +54,7 @@ final class RemoteEngineTests: XCTestCase {
         func engine(_ engine: SandboxEngine, action: WidgetAction) { actions.append(action) }
         func engine(_ engine: SandboxEngine, copyText: String) { copies.append(copyText) }
         func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) { requests.append((request, respond)) }
+        func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion) { walletCalls.append((wallet, respond)) }
         func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) { commits.append(storageCommit) }
         func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) { anchors.append(resizeAnchor) }
         func engine(_ engine: SandboxEngine, watchesPublicData: Bool) { watches.append(watchesPublicData) }
@@ -214,7 +216,7 @@ final class RemoteEngineTests: XCTestCase {
     func testRequestWithoutCanQueryIsRefusedAndSettles() {
         make(context: WidgetContext(canQuery: false))
         tap(1)
-        sink.remoteRequest(id: 7, data: "x")
+        sink.remoteRequest(id: 7, data: "x", wallet: false)
         settle()
         XCTAssertTrue(delegate.requests.isEmpty)
         XCTAssertEqual(channel.answers.first?.0, 7)
@@ -223,13 +225,13 @@ final class RemoteEngineTests: XCTestCase {
 
     func testForegroundRequestNeedsATapAndOneInFlight() {
         make()
-        sink.remoteRequest(id: 1, data: "no tap")
+        sink.remoteRequest(id: 1, data: "no tap", wallet: false)
         settle()
         XCTAssertTrue(delegate.requests.isEmpty)
         XCTAssertEqual(channel.answers.last?.1, .failure(.rateLimited))
         tap(1)
-        sink.remoteRequest(id: 2, data: "tapped")
-        sink.remoteRequest(id: 3, data: "second")
+        sink.remoteRequest(id: 2, data: "tapped", wallet: false)
+        sink.remoteRequest(id: 3, data: "second", wallet: false)
         settle()
         XCTAssertEqual(delegate.requests.map { $0.0.data }, ["tapped"])
         XCTAssertEqual(channel.answers.last?.0, 3)
@@ -241,27 +243,59 @@ final class RemoteEngineTests: XCTestCase {
 
     func testBackgroundRequestsNeedTheFlagAndAreRateLimited() {
         make(context: WidgetContext(canQuery: true, backgroundQuery: true))
-        sink.remoteRequest(id: 1, data: "a")
+        sink.remoteRequest(id: 1, data: "a", wallet: false)
         settle()
         XCTAssertEqual(delegate.requests.count, 1)
         delegate.requests[0].1(.success(WidgetRequestAnswer()))
         settle()
-        sink.remoteRequest(id: 2, data: "b")
+        sink.remoteRequest(id: 2, data: "b", wallet: false)
         settle()
         XCTAssertEqual(delegate.requests.count, 1)
         XCTAssertEqual(channel.answers.last?.1, .failure(.rateLimited))
         engine.setVisible(false)
         engine.setVisible(true)
         settle()
-        sink.remoteRequest(id: 3, data: "c")
+        sink.remoteRequest(id: 3, data: "c", wallet: false)
         settle()
         XCTAssertEqual(delegate.requests.count, 2)
         engine.setVisible(false)
         settle()
         delegate.requests[1].1(.failure(.timeout))
-        sink.remoteRequest(id: 4, data: "hidden")
+        sink.remoteRequest(id: 4, data: "hidden", wallet: false)
         settle()
         XCTAssertEqual(delegate.requests.count, 2)
+    }
+
+    func testWalletRequestAndFollowUpUseHostPermissionAndGrant() {
+        make(context: WidgetContext(canQuery: true, backgroundQuery: true, wallet: true))
+        let call = WalletCall.signData(SignDataPayload(type: .text, text: "Sign me"), data: "data")
+        let payload = SandboxRemoteCoding.encode(wallet: call)
+        sink.remoteRequest(id: 1, data: "wallet", wallet: true)
+        sink.remoteWallet(id: 2, payload: payload)
+        settle()
+        XCTAssertTrue(delegate.requests.isEmpty)
+        XCTAssertTrue(delegate.walletCalls.isEmpty)
+        XCTAssertEqual(channel.answers.map { $0.1 }, [.failure(.notAllowed), .failure(.notAllowed)])
+
+        tap(1)
+        sink.remoteRequest(id: 3, data: "wallet", wallet: true)
+        settle()
+        XCTAssertEqual(delegate.requests.first?.0, WidgetRequest(data: "wallet", wallet: true))
+        delegate.requests.first?.1(.success(WidgetRequestAnswer(result: "grant")))
+        settle()
+
+        sink.remoteWallet(id: 4, payload: Data("[1,\"signData\",{},\"data\"]".utf8))
+        sink.remoteWallet(id: 5, payload: payload)
+        settle()
+        XCTAssertEqual(delegate.walletCalls.first?.0, call)
+        delegate.walletCalls.first?.1(.failure(.rejected))
+        settle()
+        XCTAssertEqual(channel.answers.last?.1, .failure(.rejected))
+
+        sink.remoteWallet(id: 6, payload: payload)
+        settle()
+        XCTAssertEqual(delegate.walletCalls.count, 1)
+        XCTAssertEqual(channel.answers.last?.1, .failure(.notAllowed))
     }
 
     func testPreviewTakesNoActionsOrStorage() {
@@ -270,7 +304,7 @@ final class RemoteEngineTests: XCTestCase {
         sink.remoteBridge(method: "openLink", argsJson: "[\"https://example.com/\"]")
         sink.remoteStorage("{\"local\":{\"a\":\"b\"}}")
         sink.remoteWatchesPublicData(true)
-        sink.remoteRequest(id: 1, data: "x")
+        sink.remoteRequest(id: 1, data: "x", wallet: false)
         sink.remoteResizeAnchor("bottom")
         settle()
         XCTAssertTrue(delegate.actions.isEmpty)
@@ -361,7 +395,7 @@ final class RemoteEngineTests: XCTestCase {
         config.contentSafeArea = WidgetContentSafeArea(top: 1, right: 2, bottom: 3, left: 4, cornerLeft: 5, cornerRight: 6)
         config.storage = WidgetStorage(local: ["a": "b"], session: ["c": "d"])
         config.data = WidgetData(chatData: "chat", publicData: "public")
-        config.context = WidgetContext(isCopy: true, canQuery: true, backgroundQuery: true, chatType: .group, viewer: WidgetViewer(id: 42, firstName: "Ann", username: "ann", isPremium: true), preview: false)
+        config.context = WidgetContext(isCopy: true, canQuery: true, backgroundQuery: true, chatType: .group, viewer: WidgetViewer(id: 42, firstName: "Ann", username: "ann", isPremium: true), preview: false, wallet: true)
         config.maxTimers = 12
         config.visible = false
         let decoded = SandboxRemoteCoding.decodeConfig(SandboxRemoteCoding.encode(config: config))
@@ -379,7 +413,7 @@ final class RemoteEngineTests: XCTestCase {
     }
 
     func testOutcomeAndStatsRoundTrip() {
-        for outcome: SandboxRemoteOutcome in [.answer("x"), .answer(nil), .failure(.timeout), .failure(.rateLimited), .failure(.failed), .failure(.notAllowed), .unsupported] {
+        for outcome: SandboxRemoteOutcome in [.answer("x"), .answer(nil), .failure(.timeout), .failure(.rateLimited), .failure(.failed), .failure(.notAllowed), .failure(.rejected), .failure(.badRequest), .unsupported] {
             XCTAssertEqual(SandboxRemoteCoding.decodeOutcome(SandboxRemoteCoding.encode(outcome: outcome)), outcome)
         }
         var stats = SandboxStats()
