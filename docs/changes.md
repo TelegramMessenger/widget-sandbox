@@ -3,6 +3,36 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.6.1 — release notes (2026-11-06)
+
+A QuickJS security release. The fork pin moves to a backport of seven upstream quickjs-ng
+fixes on top of the v0.6.0 engine. Widget JS runs only inside QuickJS, so an engine
+memory-safety bug is reachable from ordinary widget JavaScript, below the validator and the
+renderer boundary where none of the sandbox checks can see it. A client updates by bumping
+the submodule and rebuilding the engine for its platform, with no glue change. The web ships
+a rebuilt `packages/quickjs-wasm/dist`, the one platform whose prebuilt engine changes. The
+JS bundles and `.qbc` change only to carry the new version stamp.
+
+The seven fixes:
+
+- `3d5cb14` (#1827) RegExp deletion bytecode lifetime. This is the reported RCE. The
+  `replace(re, "")` and `replaceAll(re, "")` fast path read the compiled bytecode before
+  converting `lastIndex`, and a `lastIndex.valueOf()` that recompiled the same RegExp freed
+  that bytecode, so the deletion loop then read and ran freed memory.
+- `25a005b` (#1844) use-after-free when freeing a WeakMap whose values are symbols.
+- `081d50c` infinite loop and repeated free on allocation failure in `unicode_script()`,
+  reachable from a `\p{sc=...}` RegExp compiled under the memory cap.
+- `1b519fa` (#1809) BJSON RegExp reference registration.
+- `7a23d8e` leak in `JS_ReadBigInt` on truncated input.
+- `c1ed194` (#1795) `Array.fromAsync` uses an internal call instead of a `.call` lookup.
+- `e22ce4d` (#1826) `Array.find` clears value ownership after release.
+
+The fork's RegExp pattern cache keeps recently compiled bytecode alive, so the plain trigger
+does not free it and upstream's own test passes even on the unfixed engine. The release adds a
+cache-evicting regression test that fails before the fix, a `corpus/attacks/` widget that runs
+the RegExp case, and a unit test that drives the widget through the Node and wasm harness so
+the shipped `dist` is covered as well.
+
 ## v0.6.0 — release notes (2026-11-02)
 
 The limits for the launch. The client teams ran the stress kit on five devices (a Redmi Note 8T and a Galaxy A55 on
