@@ -2310,3 +2310,16 @@ clients' windows are not.
 
   Open: which message hash the server keeps (the normalised one, TEP-467, is what toncenter looks up), the TEP-81
   form of `bot<bot_id>` for a cell signature, how jettons and NFTs show in the window.
+
+## A widget's bubble with a gradient is one colour (2026-11-08)
+
+An outgoing bubble with a gradient that holds a widget is painted in one colour, the `bg_color` the client passes
+(`docs/sdk-v1.md` §5.1). Before, the client drew the theme's gradient and passed the colour it shows most: a widget
+that paints its own background (a card in `bg_color`, `var(--tg-theme-bg-color)`) showed a hard edge against the
+gradient around it, at the forward header, the caption and the bubble's sides (seen on Android, 2026-11-08, a forwarded
+prediction-market widget). The gradient spans the chat's height and moves under the bubble as it scrolls, so no single
+colour matches it, and a widget cannot follow it: the profile has no way to pass a gradient, and one that moves on
+scroll would need a theme update per frame. Painting the bubble in `bg_color` makes every widget's background meet it
+without an edge; the bubble's other parts (the header, the caption, the reactions, the time) sit on that colour, and a
+selected bubble gets the theme's selection overlay over it. Incoming bubbles have one colour already; a translucent
+fill keeps the old rule (the colour the widget's area shows most).
