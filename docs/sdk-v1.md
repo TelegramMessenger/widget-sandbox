@@ -1153,9 +1153,15 @@ as checked, the gate's verdict, what went back); from a shell `--wallet`, `--wal
   behind the widget. A widget the user sent or forwarded sits in an outgoing
   bubble: pass the outgoing bubble's colours (fill, text, hint, link,
   separator), not the incoming ones; custom chat themes and night mode the
-  same way. A bubble with a gradient or a translucent fill has no single
-  colour: pass the one the widget's area shows most (the client draws the
-  bubble under a transparent widget view either way).
+  same way. A bubble with a gradient (the outgoing bubbles of many themes)
+  that holds a widget is painted in one colour over its whole size: its
+  header, caption and reactions too, and when selected with the theme's
+  selection overlay over that colour. The colour is the `bg_color` passed:
+  the one the gradient shows most (Android: the average of its stops). A
+  widget that paints its own background in `bg_color` then meets the bubble
+  with no edge, wherever the bubble is on screen. A bubble with a translucent
+  fill has no single colour either: pass the one the widget's area shows
+  most (the client draws the bubble under a transparent widget view).
 - Pass the button tokens of §2.4 from the client's own button, and the text
   tokens from its message text: `fontSize` = the chat's message font size,
   following the text-size setting; `lineHeight` and `padding` as the client's

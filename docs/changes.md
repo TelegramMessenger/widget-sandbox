@@ -3,6 +3,83 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.6.3 — release notes (2026-11-09)
+
+A QuickJS hardening release, a follow-up to v0.6.2. The fork pin moves one commit on top of the v0.6.2
+engine, with no other change. v0.6.2 propagated the parser's failed `push_scope()` at every call site. This
+release covers the sibling allocation on the `new_label()` path, the same class of bug in the same compiler.
+A client updates by bumping the submodule and rebuilding the engine for its platform, with no glue change.
+The web ships a rebuilt `packages/quickjs-wasm/dist`, the one platform whose prebuilt engine changes. The JS
+bundles and `.qbc` change only to carry the new version stamp.
+
+The fix, the label twin of the v0.6.2 scope fix:
+
+- `new_label()` grows the parser's per-function label array (`fd->label_slots`) with `js_resize_array` and
+  returns `-1` when that allocation fails under the 8 MB per-widget heap. Three parser paths minted labels
+  and used them without checking that result: `js_parse_destructuring_element` (the parse and assign labels
+  of a destructuring target), `js_parse_for_in_of` (the continue, body, break and next labels of a `for`-`in`
+  or `for`-`of`), and the C-style `for` in `js_parse_statement_or_decl` (its test, continue, body and break
+  labels). A failed allocation left `-1` as a label the loop then emitted and jumped to, an out-of-bounds
+  access at `fd->label_slots[-1]` the same way the scope bug touched `fd->scopes[-1]`. This is a different
+  array from the scope underflow, and the v0.6.2 `scope_level < 0` backstop does not cover it. The fix
+  returns the parse error when any of those `new_label()` calls fails, `-1` in `js_parse_destructuring_element`
+  and `js_parse_for_in_of` and `goto fail` in the C-style `for`.
+
+As with v0.6.2, this is hardening rather than a reachable RCE. Driving the original failure needs a parser
+allocation to fail part-way through compiling a widget, and a conforming widget (at most 32 KB of source, no
+`eval` or `Function`) does not have the headroom to reach it under the 8 MB cap. The bug is real at the C
+level and worth fixing and upstreaming to quickjs-ng alongside the v0.6.2 scope patch.
+
+The release adds an engine regression test (`api-test.c`, `parser_label_out_of_memory`) that compiles a
+label-heavy program under a sweep of memory ceilings and asserts the parser reports a clean error rather than
+corrupting memory, run under ASan so an `fd->label_slots[-1]` access is a hard failure. The sibling of
+v0.6.2's `parser_scope_out_of_memory`, it exercises the label array the scope test leaves untouched.
+
+This release also carries six `corpus/attacks/render-*` widgets for the native renderers: markup alone, no
+script, that exhausted twidget's renderer before its fixes (f385525, 8c6d311, 4769d72) and may exhaust any
+engine that implements CSS by hand. Each file's comment says what a client must draw or do; the web lays them
+out as any page.
+
+- `render-var-expansion`: custom properties that expand to 10^9 tokens. An over-long variable is invalid at
+  computed-value time (css-variables, "long variables"): the fallback applies, memory stays flat.
+- `render-gradient-zero-period`: repeating gradients of a zero or sub-pixel period are their average colour.
+- `render-nested-flex`, `-grid`, `-table`: 30 to 40 nested boxes that ask a renderer without a measure cache
+  for 2^depth layouts on its layout thread, outside the JS quotas. Lay them out in bounded time or stop the widget.
+- `render-marker-huge-start`: `<ol start=2000000000>` in upper-roman. Roman covers 1 to 3999, alphabetic styles
+  start at 1; outside that the marker is decimal (css-counter-styles).
+
+## v0.6.2 — release notes (2026-11-09)
+
+A QuickJS hardening release. The fork pin moves to a parser fix on top of the v0.6.1 engine, with
+no other change. Widget JS runs only inside QuickJS, so a parser memory-safety bug is in reach of
+the engine below every sandbox check, the same place as the v0.6.1 RegExp fixes. A client updates by
+bumping the submodule and rebuilding the engine for its platform, with no glue change. The web ships a
+rebuilt `packages/quickjs-wasm/dist`, the one platform whose prebuilt engine changes. The JS bundles
+and `.qbc` change only to carry the new version stamp.
+
+The fix, one parser bug in the compiler's scope handling:
+
+- `push_scope()` grows the parser's per-function `fd->scopes` array with `js_realloc` and returns `-1`
+  when that allocation fails under the 8 MB per-widget heap. Fourteen of its fifteen call sites ignored
+  that result and carried on as if the scope had been entered. The construct's matching `pop_scope()`
+  then left one scope too many, `scope_level` walked down to `-1`, and the next `add_scope_var()` wrote
+  `fd->scopes[-1].first` (an out-of-bounds write just below the array) while `pop_scope()` read
+  `fd->scopes[-1].parent`. The fix propagates the failed push at all fourteen sites, matching the one
+  site that already checked, and adds a `scope_level < 0` backstop in `add_scope_var()` and `pop_scope()`
+  so a future caller that forgets the check still cannot write out of bounds.
+
+Unlike the v0.6.1 RegExp-delete bug, this one is hardening rather than a reachable RCE. Reaching the
+original failure needs a parser allocation to fail part-way through compiling a widget, and a conforming
+widget (at most 32 KB of source, no `eval` or `Function`) does not have the headroom to drive the
+compiler there under the 8 MB cap. The bug is real at the C level and worth fixing and upstreaming to
+quickjs-ng regardless, the same propagation patch goes to quickjs-ng's master.
+
+The release adds an engine regression test (`api-test.c`) that compiles a scope-heavy program under a
+sweep of memory ceilings and asserts the parser reports a clean error rather than corrupting memory, run
+under ASan so a `fd->scopes[]` underflow is a hard failure, and a `corpus/attacks/` widget
+(`parser-scope-oob.html`) that packs the scope-pushing constructs behind the fourteen call sites into a
+conforming widget the sandbox compiles and runs cleanly with the canary at zero.
+
 ## v0.6.1 — release notes (2026-11-06)
 
 A QuickJS security release. The fork pin moves to a backport of seven upstream quickjs-ng
