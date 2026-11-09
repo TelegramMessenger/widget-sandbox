@@ -8,7 +8,7 @@ plugins {
 // Maven coordinates: apps/android substitutes them with this project through
 // includeBuild; a published AAR would carry the same ones.
 group = "org.telegram.widgetsandbox"
-version = "0.6.2"
+version = "0.6.3"
 
 android {
     namespace = "org.telegram.widgetsandbox"

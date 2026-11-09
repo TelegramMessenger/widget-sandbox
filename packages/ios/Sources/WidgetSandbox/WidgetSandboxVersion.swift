@@ -5,7 +5,7 @@
 /// another protocol, profile or sdk is refused (`bundle-mismatch`, BundleStamp.swift).
 public enum WidgetSandboxVersion {
     /// The release (semver; the tag is `v` + this).
-    public static let version = "0.6.2"
+    public static let version = "0.6.3"
     /// The wire between this glue and the bundles (docs/protocol.md).
     public static let protocolVersion = 1
     /// The widget profile this glue enforces (`TelegramWidget.profile`, docs/profile-v1.md).

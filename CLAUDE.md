@@ -479,6 +479,22 @@ that recompiled the RegExp freed it). Also `25a005b` (WeakMap-with-symbol UAF), 
 `.qbc` only gain the new version stamp. A client updates by bumping the submodule and rebuilding the engine, no glue
 change. The fork's pattern cache hides the plain RegExp trigger, so the regression test evicts the cache and fails
 before the fix (`corpus/attacks/regexp-delete-recompile.html` + its unit test through the wasm harness).
+2026-11-09: v0.6.2 (`docs/changes.md`), a QuickJS parser hardening release: the fork pin moves one commit to
+`09bb809f` on top of the v0.6.1 engine. Fourteen of `push_scope()`'s fifteen call sites ignored its `-1` on a
+failed `fd->scopes` grow under the 8 MB heap, so a mismatched `pop_scope()` walked `scope_level` to `-1` and the
+next `add_scope_var()` wrote `fd->scopes[-1]`. The fix propagates the failed push at all fourteen sites and adds a
+`scope_level < 0` backstop in `add_scope_var()` and `pop_scope()`, an engine regression (`parser_scope_out_of_memory`
+in `api-test.c`) and a marker widget (`corpus/attacks/parser-scope-oob.html`, attacks now 121). Hardening, not a
+reachable RCE: a conforming widget has no headroom to fail a parser allocation under the cap.
+2026-11-09: v0.6.3 (`docs/changes.md`), a follow-up to the v0.6.2 parser hardening: the fork pin moves one commit
+to `b02310a1` ("Fix some more possible crashes."), the sibling of the `push_scope` class on the `new_label` path.
+`new_label()` returns `-1` when the parser cannot grow `fd->label_slots` under the 8 MB heap, and three parser paths
+used the label without checking (`js_parse_destructuring_element`, `js_parse_for_in_of`, the C-style `for` in
+`js_parse_statement_or_decl`), so a failed allocation became an out-of-bounds access at `fd->label_slots[-1]`, a
+distinct array the v0.6.2 `scope_level < 0` backstop does not cover. The fix returns the parse error at each site
+and adds an ASan regression (`parser_label_out_of_memory` in `api-test.c`). The web ships a rebuilt
+`packages/quickjs-wasm/dist`. The JS bundles and `.qbc` only gain the new version stamp. A client updates by
+bumping the submodule and rebuilding the engine, no glue change.
 Open: the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), device pentest of the
 WebView blockers on both platforms (no client renders through a WebView; their own renderers' conformance and attack-corpus
 runs are not in yet), no host passes the OS's reduced-motion setting (the validator can answer it), the renderer's frame
