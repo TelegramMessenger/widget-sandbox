@@ -17,7 +17,12 @@ import WebKit
 public final class RendererEnvironment: NSObject, WKScriptMessageHandler {
     public static let shared = RendererEnvironment()
 
-    let processPool = WKProcessPool()
+    /// One web content process for every renderer of this environment instead of one per web view (WebKit SPI,
+    /// looked up at run time; the default pool when it is missing). Set it before the first renderer.
+    public var singleWebProcess = false
+    /// `default`, `single`, or `fallback: <reason>` once the pool exists.
+    public private(set) var processMode = "default"
+    private(set) lazy var processPool = makeProcessPool()
     let dataStore = WKWebsiteDataStore.nonPersistent()
     let userContentController = WKUserContentController()
     let schemeHandler = SharedSchemeHandler()
@@ -37,6 +42,7 @@ public final class RendererEnvironment: NSObject, WKScriptMessageHandler {
     /// Compiles (or looks up) the no-network rule list and launches the web
     /// content process, so neither lands on the first bubble's critical path.
     public func prewarm(completion: (() -> Void)? = nil) {
+        _ = processPool
         ensureRuleList {
             completion?()
         }
@@ -133,6 +139,43 @@ final class SharedSchemeHandler: NSObject, WKURLSchemeHandler {
 
 extension RendererEnvironment {
     func rendererOf(_ webView: WKWebView) -> RendererWebView? { views[ObjectIdentifier(webView)]?.value }
+
+    private func makeProcessPool() -> WKProcessPool {
+        guard singleWebProcess else { return WKProcessPool() }
+        switch Self.makeSingleProcessPool() {
+        case .success(let pool):
+            processMode = "single"
+            return pool
+        case .failure(let error):
+            processMode = "fallback: \(error.reason)"
+            return WKProcessPool()
+        }
+    }
+
+    private struct PoolUnavailable: Error { let reason: String }
+
+    // -[WKProcessPool _initWithConfiguration:] with _WKProcessPoolConfiguration.usesSingleWebProcess = YES, then
+    // -_warmInitialProcess. iOS 26 has no +_processPoolWithConfiguration:, hence alloc + init.
+    private static func makeSingleProcessPool() -> Result<WKProcessPool, PoolUnavailable> {
+        guard let configurationClass = NSClassFromString("_WKProcessPoolConfiguration") as? NSObject.Type else {
+            return .failure(PoolUnavailable(reason: "no _WKProcessPoolConfiguration"))
+        }
+        let configuration = configurationClass.init()
+        guard configuration.responds(to: NSSelectorFromString("setUsesSingleWebProcess:")) else {
+            return .failure(PoolUnavailable(reason: "no usesSingleWebProcess"))
+        }
+        configuration.setValue(true, forKey: "usesSingleWebProcess")
+        let initializer = NSSelectorFromString("_initWithConfiguration:")
+        guard WKProcessPool.instancesRespond(to: initializer),
+              let allocated = (WKProcessPool.self as AnyObject).perform(NSSelectorFromString("alloc"))?.takeRetainedValue(),
+              let pool = allocated.perform(initializer, with: configuration)?.takeUnretainedValue() as? WKProcessPool,
+              pool === allocated else {
+            return .failure(PoolUnavailable(reason: "no _initWithConfiguration:"))
+        }
+        let warm = NSSelectorFromString("_warmInitialProcess")
+        if pool.responds(to: warm) { _ = pool.perform(warm) }
+        return .success(pool)
+    }
 }
 
 // MARK: - Renderer pool
