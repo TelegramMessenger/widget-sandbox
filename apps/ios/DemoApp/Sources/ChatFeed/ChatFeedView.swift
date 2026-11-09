@@ -14,6 +14,7 @@ struct ChatFeedSetupView: View {
     /// The interactive demos by default on the phone; `classic` is the measured set of docs/chat-feed-ios.md.
     @AppStorage("feed.corpus") private var corpus = "showcase"
     @AppStorage("demo.dark") private var dark = false
+    @AppStorage("feed.singleWebProcess") private var singleWebProcess = false
     @State private var custom = FeedConfig.max
     @State private var showCustom = false
 
@@ -22,6 +23,7 @@ struct ChatFeedSetupView: View {
         c.count = count
         c.scroll = scroll
         c.corpus = corpus
+        c.singleWebProcess = singleWebProcess
         return c
     }
 
@@ -44,6 +46,11 @@ struct ChatFeedSetupView: View {
                     Text("flick (fast, continuous)").tag("flick")
                 }
                 LabeledSwitch("Dark", isOn: $dark)
+            }
+            Section {
+                Toggle("One web content process", isOn: $singleWebProcess)
+            } footer: {
+                Text("Now: \(RendererEnvironment.shared.processMode). Takes effect on the next launch: the process pool is made once, before the first renderer.")
             }
             if preset == "custom" {
                 Section("Host") {

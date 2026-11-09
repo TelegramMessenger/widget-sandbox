@@ -3,6 +3,13 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Next release
+
+- iOS/macOS, opt-in: `RendererEnvironment.singleWebProcess` puts every renderer of the shared WebKit environment
+  (`Options.sharedWebKit`) into one web content process instead of one per web view, through WebKit's
+  `_WKProcessPoolConfiguration.usesSingleWebProcess`, looked up at run time; without it the default pool is used and
+  `processMode` says why. Set it before the first renderer. The chat feed demo: `--feed-set singleWebProcess=1`.
+
 ## v0.6.1 — release notes (2026-11-06)
 
 A QuickJS security release. The fork pin moves to a backport of seven upstream quickjs-ng

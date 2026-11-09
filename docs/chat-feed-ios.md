@@ -85,6 +85,14 @@ app fills, so a product can pick.
 7. **Prewarm at launch**: a messenger fills the pools when the app starts, not
    when a chat opens. The autorun does the same (`prewarmAtLaunch`), and the
    setup screen prewarms while the reader looks at it.
+8. **One web content process** (`RendererEnvironment.singleWebProcess`, opt-in,
+   `--feed-set singleWebProcess=1`). A shared `WKProcessPool` does not share the
+   process: WebKit still launches a web content process per web view, and the
+   app's footprint above does not count them. With
+   `_WKProcessPoolConfiguration.usesSingleWebProcess` (SPI, looked up at run
+   time, the default pool when it is missing) every renderer of the environment
+   runs in one process, warmed with `_warmInitialProcess`. A crash of that
+   process takes every bubble with it.
 
 ## Measuring
 
@@ -208,6 +216,21 @@ before it was displayed (p90 −1208 ms), loaded median 26 ms / p90 62 ms,
 hitch 1.5 ms/s down and 8.9 ms/s up (worst frame 38 ms, no freezes), memory
 peak 127 MB and 58 MB at the end after 235 hosts created and 227 dropped over
 three minutes of scrolling.
+
+### One web content process (iPhone 17 Pro simulator, iOS 26.3, Release, 2026-11-09)
+
+40 widgets, `step`, `max` against `max` with `singleWebProcess=1` (3 and 4
+runs). The web content processes are counted from outside (`pgrep` for the
+simulator's `WebContent`, `footprint` every 2 s), since the report covers the
+app process only.
+
+| | max | max + `singleWebProcess` |
+|---|---|---|
+| web content processes, peak | 17–18 | 1 |
+| their footprint, peak / at the end | 320–329 / 239–241 MB | 75–110 / 68–109 MB |
+| first screen on a cold open, display → content | 541–917 ms | 188–296 ms |
+| first content, p90 | 185–206 ms | 77–106 ms |
+| app memory peak | 124–125 MB | 124 MB |
 
 ## Corpus (2026-10-12)
 

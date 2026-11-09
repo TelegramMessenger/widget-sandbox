@@ -347,6 +347,7 @@ final class ChatFeedViewController: UIViewController, UICollectionViewDataSource
         let on = s[true] ?? .init(), off = s[false] ?? .init()
         var lines = ["corpus/\(config.corpus) · \(model.renderer.title) renderer · \(config.count) bubbles · \(live) live · \(model.hostsDropped) dropped · \(model.stopped) stopped"]
         lines.append(model.poolsOn ? WidgetWarmup.status : "pool off: every bubble boots its own renderer, engine and validator")
+        lines.append("web content process: \(RendererEnvironment.shared.processMode)")
         lines.append(String(format: "%-26@ %10@ %10@", "", "pool on", "pool off"))
         lines.append(String(format: "%-26@ %10d %10d", "bubbles booted", on.boot.count, off.boot.count))
         lines.append(String(format: "%-26@ %10@ %10@", "create → content, median", f(q(on.boot, 0.5)), f(q(off.boot, 0.5))))

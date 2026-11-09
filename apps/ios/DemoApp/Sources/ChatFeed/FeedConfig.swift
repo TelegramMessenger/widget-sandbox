@@ -29,6 +29,8 @@ struct FeedConfig: Codable, Equatable {
     var asyncValidation = false
     /// Host → renderer via `callAsyncJavaScript` arguments instead of an escaped `evaluateJavaScript` literal.
     var callAsync = false
+    /// `RendererEnvironment.singleWebProcess`: one web content process for every bubble (with `sharedWebKit`).
+    var singleWebProcess = false
 
     // The list's own lifecycle
     /// Heights remembered from a previous session: a bubble is laid out at its final height before the widget renders.
@@ -112,6 +114,7 @@ struct FeedConfig: Codable, Equatable {
         case "parallelBoot": parallelBoot = b
         case "asyncValidation": asyncValidation = b
         case "callAsync": callAsync = b
+        case "singleWebProcess": singleWebProcess = b
         case "heightCache": heightCache = b
         case "prefetch": prefetch = b
         case "park": park = b
@@ -146,6 +149,7 @@ struct FeedConfig: Codable, Equatable {
     /// Process-wide knobs (transport, pools) — applied once before the first host; idempotent (a second call only tops the pools up).
     func applyGlobals(widgetWidth: CGFloat, parkingView: PlatformView?, pools poolsOverride: Bool? = nil) {
         RendererWebView.transport = callAsync ? .callAsync : .evaluate
+        RendererEnvironment.shared.singleWebProcess = singleWebProcess
         if poolsOverride ?? pools {
             WidgetWarmup.prewarm(renderers: poolRenderers, engines: poolEngines, validators: poolValidators, width: widgetWidth, parkingView: parkingView)
         } else {
@@ -166,6 +170,7 @@ struct FeedConfig: Codable, Equatable {
         if parallelBoot { on.append("parallelBoot") }
         if asyncValidation { on.append("asyncValidation") }
         if callAsync { on.append("callAsync") }
+        if singleWebProcess { on.append("singleWebProcess (\(RendererEnvironment.shared.processMode))") }
         if heightCache { on.append("heightCache") }
         if prefetch { on.append("prefetch") }
         if park { on.append("park") }
