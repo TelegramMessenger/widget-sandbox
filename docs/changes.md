@@ -3,6 +3,20 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased
+
+Six `corpus/attacks/render-*` widgets for the native renderers: markup alone, no script, that exhausted twidget's
+renderer before its fixes (f385525, 8c6d311, 4769d72) and may exhaust any engine that implements CSS by hand. Each
+file's comment says what a client must draw or do; the web lays them out as any page.
+
+- `render-var-expansion`: custom properties that expand to 10^9 tokens. An over-long variable is invalid at
+  computed-value time (css-variables, "long variables"): the fallback applies, memory stays flat.
+- `render-gradient-zero-period`: repeating gradients of a zero or sub-pixel period are their average colour.
+- `render-nested-flex`, `-grid`, `-table`: 30 to 40 nested boxes that ask a renderer without a measure cache
+  for 2^depth layouts on its layout thread, outside the JS quotas. Lay them out in bounded time or stop the widget.
+- `render-marker-huge-start`: `<ol start=2000000000>` in upper-roman. Roman covers 1 to 3999, alphabetic styles
+  start at 1; outside that the marker is decimal (css-counter-styles).
+
 ## v0.6.2 — release notes (2026-11-09)
 
 A QuickJS hardening release. The fork pin moves to a parser fix on top of the v0.6.1 engine, with
