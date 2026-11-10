@@ -3,6 +3,28 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: QuickJS `await using` outside async functions (2026-11-10)
+
+A QuickJS security fix: the fork pin moves one commit to `ca3594d` on top of the v0.6.3 engine. Reported
+against Telegram Android 13.2.1 as native code execution from a widget's script.
+
+- The bug: `await` is a keyword token in modules and class static blocks even inside functions that cannot
+  await, and `js_parse_for_in_of()` accepted an `await using` binding in a for-in/of head there without
+  checking the function kind (every other `await` and `await using` site checks it). The binding's disposal
+  emits `OP_await` into a normal function. The interpreter takes every suspending opcode through its generator
+  exit, which for a normal function skips `close_var_refs()`, so a closure created in that frame kept a
+  reference into the C stack after the call returned: a use-after-return reachable from plain widget JS
+  (class static blocks are in every script), below the sandbox, on every platform that compiles the fork.
+- The fix: the parser refuses `await using` in a for head unless the function is async (a `SyntaxError`, as
+  for `for await` and the statement-level `await using`), and `JS_CallInternal` throws instead of suspending
+  a normal function's frame (`OP_await`, `OP_yield`, `OP_yield_star`, `OP_async_yield_star`,
+  `OP_return_async`, `OP_initial_yield`), so no later parser slip can skip `close_var_refs()` again.
+- Tests: `await_using_outside_async` in the fork's `api-test.c` (fails on `b02310a`, passes under
+  ASan+UBSan); test262 unchanged (30/43034, the same list).
+- A client updates by bumping the submodule and rebuilding the engine; no glue change. The JS bundles and
+  `.qbc` do not change (bytecode is compiled by `qjsc` from our bundles, which use no `await using`). Not
+  done here: the web's `packages/quickjs-wasm/dist` rebuild and the version stamp of a tagged release.
+
 ## v0.6.3 — release notes (2026-11-09)
 
 A QuickJS hardening release, a follow-up to v0.6.2. The fork pin moves one commit on top of the v0.6.2
