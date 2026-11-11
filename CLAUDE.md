@@ -215,7 +215,7 @@ git submodule update --init           # QuickJS (TelegramMessenger/quickjs fork)
 corepack pnpm install                 # pnpm is not on PATH here
 corepack pnpm dev                     # 127.0.0.1:5173 (or .claude/launch.json "dev")
 corepack pnpm test:unit               # 934 core tests, including the stress kit's limits (strict-limits.test.ts, query-budget.test.ts, capture.test.ts), the heavy-box rule (paint-policy.test.ts, renderer-paint.test.ts), the CSS fast path against css-tree (css-fast-path.test.ts), VERSION.json and the wasm dist (version.test.ts, wasm-dist.test.ts), the wallet (sdk.test.ts, sdk-policy.test.ts), the content safe area (safe-area.test.ts), coalesced move deltas and projected 3D showcase checks (06-cat's size check counts zlib with this machine's Node: 3798 B here, 3746 B with the server's zlib); binary ops corpus uses a fixed Date
-corepack pnpm test:attacks            # 127 files (6 render-*: renderer exhaustion by markup alone, for the native clients, the web lays them out as any page; 6 paint-*: the heavy-box limit stops them; 5 request-* on the bot's requests; 3 wallet-*: no window without a tap, a forged wire, one window per grant; haptic-timer-buzz: haptics need a touch, v0.2.2; activation-pointer-capture, activation-touch-swipe with CDP touch input, css-light-dark-url in both themes, mem-huge-bitmaps, timer-id-reuse: the tweb audit; regexp-delete-recompile: the QuickJS RegExp-delete UAF, upstream 3d5cb14, v0.6.1; parser-scope-oob: the QuickJS parser scope out-of-bounds hardening, v0.6.2), canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
+corepack pnpm test:attacks            # 130 files (9 render-*: renderer exhaustion by markup alone, for the native clients, the web lays them out as any page; 6 paint-*: the heavy-box limit stops them; 5 request-* on the bot's requests; 3 wallet-*: no window without a tap, a forged wire, one window per grant; haptic-timer-buzz: haptics need a touch, v0.2.2; activation-pointer-capture, activation-touch-swipe with CDP touch input, css-light-dark-url in both themes, mem-huge-bitmaps, timer-id-reuse: the tweb audit; regexp-delete-recompile: the QuickJS RegExp-delete UAF, upstream 3d5cb14, v0.6.1; parser-scope-oob: the QuickJS parser scope out-of-bounds hardening, v0.6.2), canary hits must be 0 (the web demo runs strict; VITE_TW_POLICY=compat or ?policy=compat for the old limits)
 corepack pnpm test:activation         # privileged bridge calls need a real gesture (strict)
 corepack pnpm test:gestures           # who gets a press (docs/sdk-v1.md §5.5, gesture-policy.ts): the dev app's bubble in phone mode cancels a hold / swipe on touch-action: auto, none gets contextmenu, a vertical drag is the chat's on none and pan-x too, the engine's widened touch-action, a double tap is always the widget's (dblclick), the leading 20 px, desktop and off modes, the width control and the size row; iframe + shadow
 corepack pnpm test:sdk                # SDK v1 on the web host (docs/sdk-v1.md): theme variables on the renderer root, the UA layer's root and text defaults on the text tokens, gesture claims, storage across a restart, locale, link and haptic actions; the widget's state and requests through the dev app's mock bot (requests in an original, a group, a live and a plain forward, the state events, copyText, background requests, the poll demo); iframe + shadow
@@ -236,7 +236,7 @@ corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetS
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 86 tests; 121 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
+cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 86 tests; 130 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
 packages/quickjs-wasm/build.sh [--docker]   # rebuild dist/ + dist.sha256 (emscripten 6.0.12 pinned; --docker: the emsdk image by digest); --check [--docker]: rebuild in a temp dir and compare
 corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md + the out lists in docs/widget-runtime-profile.md (the guide's and its agent block's) (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
 corepack pnpm tsx packages/core/scripts/intl-cases.ts   # after adding an Intl case (or an ICU update of Node): rewrites packages/core/tests/fixtures/intl-cases.json with V8's answers (--check: exit 1 when stale; intl-cases.test.ts runs it); then pnpm build:ios|android|desktop copy it to the native tests
@@ -493,6 +493,19 @@ used the label without checking (`js_parse_destructuring_element`, `js_parse_for
 `js_parse_statement_or_decl`), so a failed allocation became an out-of-bounds access at `fd->label_slots[-1]`, a
 distinct array the v0.6.2 `scope_level < 0` backstop does not cover. The fix returns the parse error at each site
 and adds an ASan regression (`parser_label_out_of_memory` in `api-test.c`). The web ships a rebuilt
+`packages/quickjs-wasm/dist`. The JS bundles and `.qbc` only gain the new version stamp. A client updates by
+bumping the submodule and rebuilding the engine, no glue change.
+2026-11-10: v0.6.4 (`docs/changes.md`), a QuickJS security release: the fork pin moves to fork master `b526a817`,
+which reconciles the v0.6.3 engine with five memory-safety fixes and the `await using` parser refusal (`ca3594d`,
+already on main as an unreleased submodule bump). The five, each reachable from plain widget JS below the sandbox
+and each with an ASan regression test in the fork's `tests/`: a use-after-free in
+`FinalizationRegistry.prototype.unregister()` (a held value freeing a later entry's target under the walk), a
+use-after-free in `Map.prototype.clear()` with an iterator value (the cached next record freed through the
+iterator's finalizer, shared with `Set.prototype.clear()`), an abort in `reset_weak_ref()` when a `WeakRef` is a
+`WeakMap` value for the same target, and two 16-bit count wraps that read out of bounds — a direct `eval` with too
+many closure variables and a mapped `arguments` with too many captured variables. The `await using` fix refuses
+the binding in a for head outside an async function and makes `JS_CallInternal` throw rather than suspend a normal
+frame, closing the use-after-return reported against Telegram Android 13.2.1. The web ships a rebuilt
 `packages/quickjs-wasm/dist`. The JS bundles and `.qbc` only gain the new version stamp. A client updates by
 bumping the submodule and rebuilding the engine, no glue change.
 Open: the renderer and engine pools on Android (the validator pool is there: `ValidatorPool`, `WidgetHost.Options.pools` / `sharedValidatorThread`; the Android renderer bench, `docs/android-renderer-bench.md`, puts QuickJS + validator at 6.3 MB per bubble against 1–4 MB for any renderer), device pentest of the

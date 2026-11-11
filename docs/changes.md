@@ -3,6 +3,69 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.6.4 — release notes (2026-11-10)
+
+A QuickJS security release. The fork pin moves to fork master `b526a817`, which reconciles the v0.6.3 engine
+with five memory-safety fixes from the fork's `tdesktop-fixes` branch and the `await using` parser refusal
+(`ca3594d`), the last already on main as an unreleased submodule bump. A client updates by bumping the
+submodule and rebuilding the engine for its platform, with no glue change. The web ships a rebuilt
+`packages/quickjs-wasm/dist`, the one platform whose prebuilt engine changes. The JS bundles and `.qbc`
+change only to carry the new version stamp, since `qjsc` compiles the same bytecode from bundles that use
+none of the constructs these fixes touch.
+
+Five use-after-free and out-of-bounds fixes, each reachable from plain widget JS below the sandbox and each
+with an engine regression test that aborts under ASan on the v0.6.3 engine and passes after the fix:
+
+- `FinalizationRegistry.prototype.unregister()` freed each removed entry in place. When that entry's held
+  value was the last reference to the target of a later registration, finalizing it freed the later entry
+  under the running walk, a use-after-free (`finalizationregistry-unregister-held-target.js`).
+- `Map.prototype.clear()` cached the next record before deleting the current one. When the deleted value was
+  a map iterator holding a zombie record, the iterator's finalizer freed that cached record and the clear
+  walk then read and deleted freed memory, a use-after-free shared with `Set.prototype.clear()`
+  (`map-clear-iterator-value-uaf.js`).
+- `reset_weak_ref()` cleared a `WeakRef`'s target in its first pass but detached the `WeakRef` object only in
+  the second. When a `WeakMap` value or `FinalizationRegistry` held value was the last reference to a
+  `WeakRef` for the same target, freeing it ran the finalizer with an undefined target while the record was
+  still in the walked list, an abort in `get_first_weak_ref()` (`weakref-weakmap-value-same-target.js`).
+- A direct `eval` combines the caller's arguments, locals and inherited closure variables into one array
+  whose count went into a 16-bit field with no range check. A combined count above `JS_MAX_LOCAL_VARS`
+  (65535) wrapped the field, so `js_closure2()` under-allocated the var-ref slots while the eval bytecode
+  kept indexing the full environment, a heap-buffer-overflow read in `JS_CallInternal`
+  (`direct-eval-closure-var-overflow.js`). `add_closure_variables()` now rejects an oversized environment
+  with a `SyntaxError`.
+- A mapped `arguments` object captures every parameter into the per-frame var-ref array, a count that also
+  went into a 16-bit field with no range check. The maximum parameter count plus an independently captured
+  local wrapped the field to zero, so `JS_CallInternal` allocated a zero-length var-ref array while
+  `js_build_mapped_arguments()` still indexed one slot per parameter, an out-of-bounds read
+  (`mapped-arguments-var-ref-overflow.js`).
+
+The sixth engine change is the `await using` parser refusal, reported against Telegram Android 13.2.1 as
+native code execution from a widget's script:
+
+- The bug: `await` is a keyword token in modules and class static blocks even inside functions that cannot
+  await, and `js_parse_for_in_of()` accepted an `await using` binding in a for-in/of head there without
+  checking the function kind, where every other `await` and `await using` site checks it. The binding's
+  disposal emits `OP_await` into a normal function. The interpreter takes every suspending opcode through its
+  generator exit, which for a normal function skips `close_var_refs()`, so a closure created in that frame
+  kept a reference into the C stack after the call returned, a use-after-return reachable from plain widget JS
+  (class static blocks are in every script), below the sandbox, on every platform that compiles the fork.
+- The fix: the parser refuses `await using` in a for head unless the function is async (a `SyntaxError`, as
+  for `for await` and the statement-level `await using`), and `JS_CallInternal` throws instead of suspending
+  a normal function's frame (`OP_await`, `OP_yield`, `OP_yield_star`, `OP_async_yield_star`, `OP_return_async`,
+  `OP_initial_yield`), so no later parser slip can skip `close_var_refs()` again.
+- Tests: `await_using_outside_async` in the fork's `api-test.c` fails on `b02310a` and passes under ASan and
+  UBSan. test262 is unchanged, the same 30/43034 list.
+
+The tree also carries three more `render-*` corpus attack widgets for the native renderers, unrelated to the
+engine fixes, each drawn by the web as any browser. `render-svg-path-closepath` is `<path d="M0 0z4"/>`, a
+number after a closepath, which is no command. A parser that repeats `z` as the implicit command reads nothing
+and closes the path forever until the host runs out of memory (twidget's fix is `3e25003`, the path ends at the
+error, SVG 2 "Error handling in path data"). `render-svg-use-fanout` nests ten `<use>` of the level below on
+each of five levels, 10^5 rectangles from 51 elements, which a depth limit alone does not bound (twidget
+`7249ce7` caps the uses a paint pass expands). `render-root-font-weight-bolder` sets `bolder` on the root,
+relative to a parent it does not have, which a renderer that reads the weight through the parent crashes on
+(twidget before `7249ce7`, it resolves against the initial 400). The attack corpus is now 130 files.
+
 ## v0.6.3 — release notes (2026-11-09)
 
 A QuickJS hardening release, a follow-up to v0.6.2. The fork pin moves one commit on top of the v0.6.2
