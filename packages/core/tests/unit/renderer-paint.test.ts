@@ -348,6 +348,43 @@ describe('renderer core: heavy boxes', () => {
     await page.close();
   });
 
+  // Chromium 157 itself crashes between 1,650 and 1,700 levels (its layout recurses, the renderer process dies on a plain
+  // page with no widget code), so the depth here is 1500, not the 2000 nodes a widget may have.
+  it('1500 nested filters, a deep but legal document: the count, the stopped frame and the removal walk it without recursion', async () => {
+    const N = 1500;
+    const nested = (heavy: (i: number) => boolean) => {
+      const { ops } = documentOps('.f{filter:brightness(1.01)}', []);
+      for (let i = 0, parent = 4; i < N; parent = 10 + i++) {
+        ops.push({ op: 'el', id: 10 + i, tag: 'div', attrs: [...(heavy(i) ? [['class', 'f']] : []), ['data-k', `n${i}`]] }, { op: 'ins', parent, id: 10 + i, before: null });
+      }
+      return ops;
+    };
+    // every level heavy: the limit, and the frozen frame drawn without the filters down to the deepest
+    const page = await shadowPage();
+    await send(page, { type: 'ops', ops: nested(() => true) });
+    await frames(page);
+    const reported = await limits(page);
+    assert.equal(reported.length, 1);
+    assert.equal(reported[0].code, 'paint-limit');
+    assert.ok(reported[0].count > 16, String(reported[0].count));
+    assert.equal((await computed(page, `n${N - 1}`)).filter, 'none');
+    await page.close();
+    // the deepest level heavy only: hidden by its top (display: none), shown again, then removed whole
+    const page2 = await shadowPage();
+    await send(page2, { type: 'ops', ops: nested((i) => i === N - 1) });
+    await frames(page2);
+    for (const value of ['display:none', '']) {
+      await send(page2, { type: 'ops', ops: [{ op: 'attr', id: 10, name: 'style', value }] });
+      await frames(page2);
+    }
+    assert.equal((await computed(page2, `n${N - 1}`)).filter, 'brightness(1.01)');
+    await send(page2, { type: 'ops', ops: [{ op: 'rm', id: 10 }] });
+    await frames(page2);
+    assert.deepEqual(await limits(page2), []);
+    assert.equal(await page2.evaluate(() => (window as any).__dom.querySelectorAll('div').length), 0);
+    await page2.close();
+  });
+
   it('animations stop where they are when the widget is stopped', async () => {
     const page = await shadowPage();
     await load(page, '@keyframes m{to{transform:translateX(100px)}}.a{width:10px;height:10px;opacity:.5;animation:m 10s linear infinite}', divs(17, 'a'));

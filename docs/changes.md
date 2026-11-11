@@ -25,6 +25,26 @@ against Telegram Android 13.2.1 as native code execution from a widget's script.
   `.qbc` do not change (bytecode is compiled by `qjsc` from our bundles, which use no `await using`). Not
   done here: the web's `packages/quickjs-wasm/dist` rebuild and the version stamp of a tagged release.
 
+## Unreleased: deep documents reach the limits, not the glue's stack (2026-11-11)
+
+Default, every host (the shared bundles). A widget whose elements were nested about 1,000 deep (the web worker) or
+1,900 (the Node sandbox) died at boot with `sandbox glue error: Maximum call stack size exceeded`, a legal widget
+(2000 nodes, all nested, are allowed) that never reached the renderer's own limits.
+
+- The cause: the shim's mirror created a new subtree by recursion (`capture.ts` `createNode`), one QuickJS call per
+  level, and every QuickJS call nests on the glue's native stack. The full walk, the removal of a subtree and its
+  moved-node check, the parser's tree building (`dom.ts` `build`: markup and `innerHTML`) and the boot's script scan
+  recursed the same way. All are loops now, in the same order (the ops do not change).
+- The renderer core's tree walks (forgetting a removed subtree, the heavy-box count, the stopped frame) are loops
+  too, so a WebView's stack never meets the widget's depth there.
+- What a deep widget meets now: `paint-filter-depth` at 1,000 levels stops with "Paint limit exceeded" on the web
+  (iframe and shadow), 2,000 nested elements with "Node limit exceeded".
+- Tests: `deep-dom.test.ts` (1,985 levels built by script, in markup and through `innerHTML`, moved and removed;
+  2,000 stop at the node limit) with QuickJS held to 128 KB of stack, where the old recursions stopped near 350
+  levels; `renderer-paint.test.ts` walks 1,500 nested filters. The Node harness takes `maxStackBytes`.
+- Not fixed here: Chromium 157 itself crashes the page's renderer process between 1,650 and 1,700 nested elements
+  (a plain page, no widget code), under the 2000-node cap; the web needs a depth limit for that, not decided yet.
+
 ## Unreleased: two `paint-*` attacks past the engine's limit (2026-11-11)
 
 What a native client draws when the engine's paint limit is passed, from a compromised engine. Both files are
