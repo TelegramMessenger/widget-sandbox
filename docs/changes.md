@@ -25,6 +25,13 @@ against Telegram Android 13.2.1 as native code execution from a widget's script.
   `.qbc` do not change (bytecode is compiled by `qjsc` from our bundles, which use no `await using`). Not
   done here: the web's `packages/quickjs-wasm/dist` rebuild and the version stamp of a tagged release.
 
+## Unreleased: `corpus/attacks/render-svg-path-closepath.html` (2026-11-11)
+
+One more `render-*` widget for the native renderers: `<path d="M0 0z4"/>`. A number after a closepath is
+no command; a parser that repeats `z` as the implicit command reads nothing and closes the path forever, until
+the host runs out of memory. twidget's fix is `3e25003` (the path ends at the error, SVG 2 "Error handling in
+path data"); the web draws it as any browser. The file's comment says what a client must draw.
+
 ## v0.6.3 — release notes (2026-11-09)
 
 A QuickJS hardening release, a follow-up to v0.6.2. The fork pin moves one commit on top of the v0.6.2
