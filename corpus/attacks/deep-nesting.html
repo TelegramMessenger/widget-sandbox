@@ -1,0 +1,16 @@
+<!-- Nesting-depth limit: 1100 nested <div>, past the validator's 1024-deep cap (v0.6.5) but under the 2000-node cap.
+ The web renders a widget through a shadow root in the host chat page, with no iframe of its own, so the widget has no
+ renderer process to lose on its own: Chromium kills a page's renderer process at about 1,650-1,700 nested elements (a
+ plain page, no widget code, under the 2000-node cap), and with nothing to contain it the whole chat page would go down,
+ not one frame. The validator stops the widget at the depth cap before any renderer lays the tree out, on every host.
+ The shim builds the deep mirror with loops first (no glue stack overflow, v0.6.5), then the validator refuses the batch.
+ Expected: "Nesting depth limit exceeded: N (max 1024)", the widget frozen with the badge, the page not crashed. No
+ canary hits. -->
+<style>body{margin:0}</style>
+<p id="p">drawn</p>
+<div id="r"></div>
+<script>
+var p = document.getElementById('r');
+for (var i = 0; i < 1100; i++) { var d = document.createElement('div'); p.appendChild(d); p = d; }
+p.appendChild(document.createTextNode('deep'));
+</script>

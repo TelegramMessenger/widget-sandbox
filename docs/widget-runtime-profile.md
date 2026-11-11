@@ -156,7 +156,7 @@ stylesheets, fonts and images are never loaded. The full list, generated
 from the profile:
 
 <!-- profile:summary -->
-*Generated from `packages/core/profile.json` (profile 1): 279 features, 201 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
+*Generated from `packages/core/profile.json` (profile 1): 280 features, 202 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
 
 - **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> (any non-data: URL) · Form controls: form, input, select, option, optgroup, textarea, label, fieldset, legend, datalist, output · progress, meter · dialog, popover attribute · audio, video, source, track · script, iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, … · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
@@ -168,7 +168,7 @@ from the profile:
 - **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open, form submission · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
 - **TelegramWidget (SDK v1)** (17 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
-- **Limits** (21 in, 0 out)
+- **Limits** (22 in, 0 out)
 - **Client behaviour** (17 in, 0 out)
 <!-- /profile:summary -->
 

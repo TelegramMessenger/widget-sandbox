@@ -734,6 +734,7 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
 | The document's text | 21.7 K | 48 K (was 256 K) | stops |
 | An attribute value | 1 066 (an inline style) | 8 K (was 4 MB) | stops |
 | Nodes in the document | 962 (604 elements) | 2000 (was 50 000, not created past it; 2026-11-02) | stops |
+| Nesting depth | 13 (the deepest widget of the corpora) | 1024 (2026-11-12, "The nesting-depth cap") | stops |
 | Ops in one batch | 2 700 | 10 000 (was 200 000) | stops |
 | CSS rules / `@keyframes` | 167 / 12 | 400 / 32 (no cap) | stops |
 | Canvas commands per canvas and task | 237 (the projected 3D showcase: 9 510 a frame, now under 2000) | 4000 (10 000 until 2026-11-02; was 400 000 buffered) | `RangeError`; stops past it in a batch |
@@ -806,6 +807,36 @@ dev app, a tap on the first button; memory also in the native C++ harness) and s
   `complex-text/8192` 80 ms a change, `text-volume/49152` 99 ms, `dom-static/2000` 77 ms). The prices (300 ms/s of JS,
   the 100 ms/s window at 25/2 µs) stay: the window slows a widget alike on every device; they were checked only on
   strong and middle devices and can move either way later.
+
+### The nesting-depth cap: 1024 levels (2026-11-12, v0.6.5)
+
+A separate strict limit from the node cap: how deeply a widget's elements may nest, not how many there are. The node cap
+(2000) does not bound a linear chain's depth, and a widget nested about 1,650–1,700 deep crashes before it reaches it.
+
+The motivation is the web product renderer. The web renders a widget through a **shadow root in the host chat page, with
+no per-widget iframe** ("The web renders through Shadow DOM", release plan D2), so the widget shares the page's renderer
+process. Chromium kills a page's renderer process at about 1,650–1,700 nested elements on a plain page (no widget code),
+under the 2000-node cap, and with no iframe to contain the crash the **whole chat page goes down**, not one bubble — the
+iframe-less model raises the stakes, so it is the shadow renderer that needs the cap most. The validator rejects a widget
+nested deeper than 1024 with the fatal `limit` diagnostic ("Nesting depth limit exceeded: N (max 1024)") before any
+renderer lays the tree out, so one cap in the shared validator shields every client at once; the native clients each
+render with their own renderer and their own thresholds, so this protects them too, but that is a bonus, not the reason.
+
+1024 follows the strict-limits rule (about twice the largest real use, and in fact far more): the deepest widget in the
+corpora and the conformance and stress sets nests 13 deep, so 1024 is about 79× it. It sits well below Chromium's crash
+point, with headroom for a browser whose threshold is lower (WebKit, Firefox), and above the deepest attack that must
+keep its own stop reason: `paint-filter-depth` nests 600 filters and must still stop with "Paint limit exceeded" (the
+renderer's heavy-box count), which it does because 600 is within the depth cap, which the validator checks first. A cap
+of 512 would have taken that attack's stop reason, so 1024 is the smallest round number that keeps it. The number was
+Artem's call (2026-11-12, "Да, 1024").
+
+The cap is enforced in `validator.ts` (`MAX_NESTING_DEPTH`, in `checkTotals` next to the node cap: an explicit-stack walk
+of the tree reachable from the document root, counted after each batch, so the validator never recurses on a deep
+document either), mirrored in the Swift `NativeValidator`; the other native hosts run the same validator bundle. A
+detached subtree in limbo is not reached from the root and does not count. `compat` keeps no cap. This is distinct from
+the deep-document glue fix of the same release (`docs/changes.md`, v0.6.5): that fix is about the native QuickJS-glue
+stack on every platform (the shim and renderer core walk with loops, not recursion) and is needed whether or not a cap
+exists; the cap is the renderer's protection.
 
 ### Heavy boxes: 16, of them 2 with backdrop-filter (2026-11-02)
 

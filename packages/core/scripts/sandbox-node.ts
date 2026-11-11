@@ -219,6 +219,11 @@ export interface RunOptions {
   cssScope?: 'document' | 'shadow';
   /** Runtime heap cap (default LIMIT_DEFAULTS.memoryLimitBytes), enforced like the worker does: wasm Memory maximum + setMemoryLimit. */
   memoryLimitBytes?: number;
+  /**
+   * QuickJS's own stack limit (default 1 MB, as the worker): lower it to show a path does not recurse per DOM level (a
+   * recursion overflows Node's stack later than a web worker's, so the default proves less than it seems).
+   */
+  maxStackBytes?: number;
   /** Sandbox bundle source to run instead of the one built from packages/core/src (scripts/ops-diff.ts). */
   bundle?: string;
   /** `__host` kinds the harness does not know, with their argument. */
@@ -277,7 +282,7 @@ export async function runWidget(html: string, opts: RunOptions = {}): Promise<Ru
   const QuickJS = await newQuickJSWASMModuleFromVariant(newVariant(variant, { wasmMemory }));
   const rt = QuickJS.newRuntime();
   rt.setMemoryLimit(memoryLimitBytes);
-  rt.setMaxStackSize(1 << 20);
+  rt.setMaxStackSize(opts.maxStackBytes ?? 1 << 20);
   let deadline = Date.now() + 10_000;
   rt.setInterruptHandler(() => Date.now() > deadline);
   // The layout-query limit of the worker and the native glue (cpu-budget.ts queryLimitHit): the harness answers queries in-process, so the

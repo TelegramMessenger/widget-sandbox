@@ -3,6 +3,63 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.6.5 — release notes (2026-11-12)
+
+Default, every host. A validator cap on how deeply a widget's elements may nest, with the deep-document fix that lets a
+legal widget reach the limits instead of the glue's stack. Protocol, profile and SDK are unchanged (1/1/1): this is a
+validator limit, not a profile feature. A client updates by rebuilding the JS bundles (the sandbox, renderer and
+validator bundles change); the engine and its pin (`b526a817`) do not change.
+
+### The nesting-depth cap: 1024 levels
+
+The web renders a widget through a shadow root in the host chat page, with no per-widget iframe (release plan D2), so the
+widget has no renderer process of its own. Chromium kills a page's renderer process at about 1,650–1,700 nested elements
+(a plain page, no widget code), which is under the 2000-node cap, and with no iframe to contain it the whole chat page
+goes down, not one frame — the iframe-less shadow model raises the stakes rather than lowering them. The validator now
+stops a widget whose elements nest more than 1024 deep, with the fatal `limit` diagnostic ("Nesting depth limit exceeded:
+N (max 1024)"), before any renderer lays the tree out, so one cap shields every client's renderer at once (the native
+clients each render with their own renderer, with their own thresholds — this is a bonus, not the reason). 1024 is well
+below Chromium's crash point and about 79× the deepest widget in the corpora (13 nested). The cap is counted after each
+batch over the tree reachable from the document root, like the node cap; a detached subtree in limbo does not count.
+`compat` keeps no cap. This is a renderer concern, separate from the deep-document glue fix below (the native
+QuickJS-glue stack).
+
+- Enforced in `validator.ts` (`MAX_NESTING_DEPTH`, next to `MAX_DOCUMENT_NODES`), mirrored in the Swift
+  `NativeValidator`; the other native hosts run the same validator bundle. Tests: `strict-limits.test.ts` (1024 passes,
+  1025 stops, measured as the batch ends, a detached subtree excluded), the Swift `NativeValidator` differential test,
+  and `corpus/attacks/deep-nesting.html` (1,100 nested, stopped before any renderer, 0 canary on iframe and shadow).
+
+### Deep documents reach the limits, not the glue's stack
+
+A widget whose elements were nested about 1,000 deep (the web worker) or 1,900 (the Node sandbox) died at boot with
+`sandbox glue error: Maximum call stack size exceeded`, before any renderer or validator limit.
+
+- The cause: the shim's mirror created a new subtree by recursion (`capture.ts` `createNode`), one QuickJS call per
+  level on the glue's native stack. The full walk, a subtree's removal and its moved-node check, the parser's tree
+  building (`dom.ts` `build`: markup and `innerHTML`) and the boot's script scan recursed the same way. All are loops
+  now, in the same order (the ops do not change). The renderer core's tree walks (forgetting a removed subtree, the
+  heavy-box count, the stopped frame) are loops too.
+- A deep widget now meets a limit, not a stack overflow: past 1024 nested elements the nesting-depth cap above (a linear
+  chain reaches it before the node cap), a wide document past 2000 nodes the node cap. `paint-filter-depth` (600 nested)
+  stops with "Paint limit exceeded" as before, within the depth cap.
+- Tests: `deep-dom.test.ts` (1,000 levels built by script, in markup and through `innerHTML`, moved and removed; 1,100
+  stop at the nesting-depth limit) with QuickJS held to 128 KB of stack, where the old recursions stopped near 350
+  levels; `renderer-paint.test.ts` walks 1,500 nested filters straight to the renderer core. The Node harness takes
+  `maxStackBytes`.
+
+### Two `paint-*` attacks past the engine's limit
+
+What a native client draws when the engine's paint limit is passed, from a compromised engine. Both files are
+stopped by the heavy-box limit (16) before such a list is made; they keep that stop tested at sizes where the
+Android client broke when it got the list anyway (crafted lists, Telegram's hostile-client check).
+
+- `paint-filter-depth`: filters nested 600 deep. On Android each filter is a RenderNode inside the one around it,
+  and hwui prepares nested nodes by recursion: 2,000 overflowed the RenderThread's stack (SIGSEGV in
+  `RenderNode::prepareTreeImpl`, the app's process). The client now draws at most 16 nested filters.
+- `paint-backdrop-replay`: 300 backdrop-filter boxes over 600 boxes. Each backdrop replays the list before it into
+  a node of its own, n × m commands: 10,000 after 10,000 fills took 2.6 GB and the low-memory killer took the app.
+  The client now applies at most 8 backdrops a frame.
+
 ## v0.6.4 — release notes (2026-11-10)
 
 A QuickJS security release. The fork pin moves to fork master `b526a817`, which reconciles the v0.6.3 engine
