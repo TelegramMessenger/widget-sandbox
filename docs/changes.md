@@ -25,6 +25,19 @@ against Telegram Android 13.2.1 as native code execution from a widget's script.
   `.qbc` do not change (bytecode is compiled by `qjsc` from our bundles, which use no `await using`). Not
   done here: the web's `packages/quickjs-wasm/dist` rebuild and the version stamp of a tagged release.
 
+## Unreleased: two `paint-*` attacks past the engine's limit (2026-11-11)
+
+What a native client draws when the engine's paint limit is passed, from a compromised engine. Both files are
+stopped by the heavy-box limit (16) before such a list is made; they keep that stop tested at sizes where the
+Android client broke when it got the list anyway (crafted lists, Telegram's hostile-client check).
+
+- `paint-filter-depth`: filters nested 600 deep. On Android each filter is a RenderNode inside the one around it,
+  and hwui prepares nested nodes by recursion: 2,000 overflowed the RenderThread's stack (SIGSEGV in
+  `RenderNode::prepareTreeImpl`, the app's process). The client now draws at most 16 nested filters.
+- `paint-backdrop-replay`: 300 backdrop-filter boxes over 600 boxes. Each backdrop replays the list before it into
+  a node of its own, n × m commands: 10,000 after 10,000 fills took 2.6 GB and the low-memory killer took the app.
+  The client now applies at most 8 backdrops a frame.
+
 ## Unreleased: three more `render-*` attacks (2026-11-11)
 
 Widgets for the native renderers, markup alone; each file's comment says what a client must draw or do, and the

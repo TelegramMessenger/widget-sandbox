@@ -140,7 +140,7 @@ test.describe('timer limit', () => {
 // without the effects (no blurred shadow, filter, backdrop-filter or transparency on any of its elements) under the
 // badge, and the page keeps its frame rate.
 test.describe('paint limit', () => {
-  const PAINT = (n: number) => new RegExp(`^Paint limit exceeded: ${n} boxes with shadows, filters or transparency \\(max 16\\)$`);
+  const PAINT = (n: number | string) => new RegExp(`^Paint limit exceeded: ${n} boxes with shadows, filters or transparency \\(max 16\\)$`);
   const cases: [string, RegExp, string][] = [
     ['paint-shadow-layers.html', PAINT(120), 'paint-limit'],
     ['paint-nested-filters.html', PAINT(60), 'paint-limit'],
@@ -148,6 +148,9 @@ test.describe('paint limit', () => {
     ['paint-animation-17.html', PAINT(17), 'paint-limit'],
     ['paint-ars.html', PAINT(250), 'paint-limit'],
     ['paint-backdrop-3.html', /^Paint limit exceeded: 3 boxes with backdrop-filter \(max 2\)$/, 'backdrop-limit'],
+    // Built by a script in batches: the count is whatever the first counted frame has.
+    ['paint-filter-depth.html', PAINT('\\d+'), 'paint-limit'],
+    ['paint-backdrop-replay.html', PAINT('\\d+'), 'paint-limit'],
   ];
   /** The widget's elements that still draw an effect: a blurred shadow layer, a filter, a backdrop-filter, opacity below 1. */
   const effectsLeft = (page: Page) => widgetDom(page).locator('[data-tw-frozen]').evaluate((root) => [root, ...Array.from(root.querySelectorAll('*'))]

@@ -1,0 +1,20 @@
+<!-- Paint limit, past the engine: 300 backdrop-filter boxes over 600 painted stripes. A backdrop filters what is painted under
+ its box so far; a renderer that replays the list before each backdrop into a layer of its own records n × m commands
+ (on Android 10,000 after 10,000 fills took gigabytes of native memory and the low-memory killer took the app; 1,000
+ after 1,000, a second a frame). The paint limit (2 boxes with backdrop-filter) stops this widget in the renderer; a
+ client that gets such a list anyway (from a compromised engine) applies at most 8 backdrops a frame. Expected:
+ "Paint limit exceeded" (backdrop boxes are heavy too, so the heavy count trips first), the frozen frame drawn
+ without backdrops; the client does not hang or run out of memory. No canary hits. -->
+<style>
+body{margin:0}
+#bg{position:relative;height:100px}
+.s{position:absolute;top:0;left:0;width:100px;height:100px;background:rgb(0,170,0)}
+.g{position:absolute;left:0;top:0;width:100px;height:100px;backdrop-filter:blur(2px)}
+</style>
+<p id="p">drawn</p>
+<div id="bg"></div>
+<script>
+var bg = document.getElementById('bg');
+for (var i = 0; i < 600; i++) { var s = document.createElement('div'); s.className = 's'; bg.appendChild(s); }
+for (var i = 0; i < 300; i++) { var g = document.createElement('div'); g.className = 'g'; bg.appendChild(g); }
+</script>
