@@ -44,6 +44,8 @@ struct NativeValidatorTables {
     var textBudget = 0
     /// Nodes in the document, compared once a batch is applied (validator.ts `MAX_DOCUMENT_NODES`); 0 = no cap (compat).
     var maxDocumentNodes = 0
+    /// The deepest chain of nested nodes below the document root (validator.ts `MAX_NESTING_DEPTH`); 0 = no cap (compat).
+    var maxNestingDepth = 0
     /// CSS rules and `@keyframes` over the document's stylesheets (validator.ts `countCssRules`); 0 = no cap.
     var maxCssRules = 0
     var maxKeyframes = 0
@@ -121,6 +123,7 @@ struct NativeValidatorTables {
         complexTextBudget = Int(root["complexTextBudget"]?.number ?? 0)
         textBudget = Int(root["textBudget"]?.number ?? 0)
         maxDocumentNodes = Int(root["documentNodes"]?.number ?? 0)
+        maxNestingDepth = Int(root["nestingDepth"]?.number ?? 0)
         maxCssRules = Int(root["cssRules"]?.number ?? 0)
         maxKeyframes = Int(root["keyframes"]?.number ?? 0)
         maxLiveAnims = Int(root["liveAnims"]?.number ?? 1024)
@@ -283,6 +286,20 @@ final class NativeValidator {
         stop("Attribute limit exceeded: a value of \(length) characters (max \(tables.maxAttr))")
     }
 
+    /// The deepest chain of nodes below the document root (validator.ts `deepestNode`): `<html>` is 1, `<body>` 2, a
+    /// node nested N deep is N. An explicit stack, not recursion, so a deep document never overflows the stack here
+    /// either. Walks only the attached tree reachable from the root; a detached subtree in limbo does not count.
+    private func deepestNode() -> Int {
+        guard let root = nodes[Self.documentId] else { return 0 }
+        var max = 0
+        var stack: [(Int, Int)] = root.children.map { ($0, 1) }
+        while let (id, depth) = stack.popLast() {
+            if depth > max { max = depth }
+            if let n = nodes[id] { for c in n.children { stack.append((c, depth + 1)) } }
+        }
+        return max
+    }
+
     /// The document's counted totals (its text, CSS rules, `@keyframes`) after a whole batch, not op by op
     /// (validator.ts `checkTotals`): a subtree replaced in one task or two sheets rewritten in one task pass through a
     /// sum of the old and the new that the document never holds. False when a total is over its cap (the widget stops).
@@ -290,6 +307,12 @@ final class NativeValidator {
     private func checkTotals() -> Bool {
         if tables.maxDocumentNodes > 0, nodes.count - 1 > tables.maxDocumentNodes {
             return stop("Node limit exceeded: \(nodes.count - 1) nodes in the document (max \(tables.maxDocumentNodes))")
+        }
+        if tables.maxNestingDepth > 0 {
+            let depth = deepestNode()
+            if depth > tables.maxNestingDepth {
+                return stop("Nesting depth limit exceeded: \(depth) levels (max \(tables.maxNestingDepth))")
+            }
         }
         if tables.textBudget > 0, totalText > tables.textBudget {
             return stop("Text limit exceeded: the document's text is over \(tables.textBudget) characters")

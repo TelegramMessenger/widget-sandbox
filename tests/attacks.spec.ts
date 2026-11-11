@@ -195,6 +195,29 @@ test.describe('paint limit', () => {
   });
 });
 
+// The nesting-depth limit (docs/decisions.md, "The nesting-depth cap"): the web renders a widget through a shadow root
+// in the host chat page, no per-widget iframe, so a renderer-process crash on extreme nesting (Chromium at ~1,650) would
+// take the whole page down. The validator stops a widget nested past 1024 before any renderer lays the tree out.
+test.describe('nesting-depth limit', () => {
+  test('deep-nesting.html: stopped at the depth cap before the deep tree reaches the renderer', async ({ page }) => {
+    const f = await openAttack(page, 'deep-nesting.html');
+    await waitDead(page);
+    const s = await twState(page);
+    expect(s.dead).toMatch(/^Nesting depth limit exceeded: \d+ levels \(max 1024\)$/);
+    expect(s.diags['limit']?.details).toEqual([s.dead]);
+    await expect(f.locator('[data-tw-badge]')).toHaveText('Widget stopped');
+  });
+
+  test('compat has no depth cap: the deep document is rendered', async ({ page }) => {
+    const f = await openAttack(page, 'deep-nesting.html', '&policy=compat');
+    await expect(f.locator('#p')).toHaveText('drawn');
+    await page.waitForTimeout(500);
+    const s = await twState(page);
+    expect(s.dead).toBeNull();
+    expect(s.diags['limit']).toBeUndefined();
+  });
+});
+
 test.describe('bitmaps', () => {
   const claimed = fs.readFileSync(path.join(attacksDir, 'mem-huge-bitmaps.html'), 'utf8').match(/id="claims" alt="" src="data:image\/png;base64,([^"]+)"/)![1];
   test('strict: canvases past 2048² pixels together stop the widget before they reach the page', async ({ page }) => {

@@ -295,6 +295,44 @@ describe('strict limits: nodes in the document', () => {
   });
 });
 
+describe('strict limits: nesting depth (the web renders through a shadow root, no per-widget iframe)', () => {
+  // A linear chain of n divs: the first under <body> (depth 2), each next under the one before. The deepest is n + 2
+  // deep. The web client lays this out in the host chat page with no process of its own, so a renderer-process crash on
+  // extreme nesting (Chromium at ~1,650) would take the whole page down; the validator caps it at 1024 for every host.
+  const chain = (n: number, from: number) => Array.from({ length: n }, (_, i) => [
+    { op: 'el', id: from + i, tag: 'div' },
+    { op: 'ins', parent: i === 0 ? 3 : from + i - 1, id: from + i, before: null },
+  ]).flat();
+
+  it('1024 levels pass; one more stops the widget once the batch is applied (compat: no cap)', () => {
+    const v = validator();
+    // 1022 divs under <body> (depth 2): the deepest is 1024 deep.
+    assert.equal(v.processOps(chain(1022, 100)).length, 2044);
+    assert.equal(v.stopped, null);
+    // one more div under the deepest (id 1121): 1025 deep.
+    assert.deepEqual(v.processOps([{ op: 'el', id: 5000, tag: 'div' }, { op: 'ins', parent: 1121, id: 5000, before: null }]), []);
+    assert.equal(v.stopped, 'Nesting depth limit exceeded: 1025 levels (max 1024)');
+    const c = validator('compat');
+    c.processOps(chain(1500, 100));
+    assert.equal(c.stopped, null);
+  });
+
+  it('depth is the document as the batch ends: one level past the cap but trimmed in the same batch passes', () => {
+    const v = validator();
+    // 1023 divs = 1025 deep, then remove the deepest (id 1122) in the same batch → 1024 deep.
+    v.processOps([...chain(1023, 100), { op: 'rm', id: 1122 }]);
+    assert.equal(v.stopped, null);
+  });
+
+  it('a detached deep subtree does not count: depth is the tree reachable from the document root', () => {
+    const v = validator();
+    // 1100 divs deep (1102 > 1024), then the whole chain detached from <body> in the same batch (rm its top, id 100):
+    // the attached tree is just <body> again, so the document is under the cap.
+    v.processOps([...chain(1100, 100), { op: 'rm', id: 100 }]);
+    assert.equal(v.stopped, null);
+  });
+});
+
 describe('strict limits: text inserted while the widget loads', () => {
   const para = (i: number) => `Paragraph ${i}: ` + 'lorem ipsum dolor sit amet '.repeat(17);
   const html = (n: number, later = '') => `<div id="t"></div><script>

@@ -1,17 +1,17 @@
-// A deep but legal document: a widget may have 2000 nodes, all of them nested. The shim's mirror (capture.ts: creation,
-// the full walk, removal), the parser's tree building (dom.ts) and the script scan (index.ts) walk it with loops, not
-// recursions: each level of a recursion was a QuickJS call on the glue's native stack, and a web worker's ran out near
-// 1,000 levels ("sandbox glue error: Maximum call stack size exceeded"; Node's near 1,900). The runs hold QuickJS to
-// 128 KB of stack, where the old recursions stopped near 350 levels, so a recursion per level fails here on any host.
-// Past 2000 nodes the widget meets the node limit, the validator's, as any other widget.
+// A deep but legal document: the shim's mirror (capture.ts: creation, the full walk, removal), the parser's tree
+// building (dom.ts) and the script scan (index.ts) walk it with loops, not recursions: each level of a recursion was a
+// QuickJS call on the glue's native stack, and a web worker's ran out near 1,000 levels ("sandbox glue error: Maximum
+// call stack size exceeded"; Node's near 1,900). The runs hold QuickJS to 128 KB of stack, where the old recursions
+// stopped near 350 levels, so a recursion per level fails here on any host. A widget nested past the validator's
+// 1024-deep cap (v0.6.5) meets the nesting-depth limit, and past 2000 nodes the node limit, as any other widget.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { runWidget } from '../../scripts/sandbox-node.ts';
 
 const STACK = 128 * 1024;
-/** Nested elements that, with the document around them, stay just under the 2000-node cap. */
-const DEPTH = 1985;
+/** Nested elements well above the ~350 a 128 KB stack held by recursion, and under the 1024 nesting-depth cap. */
+const DEPTH = 1000;
 
 /** Levels from the deepest element up to <html>. */
 const DEPTH_PROBE = "(function(){var n=document.querySelector('#deepest'),d=0;for(;n&&n.nodeType===1;n=n.parentNode)d++;return String(d);})()";
@@ -71,9 +71,12 @@ describe('deep documents: no recursion per level', () => {
     assert.ok(!r.diags.some((d) => d.kind.includes('limit')), JSON.stringify(r.diags));
   });
 
-  it('2000 nested elements stop at the node limit, not in the glue', async () => {
-    const r = await runWidget(built(2000), { maxStackBytes: STACK });
-    assert.match(r.stopped ?? '', /^Node limit exceeded/);
+  it('1100 nested elements stop at the nesting-depth limit, not in the glue (the glue builds the whole chain first)', async () => {
+    // Past the 1024-deep cap but under 2000 nodes: the glue builds all 1100 with loops (no stack overflow), the
+    // validator then stops the widget at the depth limit. A linear chain meets this cap before the node cap; the node
+    // cap is for a wide document (strict-limits.test.ts).
+    const r = await runWidget(built(1100), { maxStackBytes: STACK });
+    assert.match(r.stopped ?? '', /^Nesting depth limit exceeded/);
     assert.ok(!errorsOf(r).some((t) => /stack/i.test(t)), errorsOf(r).join('\n'));
   });
 });
