@@ -1,0 +1,8 @@
+<!-- Renderer crash: font-weight: bolder (or lighter) on the root element. Both are relative to the parent's weight,
+     and the root has no parent: a renderer that reads it through the parent pointer dereferences null (twidget before
+     7249ce7). CSS Fonts 4: the root's relative weight resolves against the initial 400, so bolder is 700 and lighter
+     100. Expected: the page loads and draws both lines; the first is bold (700), the second normal (400, as
+     inherited from the bolder root and reset). No canary hits. -->
+<style>:root{font-weight:bolder} #n{font-weight:400}</style>
+<p id="p">drawn bold</p>
+<p id="n">drawn normal</p>
