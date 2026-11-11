@@ -1,0 +1,15 @@
+<!-- Paint limit, past the engine: filters nested 600 deep (the web sandbox's glue runs out of stack near 1,000, the Node
+ sandbox near 1,900). Each filter is drawn apart and composited into the one around it; on Android each is a
+ RenderNode inside the one around it, and hwui prepares and draws nested nodes by recursion: 2,000 of them overflowed
+ the RenderThread's stack (SIGSEGV in RenderNode::prepareTreeImpl, the app's own process). The paint limit (16 heavy
+ boxes, docs/decisions.md "Heavy boxes") stops this widget in the renderer before such a list is made; a client that
+ gets one anyway (from a compromised engine) draws at most 16 nested filters and the rest plain. Expected: "Paint
+ limit exceeded", the frozen frame drawn without filters; the client does not crash. No canary hits. -->
+<style>body{margin:0}.f{filter:brightness(1.01)}</style>
+<p id="p">drawn</p>
+<div id="r"></div>
+<script>
+var p = document.getElementById('r');
+for (var i = 0; i < 600; i++) { var d = document.createElement('div'); d.className = 'f'; p.appendChild(d); p = d; }
+p.appendChild(document.createTextNode('deep'));
+</script>
