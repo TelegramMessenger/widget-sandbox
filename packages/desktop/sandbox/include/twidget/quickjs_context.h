@@ -86,8 +86,8 @@ public:
     bool captureGlobalFunction(const std::string& name);
 
     bool hasPendingJob() const;
-    /// Runs queued promise jobs. Errors thrown by jobs go to `onError` and do not stop the loop.
-    void executePendingJobs(const std::function<void(const JSError&)>& onError);
+    /// Runs one queued promise job, if any (false: the queue was empty). An error thrown by the job goes to `onError`.
+    bool executePendingJob(const std::function<void(const JSError&)>& onError);
 
 private:
     void enter();

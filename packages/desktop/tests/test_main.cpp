@@ -737,6 +737,23 @@ TEST(cpu_limit_kills_infinite_loop) {
     CHECK_MSG(r.host.died && r.host.died->find("CPU limit") != std::string::npos, r.host.died.value_or(""));
 }
 
+/// Once the widget is stopped the jobs still queued never run: the cleanup callback, a job whose throw is logged, shows one that did.
+TEST(jobs_queued_when_the_widget_is_stopped_never_run) {
+    const std::string cleanup = "var registry = new FinalizationRegistry(function () { throw new Error('ran after the stop'); });";
+    Run memory("<script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); var a = []; for (;;) a.push(new Array(100000).fill(1.5)); });</script>");
+    memory.barrier();
+    {
+        auto l = memory.host.lock();
+        CHECK_MSG(memory.host.died && memory.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, memory.host.died.value_or("alive: " + memory.logsText()));
+        CHECK_MSG(!memory.host.hasLogPrefix("Uncaught Error: ran after the stop"), memory.logsText());
+    }
+    Run cap("<p id=p>start</p><script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); var p = document.getElementById('p'); p.textContent = 'x'.repeat(40000); p.getBoundingClientRect(); });</script>");
+    cap.barrier();
+    auto l = cap.host.lock();
+    CHECK_MSG(cap.host.died && cap.host.died->find("Text limit exceeded") != std::string::npos, cap.host.died.value_or("alive: " + cap.logsText()));
+    CHECK_MSG(!cap.host.hasLogPrefix("Uncaught Error: ran after the stop"), cap.logsText());
+}
+
 TEST(memory_limit_kills_allocation_flood) {
     auto cfg = testConfig();
     cfg.memoryLimitBytes = size_t(16) << 20;

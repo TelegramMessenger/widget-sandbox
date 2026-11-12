@@ -847,7 +847,9 @@ void SandboxEngine::handleError(const std::string& text, const std::string& wher
 }
 
 void SandboxEngine::drainJobs() {
-    js_->executePendingJobs([this](const JSError& e) { handleError(e.what(), "promise job"); });
+    for (int i = 0; i < 100 && !dead_; i++) {
+        if (!js_->executePendingJob([this](const JSError& e) { handleError(e.what(), "promise job"); })) break;
+    }
 }
 
 std::optional<std::string> SandboxEngine::callTw(const std::string& kind, const std::string& arg) {

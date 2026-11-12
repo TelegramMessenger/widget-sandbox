@@ -202,14 +202,12 @@ JSResult QuickJSContext::call(const std::string& name, const std::vector<std::st
 
 bool QuickJSContext::hasPendingJob() const { return qjs_is_job_pending(runtime_); }
 
-void QuickJSContext::executePendingJobs(const std::function<void(const JSError&)>& onError) {
+bool QuickJSContext::executePendingJob(const std::function<void(const JSError&)>& onError) {
     enter();
-    for (int i = 0; i < 100; i++) {
-        JSContext* ctx = nullptr;
-        int r = qjs_execute_pending_job(runtime_, &ctx);
-        if (r < 0) { onError(takeException()); continue; }
-        if (r == 0) break;
-    }
+    JSContext* ctx = nullptr;
+    int r = qjs_execute_pending_job(runtime_, &ctx);
+    if (r < 0) onError(takeException());
+    return r != 0;
 }
 
 } // namespace twidget
