@@ -115,14 +115,9 @@ void QuickJSContext::registerFunction(const std::string& name, HostFunction fn) 
 // QuickJS measures stack depth from the stack pointer it saw when the runtime
 // was created; re-read it on every entry (belt and braces — contexts are pinned
 // to a JSThread anyway).
-void QuickJSContext::enter() { JS_UpdateStackTop(runtime_); }
-
-JSError QuickJSContext::takeException() {
-    char* c = qjs_take_exception_description(context_);
-    if (!c) return JSError("unknown error");
-    std::string text(c);
-    free(c);
-    return JSError(text);
+void QuickJSContext::enter() {
+    JS_UpdateStackTop(runtime_);
+    uncatchable = false;
 }
 
 static JSResult readResult(JSContext* ctx, JSValue v) {
@@ -137,6 +132,30 @@ static JSResult readResult(JSContext* ctx, JSValue v) {
     }
     qjs_free_value(ctx, v);
     return r;
+}
+
+JSError QuickJSContext::takeException() {
+    JSValue e = JS_GetException(context_);
+    uncatchable = JS_IsUncatchableError(e);
+    if (!uncatchable) {
+        JS_Throw(context_, e);
+        char* c = qjs_take_exception_description(context_);
+        std::string text(c ? c : "unknown error");
+        free(c);
+        if (!JS_HasException(context_)) return JSError(text);
+        e = JS_GetException(context_);
+        uncatchable = JS_IsUncatchableError(e);
+        if (!uncatchable) {
+            qjs_free_value(context_, e);
+            return JSError(text);
+        }
+    }
+    // Thrown again it is uncatchable again: reading its message runs no getter of the widget's.
+    JS_Throw(context_, qjs_dup_value(context_, e));
+    JSResult message = readResult(context_, JS_GetPropertyStr(context_, e, "message"));
+    qjs_free_value(context_, JS_GetException(context_));
+    qjs_free_value(context_, e);
+    return JSError("InternalError: " + message.string.value_or(""));
 }
 
 JSResult QuickJSContext::evaluate(const std::string& code, const std::string& filename, bool asModule) {

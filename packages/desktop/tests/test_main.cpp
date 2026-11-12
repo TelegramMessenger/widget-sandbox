@@ -773,6 +773,44 @@ TEST(memory_limit_kills_allocation_flood) {
     CHECK_MSG(d.host.died && d.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, d.host.died.value_or("alive: " + d.logsText()));
 }
 
+TEST(an_uncatchable_error_stops_the_widget_whatever_its_text) {
+    auto cfg = testConfig();
+    cfg.cpuLimitMs = 10000;
+    const std::string later = "setTimeout(function () { console.log('went on'); }, 0);";
+    const std::string flood = "var a = []; for (;;) a.push(new Array(100000).fill(1.5));";
+    auto stopped = [&](const std::string& script, const std::string& reason) {
+        Run r("<script>" + later + script + "</script>", cfg);
+        r.barrier();
+        sleepMs(100);
+        r.barrier();
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.died && r.host.died->find(reason) != std::string::npos, script + " → " + r.host.died.value_or("alive: " + r.logsText()));
+        CHECK_MSG(!r.host.hasLog("getter ran") && !r.host.hasLog("went on"), script + " → " + r.logsText());
+    };
+    stopped("Object.defineProperty(InternalError.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
+            "Memory limit exceeded (8 MB)");
+    stopped("throw new InternalError('made by the widget');", "Engine error: InternalError: made by the widget");
+    stopped("var e = new InternalError('own'); Object.defineProperty(e, 'message', { get: function () { console.log('getter ran'); return 'read'; } }); throw e;",
+            "Engine error: InternalError: ");
+    stopped("throw { get name() { " + flood + " }, message: Symbol('m') };", "Memory limit exceeded (8 MB)");
+}
+
+TEST(an_ordinary_uncaught_error_is_logged_and_the_widget_goes_on) {
+    const std::string later = "setTimeout(function () { console.log('went on'); }, 0);";
+    auto logged = [&](const std::string& script, const std::string& text) {
+        Run r("<script>" + later + script + "</script>");
+        r.host.waitUntil([&] { return r.host.hasLog("went on"); }, 3);
+        auto l = r.host.lock();
+        CHECK_MSG(!r.host.died && r.host.hasLog("went on"), script + " → " + r.host.died.value_or("alive") + ": " + r.logsText());
+        CHECK_MSG(r.host.countLogPrefix("Uncaught ") == 1 && r.host.hasLogPrefix(text), script + " → " + r.logsText());
+    };
+    logged("throw new Error('plain');", "Uncaught Error: plain\n    at ");
+    logged("(function f() { f(); })();", "Uncaught RangeError: Maximum call stack size exceeded\n    at f (inline-script-1.js:1:");
+    logged("throw { name: 'Custom', message: 'text' };", "Uncaught Custom: text");
+    logged("throw 'a string';", "Uncaught a string");
+    logged("throw { get name() { throw new Error('inner'); }, message: 'm' };", "Uncaught Error: ");
+}
+
 TEST(layout_query_round_trip) {
     Run r("<div id=\"d\">x</div><script>console.log('w=' + document.getElementById('d').getBoundingClientRect().width);</script>");
     r.barrier();

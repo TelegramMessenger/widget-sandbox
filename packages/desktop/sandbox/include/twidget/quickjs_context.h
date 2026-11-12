@@ -58,6 +58,8 @@ public:
     double deadline = std::numeric_limits<double>::infinity();
     /// Set by the interrupt handler when the deadline fired; reset by the caller.
     bool interrupted = false;
+    /// Whether the error the last call threw is one script cannot catch (out of memory, the interrupt, any InternalError).
+    bool uncatchable = false;
 
     /// Interrupt deadline in `threadCpuTime()` seconds of the thread running JS; +inf disables it.
     double cpuDeadline = std::numeric_limits<double>::infinity();

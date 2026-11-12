@@ -843,6 +843,7 @@ void SandboxEngine::handleError(const std::string& text, const std::string& wher
     std::string lower = text;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return char(std::tolower(c)); });
     if (lower.find("out of memory") != std::string::npos) return kill("Memory limit exceeded (" + std::to_string(config_.memoryLimitBytes >> 20) + " MB)");
+    if (js_ && js_->uncatchable) return kill("Engine error: " + truncate(text, 200) + " (" + where + ")");
     if (delegate_) delegate_->onLog(*this, "error", truncate("Uncaught " + text, 4000));
 }
 
