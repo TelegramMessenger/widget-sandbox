@@ -2768,6 +2768,26 @@ TEST(intl_fallback_matches_v8_on_the_basic_cases) {
     CHECK(checked > 100);
 }
 
+TEST(intl_fallback_refuses_a_date_out_of_range) {
+    BasicIntl intl;
+    const std::string invalid = "[{\"type\":\"literal\",\"value\":\"Invalid Date\"}]";
+    auto parts = [&](const char* value) {
+        auto req = Json::parse(std::string("{\"kind\":\"dateParts\",\"value\":") + value +
+                               ",\"opts\":{\"weekday\":\"long\",\"month\":\"long\",\"year\":\"numeric\",\"second\":\"numeric\",\"fractionalSecondDigits\":3}}");
+        return req ? intl.format(*req) : std::string("bad request");
+    };
+    for (const char* value : {"1e300", "-1e300", "8640000000000001", "-8640000000000001", "9.3e21", "-9.3e21", "1e999"}) CHECK_MSG(parts(value) == invalid, std::string(value) + " → " + parts(value));
+    for (const char* value : {"8.64e15", "-8.64e15", "-62198755200000", "-1000000000000", "-1", "32535215999000", "32535216000000", "32535244800000"}) {
+        std::string got = parts(value);
+        auto list = Json::parse(got);
+        bool named = list && (*list)[0]["type"].asString() == "weekday" && (*list)[0]["value"].asString().size() >= 6 && (*list)[2]["type"].asString() == "month" &&
+                     (*list)[2]["value"].asString().size() >= 3;
+        CHECK_MSG(got == invalid || named, std::string(value) + " is a date with real names or, where the C library converts no such time, none → " + got);
+    }
+    CHECK_MSG(parts("0").rfind("[{\"type\":\"weekday\",\"value\":\"Thursday\"},{\"type\":\"literal\",\"value\":\", \"},{\"type\":\"month\",\"value\":\"January\"}", 0) == 0, parts("0"));
+    CHECK_MSG(parts("32535215999999").find("{\"type\":\"month\",\"value\":\"December\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"year\",\"value\":\"3000\"}") != std::string::npos, parts("32535215999999"));
+}
+
 #ifdef _WIN32
 /// IcuIntl, on the system's ICU, on every case of the fixture.
 TEST(icu_intl_matches_v8) {
