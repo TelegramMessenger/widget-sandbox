@@ -130,6 +130,24 @@ TEST(json_fuzz_never_crashes) {
     CHECK(!Json::parse(std::string("\"\\ud800")).has_value() || true);
 }
 
+// Numbers the sandbox sends are any doubles: asInt answers the nearest end of `int` past it, never an undefined conversion.
+TEST(json_as_int_saturates) {
+    auto v = Json::parse("[1e300,-1e300,2147483648,-2147483649,2147483647.5,-2147483648.5,1.9,-1.9,1e999,\"7\"]");
+    CHECK(v.has_value());
+    if (!v) return;
+    const int max = std::numeric_limits<int>::max(), min = std::numeric_limits<int>::min();
+    CHECK((*v)[0].asInt() == max);
+    CHECK((*v)[1].asInt() == min);
+    CHECK((*v)[2].asInt() == max);
+    CHECK((*v)[3].asInt() == min);
+    CHECK((*v)[4].asInt() == max);
+    CHECK((*v)[5].asInt() == min);
+    CHECK((*v)[6].asInt() == 1);
+    CHECK((*v)[7].asInt() == -1);
+    CHECK((*v)[8].asInt(5) == 5);
+    CHECK((*v)[9].asInt(5) == 5);
+}
+
 TEST(json_parse_and_dump) {
     auto v = Json::parse("{\"a\":[1,2.5,\"x\\u00e9\\ud83d\\ude00\",true,null],\"b\":{}, \"c\":-1e2}");
     CHECK(v.has_value());
@@ -702,6 +720,43 @@ TEST(stack_check_follows_the_calling_thread) {
     t.sync([&] { js.reset(); });
 }
 
+TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
+    JSThread t("test.js");
+    int calls = 0;
+    std::string error = t.sync([&]() -> std::string {
+        QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+        js.registerFunction("__probe", [&](const std::vector<std::string>&) { calls++; return HostReturn::undefined(); });
+        try {
+            js.evaluate("var s = '\\u00e9'.repeat(5 << 20); __probe('fits'); __probe(s); __probe('after');", "t.js");
+        } catch (const JSError& e) {
+            return e.what();
+        }
+        return "no error";
+    });
+    CHECK_MSG(calls == 1, std::to_string(calls) + " calls");
+    CHECK_MSG(error.find("out of memory") != std::string::npos, error);
+    t.stop();
+}
+
+TEST(a_result_that_cannot_be_copied_is_an_error) {
+    JSThread t("test.js");
+    auto outcome = [&](bool byCall) {
+        return t.sync([&]() -> std::string {
+            QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+            try {
+                js.evaluate("function big() { return '\\u00e9'.repeat(5 << 20); }", "t.js");
+                JSResult r = byCall ? js.call("big") : js.evaluate("big()", "t.js");
+                return "a result of " + std::to_string(r.string.value_or("").size()) + " bytes";
+            } catch (const JSError& e) {
+                return e.what();
+            }
+        });
+    };
+    CHECK_MSG(outcome(false).find("out of memory") != std::string::npos, outcome(false));
+    CHECK_MSG(outcome(true).find("out of memory") != std::string::npos, outcome(true));
+    t.stop();
+}
+
 // ───────────── engine ─────────────
 
 TEST(boots_and_emits_initial_tree) {
@@ -737,6 +792,23 @@ TEST(cpu_limit_kills_infinite_loop) {
     CHECK_MSG(r.host.died && r.host.died->find("CPU limit") != std::string::npos, r.host.died.value_or(""));
 }
 
+/// Once the widget is stopped the jobs still queued never run: the cleanup callback, a job whose throw is logged, shows one that did.
+TEST(jobs_queued_when_the_widget_is_stopped_never_run) {
+    const std::string cleanup = "var registry = new FinalizationRegistry(function () { throw new Error('ran after the stop'); });";
+    Run memory("<script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); var a = []; for (;;) a.push(new Array(100000).fill(1.5)); });</script>");
+    memory.barrier();
+    {
+        auto l = memory.host.lock();
+        CHECK_MSG(memory.host.died && memory.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, memory.host.died.value_or("alive: " + memory.logsText()));
+        CHECK_MSG(!memory.host.hasLogPrefix("Uncaught Error: ran after the stop"), memory.logsText());
+    }
+    Run cap("<p id=p>start</p><script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); var p = document.getElementById('p'); p.textContent = 'x'.repeat(40000); p.getBoundingClientRect(); });</script>");
+    cap.barrier();
+    auto l = cap.host.lock();
+    CHECK_MSG(cap.host.died && cap.host.died->find("Text limit exceeded") != std::string::npos, cap.host.died.value_or("alive: " + cap.logsText()));
+    CHECK_MSG(!cap.host.hasLogPrefix("Uncaught Error: ran after the stop"), cap.logsText());
+}
+
 TEST(memory_limit_kills_allocation_flood) {
     auto cfg = testConfig();
     cfg.memoryLimitBytes = size_t(16) << 20;
@@ -754,6 +826,44 @@ TEST(memory_limit_kills_allocation_flood) {
     d.barrier();
     auto l = d.host.lock();
     CHECK_MSG(d.host.died && d.host.died->find("Memory limit exceeded (8 MB)") != std::string::npos, d.host.died.value_or("alive: " + d.logsText()));
+}
+
+TEST(an_uncatchable_error_stops_the_widget_whatever_its_text) {
+    auto cfg = testConfig();
+    cfg.cpuLimitMs = 10000;
+    const std::string later = "setTimeout(function () { console.log('went on'); }, 0);";
+    const std::string flood = "var a = []; for (;;) a.push(new Array(100000).fill(1.5));";
+    auto stopped = [&](const std::string& script, const std::string& reason) {
+        Run r("<script>" + later + script + "</script>", cfg);
+        r.barrier();
+        sleepMs(100);
+        r.barrier();
+        auto l = r.host.lock();
+        CHECK_MSG(r.host.died && r.host.died->find(reason) != std::string::npos, script + " → " + r.host.died.value_or("alive: " + r.logsText()));
+        CHECK_MSG(!r.host.hasLog("getter ran") && !r.host.hasLog("went on"), script + " → " + r.logsText());
+    };
+    stopped("Object.defineProperty(InternalError.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
+            "Memory limit exceeded (8 MB)");
+    stopped("throw new InternalError('made by the widget');", "Engine error: InternalError: made by the widget");
+    stopped("var e = new InternalError('own'); Object.defineProperty(e, 'message', { get: function () { console.log('getter ran'); return 'read'; } }); throw e;",
+            "Engine error: InternalError: ");
+    stopped("throw { get name() { " + flood + " }, message: Symbol('m') };", "Memory limit exceeded (8 MB)");
+}
+
+TEST(an_ordinary_uncaught_error_is_logged_and_the_widget_goes_on) {
+    const std::string later = "setTimeout(function () { console.log('went on'); }, 0);";
+    auto logged = [&](const std::string& script, const std::string& text) {
+        Run r("<script>" + later + script + "</script>");
+        r.host.waitUntil([&] { return r.host.hasLog("went on"); }, 3);
+        auto l = r.host.lock();
+        CHECK_MSG(!r.host.died && r.host.hasLog("went on"), script + " → " + r.host.died.value_or("alive") + ": " + r.logsText());
+        CHECK_MSG(r.host.countLogPrefix("Uncaught ") == 1 && r.host.hasLogPrefix(text), script + " → " + r.logsText());
+    };
+    logged("throw new Error('plain');", "Uncaught Error: plain\n    at ");
+    logged("(function f() { f(); })();", "Uncaught RangeError: Maximum call stack size exceeded\n    at f (inline-script-1.js:1:");
+    logged("throw { name: 'Custom', message: 'text' };", "Uncaught Custom: text");
+    logged("throw 'a string';", "Uncaught a string");
+    logged("throw { get name() { throw new Error('inner'); }, message: 'm' };", "Uncaught Error: ");
 }
 
 TEST(layout_query_round_trip) {
@@ -2713,6 +2823,26 @@ TEST(intl_fallback_matches_v8_on_the_basic_cases) {
     CHECK(checked > 100);
 }
 
+TEST(intl_fallback_refuses_a_date_out_of_range) {
+    BasicIntl intl;
+    const std::string invalid = "[{\"type\":\"literal\",\"value\":\"Invalid Date\"}]";
+    auto parts = [&](const char* value) {
+        auto req = Json::parse(std::string("{\"kind\":\"dateParts\",\"value\":") + value +
+                               ",\"opts\":{\"weekday\":\"long\",\"month\":\"long\",\"year\":\"numeric\",\"second\":\"numeric\",\"fractionalSecondDigits\":3}}");
+        return req ? intl.format(*req) : std::string("bad request");
+    };
+    for (const char* value : {"1e300", "-1e300", "8640000000000001", "-8640000000000001", "9.3e21", "-9.3e21", "1e999"}) CHECK_MSG(parts(value) == invalid, std::string(value) + " → " + parts(value));
+    for (const char* value : {"8.64e15", "-8.64e15", "-62198755200000", "-1000000000000", "-1", "32535215999000", "32535216000000", "32535244800000"}) {
+        std::string got = parts(value);
+        auto list = Json::parse(got);
+        bool named = list && (*list)[0]["type"].asString() == "weekday" && (*list)[0]["value"].asString().size() >= 6 && (*list)[2]["type"].asString() == "month" &&
+                     (*list)[2]["value"].asString().size() >= 3;
+        CHECK_MSG(got == invalid || named, std::string(value) + " is a date with real names or, where the C library converts no such time, none → " + got);
+    }
+    CHECK_MSG(parts("0").rfind("[{\"type\":\"weekday\",\"value\":\"Thursday\"},{\"type\":\"literal\",\"value\":\", \"},{\"type\":\"month\",\"value\":\"January\"}", 0) == 0, parts("0"));
+    CHECK_MSG(parts("32535215999999").find("{\"type\":\"month\",\"value\":\"December\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"year\",\"value\":\"3000\"}") != std::string::npos, parts("32535215999999"));
+}
+
 #ifdef _WIN32
 /// IcuIntl, on the system's ICU, on every case of the fixture.
 TEST(icu_intl_matches_v8) {
@@ -2720,6 +2850,24 @@ TEST(icu_intl_matches_v8) {
     int checked = 0;
     for (const auto& m : intlMismatches(intl, false, checked)) CHECK_MSG(false, m);
     CHECK(checked > 100);
+}
+#endif
+
+#ifdef _WIN32
+// A tag whose ICU locale ID is exactly ULOC_FULLNAME_CAPACITY (157) bytes: ICU fills the buffer and writes no NUL.
+TEST(icu_intl_refuses_a_locale_that_fills_the_buffer) {
+    IcuIntl intl("en-US");
+    const std::string tag = "en-x-wwwwwwww-nnnnnnnn-eeeeeeee-vvvvvvvv-mmmmmmmm-dddddddd-uuuuuuuu-llllllll-cccccccc-tttttttt-kkkkkkkk-bbbbbbbb-ssssssss-jjjjjjjj-aaaaaaaa-rrrrrrrr-iiiiiiii";
+    for (const char* kind : {"numberOptions", "dateOptions"}) {
+        Json req = Json::object();
+        req.set("kind", kind).set("locale", tag).set("opts", Json::object());
+        auto options = Json::parse(intl.format(req));
+        CHECK(options.has_value());
+        if (options) CHECK_MSG((*options)["locale"].asString() == "en-US", (*options)["locale"].dump());
+    }
+    Json list = Json::object();
+    list.set("kind", "number").set("locale", Json::array().push(tag)).set("value", 1234.5).set("opts", Json::object());
+    CHECK_MSG(intl.format(list) == "1,234.5", intl.format(list));
 }
 #endif
 

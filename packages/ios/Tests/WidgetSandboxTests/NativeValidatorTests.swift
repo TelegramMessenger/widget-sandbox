@@ -207,6 +207,28 @@ final class NativeValidatorDifferentialTests: XCTestCase {
         differential(policy: .strict, seeds: 101...160)
     }
 
+    /// The 1024 nesting-depth cap (v0.6.5) in both the JS bundle and the native model: a linear chain of n divs under
+    /// `<body>` (depth 2) is n + 2 deep, so 1022 → 1024 (passes) and 1023 → 1025 (stops with the `limit` diagnostic).
+    func testNestingDepthCapMatchesTheScriptValidator() {
+        func chain(_ n: Int) -> String {
+            var ops = "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},"
+                    + "{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null}"
+            for i in 0..<n {
+                let parent = i == 0 ? 3 : 100 + i - 1
+                ops += ",{\"op\":\"el\",\"id\":\(100 + i),\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":\(parent),\"id\":\(100 + i),\"before\":null}"
+            }
+            return ops + "]"
+        }
+        for native in [false, true] {
+            let ok = Rig(native: native, policy: .strict)
+            let passed = ok.json(chain(1022))
+            XCTAssertFalse(passed.2.contains { $0.hasPrefix("limit|") }, "1024 deep should pass (native=\(native)): \(passed.2)")
+            let over = Rig(native: native, policy: .strict)
+            let stopped = over.json(chain(1023))
+            XCTAssertTrue(stopped.2.contains("limit|Nesting depth limit exceeded: 1025 levels (max 1024)"), "native=\(native): \(stopped.2)")
+        }
+    }
+
     private func differential(policy: SandboxPolicy, seeds: ClosedRange<Int>) {
         var batches = 0, outputs = 0, diags = 0
         for seed in seeds {

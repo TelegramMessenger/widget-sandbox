@@ -1,0 +1,11 @@
+<!-- Renderer exhaustion: SVG path data that goes on after a closepath without a command. `z` takes no arguments,
+     so it never repeats: a parser that takes the number after it as one more implicit `z` reads nothing, closes the
+     path once per turn and never ends, growing the path until the host runs out of memory (twidget before 3e25003:
+     17 GB in 20 s). SVG 2 ("Error handling in path data"): the data after `z` is an error, the path is drawn up to
+     it. Expected: the page loads; #a draws nothing visible (a lone moveto and close), #b a red diagonal from 0,0
+     to 20,20 and nothing past the error, #c two red strokes (a `z` followed by a command still starts the next
+     subpath). No canary hits. -->
+<p id="p">drawn</p>
+<svg id="a" width="40" height="40"><path d="M0 0z4" stroke="red" stroke-width="4"/></svg>
+<svg id="b" width="40" height="40"><path d="M0 0 L20 20 z 4,4 L 40 0" stroke="red" stroke-width="4" fill="none"/></svg>
+<svg id="c" width="40" height="40"><path d="M0 0 L10 10 z M20 20 L40 40 z" stroke="red" stroke-width="4" fill="none"/></svg>

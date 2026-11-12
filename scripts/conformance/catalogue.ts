@@ -353,6 +353,7 @@ const lim = (id: string, title: string, st: Status, d: string, t: Today, x: Part
 lim('text-node', 'Text values (text node, canvas string, Path2D data) up to 32 K UTF-16 units; past it the widget stops (strict)', 'in', 'D5', 'kept');
 lim('text-budget', 'Document text 48 K units, past it the widget stops; complex-script text 8192 units, past it the text is refused (strict)', 'in', 'D5', 'kept');
 lim('nodes', "At most 2000 nodes (elements, text, comments) in the document once a batch is applied; past it the widget stops (strict)", 'in', 'today', 'kept');
+lim('nesting', "At most 1024 levels of element nesting in the document once a batch is applied; past it the widget stops (strict)", 'in', 'L3', 'kept');
 lim('timers', 'At most 64 live timers (RangeError past it)', 'in', 'today', 'kept');
 lim('cpu', "CPU quota 300 ms of JS per second (timers deferred, not killed; a task that runs past it makes the next ones wait longer); one task may run 500 ms; at most 128 layout queries in one task, and their time at most 1000 ms; past these the widget stops", 'in', 'today', 'kept');
 lim('memory', 'QuickJS heap 8 MB', 'in', 'today', 'kept');

@@ -9,7 +9,7 @@ package org.telegram.widgetsandbox
  */
 object WidgetSandboxVersion {
     /** The release (semver; the tag is `v` + this). */
-    const val VERSION = "0.6.3"
+    const val VERSION = "0.6.5"
 
     /** The wire between this glue and the bundles (docs/protocol.md). */
     const val PROTOCOL = 1

@@ -3,6 +3,126 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## v0.6.5 — release notes (2026-11-12)
+
+Default, every host. A validator cap on how deeply a widget's elements may nest, with the deep-document fix that lets a
+legal widget reach the limits instead of the glue's stack. Protocol, profile and SDK are unchanged (1/1/1): this is a
+validator limit, not a profile feature. A client updates by rebuilding the JS bundles (the sandbox, renderer and
+validator bundles change); the engine and its pin (`b526a817`) do not change.
+
+### The nesting-depth cap: 1024 levels
+
+The web renders a widget through a shadow root in the host chat page, with no per-widget iframe (release plan D2), so the
+widget has no renderer process of its own. Chromium kills a page's renderer process at about 1,650–1,700 nested elements
+(a plain page, no widget code), which is under the 2000-node cap, and with no iframe to contain it the whole chat page
+goes down, not one frame — the iframe-less shadow model raises the stakes rather than lowering them. The validator now
+stops a widget whose elements nest more than 1024 deep, with the fatal `limit` diagnostic ("Nesting depth limit exceeded:
+N (max 1024)"), before any renderer lays the tree out, so one cap shields every client's renderer at once (the native
+clients each render with their own renderer, with their own thresholds — this is a bonus, not the reason). 1024 is well
+below Chromium's crash point and about 79× the deepest widget in the corpora (13 nested). The cap is counted after each
+batch over the tree reachable from the document root, like the node cap; a detached subtree in limbo does not count.
+`compat` keeps no cap. This is a renderer concern, separate from the deep-document glue fix below (the native
+QuickJS-glue stack).
+
+- Enforced in `validator.ts` (`MAX_NESTING_DEPTH`, next to `MAX_DOCUMENT_NODES`), mirrored in the Swift
+  `NativeValidator`; the other native hosts run the same validator bundle. Tests: `strict-limits.test.ts` (1024 passes,
+  1025 stops, measured as the batch ends, a detached subtree excluded), the Swift `NativeValidator` differential test,
+  and `corpus/attacks/deep-nesting.html` (1,100 nested, stopped before any renderer, 0 canary on iframe and shadow).
+
+### Deep documents reach the limits, not the glue's stack
+
+A widget whose elements were nested about 1,000 deep (the web worker) or 1,900 (the Node sandbox) died at boot with
+`sandbox glue error: Maximum call stack size exceeded`, before any renderer or validator limit.
+
+- The cause: the shim's mirror created a new subtree by recursion (`capture.ts` `createNode`), one QuickJS call per
+  level on the glue's native stack. The full walk, a subtree's removal and its moved-node check, the parser's tree
+  building (`dom.ts` `build`: markup and `innerHTML`) and the boot's script scan recursed the same way. All are loops
+  now, in the same order (the ops do not change). The renderer core's tree walks (forgetting a removed subtree, the
+  heavy-box count, the stopped frame) are loops too.
+- A deep widget now meets a limit, not a stack overflow: past 1024 nested elements the nesting-depth cap above (a linear
+  chain reaches it before the node cap), a wide document past 2000 nodes the node cap. `paint-filter-depth` (600 nested)
+  stops with "Paint limit exceeded" as before, within the depth cap.
+- Tests: `deep-dom.test.ts` (1,000 levels built by script, in markup and through `innerHTML`, moved and removed; 1,100
+  stop at the nesting-depth limit) with QuickJS held to 128 KB of stack, where the old recursions stopped near 350
+  levels; `renderer-paint.test.ts` walks 1,500 nested filters straight to the renderer core. The Node harness takes
+  `maxStackBytes`.
+
+### Two `paint-*` attacks past the engine's limit
+
+What a native client draws when the engine's paint limit is passed, from a compromised engine. Both files are
+stopped by the heavy-box limit (16) before such a list is made; they keep that stop tested at sizes where the
+Android client broke when it got the list anyway (crafted lists, Telegram's hostile-client check).
+
+- `paint-filter-depth`: filters nested 600 deep. On Android each filter is a RenderNode inside the one around it,
+  and hwui prepares nested nodes by recursion: 2,000 overflowed the RenderThread's stack (SIGSEGV in
+  `RenderNode::prepareTreeImpl`, the app's process). The client now draws at most 16 nested filters.
+- `paint-backdrop-replay`: 300 backdrop-filter boxes over 600 boxes. Each backdrop replays the list before it into
+  a node of its own, n × m commands: 10,000 after 10,000 fills took 2.6 GB and the low-memory killer took the app.
+  The client now applies at most 8 backdrops a frame.
+
+## v0.6.4 — release notes (2026-11-10)
+
+A QuickJS security release. The fork pin moves to fork master `b526a817`, which reconciles the v0.6.3 engine
+with five memory-safety fixes from the fork's `tdesktop-fixes` branch and the `await using` parser refusal
+(`ca3594d`), the last already on main as an unreleased submodule bump. A client updates by bumping the
+submodule and rebuilding the engine for its platform, with no glue change. The web ships a rebuilt
+`packages/quickjs-wasm/dist`, the one platform whose prebuilt engine changes. The JS bundles and `.qbc`
+change only to carry the new version stamp, since `qjsc` compiles the same bytecode from bundles that use
+none of the constructs these fixes touch.
+
+Five use-after-free and out-of-bounds fixes, each reachable from plain widget JS below the sandbox and each
+with an engine regression test that aborts under ASan on the v0.6.3 engine and passes after the fix:
+
+- `FinalizationRegistry.prototype.unregister()` freed each removed entry in place. When that entry's held
+  value was the last reference to the target of a later registration, finalizing it freed the later entry
+  under the running walk, a use-after-free (`finalizationregistry-unregister-held-target.js`).
+- `Map.prototype.clear()` cached the next record before deleting the current one. When the deleted value was
+  a map iterator holding a zombie record, the iterator's finalizer freed that cached record and the clear
+  walk then read and deleted freed memory, a use-after-free shared with `Set.prototype.clear()`
+  (`map-clear-iterator-value-uaf.js`).
+- `reset_weak_ref()` cleared a `WeakRef`'s target in its first pass but detached the `WeakRef` object only in
+  the second. When a `WeakMap` value or `FinalizationRegistry` held value was the last reference to a
+  `WeakRef` for the same target, freeing it ran the finalizer with an undefined target while the record was
+  still in the walked list, an abort in `get_first_weak_ref()` (`weakref-weakmap-value-same-target.js`).
+- A direct `eval` combines the caller's arguments, locals and inherited closure variables into one array
+  whose count went into a 16-bit field with no range check. A combined count above `JS_MAX_LOCAL_VARS`
+  (65535) wrapped the field, so `js_closure2()` under-allocated the var-ref slots while the eval bytecode
+  kept indexing the full environment, a heap-buffer-overflow read in `JS_CallInternal`
+  (`direct-eval-closure-var-overflow.js`). `add_closure_variables()` now rejects an oversized environment
+  with a `SyntaxError`.
+- A mapped `arguments` object captures every parameter into the per-frame var-ref array, a count that also
+  went into a 16-bit field with no range check. The maximum parameter count plus an independently captured
+  local wrapped the field to zero, so `JS_CallInternal` allocated a zero-length var-ref array while
+  `js_build_mapped_arguments()` still indexed one slot per parameter, an out-of-bounds read
+  (`mapped-arguments-var-ref-overflow.js`).
+
+The sixth engine change is the `await using` parser refusal, reported against Telegram Android 13.2.1 as
+native code execution from a widget's script:
+
+- The bug: `await` is a keyword token in modules and class static blocks even inside functions that cannot
+  await, and `js_parse_for_in_of()` accepted an `await using` binding in a for-in/of head there without
+  checking the function kind, where every other `await` and `await using` site checks it. The binding's
+  disposal emits `OP_await` into a normal function. The interpreter takes every suspending opcode through its
+  generator exit, which for a normal function skips `close_var_refs()`, so a closure created in that frame
+  kept a reference into the C stack after the call returned, a use-after-return reachable from plain widget JS
+  (class static blocks are in every script), below the sandbox, on every platform that compiles the fork.
+- The fix: the parser refuses `await using` in a for head unless the function is async (a `SyntaxError`, as
+  for `for await` and the statement-level `await using`), and `JS_CallInternal` throws instead of suspending
+  a normal function's frame (`OP_await`, `OP_yield`, `OP_yield_star`, `OP_async_yield_star`, `OP_return_async`,
+  `OP_initial_yield`), so no later parser slip can skip `close_var_refs()` again.
+- Tests: `await_using_outside_async` in the fork's `api-test.c` fails on `b02310a` and passes under ASan and
+  UBSan. test262 is unchanged, the same 30/43034 list.
+
+The tree also carries three more `render-*` corpus attack widgets for the native renderers, unrelated to the
+engine fixes, each drawn by the web as any browser. `render-svg-path-closepath` is `<path d="M0 0z4"/>`, a
+number after a closepath, which is no command. A parser that repeats `z` as the implicit command reads nothing
+and closes the path forever until the host runs out of memory (twidget's fix is `3e25003`, the path ends at the
+error, SVG 2 "Error handling in path data"). `render-svg-use-fanout` nests ten `<use>` of the level below on
+each of five levels, 10^5 rectangles from 51 elements, which a depth limit alone does not bound (twidget
+`7249ce7` caps the uses a paint pass expands). `render-root-font-weight-bolder` sets `bolder` on the root,
+relative to a parent it does not have, which a renderer that reads the weight through the parent crashes on
+(twidget before `7249ce7`, it resolves against the initial 400). The attack corpus is now 130 files.
+
 ## v0.6.3 — release notes (2026-11-09)
 
 A QuickJS hardening release, a follow-up to v0.6.2. The fork pin moves one commit on top of the v0.6.2
