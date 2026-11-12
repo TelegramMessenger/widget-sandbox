@@ -738,6 +738,25 @@ TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
     t.stop();
 }
 
+TEST(a_result_that_cannot_be_copied_is_an_error) {
+    JSThread t("test.js");
+    auto outcome = [&](bool byCall) {
+        return t.sync([&]() -> std::string {
+            QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+            try {
+                js.evaluate("function big() { return '\\u00e9'.repeat(5 << 20); }", "t.js");
+                JSResult r = byCall ? js.call("big") : js.evaluate("big()", "t.js");
+                return "a result of " + std::to_string(r.string.value_or("").size()) + " bytes";
+            } catch (const JSError& e) {
+                return e.what();
+            }
+        });
+    };
+    CHECK_MSG(outcome(false).find("out of memory") != std::string::npos, outcome(false));
+    CHECK_MSG(outcome(true).find("out of memory") != std::string::npos, outcome(true));
+    t.stop();
+}
+
 // ───────────── engine ─────────────
 
 TEST(boots_and_emits_initial_tree) {
