@@ -27,8 +27,9 @@ struct QuickJSTrampoline {
             JSValue v = argv[i];
             if (qjs_is_string(v)) {
                 const char* c = qjs_to_cstring(ctx, v);
-                args.emplace_back(c ? c : "");
-                if (c) qjs_free_cstring(ctx, c);
+                if (!c) return JS_ThrowOutOfMemory(ctx);
+                args.emplace_back(c);
+                qjs_free_cstring(ctx, c);
             } else if (qjs_is_number(v)) {
                 double d = qjs_to_float64(ctx, v);
                 char buf[64];

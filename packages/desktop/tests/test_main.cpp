@@ -720,6 +720,24 @@ TEST(stack_check_follows_the_calling_thread) {
     t.sync([&] { js.reset(); });
 }
 
+TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
+    JSThread t("test.js");
+    int calls = 0;
+    std::string error = t.sync([&]() -> std::string {
+        QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+        js.registerFunction("__probe", [&](const std::vector<std::string>&) { calls++; return HostReturn::undefined(); });
+        try {
+            js.evaluate("var s = '\\u00e9'.repeat(5 << 20); __probe('fits'); __probe(s); __probe('after');", "t.js");
+        } catch (const JSError& e) {
+            return e.what();
+        }
+        return "no error";
+    });
+    CHECK_MSG(calls == 1, std::to_string(calls) + " calls");
+    CHECK_MSG(error.find("out of memory") != std::string::npos, error);
+    t.stop();
+}
+
 // ───────────── engine ─────────────
 
 TEST(boots_and_emits_initial_tree) {
