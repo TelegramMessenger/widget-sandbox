@@ -2778,6 +2778,24 @@ TEST(icu_intl_matches_v8) {
 }
 #endif
 
+#ifdef _WIN32
+// A tag whose ICU locale ID is exactly ULOC_FULLNAME_CAPACITY (157) bytes: ICU fills the buffer and writes no NUL.
+TEST(icu_intl_refuses_a_locale_that_fills_the_buffer) {
+    IcuIntl intl("en-US");
+    const std::string tag = "en-x-wwwwwwww-nnnnnnnn-eeeeeeee-vvvvvvvv-mmmmmmmm-dddddddd-uuuuuuuu-llllllll-cccccccc-tttttttt-kkkkkkkk-bbbbbbbb-ssssssss-jjjjjjjj-aaaaaaaa-rrrrrrrr-iiiiiiii";
+    for (const char* kind : {"numberOptions", "dateOptions"}) {
+        Json req = Json::object();
+        req.set("kind", kind).set("locale", tag).set("opts", Json::object());
+        auto options = Json::parse(intl.format(req));
+        CHECK(options.has_value());
+        if (options) CHECK_MSG((*options)["locale"].asString() == "en-US", (*options)["locale"].dump());
+    }
+    Json list = Json::object();
+    list.set("kind", "number").set("locale", Json::array().push(tag)).set("value", 1234.5).set("opts", Json::object());
+    CHECK_MSG(intl.format(list) == "1,234.5", intl.format(list));
+}
+#endif
+
 // formatToParts is in the widget profile: the basic provider splits what it formats.
 TEST(intl_fallback_format_to_parts) {
     Run r("<script>var j=function(p){return p.map(function(x){return x.type+'='+x.value}).join(';')};"
