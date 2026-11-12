@@ -130,6 +130,24 @@ TEST(json_fuzz_never_crashes) {
     CHECK(!Json::parse(std::string("\"\\ud800")).has_value() || true);
 }
 
+// Numbers the sandbox sends are any doubles: asInt answers the nearest end of `int` past it, never an undefined conversion.
+TEST(json_as_int_saturates) {
+    auto v = Json::parse("[1e300,-1e300,2147483648,-2147483649,2147483647.5,-2147483648.5,1.9,-1.9,1e999,\"7\"]");
+    CHECK(v.has_value());
+    if (!v) return;
+    const int max = std::numeric_limits<int>::max(), min = std::numeric_limits<int>::min();
+    CHECK((*v)[0].asInt() == max);
+    CHECK((*v)[1].asInt() == min);
+    CHECK((*v)[2].asInt() == max);
+    CHECK((*v)[3].asInt() == min);
+    CHECK((*v)[4].asInt() == max);
+    CHECK((*v)[5].asInt() == min);
+    CHECK((*v)[6].asInt() == 1);
+    CHECK((*v)[7].asInt() == -1);
+    CHECK((*v)[8].asInt(5) == 5);
+    CHECK((*v)[9].asInt(5) == 5);
+}
+
 TEST(json_parse_and_dump) {
     auto v = Json::parse("{\"a\":[1,2.5,\"x\\u00e9\\ud83d\\ude00\",true,null],\"b\":{}, \"c\":-1e2}");
     CHECK(v.has_value());
