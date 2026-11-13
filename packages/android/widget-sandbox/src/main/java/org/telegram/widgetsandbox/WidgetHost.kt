@@ -353,6 +353,14 @@ class WidgetHost(
          * render, so the first height already has the band; later only with the bubble's layout ([setContentSafeArea]).
          */
         val contentSafeArea: WidgetContentSafeArea = WidgetContentSafeArea(),
+        /**
+         * Which build of QuickJS runs this widget's code (docs/decisions.md, "QuickJS in a wasm2c box"):
+         * [QuickJSBackend.NATIVE] (the default on every platform) or [QuickJSBackend.BOXED] (opt-in; on Android always the
+         * bounds-check build, no guard pages). A build that cannot run the box stops the widget with "Engine fault" — it
+         * never falls back to the native engine. The validator's engine stays native. [QuickJSBackend.isBoxedAvailable]
+         * says whether this build can run the box.
+         */
+        val engine: QuickJSBackend = QuickJSBackend.default,
     )
 
     val view: View get() = renderer.view
@@ -449,7 +457,7 @@ class WidgetHost(
             cpuQuotaMs = options.cpuQuotaMs, cpuQuotaWindowMs = options.cpuQuotaWindowMs, cpuKillAfterMs = options.cpuKillAfterMs,
             mainThreadQuotaMs = options.mainThreadQuotaMs, maxTimers = options.maxTimers, visible = options.visible, policy = options.policy, features = options.features,
             themeParams = this.theme.params, locale = options.locale, contentSafeArea = options.contentSafeArea, storage = options.storage,
-            data = options.data, context = options.context,
+            data = options.data, context = options.context, backend = options.engine,
         )
         if (isStrictPolicy(options.policy)) validator.setPolicy("strict")
         engine = SandboxEngine(html, config, resources)
