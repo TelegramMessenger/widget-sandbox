@@ -41,8 +41,13 @@ final class BoxedQuickJSTests: XCTestCase {
         let js = try context(.boxed)
         // packages/quickjs-box/build.sh --check proves the box is built from the submodule's commit; here: it says so.
         XCTAssertTrue(js.engineDescription.hasPrefix("boxed QuickJS "), js.engineDescription)
-        // Guard pages on macOS; a build with WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1 runs the mode of every other platform.
+        // Guard pages on macOS; bounds checks on iOS (its only mode) and wherever WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1
+        // forces that mode on macOS.
+        #if os(iOS)
+        let boundsChecks = true
+        #else
         let boundsChecks = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_BOX_BOUNDS_CHECKS"] != nil
+        #endif
         XCTAssertTrue(js.engineDescription.hasSuffix(boundsChecks ? "(bounds-checks)" : "(guard-pages)"), js.engineDescription)
         XCTAssertEqual(try context(.native).engineDescription, "native QuickJS")
     }
@@ -345,10 +350,10 @@ final class BoxedQuickJSTests: XCTestCase {
         XCTAssertTrue(deep.1.joined().contains("RangeError"))
     }
 
-    /// A build that cannot run the box never falls back to the native engine: the widget stops. On macOS the test
-    /// makes the box fail; on a platform without it (iOS today) that is what asking for `.boxed` does anyway.
+    /// A build that cannot run the box never falls back to the native engine: the widget stops. Where the box is in
+    /// the build (macOS, iOS) the test makes it fail; on a platform without it, asking for `.boxed` fails the same way.
     func testABoxThatCannotBeCreatedFailsClosed() throws {
-        var reason = "the boxed QuickJS engine is not part of this build (macOS only)"
+        var reason = "the boxed QuickJS engine is not part of this build (Apple platforms only)"
         if QuickJSBackend.isBoxedAvailable {
             reason = "the box was compiled without optimization"
             QuickJSContext.boxedFailureForTesting = reason

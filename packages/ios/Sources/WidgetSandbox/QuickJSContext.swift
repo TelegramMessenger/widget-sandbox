@@ -11,14 +11,15 @@ public enum QuickJSBackend: String {
     /// The engine compiled into the process. The default on every platform.
     case native
     /// The same engine commit compiled to wasm and back to C, in a memory of its own: a memory bug in the engine
-    /// reads and writes that memory only, or ends the process. macOS only for now (`isBoxedAvailable`); slower
-    /// (JS about 1.4 times with guard pages). The validator's engine stays native.
+    /// reads and writes that memory only, or ends the process. macOS (guard pages) and iOS (bounds checks) so far
+    /// (`isBoxedAvailable`); slower (JS about 1.4 times with guard pages, 1.7 with bounds checks). The validator's
+    /// engine stays native.
     case boxed
 
     /// Whether this build can run `.boxed`. Where it cannot, a boxed engine fails closed: the widget stops with
     /// "Engine fault", it never falls back to the native engine.
     public static var isBoxedAvailable: Bool {
-        #if os(macOS) && canImport(CQuickJSBox)
+        #if (os(macOS) || os(iOS)) && canImport(CQuickJSBox)
         return BoxedQuickJS.isOptimized
         #else
         return false
@@ -77,7 +78,7 @@ public final class QuickJSContext {
             engine = NativeQuickJS(memoryLimitBytes: memoryLimitBytes, maxStackBytes: maxStackBytes)
             unavailableReason = nil
         case .boxed:
-            #if os(macOS) && canImport(CQuickJSBox)
+            #if (os(macOS) || os(iOS)) && canImport(CQuickJSBox)
             do {
                 if let reason = Self.boxedFailureForTesting { throw QuickJSError.engineFault(reason) }
                 engine = try BoxedQuickJS(memoryLimitBytes: memoryLimitBytes, maxStackBytes: maxStackBytes)
@@ -88,7 +89,7 @@ public final class QuickJSContext {
                 unavailableReason = reason
             }
             #else
-            let reason = "the boxed QuickJS engine is not part of this build (macOS only)"
+            let reason = "the boxed QuickJS engine is not part of this build (Apple platforms only)"
             engine = UnavailableQuickJS(reason: reason)
             unavailableReason = reason
             #endif
@@ -100,7 +101,7 @@ public final class QuickJSContext {
 
     /// "native QuickJS", or the boxed engine with the commit it was built from and how its memory is fenced.
     public var engineDescription: String {
-        #if os(macOS) && canImport(CQuickJSBox)
+        #if (os(macOS) || os(iOS)) && canImport(CQuickJSBox)
         if backend == .boxed { return "boxed QuickJS \(BoxedQuickJS.quickJSCommit) (\(BoxedQuickJS.buildMode))" }
         #endif
         return backend == .boxed ? "boxed QuickJS" : "native QuickJS"
