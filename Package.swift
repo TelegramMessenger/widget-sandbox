@@ -49,8 +49,10 @@ let package = Package(
         // The same QuickJS commit inside a wasm2c box: compiled to wasm and translated back to C by
         // packages/quickjs-box/build.sh (generated/, committed), with WABT's runtime (wabt/) and a C host
         // layer over opaque handles (src/, include/). Only src/ is compiled: its files include the
-        // generated code and the runtime after qjsbox_config.h. Opt-in (QuickJSBackend.boxed), macOS only
-        // for now; it must be compiled optimized (an unoptimized box refuses to start).
+        // generated code and the runtime after qjsbox_config.h. Opt-in (QuickJSBackend.boxed): macOS fences the box
+        // with guard pages, iOS with bounds checks (qjsbox_config.h picks the mode from TargetConditionals). It must
+        // be compiled optimized, in every configuration (an unoptimized box refuses to start): optimizedC gives its C
+        // -O3 even in Debug on a local checkout.
         .target(
             name: "CQuickJSBox",
             path: "packages/quickjs-box",
@@ -69,7 +71,7 @@ let package = Package(
         ),
         .target(
             name: "WidgetSandbox",
-            dependencies: ["CQuickJS", "WidgetSandboxProtocol", .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS]))],
+            dependencies: ["CQuickJS", "WidgetSandboxProtocol", .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS, .iOS]))],
             path: "packages/ios/Sources/WidgetSandbox",
             resources: [.copy("WidgetJS")]
         ),

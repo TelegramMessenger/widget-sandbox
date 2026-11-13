@@ -12,7 +12,7 @@
 // without the engine: a box that cannot be created, a call from inside a host
 // function.
 
-#if os(macOS) && canImport(CQuickJSBox)
+#if (os(macOS) || os(iOS)) && canImport(CQuickJSBox)
 import CQuickJSBox
 import Foundation
 
