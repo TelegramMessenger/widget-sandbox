@@ -69,7 +69,7 @@ let package = Package(
         ),
         .target(
             name: "WidgetSandbox",
-            dependencies: ["CQuickJS", "WidgetSandboxProtocol"],
+            dependencies: ["CQuickJS", "WidgetSandboxProtocol", .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS]))],
             path: "packages/ios/Sources/WidgetSandbox",
             resources: [.copy("WidgetJS")]
         ),

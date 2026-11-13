@@ -262,9 +262,10 @@ public final class SandboxEngine {
     /// tiny pairs): a longer commit cannot be within it (`MAX_STORAGE_COMMIT_CHARS` in worker.ts).
     static let maxStorageCommitChars = 2 * 12 * SdkPolicy.storageQuotaBytes + 64
 
-    public init(html: String, config: SandboxConfig, resources: SandboxResources = .shared) {
+    public init(html: String, config: SandboxConfig, resources: SandboxResources = .shared, backend: QuickJSBackend = .default) {
         self.html = html
         self.config = config
+        self.backend = backend
         self.runtimeFeatures = config.features
         self.resources = resources
         visible = config.visible
@@ -278,8 +279,10 @@ public final class SandboxEngine {
     /// off the critical path of a bubble that scrolls into view).
     /// An engine for a widget that comes later (`start(html:config:)`), e.g. a pooled one. `features` decides
     /// which optional host functions its runtime gets when it is created; a later config cannot add them.
-    public init(resources: SandboxResources = .shared, features: Set<String> = []) {
+    /// `backend` decides which build of QuickJS its runtime is (`QuickJSBackend`), for the engine's whole life.
+    public init(resources: SandboxResources = .shared, features: Set<String> = [], backend: QuickJSBackend = .default) {
         self.resources = resources
+        self.backend = backend
         self.runtimeFeatures = features
         config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
         visible = true
@@ -321,6 +324,8 @@ public final class SandboxEngine {
 
     /// The optional host functions this engine's runtime was built with (fixed at init).
     public let runtimeFeatures: Set<String>
+    /// The build of QuickJS this engine's runtime is: native, or boxed (docs/decisions.md, "QuickJS in a wasm2c box").
+    public let backend: QuickJSBackend
 
     /// Canvas word payloads (`__hostCanvas`) for the next ops batch, by key.
     private var stagedCanvas: [Int: WidgetCanvasBatch] = [:]
@@ -374,7 +379,12 @@ public final class SandboxEngine {
     /// The runtime, the two host functions and the sandbox bundle (ours, so its time is excluded from the widget's quota).
     private func createRuntime() {
         if js != nil { return }
-        js = QuickJSContext(memoryLimitBytes: config.memoryLimitBytes, maxStackBytes: JSThread.jsStackLimit)
+        js = QuickJSContext(memoryLimitBytes: config.memoryLimitBytes, maxStackBytes: JSThread.jsStackLimit, backend: backend)
+        // Fail closed: a boxed engine this build cannot provide never becomes a native one.
+        if let reason = js.unavailableReason {
+            if !dead && !prewarmFailed { kill("Engine fault: \(reason)") }
+            return
+        }
         js.registerFunction("__host") { [unowned self] args in self.hostCall(kind: args.first ?? "", arg: args.count > 1 ? args[1] : "") }
         if runtimeFeatures.contains("binaryOps") {
             js.registerOpsFunction("__hostOps") { [unowned self] words, strings in
@@ -438,6 +448,8 @@ public final class SandboxEngine {
         if let bundleEval {
             delegate?.engine(self, diag: "boot", detail: String(format: "sandbox bundle eval %.0f ms (%@%@)", bundleEval.ms, bundleEval.how, wasPrewarmed ? ", prewarmed" : ""))
         }
+        // Only a host that opted in hears about it: which box runs this widget.
+        if backend == .boxed { delegate?.engine(self, diag: "engine", detail: js.engineDescription) }
         task("boot", sliceMs: config.cpuLimitMs) {
             var bootConfig: [String: Any] = [
                 "memoryLimitBytes": self.config.memoryLimitBytes, "cpuLimitMs": self.config.cpuLimitMs,
@@ -1049,6 +1061,7 @@ public final class SandboxEngine {
 
     private func handleError(_ error: Error, where location: String) {
         let text = (error as? QuickJSError)?.description ?? String(describing: error)
+        if case .engineFault(let reason)? = error as? QuickJSError { return kill("Engine fault: \(reason) (\(location))") }
         if js?.interrupted == true, let hit = queryLimitHit {
             return kill("\(CpuBudget.queryLimitReason(hit, kind: currentKind)) (\(location))")
         }

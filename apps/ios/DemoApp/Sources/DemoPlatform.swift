@@ -94,6 +94,8 @@ enum DemoReport {
 /// `--renderer webview|blitz|litehtml` (or the shorthands `--blitz`, `--litehtml`,
 /// `--webview` / `--no-blitz`) picks the renderer before anything loads (like the
 /// Android demo's `--es renderer`), so the runners can be driven on any of them.
+/// `--engine boxed` runs every widget on the boxed QuickJS engine (macOS; docs/decisions.md,
+/// "QuickJS in a wasm2c box"); the reports name the engine.
 enum DemoAutorun {
     static let kind: String? = {
         let args = CommandLine.arguments
@@ -124,7 +126,15 @@ enum DemoAutorun {
         #endif
         if args.contains("--webview") || args.contains("--no-blitz") { DemoRenderer.kind = .webview }
         if let i = args.firstIndex(of: "--renderer"), i + 1 < args.count, let k = DemoRenderer.Kind(rawValue: args[i + 1]) { DemoRenderer.kind = k }
+        if let i = args.firstIndex(of: "--engine"), i + 1 < args.count, let backend = QuickJSBackend(rawValue: args[i + 1]) {
+            // The default of every host and of the engine pool from here on. A build without the box fails closed.
+            QuickJSBackend.default = backend
+            EnginePool.shared.backend = backend
+        }
     }
+
+    /// "native", or the boxed engine with its QuickJS commit and memory mode, for the reports.
+    static var engineName: String { QuickJSContext(memoryLimitBytes: 1 << 20, backend: QuickJSBackend.default).engineDescription }
 
     static func finished() {
         #if os(macOS)

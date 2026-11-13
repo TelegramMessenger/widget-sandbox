@@ -126,6 +126,11 @@ public final class Widget3DChannel: WidgetSideChannel {
         guard backend.isAvailable, let adapter = backend.adapterSource else {
             return
         }
+        // `__tw3d` is a host function written against quickjs-ng itself; the boxed engine lets no engine pointer out.
+        guard let context = js.nativeContext else {
+            onDiag?("3d", "not available on the boxed engine")
+            return
+        }
         lock.lock()
         if destroyed {
             lock.unlock()
@@ -135,8 +140,8 @@ public final class Widget3DChannel: WidgetSideChannel {
         magic = Widget3DChannel.register(self)
         let magic = self.magic
         lock.unlock()
-        let fn = qjs_new_cfunction_magic(js.context, widget3DTrampoline, "__tw3d", 8, magic)
-        _ = qjs_set_global_prop(js.context, "__tw3d", fn)
+        let fn = qjs_new_cfunction_magic(context, widget3DTrampoline, "__tw3d", 8, magic)
+        _ = qjs_set_global_prop(context, "__tw3d", fn)
         do {
             _ = try js.evaluate("try { (\(adapter))(globalThis.__tw3d); } finally { delete globalThis.__tw3d; }", filename: "twidget3d.js")
         } catch {

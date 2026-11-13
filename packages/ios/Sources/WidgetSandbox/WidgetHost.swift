@@ -82,6 +82,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var nativeScrolling = false
         /// Optional wire forms to advertise (SandboxConfig.features), e.g. `canvasWords`, `binaryOps`; empty means plain JSON.
         public var features: Set<String> = []
+        /// The build of QuickJS that runs the widget's code: `.native` unless the client opts into `.boxed`
+        /// (docs/decisions.md, "QuickJS in a wasm2c box"). The validator's engine is always native.
+        public var engine: QuickJSBackend = .default
         /// Side channels next to the DOM protocol, one fresh instance per host (e.g. the twidget kit's 3D surfaces).
         public var sideChannels: [() -> WidgetSideChannel] = []
         /// Build the QuickJS runtime and evaluate the sandbox bundle while the renderer document is still loading, instead of after `ready`.
@@ -258,11 +261,11 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.data = options.data
         config.context = options.context
         self.config = config
-        if options.pools, let pooled = EnginePool.shared.take(features: options.features) {
+        if options.pools, let pooled = EnginePool.shared.take(features: options.features, backend: options.engine) {
             engine = pooled
             prewarmed.append("engine")
         } else {
-            engine = SandboxEngine(resources: resources, features: options.features)
+            engine = SandboxEngine(resources: resources, features: options.features, backend: options.engine)
         }
         state.prewarmed = prewarmed.joined(separator: "+")
         validator.setAssetResolver(options.assetResolver)

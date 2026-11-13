@@ -27,6 +27,14 @@ public final class EnginePool {
             refill()
         }
     }
+    /// The build of QuickJS new engines are prewarmed on (`SandboxEngine.backend`); set it to what the hosts ask for. Main thread.
+    public var backend: QuickJSBackend = .default {
+        didSet {
+            guard backend != oldValue else { return }
+            drain()
+            refill()
+        }
+    }
     private var idle: [SandboxEngine] = []
     private let lock = NSLock()
 
@@ -39,10 +47,11 @@ public final class EnginePool {
 
     /// A prewarmed engine (its bundle evaluation may still be running on its own thread), or nil when empty.
     /// Only an engine built with exactly `features` is handed out; anything else would silently lose or gain host functions.
-    public func take(features: Set<String> = []) -> SandboxEngine? {
+    /// The same for `backend`: a host that asked for the boxed engine never gets a native one from the pool.
+    public func take(features: Set<String> = [], backend: QuickJSBackend = .default) -> SandboxEngine? {
         lock.lock()
         taken += 1
-        let e = features == self.features ? idle.popLast() : nil
+        let e = features == self.features && backend == self.backend ? idle.popLast() : nil
         if e != nil { hits += 1 }
         lock.unlock()
         scheduleRefill()
@@ -66,7 +75,7 @@ public final class EnginePool {
     private func refill() {
         while count < targetSize {
             let t0 = CACurrentMediaTime()
-            let e = SandboxEngine(resources: resources, features: features)
+            let e = SandboxEngine(resources: resources, features: features, backend: backend)
             e.prewarm()
             lock.lock()
             idle.append(e)

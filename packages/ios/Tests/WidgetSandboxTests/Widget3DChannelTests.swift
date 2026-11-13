@@ -92,12 +92,17 @@ final class Widget3DChannelTests: XCTestCase {
         }
     }
 
-    private func host(_ html: String, backend: FakeBackend = FakeBackend(), pools: Bool = false, maxBytesPerCall: Int = Widget3DChannel.defaultMaxBytesPerCall) -> (WidgetHost, SurfaceRenderer, Widget3DChannel) {
+    private func host(_ html: String, backend: FakeBackend = FakeBackend(), pools: Bool = false, maxBytesPerCall: Int = Widget3DChannel.defaultMaxBytesPerCall, engine: QuickJSBackend = .native) -> (WidgetHost, SurfaceRenderer, Widget3DChannel) {
         let renderer = SurfaceRenderer()
         let channel = Widget3DChannel(backend: backend, maxBytesPerCall: maxBytesPerCall)
         var options = WidgetHost.Options()
         options.sideChannels = [{ channel }]
         options.pools = pools
+        // The channel is written against quickjs-ng itself: it exists on the native engine only, whatever the default is.
+        options.engine = engine
+        let pooledBackend = EnginePool.shared.backend
+        if pools { EnginePool.shared.backend = engine }
+        defer { if pools { EnginePool.shared.backend = pooledBackend } }
         let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, options: options, rendererFactory: { _, _, _ in renderer })
         return (host, renderer, channel)
     }
@@ -265,6 +270,18 @@ final class Widget3DChannelTests: XCTestCase {
         let channel = Widget3DChannel(backend: FakeBackend(), maxSurfaces: 1000, maxBytesPerCall: Int.max)
         XCTAssertEqual(channel.maxSurfaces, Widget3DChannel.defaultMaxSurfaces * 4)
         XCTAssertEqual(channel.maxBytesPerCall, Widget3DChannel.defaultMaxBytesPerCall)
+    }
+
+    /// On the boxed engine no engine pointer leaves the box, so the channel installs nothing and says so.
+    func testTheBoxedEngineGetsNoChannel() throws {
+        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        let backend = FakeBackend()
+        let (host, _, _) = self.host("<p id=o>x</p><script>document.getElementById('o').textContent = typeof gl3d + typeof __tw3d;</script>", backend: backend, engine: .boxed)
+        wait { host.diagnostics.rendered }
+        XCTAssertNil(host.diagnostics.dead)
+        XCTAssertEqual(host.diagnostics.diags["3d"]?.details.first, "not available on the boxed engine")
+        XCTAssertTrue(backend.made.isEmpty)
+        host.destroy()
     }
 
     func testUnavailableBackendInstallsNothing() {
