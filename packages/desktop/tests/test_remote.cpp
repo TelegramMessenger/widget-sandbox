@@ -457,162 +457,6 @@ TEST(remote_data_and_safe_area_coding_round_trip_and_survive_damage) {
 
 // ───────────── client-mode engine (SandboxEngine over a SandboxRemoteChannel) ─────────────
 
-/// Swift's RemoteEngineTests.Delegate: what a client-mode engine hands its delegate, in order, under a lock.
-class RemoteRecorder final : public SandboxEngineDelegate {
-public:
-    /// Runs inside `onQuery`, between its "query:…" and "query-done" events; set it while no query is on its way.
-    std::function<void(SandboxEngine&)> duringQuery;
-    /// Runs inside `onOps` after its event; set it while no ops are on their way.
-    std::function<void(SandboxEngine&)> duringOps;
-    /// Runs inside `onTaskStarted` after its event; set it on the engine's thread or while no task is on its way.
-    std::function<void(SandboxEngine&)> atBegin;
-    /// What `onQuery` answers; set it while no query is on its way.
-    std::string queryAnswer = "{\"answer\":1}";
-
-    void onOps(SandboxEngine& engine, const std::string&) override {
-        record("ops");
-        if (duringOps) duringOps(engine);
-    }
-    QueryAnswer onQuery(SandboxEngine& engine, const std::string& json) override {
-        record("query:" + json);
-        if (duringQuery) duringQuery(engine);
-        record("query-done");
-        return {queryAnswer, std::nullopt};
-    }
-    void onListen(SandboxEngine&, const std::string&) override { record("listen"); }
-    void onPreventDefault(SandboxEngine&, const std::string&) override { record("preventDefault"); }
-    void onAnim(SandboxEngine&, const std::string&) override { record("anim"); }
-    void onRequestFrame(SandboxEngine&) override { record("frame"); }
-    void onLog(SandboxEngine&, const std::string& level, const std::string& text) override { record("log:" + level + ":" + std::to_string(text.size())); }
-    void onDiag(SandboxEngine&, const std::string& kind, const std::string& detail) override {
-        record("diag:" + kind);
-        std::lock_guard<std::mutex> l(mutex_);
-        diags_.emplace_back(kind, detail);
-    }
-    void onBridgeAction(SandboxEngine&, const WidgetAction& action) override { record("action:" + action.toJson().dump()); }
-    void onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) override { record("bridge:" + method + ":" + argsJson); }
-    void onBridgeCopyText(SandboxEngine&, const std::string& text) override { record("copy:" + text); }
-    void onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) override {
-        record("storage:" + area);
-        std::lock_guard<std::mutex> l(mutex_);
-        commits_.emplace_back(area, values);
-    }
-    void onBridgeRequest(SandboxEngine&, const WidgetRequest& request, WidgetRequestResponder respond) override {
-        record("request:" + request.data + (request.wallet ? ":wallet" : ""));
-        std::lock_guard<std::mutex> l(mutex_);
-        responders_.push_back(std::move(respond));
-    }
-    void onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) override {
-        record("wallet:" + std::string(call.methodName()) + ":" + call.data);
-        std::lock_guard<std::mutex> l(mutex_);
-        walletCalls_.push_back(call);
-        responders_.push_back(std::move(respond));
-    }
-    void onResizeAnchor(SandboxEngine&, const std::string& edge) override { record("anchor:" + edge); }
-    void onPublicDataWatch(SandboxEngine&, bool on) override { record(on ? "watch:true" : "watch:false"); }
-    void onLoaded(SandboxEngine&) override { record("loaded"); }
-    void onStats(SandboxEngine&, const SandboxStats& stats) override {
-        record("stats");
-        std::lock_guard<std::mutex> l(mutex_);
-        stats_.push_back(stats);
-    }
-    void onDied(SandboxEngine&, const std::string& reason) override { record("died:" + reason); }
-    void onTaskStarted(SandboxEngine& engine) override {
-        record("begin");
-        if (atBegin) atBegin(engine);
-    }
-    void onTaskCompleted(SandboxEngine&) override { record("end"); }
-
-    /// An event of the test's own (a provider's call) among the delegate's, with its thread.
-    void record(const std::string& event) {
-        std::lock_guard<std::mutex> l(mutex_);
-        events_.push_back(event);
-        threads_.push_back(std::this_thread::get_id());
-    }
-
-    std::vector<std::string> events() {
-        std::lock_guard<std::mutex> l(mutex_);
-        return events_;
-    }
-    std::vector<std::thread::id> threads() {
-        std::lock_guard<std::mutex> l(mutex_);
-        return threads_;
-    }
-    std::vector<std::pair<std::string, std::string>> diags() {
-        std::lock_guard<std::mutex> l(mutex_);
-        return diags_;
-    }
-    std::vector<SandboxStats> stats() {
-        std::lock_guard<std::mutex> l(mutex_);
-        return stats_;
-    }
-    std::vector<std::string> deaths() {
-        std::vector<std::string> out;
-        for (const std::string& e : events())
-            if (e.rfind("died:", 0) == 0) out.push_back(e.substr(5));
-        return out;
-    }
-    /// The events that start with `prefix`, in order.
-    std::vector<std::string> eventsWith(const std::string& prefix) {
-        std::vector<std::string> out;
-        for (const std::string& e : events())
-            if (e.rfind(prefix, 0) == 0) out.push_back(e);
-        return out;
-    }
-    std::vector<std::pair<std::string, StorageArea>> commits() {
-        std::lock_guard<std::mutex> l(mutex_);
-        return commits_;
-    }
-    std::vector<WalletCall> walletCalls() {
-        std::lock_guard<std::mutex> l(mutex_);
-        return walletCalls_;
-    }
-    /// The responder of the `i`th request or wallet call the delegate got (one sequence for both), none before it came.
-    std::optional<WidgetRequestResponder> responder(size_t i) {
-        std::lock_guard<std::mutex> l(mutex_);
-        if (i >= responders_.size()) return std::nullopt;
-        return responders_[i];
-    }
-    /// Completes that call from the calling thread (nullopt: `unsupported()`); false when there is none.
-    bool respond(size_t i, const std::optional<WidgetRequestOutcome>& outcome) {
-        std::optional<WidgetRequestResponder> r = responder(i);
-        if (!r) return false;
-        if (outcome) (*r)(*outcome);
-        else r->unsupported();
-        return true;
-    }
-
-private:
-    std::mutex mutex_;
-    std::vector<std::string> events_;
-    std::vector<std::thread::id> threads_;
-    std::vector<std::pair<std::string, std::string>> diags_;
-    std::vector<SandboxStats> stats_;
-    std::vector<std::pair<std::string, StorageArea>> commits_;
-    std::vector<WalletCall> walletCalls_;
-    std::vector<WidgetRequestResponder> responders_;
-};
-
-/// What RecordingIntl answers "alive" at once, unrecorded: on the dispatch thread, a probe of whether the client still has its engine ("" once its destructor let it go).
-static const std::string kLivenessProbe = "{\"kind\":\"probe\"}";
-
-/// A host's IntlProvider for a client: each request goes into `into` (set before the first) with its thread, then `during` runs (set it while no request is on its way) and `answer` comes back; `kLivenessProbe` is the exception.
-class RecordingIntl final : public IntlProvider {
-public:
-    RemoteRecorder* into = nullptr;
-    std::function<void()> during;
-    std::string answer = "INTL";
-
-    std::string format(const Json& request) override {
-        if (request["kind"].asString() == "probe") return "alive";
-        if (into) into->record("intl:" + request.dump());
-        if (during) during();
-        return answer;
-    }
-};
-
-static const std::string kEngineGone = "the widget engine process ended";
-
 static SandboxConfig remoteConfig() {
     SandboxConfig c = testConfig();
     c.context.canQuery = true;
@@ -802,7 +646,7 @@ TEST(remote_terminate_tells_the_engine_and_closes) {
     }
 }
 
-/// `make` keeps engines in process without a factory (Debug's switch puts them behind the loopback); a host's factory wins, also over the switch, and gets the resources; a factory with no channel gives a client that died, never an engine in process.
+/// `make` keeps engines in process without a factory (Debug's switch puts them behind the loopback; the stream switch's factory is the run's baseline); a host's factory wins, also over the switch, and gets the resources; a factory with no channel gives a client that died, never an engine in process.
 TEST(remote_factory_selects_the_engine_and_fails_closed) {
     auto channel = std::make_shared<FakeRemoteChannel>();
     int built = 0;
@@ -811,7 +655,7 @@ TEST(remote_factory_selects_the_engine_and_fails_closed) {
     {
         RecordingHost host("light", RES);
         std::unique_ptr<SandboxEngine> engine = SandboxEngine::make("<p>x</p><script>console.log('ran here')</script>", testConfig(), RES);
-        CHECK(engine->isRemote() == loopbackSwitch());
+        CHECK(engine->isRemote() == remoteSwitch());
         engine->setDelegate(&host);
         engine->start();
         CHECK(host.waitLoaded(20) && host.waitUntil([&] { return host.hasLog("ran here") && !host.died; }));
@@ -952,8 +796,6 @@ TEST(remote_results_dropped_by_a_stopped_queue_unblock_their_callers) {
 }
 
 static const std::string kNumberRequest = "{\"kind\":\"number\",\"locale\":\"en-US\",\"opts\":{},\"value\":1234.5}";
-
-static bool has(const std::vector<std::string>& events, const std::string& event) { return std::find(events.begin(), events.end(), event) != events.end(); }
 
 /// A delegate's task events among the rest: begins, ends and deaths.
 static std::vector<std::string> taskEvents(RemoteRecorder& recorder) {
@@ -2286,8 +2128,6 @@ TEST(remote_haptics_pass_the_host_gate) {
 
 // ───────────── the engine's side (SandboxRemoteServer) and the loopback ─────────────
 
-static const std::string kRect77 = "{\"x\":0,\"y\":0,\"width\":77,\"height\":20,\"top\":0,\"left\":0,\"right\":77,\"bottom\":20}";
-
 /// What a SandboxRemoteServer sends its sink, as text in order with its thread; `remoteQuery` runs `duringQuery` (set it while no query is on its way) and answers a 77 px rect, `remoteIntl` answers "INTL".
 class RecordingSink final : public SandboxRemoteSink {
 public:
@@ -2376,15 +2216,6 @@ static const char* kAskThenSign =
     "  TelegramWidget.request('ask' + k, { wallet: true }).then(function (a) { note('ok' + k + ':' + a.result);"
     "    return TelegramWidget.wallet.signData({ type: 'text', text: 'sign' + k }, 'w' + k); })"
     "  .then(function (b) { note('signed' + k + ':' + b.result); }, function (e) { note('err' + k + ':' + e.code); }); };</script>";
-
-static const char* kMeasure = "<p id='p'>x</p><script>console.log('w=' + document.getElementById('p').getBoundingClientRect().width);</script>";
-
-static SandboxConfig walletConfig() {
-    SandboxConfig c = testConfig();
-    c.context = messageContext(false, true, false, "private");
-    c.context.wallet = true;
-    return c;
-}
 
 /// The real engine numbers its requests and wallet calls from one counter; an answer settles only the outstanding call of its id, once (a stray, early, repeated or late one changes nothing), and `close` refuses the call still out.
 TEST(remote_server_numbers_requests_and_wallet_calls_from_one_counter) {
@@ -2511,21 +2342,13 @@ TEST(remote_server_close_and_destruction_while_the_engine_waits_for_a_query) {
 
 /// A client over the loopback runs the real engine: inputs before start pass the coders and the engine's pre-boot rules, the delegate's layout answer and the host's Intl provider reach the widget, storage, a link, a request and the wallet call on its grant go through the client's checks and back by id, the validator's charge comes back in the stats, and a terminate stops both halves.
 TEST(remote_loopback_runs_the_real_engine_behind_a_client) {
-    const char* html = "<button id='b'>go</button><script>var log = [document.visibilityState, TelegramWidget.contentSafeAreaInset.bottom, TelegramWidget.chatData,"
-                       "  document.getElementById('b').getBoundingClientRect().width, (1234.5).toLocaleString()], taps = 0;"
-                       "TelegramWidget.onEvent('chatDataChanged', function () { log.push('chat:' + TelegramWidget.chatData); });"
-                       "localStorage.setItem('k', 'v');"
-                       "document.getElementById('b').onclick = function () { if (++taps === 1) return TelegramWidget.openLink('https://example.com/');"
-                       "  TelegramWidget.request('ask', { wallet: true }).then(function (a) { log.push('ok:' + a.result);"
-                       "    return TelegramWidget.wallet.signData({ type: 'text', text: 'sign' }, 'w'); })"
-                       "  .then(function (b) { log.push('signed:' + b.result); }, function (e) { log.push('err:' + e.code); }); };</script>";
     auto intl = std::make_shared<RecordingIntl>();
     RemoteRecorder recorder;
     intl->into = &recorder;
     recorder.queryAnswer = kRect77;
     SandboxConfig config = walletConfig();
     config.data = WidgetData{std::string("chat1"), std::nullopt};
-    SandboxEngine engine(html, config, std::make_shared<SandboxLoopbackChannel>(RES), intl);
+    SandboxEngine engine(kRealEngineWidget, config, std::make_shared<SandboxLoopbackChannel>(RES), intl);
     CHECK(engine.isRemote());
     engine.setDelegate(&recorder);
     engine.setVisible(false);
@@ -2757,22 +2580,6 @@ TEST(remote_loopback_runs_a_widget_through_widget_host) {
     std::lock_guard<std::mutex> l(m);
     CHECK_MSG(built == 2, std::to_string(built) + " channels asked for");
 }
-
-/// The diagnostics a WidgetHost's observer saw, in order, under a lock (`onChange` runs on the host thread).
-struct ObservedChanges {
-    std::mutex mutex;
-    std::vector<WidgetDiagnostics> seen;
-    std::function<void(const WidgetDiagnostics&)> observer() {
-        return [this](const WidgetDiagnostics& d) {
-            std::lock_guard<std::mutex> l(mutex);
-            seen.push_back(d);
-        };
-    }
-    std::vector<WidgetDiagnostics> all() {
-        std::lock_guard<std::mutex> l(mutex);
-        return seen;
-    }
-};
 
 /// A hostile engine's task counts reach WidgetHost's clearing of the last error (an `Uncaught` one stays until a task after the next): at the top of `int` the comparison does not overflow (UBSan), and small counts clear it as before.
 TEST(remote_widget_host_compares_hostile_task_counts_without_overflow) {

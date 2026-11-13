@@ -7,8 +7,9 @@ nothing until the host lists them; "default" items apply to every host.
 
 C++, opt-in: the desktop core's engine can run in another process, the twin of the Swift remote engine
 (`RemoteEngine.swift`). Nothing changes for a host that sets no channel factory: tdesktop sets none, so its widgets keep
-their engines in process. This adds the contract and an in-process loopback only; it supplies and enables no OS helper,
-process launcher, transport or sandbox profile.
+their engines in process. This adds the contract, an in-process loopback and a platform-neutral transport over one byte
+stream per engine process; it supplies and enables no OS helper, OS stream adapter, process launcher or sandbox profile,
+and widgets stay in process unless a host sets the factory.
 
 - The split (`twidget/remote_engine.h`, `remote_engine.cpp`, `sandbox_engine_client.cpp`): `SandboxEngine(html, config,
   std::shared_ptr<SandboxRemoteChannel>, intl)` is a client-mode engine with no QuickJS runtime, whose inputs go out
@@ -40,9 +41,10 @@ process launcher, transport or sandbox profile.
   `RATE_LIMITED`.
 - Intl stays the host's: the engine's side asks through the synchronous `remoteIntl`, and the client formats with the
   `IntlProvider` the host gave it (tdesktop's Qt one) on its dispatch thread; the engine process formats nothing.
-- Threads: each client engine has one dispatch thread (its `thread()`), where the delegate hears every call in the
-  transport's order, as an in-process engine's delegate does on its runtime thread. Channel calls come from it in the
-  host's order and never wait for the engine's side, except `probe` (tests, the harness), called from the owner's thread
+- Threads: each client engine has one dispatch thread (its `thread()`, named `widget.client`; an engine with its own
+  runtime, the server's included, keeps `widget.sandbox`), where the delegate hears every call in the transport's order,
+  as an in-process engine's delegate does on its runtime thread. Channel calls come from it in the host's order and
+  never wait for the engine's side, except `probe` (tests, the harness), called from the owner's thread
   after the earlier inputs, never from the dispatch thread or the thread that answers queries. The sink's `remoteQuery`
   and `remoteIntl` are synchronous: answered on the dispatch thread after everything before them, never on the
   renderer's or the host's thread, never from inside a channel call. A transport may keep the sink after the engine is
@@ -104,6 +106,48 @@ process launcher, transport or sandbox profile.
   host's `terminate` or `stop` nothing more from the engine's side reaches the host, not even a storage commit of a task
   still queued there; a request the host answers inside its delivery may settle before or after the `BUSY` of the same
   tap's next request.
+- The byte stream (`twidget/remote_stream.h`, `remote_stream.cpp`; standard C++ only): the transport between the two
+  halves, one duplex byte stream per engine process, its two ends sharing nothing but the stream, the loopback's twin.
+  `SandboxRemoteHostEnd::start(stream, resources, build, events, limits)` opens a `SandboxRemoteStream` the host
+  supplies (a blocking `read` of what came, a blocking `write` of all of it, and a `shutdown` from any thread that
+  wakes both and fails every later call, also after the peer half-closed: on macOS one `SHUT_RDWR` then leaves a
+  blocked `send` blocked, so a POSIX adapter shuts each direction on its own) and hands out a channel per runtime for
+  the factory; `SandboxRemoteEngineEnd::serve(stream, build)`, in the engine process with no Qt and no file read,
+  keeps a `SandboxRemoteServer` per runtime id and returns why the stream ended once every thread it started is gone;
+  `SandboxRemoteHostEnd::refusing(reason)` is the channel of a host with no engine process, whose widget dies with
+  that reason after `start()` and runs nowhere. A frame is a little-endian `u32` size, a `u32` runtime id (0 the
+  connection) and a `u8` kind (the host's from 1, the engine's from 64), then the kind's typed fields and nothing
+  after them; the payloads are the existing strings and `SandboxRemoteCoding` forms, theme params through the new
+  `encodeThemeParams` / `decodeThemeParams`. The opening carries the stream's version (1), the host's build, the
+  sandbox bundle and its bytecode, and of the validator and renderer bundles, which stay in the host, only their stamp
+  lines, so a bundle of another release is refused at boot as in process; the engine's side answers `Ready`, or
+  `Refused` for another version or build or a malformed opening. `packages/desktop/README.md` has the table.
+- The engine's side of the stream is hostile: the host's end checks each frame's size before it reads or makes room
+  for the body (`SandboxRemoteWire::kMaxFrameBytes`, 32 MiB and 64 KiB; the opening 16 MiB, each stamp 4096 bytes,
+  refused, never cut), then decodes it exactly. A frame it cannot accept ends the whole stream, since a byte stream
+  cannot be resynchronized and one process hosts every runtime: a malformed one, a runtime's before `Ready`, one of a
+  runtime never opened, a second synchronous request while one is unanswered, a probe's answer for a probe never
+  sent, a refusal or another version. Every open runtime's client then hears the lost connection once, nothing after
+  it is delivered, and the owner hears the first reason; a well-formed frame of a runtime already closed is dropped.
+  Both ends cut each string of the engine's frames to its limit plus one byte (32 MiB for ops, 1 MiB otherwise), so
+  a widget's oversized message gets the client's own verdict, as over the loopback, instead of ending the stream for
+  every widget; a host form that does not decode again or a frame past the bound loses only its runtime, as over the
+  loopback. The host's end bounds what waits to be written (`SandboxRemoteHostEnd::Limits::queuedBytes`, 64 MiB, and
+  `kRemoteQueuedCalls` frames), each write of at most 64 KiB (`writeStallMs`, 10 s: a deadline on that write's
+  completion with no other call needed, not a measure of byte progress, which the stream does not report) and a
+  probe's wait (`probeWaitMs`, 10 s, then `ERROR timeout`); past the first two the stream ends.
+- The stream's threads: the host's end reads on `widget.reader`, writes on `widget.writer` alone and keeps the write
+  deadline on `widget.monitor`, which alone reports to the owner, outside every lock: the open-runtime count (changes
+  close together may come as their last count) and, once and last, why the stream ended. Each runtime's query and
+  Intl request go to its own `widget.answer`, where the client answers them through its delegate and the host's
+  `IntlProvider` as before, so one runtime waiting for its layout answer delays no other; a probe's answer that comes
+  meanwhile waits for that answer, so a probe still returns after everything before it. The engine's end reads on
+  `serve`'s caller, runs each runtime on its `widget.sandbox` thread, probes on a per-runtime `widget.probe` and
+  destroys closed runtimes on `widget.reaper`; it writes whole frames under one lock and at the end shuts the stream
+  down before it takes any lock. `stop()` is abortive (what is queued is dropped; the engine process may read a cut
+  last frame) and joins the end's three threads, and a channel joins its `widget.answer` when the engine destroys it
+  on the owner's thread; neither cuts short delegate or provider code that already runs. A host process whose
+  engines are all remote has no thread named `widget.sandbox`.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps
@@ -113,8 +157,23 @@ process launcher, transport or sandbox profile.
   (Debug, ASan and UBSan): 155 tests, 0 failures, in process and with `TW_ENGINE_LOOPBACK=1`
   (119 of 119 fixture engines behind the loopback); `twidget-run --attacks` 133 attacks, 0 leaks, 7 runtimes killed in
   both modes, all 133 through a client-mode engine in the second. The shared fixtures are unchanged.
+- Tests of the byte stream: `twidget-tests remote_stream_` (24, so `remote_` runs 86): the wire against the tests' own
+  reading of the documented table, both ends against scripted bytes, a real `WidgetHost` over the stream (validated
+  ops, layout answers, Intl through the host's provider, requests and wallet calls, the opening's bytecode, several
+  runtimes on one stream, the refusing channel), 47 hostile inputs, a layout query its host never answers, closes and
+  ends while a call waits, races, POSIX socket pairs whose reader stops in either direction, payload limits, and the
+  thread names of a child process on an inherited socket (no `widget.sandbox` with three remote `WidgetHost`s, one
+  once an engine runs in process). `TW_ENGINE_STREAM=1` in twidget-tests and twidget-run, in any build type (test and
+  harness code, `harness/stream_peers.h`, not the library's), builds every engine `make` builds over the stream, one
+  in-process memory pair per resources object, and fails the run unless every fixture engine went over it or when a
+  stream ends before the run's own stop. Run here (Debug): 179 tests, 0 failures, in process, with
+  `TW_ENGINE_LOOPBACK=1` (119 of 119 fixture engines behind the loopback) and with `TW_ENGINE_STREAM=1` (119 of 119
+  over the stream); `twidget-run --attacks` 133 attacks, 0 leaks, 7 runtimes killed in all three modes, every
+  per-file row the same, all 133 over the stream in the third; with the switch on, the 24 `remote_stream_` cases also
+  under ASan and UBSan and under TSan, 0 failures and no report.
 - C++ only: Swift has its twin; Kotlin and the web have no remote engine. This is desktop host transport, not shim or
-  quota glue; transport and policy glue elsewhere are unchanged.
+  quota glue; transport and policy glue elsewhere are unchanged. The byte stream is C++ only as well and uses the
+  existing policy and payloads unchanged: no bundle, `VERSION.json`, protocol, profile or SDK change.
 
 ## v0.6.5 — release notes (2026-11-12)
 

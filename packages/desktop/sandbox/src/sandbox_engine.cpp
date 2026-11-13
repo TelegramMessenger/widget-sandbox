@@ -99,7 +99,10 @@ static int countCanvasCommands(const std::string& json) {
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
 SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
-    : thread_("widget.sandbox"), html_(std::move(html)), config_(config), resources_(std::move(resources)),
+    : SandboxEngine("widget.sandbox", std::move(html), std::move(config), std::move(resources), std::move(intl)) {}
+
+SandboxEngine::SandboxEngine(std::string threadName, std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
+    : thread_(std::move(threadName)), html_(std::move(html)), config_(config), resources_(std::move(resources)),
       intl_(intl ? std::move(intl) : std::make_shared<BasicIntl>()), visible_(config.visible),
       budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs),
       mainBudget_(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0) {
