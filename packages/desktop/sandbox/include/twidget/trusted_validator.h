@@ -8,6 +8,12 @@
 // under strict, the batch came back empty and every later one does too. The
 // owner stops the widget with `stopped()` as the reason, as it does for memory
 // or CPU (WidgetHost::onOps → SandboxEngine::stop).
+//
+// Most of a validator's start is the same for every widget: its thread and its
+// context with the bundle evaluated (tens of ms on a phone, before the widget's
+// own code can start). A client that knows a widget is coming can make that
+// part ahead with `prepare`; the next TrustedValidator of the same resources
+// takes it over instead of making its own, and behaves no differently.
 #pragma once
 
 #include "twidget/js_thread.h"
@@ -32,6 +38,15 @@ public:
     TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag,
                      QuickJSBackend backend = quickjsDefaultBackend());
     ~TrustedValidator();
+
+    /// Makes the widget-independent part of the next validator of `resources` now (blocks for the bundle's
+    /// evaluation), on the calling thread's priority. One is kept at a time; a second call while one waits does
+    /// nothing. Any thread. Never throws: where the bundle fails, the validator that would have taken it makes its
+    /// own and reports as before.
+    /// `backend`: the engine it will run on; a validator asked for another one makes its own.
+    static void prepare(std::shared_ptr<SandboxResources> resources, QuickJSBackend backend = quickjsDefaultBackend());
+    /// Drops what `prepare` made and nothing took (a client that no longer expects a widget).
+    static void discardPrepared();
 
     /// Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived).
     std::string processOps(const std::string& json);
@@ -64,13 +79,14 @@ private:
     /// `str` measured for the CPU sink.
     std::string metered(const char* name, const std::vector<std::string>& args);
 
-    JSThread thread_;
-    std::unique_ptr<QuickJSContext> js_;
-    DiagSink onDiag_;
-    mutable std::mutex stoppedMutex_;
-    std::optional<std::string> stopped_;
-    /// The validator's thread only.
-    CpuSink cpuSink_;
+    /// The thread, the context and what its host functions reach: at one address for the context's life, so that a
+    /// part made ahead (`prepare`) can be handed to the validator that takes it.
+    struct Core;
+    static std::unique_ptr<Core> makeCore(const std::shared_ptr<SandboxResources>& resources, QuickJSBackend backend);
+    /// The core `prepare` made, until a validator takes it; guarded by trusted_validator.cpp's mutex.
+    static std::unique_ptr<Core>& preparedCore();
+
+    std::unique_ptr<Core> core_;
 };
 
 } // namespace twidget
