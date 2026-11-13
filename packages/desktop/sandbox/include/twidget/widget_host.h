@@ -106,7 +106,7 @@ struct WidgetHostOptions {
 
 struct WidgetDiagnostics {
     std::vector<std::pair<std::string, std::string>> logs;
-    /// kind → (count, first details)
+    /// kind → (count, its first 50 details), at most WidgetHost::kMaxDiagKinds kinds: one of a new kind past them counts under "diag-kind-dropped", `<kind>: <detail>` its detail there.
     std::map<std::string, std::pair<int, std::vector<std::string>>> diags;
     /// The first 1000 actions `onAction` got.
     std::vector<WidgetAction> actions;
@@ -212,6 +212,12 @@ public:
     void onHostThread(const std::function<void()>& fn) { hostThread_.sync(fn); }
     /// What a client-mode engine holds now against its remote bounds, this host's queued work for it included (SandboxEngine::remoteBacklog), from any thread; nothing in process (tests).
     SandboxEngine::RemoteBacklog remoteBacklog() const { return engine_->remoteBacklog(); }
+    /// Bytes of a client-mode engine's renderer messages the host keeps until the renderer's `ready`, each as serialized with its wrapper: the message past this or `kRendererBacklogMessages` stops the widget once (diagnostic "backlog-limit"), what was kept is dropped and nothing the engine sends afterwards has an effect; the host's own messages always fit, an engine in process keeps nothing there.
+    static constexpr size_t kRendererBacklogBytes = SandboxEngine::kRemoteQueuedBytes;
+    /// Those messages counted, under the same rule.
+    static constexpr size_t kRendererBacklogMessages = SandboxEngine::kRemoteQueuedCalls;
+    /// Distinct kinds `diagnostics().diags` keeps, "diag-kind-dropped" among them.
+    static constexpr size_t kMaxDiagKinds = 64;
 
     bool waitLoaded(double timeoutSeconds = 20);
     /// True once the post-load ack query came back from the renderer (or the widget died).
@@ -303,10 +309,17 @@ private:
         std::string json = "null";
         std::optional<std::vector<uint8_t>> binary;
     };
+    /// A message the renderer gets at its `ready`; the engine's count against the backlog bounds and are dropped at the cut.
+    struct PendingMessage {
+        std::string json;
+        bool fromEngine = false;
+    };
 
     void onRenderer(const std::string& json);
     void handleRendererMessage(const Json& msg);
     void toRenderer(const std::string& json);
+    /// `toRenderer` for the engine's message, kept within the backlog bounds before `ready`: false when it is not sent or kept (destroyed, cut, or the message that cuts).
+    bool engineToRenderer(std::string json);
     /// `{"type":"theme","theme":{"colorScheme","params","button"}}` of the current theme (docs/sdk-v1.md §3.4).
     std::string themeMessage() const;
     /// `{"type":"safeArea","inset":{…}}` (docs/sdk-v1.md §3.4).
@@ -317,6 +330,8 @@ private:
     double elapsedMs() const;
     /// Runs `fn` on the host thread (inline when already there); queued, it keeps `hold` until it has run or is dropped.
     void host(std::function<void()> fn, SandboxEngine::RemoteHold hold = nullptr);
+    /// `host` for the work an engine's message queued: skipped once the engine is cut, `hold` kept until it has run or is dropped either way.
+    void engineWork(std::function<void()> fn, SandboxEngine::RemoteHold hold);
     /// The validator's diagnostic, on its thread: inside `validated` it is counted as work of its own of that engine's message, and dropped when that does not fit.
     void validatorDiag(const std::string& kind, const std::string& detail);
     /// `validate`'s value on the engine's thread, what the validator reports meanwhile counted with `engine`'s message (`validatorDiag`).
@@ -353,7 +368,12 @@ private:
     /// Set at the end of destroy(): storage commits queued before it still reach `onStorageCommit` (the
     /// widget's last state is worth keeping); none reaches the owner once destroy() has returned.
     bool callbacksClosed_ = false;
-    std::vector<std::string> pendingToRenderer_;
+    std::vector<PendingMessage> pendingToRenderer_;
+    /// Bytes and count of the engine's messages in `pendingToRenderer_`, within `kRendererBacklogBytes` and `kRendererBacklogMessages`.
+    size_t backlogBytes_ = 0;
+    size_t backlogMessages_ = 0;
+    /// Set once, when the engine's message passed those bounds: nothing the engine sends afterwards has an effect.
+    bool engineCut_ = false;
     double viewportW_, viewportH_, viewportDpr_;
     int qid_ = 0;
     int opsSent_ = 0;

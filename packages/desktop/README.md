@@ -47,7 +47,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 144 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine); `./build/twidget-tests remote_` runs the remote engine's 51
+./build/twidget-tests                             # 153 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine); `./build/twidget-tests remote_` runs the remote engine's 60
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
@@ -56,7 +56,7 @@ cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
 ./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
 cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
-TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 144 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 153 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
 ```
 
@@ -203,7 +203,17 @@ What it is on this platform:
   then takes nothing more and never waits. The bounds count payload bytes and
   queued calls up to the moment that work runs, not allocator memory (each
   call's closure and containers come on top) and not what the host keeps
-  afterwards.
+  afterwards. Of that, `WidgetHost` keeps at most
+  `WidgetHost::kRendererBacklogBytes` (64 MiB, each message serialized with
+  its wrapper) and `kRendererBacklogMessages` (16384 messages) of the engine's
+  renderer messages until the renderer's `ready`, its own theme, safe area,
+  policy and `frozen` not counted: the message past either stops the widget
+  once ("the widget engine process sent more than the host keeps before its
+  renderer is ready", diagnostic `backlog-limit`), what was kept is dropped,
+  and nothing the engine sends after it takes effect; `diagnostics().diags`
+  keeps at most `WidgetHost::kMaxDiagKinds` (64) kinds, a diagnostic of a new
+  kind past them counted under `diag-kind-dropped` (`docs/changes.md` has the
+  details; the rest of what the host keeps is as before).
   The engine's destructor, on the owner's thread, closes and
   releases the channel; a transport may keep the sink, whose late calls
   change nothing.
