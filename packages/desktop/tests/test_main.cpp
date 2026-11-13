@@ -9,6 +9,7 @@
 #include "test_support.h"
 
 #include "../harness/recording_host.h"
+#include "../harness/stream_peers.h"
 #include "twidget/bundle_stamp.h"
 #include "twidget/cpu_budget.h"
 #include "twidget/gesture_policy.h"
@@ -86,17 +87,33 @@ bool loopbackSwitch() {
 #endif
 }
 
-/// The real engines the fixtures built and how many of them ran over the loopback (printed with the totals).
+/// What `make` gives under `TW_ENGINE_STREAM=1`, in any build: a client on a framed byte stream (harness/stream_peers.h), the switch's factory installed for every test.
+bool streamSwitch() { return StreamSwitch::requested(); }
+
+/// Whether `make` gives a client-mode engine when no test set a factory of its own: under either switch.
+bool remoteSwitch() { return streamSwitch() || loopbackSwitch(); }
+
+/// The factory each test starts with and gets back when it ends: the stream switch's, else none.
+static SandboxRemoteChannelFactory g_baselineFactory;
+
+void restoreRemoteFactory() { SandboxEngine::setRemoteChannelFactory(g_baselineFactory); }
+
+/// The real engines the fixtures built, how many of them ran over the loopback and how many over the stream switch's factory (printed with the totals).
 static int g_engines = 0;
 static int g_loopbackEngines = 0;
+static int g_streamEngines = 0;
 
-/// A fixture's real engine: `make`'s, in the mode the switch asks for.
+/// A fixture's real engine: `make`'s, in the mode the switches ask for; over the stream only when the switch's factory gave its channel on this thread.
 static std::unique_ptr<SandboxEngine> fixtureEngine(const std::string& html, const SandboxConfig& config, std::shared_ptr<SandboxResources> resources,
                                                     std::shared_ptr<IntlProvider> intl = nullptr) {
+    const size_t madeBefore = StreamSwitch::madeHere();
     std::unique_ptr<SandboxEngine> engine = SandboxEngine::make(html, config, std::move(resources), std::move(intl));
+    const bool streamed = StreamSwitch::madeHere() > madeBefore;
     g_engines++;
-    if (engine->isRemote()) g_loopbackEngines++;
-    CHECK_MSG(engine->isRemote() == loopbackSwitch(), engine->isRemote() ? "a client-mode engine without the switch" : "an engine in process under the switch");
+    if (streamed) g_streamEngines++;
+    else if (engine->isRemote()) g_loopbackEngines++;
+    CHECK_MSG(engine->isRemote() == remoteSwitch(), engine->isRemote() ? "a client-mode engine without a switch" : "an engine in process under a switch");
+    CHECK_MSG(streamed == streamSwitch(), streamed ? "an engine over the stream without its switch" : "an engine not over the stream under its switch");
     return engine;
 }
 
@@ -3352,6 +3369,12 @@ int main(int argc, char** argv) {
         fprintf(stderr, "no child case %s\n", argv[2]);
         return 2;
     }
+    std::optional<StreamSwitch> stream;
+    if (streamSwitch()) {
+        stream.emplace("twidget-tests");
+        g_baselineFactory = stream->factory();
+    }
+    restoreRemoteFactory();
     int ran = 0;
     for (const auto& t : registry()) {
         if (filter && std::strstr(t.name, filter) == nullptr) continue;
@@ -3360,11 +3383,21 @@ int main(int argc, char** argv) {
         printf("%s\n", t.name);
         fflush(stdout);
         t.fn();
+        restoreRemoteFactory();
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         printf("  %s (%.0f ms)\n", g_failures == before ? "ok" : "FAILED", ms);
         ran++;
     }
-    printf("\n%d fixture engines from SandboxEngine::make, %d of them behind the loopback\n", g_engines, g_loopbackEngines);
+    printf("\n%d fixture engines from SandboxEngine::make, %d of them behind the loopback, %d over the stream\n", g_engines, g_loopbackEngines, g_streamEngines);
+    if (stream) {
+        CHECK_MSG(g_streamEngines == g_engines && g_loopbackEngines == 0, "every fixture engine goes over the stream under its switch");
+        g_baselineFactory = nullptr;
+        const std::vector<std::string> unexpected = stream->finish();
+        std::string ends;
+        for (const std::string& u : unexpected) ends += (ends.empty() ? "" : "; ") + u;
+        CHECK_MSG(unexpected.empty(), "a stream of the switch ended before its finish: " + ends);
+        printf("the stream switch: %zu channels on %zu streams, %zu ends before its finish\n", stream->channels(), stream->streams(), unexpected.size());
+    }
     printf("%d tests, %d checks, %d failures\n", ran, g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

@@ -32,6 +32,7 @@
 
 #include "png.h"
 #include "recording_host.h"
+#include "stream_peers.h"
 #ifdef TW_HAVE_BLITZ
 #include "twidget/blitz_renderer.h"
 #endif
@@ -52,6 +53,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -95,6 +97,8 @@ struct Options {
 struct RunOutcome {
     /// The engine `SandboxEngine::make` gave was a client-mode one (a host factory's channel, or Debug's TW_ENGINE_LOOPBACK=1).
     bool remote = false;
+    /// Its channel came from the stream switch's factory (TW_ENGINE_STREAM=1).
+    bool streamed = false;
     bool loaded = false;
     std::optional<std::string> died;
     int batches = 0, renderOps = 0, elements = 0, queries = 0, errors = 0;
@@ -274,9 +278,11 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     RecordingHost host(opts.theme, res, opts.verbose, config.policy);
     host.onRequest = [&](const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond) { respond(opts.answer); };
     {
+        const size_t madeBefore = StreamSwitch::madeHere();
         std::unique_ptr<SandboxEngine> made = SandboxEngine::make(html, config, res);
         SandboxEngine& engine = *made;
         out.remote = engine.isRemote();
+        out.streamed = StreamSwitch::madeHere() > madeBefore;
         engine.setDelegate(&host);
         // As WidgetHost: the validator's time on the widget's messages counts against its JS quota.
         host.validator().setCpuSink([&engine](double ms) { engine.chargeValidator(ms); });
@@ -535,11 +541,23 @@ int main(int argc, char** argv) {
     config.storage = opts.storage;
     config.data = opts.data;
     config.context = opts.context;
+    std::optional<StreamSwitch> stream;
+    if (StreamSwitch::requested()) {
+        stream.emplace("twidget-run");
+        SandboxEngine::setRemoteChannelFactory(stream->factory());
+    }
+    // Every run ends here: the stream switch's streams stopped and joined, and one that ended before that fails the run.
+    const auto finished = [&stream](int status) {
+        if (!stream) return status;
+        const std::vector<std::string> unexpected = stream->finish();
+        for (const std::string& u : unexpected) fprintf(stderr, "the stream switch: %s\n", u.c_str());
+        return unexpected.empty() ? status : std::max(status, 1);
+    };
 
     if (attacks) {
         fs::path dir = attacksDir.empty() ? fs::path(TW_CORPUS) / "attacks" : fs::path(attacksDir);
         auto files = htmlFiles(dir);
-        int leaks = 0, dead = 0, remote = 0;
+        int leaks = 0, dead = 0, remote = 0, streamed = 0;
         printf("%-40s %-8s %s\n", "attack", "status", "diagnostics");
         for (const auto& f : files) {
             // One click so click-triggered vectors fire too (targetId 2 = <html>; events bubble from the document).
@@ -550,6 +568,7 @@ int main(int argc, char** argv) {
             if (!r.leaks.empty()) leaks++;
             if (r.died) dead++;
             if (r.remote) remote++;
+            if (r.streamed) streamed++;
             std::string extra = r.died ? " — " + r.died->substr(0, 90) : "";
             printf("%-40s %-8s %s%s\n", f.filename().string().c_str(), status.c_str(), diagSummary(r.diagCounts).c_str(), extra.c_str());
             for (const auto& leak : r.leaks) printf("    LEAK %s\n", leak.c_str());
@@ -557,10 +576,11 @@ int main(int argc, char** argv) {
             if (!opts.pngDir.empty()) writePng(r, (fs::path(opts.pngDir) / (f.stem().string() + ".png")).string());
             fflush(stdout);
         }
-        printf("\n%zu attacks, %d with URLs leaking into validated ops%s, %d runtimes killed by limits%s\n", files.size(), leaks,
+        printf("\n%zu attacks, %d with URLs leaking into validated ops%s, %d runtimes killed by limits%s%s\n", files.size(), leaks,
                (opts.blitz || opts.litehtml) ? " or fetched by the renderer" : "", dead,
-               remote ? (", " + std::to_string(remote) + " through a client-mode engine").c_str() : "");
-        return leaks ? 1 : 0;
+               remote ? (", " + std::to_string(remote) + " through a client-mode engine").c_str() : "",
+               streamed ? (", " + std::to_string(streamed) + " of them over the stream").c_str() : "");
+        return finished(leaks ? 1 : 0);
     }
 
     if (!corpusDir.empty()) {
@@ -585,7 +605,7 @@ int main(int argc, char** argv) {
             fflush(stdout);
         }
         printf("\n%d / %zu loaded without errors\n", pass, files.size());
-        return pass == int(files.size()) ? 0 : 1;
+        return finished(pass == int(files.size()) ? 0 : 1);
     }
 
     RunOutcome r = runWidget(readFile(file), opts, res, config);
@@ -623,5 +643,5 @@ int main(int argc, char** argv) {
         printf("storage %s %s\n", area.c_str(), text.size() > 500 ? (text.substr(0, 500) + "…").c_str() : text.c_str());
     }
     for (const auto& leak : r.leaks) printf("LEAK %s\n", leak.c_str());
-    return r.leaks.empty() ? 0 : 1;
+    return finished(r.leaks.empty() ? 0 : 1);
 }

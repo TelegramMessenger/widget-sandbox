@@ -195,6 +195,14 @@ std::optional<WidgetData> SandboxRemoteCoding::decodeData(std::string_view text)
     return dataOf(*o);
 }
 
+std::string SandboxRemoteCoding::encodeThemeParams(const std::map<std::string, std::string>& params) { return stringMapJson(params).dump(); }
+
+std::optional<std::map<std::string, std::string>> SandboxRemoteCoding::decodeThemeParams(std::string_view text) {
+    std::optional<Json> o = parseObject(text);
+    if (!o) return std::nullopt;
+    return stringMap(*o);
+}
+
 std::string SandboxRemoteCoding::encodeOutcome(const SandboxRemoteOutcome& outcome) {
     Json o = Json::object();
     switch (outcome.kind) {

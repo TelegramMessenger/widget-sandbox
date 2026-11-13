@@ -234,6 +234,10 @@ struct SandboxRemoteCoding {
     static std::string encodeData(const WidgetData& data);
     /// An object, or nullopt; a member that is not a string is none.
     static std::optional<WidgetData> decodeData(std::string_view text);
+    /// A theme's palette (`SandboxRemoteChannel::theme`) as one object of strings, as `encodeConfig` writes its `themeParams`.
+    static std::string encodeThemeParams(const std::map<std::string, std::string>& params);
+    /// An object of strings, or nullopt; a repeated key counts with its last value, as `decodeConfig` reads `themeParams`.
+    static std::optional<std::map<std::string, std::string>> decodeThemeParams(std::string_view text);
     /// `{"answer": text | null}`, `{"failure": code}` (`sdk::walletFailureCode`) or `{"unsupported": true}`.
     static std::string encodeOutcome(const SandboxRemoteOutcome& outcome);
     /// An object, or nullopt: any `unsupported` member first, then a string `failure` (an unknown code is `NotAllowed`), then any `answer` (a result only when a string).

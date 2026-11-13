@@ -370,7 +370,7 @@ private:
 // MARK: construction
 
 SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxRemoteChannel> remote, std::shared_ptr<IntlProvider> intl)
-    : SandboxEngine(std::move(html), std::move(config), std::shared_ptr<SandboxResources>(), std::move(intl)) {
+    : SandboxEngine("widget.client", std::move(html), std::move(config), std::shared_ptr<SandboxResources>(), std::move(intl)) {
     remote_ = std::move(remote);
     client_ = std::make_shared<RemoteClient>(liveness_);
     // A host's factory without a channel: dead from the first task, never in process.

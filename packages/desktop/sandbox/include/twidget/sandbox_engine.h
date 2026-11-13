@@ -190,9 +190,10 @@ using SandboxRemoteChannelFactory = std::function<std::shared_ptr<SandboxRemoteC
 
 class SandboxEngine {
 public:
+    /// An engine with its own runtime, on a thread named `widget.sandbox`.
     SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources,
                   std::shared_ptr<IntlProvider> intl = nullptr);
-    /// A client-mode engine (remote_engine.h): no runtime here, the widget runs behind `remote`, attached now; a null channel gives an engine that died ("the widget engine process ended").
+    /// A client-mode engine (remote_engine.h): no runtime here, the widget runs behind `remote`, attached now, and its dispatch thread is named `widget.client`; a null channel gives an engine that died ("the widget engine process ended").
     SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxRemoteChannel> remote, std::shared_ptr<IntlProvider> intl = nullptr);
     /// Stops the thread (outstanding delegate calls finish first), then closes a client-mode engine's channel. Safe from any thread but the engine's.
     ~SandboxEngine();
@@ -285,6 +286,9 @@ private:
         std::mutex mutex;
         SandboxEngine* engine = nullptr;
     };
+
+    /// Both public constructors: the same engine on a thread named `threadName`.
+    SandboxEngine(std::string threadName, std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl);
 
     void boot();
     void enqueue(const std::string& kind, const std::string& arg);
