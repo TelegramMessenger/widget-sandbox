@@ -97,8 +97,8 @@ static int countCanvasCommands(const std::string& json) {
 
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
-SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
-    : thread_("widget.sandbox"), html_(std::move(html)), config_(config), resources_(std::move(resources)),
+SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl, QuickJSBackend backend)
+    : thread_("widget.sandbox"), backend_(backend), html_(std::move(html)), config_(config), resources_(std::move(resources)),
       intl_(intl ? std::move(intl) : std::make_shared<BasicIntl>()), visible_(config.visible),
       budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs),
       mainBudget_(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0) {
@@ -137,7 +137,7 @@ void SandboxEngine::stop(const std::string& reason) {
         kill(reason);
         // The task that sent the batch is still on the stack: interrupt it at the next poll (uncatchable, as the
         // layout-query limit does); hostCall forwards nothing more meanwhile.
-        if (js_) js_->cpuDeadline = -kInf;
+        if (js_) js_->setCpuDeadline(-kInf);
     };
     if (thread_.isCurrent()) body();
     else thread_.async(body);
@@ -146,7 +146,13 @@ void SandboxEngine::stop(const std::string& reason) {
 void SandboxEngine::boot() {
     if (started_) return;
     started_ = true;
-    js_ = std::make_unique<QuickJSContext>(config_.memoryLimitBytes, JSThread::kJSStackLimit);
+    js_ = std::make_unique<QuickJSContext>(config_.memoryLimitBytes, JSThread::kJSStackLimit, backend_);
+    // Fail closed: a boxed engine this build cannot provide never runs widget code or the native one
+    // in its place (docs/decisions.md, "QuickJS in a wasm2c box").
+    if (!js_->available()) {
+        kill("Engine fault: " + js_->unavailableReason());
+        return;
+    }
     js_->registerFunction("__host", [this](const std::vector<std::string>& args) {
         return hostCall(args.empty() ? "" : args[0], args.size() > 1 ? args[1] : "");
     });
@@ -159,8 +165,8 @@ void SandboxEngine::boot() {
     task("boot", config_.cpuLimitMs, [this] {
         double t0 = nowMs();
         // Generous one-off budget for our own bundle; its time is ours, not the widget's.
-        js_->deadline = nowSeconds() + std::max(config_.cpuLimitMs, 5000.0) / 1000;
-        js_->cpuDeadline = kInf;
+        js_->setDeadline(nowSeconds() + std::max(config_.cpuLimitMs, 5000.0) / 1000);
+        js_->setCpuDeadline(kInf);
         std::string how = evalBundle(resources_->sandboxBundle, resources_->sandboxBytecode, "sandbox-bundle.js");
         excludeMs_ = nowMs() - t0;
         // Fail closed: a runtime whose shim did not load completely (its network
@@ -180,6 +186,8 @@ void SandboxEngine::boot() {
             return;
         }
         if (delegate_) delegate_->onDiag(*this, "boot", "sandbox bundle eval " + std::to_string(int(excludeMs_)) + " ms (" + how + ")");
+        // Name the engine once a boxed widget has booted (the native default is the silent norm).
+        if (backend_ == QuickJSBackend::Boxed && delegate_) delegate_->onDiag(*this, "engine", js_->engineDescription());
         resetDeadline();
         Json config = Json::object();
         config.set("memoryLimitBytes", double(config_.memoryLimitBytes));
@@ -804,7 +812,7 @@ std::string SandboxEngine::syncQuery(const std::string& json) {
     double t0 = nowSeconds();
     QueryAnswer answer = delegate_->onQuery(*this, json);
     double dt = nowSeconds() - t0;
-    js_->deadline += dt; // time spent waiting is not widget CPU time
+    js_->setDeadline(js_->deadline() + dt); // time spent waiting is not widget CPU time
     stats_.queries++;
     stats_.queryMs += dt * 1000;
     taskQueryMs_ += dt * 1000;
@@ -812,7 +820,7 @@ std::string SandboxEngine::syncQuery(const std::string& json) {
     queryLimitHit_ = CpuBudget::queryLimitHit(taskQueries_, taskQueryMs_);
     if (!queryLimitHit_.empty()) {
         // The host answered every query, but this task has asked too many or held the renderer too long: interrupt it at the next poll.
-        js_->cpuDeadline = -std::numeric_limits<double>::infinity();
+        js_->setCpuDeadline(-std::numeric_limits<double>::infinity());
     }
     lastBinary_ = std::move(answer.binary);
     return answer.json;
@@ -834,10 +842,10 @@ void SandboxEngine::kill(const std::string& reason) {
 }
 
 void SandboxEngine::handleError(const std::string& text, const std::string& where) {
-    if (js_ && js_->interrupted && !queryLimitHit_.empty()) {
+    if (js_ && js_->interrupted() && !queryLimitHit_.empty()) {
         return kill(CpuBudget::queryLimitReason(queryLimitHit_, currentKind_) + " (" + where + ")");
     }
-    if (js_ && js_->interrupted) {
+    if (js_ && js_->interrupted()) {
         return kill("CPU limit exceeded: more than " + std::to_string(int(currentSliceMs_)) + " ms of continuous execution (" + where + ")");
     }
     std::string lower = text;
@@ -923,9 +931,9 @@ void SandboxEngine::pumpScripts() {
 /// The slice is measured in the JS thread's CPU time, so a busy machine does not
 /// kill widgets; wall-clock time is only a backstop for a thread that never runs.
 void SandboxEngine::resetDeadline() {
-    js_->interrupted = false;
-    js_->cpuDeadline = QuickJSContext::threadCpuTime() + currentSliceMs_ / 1000;
-    js_->deadline = nowSeconds() + std::max(currentSliceMs_ * kWallBackstopFactor, kWallBackstopMinMs) / 1000;
+    js_->setInterrupted(false);
+    js_->setCpuDeadline(QuickJSContext::threadCpuTime() + currentSliceMs_ / 1000);
+    js_->setDeadline(nowSeconds() + std::max(currentSliceMs_ * kWallBackstopFactor, kWallBackstopMinMs) / 1000);
 }
 
 /// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota, its layout

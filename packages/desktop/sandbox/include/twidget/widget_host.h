@@ -102,6 +102,10 @@ struct WidgetHostOptions {
     /// inline result not sent yet (§2.16): no input (the renderer's events and gesture claims are dropped), only
     /// `ready` and `setResizeAnchor` (`preview-blocked` for the rest), no storage preload or commits.
     WidgetContext context;
+    /// Which build of QuickJS runs the widget's code (QuickJSBackend; mirrors WidgetHost.Options.engine on
+    /// iOS/Android). Native by default unless `WIDGET_SANDBOX_ENGINE=boxed` in the environment; a boxed engine
+    /// this build cannot provide fails closed (the widget dies with `Engine fault: …`). The validator stays native.
+    QuickJSBackend engine = quickjsDefaultBackend();
 };
 
 struct WidgetDiagnostics {
