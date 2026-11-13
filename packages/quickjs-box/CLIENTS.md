@@ -6,9 +6,10 @@ same fork commit compiled to WebAssembly and translated back to C (wasm2c), so t
 of its own. A memory bug in it then reads and writes that one widget's memory, or stops the process. It cannot reach
 the host's memory, another widget, or a system call.
 
-Status: opt-in, macOS only, "contain and crash". The native engine stays the default on every platform, and nothing
-changes for a client that does not opt in. Why it is built this way is in `docs/decisions.md`, "QuickJS in a wasm2c
-box".
+Status: opt-in, "contain and crash". Wired on macOS, iOS, Android and the desktop C++ core. The native engine stays
+the default on every platform, and nothing changes for a client that does not opt in. The web does not need the box:
+its engine already runs inside the browser's WebAssembly sandbox. Why it is built this way is in `docs/decisions.md`,
+"QuickJS in a wasm2c box".
 
 ## 1. What changes for a widget
 
@@ -28,7 +29,13 @@ the same messages (section 4 has the check). The differences that exist:
 
 ## 2. Turn it on
 
-The Swift package builds the box with `WidgetSandbox` on macOS (`CQuickJSBox`). Nothing uses it until a host asks.
+The native engine is the default everywhere. The box is opt-in, per process or per host, and it fails closed: a build
+that cannot run the box stops the widget with `Engine fault: …` instead of falling back to native, and renders nothing
+of it. A boxed host reports the diagnostic `engine` once, for example `boxed QuickJS b526a81 (bounds-checks)` — check
+it to confirm the box took.
+
+**Apple (macOS and iOS), Swift.** `WidgetSandbox` builds `CQuickJSBox` on both. The memory mode is chosen for you:
+guard pages on macOS, bounds checks on iOS (no 8 GiB reservation, no signals).
 
 ```swift
 // Every widget of the process (set it once, before the first host):
@@ -40,21 +47,32 @@ var options = WidgetHost.Options()
 options.engine = .boxed
 ```
 
-- **Check that it took.** A boxed host reports the diagnostic `engine` once, for example
-  `boxed QuickJS b526a81 (guard-pages)`. `QuickJSBackend.isBoxedAvailable` says whether this build can run the box.
-- **It fails closed.** A build that cannot run the box does not fall back to the native engine: the widget stops
-  with `Engine fault: …` and nothing of it is rendered.
+`QuickJSBackend.isBoxedAvailable` says whether this build can run the box.
+
+**Android, Kotlin.** `WidgetHost.Options.engine = QuickJSBackend.BOXED` (or `QuickJSBackend.default = …`, or
+`WIDGET_SANDBOX_ENGINE=boxed` in a debug build). CMake builds `libtwquickjsbox` from `packages/quickjs-box` with the
+NDK, in bounds-check mode (no guard pages on Android). The box runs on the same dedicated `JSThread` as the native
+engine, never on the main thread.
+
+**Desktop C++ core.** Build with `-DTW_QUICKJS_BOX=ON`, then select it per host (`WidgetHost::Options.engine`), on the
+harness (`--boxed`) or with `WIDGET_SANDBOX_ENGINE=boxed`. Bounds checks by default; `-DQJSBOX_BOUNDS_CHECKS=0` links
+guard pages (macOS only).
+
 - **Compile it optimized, in every configuration.** An unoptimized box is 11 to 48 times slower than the native
   engine, far past the CPU limits a widget lives under, so it refuses to start (`Engine fault: the QuickJS box was
-  compiled without optimization`). The package passes `-O3` to its C targets when it is a local checkout. If your
-  build compiles the package's C with your own flags, make sure Debug gets `-O2` for `CQuickJSBox`.
-- **Without SwiftPM:** compile every `.c` in `packages/quickjs-box/src` and nothing else, with the include paths
-  `packages/quickjs-box/include`, `generated` and `wabt`. No defines are needed: `src/qjsbox_config.h` holds the whole
-  configuration, and the generated code and WABT's runtime are compiled only through the files in `src`.
-- **The other memory mode.** macOS fences the box with guard pages: each box reserves 8 GiB of address space, and an
-  access outside its memory hits an unmapped page. Everywhere else the build uses bounds checks: no reservation, no
-  signals, the same C, slower. `QJSBOX_BOUNDS_CHECKS=1` (the package: `WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1` in the
-  environment of the build) forces bounds checks on macOS, to test the mode the other platforms will run.
+  compiled without optimization`). A client consuming the Swift package as a git dependency builds the box's C at the
+  client's own Release setting (`-Os`/`-Oz`); the package forces `-O3` only on a local checkout (our dev and perf
+  builds). Android (`-O2`) and the desktop CMake build compile it optimized too. If you compile the package's C with
+  your own flags, make sure even Debug gets `-O2` for `CQuickJSBox`.
+- **Without SwiftPM or CMake:** compile every `.c` in `packages/quickjs-box/src` and nothing else, with the include
+  paths `packages/quickjs-box/include`, `generated` and `wabt`. No defines are needed: `src/qjsbox_config.h` holds the
+  whole configuration, and the generated code and WABT's runtime are compiled only through the files in `src`.
+- **The two memory modes.** Guard pages fence each box with an 8 GiB reservation of address space, so an access outside
+  its memory hits an unmapped page — fastest, but 64-bit and signal-based, so macOS and the desktop core only.
+  Everywhere else (iOS, Android, and the desktop core by default) the build uses bounds checks: no reservation, no
+  signals, the same C, slower. `QJSBOX_BOUNDS_CHECKS=1` (the Swift package: `WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1` in the
+  build's environment; the desktop core: `-DQJSBOX_BOUNDS_CHECKS=1`) forces bounds checks on macOS, to test the mode the
+  phones run.
 
 ## 3. What a fault looks like
 
@@ -133,10 +151,33 @@ J=packages/ios/Sources/WidgetSandbox/WidgetJS
 .cache/qjsbox-tools/qjsbox-run-bounds-checks bench $J/sandbox-bundle.js $J/sandbox-bundle.qbc
 ```
 
+### The other platforms
+
+The box runs the same `.qbc` from the same generated C on all of them; the harness differs.
+
+```bash
+# iOS: the Swift suite on the simulator, native and boxed (set the engine through the scheme's environment,
+# or a TEST_RUNNER_WIDGET_SANDBOX_ENGINE=boxed prefix for xcodebuild). The 440-widget differential runs here too.
+xcodebuild test -scheme WidgetSandbox-Package -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
+
+# Android: native, then every widget engine boxed (needs the emulator AVD twidget-35).
+cd packages/android
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew :widget-sandbox:connectedDebugAndroidTest
+# the demo runs the attacks boxed: installDebug, then launch with --es engine boxed (canary hits must be 0)
+
+# Desktop C++ core: native and boxed, bounds checks and (on macOS) guard pages.
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_QUICKJS_BOX=ON && cmake --build build
+./build/twidget-tests                                 # native
+WIDGET_SANDBOX_ENGINE=boxed ./build/twidget-tests     # boxed (bounds checks)
+./build/twidget-run --attacks --boxed                 # 0 leaks, the same 7 kills as native
+./build/twidget-run --corpus ../../corpus/compat --boxed
+```
+
 ## 5. What to send back
 
-From the build that will ship (Release, your flags), on the slowest Mac you support, and on an Intel Mac if you
-support one. Nothing here was measured on x86_64.
+From the build that will ship (Release, your flags), on the slowest device you support — the slowest Mac, the oldest
+iPhone and Android phone for those clients, and an Intel Mac if you support one. Our numbers below are from a
+simulator, an emulator and Apple-silicon Macs: nothing was measured on a real phone or on x86_64.
 
 1. **The build.** The Mac (model, CPU), the OS, the configuration, and the `engine` diagnostic's text. Whether
    `QuickJSBackend.isBoxedAvailable` is true in your Debug build. The size of the service's binary with and without
@@ -189,11 +230,38 @@ Six stress-kit levels past the node limit end with "Node limit exceeded" boxed a
 (`dom-static` and `dom-tick` 3000 and 4000, `style-churn` 2000 and 3000: the memory row of the table in section 1). The attack corpus through the macOS demo: 0 hits on each engine, and all 133 rows end the
 same way.
 
+Per platform, the box matches native:
+
+- **iOS** (iPhone 17 simulator, iOS 27): `xcodebuild test` runs 375 tests, 0 skipped once the box tests are enabled,
+  only `IntlBridgeTests.testPluralRulesMatchICU` fails (the OS ICU difference). The 440-widget differential is clean
+  and the attack corpus renders identical messages. JS overall ×1.58.
+- **Android** (emulator, API 35, arm64): 137 instrumented tests, the attacks 0 canary hits over 133 widgets, and
+  `corpus/generated`, `compat` and `common` identical on both engines (224 boxed runs match native).
+- **Desktop C++ core** (Apple-silicon macOS): 86 tests in native, bounds-checks and guard-pages modes, the 133
+  attacks kill the same 7 widgets as native with no box fault, and `corpus/compat` 19/19.
+
 Through Swift, a call into the engine costs 0.15 µs boxed and 0.10 µs natively, and a host function call 0.08 µs
 against 0.07 µs.
 
-A box costs 0.07 ms and about 0.2 MB of resident memory to create, and microseconds to drop (no engine code runs at teardown). The
-compiled box adds about 1.2 MB of code with guard pages and 2.1 MB with bounds checks.
+A box costs 0.07 ms and about 0.2 MB of resident memory to create, and microseconds to drop (no engine code runs at
+teardown).
+
+The code the box adds to the binary, Release and stripped — the build a client ships:
+
+| Platform / mode | Added |
+|---|---|
+| macOS, guard pages | +1.2 MB |
+| Apple, bounds checks | +2.1 MB |
+| iOS, bounds checks (`-Os`/`-Oz`) | +2.2 MB `__TEXT`, +2.8 MB loadable |
+| Android, bounds checks (`-O2`, stripped) | +1.68 MB (arm64), +1.81 MB (x86_64) |
+| desktop C++ (guard pages / bounds checks) | +1.16 MB / +1.67 MB |
+
+The footprint is set by the C optimization level, not by the linker: the ~23 500 wasm2c functions are distinct
+QuickJS functions, not duplicate helpers, so dead-strip and ICF fold none of them. A client consuming the Swift
+package as a git dependency builds the box at their own Release setting (`-Os`/`-Oz`) and gets the figures above. The
+package forces `-O3` only on a local checkout — our dev, test and perf builds — where the box is larger (about
++4.4 MB loadable on Apple) and faster. The sizes above are the `-Os`/`-Oz` build a client ships; the speed numbers in
+this section are the `-O3` build.
 
 ## 7. Rebuilding it
 
