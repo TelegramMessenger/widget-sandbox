@@ -14,7 +14,9 @@ frozen since 2026-10-30 (`docs/decisions.md`, "The renderer prototypes are froze
 ```
 packages/desktop/
   sandbox/include/twidget/   public headers
-    sandbox_engine.h         SandboxEngine + SandboxEngineDelegate (= SandboxEngine.swift / .kt)
+    sandbox_engine.h         SandboxEngine + SandboxEngineDelegate (= SandboxEngine.swift / .kt); make + the channel factory
+    remote_engine.h          the engine in another process: SandboxRemoteChannel / SandboxRemoteSink, SandboxRemoteServer,
+                             SandboxLoopbackChannel, SandboxRemoteCoding (= RemoteEngine.swift; Kotlin has none)
     trusted_validator.h      validator-bundle.js in a second, trusted QuickJS runtime
     widget_host.h            WidgetHost: engine + validator + Renderer, one widget (= WidgetHost.swift / .kt)
     renderer.h               Renderer seam + RendererFactory (= Renderer.swift / .kt)
@@ -45,14 +47,17 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 75 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON)
+./build/twidget-tests                             # 144 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine); `./build/twidget-tests remote_` runs the remote engine's 51
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
 ./build/twidget-run w.html --message group --viewer 42,Ann,Lee,ann_lee,premium --chat-data c1 --public-data p1 --answer '{"result":"ok"}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # the bot's requests: prints `request …` and `copyText …`; --message private|group|via-bot|no-queries|live-copy|copy|preview, or --copy / --can-query / --background-query / --chat-type; --answer-error TIMEOUT, --set-data JSON
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
-./build/twidget-run --attacks                     # 104 files: nothing but data:/#fragment may reach the validated ops
+./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
+cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 144 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
 ```
 
 Status (2026-10-17, macOS arm64): tests 45/45; compat 12/12 and
@@ -144,12 +149,64 @@ What it is on this platform:
   Engine callbacks arrive on the engine's thread; hop to the UI thread
   yourself (`QMetaObject::invokeMethod` / `crl::on_main`). `onQuery` is
   synchronous and blocks the engine thread until you answer — never answer it
-  by waiting on the UI thread from the UI thread. `WidgetHost` does all of
+  by waiting on the UI thread from the UI thread. `probe` (tests, the harness,
+  a barrier behind earlier inputs) is synchronous too: call it from the owner's
+  thread, never from the thread that answers `onQuery` (a probe's code may ask
+  a layout query), and on a client-mode engine never from its dispatch thread
+  (`thread()`), where it answers `ERROR no runtime`. `WidgetHost` does all of
   this on its host thread; `destroy()` it from the owner's thread.
 - Every `onOps` batch goes through `TrustedValidator::processOps` before it is
   sent to a renderer. Nothing else from the engine is trusted.
 - Pass an `IntlProvider` built on `QLocale` to the engine; `BasicIntl` is only
   a fallback.
+- The engine in another process (opt-in, `twidget/remote_engine.h`;
+  `docs/changes.md`, "the desktop engine in another process"): `WidgetHost`
+  builds its engine with `SandboxEngine::make`, a client-mode engine over the
+  channel of the factory you set, else (a build without `NDEBUG` and
+  `TW_ENGINE_LOOPBACK=1`) over the in-process loopback, else one with its own
+  runtime. A transport is a `SandboxRemoteChannel` whose calls reach a
+  `SandboxRemoteServer` in the other process, and whose `SandboxRemoteSink`
+  (given in `attach`) gets the server's calls back in order;
+  `SandboxLoopbackChannel` is both halves in one process, the model for one:
+
+  ```cpp
+  #include "twidget/remote_engine.h"
+
+  // Before the first widget: every engine `make` builds from now on is a client of the channel this returns.
+  twidget::SandboxEngine::setRemoteChannelFactory([](std::shared_ptr<twidget::SandboxResources> resources) {
+      return std::make_shared<twidget::SandboxLoopbackChannel>(std::move(resources)); // your transport's channel
+  });
+  twidget::SandboxEngine::setRemoteChannelFactory(nullptr); // engines in process again
+  ```
+
+  The factory runs on the thread that calls `make`; a null channel gives a
+  widget that dies ("the widget engine process ended"), never one in process
+  (`WidgetHost` hears that death, as everything else, after `start()`).
+  The host's side stays here: the delegate hears every call on the client's
+  dispatch thread (`thread()`), the `IntlProvider` you pass answers the
+  engine's Intl requests (`remoteIntl`), and the client decides every
+  privileged call again on your taps, visibility, message flags and haptic
+  gate with the SDK checks. Channel calls come from the dispatch thread in your
+  order and never wait for the other side, `probe` aside; the sink's
+  `remoteQuery` and `remoteIntl` are synchronous and never made from inside a
+  channel call. The client sizes every sink call before it queues it (1 MiB
+  per JSON message, 32 MiB per ops batch) and counts at most
+  `SandboxEngine::kRemoteQueuedBytes` (64 MiB) and `kRemoteQueuedCalls`
+  (16384 calls) of them from arrival until each, and the work its delegate
+  queued with it, has run or been dropped: `WidgetHost`'s host-thread work
+  keeps its message counted (`SandboxEngine::remoteHold`) and counts as work
+  of its own what it keeps beyond it (a validated result larger than its
+  input, each validator diagnostic, a bridge call's raw copy next to its
+  action); a delegate of your own that queues work holds `remoteHold()` in it
+  the same way. The message past either bound kills the widget once ("the
+  widget engine process sent more than the host keeps queued"), and the sink
+  then takes nothing more and never waits. The bounds count payload bytes and
+  queued calls up to the moment that work runs, not allocator memory (each
+  call's closure and containers come on top) and not what the host keeps
+  afterwards.
+  The engine's destructor, on the owner's thread, closes and
+  releases the channel; a transport may keep the sink, whose late calls
+  change nothing.
 - Limits live in `SandboxConfig` / `WidgetHostOptions` (same fields and
   defaults as `protocol.ts`: 8 MB of QuickJS heap, 64 timers, 300 ms of JS and
   100 ms of main-thread work per second; `docs/decisions.md`, "Strict limits

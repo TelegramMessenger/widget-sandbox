@@ -167,7 +167,7 @@ private:
 
 class WidgetHost final : public SandboxEngineDelegate {
 public:
-    /// Throws JSError if the validator bundle fails to load. Nothing runs until `start()`.
+    /// Throws JSError if the validator bundle fails to load. Nothing runs until `start()`: set the observers and `stoppedLabel` before it; an engine behind a channel that failed while it was built (`SandboxEngine::make`) dies after it.
     WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
                RendererFactory rendererFactory, std::shared_ptr<IntlProvider> intl = nullptr);
     /// The API before SDK v1: a colour scheme only (the scheme's default palette, no button tokens).
@@ -210,6 +210,8 @@ public:
     WidgetDiagnostics diagnostics() const;
     /// Runs `fn` on the host thread and waits for it (inline when already there).
     void onHostThread(const std::function<void()>& fn) { hostThread_.sync(fn); }
+    /// What a client-mode engine holds now against its remote bounds, this host's queued work for it included (SandboxEngine::remoteBacklog), from any thread; nothing in process (tests).
+    SandboxEngine::RemoteBacklog remoteBacklog() const { return engine_->remoteBacklog(); }
 
     bool waitLoaded(double timeoutSeconds = 20);
     /// True once the post-load ack query came back from the renderer (or the widget died).
@@ -313,8 +315,13 @@ private:
     void diag(const std::string& kind, const std::string& detail);
     void changed();
     double elapsedMs() const;
-    /// Runs `fn` on the host thread (inline when already there).
-    void host(std::function<void()> fn);
+    /// Runs `fn` on the host thread (inline when already there); queued, it keeps `hold` until it has run or is dropped.
+    void host(std::function<void()> fn, SandboxEngine::RemoteHold hold = nullptr);
+    /// The validator's diagnostic, on its thread: inside `validated` it is counted as work of its own of that engine's message, and dropped when that does not fit.
+    void validatorDiag(const std::string& kind, const std::string& detail);
+    /// `validate`'s value on the engine's thread, what the validator reports meanwhile counted with `engine`'s message (`validatorDiag`).
+    template <class F>
+    auto validated(SandboxEngine& engine, F validate);
 
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     static constexpr int kRenderAckQid = -1;
@@ -327,9 +334,13 @@ private:
     WidgetHostOptions options_;
     SandboxConfig config_;
     std::shared_ptr<SandboxResources> resources_;
+    /// The engine the validator works for in `validated`, under `validatingMutex_`; before the validator, which may report while it is built.
+    std::mutex validatingMutex_;
+    SandboxEngine* validating_ = nullptr;
     TrustedValidator validator_;
     std::unique_ptr<Renderer> renderer_;
-    SandboxEngine engine_;
+    /// `SandboxEngine::make`'s: in process, or a client of an engine behind the host's channel factory.
+    std::unique_ptr<SandboxEngine> engine_;
 
     mutable std::mutex mutex_;              // diagnostics_, waiters
     std::condition_variable cv_;

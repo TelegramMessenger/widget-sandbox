@@ -184,7 +184,11 @@ struct WidgetRequestAnswer {
 /// A request the client could not complete: the bot did not answer in time, a flood wait, anything else. `None`: answered.
 /// For a wallet call also `Rejected` (the user declined in the wallet window) and `BadRequest` (the wallet refused the
 /// transaction or the payload); a request's failure turns them into FAILED.
-enum class WidgetRequestFailure { None, Timeout, RateLimited, Failed, Rejected, BadRequest };
+enum class WidgetRequestFailure {
+    None, Timeout, RateLimited, Failed, Rejected, BadRequest,
+    /// The host refused the call itself, as a client-mode engine does when its own checks refuse it (remote_engine.h): NOT_ALLOWED.
+    NotAllowed
+};
 
 /// What the client reports for a request (`respond`): the answer when `failure` is `None`, else the failure.
 struct WidgetRequestOutcome {
@@ -456,7 +460,7 @@ struct CheckedAnswer {
 /// allowed). Nullopt for anything else (the widget gets `INVALID_ANSWER`, `answer-rejected`).
 std::optional<CheckedAnswer> checkRequestAnswer(const WidgetRequestAnswer& answer);
 
-/// What the widget's promise rejects with for a client's failure: "TIMEOUT", "RATE_LIMITED", anything else "FAILED".
+/// What the widget's promise rejects with for a client's failure: "TIMEOUT", "RATE_LIMITED", "NOT_ALLOWED", anything else "FAILED".
 std::string_view requestFailureCode(WidgetRequestFailure failure);
 /// The same for a wallet call: also "REJECTED" and "BAD_REQUEST".
 std::string_view walletFailureCode(WidgetRequestFailure failure);

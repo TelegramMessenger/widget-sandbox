@@ -569,6 +569,7 @@ std::string_view requestFailureCode(WidgetRequestFailure failure) {
     switch (failure) {
     case WidgetRequestFailure::Timeout: return "TIMEOUT";
     case WidgetRequestFailure::RateLimited: return "RATE_LIMITED";
+    case WidgetRequestFailure::NotAllowed: return "NOT_ALLOWED";
     default: return "FAILED";
     }
 }

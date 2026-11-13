@@ -6,6 +6,8 @@
 // SDK v1 through the real engine and WidgetHost, and the JSON helper.
 // No test framework dependency: `twidget-tests [filter]`, exit code = failures.
 
+#include "test_support.h"
+
 #include "../harness/recording_host.h"
 #include "twidget/bundle_stamp.h"
 #include "twidget/cpu_budget.h"
@@ -29,40 +31,42 @@
 #include <clocale>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <limits>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 using namespace twidget;
 
-static int g_failures = 0;
-static int g_checks = 0;
-#define CHECK(cond) do { g_checks++; if (!(cond)) { g_failures++; fprintf(stderr, "  FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
-#define CHECK_MSG(cond, msg) do { g_checks++; if (!(cond)) { g_failures++; fprintf(stderr, "  FAIL %s:%d: %s — %s\n", __FILE__, __LINE__, #cond, std::string(msg).c_str()); } } while (0)
+int g_failures = 0;
+int g_checks = 0;
+std::vector<TestCase>& registry() { static std::vector<TestCase> r; return r; }
+std::vector<TestCase>& childCases() { static std::vector<TestCase> r; return r; }
+std::string g_self;
 
-struct TestCase { const char* name; void (*fn)(); };
-static std::vector<TestCase>& registry() { static std::vector<TestCase> r; return r; }
-#define TEST(name) static void name(); static const bool name##_registered = (registry().push_back({#name, name}), true); static void name()
-
-static std::shared_ptr<SandboxResources> RES;
+std::shared_ptr<SandboxResources> RES;
 static const std::string CANARY = "http://127.0.0.1:9999/hit/desktop-unit";
 
-static std::string readFile(const std::string& p) {
+std::string readFile(const std::string& p) {
     std::ifstream in(p, std::ios::binary);
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
 }
 
-static void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
-static SandboxConfig testConfig() {
+SandboxConfig testConfig() {
     SandboxConfig c;
     c.cpuLimitMs = 2000;
     c.innerWidth = 400;
@@ -72,16 +76,45 @@ static SandboxConfig testConfig() {
     return c;
 }
 
+/// What `SandboxEngine::make` gives without a factory: a client over the in-process loopback with Debug's `TW_ENGINE_LOOPBACK=1`, else an engine in process.
+bool loopbackSwitch() {
+#ifndef NDEBUG
+    const char* value = std::getenv("TW_ENGINE_LOOPBACK");
+    return value && std::string_view(value) == "1";
+#else
+    return false;
+#endif
+}
+
+/// The real engines the fixtures built and how many of them ran over the loopback (printed with the totals).
+static int g_engines = 0;
+static int g_loopbackEngines = 0;
+
+/// A fixture's real engine: `make`'s, in the mode the switch asks for.
+static std::unique_ptr<SandboxEngine> fixtureEngine(const std::string& html, const SandboxConfig& config, std::shared_ptr<SandboxResources> resources,
+                                                    std::shared_ptr<IntlProvider> intl = nullptr) {
+    std::unique_ptr<SandboxEngine> engine = SandboxEngine::make(html, config, std::move(resources), std::move(intl));
+    g_engines++;
+    if (engine->isRemote()) g_loopbackEngines++;
+    CHECK_MSG(engine->isRemote() == loopbackSwitch(), engine->isRemote() ? "a client-mode engine without the switch" : "an engine in process under the switch");
+    return engine;
+}
+
 /// One engine with a recording host; the host outlives the engine (declaration order).
 struct Run {
     RecordingHost host;
-    SandboxEngine engine;
-    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true) : host("light", RES, false, cfg.policy), engine(html, cfg, RES) {
+    std::unique_ptr<SandboxEngine> made;
+    SandboxEngine& engine;
+    Run(const std::string& html, SandboxConfig cfg = testConfig(), bool start = true)
+        : host("light", RES, false, cfg.policy), made(fixtureEngine(html, cfg, RES)), engine(*made) {
         engine.setDelegate(&host);
         if (start) { engine.start(); host.waitLoaded(20); }
     }
-    /// Like `engine.queue.sync {}` on iOS: everything queued so far has run.
-    void barrier() { engine.thread().sync([] {}); }
+    /// Like `engine.queue.sync {}` on iOS: everything queued so far has run; for a client its inputs reach the engine's side first, whose calls before the probe's answer come back.
+    void barrier() {
+        if (engine.isRemote()) engine.probe("0");
+        engine.thread().sync([] {});
+    }
     std::string logsText() { std::string s; for (auto& l : host.logs) s += "[" + l.first + "] " + l.second + "\n"; return s; }
     std::string diagsText() { std::string s; for (auto& d : host.diags) s += d.first + ": " + d.second + "\n"; return s; }
 };
@@ -259,7 +292,7 @@ static bool jsonEqual(const Json& a, const Json& b) {
 }
 
 /// `{ "repeat": [s, n] }` in the fixture stands for s repeated n times.
-static Json expandRepeat(const Json& v) {
+Json expandRepeat(const Json& v) {
     if (v.isArray()) {
         Json out = Json::array();
         for (const auto& x : v.arr()) out.push(expandRepeat(x));
@@ -1184,33 +1217,7 @@ TEST(user_gestures_are_numbered_per_physical_press) {
     CHECK(d.gestureFor(ev("{\"type\":\"click\",\"detail\":1}")) == 2);
 }
 
-/// A renderer without a document: announces itself, answers every query with null, keeps what it was sent; tests inject its events.
-struct ScriptedRenderer final : Renderer {
-    void load() override { onMessage("{\"type\":\"ready\"}"); }
-    void send(const std::string& json) override {
-        {
-            std::lock_guard<std::mutex> l(mutex);
-            messages.push_back(json);
-        }
-        auto m = Json::parse(json);
-        if (m && (*m)["type"].asString() == "query") onMessage("{\"type\":\"result\",\"qid\":" + std::to_string((*m)["qid"].asInt()) + ",\"result\":null}");
-    }
-    void setTheme(const std::string& t) override { std::lock_guard<std::mutex> l(mutex); themes.push_back(t); }
-    void setWidth(double) override {}
-    void destroy() override {}
-    /// The messages of one type, in order.
-    std::vector<Json> sent(const std::string& type) {
-        std::lock_guard<std::mutex> l(mutex);
-        std::vector<Json> out;
-        for (auto& m : messages) if (auto j = Json::parse(m); j && (*j)["type"].asString() == type) out.push_back(*j);
-        return out;
-    }
-    std::mutex mutex;
-    std::vector<std::string> messages;
-    std::vector<std::string> themes;
-};
-
-static RendererFactory scripted(ScriptedRenderer*& out) {
+RendererFactory scripted(ScriptedRenderer*& out) {
     return [&out](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> {
         auto r = std::make_unique<ScriptedRenderer>();
         out = r.get();
@@ -1942,7 +1949,7 @@ static const char* kShowContext = "JSON.stringify([TelegramWidget.chatData, Tele
 
 /// A button whose tap asks twice (the shim forwards both, the glue's gate refuses the second as BUSY); `mode = 'copy'` makes it copy twice instead. The log
 /// shows each settled request and each `chatDataChanged` / `publicDataChanged`.
-static const char* kRequester =
+const char* kRequester =
     "<button id='b'>go</button><script>var log = [], mode = 'ask';"
     "function ask(d) { TelegramWidget.request(d).then(function (a) { log.push('ok:' + d + ':' + JSON.stringify(a) + ':' + Object.isFrozen(a)); },"
     "  function (e) { log.push('err:' + d + ':' + e.name + ':' + e.code); }); }"
@@ -1950,19 +1957,27 @@ static const char* kRequester =
     "TelegramWidget.onEvent('publicDataChanged', function () { log.push('public:' + TelegramWidget.publicData); });"
     "document.getElementById('b').addEventListener('click', function () {"
     "  if (mode === 'ask') { ask('tap'); ask('tap2'); } else { TelegramWidget.copyText('PROMO-2026 \\u2713'); TelegramWidget.copyText('second'); } });</script>";
-static const std::string kTapOnButton = "{\"type\":\"click\",\"targetId\":5,\"detail\":1}";
+const std::string kTapOnButton = "{\"type\":\"click\",\"targetId\":5,\"detail\":1}";
+
+/// kRequester's log from entry `from` (`count` entries, or the rest) sorted: a tap's answer given inside the delivery and its second call's BUSY come in either order behind a remote engine.
+static std::string tapOutcomes(int from = 0, int count = -1) {
+    return "log.slice(" + std::to_string(from) + (count < 0 ? "" : ", " + std::to_string(from + count)) + ").sort().join(' ')";
+}
+
+/// kRequester's outcome of the tap's own request, whatever settled before it.
+static const char* kTapOutcome = "log.filter(function (s) { return s.split(':')[1] === 'tap'; }).join(' ')";
 
 using Respond = std::function<void(const WidgetRequestOutcome&)>;
 
 /// The server's answer: only the result.
-static WidgetRequestOutcome answered(std::optional<std::string> result) {
+WidgetRequestOutcome answered(std::optional<std::string> result) {
     WidgetRequestOutcome o;
     o.answer.result = std::move(result);
     return o;
 }
 
 /// The server's flags for a kind of message (WIDGET_MESSAGE_KINDS in sdk-policy.ts).
-static WidgetContext messageContext(bool isCopy, bool canQuery, bool backgroundQuery, std::string chatType = "", std::optional<WidgetViewer> viewer = std::nullopt) {
+WidgetContext messageContext(bool isCopy, bool canQuery, bool backgroundQuery, std::string chatType, std::optional<WidgetViewer> viewer) {
     WidgetContext c;
     c.isCopy = isCopy;
     c.canQuery = canQuery;
@@ -1972,20 +1987,8 @@ static WidgetContext messageContext(bool isCopy, bool canQuery, bool backgroundQ
     return c;
 }
 
-/// Polls a probe until it gives `expected` (an answer may come from another thread); returns the last value.
-template <typename Engine>
-static std::string probeUntil(Engine& engine, const std::string& code, const std::string& expected, double timeoutSeconds = 5) {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(timeoutSeconds * 1000));
-    std::string got = engine.probe(code);
-    while (got != expected && std::chrono::steady_clock::now() < deadline) {
-        sleepMs(10);
-        got = engine.probe(code);
-    }
-    return got;
-}
-
 /// Polls state a test's callbacks keep under their own lock.
-static bool eventually(const std::function<bool()>& pred, double timeoutSeconds = 5) {
+bool eventually(const std::function<bool()>& pred, double timeoutSeconds) {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(timeoutSeconds * 1000));
     while (!pred()) {
         if (std::chrono::steady_clock::now() > deadline) return false;
@@ -2205,10 +2208,7 @@ TEST(sdk_set_data_fires_chat_then_public_data_changed) {
     CHECK(diagsOf(c.host, "data-rejected").empty());
 }
 
-/// A tap sends one request (the client gets only its data) where the message allows requests: an original in a group
-/// (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap
-/// is BUSY in the glue's gate and never reaches the client; after the answer the next tap can ask again. The recording
-/// host answers on the engine thread inside the delivery, so the answer is queued before the gate's refusal.
+/// A tap sends one request (the client gets only its data) where the message allows requests: an original in a group (`canQuery`) and a live copy (`isCopy`, `canQuery`); the answer resolves with { result }; the second call of the tap is BUSY in the glue's gate and never reaches the client; after the answer the next tap can ask again. The recording host answers inside the delivery: in process that answer is queued before the gate's refusal, behind a remote engine it crosses the channel and comes in either order (`tapOutcomes`).
 TEST(sdk_request_tap_answer_and_busy) {
     SandboxConfig cfg = testConfig();
     cfg.context = messageContext(false, true, false, "group");
@@ -2218,12 +2218,13 @@ TEST(sdk_request_tap_answer_and_busy) {
     r.engine.start();
     r.host.waitLoaded(20);
     r.engine.activationEvent(kTapOnButton, 1);
-    const std::string first = "ok:tap:{\"result\":\"thanks\"}:true err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", first) == first, r.engine.probe("log.join(' ')"));
+    const std::string first = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"thanks\"}:true";
+    CHECK_MSG(probeUntil(r.engine, tapOutcomes(), first) == first, r.engine.probe("log.join(' ')"));
     CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}}));
     r.engine.activationEvent(kTapOnButton, 2);
-    const std::string second = first + " ok:tap:{\"result\":\"again\"}:true err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", second) == second, r.engine.probe("log.join(' ')"));
+    const std::string second = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":\"again\"}:true";
+    CHECK_MSG(probeUntil(r.engine, tapOutcomes(2), second) == second, r.engine.probe("log.join(' ')"));
+    CHECK(r.engine.probe("log.length") == "4" && r.engine.probe(tapOutcomes(0, 2)) == first);
     CHECK((requestsOf(r.host) == std::vector<WidgetRequest>{{"tap"}, {"tap"}}));
     const std::string busy = "request refused (busy): a request is already in flight";
     CHECK((diagsOf(r.host, "request-blocked") == std::vector<std::string>{busy, busy}));
@@ -2238,8 +2239,8 @@ TEST(sdk_request_tap_answer_and_busy) {
     c.engine.start();
     c.host.waitLoaded(20);
     c.engine.activationEvent(kTapOnButton, 1);
-    const std::string asked = "ok:tap:{\"result\":null}:true err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(c.engine, "log.join(' ')", asked) == asked, c.engine.probe("log.join(' ')"));
+    const std::string asked = "err:tap2:WidgetRequestError:BUSY ok:tap:{\"result\":null}:true";
+    CHECK_MSG(probeUntil(c.engine, tapOutcomes(), asked) == asked, c.engine.probe("log.join(' ')"));
     CHECK((requestsOf(c.host) == std::vector<WidgetRequest>{{"tap"}}));
 }
 
@@ -2304,11 +2305,12 @@ TEST(sdk_request_refusals) {
         group.context = messageContext(false, true, false, "group");
         Run u(kRequester, group); // no onRequest
         u.engine.activationEvent(kTapOnButton, 1);
-        // The delivery refuses on the engine thread, queued before the gate's BUSY for the second call.
-        const std::string refused = "err:tap:WidgetRequestError:NOT_ALLOWED err:tap2:WidgetRequestError:BUSY";
-        CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused) == refused, u.engine.probe("log.join(' ')"));
+        // The delivery's refusal and the gate's BUSY for the second call, in either order behind a remote engine.
+        const std::string refused = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:NOT_ALLOWED";
+        CHECK_MSG(probeUntil(u.engine, tapOutcomes(), refused) == refused, u.engine.probe("log.join(' ')"));
         u.engine.activationEvent(kTapOnButton, 2);
-        CHECK_MSG(probeUntil(u.engine, "log.join(' ')", refused + " " + refused) == refused + " " + refused, u.engine.probe("log.join(' ')"));
+        CHECK_MSG(probeUntil(u.engine, tapOutcomes(2), refused) == refused, u.engine.probe("log.join(' ')"));
+        CHECK(u.engine.probe("log.length") == "4" && u.engine.probe(tapOutcomes(0, 2)) == refused);
         const std::string unsupported = "request refused: the client handles no requests (onRequest)", busy = "request refused (busy): a request is already in flight";
         CHECK((diagsOf(u.host, "request-blocked") == std::vector<std::string>{busy, unsupported, busy, unsupported}));
         CHECK(requestsOf(u.host).size() == 2); // delivered, then refused there
@@ -2331,12 +2333,12 @@ TEST(sdk_request_failures_and_invalid_answers) {
         return diagsOf(r.host, "answer-rejected");
     };
     for (auto [failure, code] : {std::pair{WidgetRequestFailure::Timeout, "TIMEOUT"}, {WidgetRequestFailure::RateLimited, "RATE_LIMITED"}, {WidgetRequestFailure::Failed, "FAILED"}})
-        tapWith({failure, {}}, "log[0]", std::string("err:tap:WidgetRequestError:") + code);
-    tapWith(answered(""), "log[0]", "ok:tap:{\"result\":\"\"}:true");
+        tapWith({failure, {}}, kTapOutcome, std::string("err:tap:WidgetRequestError:") + code);
+    tapWith(answered(""), kTapOutcome, "ok:tap:{\"result\":\"\"}:true");
     const std::vector<std::string> rejected = {"the answer's result is not text of at most 1024 bytes (UTF-8, no NUL); the widget gets INVALID_ANSWER"};
-    CHECK(tapWith(answered(std::string(1025, 'x')), "log[0]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
-    CHECK(tapWith(answered(std::string("a\0b", 3)), "log[0]", "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
-    CHECK(tapWith(answered("{\"v\":[1,2]}\n"), "log[0]", "ok:tap:{\"result\":\"{\\\"v\\\":[1,2]}\\n\"}:true").empty());
+    CHECK(tapWith(answered(std::string(1025, 'x')), kTapOutcome, "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered(std::string("a\0b", 3)), kTapOutcome, "err:tap:WidgetRequestError:INVALID_ANSWER") == rejected);
+    CHECK(tapWith(answered("{\"v\":[1,2]}\n"), kTapOutcome, "ok:tap:{\"result\":\"{\\\"v\\\":[1,2]}\\n\"}:true").empty());
 }
 
 /// Background requests: one when the widget appears on screen, then one per 5 s. A background request at boot goes
@@ -2517,8 +2519,8 @@ TEST(sdk_wallet_refusals_and_the_background) {
     p.engine.start();
     p.host.waitLoaded(20);
     p.engine.activationEvent(kTapOnButton, 1);
-    const std::string failed = "err:tap:WidgetRequestError:FAILED err:tap2:WidgetRequestError:BUSY";
-    CHECK_MSG(probeUntil(p.engine, "log.join(' ')", failed) == failed, p.engine.probe("log.join(' ')"));
+    const std::string failed = "err:tap2:WidgetRequestError:BUSY err:tap:WidgetRequestError:FAILED";
+    CHECK_MSG(probeUntil(p.engine, tapOutcomes(), failed) == failed, p.engine.probe("log.join(' ')"));
 
     // From a timer neither a wallet call nor a request for the wallet goes out, also in the private chat with the bot;
     // TelegramWidget.wallet is null without the wallet or without canQuery.
@@ -2953,14 +2955,14 @@ TEST(intl_fallback_format_to_parts) {
 // The system's ICU: CLDR data for the locale a widget names, where the basic provider writes English.
 TEST(icu_intl_formats_with_cldr) {
     RecordingHost host("light", RES);
-    SandboxEngine engine("<script>console.log(new Intl.NumberFormat('ru-RU').format(1234.5).replace(/\\s/g, ' ') + '|' + new Intl.PluralRules('ru-RU').select(3) + '|' +"
-                         " new Intl.RelativeTimeFormat('en', {numeric: 'auto'}).format(-1, 'day') + '|' + new Intl.DateTimeFormat('en-US', {timeZone: 'UTC'}).format(new Date(0)) + '|' +"
-                         " new Intl.ListFormat('en', {type: 'conjunction'}).format(['a', 'b', 'c']));</script>",
-                         testConfig(), RES, std::make_shared<IcuIntl>());
-    engine.setDelegate(&host);
-    engine.start();
+    std::unique_ptr<SandboxEngine> engine = fixtureEngine("<script>console.log(new Intl.NumberFormat('ru-RU').format(1234.5).replace(/\\s/g, ' ') + '|' + new Intl.PluralRules('ru-RU').select(3) + '|' +"
+                                                          " new Intl.RelativeTimeFormat('en', {numeric: 'auto'}).format(-1, 'day') + '|' + new Intl.DateTimeFormat('en-US', {timeZone: 'UTC'}).format(new Date(0)) + '|' +"
+                                                          " new Intl.ListFormat('en', {type: 'conjunction'}).format(['a', 'b', 'c']));</script>",
+                                                          testConfig(), RES, std::make_shared<IcuIntl>());
+    engine->setDelegate(&host);
+    engine->start();
     host.waitLoaded(20);
-    engine.thread().sync([] {});
+    engine->thread().sync([] {});
     auto l = host.lock();
     std::string logs;
     for (auto& log : host.logs) logs += log.second + "\n";
@@ -2972,11 +2974,11 @@ TEST(icu_intl_formats_with_cldr) {
 TEST(engine_create_and_teardown_churn) {
     for (int i = 0; i < 10; i++) {
         RecordingHost host("light", RES);
-        SandboxEngine engine("<p>x</p><script>setInterval(function(){}, 10); requestAnimationFrame(function(){});</script>", testConfig(), RES);
-        engine.setDelegate(&host);
-        engine.start();
+        std::unique_ptr<SandboxEngine> engine = fixtureEngine("<p>x</p><script>setInterval(function(){}, 10); requestAnimationFrame(function(){});</script>", testConfig(), RES);
+        engine->setDelegate(&host);
+        engine->start();
         if (i % 2) host.waitLoaded(10);
-        if (i % 3 == 0) engine.terminate();
+        if (i % 3 == 0) engine->terminate();
     }
     CHECK(true);
 }
@@ -3086,11 +3088,11 @@ TEST(bundle_stamp_engine_and_validator_refuse_another_release) {
         CHECK(!refusal.empty());
         RecordingHost host("light", res, false);
         SandboxConfig cfg = testConfig();
-        SandboxEngine engine("<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>", cfg, res);
-        engine.setDelegate(&host);
-        engine.start();
+        std::unique_ptr<SandboxEngine> engine = fixtureEngine("<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>", cfg, res);
+        engine->setDelegate(&host);
+        engine->start();
         CHECK(host.waitLoaded(20));
-        engine.thread().sync([] {});
+        engine->thread().sync([] {});
         auto l = host.lock();
         CHECK_MSG(host.died == std::optional<std::string>("sandbox bundle failed to load"), std::string(which) + ": " + host.died.value_or("alive"));
         int mismatches = 0;
@@ -3338,7 +3340,17 @@ TEST(litehtml_frozen_after_kill_keeps_last_render) {
 
 int main(int argc, char** argv) {
     const char* filter = argc > 1 ? argv[1] : nullptr;
+    g_self = argv[0];
     try { RES = SandboxResources::fromDirectory(TW_WIDGET_JS); } catch (const std::exception& e) { fprintf(stderr, "%s\n", e.what()); return 2; }
+    if (argc > 2 && std::string_view(argv[1]) == "--child") {
+        for (const auto& c : childCases()) {
+            if (std::string_view(c.name) != argv[2]) continue;
+            c.fn();
+            return g_failures ? 1 : 0;
+        }
+        fprintf(stderr, "no child case %s\n", argv[2]);
+        return 2;
+    }
     int ran = 0;
     for (const auto& t : registry()) {
         if (filter && std::strstr(t.name, filter) == nullptr) continue;
@@ -3351,6 +3363,7 @@ int main(int argc, char** argv) {
         printf("  %s (%.0f ms)\n", g_failures == before ? "ok" : "FAILED", ms);
         ran++;
     }
-    printf("\n%d tests, %d checks, %d failures\n", ran, g_checks, g_failures);
+    printf("\n%d fixture engines from SandboxEngine::make, %d of them behind the loopback\n", g_engines, g_loopbackEngines);
+    printf("%d tests, %d checks, %d failures\n", ran, g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

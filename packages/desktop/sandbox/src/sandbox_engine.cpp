@@ -2,6 +2,7 @@
 
 #include "twidget/bundle_stamp.h"
 #include "twidget/json.h"
+#include "twidget/remote_engine.h"
 
 #include <algorithm>
 #include <atomic>
@@ -119,19 +120,30 @@ SandboxEngine::~SandboxEngine() {
     thread_.join();
     // The thread is gone: nothing else touches the context, so it can be freed here.
     js_.reset();
+    // From the owner's thread: a disconnection the channel reports while it closes meets the null liveness record.
+    if (remote_) remote_->close();
+    remote_.reset();
+}
+
+void SandboxEngine::setDelegate(SandboxEngineDelegate* delegate) {
+    if (client_) return clientSetDelegate(delegate);
+    delegate_ = delegate;
 }
 
 // MARK: lifecycle
 
 void SandboxEngine::start() {
+    if (client_) return clientStart();
     thread_.async([this] { boot(); });
 }
 
 void SandboxEngine::terminate() {
+    if (client_) return clientKill("terminated", false);
     thread_.async([this] { kill("terminated"); });
 }
 
 void SandboxEngine::stop(const std::string& reason) {
+    if (client_) return clientKill(reason, true);
     auto body = [this, reason] {
         if (dead_) return;
         kill(reason);
@@ -250,24 +262,36 @@ void SandboxEngine::boot() {
 
 // A preview takes no input (a tap on it selects the result, the client's); WidgetHost drops the renderer's events first.
 void SandboxEngine::event(const std::string& json) {
-    if (!config_.context.preview) enqueue("event", json);
+    if (config_.context.preview) return;
+    if (client_) return forward([json](SandboxRemoteChannel& remote) { remote.event(json); });
+    enqueue("event", json);
 }
 void SandboxEngine::activationEvent(const std::string& json, int gesture) {
-    if (!config_.context.preview) enqueue(kActivationPrefix + std::to_string(gesture), json);
+    if (config_.context.preview) return;
+    if (client_) return clientActivationEvent(json, gesture);
+    enqueue(kActivationPrefix + std::to_string(gesture), json);
 }
 /// Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets.
 static double coarseNowMs(double ms) { return std::floor(ms / 0.1) * 0.1; }
 
-void SandboxEngine::frame(double time) { enqueue("frame", Json::number(coarseNowMs(time))); }
+void SandboxEngine::frame(double time) {
+    if (client_) return forward([time](SandboxRemoteChannel& remote) { remote.frame(time); });
+    enqueue("frame", Json::number(coarseNowMs(time)));
+}
 void SandboxEngine::viewport(double innerWidth, double innerHeight, double dpr) {
+    if (client_) return forward([innerWidth, innerHeight, dpr](SandboxRemoteChannel& remote) { remote.viewport(innerWidth, innerHeight, dpr); });
     Json v = Json::object();
     v.set("innerWidth", innerWidth);
     v.set("innerHeight", innerHeight);
     v.set("dpr", dpr);
     enqueue("viewport", v.dump());
 }
-void SandboxEngine::resize(const std::string& entriesJson) { enqueue("resize", entriesJson); }
+void SandboxEngine::resize(const std::string& entriesJson) {
+    if (client_) return forward([entriesJson](SandboxRemoteChannel& remote) { remote.resize(entriesJson); });
+    enqueue("resize", entriesJson);
+}
 void SandboxEngine::theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) {
+    if (client_) return forward([colorScheme, themeParams](SandboxRemoteChannel& remote) { remote.theme(colorScheme, themeParams); });
     Json t = Json::object();
     t.set("theme", colorScheme);
     t.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(themeParams)));
@@ -287,6 +311,7 @@ Json WidgetContentSafeArea::json() const {
 }
 
 void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
+    if (client_) return forward([area](SandboxRemoteChannel& remote) { remote.contentSafeArea(area); });
     thread_.async([this, area] {
         if (dead_) return;
         if (!js_) { config_.contentSafeArea = area; return; }
@@ -295,6 +320,7 @@ void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
 }
 
 void SandboxEngine::setData(const WidgetData& data) {
+    if (client_) return forward([data](SandboxRemoteChannel& remote) { remote.setData(data); });
     sdk::CheckedWidgetData checked = sdk::checkWidgetData(data, config_.context.isCopy);
     thread_.async([this, checked] {
         if (dead_) return;
@@ -322,15 +348,18 @@ void SandboxEngine::putData(Json& event, const sdk::CheckedWidgetData& checked) 
 // The haptic gate's touch (v0.2.2): stamped on the caller's thread with the clock `decide` reads, applied in order
 // with the events the host sends after it (a tap's haptic sees its press). Gate state only: no task, never deferred.
 void SandboxEngine::pressBegan() {
+    if (client_) return clientPress(true);
     double at = nowMs();
     thread_.async([this, at] { haptics_.press(at); });
 }
 void SandboxEngine::pressEnded() {
+    if (client_) return clientPress(false);
     double at = nowMs();
     thread_.async([this, at] { haptics_.release(at); });
 }
 
 void SandboxEngine::setVisible(bool v) {
+    if (client_) return clientSetVisible(v);
     thread_.async([this, v] {
         if (dead_ || visible_ == v) return;
         visible_ = v;
@@ -351,6 +380,7 @@ void SandboxEngine::setVisible(bool v) {
 }
 
 std::string SandboxEngine::probe(const std::string& code) {
+    if (client_) return clientProbe(code);
     return thread_.sync([&]() -> std::string {
         if (!js_ || dead_) return "ERROR no runtime";
         try {
@@ -940,6 +970,12 @@ void SandboxEngine::resetDeadline() {
 /// queries and the modelled cost of its ops against the main-thread window.
 void SandboxEngine::task(const std::string& kind, double sliceMs, const std::function<void()>& body) {
     if (dead_) return;
+    if (delegate_) delegate_->onTaskStarted(*this);
+    // Stopped from onTaskStarted: no widget code runs, and the task still ends.
+    if (dead_) {
+        if (delegate_) delegate_->onTaskCompleted(*this);
+        return;
+    }
     currentKind_ = kind;
     currentSliceMs_ = sliceMs;
     excludeMs_ = 0;
@@ -967,10 +1003,13 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
         stats_.memoryBytes = js_->memoryUsed();
     }
     postStats(false);
+    // Also after a death in the task: the delegate heard `onDied` first.
+    if (delegate_) delegate_->onTaskCompleted(*this);
 }
 
 void SandboxEngine::chargeValidator(double ms) {
     if (!(ms > 0)) return;
+    if (client_) return forward([ms](SandboxRemoteChannel& remote) { remote.chargeValidator(ms); });
     auto record = [this, ms] {
         if (dead_) return;
         double now = nowMs();

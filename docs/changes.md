@@ -3,6 +3,86 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: the desktop engine in another process (2026-11-13)
+
+C++, opt-in: the desktop core's engine can run in another process, the twin of the Swift remote engine
+(`RemoteEngine.swift`). Nothing changes for a host that sets no channel factory: tdesktop sets none, so its widgets keep
+their engines in process. This adds the contract and an in-process loopback only; it supplies and enables no OS helper,
+process launcher, transport or sandbox profile.
+
+- The split (`twidget/remote_engine.h`, `remote_engine.cpp`, `sandbox_engine_client.cpp`): `SandboxEngine(html, config,
+  std::shared_ptr<SandboxRemoteChannel>, intl)` is a client-mode engine with no QuickJS runtime, whose inputs go out
+  through a `SandboxRemoteChannel`; the other process runs a `SandboxRemoteServer` around a real engine and relays its
+  delegate through a `SandboxRemoteSink`, numbering requests and wallet calls from one counter for `answer(id, outcome)`.
+  `SandboxLoopbackChannel` puts both halves in one process (tests, the harness, parity runs) and passes config, data,
+  safe areas, outcomes and stats through `SandboxRemoteCoding` on the way.
+- The factory: `SandboxEngine::setRemoteChannelFactory` takes a `SandboxRemoteChannelFactory` (the `SandboxResources`
+  in, a channel out); `WidgetHost` and `twidget-run` build their engines with `SandboxEngine::make`, which uses the
+  factory once one is set. A null channel gives a widget that dies ("the widget engine process ended"), never an engine
+  in process; `WidgetHost` gives a client-mode engine its delegate in `start()`, so such a death (or a disconnection in
+  `attach`) reaches the host after it, as everything else does. `isRemote()` says which one `make` gave. In a build
+  without `NDEBUG` and with no factory, `TW_ENGINE_LOOPBACK=1` runs every engine `make` builds through the loopback; the
+  package's default RelWithDebInfo and tdesktop's Release compile the switch out. An engine constructed directly, as the
+  server's own, has its runtime.
+- The client engine re-decides every privileged call on the host's own inputs, as the engine's process may be the
+  widget's: under strict a link, `copyText` or a foreground request needs a tap the host delivered on the visible widget
+  (one call per tap, within 2 s, the newest 32 kept); every request and wallet call the message's `canQuery` and none
+  in flight; a background request `backgroundQuery`, visibility and the shared `RequestGate`'s 5 s (reset when the
+  widget appears); a wallet call `context.wallet` and, on the visible widget, a tap or the 10 s grant of a checked
+  answer; a haptic the host's `HapticGate` on its own presses. Bridge calls (an action only: a request, wallet call or
+  `copyText` sent as one is refused), storage commits and resize anchors are checked again with `sdk_policy.h`; a
+  preview's requests are refused and its bridge calls but `ready`, copies, storage and public-data watches dropped.
+  Ops (for the validator), queries, listen, preventDefault and anim reach the delegate as in process, sized first. The
+  client answers its own refusals with `NOT_ALLOWED` (the new `WidgetRequestFailure::NotAllowed`; the existing values
+  keep their numbers) or `RATE_LIMITED`.
+- Intl stays the host's: the engine's side asks through the synchronous `remoteIntl`, and the client formats with the
+  `IntlProvider` the host gave it (tdesktop's Qt one) on its dispatch thread; the engine process formats nothing.
+- Threads: each client engine has one dispatch thread (its `thread()`), where the delegate hears every call in the
+  transport's order, as an in-process engine's delegate does on its runtime thread. Channel calls come from it in the
+  host's order and never wait for the engine's side, except `probe` (tests, the harness), called from the owner's thread
+  after the earlier inputs, never from the dispatch thread or the thread that answers queries. The sink's `remoteQuery`
+  and `remoteIntl` are synchronous: answered on the dispatch thread after everything before them, never on the
+  renderer's or the host's thread, never from inside a channel call. A transport may keep the sink after the engine is
+  gone (late calls change nothing); the engine closes and releases its channel in its destructor, on the owner's
+  thread, and `close` may report the disconnection from inside.
+- Bounds: every sink call is sized before it is queued: 1 MiB per JSON message (a query, bridge arguments, an Intl
+  request, listen, preventDefault, anim), 32 MiB per ops batch, a bridge method of at most 64 bytes; a diagnostic's kind
+  is cut to 64 bytes and a log text, diagnostic detail or death reason to 4000 (bytes, as the C++ core counts
+  everywhere: never more than Swift's 4000 characters); request data, copyText and storage keep their SDK limits. What a
+  client holds for its delegate is bounded as a whole too, each message admitted before anything of it is copied and
+  given back once its call, and the work its delegate queued with it, has run or been dropped:
+  `SandboxEngine::kRemoteQueuedBytes`, 64 MiB (a full ops batch the delegate validates and one waiting), and
+  `kRemoteQueuedCalls`, 16384 calls (a busy widget's backlog is tens). `WidgetHost`'s host-thread work keeps its message
+  counted (`SandboxEngine::remoteHold`, also after a query timed out) and counts as work of its own what it keeps beyond
+  it: a validated result larger than its input, each diagnostic the validator reports meanwhile, a bridge call's raw
+  copy next to its action. So a stalled host thread fed by a running dispatch thread meets the same bounds. The message
+  past either kills the widget once, after what came before it ("the widget engine process sent more than the host keeps
+  queued", the engine's side told to stop and closed even while the host thread is held; the host hears the death after
+  the work it took); from then on the sink takes nothing and answers a query or an Intl request at once, never waiting.
+  These are payload bytes and queued calls up to the moment the work runs, not allocator memory (each call's closure and
+  containers come on top) and not what the host keeps afterwards; an engine in process holds nothing. The coders refuse
+  text over 1 MiB unparsed and JSON nested past `SandboxRemoteCoding::kMaxDepth` (8); a config needs finite
+  `innerWidth`, `innerHeight`, `devicePixelRatio` and a string `theme`, and any other member absent or of another type
+  keeps its default, as in Swift; integer fields saturate, and a viewer without a finite `id` inside `int64_t` is none.
+  Stats travel as 11 numbers, Swift's 10 and `validatorMs` (the host validator's time, which the client forwards to the
+  engine's JS quota with `chargeValidator`): a non-finite one is 0, a finite one is kept within [0, 1e15] and then
+  within its field's type.
+- Task boundaries: `SandboxEngineDelegate::onTaskStarted` / `onTaskCompleted` (empty by default) bracket every task of
+  the in-process engine as well; a death inside a task reaches the delegate before its end.
+- Differences from in process, as in Swift: the background gate counts on the host's clock when a request arrives, so
+  an honest request delayed less than the one before it can be refused `RATE_LIMITED` at exactly 5 s spacing; after the
+  host's `terminate` or `stop` nothing more from the engine's side reaches the host, not even a storage commit of a task
+  still queued there; a request the host answers inside its delivery may settle before or after the `BUSY` of the same
+  tap's next request.
+- Tests: `twidget-tests remote_` (51): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
+  C++ has no counterpart for, as wallet and data/safe-area coding cases) and 26 C++ cases for lifetimes, the server and
+  the bounds (a real `WidgetHost` with its host thread held among them). Run here (Debug, ASan and UBSan): 144 tests, 0
+  failures, in process and with `TW_ENGINE_LOOPBACK=1` (119 of 119 fixture engines behind the loopback);
+  `twidget-run --attacks` 133 attacks, 0 leaks, 7 runtimes killed in both modes, all 133 through a client-mode engine in
+  the second. The shared fixtures are unchanged.
+- C++ only: Swift has its twin; Kotlin and the web have no remote engine. This is desktop host transport, not shim or
+  quota glue; transport and policy glue elsewhere are unchanged.
+
 ## v0.6.5 — release notes (2026-11-12)
 
 Default, every host. A validator cap on how deeply a widget's elements may nest, with the deep-document fix that lets a

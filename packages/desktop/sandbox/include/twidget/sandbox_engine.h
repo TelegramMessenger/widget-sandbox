@@ -178,19 +178,35 @@ public:
     virtual void onStats(SandboxEngine& engine, const SandboxStats& stats) = 0;
     virtual void onDied(SandboxEngine& engine, const std::string& reason) = 0;
     virtual void onAnim(SandboxEngine&, const std::string&) {}
+    /// A task of the engine began / ended (an event, a timer, a frame): the calls between are that task's; a death inside it comes before its end, and after a stop from `onTaskStarted` none of its code runs.
+    virtual void onTaskStarted(SandboxEngine&) {}
+    virtual void onTaskCompleted(SandboxEngine&) {}
 };
+
+class SandboxRemoteChannel;
+
+/// What a host whose engines run in another process gives `SandboxEngine::setRemoteChannelFactory`: a channel to a new engine there, or null when it has none.
+using SandboxRemoteChannelFactory = std::function<std::shared_ptr<SandboxRemoteChannel>(std::shared_ptr<SandboxResources>)>;
 
 class SandboxEngine {
 public:
     SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources,
                   std::shared_ptr<IntlProvider> intl = nullptr);
-    /// Stops the thread; outstanding delegate calls finish first. Safe from any thread but the engine's.
+    /// A client-mode engine (remote_engine.h): no runtime here, the widget runs behind `remote`, attached now; a null channel gives an engine that died ("the widget engine process ended").
+    SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxRemoteChannel> remote, std::shared_ptr<IntlProvider> intl = nullptr);
+    /// Stops the thread (outstanding delegate calls finish first), then closes a client-mode engine's channel. Safe from any thread but the engine's.
     ~SandboxEngine();
     SandboxEngine(const SandboxEngine&) = delete;
     SandboxEngine& operator=(const SandboxEngine&) = delete;
 
-    /// Set before start(); the pointer must outlive the engine.
-    void setDelegate(SandboxEngineDelegate* delegate) { delegate_ = delegate; }
+    /// The engine a host builds: a client-mode one over the factory's channel once a host set one (also when it gives none), else in a build without NDEBUG with `TW_ENGINE_LOOPBACK=1` one over the in-process loopback, else one with its own runtime.
+    static std::unique_ptr<SandboxEngine> make(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl = nullptr);
+    /// For every later `make`, which calls it on its own thread; an empty one (the default) keeps engines in process.
+    static void setRemoteChannelFactory(SandboxRemoteChannelFactory factory);
+    bool isRemote() const { return client_ != nullptr; }
+
+    /// Set before start(); the pointer must outlive the engine. A client-mode engine takes it on its dispatch thread, after the calls before, with a death reported before it (once).
+    void setDelegate(SandboxEngineDelegate* delegate);
     JSThread& thread() { return thread_; }
 
     void start();
@@ -230,8 +246,37 @@ public:
     /// then `publicDataChanged`, for each that differs.
     void setData(const WidgetData& data);
 
-    /// Evaluates trusted diagnostic code in the widget context (tests only). Returns the string value or the error text.
+    /// Evaluates trusted diagnostic code in the widget context (tests only): the string value or the error text; a client asks its channel after its earlier inputs, from no thread its engine's side may wait for.
     std::string probe(const std::string& code);
+
+    /// Bytes of one JSON message from a remote engine's side (remote_engine.h), such as a query or bridge arguments; request data, copyText and storage keep their SDK limits.
+    static constexpr size_t kRemoteMessageLimit = size_t(1) << 20;
+    /// Bytes of one ops batch from a remote engine's side.
+    static constexpr size_t kRemoteOpsLimit = size_t(32) << 20;
+    /// A tap the host delivered to a client-mode engine allows one privileged call for this long.
+    static constexpr double kRemoteGrantWindowMs = 2000;
+    /// Taps a client-mode engine keeps for later privileged calls (the newest).
+    static constexpr size_t kRemoteMaxGrants = 32;
+    /// Bytes kept of a remote log text, diagnostic detail or death reason: this engine's byte cut, never more than Swift's 4000 characters.
+    static constexpr size_t kRemoteTextLimit = 4000;
+    /// Bytes kept of a remote diagnostic's kind; a longer bridge method name is refused.
+    static constexpr size_t kRemoteNameLimit = 64;
+    /// Bytes a client-mode engine holds of what its engine's side sent, from arrival until the call and the work its delegate queued with it (`remoteHold`) have run or been dropped: room for a full ops batch the delegate validates and one waiting behind it. A message past this or `kRemoteQueuedCalls` kills the widget once ("the widget engine process sent more than the host keeps queued"), after what came before it, and nothing more is taken.
+    static constexpr size_t kRemoteQueuedBytes = 2 * kRemoteOpsLimit;
+    /// Calls held the same way: a busy widget's backlog is tens (a task's begin, its ops, a frame request, its end, stats); the rest is room for a burst of logs.
+    static constexpr size_t kRemoteQueuedCalls = 16384;
+    struct RemoteBacklog {
+        size_t bytes = 0;
+        size_t calls = 0;
+    };
+    /// What a client-mode engine holds now against `kRemoteQueuedBytes` and `kRemoteQueuedCalls`, from any thread; nothing in process (tests).
+    RemoteBacklog remoteBacklog() const;
+    /// Kept by work a delegate queues with a client-mode engine's message: the message stays counted against `kRemoteQueuedBytes` and `kRemoteQueuedCalls` until every copy has run or been dropped, and letting go takes no lock. Empty in process.
+    using RemoteHold = std::shared_ptr<const void>;
+    /// In a delegate call, on the engine's thread or on a thread that call waits for: a hold on the message being delivered; empty in process and outside a delivery.
+    RemoteHold remoteHold() const;
+    /// The same, with `bytes` and one call more counted for work that keeps more than the message gave (a validated result larger than its input, a diagnostic about it): nullopt when they do not fit, which fails the widget as a message past the bounds does, so drop that work.
+    std::optional<RemoteHold> remoteHold(size_t bytes);
 
 private:
     struct Deferred { std::string kind; std::string arg; };
@@ -349,6 +394,46 @@ private:
     // A preview's dropped bridge calls (docs/sdk-v1.md §2.16), reported at most 20 times.
     int previewBlockedReported_ = 0;
     std::shared_ptr<Liveness> liveness_ = std::make_shared<Liveness>();
+
+    // Client mode (sandbox_engine_client.cpp): the widget runs behind `remote_`; `client_`, the sink the channel calls back, marks the mode.
+    class RemoteClient;
+    struct Grant {
+        int gesture;
+        double atMs;
+    };
+    /// `call` with the channel on the dispatch thread after everything queued before it, unless the widget died.
+    void forward(std::function<void(SandboxRemoteChannel&)> call);
+    void clientStart();
+    /// `stop` (`atOnce`: inline on the dispatch thread) and `terminate`: the widget dies with `reason` and the engine's side is told.
+    void clientKill(const std::string& reason, bool atOnce);
+    void clientActivationEvent(const std::string& json, int gesture);
+    void clientSetVisible(bool visible);
+    void clientPress(bool began);
+    void clientSetDelegate(SandboxEngineDelegate* delegate);
+    std::string clientProbe(const std::string& code);
+    /// On the dispatch thread, once: the delegate hears the death (or keeps it for a later one), the end of an open task, and the channel closes.
+    void remoteKill(const std::string& reason, bool tellRemote);
+    /// On the dispatch thread: a diagnostic about a message the host refused, unless the widget died or `counter` reached `sdk::MAX_REJECTION_REPORTS`.
+    void clientReport(int& counter, const char* kind, const std::string& detail);
+    void deliverPendingDeath();
+    /// Whether a tap the host delivered on the visible widget is unspent and at most `kRemoteGrantWindowMs` old; the others are dropped here.
+    bool liveGrants();
+    /// The oldest live tap is spent (`consumedGesture_`): no tap up to it allows anything again.
+    void spendGrant();
+    /// Under strict a privileged method needs a live tap, which it spends; without one it is reported (`activation-blocked`) and refused.
+    bool clientActivation(const std::string& method);
+    /// A request (`request`) or wallet call (`wallet`) of the engine's side, neither when it failed its checks: decided again on the host's flags, visibility and taps, then refused on the channel or handed to the delegate with a responder that answers there.
+    void clientRequest(int64_t id, const std::optional<WidgetRequest>& request, const std::optional<WalletCall>& wallet);
+    std::shared_ptr<SandboxRemoteChannel> remote_;
+    std::shared_ptr<RemoteClient> client_;
+    /// Taps the host delivered while the widget was visible, by gesture, the newest `kRemoteMaxGrants`; `consumedGesture_` is the last one spent.
+    std::vector<Grant> grants_;
+    /// The delegate heard the begin of the engine's task and not yet its end.
+    bool remoteTaskOpen_ = false;
+    /// The admission of the message whose work the dispatch thread runs now (`remoteHold`).
+    RemoteHold remoteDelivering_;
+    /// A death reported before the delegate was set, for the first one set.
+    std::optional<std::string> pendingDeath_;
 };
 
 } // namespace twidget
