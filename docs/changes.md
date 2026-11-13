@@ -60,13 +60,35 @@ process launcher, transport or sandbox profile.
   queued", the engine's side told to stop and closed even while the host thread is held; the host hears the death after
   the work it took); from then on the sink takes nothing and answers a query or an Intl request at once, never waiting.
   These are payload bytes and queued calls up to the moment the work runs, not allocator memory (each call's closure and
-  containers come on top) and not what the host keeps afterwards; an engine in process holds nothing. The coders refuse
-  text over 1 MiB unparsed and JSON nested past `SandboxRemoteCoding::kMaxDepth` (8); a config needs finite
-  `innerWidth`, `innerHeight`, `devicePixelRatio` and a string `theme`, and any other member absent or of another type
-  keeps its default, as in Swift; integer fields saturate, and a viewer without a finite `id` inside `int64_t` is none.
-  Stats travel as 11 numbers, Swift's 10 and `validatorMs` (the host validator's time, which the client forwards to the
-  engine's JS quota with `chargeValidator`): a non-finite one is 0, a finite one is kept within [0, 1e15] and then
-  within its field's type.
+  containers come on top) and not what the host keeps afterwards (the next item); an engine in process holds nothing.
+  The coders refuse text over 1 MiB unparsed and JSON nested past `SandboxRemoteCoding::kMaxDepth` (8); a config needs
+  finite `innerWidth`, `innerHeight`, `devicePixelRatio` and a string `theme`, and any other member absent or of another
+  type keeps its default, as in Swift; integer fields saturate, and a viewer without a finite `id` inside `int64_t` is
+  none. Stats travel as 11 numbers, Swift's 10 and `validatorMs` (the host validator's time, which the client forwards
+  to the engine's JS quota with `chargeValidator`): a non-finite one is 0, a finite one is kept within [0, 1e15] and
+  then within its field's type.
+- What the host keeps afterwards: until its renderer's `ready`, `WidgetHost` keeps at most
+  `WidgetHost::kRendererBacklogBytes` (64 MiB, each message's serialized bytes with its `{"type":…}` wrapper) and
+  `WidgetHost::kRendererBacklogMessages` (16384 messages) of a client-mode engine's renderer messages: ops, queries,
+  listen, preventDefault, anim, frame requests and the render-ack query its `loaded` brings; the message that reaches
+  either bound exactly still fits. An honest engine sends none of them before `ready`, which is what starts it. The
+  message past either bound is the cut: it stops the widget once through the existing `stop` ("the widget engine
+  process sent more than the host keeps before its renderer is ready", diagnostic `backlog-limit`) and is neither kept
+  nor reported to `onRenderOps`; what was kept is dropped at once, a waiting query is answered `{"error":"dead"}` (and
+  so is any later one), and from then on nothing the engine sends, work already queued on the host thread included,
+  reaches the renderer, an observer, the callbacks or the diagnostics (that work still gives its admission back). The
+  engine is never started, not even by a `ready` inside the cut, and any death the host hears after the cut, also a
+  `terminated` from the engine's side or a disconnect that won the race on the dispatch thread, is published with the
+  backlog reason and still freezes the renderer. The host's own messages (theme, safe area and policy at `start()`, an
+  owner's later safe area, and theme with the validator's re-themed ops, `frozen`) are not counted and always fit, in
+  their order; after the cut an owner's theme no longer sends the re-themed ops, whose nodes the renderer never got.
+  `diagnostics().diags` keeps at most `WidgetHost::kMaxDiagKinds` (64) kinds whatever their source, `diag-kind-dropped`
+  among them: once 63 other kinds are there, every diagnostic of a new kind counts under it, which keeps its first 50
+  details as any kind does, a folded one's as `<kind>: <detail>`; the kinds kept keep their counts and first 50
+  details. So after a kind flood the backlog stop may be folded there too; `dead` still carries its reason. These are
+  logical bytes and counts, not allocator memory, and the rest of what `WidgetHost` keeps is as before: logs at 5000,
+  recorded actions and bridge calls at 1000 each. An engine in process reaches neither bound: it starts only at
+  `ready`, and the framework's own kinds are a fixed few dozen. C++ only; nothing changes in Swift.
 - Task boundaries: `SandboxEngineDelegate::onTaskStarted` / `onTaskCompleted` (empty by default) bracket every task of
   the in-process engine as well; a death inside a task reaches the delegate before its end.
 - Differences from in process, as in Swift: the background gate counts on the host's clock when a request arrives, so
@@ -74,12 +96,14 @@ process launcher, transport or sandbox profile.
   host's `terminate` or `stop` nothing more from the engine's side reaches the host, not even a storage commit of a task
   still queued there; a request the host answers inside its delivery may settle before or after the `BUSY` of the same
   tap's next request.
-- Tests: `twidget-tests remote_` (51): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
-  C++ has no counterpart for, as wallet and data/safe-area coding cases) and 26 C++ cases for lifetimes, the server and
-  the bounds (a real `WidgetHost` with its host thread held among them). Run here (Debug, ASan and UBSan): 144 tests, 0
-  failures, in process and with `TW_ENGINE_LOOPBACK=1` (119 of 119 fixture engines behind the loopback);
-  `twidget-run --attacks` 133 attacks, 0 leaks, 7 runtimes killed in both modes, all 133 through a client-mode engine in
-  the second. The shared fixtures are unchanged.
+- Tests: `twidget-tests remote_` (60): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
+  C++ has no counterpart for, as wallet and data/safe-area coding cases) and 35 C++ cases for lifetimes, the server and
+  the bounds (a real `WidgetHost` with its host thread held among them), nine of them for what the host keeps
+  afterwards: an early engine's renderer backlog by count and by bytes, the cut and what was queued behind it,
+  privileged calls, a query, a death that won the race, a `ready` inside the cut, the kind cap alone and with the kinds
+  full at the cut. Run here (Debug, ASan and UBSan): 153 tests, 0 failures, in process and with `TW_ENGINE_LOOPBACK=1`
+  (119 of 119 fixture engines behind the loopback); `twidget-run --attacks` 133 attacks, 0 leaks, 7 runtimes killed in
+  both modes, all 133 through a client-mode engine in the second. The shared fixtures are unchanged.
 - C++ only: Swift has its twin; Kotlin and the web have no remote engine. This is desktop host transport, not shim or
   quota glue; transport and policy glue elsewhere are unchanged.
 

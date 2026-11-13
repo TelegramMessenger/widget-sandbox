@@ -77,6 +77,12 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
 // The shared bubble height bounds of v0.1.0 (docs/integration.md, "Bubble sizing").
 constexpr double kMinHeight = 50, kMaxHeight = 600;
 
+/// The diagnostic and the death of a client-mode engine whose renderer messages passed WidgetHost's backlog bounds.
+constexpr const char* kBacklogLimit = "backlog-limit";
+constexpr const char* kBacklogLimitReason = "the widget engine process sent more than the host keeps before its renderer is ready";
+/// Where a diagnostic of a new kind past WidgetHost::kMaxDiagKinds is counted.
+constexpr const char* kDiagKindDropped = "diag-kind-dropped";
+
 /// A hold on `engine`'s message for work that keeps `kept` bytes made of its `given`: what goes past them is counted as work of its own; nullopt when that does not fit.
 std::optional<SandboxEngine::RemoteHold> keeping(SandboxEngine& engine, size_t kept, size_t given) {
     if (kept <= given) return engine.remoteHold();
@@ -167,18 +173,26 @@ void WidgetHost::host(std::function<void()> fn, SandboxEngine::RemoteHold hold) 
     else hostThread_.async([fn = std::move(fn), hold = std::move(hold)] { fn(); });
 }
 
+void WidgetHost::engineWork(std::function<void()> fn, SandboxEngine::RemoteHold hold) {
+    host([this, fn = std::move(fn)] { if (!engineCut_) fn(); }, std::move(hold));
+}
+
 void WidgetHost::validatorDiag(const std::string& kind, const std::string& detail) {
     SandboxEngine::RemoteHold hold;
+    bool fromEngine = false;
     {
         // Held while the engine is read: the engine's thread clears `validating_` under it before it leaves the delegate call.
         std::lock_guard<std::mutex> l(validatingMutex_);
         if (validating_) {
+            fromEngine = true;
             std::optional<SandboxEngine::RemoteHold> counted = validating_->remoteHold(kind.size() + detail.size());
             if (!counted) return;
             hold = std::move(*counted);
         }
     }
-    host([this, kind, detail] { diag(kind, detail); }, std::move(hold));
+    std::function<void()> report = [this, kind, detail] { diag(kind, detail); };
+    if (fromEngine) engineWork(std::move(report), std::move(hold));
+    else host(std::move(report));
 }
 
 template <class F>
@@ -206,7 +220,8 @@ void WidgetHost::setTheme(const WidgetTheme& theme) {
         widgetTheme_ = theme;
         renderer_->setTheme(theme_);
         toRenderer(themeMessage());
-        toRenderer("{\"type\":\"ops\",\"ops\":" + validator_.setTheme(theme_) + "}");
+        // Past the cut the renderer never gets the nodes the re-themed stylesheets would name.
+        if (!engineCut_) toRenderer("{\"type\":\"ops\",\"ops\":" + validator_.setTheme(theme_) + "}");
         engine_->theme(theme_, widgetTheme_.params);
     });
 }
@@ -275,10 +290,10 @@ void WidgetHost::onOps(SandboxEngine& engine, const std::string& json) {
     int nodes = validator_.nodeCount();
     std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, clean.size(), json.size());
     if (!hold) return;
-    host([this, clean = std::move(clean), nodes] {
+    engineWork([this, clean = std::move(clean), nodes] {
         if (destroyed_) return;
         if (clean != "[]") {
-            toRenderer("{\"type\":\"ops\",\"ops\":" + clean + "}");
+            if (!engineToRenderer("{\"type\":\"ops\",\"ops\":" + clean + "}")) return;
             opsSent_++;
             if (onRenderOps) onRenderOps(clean);
         }
@@ -312,14 +327,15 @@ QueryAnswer WidgetHost::onQuery(SandboxEngine& engine, const std::string& json) 
         return {"{\"error\":\"dead\"}", std::nullopt};
     }
     host([this, pending, clean] {
-        if (destroyed_) return resolveQuery("{\"error\":\"dead\"}", std::nullopt);
+        if (destroyed_ || engineCut_) return resolveQuery("{\"error\":\"dead\"}", std::nullopt);
         if (!clean) return resolveQuery("{\"error\":\"invalid query\"}", std::nullopt);
         qid_++;
         {
             std::lock_guard<std::mutex> l(queryMutex_);
             pending->id = qid_;
         }
-        toRenderer("{\"type\":\"query\",\"qid\":" + std::to_string(qid_) + ",\"query\":" + *clean + "}");
+        // Not kept: the cut, or destroy(), resolved this query and no longer waits for its qid.
+        engineToRenderer("{\"type\":\"query\",\"qid\":" + std::to_string(qid_) + ",\"query\":" + *clean + "}");
     }, std::move(*hold));
     std::unique_lock<std::mutex> l(queryMutex_);
     if (!queryCv_.wait_for(l, std::chrono::seconds(3), [&] { return pending->done; })) {
@@ -344,14 +360,14 @@ void WidgetHost::onListen(SandboxEngine& engine, const std::string& json) {
     std::string types = validated(engine, [&] { return validator_.validateListen(json); });
     std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, types.size(), json.size());
     if (!hold) return;
-    host([this, types] { toRenderer("{\"type\":\"listen\",\"types\":" + types + "}"); }, std::move(*hold));
+    engineWork([this, types] { engineToRenderer("{\"type\":\"listen\",\"types\":" + types + "}"); }, std::move(*hold));
 }
 
 void WidgetHost::onPreventDefault(SandboxEngine& engine, const std::string& json) {
     std::string keys = validated(engine, [&] { return validator_.validatePreventDefault(json); });
     std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, keys.size(), json.size());
     if (!hold) return;
-    host([this, keys] { toRenderer("{\"type\":\"preventDefault\",\"keys\":" + keys + "}"); }, std::move(*hold));
+    engineWork([this, keys] { engineToRenderer("{\"type\":\"preventDefault\",\"keys\":" + keys + "}"); }, std::move(*hold));
 }
 
 void WidgetHost::onAnim(SandboxEngine& engine, const std::string& json) {
@@ -359,19 +375,19 @@ void WidgetHost::onAnim(SandboxEngine& engine, const std::string& json) {
     if (anims == "[]") return;
     std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, anims.size(), json.size());
     if (!hold) return;
-    host([this, anims] {
+    engineWork([this, anims] {
         char now[64];
         std::snprintf(now, sizeof now, "%.17g", QuickJSContext::now() * 1000);
-        toRenderer(std::string("{\"type\":\"anim\",\"now\":") + now + ",\"anims\":" + anims + "}");
+        engineToRenderer(std::string("{\"type\":\"anim\",\"now\":") + now + ",\"anims\":" + anims + "}");
     }, std::move(*hold));
 }
 
 void WidgetHost::onRequestFrame(SandboxEngine& engine) {
-    host([this] { toRenderer("{\"type\":\"requestFrame\"}"); }, engine.remoteHold());
+    engineWork([this] { engineToRenderer("{\"type\":\"requestFrame\"}"); }, engine.remoteHold());
 }
 
 void WidgetHost::onLog(SandboxEngine& engine, const std::string& level, const std::string& text) {
-    host([this, level, text] {
+    engineWork([this, level, text] {
         {
             std::lock_guard<std::mutex> l(mutex_);
             if (diagnostics_.logs.size() < 5000) diagnostics_.logs.emplace_back(level, text);
@@ -386,14 +402,14 @@ void WidgetHost::onLog(SandboxEngine& engine, const std::string& level, const st
 }
 
 void WidgetHost::onDiag(SandboxEngine& engine, const std::string& kind, const std::string& detail) {
-    host([this, kind, detail] { diag(kind, detail); }, engine.remoteHold());
+    engineWork([this, kind, detail] { diag(kind, detail); }, engine.remoteHold());
 }
 
 /// Kept in the diagnostics; a widget can call ready() or play haptics for as long as it lives.
 static constexpr size_t kMaxRecordedCalls = 1000;
 
 void WidgetHost::onBridgeAction(SandboxEngine& engine, const WidgetAction& action) {
-    host([this, action] {
+    engineWork([this, action] {
         if (destroyed_) return; // no link dialog for a widget that is going away
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -409,7 +425,7 @@ void WidgetHost::onResizeAnchor(SandboxEngine& engine, const std::string& edge) 
     // during the task, before that task's onOps, and both hop to the host thread in order; the renderer's size report
     // for those ops comes after them, so the anchor is in the state before the height it anchors. An equal value
     // changes nothing (no onChange).
-    host([this, edge] {
+    engineWork([this, edge] {
         if (destroyed_) return;
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -422,7 +438,7 @@ void WidgetHost::onResizeAnchor(SandboxEngine& engine, const std::string& edge) 
 
 void WidgetHost::onPublicDataWatch(SandboxEngine& engine, bool on) {
     // Like the resize anchor: host state, reported on a change only (the shim already sends only changes).
-    host([this, on] {
+    engineWork([this, on] {
         if (destroyed_) return;
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -435,7 +451,7 @@ void WidgetHost::onPublicDataWatch(SandboxEngine& engine, bool on) {
 }
 
 void WidgetHost::onStorage(SandboxEngine& engine, const std::string& area, const StorageArea& values) {
-    host([this, area, values] {
+    engineWork([this, area, values] {
         if (callbacksClosed_) return;
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -448,7 +464,7 @@ void WidgetHost::onStorage(SandboxEngine& engine, const std::string& area, const
 
 void WidgetHost::onBridgeRequest(SandboxEngine& engine, const WidgetRequest& request, WidgetRequestResponder respond) {
     // The client side is decided here, at delivery, on the host thread where `onRequest` lives.
-    host([this, request, respond = std::move(respond)] {
+    engineWork([this, request, respond = std::move(respond)] {
         if (destroyed_) return; // the engine is going away: nothing waits for the answer
         if (!onRequest) return respond.unsupported();
         // `respond` is the engine's: from any thread, once, ignored once the engine is dead or destroyed.
@@ -458,7 +474,7 @@ void WidgetHost::onBridgeRequest(SandboxEngine& engine, const WidgetRequest& req
 
 void WidgetHost::onBridgeWallet(SandboxEngine& engine, const WalletCall& call, WidgetRequestResponder respond) {
     // As onBridgeRequest: the client side is decided at delivery, on the host thread where `onWallet` lives.
-    host([this, call, respond = std::move(respond)] {
+    engineWork([this, call, respond = std::move(respond)] {
         if (destroyed_) return;
         if (!onWallet) return respond.unsupported();
         onWallet(call, respond);
@@ -466,7 +482,7 @@ void WidgetHost::onBridgeWallet(SandboxEngine& engine, const WalletCall& call, W
 }
 
 void WidgetHost::onBridgeCopyText(SandboxEngine& engine, const std::string& text) {
-    host([this, text] {
+    engineWork([this, text] {
         if (destroyed_) return; // no toast for a widget that is going away
         if (onCopyText) onCopyText(text);
     }, engine.remoteHold());
@@ -476,7 +492,7 @@ void WidgetHost::onBridge(SandboxEngine& engine, const std::string& method, cons
     // A second copy of the call, next to its action's.
     std::optional<SandboxEngine::RemoteHold> hold = engine.remoteHold(method.size() + argsJson.size());
     if (!hold) return;
-    host([this, method, argsJson] {
+    engineWork([this, method, argsJson] {
         if (destroyed_) return;
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -505,19 +521,19 @@ void WidgetHost::onLoaded(SandboxEngine& engine) {
     double loadedMs = elapsedMs();
     // Through the host thread after the ops of the loading tasks; then one trusted query to the renderer:
     // its answer comes after every size report those ops produced.
-    host([this, loadedMs] {
+    engineWork([this, loadedMs] {
         {
             std::lock_guard<std::mutex> l(mutex_);
             diagnostics_.loaded = true;
             diagnostics_.loadedMs = loadedMs;
         }
         changed();
-        toRenderer("{\"type\":\"query\",\"qid\":" + std::to_string(kRenderAckQid) + ",\"query\":{\"q\":\"viewport\"}}");
+        engineToRenderer("{\"type\":\"query\",\"qid\":" + std::to_string(kRenderAckQid) + ",\"query\":{\"q\":\"viewport\"}}");
     }, engine.remoteHold());
 }
 
 void WidgetHost::onStats(SandboxEngine& engine, const SandboxStats& stats) {
-    host([this, stats] {
+    engineWork([this, stats] {
         {
             std::lock_guard<std::mutex> l(mutex_);
             diagnostics_.stats = stats;
@@ -530,15 +546,17 @@ void WidgetHost::onStats(SandboxEngine& engine, const SandboxStats& stats) {
 
 void WidgetHost::onDied(SandboxEngine& engine, const std::string& reason) {
     host([this, reason] {
+        // After the cut a death that won the race on the engine's thread (a "terminated" the engine sent, a disconnect) is the cut's.
+        const std::string effective = engineCut_ ? kBacklogLimitReason : reason;
         {
             std::lock_guard<std::mutex> l(mutex_);
             if (diagnostics_.dead) return;
-            diagnostics_.dead = reason;
+            diagnostics_.dead = effective;
         }
         changed();
         resolveQuery("{\"error\":\"dead\"}", std::nullopt);
         // The renderer stays: last render as fallback, badge from the renderer, no more events or frames.
-        if (reason != "terminated") {
+        if (effective != "terminated") {
             Json frozen = Json::object();
             frozen.set("type", "frozen");
             frozen.set("reason", stoppedLabel);
@@ -566,10 +584,13 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
             std::lock_guard<std::mutex> l(mutex_);
             diagnostics_.rendererReadyMs = elapsedMs();
         }
-        auto queued = std::move(pendingToRenderer_);
+        std::vector<PendingMessage> queued = std::move(pendingToRenderer_);
         pendingToRenderer_.clear();
-        for (const auto& m : queued) renderer_->send(m);
-        if (!engineStarted_) {
+        backlogBytes_ = 0;
+        backlogMessages_ = 0;
+        for (const PendingMessage& m : queued) renderer_->send(m.json);
+        // Never once cut: an observer of the cut's diagnostic may announce the renderer before the stop is posted.
+        if (!engineStarted_ && !engineCut_) {
             engineStarted_ = true;
             engine_->start();
         }
@@ -691,15 +712,52 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
 void WidgetHost::toRenderer(const std::string& json) {
     if (destroyed_) return;
     if (rendererReady_) renderer_->send(json);
-    else pendingToRenderer_.push_back(json);
+    else pendingToRenderer_.push_back(PendingMessage{json, false});
+}
+
+bool WidgetHost::engineToRenderer(std::string json) {
+    if (destroyed_ || engineCut_) return false;
+    if (rendererReady_) {
+        renderer_->send(json);
+        return true;
+    }
+    if (backlogMessages_ < kRendererBacklogMessages && json.size() <= kRendererBacklogBytes - backlogBytes_) {
+        backlogBytes_ += json.size();
+        backlogMessages_++;
+        pendingToRenderer_.push_back(PendingMessage{std::move(json), true});
+        return true;
+    }
+    engineCut_ = true;
+    std::vector<PendingMessage> kept;
+    for (PendingMessage& m : pendingToRenderer_) {
+        if (!m.fromEngine) kept.push_back(std::move(m));
+    }
+    pendingToRenderer_ = std::move(kept);
+    backlogBytes_ = 0;
+    backlogMessages_ = 0;
+    opsSent_ = 0;
+    diag(kBacklogLimit, kBacklogLimitReason);
+    // A query waiting, or the one whose message passed the bounds, would hold the engine's thread for its 3 s before the stop runs.
+    resolveQuery("{\"error\":\"dead\"}", std::nullopt);
+    engine_->stop(kBacklogLimitReason);
+    return false;
 }
 
 void WidgetHost::diag(const std::string& kind, const std::string& detail) {
     {
         std::lock_guard<std::mutex> l(mutex_);
-        auto& entry = diagnostics_.diags[kind];
+        auto& diags = diagnostics_.diags;
+        auto it = diags.find(kind);
+        bool folded = false;
+        if (it == diags.end()) {
+            // A new kind leaves the last place to the overflow kind until that kind is there; the overflow kind takes it.
+            const size_t reserved = (kind == kDiagKindDropped || diags.count(kDiagKindDropped)) ? 0 : 1;
+            folded = diags.size() + reserved >= kMaxDiagKinds;
+            it = diags.try_emplace(folded ? std::string(kDiagKindDropped) : kind).first;
+        }
+        auto& entry = it->second;
         entry.first++;
-        if (entry.second.size() < 50) entry.second.push_back(detail);
+        if (entry.second.size() < 50) entry.second.push_back(folded ? kind + ": " + detail : detail);
     }
     changed();
 }

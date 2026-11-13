@@ -3101,21 +3101,34 @@ TEST(remote_widget_host_starts_a_working_channel_after_its_setup) {
     CHECK(renderer->sent("frozen").empty() && !renderer->sent("theme").empty());
 }
 
-/// A WidgetHost over a fake channel, started (its delegate is in once the channel heard `start`).
+/// A WidgetHost over a fake channel, started (its delegate is in once the channel heard `start`); without `ready` its renderer stays quiet until `announce`, and the delegate is in once the client took it, the engine not started.
 struct RemoteHostRun {
     FactoryReset reset;
     std::shared_ptr<FakeRemoteChannel> channel = std::make_shared<FakeRemoteChannel>();
     ScriptedRenderer* renderer = nullptr;
     std::optional<WidgetHost> host;
     /// `observe` sets the host's observers before it starts.
-    explicit RemoteHostRun(const std::function<void(WidgetHost&)>& observe = nullptr) {
+    explicit RemoteHostRun(const std::function<void(WidgetHost&)>& observe = nullptr, bool ready = true, const WidgetHostOptions& options = WidgetHostOptions()) {
         SandboxEngine::setRemoteChannelFactory([channel = channel](std::shared_ptr<SandboxResources>) -> std::shared_ptr<SandboxRemoteChannel> { return channel; });
-        host.emplace("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), RES, scripted(renderer));
+        host.emplace("<p>x</p>", WidgetTheme{}, 300, options, RES, scripted(renderer));
+        renderer->readyOnLoad = ready;
         if (observe) observe(*host);
         host->start();
-        CHECK(eventually([&] { return startedOver(*channel); }));
+        if (ready) {
+            CHECK(eventually([&] { return startedOver(*channel); }));
+            return;
+        }
+        // start()'s closure handed the delegate to the client; an unstarted client's probe answers after its dispatch thread took it, asking the channel nothing.
+        host->onHostThread([] {});
+        CHECK(host->probe("0") == "ERROR no runtime");
     }
     SandboxRemoteSink& sink() { return *channel->sink(); }
+    /// The quiet renderer's `ready`, then the host settled: what it kept sent, the engine started unless it was cut.
+    void announce() {
+        renderer->onMessage("{\"type\":\"ready\"}");
+        host->onHostThread([] {});
+        settleHost(*host);
+    }
     /// The types of what the renderer got, in order.
     std::vector<std::string> sentTypes() {
         std::lock_guard<std::mutex> l(renderer->mutex);
@@ -3303,6 +3316,565 @@ TEST(remote_widget_host_gives_back_what_it_held_as_it_runs) {
     host.onHostThread([] {});
     CHECK_MSG(backlogIs(host, 0, 0), backlogText(host));
     CHECK(host.diagnostics().hasLog("before destroy"));
+}
+
+static const std::string kBacklogLimitReason = "the widget engine process sent more than the host keeps before its renderer is ready";
+/// The engine's side's paragraph (id 2), then as the validator sends it on.
+static const std::string kParagraph = "[{\"op\":\"el\",\"id\":2,\"tag\":\"p\"}]";
+static const std::string kParagraphRendered = "[{\"op\":\"el\",\"id\":2,\"tag\":\"p\",\"attrs\":[]}]";
+/// A CSS animation of that paragraph, valid as it comes.
+static const std::string kParagraphAnim =
+    "[{\"aid\":1,\"target\":2,\"css\":{\"kind\":\"animation\",\"name\":\"spin\",\"origin\":0},\"startTime\":null,\"holdTime\":null,\"playbackRate\":1,\"cancelled\":false}]";
+
+static bool isDead(const WidgetDiagnostics& d) { return d.dead.has_value(); }
+
+/// `frames` frame requests from `r`'s engine, the host settled after every 1000 so the client's own bounds never fill.
+static void sendFrames(RemoteHostRun& r, size_t frames) {
+    for (size_t i = 1; i <= frames; i++) {
+        r.sink().remoteRequestsFrame();
+        if (i % 1000 == 0) settleHost(*r.host);
+    }
+    settleHost(*r.host);
+}
+
+/// The calls of `channel` that begin with `prefix`, in order.
+static std::vector<std::string> callsWith(FakeRemoteChannel& channel, const std::string& prefix) {
+    std::vector<std::string> out;
+    for (const std::string& c : channel.calls())
+        if (c.rfind(prefix, 0) == 0) out.push_back(c);
+    return out;
+}
+
+/// The engine's side was told to stop once, for the backlog, and never to start.
+static bool stoppedForTheBacklog(FakeRemoteChannel& channel) {
+    return callsWith(channel, "stop:") == std::vector<std::string>{"stop:" + kBacklogLimitReason} && callsWith(channel, "start:").empty();
+}
+
+/// A trusted tap through `r`'s renderer, a grant once the client's dispatch thread had it.
+static void tapThrough(RemoteHostRun& r) {
+    r.renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
+    r.host->onHostThread([] {});
+    r.host->probe("0");
+}
+
+/// A renderer message as its type and what tells it from the others of that type (an anim's clock left out).
+static std::string described(const std::string& message) {
+    const Json m = Json::parse(message).value_or(Json());
+    const std::string& type = m["type"].asString();
+    if (type == "theme") return "theme:" + m["theme"]["colorScheme"].asString() + m["theme"]["params"].dump();
+    if (type == "safeArea") return "safeArea:" + m["inset"].dump();
+    if (type == "policy") return "policy:" + m["policy"].asString();
+    if (type == "ops") return "ops:" + m["ops"].dump();
+    if (type == "listen") return "listen:" + m["types"].dump();
+    if (type == "preventDefault") return "preventDefault:" + m["keys"].dump();
+    if (type == "anim") return "anim:" + m["anims"].dump();
+    if (type == "query") return "query:" + m["qid"].dump() + m["query"].dump();
+    if (type == "frozen") return "frozen:" + m["reason"].asString();
+    return type;
+}
+
+/// What `r`'s renderer got, `described`, a run of one message as one entry with its count ("requestFrame x3").
+static std::vector<std::string> sentRuns(RemoteHostRun& r) {
+    std::vector<std::string> messages;
+    {
+        std::lock_guard<std::mutex> l(r.renderer->mutex);
+        messages = r.renderer->messages;
+    }
+    std::vector<std::pair<std::string, size_t>> runs;
+    for (const std::string& m : messages) {
+        std::string d = described(m);
+        if (!runs.empty() && runs.back().first == d) runs.back().second++;
+        else runs.emplace_back(std::move(d), 1);
+    }
+    std::vector<std::string> out;
+    for (const auto& [d, n] : runs) out.push_back(n == 1 ? d : d + " x" + std::to_string(n));
+    return out;
+}
+
+/// What a quiet renderer's host queued at start, before anything else: the default theme, no safe area, strict.
+static std::vector<std::string> startMessages() { return {"theme:light{}", "safeArea:" + WidgetContentSafeArea{}.json().dump(), "policy:strict"}; }
+
+/// The sizes of `got` and `expected` and their first difference, for a failure.
+static std::string firstDifference(const std::vector<std::string>& got, const std::vector<std::string>& expected) {
+    size_t i = 0;
+    while (i < got.size() && i < expected.size() && got[i] == expected[i]) i++;
+    return std::to_string(got.size()) + " entries for " + std::to_string(expected.size()) + ", first difference at " + std::to_string(i) + ": " +
+           (i < got.size() ? got[i].substr(0, 200) : "(none)") + " for " + (i < expected.size() ? expected[i].substr(0, 200) : "(none)");
+}
+
+/// A quiet renderer's host keeps what a client-mode engine sends before `ready` up to exactly the message bound (validated ops, listen, preventDefault, an anim, the loaded ack, frame requests), the owner's safe area and theme among them and at the bound too, and nothing dies; at `ready` the renderer gets the host's messages, then all of it in its order, the ack marks the widget rendered, and the engine's later output goes on at once.
+TEST(remote_widget_host_keeps_an_early_engines_messages_in_order_up_to_the_bound) {
+    std::mutex m;
+    std::vector<std::string> rendered;
+    RemoteHostRun r([&](WidgetHost& host) {
+        host.onRenderOps = [&](const std::string& ops) {
+            std::lock_guard<std::mutex> l(m);
+            rendered.push_back(ops);
+        };
+    }, false);
+    WidgetHost& host = *r.host;
+    SandboxRemoteSink& sink = r.sink();
+    const WidgetContentSafeArea first{1, 2, 3, 4, 5, 6}, last{7, 8, 9, 10, 11, 12};
+    WidgetTheme dark, tinted;
+    dark.colorScheme = "dark";
+    tinted.params = {{"bg_color", "#123456"}};
+    sink.remoteOps(kParagraph);
+    settleHost(host);
+    host.setContentSafeArea(first);
+    sink.remoteListen("[\"click\"]");
+    sink.remotePreventDefault("[\"2:click\"]");
+    sink.remoteAnim(kParagraphAnim);
+    sink.remoteLoaded();
+    const size_t frames = WidgetHost::kRendererBacklogMessages - 5, early = frames / 2;
+    sendFrames(r, early);
+    host.setTheme(dark);
+    sendFrames(r, frames - early);
+    host.setTheme(tinted);
+    host.setContentSafeArea(last);
+    settleHost(host);
+    const WidgetDiagnostics before = host.diagnostics();
+    CHECK_MSG(!before.dead && before.diags.empty() && before.loaded && !before.rendered, before.dead.value_or("alive"));
+    CHECK(r.sentTypes().empty() && callsWith(*r.channel, "start:").empty());
+    r.announce();
+    std::vector<std::string> expected = startMessages();
+    expected.insert(expected.end(), {"ops:" + kParagraphRendered, "safeArea:" + first.json().dump(), "listen:[\"click\"]", "preventDefault:[\"2:click\"]", "anim:" + kParagraphAnim,
+                                     "query:-1{\"q\":\"viewport\"}", "requestFrame x" + std::to_string(early), "theme:dark{}", "ops:[]",
+                                     "requestFrame x" + std::to_string(frames - early), "theme:light{\"bg_color\":\"#123456\"}", "ops:[]", "safeArea:" + last.json().dump()});
+    std::vector<std::string> sent = sentRuns(r);
+    CHECK_MSG(sent == expected, firstDifference(sent, expected));
+    const WidgetDiagnostics at = host.diagnostics();
+    CHECK_MSG(at.rendered && !at.dead && at.diags.empty(), at.dead.value_or("alive"));
+    CHECK_MSG(callsWith(*r.channel, "start:").size() == 1, joined(r.channel->calls()));
+    const std::string later = "[{\"op\":\"text\",\"id\":3,\"data\":\"later\"}]";
+    sink.remoteRequestsFrame();
+    sink.remoteOps(later);
+    settleHost(host);
+    expected.insert(expected.end(), {"requestFrame", "ops:" + later});
+    sent = sentRuns(r);
+    CHECK_MSG(sent == expected, firstDifference(sent, expected));
+    CHECK(!host.diagnostics().dead);
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG((rendered == std::vector<std::string>{kParagraphRendered, later}), joined(rendered));
+}
+
+/// The bytes alone bound it, through the strict validator before `loaded`: after a paragraph, batches of its class, 8000 characters a value (under strict's attribute cap, and no text its budgets count), each validated as it came and given back before the next, fill what the host keeps, wrappers included, to exactly the byte bound in under a hundred messages, and the widget lives; a small batch more stops it once, never reported to `onRenderOps`, with the backlog's diagnostic and death, one stop and one close, and a late `ready` gets the host's messages and the badge only.
+TEST(remote_widget_host_bounds_an_early_engines_messages_by_their_bytes) {
+    const size_t wrapper = std::string("{\"type\":\"ops\",\"ops\":}").size();
+    std::mutex m;
+    size_t keptBytes = 0, batches = 0, lastOps = 0;
+    RemoteHostRun r([&](WidgetHost& host) {
+        host.onRenderOps = [&](const std::string& ops) {
+            std::lock_guard<std::mutex> l(m);
+            keptBytes += wrapper + ops.size();
+            batches++;
+            lastOps = ops.size();
+        };
+    }, false);
+    WidgetHost& host = *r.host;
+    SandboxRemoteSink& sink = r.sink();
+    const size_t value = 8000, perBatch = 128;
+    const auto op = [](size_t length) { return "{\"op\":\"attr\",\"id\":2,\"name\":\"class\",\"value\":\"" + std::string(length, 'x') + "\"}"; };
+    const auto batchOf = [&](size_t full, std::optional<size_t> tail) {
+        std::string out = "[";
+        for (size_t i = 0; i < full; i++) out += (i ? "," : "") + op(value);
+        if (tail) out += (full ? "," : "") + op(*tail);
+        return out + "]";
+    };
+    size_t sent = 0, count = 0;
+    bool sizesMatch = true;
+    const auto send = [&](const std::string& ops, size_t validated) {
+        sink.remoteOps(ops);
+        settleHost(host);
+        sent += wrapper + validated;
+        count++;
+        std::lock_guard<std::mutex> l(m);
+        sizesMatch = sizesMatch && lastOps == validated && batches == count;
+    };
+    send(kParagraph, kParagraphRendered.size());
+    const std::string batch = batchOf(perBatch, std::nullopt);
+    while (sent + wrapper + batch.size() <= WidgetHost::kRendererBacklogBytes) send(batch, batch.size());
+    const size_t rest = WidgetHost::kRendererBacklogBytes - sent, perOp = op(value).size() + 1, tailBase = wrapper + 2 + op(0).size();
+    const size_t whole = (rest - tailBase) / perOp;
+    const std::string last = batchOf(whole, rest - tailBase - whole * perOp);
+    CHECK_MSG(wrapper + last.size() == rest, std::to_string(last.size()) + " for " + std::to_string(rest));
+    send(last, last.size());
+    {
+        std::lock_guard<std::mutex> l(m);
+        CHECK_MSG(sizesMatch && keptBytes == WidgetHost::kRendererBacklogBytes && batches * 100 < WidgetHost::kRendererBacklogMessages,
+                  std::to_string(keptBytes) + " bytes in " + std::to_string(batches) + " batches");
+    }
+    const WidgetDiagnostics atBound = host.diagnostics();
+    CHECK_MSG(!atBound.dead && atBound.diags.empty() && callsWith(*r.channel, "stop:").empty(), atBound.dead.value_or("alive"));
+    sink.remoteOps("[{\"op\":\"attr\",\"id\":2,\"name\":\"class\",\"value\":\"y\"}]");
+    CHECK(host.waitUntil(isDead, 5));
+    settleHost(host);
+    const WidgetDiagnostics d = host.diagnostics();
+    const auto limit = d.diags.find("backlog-limit");
+    CHECK_MSG(d.dead == std::optional<std::string>(kBacklogLimitReason) && d.diags.size() == 1 && limit != d.diags.end() &&
+                  limit->second == (std::pair<int, std::vector<std::string>>{1, {kBacklogLimitReason}}),
+              d.dead.value_or("alive"));
+    CHECK_MSG(stoppedForTheBacklog(*r.channel) && r.channel->closes() == 1, joined(callsWith(*r.channel, "stop:")));
+    {
+        std::lock_guard<std::mutex> l(m);
+        CHECK_MSG(batches == count, std::to_string(batches) + " batches reported");
+    }
+    CHECK_MSG(backlogIs(host, 0, 0), backlogText(host));
+    r.announce();
+    std::vector<std::string> expected = startMessages();
+    expected.push_back("frozen:Widget stopped");
+    const std::vector<std::string> late = sentRuns(r);
+    CHECK_MSG(late == expected, firstDifference(late, expected));
+    CHECK(r.channel->closes() == 1 && callsWith(*r.channel, "start:").empty());
+}
+
+/// Past the bound nothing the engine sent after the message that passed it has an effect, also when the client delivered it before the host ran the cut: with the host held behind that frame request, validated ops, listen, preventDefault, an anim, a frame request, `loaded`, an `Uncaught` and a plain log, a diagnostic, a refused op and a malformed listen (the validator's diagnostics), a raw `ready`, a commit of both areas, an anchor, a watch, stats and a tapped copy reach the host's queue (an Intl answer after them), and let go, none of it lands, every place is given back, later calls change nothing, and a late `ready` gets the host's messages, the badge, then the owner's theme and safe area without re-themed ops. The control: the same round within the bound lands in full.
+TEST(remote_widget_host_lets_nothing_queued_after_the_cut_take_effect) {
+    const size_t roundMessages = 7;
+    for (const bool cut : {false, true}) {
+        std::mutex m;
+        std::vector<std::string> effects;
+        const auto note = [&](const std::string& effect) {
+            std::lock_guard<std::mutex> l(m);
+            effects.push_back(effect);
+        };
+        ObservedChanges observed;
+        RemoteHostRun r([&](WidgetHost& host) {
+            host.onChange = observed.observer();
+            host.onRenderOps = [&](const std::string& ops) { note("ops:" + ops); };
+            host.onError = [&](const std::string& text) { note("error:" + text); };
+            host.onAction = [&](const WidgetAction& action) { note("action:" + action.toJson()["kind"].asString()); };
+            host.onStorageCommit = [&](const std::string& area, const std::map<std::string, std::string>&) { note("storage:" + area); };
+            host.onWatchPublicData = [&](bool on) { note(on ? "watch:true" : "watch:false"); };
+            host.onCopyText = [&](const std::string& text) { note("copy:" + text); };
+        }, false);
+        WidgetHost& host = *r.host;
+        SandboxRemoteSink& sink = r.sink();
+        sink.remoteOps(kParagraph);
+        sendFrames(r, WidgetHost::kRendererBacklogMessages - 1 - (cut ? 0 : roundMessages));
+        const int nodes = host.diagnostics().nodes;
+        tapThrough(r);
+        {
+            HeldHost held(host);
+            CHECK(held.held());
+            if (cut) sink.remoteRequestsFrame();
+            sink.remoteOps("[{\"op\":\"text\",\"id\":3,\"data\":\"after\"}]");
+            sink.remoteListen("[\"click\"]");
+            sink.remotePreventDefault("[\"2:click\"]");
+            sink.remoteAnim(kParagraphAnim);
+            sink.remoteRequestsFrame();
+            sink.remoteLoaded();
+            sink.remoteLog("error", "Uncaught after");
+            sink.remoteLog("log", "plain after");
+            sink.remoteDiag("after", "direct");
+            sink.remoteOps("[{}]");
+            sink.remoteListen("{");
+            sink.remoteBridge("ready", "[]");
+            sink.remoteStorage("{\"local\":{\"a\":\"b\"},\"session\":{\"c\":\"d\"}}");
+            sink.remoteResizeAnchor("bottom");
+            sink.remoteWatchesPublicData(true);
+            SandboxStats stats;
+            stats.tasks = 7;
+            sink.remoteStats(stats);
+            sink.remoteCopyText("copied");
+            CHECK(sink.remoteIntl(kNumberRequest) == "1,234.5");
+            CHECK_MSG(host.remoteBacklog().calls > 0 && !host.diagnostics().dead, backlogText(host));
+            CHECK(held.release());
+        }
+        if (cut) CHECK(host.waitUntil(isDead, 5));
+        settleHost(host);
+        CHECK_MSG(backlogIs(host, 0, 0), backlogText(host));
+        const WidgetDiagnostics d = host.diagnostics();
+        std::string kinds;
+        for (const auto& [kind, entry] : d.diags) kinds += kind + "=" + std::to_string(entry.first) + " ";
+        if (!cut) {
+            CHECK_MSG(!d.dead && d.diags.size() == 3 && d.countDiag("after") == 1 && d.countDiag("protocol-violation") == 1 && d.countDiag("validator-error") == 1, kinds);
+            CHECK(d.logs.size() == 2 && d.actions.size() == 1 && d.bridge.size() == 1 && d.storageCommits == 2 && d.resizeAnchor == "bottom" && d.watchesPublicData);
+            CHECK(d.stats.tasks == 7 && d.loaded && d.nodes == nodes + 1);
+            std::lock_guard<std::mutex> l(m);
+            const std::vector<std::string> landed = {"ops:" + kParagraphRendered, "ops:[{\"op\":\"text\",\"id\":3,\"data\":\"after\"}]", "error:Uncaught after", "action:ready",
+                                                     "storage:local", "storage:session", "watch:true", "copy:copied"};
+            CHECK_MSG(effects == landed, joined(effects));
+            continue;
+        }
+        CHECK_MSG(d.dead == std::optional<std::string>(kBacklogLimitReason) && d.diags.size() == 1 && d.countDiag("backlog-limit") == 1, kinds + d.dead.value_or("alive"));
+        CHECK(d.logs.empty() && !d.lastError && d.actions.empty() && d.bridge.empty() && d.storageCommits == 0 && d.resizeAnchor == "top" && !d.watchesPublicData);
+        CHECK(d.stats.tasks == 0 && !d.loaded && d.nodes == nodes);
+        const std::vector<WidgetDiagnostics> seen = observed.all();
+        CHECK_MSG(seen.size() == 2 && !seen[0].dead && seen[0].countDiag("backlog-limit") == 1 && seen[1].dead == d.dead, std::to_string(seen.size()) + " changes seen");
+        CHECK_MSG(stoppedForTheBacklog(*r.channel) && r.channel->closes() == 1, joined(callsWith(*r.channel, "stop:")));
+        CHECK(r.sentTypes().empty());
+        sink.remoteOps("[{\"op\":\"text\",\"id\":4,\"data\":\"late\"}]");
+        sink.remoteLog("error", "Uncaught late");
+        sink.remoteDiag("late", "x");
+        sink.remoteBridge("ready", "[]");
+        sink.remoteRequestsFrame();
+        sink.remoteLoaded();
+        sink.remoteDied("again");
+        settleHost(host);
+        const WidgetDiagnostics after = host.diagnostics();
+        CHECK(after.diags == d.diags && after.logs.empty() && after.actions.empty() && after.dead == d.dead && !after.loaded && observed.all().size() == 2 && r.channel->closes() == 1);
+        WidgetTheme dark;
+        dark.colorScheme = "dark";
+        const WidgetContentSafeArea area{1, 2, 3, 4, 5, 6};
+        host.setTheme(dark);
+        host.setContentSafeArea(area);
+        r.announce();
+        std::vector<std::string> expected = startMessages();
+        expected.insert(expected.end(), {"frozen:Widget stopped", "theme:dark{}", "safeArea:" + area.json().dump()});
+        const std::vector<std::string> late = sentRuns(r);
+        CHECK_MSG(late == expected, firstDifference(late, expected));
+        {
+            std::lock_guard<std::mutex> l(r.renderer->mutex);
+            CHECK(r.renderer->themes == std::vector<std::string>{"dark"});
+        }
+        CHECK(callsWith(*r.channel, "start:").empty());
+        std::lock_guard<std::mutex> l(m);
+        CHECK_MSG(effects == std::vector<std::string>{"ops:" + kParagraphRendered}, joined(effects));
+    }
+}
+
+/// A message's request and wallet flags (a group's) under strict.
+static WidgetHostOptions privilegedOptions() {
+    WidgetHostOptions options;
+    options.context = messageContext(false, true, false, "group");
+    options.context.wallet = true;
+    return options;
+}
+
+/// A quiet renderer's host with `privilegedOptions` and its engine's messages at the backlog's message bound; what `onRequest` and `onWallet` get, their responders kept.
+struct PrivilegedHostRun {
+    using Respond = std::function<void(const WidgetRequestOutcome&)>;
+    std::mutex mutex;
+    std::vector<std::string> got;
+    std::vector<Respond> responders;
+    RemoteHostRun r;
+    PrivilegedHostRun()
+        : r([this](WidgetHost& host) {
+              host.onRequest = [this](const WidgetRequest& request, Respond respond) { keep("request:" + request.data, std::move(respond)); };
+              host.onWallet = [this](const WalletCall& call, Respond respond) { keep("wallet:" + call.data, std::move(respond)); };
+          }, false, privilegedOptions()) {
+        sendFrames(r, WidgetHost::kRendererBacklogMessages);
+    }
+    void keep(const std::string& call, Respond respond) {
+        std::lock_guard<std::mutex> l(mutex);
+        got.push_back(call);
+        responders.push_back(std::move(respond));
+    }
+    std::vector<std::string> calls() {
+        std::lock_guard<std::mutex> l(mutex);
+        return got;
+    }
+    /// After a tap, with the host held: the frame request past the bound when `cut`, then `call`, which the client hands over unrefused (an Intl answer after it, nothing more answered on the wire); then let go and settled.
+    void handOver(bool cut, const std::function<void(SandboxRemoteSink&)>& call) {
+        tapThrough(r);
+        const size_t answered = r.channel->answers().size();
+        HeldHost held(*r.host);
+        CHECK(held.held());
+        if (cut) r.sink().remoteRequestsFrame();
+        call(r.sink());
+        CHECK(r.sink().remoteIntl(kNumberRequest) == "1,234.5");
+        CHECK_MSG(r.channel->answers().size() == answered, answersText(r.channel->answers()));
+        CHECK(held.release());
+        if (cut) CHECK(r.host->waitUntil(isDead, 5));
+        settleHost(*r.host);
+    }
+    /// Completes the `i`th call from the test's thread; the client has sent its answer on when this returns.
+    void respond(size_t i, const WidgetRequestOutcome& outcome) {
+        Respond responder;
+        {
+            std::lock_guard<std::mutex> l(mutex);
+            if (i < responders.size()) responder = responders[i];
+        }
+        CHECK(responder != nullptr);
+        if (responder) responder(outcome);
+        settleHost(*r.host);
+    }
+};
+
+/// The privileged calls the cut stops, with the real flags and taps: within the bound a tapped request, and once it is answered a tapped wallet call, each handed over while the host is held, reach `onRequest` and `onWallet`; past it the same request, or the same wallet call on a host of its own (a fresh grant, nothing in flight), handed over while the host is held behind the frame request that passes the bound, reaches neither, and nothing answers it.
+TEST(remote_widget_host_hands_no_privileged_call_over_after_the_cut) {
+    const WalletCall wallet = signMeCall();
+    const std::string payload = SandboxRemoteCoding::encodeWallet(wallet);
+    {
+        PrivilegedHostRun p;
+        p.handOver(false, [](SandboxRemoteSink& sink) { sink.remoteRequest(1, "ask", false); });
+        CHECK_MSG(p.calls() == std::vector<std::string>{"request:ask"}, joined(p.calls()));
+        p.respond(0, answered(std::string("thanks")));
+        p.handOver(false, [&](SandboxRemoteSink& sink) { sink.remoteWallet(2, payload); });
+        CHECK_MSG((p.calls() == std::vector<std::string>{"request:ask", "wallet:" + wallet.data}), joined(p.calls()));
+        p.respond(1, answered(std::string("signed")));
+        const RemoteAnswers expected = {{1, SandboxRemoteOutcome::answer("thanks")}, {2, SandboxRemoteOutcome::answer("signed")}};
+        CHECK_MSG(p.r.channel->answers() == expected, answersText(p.r.channel->answers()));
+        const WidgetDiagnostics d = p.r.host->diagnostics();
+        CHECK_MSG(!d.dead && d.diags.empty(), d.dead.value_or("alive"));
+    }
+    for (const bool walletCall : {false, true}) {
+        PrivilegedHostRun p;
+        p.handOver(true, [&](SandboxRemoteSink& sink) {
+            if (walletCall) sink.remoteWallet(1, payload);
+            else sink.remoteRequest(1, "ask", false);
+        });
+        const WidgetDiagnostics d = p.r.host->diagnostics();
+        CHECK_MSG(p.calls().empty() && d.dead == std::optional<std::string>(kBacklogLimitReason), joined(p.calls()) + d.dead.value_or("alive"));
+        CHECK_MSG(p.r.channel->answers().empty() && stoppedForTheBacklog(*p.r.channel), answersText(p.r.channel->answers()));
+    }
+}
+
+/// A layout query that passes the message bound of a quiet renderer's host is answered dead at once, never after its 3 s timeout: the cut resolves it, the stop it posts runs behind it, the renderer gets no query, the owner's theme (its re-themed ops queued before the cut) and safe area stay for `ready`, and every place in the client is given back.
+TEST(remote_widget_host_answers_a_query_past_the_bound_dead_at_once) {
+    RemoteHostRun r(nullptr, false);
+    WidgetHost& host = *r.host;
+    sendFrames(r, WidgetHost::kRendererBacklogMessages);
+    WidgetTheme dark;
+    dark.colorScheme = "dark";
+    const WidgetContentSafeArea area{1, 2, 3, 4, 5, 6};
+    host.setTheme(dark);
+    host.setContentSafeArea(area);
+    host.onHostThread([] {});
+    const std::string answer = returnsWithin<std::string>(5, [&] { return r.sink().remoteQuery("{\"q\":\"viewport\"}").json; });
+    CHECK_MSG(answer == "{\"error\":\"dead\"}", answer);
+    CHECK(host.waitUntil(isDead, 5));
+    settleHost(host);
+    const WidgetDiagnostics d = host.diagnostics();
+    CHECK_MSG(d.dead == std::optional<std::string>(kBacklogLimitReason) && d.diags.size() == 1 && d.countDiag("backlog-limit") == 1, d.dead.value_or("alive"));
+    CHECK(eventually([&] { return backlogIs(host, 0, 0); }));
+    CHECK_MSG(stoppedForTheBacklog(*r.channel) && r.channel->closes() == 1, joined(callsWith(*r.channel, "stop:")));
+    r.announce();
+    std::vector<std::string> expected = startMessages();
+    expected.insert(expected.end(), {"theme:dark{}", "ops:[]", "safeArea:" + area.json().dump(), "frozen:Widget stopped"});
+    const std::vector<std::string> late = sentRuns(r);
+    CHECK_MSG(late == expected, firstDifference(late, expected));
+}
+
+/// A death that wins on the client's thread while the host is held behind the message that passes the bound, a `terminated` from the engine's side or a lost connection, is the cut's once the host runs: the backlog's reason, the badge at a late `ready`, one close and no start; the stop the cut asks for finds the engine dead and adds nothing.
+TEST(remote_widget_host_keeps_the_cuts_death_over_one_that_won_the_race) {
+    for (const bool disconnect : {false, true}) {
+        RemoteHostRun r(nullptr, false);
+        WidgetHost& host = *r.host;
+        SandboxRemoteSink& sink = r.sink();
+        sendFrames(r, WidgetHost::kRendererBacklogMessages);
+        HeldHost held(host);
+        CHECK(held.held());
+        sink.remoteRequestsFrame();
+        if (disconnect) sink.remoteDisconnected();
+        else sink.remoteDied("terminated");
+        CHECK(host.probe("0") == "ERROR no runtime");
+        CHECK(sink.remoteIntl(kNumberRequest).empty());
+        CHECK(r.channel->closes() == 1 && callsWith(*r.channel, "stop:").empty() && !host.diagnostics().dead);
+        CHECK(held.release());
+        CHECK(host.waitUntil(isDead, 5));
+        settleHost(host);
+        const WidgetDiagnostics d = host.diagnostics();
+        CHECK_MSG(d.dead == std::optional<std::string>(kBacklogLimitReason) && d.countDiag("backlog-limit") == 1, d.dead.value_or("alive"));
+        r.announce();
+        std::vector<std::string> expected = startMessages();
+        expected.push_back("frozen:Widget stopped");
+        const std::vector<std::string> late = sentRuns(r);
+        CHECK_MSG(late == expected, firstDifference(late, expected));
+        CHECK_MSG(r.channel->closes() == 1 && callsWith(*r.channel, "stop:").empty() && callsWith(*r.channel, "start:").empty(), joined(r.channel->calls()));
+    }
+}
+
+/// An observer of the cut's diagnostic that announces the renderer at once, inside the cut: the renderer gets only the host's messages (the engine's were dropped already), the engine is never started, and the death the cut asked for still brings the badge once.
+TEST(remote_widget_host_starts_no_engine_at_a_ready_inside_the_cut) {
+    std::atomic<bool> announced{false};
+    RemoteHostRun r([&](WidgetHost& host) {
+        host.onChange = [&announced, &host](const WidgetDiagnostics& d) {
+            if (d.countDiag("backlog-limit") && !announced.exchange(true)) host.renderer().onMessage("{\"type\":\"ready\"}");
+        };
+    }, false);
+    WidgetHost& host = *r.host;
+    sendFrames(r, WidgetHost::kRendererBacklogMessages + 1);
+    CHECK(host.waitUntil(isDead, 5));
+    settleHost(host);
+    const WidgetDiagnostics d = host.diagnostics();
+    CHECK_MSG(announced && d.rendererReadyMs && d.dead == std::optional<std::string>(kBacklogLimitReason) && d.countDiag("backlog-limit") == 1, d.dead.value_or("alive"));
+    std::vector<std::string> expected = startMessages();
+    expected.push_back("frozen:Widget stopped");
+    const std::vector<std::string> sent = sentRuns(r);
+    CHECK_MSG(sent == expected, firstDifference(sent, expected));
+    CHECK_MSG(stoppedForTheBacklog(*r.channel) && r.channel->closes() == 1, joined(r.channel->calls()));
+}
+
+/// A flood of distinct diagnostic kinds from the engine's side of a working host: `diagnostics().diags` never holds more than `kMaxDiagKinds`; the kinds that came first keep counting with their first 50 details, an ordinary one sent 65 times and an early one sent again among them; every later kind, the renderer's own `renderer-violation` too, counts under "diag-kind-dropped" with its first 50 as `<kind>: <detail>`. The same when the engine's side sent "diag-kind-dropped" first: that is then the overflow's one place, and no second one is kept free.
+TEST(remote_widget_host_caps_the_kinds_of_its_diagnostics) {
+    using Entry = std::pair<int, std::vector<std::string>>;
+    const size_t cap = WidgetHost::kMaxDiagKinds, details = 50, flood = 3 * cap, ordinary = 60;
+    const auto kind = [](size_t i) { return "k" + std::to_string(i); };
+    const auto detail = [](size_t i) { return "d" + std::to_string(i); };
+    for (const bool overflowFirst : {false, true}) {
+        std::mutex m;
+        size_t most = 0;
+        RemoteHostRun r([&](WidgetHost& host) {
+            host.onChange = [&](const WidgetDiagnostics& d) {
+                std::lock_guard<std::mutex> l(m);
+                most = std::max(most, d.diags.size());
+            };
+        });
+        WidgetHost& host = *r.host;
+        SandboxRemoteSink& sink = r.sink();
+        CHECK(host.diagnostics().diags.empty());
+        if (overflowFirst) sink.remoteDiag("diag-kind-dropped", "from the engine");
+        for (size_t i = 0; i < ordinary; i++) sink.remoteDiag("ordinary", "o" + std::to_string(i));
+        const size_t retained = cap - 2, early = retained + 8;
+        for (size_t i = 0; i < early; i++) sink.remoteDiag(kind(i), detail(i));
+        settleHost(host);
+        r.renderer->onMessage("{\"type\":\"violation\",\"detail\":\"from the renderer\"}");
+        host.onHostThread([] {});
+        for (size_t i = early; i < flood; i++) sink.remoteDiag(kind(i), detail(i));
+        for (size_t i = ordinary; i < ordinary + 5; i++) sink.remoteDiag("ordinary", "o" + std::to_string(i));
+        sink.remoteDiag(kind(0), "again");
+        settleHost(host);
+        const WidgetDiagnostics d = host.diagnostics();
+        const auto entry = [&](const std::string& k) {
+            auto it = d.diags.find(k);
+            return it == d.diags.end() ? Entry{} : it->second;
+        };
+        std::vector<std::string> firsts, dropped;
+        for (size_t i = 0; i < details; i++) firsts.push_back("o" + std::to_string(i));
+        if (overflowFirst) dropped.push_back("from the engine");
+        for (size_t i = retained; i < early; i++) dropped.push_back(kind(i) + ": " + detail(i));
+        dropped.push_back("renderer-violation: from the renderer");
+        for (size_t i = early; dropped.size() < details; i++) dropped.push_back(kind(i) + ": " + detail(i));
+        CHECK_MSG(d.diags.size() == cap, std::to_string(d.diags.size()) + " kinds");
+        CHECK(entry("ordinary") == Entry(int(ordinary + 5), firsts));
+        CHECK(entry(kind(0)) == (Entry{2, std::vector<std::string>{detail(0), "again"}}));
+        CHECK(entry(kind(retained - 1)) == (Entry{1, std::vector<std::string>{detail(retained - 1)}}) && d.diags.count(kind(retained)) == 0 && d.diags.count("renderer-violation") == 0);
+        const Entry overflow = entry("diag-kind-dropped");
+        CHECK_MSG(overflow.first == int(flood - retained + 1 + (overflowFirst ? 1 : 0)) && overflow.second == dropped, std::to_string(overflow.first) + ": " + firstDifference(overflow.second, dropped));
+        std::lock_guard<std::mutex> l(m);
+        CHECK_MSG(most == cap, std::to_string(most) + " kinds at most");
+    }
+}
+
+/// With the kinds full, and the overflow's details too, the message that passes the backlog's bound still stops a quiet renderer's host for the backlog: its diagnostic is one more under "diag-kind-dropped", the kinds stay at the cap, and `dead` names the backlog.
+TEST(remote_widget_host_dies_of_its_backlog_with_its_diagnostic_kinds_full) {
+    const size_t cap = WidgetHost::kMaxDiagKinds, flood = 3 * cap;
+    std::mutex m;
+    size_t most = 0;
+    RemoteHostRun r([&](WidgetHost& host) {
+        host.onChange = [&](const WidgetDiagnostics& d) {
+            std::lock_guard<std::mutex> l(m);
+            most = std::max(most, d.diags.size());
+        };
+    }, false);
+    WidgetHost& host = *r.host;
+    for (size_t i = 0; i < flood; i++) r.sink().remoteDiag("k" + std::to_string(i), "d" + std::to_string(i));
+    settleHost(host);
+    const WidgetDiagnostics full = host.diagnostics();
+    const auto before = full.diags.find("diag-kind-dropped");
+    const bool saturated = before != full.diags.end() && before->second.first == int(flood - (cap - 1)) && before->second.second.size() == 50;
+    CHECK_MSG(full.diags.size() == cap && saturated, std::to_string(full.diags.size()) + " kinds");
+    sendFrames(r, WidgetHost::kRendererBacklogMessages + 1);
+    CHECK(host.waitUntil(isDead, 5));
+    settleHost(host);
+    const WidgetDiagnostics d = host.diagnostics();
+    const auto after = d.diags.find("diag-kind-dropped");
+    CHECK_MSG(d.dead == std::optional<std::string>(kBacklogLimitReason) && d.diags.size() == cap && d.countDiag("backlog-limit") == 0, d.dead.value_or("alive"));
+    CHECK(saturated && after != d.diags.end() && after->second.first == before->second.first + 1 && after->second.second == before->second.second);
+    CHECK_MSG(stoppedForTheBacklog(*r.channel) && r.channel->closes() == 1, joined(callsWith(*r.channel, "stop:")));
+    std::lock_guard<std::mutex> l(m);
+    CHECK_MSG(most == cap, std::to_string(most) + " kinds at most");
 }
 
 // ───────────── the tests' own workers (Background) ─────────────

@@ -48,7 +48,11 @@ bool eventually(const std::function<bool()>& pred, double timeoutSeconds = 5);
 
 /// A renderer without a document: announces itself, answers every query with `queryResult` (null), keeps what it was sent; tests inject its events.
 struct ScriptedRenderer final : Renderer {
-    void load() override { onMessage("{\"type\":\"ready\"}"); }
+    void load() override {
+        if (readyOnLoad) onMessage("{\"type\":\"ready\"}");
+    }
+    /// Set before the host starts: false keeps `load()` quiet, and the test announces `ready` through `onMessage` later.
+    bool readyOnLoad = true;
     void send(const std::string& json) override {
         {
             std::lock_guard<std::mutex> l(mutex);
