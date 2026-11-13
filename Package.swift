@@ -4,6 +4,10 @@ import PackageDescription
 let localCheckout = !#filePath.contains("/checkouts/")
 let optimizedC: [CSetting] = localCheckout ? [.unsafeFlags(["-O3"])] : []
 let optimizesDebug = localCheckout && Context.environment["WIDGET_SANDBOX_DEBUG_UNOPTIMIZED"] == nil
+// The QuickJS box fences its memory with guard pages on macOS and with bounds checks everywhere else
+// (packages/quickjs-box/src/qjsbox_config.h). WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1 builds the second mode
+// on macOS too, so the tests can run it.
+let boxBoundsChecks: [CSetting] = Context.environment["WIDGET_SANDBOX_BOX_BOUNDS_CHECKS"] != nil ? [.define("QJSBOX_BOUNDS_CHECKS", to: "1")] : []
 
 let package = Package(
     name: "WidgetSandbox",
@@ -12,6 +16,7 @@ let package = Package(
         .library(name: "WidgetSandbox", targets: ["WidgetSandbox"]),
         .library(name: "WidgetSandboxProtocol", targets: ["WidgetSandboxProtocol"]),
         .library(name: "CQuickJS", targets: ["CQuickJS"]),
+        .library(name: "CQuickJSBox", targets: ["CQuickJSBox"]),
     ],
     targets: [
         // QuickJS from the TelegramMessenger/quickjs fork (quickjs-ng 0.17 with fixes; a git
@@ -40,6 +45,22 @@ let package = Package(
                 .define("QUICKJS_NG_BUILD"),
                 .define("QJS_DISABLE_DUMPS"),
             ] + optimizedC
+        ),
+        // The same QuickJS commit inside a wasm2c box: compiled to wasm and translated back to C by
+        // packages/quickjs-box/build.sh (generated/, committed), with WABT's runtime (wabt/) and a C host
+        // layer over opaque handles (src/, include/). Only src/ is compiled: its files include the
+        // generated code and the runtime after qjsbox_config.h. Opt-in (QuickJSBackend.boxed), macOS only
+        // for now; it must be compiled optimized (an unoptimized box refuses to start).
+        .target(
+            name: "CQuickJSBox",
+            path: "packages/quickjs-box",
+            exclude: ["build.sh", "CLIENTS.md", "manifest.sha256", "guest", "wasm", "generated", "wabt", "tools"],
+            sources: ["src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("generated"),
+                .headerSearchPath("wabt"),
+            ] + boxBoundsChecks + optimizedC
         ),
         // Typed host -> renderer ops for in-process native renderers; no dependencies.
         .target(
