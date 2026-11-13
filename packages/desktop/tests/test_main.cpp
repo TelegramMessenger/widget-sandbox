@@ -738,6 +738,35 @@ TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
     t.stop();
 }
 
+TEST(an_exception_from_a_host_function_stops_the_script) {
+    JSThread t("test.js");
+    int after = 0;
+    auto outcome = [&](const std::string& which) {
+        return t.sync([&]() -> std::string {
+            QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+            js.registerFunction("__throws", [&](const std::vector<std::string>& args) -> HostReturn {
+                if (args[0] == "runtime") throw std::runtime_error("broken glue");
+                if (args[0] == "alloc") throw std::bad_alloc();
+                if (args[0] == "other") throw 42;
+                return HostReturn::string(std::string(size_t(64) << 20, 'x'));
+            });
+            js.registerFunction("__after", [&](const std::vector<std::string>&) { after++; return HostReturn::undefined(); });
+            try {
+                js.evaluate("try { __throws('" + which + "'); } catch (e) { __after(); } __after();", "t.js");
+            } catch (const JSError& e) {
+                return std::string(e.what()) + (js.uncatchable ? " (uncatchable)" : "");
+            }
+            return "no error";
+        });
+    };
+    CHECK_MSG(outcome("runtime") == "InternalError: host function failed: broken glue (uncatchable)", outcome("runtime"));
+    CHECK_MSG(outcome("other") == "InternalError: host function failed (uncatchable)", outcome("other"));
+    CHECK_MSG(outcome("alloc") == "InternalError: out of memory (uncatchable)", outcome("alloc"));
+    CHECK_MSG(outcome("a result past the limit") == "InternalError: out of memory (uncatchable)", outcome("a result past the limit"));
+    CHECK_MSG(after == 0, std::to_string(after) + " calls after a failed one");
+    t.stop();
+}
+
 TEST(a_result_that_cannot_be_copied_is_an_error) {
     JSThread t("test.js");
     auto outcome = [&](bool byCall) {

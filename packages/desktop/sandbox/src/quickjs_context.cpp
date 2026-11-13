@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 
 extern "C" {
 #include "qjs_shim.h"
@@ -21,34 +22,46 @@ struct QuickJSTrampoline {
     static JSValue call(JSContext* ctx, JSValue /*this*/, int argc, JSValue* argv, int magic) {
         auto* self = static_cast<QuickJSContext*>(JS_GetContextOpaque(ctx));
         if (!self || magic < 0 || size_t(magic) >= self->functions_.size()) return qjs_undefined();
-        std::vector<std::string> args;
-        args.reserve(size_t(argc));
-        for (int i = 0; i < argc; i++) {
-            JSValue v = argv[i];
-            if (qjs_is_string(v)) {
-                const char* c = qjs_to_cstring(ctx, v);
-                if (!c) return JS_ThrowOutOfMemory(ctx);
-                args.emplace_back(c);
-                qjs_free_cstring(ctx, c);
-            } else if (qjs_is_number(v)) {
-                double d = qjs_to_float64(ctx, v);
-                char buf[64];
-                if (d == std::floor(d) && std::fabs(d) < 1e15) snprintf(buf, sizeof buf, "%lld", (long long)d);
-                else snprintf(buf, sizeof buf, "%.17g", d);
-                args.emplace_back(buf);
-            } else {
-                args.emplace_back();
+        // The engine's C frames under this one cannot be unwound: nothing thrown here or by a host function may leave it.
+        try {
+            std::vector<std::string> args;
+            args.reserve(size_t(argc));
+            for (int i = 0; i < argc; i++) {
+                JSValue v = argv[i];
+                if (qjs_is_string(v)) {
+                    struct Copied {
+                        JSContext* ctx;
+                        const char* c;
+                        ~Copied() { if (c) qjs_free_cstring(ctx, c); }
+                    } copied{ctx, qjs_to_cstring(ctx, v)};
+                    if (!copied.c) return JS_ThrowOutOfMemory(ctx);
+                    args.emplace_back(copied.c);
+                } else if (qjs_is_number(v)) {
+                    double d = qjs_to_float64(ctx, v);
+                    char buf[64];
+                    if (d == std::floor(d) && std::fabs(d) < 1e15) snprintf(buf, sizeof buf, "%lld", (long long)d);
+                    else snprintf(buf, sizeof buf, "%.17g", d);
+                    args.emplace_back(buf);
+                } else {
+                    args.emplace_back();
+                }
             }
+            HostReturn r = self->functions_[size_t(magic)](args);
+            switch (r.kind) {
+            case HostReturn::Kind::Undefined: return qjs_undefined();
+            case HostReturn::Kind::Null: return qjs_null();
+            case HostReturn::Kind::String: return qjs_new_string_len(ctx, r.str.data(), r.str.size());
+            case HostReturn::Kind::Number: return qjs_new_float64(ctx, r.num);
+            case HostReturn::Kind::ArrayBuffer: return qjs_new_array_buffer_copy(ctx, r.bytes.data(), r.bytes.size());
+            }
+            return qjs_undefined();
+        } catch (const std::bad_alloc&) {
+            return JS_ThrowOutOfMemory(ctx);
+        } catch (const std::exception& e) {
+            return JS_ThrowInternalError(ctx, "host function failed: %s", e.what());
+        } catch (...) {
+            return JS_ThrowInternalError(ctx, "host function failed");
         }
-        HostReturn r = self->functions_[size_t(magic)](args);
-        switch (r.kind) {
-        case HostReturn::Kind::Undefined: return qjs_undefined();
-        case HostReturn::Kind::Null: return qjs_null();
-        case HostReturn::Kind::String: return qjs_new_string_len(ctx, r.str.data(), r.str.size());
-        case HostReturn::Kind::Number: return qjs_new_float64(ctx, r.num);
-        case HostReturn::Kind::ArrayBuffer: return qjs_new_array_buffer_copy(ctx, r.bytes.data(), r.bytes.size());
-        }
-        return qjs_undefined();
     }
 
     static int interrupt(JSContext* /*ctx*/, void* opaque) {
