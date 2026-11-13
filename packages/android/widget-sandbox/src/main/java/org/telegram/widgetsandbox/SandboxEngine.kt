@@ -64,6 +64,12 @@ data class SandboxConfig(
     var context: WidgetContext = WidgetContext(),
     /** What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes: [SandboxEngine.contentSafeArea]. */
     var contentSafeArea: WidgetContentSafeArea = WidgetContentSafeArea(),
+    /**
+     * Which build of QuickJS runs this widget's code (docs/decisions.md, "QuickJS in a wasm2c box"): [QuickJSBackend.NATIVE]
+     * (the default everywhere) or [QuickJSBackend.BOXED] (opt-in, bounds-check mode on Android, fail-closed). The validator's
+     * engine stays native regardless.
+     */
+    var backend: QuickJSBackend = QuickJSBackend.NATIVE,
 )
 
 /** The features the Kotlin glue implements; the twin of Swift `runtimeFeatures` and `WEB_FEATURES` in worker.ts. */
@@ -265,8 +271,15 @@ class SandboxEngine(
     }
 
     private fun boot() {
-        val ctx = QuickJSContext(config.memoryLimitBytes, JSThread.JS_STACK_LIMIT)
+        val ctx = QuickJSContext(config.memoryLimitBytes, JSThread.JS_STACK_LIMIT, config.backend)
         js = ctx
+        // Which engine ran the widget, named once (the box reports its commit and that it is the bounds-check build).
+        delegate?.onDiag(this, "engine", ctx.engineDescription)
+        // Fail closed: a boxed engine this build cannot provide never falls back to the native one (docs/decisions.md).
+        ctx.unavailableReason?.let {
+            kill("Engine fault: $it")
+            return
+        }
         ctx.registerFunction("__host") { args -> hostCall(args.getOrElse(0) { "" }, args.getOrElse(1) { "" }) }
         ctx.registerFunction("__hostBinary") {
             val data = lastBinary ?: return@registerFunction HostReturn.Null

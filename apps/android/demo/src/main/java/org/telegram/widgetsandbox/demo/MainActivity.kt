@@ -1,5 +1,6 @@
 package org.telegram.widgetsandbox.demo
 
+import org.telegram.widgetsandbox.QuickJSBackend
 import org.telegram.widgetsandbox.WidgetHost
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -51,6 +52,9 @@ class MainActivity : ComponentActivity() {
         // starts a runner without touching the screen (used for the acceptance runs).
         val autorun = intent.getStringExtra("autorun")
         val canary = intent.getStringExtra("canary")
+        // `--es engine native|boxed`: which build of QuickJS runs the widgets (docs/decisions.md, "QuickJS in a wasm2c box").
+        // Native by default; boxed is the opt-in wasm2c box (bounds-check mode on Android). Used by the acceptance runs.
+        val engine = QuickJSBackend.fromId(intent.getStringExtra("engine")) ?: QuickJSBackend.NATIVE
         // `--es open <group>/<file> [--es renderer webview|blitz|litehtml]` opens one widget directly (dev loop for the
         // native renderers); `--ez blitz true` is the old spelling of `--es renderer blitz`.
         val open = intent.getStringExtra("open")
@@ -68,9 +72,9 @@ class MainActivity : ComponentActivity() {
                     composable("widget/{group}/{file}") { entry ->
                         val group = URLDecoder.decode(entry.arguments?.getString("group") ?: "", "UTF-8")
                         val file = URLDecoder.decode(entry.arguments?.getString("file") ?: "", "UTF-8")
-                        WidgetScreen(group, file)
+                        WidgetScreen(group, file, engine)
                     }
-                    composable("attacks?auto={auto}") { entry -> AttackRunnerScreen(auto = entry.arguments?.getString("auto") == "1", canaryOverride = canary) }
+                    composable("attacks?auto={auto}") { entry -> AttackRunnerScreen(auto = entry.arguments?.getString("auto") == "1", canaryOverride = canary, engine = engine) }
                     composable("run/{which}?auto={auto}") { entry ->
                         val which = entry.arguments?.getString("which") ?: "generated"
                         val context = LocalContext.current
@@ -79,6 +83,7 @@ class MainActivity : ComponentActivity() {
                             groups = when (which) { "compat" -> listOf("compat"); "htmlbubbles" -> Corpus.htmlbubblesGroups(context); "common" -> Corpus.commonGroups(context); else -> Corpus.generatedGroups },
                             reportName = "$which-report.json",
                             auto = entry.arguments?.getString("auto") == "1",
+                            engine = engine,
                         )
                     }
                 }
@@ -121,7 +126,7 @@ fun HomeScreen(nav: NavHostController) {
 /** A chat-bubble-sized widget with the diagnostics panel below it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WidgetScreen(group: String, file: String) {
+fun WidgetScreen(group: String, file: String, engine: QuickJSBackend = QuickJSBackend.NATIVE) {
     val context = LocalContext.current
     // The toggles follow the user from widget to widget (and across launches), like @AppStorage in the iOS demo.
     val prefs = remember { context.getSharedPreferences("demo", android.content.Context.MODE_PRIVATE) }
@@ -136,7 +141,8 @@ fun WidgetScreen(group: String, file: String) {
     val html = remember(group, file) { Corpus.html(context, group, file) }
     // corpus/safe-area: a message with no caption below the widget, the time over its corner (docs/sdk-v1.md §2.17).
     val model = remember(generation, renderer) {
-        WidgetModel(context, html, demoTheme(dark), 360.0, if (Corpus.isSafeArea(group)) WidgetHost.Options(contentSafeArea = Corpus.timeCorner) else WidgetHost.Options(), renderer = renderer)
+        val options = if (Corpus.isSafeArea(group)) WidgetHost.Options(contentSafeArea = Corpus.timeCorner, engine = engine) else WidgetHost.Options(engine = engine)
+        WidgetModel(context, html, demoTheme(dark), 360.0, options, renderer = renderer)
     }
     DisposableEffect(model) { onDispose { model.destroy() } }
     // The reference page follows `prefers-color-scheme` of its WebView context, so a theme change reloads it.

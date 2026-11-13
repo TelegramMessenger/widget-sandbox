@@ -1,4 +1,5 @@
-// JNI layer over quickjs-ng (through qjs_shim.h) for QuickJSContext.kt.
+// JNI layer over quickjs-ng (through qjs_shim.h) for NativeQuickJS.kt (the
+// engine methods) and QuickJSContext.kt (the two clocks, shared with the box).
 //
 // Every string crosses the boundary as a byte[] of real UTF-8: JNI's own
 // jstring helpers speak *modified* UTF-8, which corrupts supplementary
@@ -386,7 +387,8 @@ static jbyteArray n_compile_bytecode(JNIEnv *env, jobject thiz, jlong handle, jb
     return out;
 }
 
-static const JNINativeMethod METHODS[] = {
+// The engine methods, registered on NativeQuickJS.
+static const JNINativeMethod ENGINE_METHODS[] = {
     {"nativeCreate", "(JJ)J", (void *)n_create},
     {"nativeDestroy", "(J)V", (void *)n_destroy},
     {"nativeRegisterFunction", "(JLjava/lang/String;I)V", (void *)n_register},
@@ -401,10 +403,14 @@ static const JNINativeMethod METHODS[] = {
     {"nativeGetDeadline", "(J)J", (void *)n_get_deadline},
     {"nativeSetCpuDeadline", "(JJ)V", (void *)n_set_cpu_deadline},
     {"nativeCaptureGlobalFunction", "(JLjava/lang/String;)Z", (void *)n_capture_global_function},
-    {"nativeThreadCpuNanos", "()J", (void *)n_thread_cpu_nanos},
     {"nativeInterrupted", "(J)Z", (void *)n_interrupted},
     {"nativeResetInterrupted", "(J)V", (void *)n_reset_interrupted},
+};
+
+// The two clocks, registered on QuickJSContext (shared by the native engine and the box).
+static const JNINativeMethod CLOCK_METHODS[] = {
     {"nativeNow", "()J", (void *)n_now},
+    {"nativeThreadCpuNanos", "()J", (void *)n_thread_cpu_nanos},
 };
 
 static jclass global_class(JNIEnv *env, const char *name) {
@@ -422,12 +428,18 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     (void)reserved;
     JNIEnv *env = NULL;
     if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
+    // The two clocks live on QuickJSContext (shared by the native engine and the box).
     jclass ctx_class = (*env)->FindClass(env, "org/telegram/widgetsandbox/QuickJSContext");
     if (!ctx_class) return JNI_ERR;
-    if ((*env)->RegisterNatives(env, ctx_class, METHODS, sizeof METHODS / sizeof METHODS[0]) != JNI_OK) return JNI_ERR;
-    g_dispatch = (*env)->GetMethodID(env, ctx_class, "dispatch", "(I[[B)Ljava/lang/Object;");
-    g_raise = (*env)->GetMethodID(env, ctx_class, "raise", "([B)V");
+    if ((*env)->RegisterNatives(env, ctx_class, CLOCK_METHODS, sizeof CLOCK_METHODS / sizeof CLOCK_METHODS[0]) != JNI_OK) return JNI_ERR;
     (*env)->DeleteLocalRef(env, ctx_class);
+    // The engine methods and the host-function callbacks live on NativeQuickJS.
+    jclass engine_class = (*env)->FindClass(env, "org/telegram/widgetsandbox/NativeQuickJS");
+    if (!engine_class) return JNI_ERR;
+    if ((*env)->RegisterNatives(env, engine_class, ENGINE_METHODS, sizeof ENGINE_METHODS / sizeof ENGINE_METHODS[0]) != JNI_OK) return JNI_ERR;
+    g_dispatch = (*env)->GetMethodID(env, engine_class, "dispatch", "(I[[B)Ljava/lang/Object;");
+    g_raise = (*env)->GetMethodID(env, engine_class, "raise", "([B)V");
+    (*env)->DeleteLocalRef(env, engine_class);
     g_bytearray_class = global_class(env, "[B");
     g_double_class = global_class(env, "java/lang/Double");
     g_arraybuffer_class = global_class(env, "org/telegram/widgetsandbox/HostReturn$ArrayBuffer");

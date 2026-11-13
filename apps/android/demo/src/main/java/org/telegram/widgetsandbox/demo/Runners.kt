@@ -35,7 +35,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.telegram.widgetsandbox.QuickJSBackend
 import org.telegram.widgetsandbox.WidgetDiagnostics
+import org.telegram.widgetsandbox.WidgetHost
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -71,7 +73,7 @@ internal fun writeReport(context: Context, name: String, json: String): File =
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AttackRunnerScreen(auto: Boolean, canaryOverride: String?) {
+fun AttackRunnerScreen(auto: Boolean, canaryOverride: String?, engine: QuickJSBackend = QuickJSBackend.NATIVE) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     var canary by remember { mutableStateOf(canaryOverride ?: prefs.getString(PREF_CANARY, DEFAULT_CANARY) ?: DEFAULT_CANARY) }
@@ -81,6 +83,7 @@ fun AttackRunnerScreen(auto: Boolean, canaryOverride: String?) {
     var current by remember { mutableStateOf<WidgetModel?>(null) }
     val results = remember { mutableStateListOf<Triple<String, Int, String?>>() }
     val scope = rememberCoroutineScope()
+    val options = remember(engine) { WidgetHost.Options(engine = engine) }
 
     suspend fun run() {
         running = true
@@ -95,7 +98,7 @@ fun AttackRunnerScreen(auto: Boolean, canaryOverride: String?) {
         }
         for (file in Corpus.files(context, "attacks")) {
             status = "loading $file"
-            val model = WidgetModel(context, Corpus.html(context, "attacks", file), demoTheme(false), 360.0)
+            val model = WidgetModel(context, Corpus.html(context, "attacks", file), demoTheme(false), 360.0, options)
             current = model
             // Wait for the widget to load (cold start can take >1 s), then give
             // its scripts and timers a second to try their tricks.
@@ -116,10 +119,11 @@ fun AttackRunnerScreen(auto: Boolean, canaryOverride: String?) {
             status = "canary not reachable at $canary (run `pnpm canary` on the Mac)"
         }
         val report = JSONObject()
+            .put("engine", engine.id)
             .put("canary", canary)
             .put("hits", list ?: JSONArray())
             .put("files", JSONArray(results.map { JSONObject().put("file", it.first).put("blocked", it.second).put("dead", it.third ?: JSONObject.NULL) }))
-        writeReport(context, "attack-report.json", report.toString(2))
+        writeReport(context, if (engine == QuickJSBackend.BOXED) "attack-report-boxed.json" else "attack-report.json", report.toString(2))
         running = false
     }
 
@@ -153,11 +157,11 @@ fun AttackRunnerScreen(auto: Boolean, canaryOverride: String?) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CorpusRunnerScreen(title: String, groups: List<String>, reportName: String, auto: Boolean) {
-    class Row(val group: String, val file: String, val loaded: Boolean, val dead: String?, val errors: List<String>, val diags: Map<String, Int>, val jsMs: Double, val nodes: Int) {
+fun CorpusRunnerScreen(title: String, groups: List<String>, reportName: String, auto: Boolean, engine: QuickJSBackend = QuickJSBackend.NATIVE) {
+    class Row(val group: String, val file: String, val loaded: Boolean, val dead: String?, val errors: List<String>, val diags: Map<String, Int>, val jsMs: Double, val nodes: Int, val engineDesc: String?) {
         val pass get() = loaded && dead == null && errors.isEmpty()
         fun toJson(): JSONObject = JSONObject().put("group", group).put("file", file).put("loaded", loaded).put("dead", dead ?: JSONObject.NULL)
-            .put("errors", JSONArray(errors)).put("diags", JSONObject(diags)).put("jsMs", jsMs).put("nodes", nodes).put("pass", pass)
+            .put("errors", JSONArray(errors)).put("diags", JSONObject(diags)).put("jsMs", jsMs).put("nodes", nodes).put("pass", pass).put("engine", engineDesc ?: JSONObject.NULL)
     }
 
     val context = LocalContext.current
@@ -166,6 +170,7 @@ fun CorpusRunnerScreen(title: String, groups: List<String>, reportName: String, 
     var current by remember { mutableStateOf<WidgetModel?>(null) }
     val rows = remember { mutableStateListOf<Row>() }
     val scope = rememberCoroutineScope()
+    val options = remember(engine) { WidgetHost.Options(engine = engine) }
 
     suspend fun run() {
         running = true
@@ -173,7 +178,7 @@ fun CorpusRunnerScreen(title: String, groups: List<String>, reportName: String, 
         for (group in groups) {
             for (file in Corpus.files(context, group)) {
                 status = "loading $group/$file"
-                val model = WidgetModel(context, Corpus.html(context, group, file), demoTheme(false), 360.0)
+                val model = WidgetModel(context, Corpus.html(context, group, file), demoTheme(false), 360.0, options)
                 current = model
                 awaitLoaded(model, 8)
                 delay(1000)
@@ -183,6 +188,7 @@ fun CorpusRunnerScreen(title: String, groups: List<String>, reportName: String, 
                         group, file, d.loaded, d.dead,
                         d.logs.filter { it.first == "error" }.map { it.second.lineSequence().first().take(160) },
                         d.diags.mapValues { it.value.count }, d.stats.jsMs, d.nodes,
+                        d.diags["engine"]?.details?.lastOrNull(),
                     ),
                 )
                 current = null
@@ -190,8 +196,15 @@ fun CorpusRunnerScreen(title: String, groups: List<String>, reportName: String, 
             }
         }
         val passed = rows.count { it.pass }
-        val file = writeReport(context, reportName, JSONArray(rows.map { it.toJson() }).toString(2))
-        status = "done — $passed/${rows.size} pass · ${file.absolutePath}"
+        // Native keeps the historical bare-array report; the boxed run gets its own file wrapped with the engine id.
+        val rowsJson = JSONArray(rows.map { it.toJson() })
+        val (name, body) = if (engine == QuickJSBackend.BOXED) {
+            reportName.removeSuffix(".json") + "-boxed.json" to JSONObject().put("engine", engine.id).put("rows", rowsJson).toString(2)
+        } else {
+            reportName to rowsJson.toString(2)
+        }
+        val file = writeReport(context, name, body)
+        status = "done — $passed/${rows.size} pass (${engine.id}) · ${file.absolutePath}"
         running = false
     }
 
