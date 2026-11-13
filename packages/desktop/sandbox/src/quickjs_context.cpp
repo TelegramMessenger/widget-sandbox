@@ -53,6 +53,7 @@ struct QuickJSTrampoline {
             case HostReturn::Kind::String: return qjs_new_string_len(ctx, r.str.data(), r.str.size());
             case HostReturn::Kind::Number: return qjs_new_float64(ctx, r.num);
             case HostReturn::Kind::ArrayBuffer: return qjs_new_array_buffer_copy(ctx, r.bytes.data(), r.bytes.size());
+            case HostReturn::Kind::RangeError: return JS_ThrowRangeError(ctx, "%s", r.str.c_str());
             }
             return qjs_undefined();
         } catch (const std::bad_alloc&) {

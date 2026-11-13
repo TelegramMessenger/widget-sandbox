@@ -2471,6 +2471,30 @@ TEST(sdk_wallet_a_tap_pays_on_the_answer_to_its_request) {
     CHECK(r.host.actions.empty());
 }
 
+TEST(sdk_wallet_the_longest_transaction_reaches_the_client) {
+    SandboxConfig cfg = testConfig();
+    cfg.context = messageContext(false, true, true, "private");
+    cfg.context.wallet = true;
+    Run r("<button id='b'>pay</button><script>var log = [];"
+          "document.getElementById('b').onclick = function () { var messages = [];"
+          "  for (var i = 0; i < 255; i++) { var m = { address: 'EQ' + 'ab'.repeat(23), amount: '1' + '0'.repeat(36) }; if (i < 8) m.payload = 'A'.repeat(8192); messages.push(m); }"
+          "  TelegramWidget.wallet.sendTransaction({ valid_until: 4294967295, network: '-239', from: '0:' + 'ab'.repeat(32), messages: messages }, 'paid')"
+          "    .then(function (a) { log.push('ok:' + a.result); }, function (e) { log.push('err:' + e.code); }); };</script>", cfg, false);
+    r.host.onWallet = [](const WalletCall&, Respond respond) { respond(answered(std::string("thanks"))); };
+    r.engine.start();
+    r.host.waitLoaded(20);
+    r.engine.activationEvent(kTapOnButton, 1);
+    CHECK_MSG(probeUntil(r.engine, "log.join(' ')", "ok:thanks") == "ok:thanks", r.engine.probe("log.join(' ')") + " " + r.diagsText());
+    auto l = r.host.lock();
+    CHECK_MSG(r.host.walletCalls.size() == 1, std::to_string(r.host.walletCalls.size()));
+    if (!r.host.walletCalls.empty()) {
+        const WalletTransaction& tx = r.host.walletCalls[0].transaction;
+        size_t bytes = tx.toJson().dump().size();
+        CHECK(tx.messages.size() == sdk::MAX_WALLET_MESSAGES);
+        CHECK_MSG(bytes > sdk::MAX_HOST_CALL_BYTES && bytes + 1024 < sdk::MAX_BRIDGE_CALL_BYTES, std::to_string(bytes) + " bytes");
+    }
+}
+
 TEST(sdk_wallet_refusals_and_the_background) {
     SandboxConfig cfg = testConfig();
     cfg.context = messageContext(false, true, false, "group");
@@ -2797,6 +2821,20 @@ TEST(intl_fallback_formats_through_the_host) {
     r.barrier();
     auto l = r.host.lock();
     CHECK_MSG(r.host.hasLog("1,234.5|one|25%"), r.logsText());
+}
+
+TEST(a_host_call_too_long_to_be_valid_fails_in_the_script) {
+    Run r("<script>var big = new Array(30000).fill('ab'), out = [];"
+          "try { out.push(new Intl.ListFormat('en').format(big).length); } catch (e) { out.push(e.name + ': ' + e.message); }"
+          "out.push(new Intl.ListFormat('en').format(['a', 'b', 'c']));"
+          "console.log(out.join('|'));</script>");
+    r.barrier();
+    auto l = r.host.lock();
+    CHECK_MSG(!r.host.died, r.host.died.value_or(""));
+    const std::string refused = "RangeError: arguments too long: ", then = " bytes of JSON, at most 65536 (intl)|a, b, and c";
+    bool found = false;
+    for (auto& log : r.host.logs) found = found || (log.second.rfind(refused, 0) == 0 && log.second.size() > then.size() && log.second.compare(log.second.size() - then.size(), then.size(), then) == 0);
+    CHECK_MSG(found, r.logsText().substr(0, 400));
 }
 
 // ECMA-402's date defaults come from the shim: a format without fields reaches the provider with numeric ones.

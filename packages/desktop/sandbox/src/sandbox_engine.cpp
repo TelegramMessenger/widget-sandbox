@@ -489,6 +489,11 @@ HostReturn SandboxEngine::hostCall(const std::string& kind, const std::string& a
     }
     if (kind == "query") return HostReturn::string(syncQuery(arg));
     if (kind == "now") return HostReturn::number(coarseNowMs(nowMs()));
+    if (kind == "bridge" || kind == "intl" || kind == "timer" || kind == "stat") {
+        size_t limit = kind == "bridge" ? sdk::MAX_BRIDGE_CALL_BYTES : sdk::MAX_HOST_CALL_BYTES;
+        if (arg.size() > limit)
+            return HostReturn::rangeError("arguments too long: " + std::to_string(arg.size()) + " bytes of JSON, at most " + std::to_string(limit) + " (" + kind + ")");
+    }
     if (kind == "timer") {
         auto pair = Json::parse(arg);
         if (!pair || !pair->isArray() || pair->size() != 2 || !(*pair)[0].isNumber()) return HostReturn::undefined();
