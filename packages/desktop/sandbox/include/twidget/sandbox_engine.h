@@ -182,8 +182,11 @@ public:
 
 class SandboxEngine {
 public:
+    /// `backend` decides which build of QuickJS runs the widget's code, for the engine's whole life
+    /// (QuickJSBackend; the validator stays native). The default follows the environment
+    /// (quickjsDefaultBackend), so `WIDGET_SANDBOX_ENGINE=boxed` boxes every engine of the process.
     SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources,
-                  std::shared_ptr<IntlProvider> intl = nullptr);
+                  std::shared_ptr<IntlProvider> intl = nullptr, QuickJSBackend backend = quickjsDefaultBackend());
     /// Stops the thread; outstanding delegate calls finish first. Safe from any thread but the engine's.
     ~SandboxEngine();
     SandboxEngine(const SandboxEngine&) = delete;
@@ -285,6 +288,7 @@ private:
     static double nowSeconds();
 
     JSThread thread_;
+    QuickJSBackend backend_;
     SandboxEngineDelegate* delegate_ = nullptr;
     std::string html_;
     SandboxConfig config_;

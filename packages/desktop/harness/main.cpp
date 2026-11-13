@@ -89,6 +89,9 @@ struct Options {
     double dpr = 1;
     std::string png, pngDir;
     std::vector<std::pair<double, double>> clicks;
+    // --boxed runs the widget's engine in the QuickJS box (QuickJSBackend::Boxed; the validator stays native).
+    // The default follows the environment (WIDGET_SANDBOX_ENGINE=boxed).
+    QuickJSBackend backend = quickjsDefaultBackend();
 };
 
 struct RunOutcome {
@@ -190,6 +193,7 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
     ho.storage = opts.storage;
     ho.data = opts.data;
     ho.context = opts.context;
+    ho.engine = opts.backend;
     NativeRenderer* blitz = nullptr;
     WidgetTheme theme{opts.theme, opts.themeParams, {}};
     WidgetHost host(html, theme, opts.width, ho, res, [&](std::shared_ptr<SandboxResources>, const std::string& scheme, double width) -> std::unique_ptr<Renderer> {
@@ -271,7 +275,7 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     RecordingHost host(opts.theme, res, opts.verbose, config.policy);
     host.onRequest = [&](const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond) { respond(opts.answer); };
     {
-        SandboxEngine engine(html, config, res);
+        SandboxEngine engine(html, config, res, nullptr, opts.backend);
         engine.setDelegate(&host);
         // As WidgetHost: the validator's time on the widget's messages counts against its JS quota.
         host.validator().setCpuSink([&engine](double ms) { engine.chargeValidator(ms); });
@@ -489,6 +493,7 @@ int main(int argc, char** argv) {
         else if (a == "--js-dir") opts.jsDir = next();
         else if (a == "--blitz") opts.blitz = true;
         else if (a == "--litehtml") opts.litehtml = true;
+        else if (a == "--boxed") opts.backend = QuickJSBackend::Boxed;
         else if (a == "--dpr") opts.dpr = std::atof(next().c_str());
         else if (a == "--png") opts.png = next();
         else if (a == "--png-dir") opts.pngDir = next();
@@ -510,8 +515,13 @@ int main(int argc, char** argv) {
                         "                   [--chat-type T] [--viewer ID[,FIRST,LAST,USERNAME,PREMIUM]] [--chat-data S] [--public-data S]\n"
                         "                   [--answer '{\"result\":…}' | --answer-error TIMEOUT|RATE_LIMITED|FAILED] [--set-data JSON]   (the bot)\n"
                         "       twidget-run --attacks [DIR] | --corpus DIR\n"
-                        "       … --blitz | --litehtml [--png FILE | --png-dir DIR] [--click X,Y] [--dpr N]   (built with -DTW_BLITZ=ON / -DTW_LITEHTML=ON)\n");
+                        "       … --blitz | --litehtml [--png FILE | --png-dir DIR] [--click X,Y] [--dpr N]   (built with -DTW_BLITZ=ON / -DTW_LITEHTML=ON)\n"
+                        "       … --boxed   (run the widget engine in the QuickJS box; built with -DTW_QUICKJS_BOX=ON; the validator stays native)\n");
         return 2;
+    }
+    if (opts.backend == QuickJSBackend::Boxed) {
+        if (quickjsBoxAvailable()) fprintf(stderr, "engine: %s\n", quickjsBoxDescription().c_str());
+        else fprintf(stderr, "engine: --boxed requested, but this build has no usable QuickJS box; widgets fail closed (build with -DTW_QUICKJS_BOX=ON)\n");
     }
 #ifndef TW_HAVE_BLITZ
     if (opts.blitz) { fprintf(stderr, "--blitz needs a build with -DTW_BLITZ=ON (rustup's cargo; see packages/desktop/README.md)\n"); return 2; }

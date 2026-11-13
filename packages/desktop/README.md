@@ -62,6 +62,36 @@ three `mem-*`). Boot of the sandbox bundle takes
 ~20 ms in a release quickjs-ng from the precompiled `.qbc` (38–74 ms from
 source; the diag says which one was used).
 
+## QuickJS box backend (`-DTW_QUICKJS_BOX=ON`)
+
+The same engine commit, compiled to wasm and translated back to C (`packages/quickjs-box`), run in a
+linear memory of its own: a memory bug in the engine reads and writes that one widget's memory, or
+ends the process — it cannot reach the host, another widget or a syscall (`docs/decisions.md`,
+"QuickJS in a wasm2c box"; `packages/quickjs-box/CLIENTS.md`). **Opt-in; the native engine stays the
+default and the validator stays native.** The box's host layer is plain C, so it drops into the CMake
+build: every `.c` in `packages/quickjs-box/src` is compiled (each one pulls in the generated code and
+WABT's runtime through `qjsbox_config.h`), with the include paths `include/`, `generated/` and
+`wabt/`, always at `-O2` (the box refuses to start unoptimized). It is `QuickJSContext`'s `Boxed`
+backend behind the same engine seam (`quickjs_context.h`, mirroring the Swift
+`QuickJSBackend.boxed` / `SandboxEngine(backend:)`); a build without the option, or that cannot run
+the box, fails closed — the widget dies with `Engine fault: …`, it never falls back to native.
+
+```bash
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_QUICKJS_BOX=ON && cmake --build build   # compiles the generated C (16 MB) at -O2
+./build/twidget-run --boxed ../corpus/compat/tabs.html --wait-ms 500   # prints `engine: boxed QuickJS <commit> (bounds-checks)`; the widget's `engine` diag names it too
+./build/twidget-run --boxed --attacks                                  # 0 URLs leaking into validated ops, as on native
+./build/twidget-run --boxed --corpus ../../corpus/compat               # loaded, alive, no uncaught errors
+WIDGET_SANDBOX_ENGINE=boxed ./build/twidget-tests                      # the suite with every widget engine boxed (the validator stays native)
+```
+
+Memory mode is **bounds checks** by default (portable: no address-space reservation, no signals).
+`-DQJSBOX_BOUNDS_CHECKS=0` selects **guard pages** on macOS (each box reserves 8 GiB; an
+out-of-bounds access hits an unmapped page and the process dies — "contain and crash", no handler of
+ours). `--boxed` on the harness and `WIDGET_SANDBOX_ENGINE=boxed` both pick the boxed engine; the
+default otherwise follows the environment (`quickjsDefaultBackend()`). No WABT signal handler is
+compiled in (`WASM_RT_SKIP_SIGNAL_RECOVERY`): a fault is reported like a crash and recovered from by
+restarting, as today.
+
 ## What the harness checks and what it cannot
 
 Without `--blitz` there is no renderer, so layout queries (`rect`, `box`,

@@ -45,6 +45,7 @@ find_package(Threads REQUIRED)
 add_library(twidget-sandbox STATIC
     sandbox/src/js_thread.cpp
     sandbox/src/quickjs_context.cpp
+    sandbox/src/quickjs_boxed.cpp
     sandbox/src/cpu_budget.cpp
     sandbox/src/sdk_policy.cpp
     sandbox/src/gesture_policy.cpp
@@ -63,6 +64,47 @@ if(WIN32)
 endif()
 if(NOT MSVC)
     target_compile_options(twidget-sandbox PRIVATE -Wall -Wextra)
+endif()
+
+# ───────────── QuickJS box backend (optional) ─────────────
+# The same engine commit compiled to wasm and back to C (packages/quickjs-box), run in a linear
+# memory of its own: a memory bug in the engine reads and writes that memory only, or ends the
+# process (docs/decisions.md, "QuickJS in a wasm2c box"). Opt-in; the native engine stays the default
+# everywhere and the validator stays native. The box's host layer is plain C, so it drops into the
+# build: compile every .c in packages/quickjs-box/src and nothing else — each one pulls in the
+# generated code and WABT's runtime through qjsbox_config.h — with the include paths include/,
+# generated/ and wabt/ (packages/quickjs-box/CLIENTS.md §2). The box refuses to start unoptimized,
+# so it is always compiled with -O2, also in Debug.
+option(TW_QUICKJS_BOX "Build the QuickJS box backend (QuickJSBackend::Boxed; packages/quickjs-box)" OFF)
+# Memory mode: 1 = bounds checks (the portable default — no address-space reservation, no signals);
+# 0 = guard pages (macOS only: each box reserves 8 GiB and an out-of-bounds access hits an unmapped
+# page; faster). QJSBOX_BOUNDS_CHECKS toggles it (packages/quickjs-box/CLIENTS.md §2).
+set(QJSBOX_BOUNDS_CHECKS 1 CACHE STRING "QuickJS box memory mode: 1 = bounds checks (default), 0 = guard pages (macOS only)")
+if(TW_QUICKJS_BOX)
+    set(TW_BOX "${TW_ROOT}/quickjs-box")
+    if(NOT EXISTS "${TW_BOX}/src/qjsbox_host.c")
+        message(FATAL_ERROR "TW_QUICKJS_BOX: the QuickJS box sources are not at ${TW_BOX} (packages/quickjs-box)")
+    endif()
+    file(GLOB TW_BOX_SOURCES CONFIGURE_DEPENDS "${TW_BOX}/src/*.c")
+    add_library(twquickjsbox STATIC ${TW_BOX_SOURCES})
+    target_include_directories(twquickjsbox PUBLIC "${TW_BOX}/include")
+    target_include_directories(twquickjsbox PRIVATE "${TW_BOX}/generated" "${TW_BOX}/wabt")
+    set_target_properties(twquickjsbox PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+    # -DNDEBUG: the box's release behaviour (a call from inside a callback is refused, not asserted),
+    # as packages/quickjs-box/tools/build.sh compiles it.
+    target_compile_definitions(twquickjsbox PRIVATE QJSBOX_BOUNDS_CHECKS=${QJSBOX_BOUNDS_CHECKS} NDEBUG)
+    if(MSVC)
+        target_compile_options(twquickjsbox PRIVATE /O2)
+    else()
+        # Always -O2 (also in Debug); the generated wasm2c C is machine-written, so silence its warnings.
+        target_compile_options(twquickjsbox PRIVATE -O2 -w)
+    endif()
+    if(NOT WIN32)
+        target_link_libraries(twquickjsbox PUBLIC m Threads::Threads)
+    endif()
+
+    target_link_libraries(twidget-sandbox PUBLIC twquickjsbox)
+    target_compile_definitions(twidget-sandbox PRIVATE TW_QUICKJS_BOX=1)
 endif()
 
 # ───────────── Blitz renderer prototype (optional) ─────────────

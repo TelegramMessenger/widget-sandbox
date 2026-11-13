@@ -89,7 +89,7 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
       resources_(std::move(resources)),
       validator_(theme_, resources_, [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); }),
       renderer_(rendererFactory(resources_, theme_, width)),
-      engine_(html_, config_, resources_, std::move(intl)),
+      engine_(html_, config_, resources_, std::move(intl), options.engine),
       viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {
     if (!renderer_) throw std::runtime_error("WidgetHost: the renderer factory returned nothing");
     if (isStrictPolicy(options.policy)) validator_.setPolicy("strict");
