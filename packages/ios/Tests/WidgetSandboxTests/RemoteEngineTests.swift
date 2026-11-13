@@ -463,7 +463,7 @@ final class RemoteEngineTests: XCTestCase {
 
     func testLoopbackRunsAWidgetThroughTheHost() throws {
         let previous = SandboxEngine.remoteChannelFactory
-        SandboxEngine.remoteChannelFactory = { SandboxLoopbackChannel(features: $0) }
+        SandboxEngine.remoteChannelFactory = { SandboxLoopbackChannel(features: $0, backend: $1) }
         defer { SandboxEngine.remoteChannelFactory = previous }
         let renderer = LoopbackProbe()
         var options = WidgetHost.Options()

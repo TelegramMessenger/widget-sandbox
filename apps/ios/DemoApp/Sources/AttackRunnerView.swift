@@ -33,6 +33,8 @@ struct AttackRunnerView: View {
         struct Row: Encodable { let file: String; let blocked: Int; let dead: String? }
         let hits: Int?
         let status: String
+        /// "native QuickJS", or the boxed engine (`--engine boxed`) with its commit and memory mode.
+        let engine: String
         let results: [Row]
     }
 
@@ -66,7 +68,7 @@ struct AttackRunnerView: View {
         } else {
             status = "canary not reachable (run `pnpm canary` on the Mac)"
         }
-        status += DemoReport.write("attack-report.json", Report(hits: hitCount, status: status, results: results.map { .init(file: $0.file, blocked: $0.blocked, dead: $0.dead) }))
+        status += DemoReport.write("attack-report.json", Report(hits: hitCount, status: status, engine: DemoAutorun.engineName, results: results.map { .init(file: $0.file, blocked: $0.blocked, dead: $0.dead) }))
         running = false
     }
 }

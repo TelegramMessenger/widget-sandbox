@@ -1,0 +1,4 @@
+# Written by build.sh: reviewed by reproducing them (build.sh --check), not by reading diffs.
+generated/* linguist-generated=true -diff
+wabt/* linguist-vendored=true
+wasm/qjsbox.wasm binary

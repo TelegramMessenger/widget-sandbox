@@ -1,0 +1,4 @@
+module CQuickJSBox {
+    header "qjsbox_host.h"
+    export *
+}

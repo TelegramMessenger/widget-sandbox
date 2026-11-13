@@ -1,6 +1,8 @@
-// Thin Swift wrapper over quickjs-ng (through CQuickJS/qjs_shim). One runtime,
-// one context, string-based host functions. All methods must be called from
-// the thread/queue that owns the context.
+// The native QuickJS engine: a thin Swift wrapper over quickjs-ng (through
+// CQuickJS/qjs_shim). One runtime, one context, string-based host functions.
+// All methods must be called from the thread/queue that owns the context.
+// `QuickJSContext` (QuickJSContext.swift) is what the rest of the package
+// talks to; it runs this engine unless a host asks for the boxed one.
 
 import CQuickJS
 import Foundation
@@ -8,11 +10,15 @@ import Foundation
 public enum QuickJSError: Error, CustomStringConvertible {
     case exception(String)
     case notAFunction(String)
+    /// The engine itself cannot run or cannot be trusted any more (the boxed engine is not part of this build, it was
+    /// compiled without optimization, a call into it was refused): the widget stops, as on a CPU or memory limit.
+    case engineFault(String)
 
     public var description: String {
         switch self {
         case .exception(let text): return text
         case .notAFunction(let name): return "\(name) is not a function"
+        case .engineFault(let reason): return "engine fault: \(reason)"
         }
     }
 }
@@ -36,7 +42,7 @@ public enum JSResult {
     public var number: Double? { if case .number(let n) = self { return n } else { return nil } }
 }
 
-public final class QuickJSContext {
+final class NativeQuickJS: QuickJSEngine {
     let runtime: OpaquePointer
     let context: OpaquePointer
     private var functions: [Int32: ([String]) -> HostReturn] = [:]
@@ -46,12 +52,6 @@ public final class QuickJSContext {
     /// Interrupt deadline in CPU seconds of the thread running JS (`threadCPUTime`); `.infinity` disables it.
     public var cpuDeadline: TimeInterval = .infinity
 
-    /// CPU time consumed by the calling thread, in seconds; unaffected by how busy the machine is.
-    public static func threadCPUTime() -> TimeInterval {
-        var t = timespec()
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t)
-        return TimeInterval(t.tv_sec) + TimeInterval(t.tv_nsec) / 1e9
-    }
     /// Set by the interrupt handler when the deadline fired; reset by the caller.
     public internal(set) var interrupted = false
 
@@ -71,7 +71,7 @@ public final class QuickJSContext {
         // No module loader is installed: `import()` of anything fails inside the sandbox.
         JS_SetInterruptHandler(runtime, { _, opaque in
             guard let opaque else { return 0 }
-            let ctx = Unmanaged<QuickJSContext>.fromOpaque(opaque).takeUnretainedValue()
+            let ctx = Unmanaged<NativeQuickJS>.fromOpaque(opaque).takeUnretainedValue()
             if ProcessInfo.processInfo.systemUptime > ctx.deadline || (ctx.cpuDeadline != .infinity && QuickJSContext.threadCPUTime() > ctx.cpuDeadline) {
                 ctx.interrupted = true
                 return 1
@@ -156,7 +156,7 @@ public final class QuickJSContext {
     }
 
     @discardableResult
-    public func evaluate(_ code: String, filename: String, asModule: Bool = false) throws -> JSResult {
+    public func evaluate(_ code: String, filename: String, asModule: Bool) throws -> JSResult {
         enterJS()
         var bytes = Array(code.utf8)
         bytes.append(0)
@@ -244,7 +244,7 @@ public final class QuickJSContext {
 
     /// Calls the global function `name` with string arguments.
     @discardableResult
-    public func call(_ name: String, _ args: [String] = []) throws -> JSResult {
+    public func call(_ name: String, _ args: [String]) throws -> JSResult {
         enterJS()
         let own = captured[name] == nil
         let fn = captured[name] ?? qjs_get_global_prop(context, name)
@@ -277,7 +277,7 @@ public final class QuickJSContext {
 /// Single C trampoline for every registered host function; `magic` selects the Swift closure.
 private func hostTrampoline(_ ctxPtr: OpaquePointer?, _ this: JSValue, _ argc: Int32, _ argv: UnsafeMutablePointer<JSValue>?, _ magic: Int32) -> JSValue {
     guard let ctxPtr, let opaque = JS_GetContextOpaque(ctxPtr) else { return qjs_undefined() }
-    let ctx = Unmanaged<QuickJSContext>.fromOpaque(opaque).takeUnretainedValue()
+    let ctx = Unmanaged<NativeQuickJS>.fromOpaque(opaque).takeUnretainedValue()
     var args: [String] = []
     args.reserveCapacity(Int(argc))
     for i in 0..<Int(argc) {
@@ -297,7 +297,7 @@ private func hostTrampoline(_ ctxPtr: OpaquePointer?, _ this: JSValue, _ argc: I
 
 private func wordsTrampoline(_ ctxPtr: OpaquePointer?, _ this: JSValue, _ argc: Int32, _ argv: UnsafeMutablePointer<JSValue>?, _ magic: Int32) -> JSValue {
     guard let ctxPtr, let opaque = JS_GetContextOpaque(ctxPtr), argc >= 3, let argv else { return qjs_undefined() }
-    let ctx = Unmanaged<QuickJSContext>.fromOpaque(opaque).takeUnretainedValue()
+    let ctx = Unmanaged<NativeQuickJS>.fromOpaque(opaque).takeUnretainedValue()
     guard qjs_is_number(argv[0]), qjs_is_string(argv[2]) else { return qjs_undefined() }
     var pointer: UnsafeMutablePointer<UInt8>?
     var length = 0
@@ -314,7 +314,7 @@ private func wordsTrampoline(_ ctxPtr: OpaquePointer?, _ this: JSValue, _ argc: 
 
 private func opsTrampoline(_ ctxPtr: OpaquePointer?, _ this: JSValue, _ argc: Int32, _ argv: UnsafeMutablePointer<JSValue>?, _ magic: Int32) -> JSValue {
     guard let ctxPtr, let opaque = JS_GetContextOpaque(ctxPtr), argc >= 2, let argv, qjs_is_string(argv[1]) else { return qjs_undefined() }
-    let ctx = Unmanaged<QuickJSContext>.fromOpaque(opaque).takeUnretainedValue()
+    let ctx = Unmanaged<NativeQuickJS>.fromOpaque(opaque).takeUnretainedValue()
     var pointer: UnsafeMutablePointer<UInt8>?
     var length = 0
     guard qjs_typed_array_bytes(ctxPtr, argv[0], &pointer, &length) == Int32(JS_TYPED_ARRAY_INT32.rawValue), let pointer, length % 4 == 0 else { return qjs_undefined() }

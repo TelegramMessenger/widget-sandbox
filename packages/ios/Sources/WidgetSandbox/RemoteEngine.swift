@@ -98,9 +98,9 @@ public final class SandboxRemoteServer: SandboxEngineDelegate {
     private var pending: [Int: WidgetRequestCompletion] = [:]
     private var closed = false
 
-    public init(sink: SandboxRemoteSink, features: Set<String>, resources: SandboxResources = .shared) {
+    public init(sink: SandboxRemoteSink, features: Set<String>, resources: SandboxResources = .shared, backend: QuickJSBackend = .default) {
         self.sink = sink
-        engine = SandboxEngine(resources: resources, features: features)
+        engine = SandboxEngine(resources: resources, features: features, backend: backend)
         engine.delegate = self
     }
 
@@ -190,14 +190,16 @@ public final class SandboxLoopbackChannel: SandboxRemoteChannel {
     private var server: SandboxRemoteServer?
     private let features: Set<String>
     private let resources: SandboxResources
+    private let backend: QuickJSBackend
 
-    public init(features: Set<String>, resources: SandboxResources = .shared) {
+    public init(features: Set<String>, resources: SandboxResources = .shared, backend: QuickJSBackend = .default) {
         self.features = features
         self.resources = resources
+        self.backend = backend
     }
 
     public func attach(_ sink: SandboxRemoteSink) {
-        server = SandboxRemoteServer(sink: sink, features: features, resources: resources)
+        server = SandboxRemoteServer(sink: sink, features: features, resources: resources, backend: backend)
     }
 
     public var serverEngine: SandboxEngine? { server?.engine }

@@ -186,7 +186,7 @@ public final class SandboxEngine {
     private var pendingDeath: String?
 
     /// Set by a host whose engines run in another process: `make` builds client-mode engines through it.
-    public static var remoteChannelFactory: ((Set<String>) -> SandboxRemoteChannel)?
+    public static var remoteChannelFactory: ((Set<String>, QuickJSBackend) -> SandboxRemoteChannel)?
 
     /// Side channels get the engine's QuickJS context, which a remote engine does not have; they only work in builds
     /// that install them (`Widget3DChannel`), and only such hosts keep their engine in process.
@@ -284,9 +284,10 @@ public final class SandboxEngine {
     /// tiny pairs): a longer commit cannot be within it (`MAX_STORAGE_COMMIT_CHARS` in worker.ts).
     static let maxStorageCommitChars = 2 * 12 * SdkPolicy.storageQuotaBytes + 64
 
-    public init(html: String, config: SandboxConfig, resources: SandboxResources = .shared) {
+    public init(html: String, config: SandboxConfig, resources: SandboxResources = .shared, backend: QuickJSBackend = .default) {
         self.html = html
         self.config = config
+        self.backend = backend
         self.runtimeFeatures = config.features
         self.resources = resources
         self.remote = nil
@@ -301,8 +302,10 @@ public final class SandboxEngine {
     /// off the critical path of a bubble that scrolls into view).
     /// An engine for a widget that comes later (`start(html:config:)`), e.g. a pooled one. `features` decides
     /// which optional host functions its runtime gets when it is created; a later config cannot add them.
-    public init(resources: SandboxResources = .shared, features: Set<String> = []) {
+    /// `backend` decides which build of QuickJS its runtime is (`QuickJSBackend`), for the engine's whole life.
+    public init(resources: SandboxResources = .shared, features: Set<String> = [], backend: QuickJSBackend = .default) {
         self.resources = resources
+        self.backend = backend
         self.runtimeFeatures = features
         self.remote = nil
         config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
@@ -312,8 +315,9 @@ public final class SandboxEngine {
     }
 
     /// A client-mode engine: no runtime here, the widget runs behind `remote` (RemoteEngine.swift).
-    public init(remote: SandboxRemoteChannel, features: Set<String> = []) {
+    public init(remote: SandboxRemoteChannel, features: Set<String> = [], backend: QuickJSBackend = .default) {
         self.resources = .shared
+        self.backend = backend
         self.runtimeFeatures = features
         self.remote = remote
         config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
@@ -326,16 +330,16 @@ public final class SandboxEngine {
     }
 
     /// The engine a host or pool should use: a client-mode one when the host set `remoteChannelFactory`.
-    public static func make(resources: SandboxResources = .shared, features: Set<String> = []) -> SandboxEngine {
+    public static func make(resources: SandboxResources = .shared, features: Set<String> = [], backend: QuickJSBackend = .default) -> SandboxEngine {
         if let factory = remoteChannelFactory {
-            return SandboxEngine(remote: factory(features), features: features)
+            return SandboxEngine(remote: factory(features, backend), features: features, backend: backend)
         }
         #if DEBUG
         if ProcessInfo.processInfo.environment["TW_ENGINE_LOOPBACK"] == "1" {
-            return SandboxEngine(remote: SandboxLoopbackChannel(features: features, resources: resources), features: features)
+            return SandboxEngine(remote: SandboxLoopbackChannel(features: features, resources: resources, backend: backend), features: features, backend: backend)
         }
         #endif
-        return SandboxEngine(resources: resources, features: features)
+        return SandboxEngine(resources: resources, features: features, backend: backend)
     }
 
     deinit {
@@ -383,6 +387,8 @@ public final class SandboxEngine {
 
     /// The optional host functions this engine's runtime was built with (fixed at init).
     public let runtimeFeatures: Set<String>
+    /// The build of QuickJS this engine's runtime is: native, or boxed (docs/decisions.md, "QuickJS in a wasm2c box").
+    public let backend: QuickJSBackend
 
     /// Canvas word payloads (`__hostCanvas`) for the next ops batch, by key.
     private var stagedCanvas: [Int: WidgetCanvasBatch] = [:]
@@ -451,7 +457,12 @@ public final class SandboxEngine {
     /// The runtime, the two host functions and the sandbox bundle (ours, so its time is excluded from the widget's quota).
     private func createRuntime() {
         if js != nil { return }
-        js = QuickJSContext(memoryLimitBytes: config.memoryLimitBytes, maxStackBytes: JSThread.jsStackLimit)
+        js = QuickJSContext(memoryLimitBytes: config.memoryLimitBytes, maxStackBytes: JSThread.jsStackLimit, backend: backend)
+        // Fail closed: a boxed engine this build cannot provide never becomes a native one.
+        if let reason = js.unavailableReason {
+            if !dead && !prewarmFailed { kill("Engine fault: \(reason)") }
+            return
+        }
         js.registerFunction("__host") { [unowned self] args in self.hostCall(kind: args.first ?? "", arg: args.count > 1 ? args[1] : "") }
         if runtimeFeatures.contains("binaryOps") {
             js.registerOpsFunction("__hostOps") { [unowned self] words, strings in
@@ -515,6 +526,8 @@ public final class SandboxEngine {
         if let bundleEval {
             delegate?.engine(self, diag: "boot", detail: String(format: "sandbox bundle eval %.0f ms (%@%@)", bundleEval.ms, bundleEval.how, wasPrewarmed ? ", prewarmed" : ""))
         }
+        // Only a host that opted in hears about it: which box runs this widget.
+        if backend == .boxed { delegate?.engine(self, diag: "engine", detail: js.engineDescription) }
         task("boot", sliceMs: config.cpuLimitMs) {
             var bootConfig: [String: Any] = [
                 "memoryLimitBytes": self.config.memoryLimitBytes, "cpuLimitMs": self.config.cpuLimitMs,
@@ -1210,6 +1223,7 @@ public final class SandboxEngine {
 
     private func handleError(_ error: Error, where location: String) {
         let text = (error as? QuickJSError)?.description ?? String(describing: error)
+        if case .engineFault(let reason)? = error as? QuickJSError { return kill("Engine fault: \(reason) (\(location))") }
         if js?.interrupted == true, let hit = queryLimitHit {
             return kill("\(CpuBudget.queryLimitReason(hit, kind: currentKind)) (\(location))")
         }

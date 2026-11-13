@@ -13,7 +13,7 @@ must already be valid on every platform. One page of rules; the commands are in
 | `CpuBudget*`, `SdkPolicy*`, the `intl` capability | a policy checked against a fixture in `packages/core/tests/fixtures`: `cpu-budget.json`, `sdk-policy.json`, `intl-cases.json` | all four copies and the fixture together (`intl-cases.json` holds V8's answers: add the case to `packages/core/scripts/intl-cases.ts` and regenerate); `build:ios`, `build:android`, `build:desktop` copy the fixtures into the native tests |
 | What a widget author sees: a profile feature, an SDK call, a limit, a default, who gets a press, a dev-tool flag | the authors' contract | `docs/widget-runtime-profile.md` (the guide and its agent block, which must stand alone: a bot's model sees nothing else; their out lists are generated: run `profile-build.ts` after `profile.json`), and `docs/changes.md` |
 | The wire between the glue and the bundles (`docs/protocol.md`) in a way the previous release's glue cannot run with | the protocol | `protocol` in `VERSION.json`, then `pnpm build:ios`, `build:android`, `build:desktop` (they stamp the bundles and write the glue's `WidgetSandboxVersion` / `twidget/version.h`) |
-| `packages/ios/Sources/CQuickJS/quickjs` (the submodule) or `packages/quickjs-wasm` | the engine | the bundles' `.qbc`, and `packages/quickjs-wasm/build.sh` (the pinned emscripten, `--docker` without it): `dist/` and `dist.sha256` together |
+| `packages/ios/Sources/CQuickJS/quickjs` (the submodule), `packages/quickjs-wasm` or `packages/quickjs-box` | the engine | the bundles' `.qbc`, `packages/quickjs-wasm/build.sh` (the pinned emscripten, `--docker` without it): `dist/` and `dist.sha256` together, and `packages/quickjs-box/build.sh` (the same emscripten, and wasm2c built from the pinned WABT commit): `wasm/`, `generated/`, `wabt/` and `manifest.sha256` together, then `packages/quickjs-box/tools/build.sh test` |
 | Your renderer, pools, demo, build files | platform only | nothing else |
 
 If you cannot do every copy yourself, push a branch and ask for the rest; do not push the
@@ -63,7 +63,8 @@ one-platform half to `main`.
   bundles and `.qbc`, `packages/conformance/{catalogue,manifest,channel}.json`,
   `packages/core/tests/fixtures/intl-cases.json` and the fixtures' copies in the native tests,
   `WidgetSandboxVersion.swift` / `.kt` and `twidget/version.h` (from `VERSION.json`),
-  `packages/quickjs-wasm/dist` and `dist.sha256` (from `build.sh`).
+  `packages/quickjs-wasm/dist` and `dist.sha256` (from `build.sh`), `packages/quickjs-box/wasm`, `generated`, `wabt` and
+  `manifest.sha256` (from its `build.sh`).
 
 ## 6. Cut a release
 

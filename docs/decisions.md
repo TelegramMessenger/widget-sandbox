@@ -2354,3 +2354,101 @@ scroll would need a theme update per frame. Painting the bubble in `bg_color` ma
 without an edge; the bubble's other parts (the header, the caption, the reactions, the time) sit on that colour, and a
 selected bubble gets the theme's selection overlay over it. Incoming bubbles have one colour already; a translucent
 fill keeps the old rule (the colour the widget's area shows most).
+
+## QuickJS in a wasm2c box (2026-11-13)
+
+The engine is C, and nobody sends us advisories for our fork. v0.6.1 to v0.6.4 were four engine releases in a week,
+each for memory bugs a widget's plain JavaScript could reach below the validator and the sandbox (a use-after-free in
+RegExp deletion, two more in `FinalizationRegistry` and `Map`, out-of-bounds reads, parser accesses at index -1). Bumping
+the pin stays necessary. The box is the wall that holds between two bumps (Mikhail Filimonov's proposal and spike,
+2026-11-12; the assessment and Artem's go for this first phase the same day).
+
+- **What it is.** `packages/quickjs-box`: the fork at the commit every native package compiles, with the Swift
+  package's own `qjs_shim.c` and a small guest layer, compiled to one wasm module by the pinned emscripten and
+  translated back to C by WABT's wasm2c. A client compiles that C. One instance is one widget engine in a linear
+  memory of its own, behind a scalar C surface over an opaque handle (`include/qjsbox_host.h`). No rewrite, no second
+  engine to maintain: it is the same source.
+- **What it contains.** Inside the box a pointer is a 32-bit offset into that instance's memory, code is not in that
+  memory, return addresses are on the native stack the box cannot address, and an indirect call checks the table
+  index and the signature. So an out-of-bounds access, a use-after-free or a type confusion in the engine becomes at
+  most a read or a write of that one widget's own memory, or a stop at its edge. It cannot reach the host's memory
+  (the validator, another widget's engine), and it has no system call: the box's whole reach is 11 imports.
+- **What it does not contain.** What the engine legitimately says: a subverted engine still sends any ops and any
+  host call, which is why everything out of QuickJS was already untrusted (invariant 2) and stays so. The host side of
+  the 11 imports, which is new C on the trust boundary: every offset and length from the box is checked against the
+  memory's size before a byte is touched. The wasm2c translator, its runtime and the C compiler. Bugs inside the
+  instance's own memory, which are silent there (an engine's null write no longer crashes).
+- **Contain and crash, first.** A fault inside the box ends the process: a memory access outside the box hits an
+  unmapped page (guard pages) or a failed bounds check, and every trap (a bad indirect call, the engine's `abort`, a
+  malformed request to the host) goes to `qjsbox_fault`, which writes the reason to stderr, calls the client's hook and
+  aborts. That is what an engine memory bug does to the process today, minus the part where it could do anything
+  else first. The security does not depend on recovering. Recovering, so that one widget stops and the rest of the
+  service lives, needs a fault handler and an unwind past the host's frames, and both are where this technique goes
+  wrong. They are a second phase, to be designed with data from the first.
+- **WABT's signal handler is never compiled in.** It claims every SIGSEGV and SIGBUS of the process without looking
+  at the address and jumps out of them. Measured in the spike: an unrelated null write anywhere in the process became
+  an abort from inside the wasm runtime, and a bug in the host's own code under a callback was swallowed as a "wasm
+  trap" and the process went on. The runtime is built with `WASM_RT_SKIP_SIGNAL_RECOVERY` and
+  `WASM_RT_TRAP_HANDLER`, there is no `setjmp` in the target, and a unit test holds both.
+- **The host never calls into a box from inside one of its callbacks.** The native glue does: `hostTrampoline` is
+  called by the interpreter and calls the engine back to read arguments and build the return value. With a box that
+  puts Swift frames between two runs of engine code, which is the shape an unwind must never cross. So the guest
+  layer does those conversions itself: a host function is one import that receives (pointer, length) pairs into the
+  box, valid during the call, and answers through a second import that copies the result into a buffer the box
+  allocated. The engine's interrupt check is an import that compares two clocks in C and runs no Swift. A call made
+  from inside a callback is refused, and a debug build asserts. One consequence is visible: a host function gets its
+  first 8 arguments (the hosts' own read 2).
+- **The stack.** QuickJS measures its recursion with the stack pointer it sees, which inside the box is the module's
+  own stack. The generated C uses 3.5 (guard pages) to 5.4 (bounds checks) times as much native stack as that, over 17
+  recursion shapes. So the box derives QuickJS's limit from the native stack the thread has: one eighth, 768 KiB for
+  the 6 MB a `JSThread` gives, which leaves runaway recursion a `RangeError` after about 2 400 calls (the native
+  engine: 6 600) and at most 4.1 MB of native stack. Past that there is the thread's guard page, as for the native engine. WABT's call-depth
+  counter is left out: it counts calls where bytes have to be bounded, and on Apple platforms it costs a thread-local
+  access per call (10 to 20 % of the engine's speed in the spike). The module is linked stack-first, so an overflow
+  of its own stack leaves the memory instead of running into the engine's tables.
+- **The memory limit is the box's memory, as on the web** ("The memory limit is the wasm memory's maximum"): this
+  build of QuickJS cannot measure its blocks, so `JS_SetMemoryLimit` only catches one huge allocation. The host sets
+  how far the instance's memory may grow, the 2 MB it starts with plus `memoryLimitBytes`, and can raise it for a
+  prewarmed engine. At the limit the engine throws the same "out of memory". The limit bounds bytes, which is what it
+  is for, and the box's heap is 32-bit: the same objects take fewer bytes, so a widget that dies of the limit on the
+  native engine may live on in the box, to its next limit (six stress-kit levels past the node cap do).
+- **The time zone is an import.** A standalone wasm module has none, and local time was UTC in the spike. The engine
+  asks libc in one place (`getTimezoneOffset`, through `localtime_r`), and the build points that call at the guest,
+  which asks the host for the offset at that moment. Daylight saving included.
+- **Always optimized.** Compiled without optimization the box is 11 to 48 times slower than the optimized native
+  engine. A widget has 500 ms per task. So an unoptimized box refuses to start instead of running into the limits.
+- **Opt-in, macOS, the widget's engine only.** `QuickJSBackend.boxed` on a host, an engine or as the process default.
+  Native stays the default everywhere. The validator's engine stays native: it runs our code on hostile data, it is
+  the heavy one for CPU, and the box already keeps the widget's engine out of its memory. The 3D side channel (debug
+  builds) stays native: it is written against quickjs-ng itself. A build that cannot run the box fails closed: the
+  widget stops with "Engine fault", it never becomes a native one. macOS fences the box with guard pages (8 GiB of
+  address space per box). Every other platform would use bounds checks, the same C under one define, and the tests
+  run that mode from the start so it stays honest.
+- **One set of `.qbc`.** The 32-bit box compiles the shipped bundles to the same bytes as the 64-bit native engine,
+  and loads the shipped blobs. A test holds it (`BoxedQuickJSTests`).
+- **Reproducible, with one more pinned tool** (`packages/quickjs-box/build.sh`, modelled on `packages/quickjs-wasm`).
+  Stage 1 builds the wasm with the emscripten the web's engine uses, from a fixed source layout, and `--docker` does
+  it in the pinned image: byte-identical on macOS and in the Linux image. Stage 2 runs wasm2c built from the commit of
+  WABT's 1.0.42 tag on the committed wasm: Homebrew's bottle of that version writes the same bytes. The wasm, the
+  generated C (16 MB, not for reading: the review is the reproduction), WABT's runtime (6 files, Apache-2.0) and a
+  sha256 manifest are committed, `--check` redoes both stages, and `quickjs-box.test.ts` fails when the submodule
+  moved and the box did not. The configuration is one header that every compiled file includes first, so no build
+  system has to pass a define.
+- **Cost.** Over the 440 widgets of the corpora, the conformance set and the stress kit, through the whole host, JS
+  runs 1.41 times slower with guard pages and 1.66 times with bounds checks (1.1 to 2.0 and 1.3 to 2.9 on
+  micro-benchmarks). Boot from `.qbc` is not slower (4.1 to 4.6 ms against 5.2 ms). A box takes 0.07 ms and about
+  0.2 MB. The code is 1.2 MB (guard pages) or 2.1 MB (bounds checks). The limits are fixed milliseconds set from phones about three
+  times slower than a Mac, so the quota does not move for macOS. It will have to be measured again before a phone
+  runs boxed with bounds checks.
+- **What a widget can notice.** The recursion depth above, the argument cap, the last digit of `Math.tan`, `asin`,
+  `acos`, `atanh` (the box carries its own libm, the one the web build has), and where the memory limit bites. Over
+  the 440 widgets the renderer received the same messages from both engines, apart from one widget's last digits
+  and the six levels above. The attack corpus ends the same way row by row, with 0 hits.
+- **The proof on a real bug.** The box built from the fork one commit before the v0.6.1 fix (c24d6b0), with that
+  release's trigger (`corpus/attacks/regexp-delete-recompile.html`): the native engine's process is killed (SIGABRT in
+  a Release build, a heap-use-after-free in `JS_RegExpDelete` under AddressSanitizer). In the box the same engine reads
+  its own freed block, reports "InternalError: corrupted bytecode in regexp execution" to the script, and goes on
+  answering. The host process is untouched, in both memory modes.
+- **Not decided here.** Recovery from a fault (the second phase). The other platforms, where the box is worth more
+  than on macOS, because there the engine runs in the app's own process. Boxing the validator's engine. Whether the
+  boxed engine becomes a default anywhere.

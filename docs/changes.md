@@ -3,6 +3,53 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased
+
+### The boxed QuickJS engine (opt-in, macOS, Swift)
+
+Opt-in. The native engine stays the default on every platform, and a host that does not ask for the box sees no
+change: the same engine, the same bundles, the same `.qbc`. Protocol, profile and SDK are unchanged, and the engine pin
+(`b526a817`) does not move. The decision and its reasons are in `docs/decisions.md`, "QuickJS in a wasm2c box". The
+client's guide, with the commands and the numbers to send back, is `packages/quickjs-box/CLIENTS.md`.
+
+- **What it is.** `packages/quickjs-box`: the engine at the pinned commit compiled to wasm and translated back to C
+  (wasm2c), so a widget's engine runs in a linear memory of its own. A memory bug in the engine then reads and writes
+  that widget's memory only, or ends the process. It cannot reach the host's memory, another widget or a system call.
+  "Contain and crash": a fault ends the process with a reason on stderr, as an engine crash does today. Stopping only
+  the one widget is a later phase.
+- **How a host asks.** `WidgetHost.Options.engine = .boxed`, `SandboxEngine(…, backend: .boxed)`, or
+  `QuickJSBackend.default = .boxed` once at start (and `EnginePool.shared.backend`). A boxed host reports the
+  diagnostic `engine` (`boxed QuickJS b526a81 (guard-pages)`). A build that cannot run the box fails closed: the widget
+  stops with `Engine fault: …`, it never runs on the native engine instead. The new `QuickJSError.engineFault` carries
+  the reason. The validator's engine and the 3D side channel stay native.
+- **The package.** A new C target, `CQuickJSBox`, built with `WidgetSandbox` on macOS only. It must be compiled
+  optimized: an unoptimized box refuses to start. macOS fences the box with guard pages, and
+  `WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1` in the build's environment selects bounds checks, the mode of every other
+  platform.
+- **What a boxed widget can notice.** Runaway recursion ends in `RangeError` after about 2 400 calls instead of about
+  6 600. A host function receives its first 8 arguments. `Math.tan`, `asin`, `acos`, `atanh` may differ in the last
+  digit (the box has its own libm, the web's). The memory limit is the size the box's memory may grow to, as on the
+  web, and the box's heap is 32-bit, so the same objects take fewer bytes there: a widget that dies of the memory
+  limit on the native engine may live on in the box, to its next limit (six stress-kit levels past the node limit
+  do: `dom-static` and `dom-tick` 3000 and 4000, `style-churn` 2000 and 3000 stop with "Node limit exceeded" boxed and
+  with "Memory limit exceeded" natively). JS is about 1.4 times slower with guard pages and 1.7 to 1.9 times with
+  bounds checks, and boot from `.qbc` is not slower.
+- **Refactoring that every host gets:** `QuickJSContext` is now a facade over an internal engine protocol
+  (`QuickJSContext.swift`), with the native engine unchanged behind it (`QuickJS.swift`, class `NativeQuickJS`). Its
+  public interface is the same, plus `backend`, `engineDescription` and `unavailableReason`.
+- **Tests.** `packages/quickjs-box/tools/build.sh test` (the box alone, in C, both memory modes: 35 checks each, among
+  them 17 recursion shapes inside the native stack budget and an engine with a corrupted heap ending the process).
+  Swift: `BoxedQuickJSTests` (19: the same answers and host-function arguments as the native engine, the shipped
+  `.qbc` byte for byte, the memory limit, recursion, the CPU deadline, fail-closed, the pool) and
+  `BoxedEngineDifferentialTests` (the corpora through the whole host on both engines: 8 widgets by default, and with
+  `WIDGET_SANDBOX_BOX_DIFFERENTIAL=full` all 440 of the corpora, the conformance set, the stress kit and the attacks,
+  0 differences in either memory mode beyond the two expected kinds). The attack corpus through the macOS demo
+  (`--autorun attacks --engine boxed`): 0 hits, every row ends as on the native engine. Core:
+  `quickjs-box.test.ts` (6: the manifest, the engine commit, the sources, the pins, the one configuration, the 11
+  imports).
+  `WIDGET_SANDBOX_ENGINE=boxed swift test` runs the whole Swift suite with every widget engine boxed.
+- **Swift only, macOS only.** Kotlin, the C++ core and the web are untouched. iOS builds do not compile the target.
+
 ## v0.6.5 — release notes (2026-11-12)
 
 Default, every host. A validator cap on how deeply a widget's elements may nest, with the deep-document fix that lets a
