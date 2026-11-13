@@ -515,6 +515,11 @@ For a list of many bubbles, `WidgetHost.Options` has `sharedWebKit`, `pools`,
 explains what each buys and `apps/ios/DemoApp/Sources/ChatFeed` is a working
 list.
 
+On macOS a host can run the widget's engine inside a wasm2c box (`options.engine = .boxed`, or
+`QuickJSBackend.default = .boxed` once at start): the same QuickJS in a memory of its own, so a memory bug in
+the engine cannot reach the process. It is opt-in and slower (JS about 1.4 times), and a fault ends the process
+with a reason. `packages/quickjs-box/CLIENTS.md` is the guide.
+
 ## Android (Gradle library)
 
 Coordinates `org.telegram.widgetsandbox:widget-sandbox`. Inside this repo
