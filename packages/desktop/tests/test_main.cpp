@@ -1824,6 +1824,7 @@ TEST(sdk_deprecated_host_api_forwards) {
     host.onHostThread([] {});
     std::lock_guard<std::mutex> l(m);
     CHECK_MSG((raw == std::vector<std::pair<std::string, std::string>>{{"ready", "[]"}, {"haptic", "[\"impact\",\"soft\"]"}}), std::to_string(raw.size()));
+    CHECK(host.diagnostics().bridge == raw);
     // `y` is always false since v0.1.3, for the deprecated callback too.
     CHECK((gestures == std::vector<std::string>{"onGesture 101", "onGestureClaim 10", "onGesture 100", "onGestureClaim 10", "onGesture 000", "onGestureClaim 00"}));
     CHECK(host.diagnostics().actions.size() == 2);

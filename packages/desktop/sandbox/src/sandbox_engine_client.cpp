@@ -141,29 +141,33 @@ public:
         });
     }
 
-    // Checked as the engine checks it (lone surrogates kept for the SDK to refuse), only an action, then the preview, the host's tap and haptic gate; the raw arguments go on as they came.
+    // Checked as the engine checks it (lone surrogates kept for the SDK to refuse), only an action, then the preview, the host's tap and haptic gate; what goes on is the checked arguments re-serialized, as in process, far under the cut admitted for them.
     void remoteBridge(const std::string& method, const std::string& argsJson) override {
         const bool sized = method.size() <= kRemoteNameLimit && argsJson.size() <= kRemoteMessageLimit;
         Admitted admitted = admit(sized ? method.size() + argsJson.size() : kRemoteNameLimit);
         if (!admitted) return;
         std::optional<WidgetAction> action;
+        std::string checkedArgs;
         if (sized) {
             std::optional<Json> args = Json::parse(argsJson, Json::Surrogates::Keep);
             std::optional<sdk::BridgeCall> checked = args ? sdk::checkBridgeCall(Json(method), *args) : std::nullopt;
-            if (checked) action = std::move(checked->action);
+            if (checked && checked->action) {
+                action = std::move(checked->action);
+                checkedArgs = args->dump();
+            }
         }
         if (!action) {
             return submit(std::move(admitted), [name = method.substr(0, kRemoteNameLimit)](SandboxEngine& engine) {
                 engine.clientReport(engine.rejectedBridgeReported_, "bridge-rejected", name + ": rejected by the host (unknown method or malformed arguments)");
             });
         }
-        submit(std::move(admitted), [method, argsJson, action = std::move(*action)](SandboxEngine& engine) {
+        submit(std::move(admitted), [method, checkedArgs = std::move(checkedArgs), action = std::move(*action)](SandboxEngine& engine) {
             if (engine.dead_ || (engine.config_.context.preview && !sdk::allowedInPreview(method)) || !engine.clientActivation(method)) return;
             // Dropped silently: the engine's side reports its own `haptic-limit`.
             if (action.kind == WidgetAction::Haptic && engine.haptics_.decide(nowMs(), engine.visible_) != sdk::HapticGate::Decision::Play) return;
             if (!engine.delegate_) return;
             engine.delegate_->onBridgeAction(engine, action);
-            engine.delegate_->onBridge(engine, method, argsJson);
+            engine.delegate_->onBridge(engine, method, checkedArgs);
         });
     }
 

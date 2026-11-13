@@ -172,7 +172,7 @@ public:
     /// `TelegramWidget.copyText(text)`: 1–256 UTF-16 code units, well-formed; a privileged call (one per
     /// press, shared with the links and a request's press; `activation-blocked` without one). Not an action.
     virtual void onBridgeCopyText(SandboxEngine&, const std::string& /*text*/) {}
-    /// Deprecated since SDK v1 (`onBridgeAction`): the raw method and arguments JSON of each call `onBridgeAction` gets, right after it.
+    /// Deprecated since SDK v1 (`onBridgeAction`): the method and arguments JSON of each call `onBridgeAction` gets, right after it; in process and in client mode alike the checked arguments re-serialized compact, at most 260 bytes, a link's URL as the widget gave it (not the action's normalised one).
     virtual void onBridge(SandboxEngine&, const std::string& /*method*/, const std::string& /*argsJson*/) {}
     virtual void onLoaded(SandboxEngine& engine) = 0;
     virtual void onStats(SandboxEngine& engine, const SandboxStats& stats) = 0;
