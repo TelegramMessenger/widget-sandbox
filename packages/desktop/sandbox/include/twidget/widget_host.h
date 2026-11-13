@@ -112,7 +112,7 @@ struct WidgetDiagnostics {
     std::vector<WidgetAction> actions;
     /// Storage commits `onStorageCommit` got (one per area).
     int storageCommits = 0;
-    /// The first 1000 raw bridge calls (method, args JSON), as the deprecated `onBridgeCall` gets them.
+    /// The first 1000 bridge calls (method, args JSON), as the deprecated `onBridgeCall` gets them: the checked arguments re-serialized compact, a link's URL as the widget gave it; at most 276 bytes of method and arguments an entry, so 276 000 in all.
     std::vector<std::pair<std::string, std::string>> bridge;
     SandboxStats stats;
     int nodes = 0;

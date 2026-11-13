@@ -30,11 +30,14 @@ process launcher, transport or sandbox profile.
   in flight; a background request `backgroundQuery`, visibility and the shared `RequestGate`'s 5 s (reset when the
   widget appears); a wallet call `context.wallet` and, on the visible widget, a tap or the 10 s grant of a checked
   answer; a haptic the host's `HapticGate` on its own presses. Bridge calls (an action only: a request, wallet call or
-  `copyText` sent as one is refused), storage commits and resize anchors are checked again with `sdk_policy.h`; a
-  preview's requests are refused and its bridge calls but `ready`, copies, storage and public-data watches dropped.
-  Ops (for the validator), queries, listen, preventDefault and anim reach the delegate as in process, sized first. The
-  client answers its own refusals with `NOT_ALLOWED` (the new `WidgetRequestFailure::NotAllowed`; the existing values
-  keep their numbers) or `RATE_LIMITED`.
+  `copyText` sent as one is refused), storage commits and resize anchors are checked again with `sdk_policy.h`, and a
+  bridge call's `onBridge` gets its checked arguments re-serialized, as in process: the same value (a link's URL as the
+  widget gave it), the same bytes from an honest engine's side, compact where the engine's side padded or spelled them
+  otherwise, and so for `diagnostics().bridge` and the deprecated `onBridgeCall`; a preview's requests are refused
+  and its bridge calls but `ready`, copies, storage and public-data watches dropped. Ops (for the validator), queries,
+  listen, preventDefault and anim reach the delegate as in process, sized first. The client answers its own refusals
+  with `NOT_ALLOWED` (the new `WidgetRequestFailure::NotAllowed`; the existing values keep their numbers) or
+  `RATE_LIMITED`.
 - Intl stays the host's: the engine's side asks through the synchronous `remoteIntl`, and the client formats with the
   `IntlProvider` the host gave it (tdesktop's Qt one) on its dispatch thread; the engine process formats nothing.
 - Threads: each client engine has one dispatch thread (its `thread()`), where the delegate hears every call in the
@@ -54,8 +57,9 @@ process launcher, transport or sandbox profile.
   `SandboxEngine::kRemoteQueuedBytes`, 64 MiB (a full ops batch the delegate validates and one waiting), and
   `kRemoteQueuedCalls`, 16384 calls (a busy widget's backlog is tens). `WidgetHost`'s host-thread work keeps its message
   counted (`SandboxEngine::remoteHold`, also after a query timed out) and counts as work of its own what it keeps beyond
-  it: a validated result larger than its input, each diagnostic the validator reports meanwhile, a bridge call's raw
-  copy next to its action. So a stalled host thread fed by a running dispatch thread meets the same bounds. The message
+  it: a validated result larger than its input, each diagnostic the validator reports meanwhile, a bridge call's copy
+  next to its action (its checked arguments, at most 276 bytes with the method, while the call's own admission still
+  counts what came). So a stalled host thread fed by a running dispatch thread meets the same bounds. The message
   past either kills the widget once, after what came before it ("the widget engine process sent more than the host keeps
   queued", the engine's side told to stop and closed even while the host thread is held; the host hears the death after
   the work it took); from then on the sink takes nothing and answers a query or an Intl request at once, never waiting.
@@ -88,7 +92,11 @@ process launcher, transport or sandbox profile.
   details. So after a kind flood the backlog stop may be folded there too; `dead` still carries its reason. These are
   logical bytes and counts, not allocator memory, and the rest of what `WidgetHost` keeps is as before: logs at 5000,
   recorded actions and bridge calls at 1000 each. An engine in process reaches neither bound: it starts only at
-  `ready`, and the framework's own kinds are a fixed few dozen. C++ only; nothing changes in Swift.
+  `ready`, and the framework's own kinds are a fixed few dozen. A recorded bridge call (`diagnostics().bridge`, the
+  same text the deprecated `onBridgeCall` gets) is in both modes its method and checked arguments re-serialized
+  compact: at most 276 bytes (`openTelegramLink` with a link of `sdk::MAX_LINK_LENGTH`, 256 bytes), so at most 276 000
+  for the 1000, logical bytes too; a client-mode engine used to pass the arguments on as they came, up to 1 MiB a call.
+  C++ only; nothing changes in Swift, whose reference client still passes a bridge call's arguments on as they came.
 - Task boundaries: `SandboxEngineDelegate::onTaskStarted` / `onTaskCompleted` (empty by default) bracket every task of
   the in-process engine as well; a death inside a task reaches the delegate before its end.
 - Differences from in process, as in Swift: the background gate counts on the host's clock when a request arrives, so
@@ -96,12 +104,13 @@ process launcher, transport or sandbox profile.
   host's `terminate` or `stop` nothing more from the engine's side reaches the host, not even a storage commit of a task
   still queued there; a request the host answers inside its delivery may settle before or after the `BUSY` of the same
   tap's next request.
-- Tests: `twidget-tests remote_` (60): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
-  C++ has no counterpart for, as wallet and data/safe-area coding cases) and 35 C++ cases for lifetimes, the server and
-  the bounds (a real `WidgetHost` with its host thread held among them), nine of them for what the host keeps
+- Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
+  C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
+  the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps
   afterwards: an early engine's renderer backlog by count and by bytes, the cut and what was queued behind it,
   privileged calls, a query, a death that won the race, a `ready` inside the cut, the kind cap alone and with the kinds
-  full at the cut. Run here (Debug, ASan and UBSan): 153 tests, 0 failures, in process and with `TW_ENGINE_LOOPBACK=1`
+  full at the cut, bridge calls padded to the message limit and ordinary ones recorded as they were sent. Run here
+  (Debug, ASan and UBSan): 155 tests, 0 failures, in process and with `TW_ENGINE_LOOPBACK=1`
   (119 of 119 fixture engines behind the loopback); `twidget-run --attacks` 133 attacks, 0 leaks, 7 runtimes killed in
   both modes, all 133 through a client-mode engine in the second. The shared fixtures are unchanged.
 - C++ only: Swift has its twin; Kotlin and the web have no remote engine. This is desktop host transport, not shim or

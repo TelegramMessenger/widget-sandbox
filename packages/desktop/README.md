@@ -47,7 +47,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 153 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine); `./build/twidget-tests remote_` runs the remote engine's 60
+./build/twidget-tests                             # 155 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine); `./build/twidget-tests remote_` runs the remote engine's 62
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
@@ -56,7 +56,7 @@ cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
 ./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
 cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
-TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 153 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 155 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
 ```
 
@@ -196,9 +196,10 @@ What it is on this platform:
   queued with it, has run or been dropped: `WidgetHost`'s host-thread work
   keeps its message counted (`SandboxEngine::remoteHold`) and counts as work
   of its own what it keeps beyond it (a validated result larger than its
-  input, each validator diagnostic, a bridge call's raw copy next to its
-  action); a delegate of your own that queues work holds `remoteHold()` in it
-  the same way. The message past either bound kills the widget once ("the
+  input, each validator diagnostic, a bridge call's copy next to its action:
+  its checked arguments re-serialized, while the call's own place still counts
+  what came); a delegate of your own that queues work holds `remoteHold()` in
+  it the same way. The message past either bound kills the widget once ("the
   widget engine process sent more than the host keeps queued"), and the sink
   then takes nothing more and never waits. The bounds count payload bytes and
   queued calls up to the moment that work runs, not allocator memory (each
@@ -212,8 +213,11 @@ What it is on this platform:
   renderer is ready", diagnostic `backlog-limit`), what was kept is dropped,
   and nothing the engine sends after it takes effect; `diagnostics().diags`
   keeps at most `WidgetHost::kMaxDiagKinds` (64) kinds, a diagnostic of a new
-  kind past them counted under `diag-kind-dropped` (`docs/changes.md` has the
-  details; the rest of what the host keeps is as before).
+  kind past them counted under `diag-kind-dropped`; `diagnostics().bridge`,
+  like the deprecated `onBridgeCall`, gets each call's checked arguments
+  re-serialized compact, the value that was sent, at most 276 bytes of method
+  and arguments a call and 276 000 for the first 1000 (`docs/changes.md` has
+  the details; the rest of what the host keeps is as before).
   The engine's destructor, on the owner's thread, closes and
   releases the channel; a transport may keep the sink, whose late calls
   change nothing.
