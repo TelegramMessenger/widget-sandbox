@@ -51,6 +51,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -92,6 +93,8 @@ struct Options {
 };
 
 struct RunOutcome {
+    /// The engine `SandboxEngine::make` gave was a client-mode one (a host factory's channel, or Debug's TW_ENGINE_LOOPBACK=1).
+    bool remote = false;
     bool loaded = false;
     std::optional<std::string> died;
     int batches = 0, renderOps = 0, elements = 0, queries = 0, errors = 0;
@@ -271,7 +274,9 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     RecordingHost host(opts.theme, res, opts.verbose, config.policy);
     host.onRequest = [&](const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond) { respond(opts.answer); };
     {
-        SandboxEngine engine(html, config, res);
+        std::unique_ptr<SandboxEngine> made = SandboxEngine::make(html, config, res);
+        SandboxEngine& engine = *made;
+        out.remote = engine.isRemote();
         engine.setDelegate(&host);
         // As WidgetHost: the validator's time on the widget's messages counts against its JS quota.
         host.validator().setCpuSink([&engine](double ms) { engine.chargeValidator(ms); });
@@ -534,7 +539,7 @@ int main(int argc, char** argv) {
     if (attacks) {
         fs::path dir = attacksDir.empty() ? fs::path(TW_CORPUS) / "attacks" : fs::path(attacksDir);
         auto files = htmlFiles(dir);
-        int leaks = 0, dead = 0;
+        int leaks = 0, dead = 0, remote = 0;
         printf("%-40s %-8s %s\n", "attack", "status", "diagnostics");
         for (const auto& f : files) {
             // One click so click-triggered vectors fire too (targetId 2 = <html>; events bubble from the document).
@@ -544,6 +549,7 @@ int main(int argc, char** argv) {
             std::string status = !r.leaks.empty() ? "LEAK" : r.died ? "dead" : "ok";
             if (!r.leaks.empty()) leaks++;
             if (r.died) dead++;
+            if (r.remote) remote++;
             std::string extra = r.died ? " — " + r.died->substr(0, 90) : "";
             printf("%-40s %-8s %s%s\n", f.filename().string().c_str(), status.c_str(), diagSummary(r.diagCounts).c_str(), extra.c_str());
             for (const auto& leak : r.leaks) printf("    LEAK %s\n", leak.c_str());
@@ -551,8 +557,9 @@ int main(int argc, char** argv) {
             if (!opts.pngDir.empty()) writePng(r, (fs::path(opts.pngDir) / (f.stem().string() + ".png")).string());
             fflush(stdout);
         }
-        printf("\n%zu attacks, %d with URLs leaking into validated ops%s, %d runtimes killed by limits\n", files.size(), leaks,
-               (opts.blitz || opts.litehtml) ? " or fetched by the renderer" : "", dead);
+        printf("\n%zu attacks, %d with URLs leaking into validated ops%s, %d runtimes killed by limits%s\n", files.size(), leaks,
+               (opts.blitz || opts.litehtml) ? " or fetched by the renderer" : "", dead,
+               remote ? (", " + std::to_string(remote) + " through a client-mode engine").c_str() : "");
         return leaks ? 1 : 0;
     }
 

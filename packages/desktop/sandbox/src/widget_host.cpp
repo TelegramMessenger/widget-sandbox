@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
@@ -76,6 +77,12 @@ SandboxConfig makeConfig(const WidgetHostOptions& o, double width, const WidgetT
 // The shared bubble height bounds of v0.1.0 (docs/integration.md, "Bubble sizing").
 constexpr double kMinHeight = 50, kMaxHeight = 600;
 
+/// A hold on `engine`'s message for work that keeps `kept` bytes made of its `given`: what goes past them is counted as work of its own; nullopt when that does not fit.
+std::optional<SandboxEngine::RemoteHold> keeping(SandboxEngine& engine, size_t kept, size_t given) {
+    if (kept <= given) return engine.remoteHold();
+    return engine.remoteHold(kept - given);
+}
+
 } // namespace
 
 WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
@@ -87,15 +94,16 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
       options_(options),
       config_(makeConfig(options, width, widgetTheme_)),
       resources_(std::move(resources)),
-      validator_(theme_, resources_, [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); }),
+      validator_(theme_, resources_, [this](const std::string& k, const std::string& d) { validatorDiag(k, d); }),
       renderer_(rendererFactory(resources_, theme_, width)),
-      engine_(html_, config_, resources_, std::move(intl)),
+      engine_(SandboxEngine::make(html_, config_, resources_, std::move(intl))),
       viewportW_(width), viewportH_(300), viewportDpr_(options.devicePixelRatio) {
     if (!renderer_) throw std::runtime_error("WidgetHost: the renderer factory returned nothing");
     if (isStrictPolicy(options.policy)) validator_.setPolicy("strict");
     // The validator's time on the widget's messages counts against its JS quota (docs/decisions.md, "The validator's time counts").
-    validator_.setCpuSink([this](double ms) { engine_.chargeValidator(ms); });
-    engine_.setDelegate(this);
+    validator_.setCpuSink([this](double ms) { engine_->chargeValidator(ms); });
+    // A client-mode engine may have died already (no channel, a lost connection): it gets this host in start(), after the owner set onChange and stoppedLabel.
+    if (!engine_->isRemote()) engine_->setDelegate(this);
     renderer_->onDiag = [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); };
     // The widget boots once the renderer announced itself, so the very first layout queries have something to measure.
     renderer_->onMessage = [this](const std::string& json) { onRenderer(json); };
@@ -103,9 +111,8 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
 
 WidgetHost::~WidgetHost() {
     destroy();
-    // No more delegate calls once the engine thread is gone; then the host thread drains its queue
-    // while every member is still alive, and only then do the members go.
-    engine_.thread().join();
+    // No delegate calls once the engine thread (a client's dispatch thread) is gone; the host thread drains while every member lives.
+    engine_->thread().join();
     hostThread_.join();
     validator_.setCpuSink(nullptr);
 }
@@ -114,6 +121,8 @@ void WidgetHost::start() {
     host([this] {
         if (started_ || destroyed_) return;
         started_ = true;
+        // On the client's dispatch thread before the engine's start below: what it kept (a death) comes now, nothing came before.
+        if (engine_->isRemote()) engine_->setDelegate(this);
         // Queued until the renderer is ready, so the variables are its first message, before any ops.
         toRenderer(themeMessage());
         toRenderer(safeAreaMessage(config_.contentSafeArea));
@@ -152,9 +161,36 @@ std::string WidgetHost::themeMessage() const {
     return msg.dump();
 }
 
-void WidgetHost::host(std::function<void()> fn) {
+void WidgetHost::host(std::function<void()> fn, SandboxEngine::RemoteHold hold) {
     if (hostThread_.isCurrent()) fn();
-    else hostThread_.async(std::move(fn));
+    else if (!hold) hostThread_.async(std::move(fn));
+    else hostThread_.async([fn = std::move(fn), hold = std::move(hold)] { fn(); });
+}
+
+void WidgetHost::validatorDiag(const std::string& kind, const std::string& detail) {
+    SandboxEngine::RemoteHold hold;
+    {
+        // Held while the engine is read: the engine's thread clears `validating_` under it before it leaves the delegate call.
+        std::lock_guard<std::mutex> l(validatingMutex_);
+        if (validating_) {
+            std::optional<SandboxEngine::RemoteHold> counted = validating_->remoteHold(kind.size() + detail.size());
+            if (!counted) return;
+            hold = std::move(*counted);
+        }
+    }
+    host([this, kind, detail] { diag(kind, detail); }, std::move(hold));
+}
+
+template <class F>
+auto WidgetHost::validated(SandboxEngine& engine, F validate) {
+    {
+        std::lock_guard<std::mutex> l(validatingMutex_);
+        validating_ = &engine;
+    }
+    auto result = validate();
+    std::lock_guard<std::mutex> l(validatingMutex_);
+    validating_ = nullptr;
+    return result;
 }
 
 double WidgetHost::elapsedMs() const {
@@ -171,7 +207,7 @@ void WidgetHost::setTheme(const WidgetTheme& theme) {
         renderer_->setTheme(theme_);
         toRenderer(themeMessage());
         toRenderer("{\"type\":\"ops\",\"ops\":" + validator_.setTheme(theme_) + "}");
-        engine_.theme(theme_, widgetTheme_.params);
+        engine_->theme(theme_, widgetTheme_.params);
     });
 }
 
@@ -180,7 +216,7 @@ void WidgetHost::setContentSafeArea(const WidgetContentSafeArea& area) {
         if (destroyed_) return;
         config_.contentSafeArea = area;
         if (started_) toRenderer(safeAreaMessage(area));
-        engine_.contentSafeArea(area);
+        engine_->contentSafeArea(area);
     });
 }
 
@@ -192,16 +228,16 @@ std::string WidgetHost::safeAreaMessage(const WidgetContentSafeArea& area) {
     return msg.dump();
 }
 
-void WidgetHost::setVisible(bool visible) { engine_.setVisible(visible); }
-void WidgetHost::setData(const WidgetData& data) { engine_.setData(data); }
-void WidgetHost::event(const std::string& json) { engine_.event(json); }
-std::string WidgetHost::probe(const std::string& code) { return engine_.probe(code); }
+void WidgetHost::setVisible(bool visible) { engine_->setVisible(visible); }
+void WidgetHost::setData(const WidgetData& data) { engine_->setData(data); }
+void WidgetHost::event(const std::string& json) { engine_->event(json); }
+std::string WidgetHost::probe(const std::string& code) { return engine_->probe(code); }
 
 void WidgetHost::destroy() {
     if (destroyed_.exchange(true)) return;
     // Unblock an engine thread waiting for a renderer answer before the engine is stopped.
     resolveQuery("{\"error\":\"dead\"}", std::nullopt);
-    engine_.terminate();
+    engine_->terminate();
     hostThread_.sync([this] {
         renderer_->destroy();
         callbacksClosed_ = true;
@@ -232,11 +268,13 @@ bool WidgetHost::waitUntil(const std::function<bool(const WidgetDiagnostics&)>& 
 
 void WidgetHost::onOps(SandboxEngine& engine, const std::string& json) {
     // Validation on the validator's thread (synchronous from here), the renderer call on the host thread.
-    std::string clean = validator_.processOps(json);
+    std::string clean = validated(engine, [&] { return validator_.processOps(json); });
     // A counted cap passed under strict (the validator's `limit`): the widget stops as it does for memory or CPU
     // (onDied: the reason in the diagnostics, the renderer frozen on its last render; this batch came back empty).
     if (std::optional<std::string> reason = validator_.stopped()) return engine.stop(*reason);
     int nodes = validator_.nodeCount();
+    std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, clean.size(), json.size());
+    if (!hold) return;
     host([this, clean = std::move(clean), nodes] {
         if (destroyed_) return;
         if (clean != "[]") {
@@ -246,23 +284,32 @@ void WidgetHost::onOps(SandboxEngine& engine, const std::string& json) {
         }
         std::lock_guard<std::mutex> l(mutex_);
         diagnostics_.nodes = nodes;
-    });
+    }, std::move(*hold));
 }
 
-QueryAnswer WidgetHost::onQuery(SandboxEngine&, const std::string& json) {
+QueryAnswer WidgetHost::onQuery(SandboxEngine& engine, const std::string& json) {
     if (destroyed_) return {"{\"error\":\"dead\"}", std::nullopt};
     auto pending = std::make_shared<PendingQuery>();
     {
         std::lock_guard<std::mutex> l(queryMutex_);
         pendingQuery_ = pending;
     }
-    std::optional<std::string> clean = validator_.validateQuery(json);
-    if (clean && clean->find("\"matchMedia\"") != std::string::npos) {
-        if (auto q = Json::parse(*clean); q && (*q)["query"].isString()) {
-            Json rewritten = *q;
-            rewritten.set("query", validator_.rewriteMediaQuery((*q)["query"].asString()));
-            clean = rewritten.dump();
+    std::optional<std::string> clean = validated(engine, [&] {
+        std::optional<std::string> valid = validator_.validateQuery(json);
+        if (valid && valid->find("\"matchMedia\"") != std::string::npos) {
+            if (auto q = Json::parse(*valid); q && (*q)["query"].isString()) {
+                Json rewritten = *q;
+                rewritten.set("query", validator_.rewriteMediaQuery((*q)["query"].asString()));
+                valid = rewritten.dump();
+            }
         }
+        return valid;
+    });
+    std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, clean ? clean->size() : 0, json.size());
+    if (!hold) {
+        std::lock_guard<std::mutex> l(queryMutex_);
+        if (pendingQuery_ == pending) pendingQuery_.reset();
+        return {"{\"error\":\"dead\"}", std::nullopt};
     }
     host([this, pending, clean] {
         if (destroyed_) return resolveQuery("{\"error\":\"dead\"}", std::nullopt);
@@ -273,7 +320,7 @@ QueryAnswer WidgetHost::onQuery(SandboxEngine&, const std::string& json) {
             pending->id = qid_;
         }
         toRenderer("{\"type\":\"query\",\"qid\":" + std::to_string(qid_) + ",\"query\":" + *clean + "}");
-    });
+    }, std::move(*hold));
     std::unique_lock<std::mutex> l(queryMutex_);
     if (!queryCv_.wait_for(l, std::chrono::seconds(3), [&] { return pending->done; })) {
         if (pendingQuery_ == pending) pendingQuery_.reset();
@@ -293,31 +340,37 @@ void WidgetHost::resolveQuery(const std::string& json, std::optional<std::vector
     queryCv_.notify_all();
 }
 
-void WidgetHost::onListen(SandboxEngine&, const std::string& json) {
-    std::string types = validator_.validateListen(json);
-    host([this, types] { toRenderer("{\"type\":\"listen\",\"types\":" + types + "}"); });
+void WidgetHost::onListen(SandboxEngine& engine, const std::string& json) {
+    std::string types = validated(engine, [&] { return validator_.validateListen(json); });
+    std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, types.size(), json.size());
+    if (!hold) return;
+    host([this, types] { toRenderer("{\"type\":\"listen\",\"types\":" + types + "}"); }, std::move(*hold));
 }
 
-void WidgetHost::onPreventDefault(SandboxEngine&, const std::string& json) {
-    std::string keys = validator_.validatePreventDefault(json);
-    host([this, keys] { toRenderer("{\"type\":\"preventDefault\",\"keys\":" + keys + "}"); });
+void WidgetHost::onPreventDefault(SandboxEngine& engine, const std::string& json) {
+    std::string keys = validated(engine, [&] { return validator_.validatePreventDefault(json); });
+    std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, keys.size(), json.size());
+    if (!hold) return;
+    host([this, keys] { toRenderer("{\"type\":\"preventDefault\",\"keys\":" + keys + "}"); }, std::move(*hold));
 }
 
-void WidgetHost::onAnim(SandboxEngine&, const std::string& json) {
-    std::string anims = validator_.validateAnim(json);
+void WidgetHost::onAnim(SandboxEngine& engine, const std::string& json) {
+    std::string anims = validated(engine, [&] { return validator_.validateAnim(json); });
     if (anims == "[]") return;
+    std::optional<SandboxEngine::RemoteHold> hold = keeping(engine, anims.size(), json.size());
+    if (!hold) return;
     host([this, anims] {
         char now[64];
         std::snprintf(now, sizeof now, "%.17g", QuickJSContext::now() * 1000);
         toRenderer(std::string("{\"type\":\"anim\",\"now\":") + now + ",\"anims\":" + anims + "}");
-    });
+    }, std::move(*hold));
 }
 
-void WidgetHost::onRequestFrame(SandboxEngine&) {
-    host([this] { toRenderer("{\"type\":\"requestFrame\"}"); });
+void WidgetHost::onRequestFrame(SandboxEngine& engine) {
+    host([this] { toRenderer("{\"type\":\"requestFrame\"}"); }, engine.remoteHold());
 }
 
-void WidgetHost::onLog(SandboxEngine&, const std::string& level, const std::string& text) {
+void WidgetHost::onLog(SandboxEngine& engine, const std::string& level, const std::string& text) {
     host([this, level, text] {
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -329,17 +382,17 @@ void WidgetHost::onLog(SandboxEngine&, const std::string& level, const std::stri
         }
         if (level == "error" && text.rfind("Uncaught ", 0) == 0 && onError) onError(text);
         changed();
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onDiag(SandboxEngine&, const std::string& kind, const std::string& detail) {
-    host([this, kind, detail] { diag(kind, detail); });
+void WidgetHost::onDiag(SandboxEngine& engine, const std::string& kind, const std::string& detail) {
+    host([this, kind, detail] { diag(kind, detail); }, engine.remoteHold());
 }
 
 /// Kept in the diagnostics; a widget can call ready() or play haptics for as long as it lives.
 static constexpr size_t kMaxRecordedCalls = 1000;
 
-void WidgetHost::onBridgeAction(SandboxEngine&, const WidgetAction& action) {
+void WidgetHost::onBridgeAction(SandboxEngine& engine, const WidgetAction& action) {
     host([this, action] {
         if (destroyed_) return; // no link dialog for a widget that is going away
         {
@@ -348,10 +401,10 @@ void WidgetHost::onBridgeAction(SandboxEngine&, const WidgetAction& action) {
         }
         if (onAction) onAction(action);
         changed();
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onResizeAnchor(SandboxEngine&, const std::string& edge) {
+void WidgetHost::onResizeAnchor(SandboxEngine& engine, const std::string& edge) {
     // Not an action: the host keeps the latest edge next to the height (docs/sdk-v1.md §2.12). The engine calls this
     // during the task, before that task's onOps, and both hop to the host thread in order; the renderer's size report
     // for those ops comes after them, so the anchor is in the state before the height it anchors. An equal value
@@ -364,10 +417,10 @@ void WidgetHost::onResizeAnchor(SandboxEngine&, const std::string& edge) {
             diagnostics_.resizeAnchor = edge;
         }
         changed();
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onPublicDataWatch(SandboxEngine&, bool on) {
+void WidgetHost::onPublicDataWatch(SandboxEngine& engine, bool on) {
     // Like the resize anchor: host state, reported on a change only (the shim already sends only changes).
     host([this, on] {
         if (destroyed_) return;
@@ -378,10 +431,10 @@ void WidgetHost::onPublicDataWatch(SandboxEngine&, bool on) {
         }
         if (onWatchPublicData) onWatchPublicData(on);
         changed();
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onStorage(SandboxEngine&, const std::string& area, const StorageArea& values) {
+void WidgetHost::onStorage(SandboxEngine& engine, const std::string& area, const StorageArea& values) {
     host([this, area, values] {
         if (callbacksClosed_) return;
         {
@@ -390,36 +443,39 @@ void WidgetHost::onStorage(SandboxEngine&, const std::string& area, const Storag
         }
         if (onStorageCommit) onStorageCommit(area, values);
         changed();
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onBridgeRequest(SandboxEngine&, const WidgetRequest& request, WidgetRequestResponder respond) {
+void WidgetHost::onBridgeRequest(SandboxEngine& engine, const WidgetRequest& request, WidgetRequestResponder respond) {
     // The client side is decided here, at delivery, on the host thread where `onRequest` lives.
     host([this, request, respond = std::move(respond)] {
         if (destroyed_) return; // the engine is going away: nothing waits for the answer
         if (!onRequest) return respond.unsupported();
         // `respond` is the engine's: from any thread, once, ignored once the engine is dead or destroyed.
         onRequest(request, respond);
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onBridgeWallet(SandboxEngine&, const WalletCall& call, WidgetRequestResponder respond) {
+void WidgetHost::onBridgeWallet(SandboxEngine& engine, const WalletCall& call, WidgetRequestResponder respond) {
     // As onBridgeRequest: the client side is decided at delivery, on the host thread where `onWallet` lives.
     host([this, call, respond = std::move(respond)] {
         if (destroyed_) return;
         if (!onWallet) return respond.unsupported();
         onWallet(call, respond);
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onBridgeCopyText(SandboxEngine&, const std::string& text) {
+void WidgetHost::onBridgeCopyText(SandboxEngine& engine, const std::string& text) {
     host([this, text] {
         if (destroyed_) return; // no toast for a widget that is going away
         if (onCopyText) onCopyText(text);
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onBridge(SandboxEngine&, const std::string& method, const std::string& argsJson) {
+void WidgetHost::onBridge(SandboxEngine& engine, const std::string& method, const std::string& argsJson) {
+    // A second copy of the call, next to its action's.
+    std::optional<SandboxEngine::RemoteHold> hold = engine.remoteHold(method.size() + argsJson.size());
+    if (!hold) return;
     host([this, method, argsJson] {
         if (destroyed_) return;
         {
@@ -440,10 +496,10 @@ void WidgetHost::onBridge(SandboxEngine&, const std::string& method, const std::
 #pragma GCC diagnostic pop
 #endif
         changed();
-    });
+    }, std::move(*hold));
 }
 
-void WidgetHost::onLoaded(SandboxEngine&) {
+void WidgetHost::onLoaded(SandboxEngine& engine) {
     // On the engine thread after the loading tasks' ops were validated: text changes are rate-limited from here on.
     validator_.markLoaded();
     double loadedMs = elapsedMs();
@@ -457,21 +513,22 @@ void WidgetHost::onLoaded(SandboxEngine&) {
         }
         changed();
         toRenderer("{\"type\":\"query\",\"qid\":" + std::to_string(kRenderAckQid) + ",\"query\":{\"q\":\"viewport\"}}");
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onStats(SandboxEngine&, const SandboxStats& stats) {
+void WidgetHost::onStats(SandboxEngine& engine, const SandboxStats& stats) {
     host([this, stats] {
         {
             std::lock_guard<std::mutex> l(mutex_);
             diagnostics_.stats = stats;
-            if (diagnostics_.lastError && stats.tasks > tasksAtError_ + 1) diagnostics_.lastError.reset();
+            // Widened: an engine in another process may report any count, `INT_MAX` too.
+            if (diagnostics_.lastError && int64_t(stats.tasks) > int64_t(tasksAtError_) + 1) diagnostics_.lastError.reset();
         }
         changed();
-    });
+    }, engine.remoteHold());
 }
 
-void WidgetHost::onDied(SandboxEngine&, const std::string& reason) {
+void WidgetHost::onDied(SandboxEngine& engine, const std::string& reason) {
     host([this, reason] {
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -488,7 +545,7 @@ void WidgetHost::onDied(SandboxEngine&, const std::string& reason) {
             frozen.set("fatal", true);
             toRenderer(frozen.dump());
         }
-    });
+    }, engine.remoteHold());
 }
 
 // ───────────── renderer → host (host thread) ─────────────
@@ -514,7 +571,7 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         for (const auto& m : queued) renderer_->send(m);
         if (!engineStarted_) {
             engineStarted_ = true;
-            engine_.start();
+            engine_->start();
         }
     } else if (type == "event") {
         // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing (§2.16).
@@ -524,8 +581,8 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
             // is the primary pointer's), and without this its release continued the press before it.
             if ((*ev)["type"].isString() && (*ev)["type"].asString() == "pointerdown") gestures_.pressBegan();
             // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
-            if (int gesture = msg["trusted"].asBool() ? gestures_.gestureFor(*ev) : 0) engine_.activationEvent(ev->dump(), gesture);
-            else engine_.event(ev->dump());
+            if (int gesture = msg["trusted"].asBool() ? gestures_.gestureFor(*ev) : 0) engine_->activationEvent(ev->dump(), gesture);
+            else engine_->event(ev->dump());
         }
     } else if (type == "result") {
         if (!msg["qid"].isNumber()) return;
@@ -571,15 +628,15 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
             viewportW_ = w;
             viewportH_ = h;
             viewportDpr_ = dpr;
-            engine_.viewport(w, h, dpr);
+            engine_->viewport(w, h, dpr);
         }
     } else if (type == "resize") {
-        if (const Json* entries = msg.find("entries")) engine_.resize(entries->dump());
+        if (const Json* entries = msg.find("entries")) engine_->resize(entries->dump());
     } else if (type == "frame") {
-        engine_.frame(msg["time"].asNumber(0));
+        engine_->frame(msg["time"].asNumber(0));
     } else if (type == "media") {
         // OS-level change inside the renderer: the host theme is authoritative, just re-notify.
-        engine_.theme(theme_, widgetTheme_.params);
+        engine_->theme(theme_, widgetTheme_.params);
     } else if (type == "violation") {
         diag("renderer-violation", msg["detail"].asString());
     } else if (type == "limit") {
@@ -596,14 +653,14 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
         }
         std::string reason = paintLimitMessage(*limit, int(count));
         diag(paintLimitCode(*limit), reason);
-        engine_.stop(reason);
+        engine_->stop(reason);
     } else if (type == "release") {
         // The primary press ended (pointerup or pointercancel; renderer-made): the haptic gate's 5 s touch window starts.
-        engine_.pressEnded();
+        engine_->pressEnded();
     } else if (type == "gesture") {
         // A primary press began (renderer-made: the widget cannot fake it): haptics are free while it lasts, and 5 s
         // after. Before the preview check: harmless, a preview gets no haptics anyway.
-        engine_.pressBegan();
+        engine_->pressBegan();
         gestures_.pressBegan();
         if (options_.context.preview) return; // no input, so nothing to claim: the press is the client's
         // docs/sdk-v1.md §5.5, gesture_policy.h. The renderer core sends x and hold (and `y` / `wants`, always false
