@@ -356,7 +356,7 @@ std::string_view cut(std::string_view s, size_t limit) { return s.substr(0, limi
 
 std::string_view message(const std::string& s) { return cut(s, SandboxEngine::kRemoteMessageLimit); }
 
-std::string quoted(std::string_view s) { return "\"" + std::string(s.substr(0, kQuotedBytes)) + (s.size() > kQuotedBytes ? "...\"" : "\""); }
+std::string inQuotes(std::string_view s) { return "\"" + std::string(s.substr(0, kQuotedBytes)) + (s.size() > kQuotedBytes ? "...\"" : "\""); }
 
 std::string kindOn(const Frame& f) { return "kind " + std::to_string(int(f.kind)) + " on runtime " + std::to_string(f.runtime); }
 
@@ -366,7 +366,7 @@ std::string undecodable(const Frame& f) { return kindOn(f) + " with a form that 
 std::string refusalOf(const Frame& f, const std::string& build) {
     if (f.kind != Kind::Opening) return "kind " + std::to_string(int(f.kind)) + " first, not the opening";
     if (f.i64 != SandboxRemoteWire::kVersion) return "stream version " + std::to_string(f.i64) + ", this end's is " + std::to_string(SandboxRemoteWire::kVersion);
-    if (f.str[0] != build) return "build " + quoted(f.str[0]) + ", this end's is " + quoted(build);
+    if (f.str[0] != build) return "build " + inQuotes(f.str[0]) + ", this end's is " + inQuotes(build);
     for (const auto& [name, stamp] : {std::pair<std::string_view, std::string_view>{"validator", f.str[3]}, {"renderer", f.str[4]}}) {
         if (stamp.size() > SandboxRemoteWire::kMaxStampBytes)
             return "a " + std::string(name) + " stamp of " + std::to_string(stamp.size()) + " bytes, past the bound of " + std::to_string(SandboxRemoteWire::kMaxStampBytes);
