@@ -6,8 +6,10 @@ nothing until the host lists them; "default" items apply to every host.
 ## Unreleased: the desktop engine in another process (2026-11-13)
 
 C++, opt-in: the desktop core's engine can run in another process, the twin of the Swift remote engine
-(`RemoteEngine.swift`). Nothing changes for a host that sets no channel factory: tdesktop sets none, so its widgets keep
-their engines in process. This adds the contract, an in-process loopback and a platform-neutral transport over one byte
+(`RemoteEngine.swift`). Nothing changes for a host that sets no channel factory: tdesktop sets one on macOS, outside its
+Mac App Store build and its builds against packaged libraries (an external Qt without its startup patches), and its
+engine process locks itself down in `lockdown` (below); its other builds keep their widgets' engines in process. This
+adds the contract, an in-process loopback and a platform-neutral transport over one byte
 stream per engine process; it supplies and enables no OS helper, OS stream adapter, process launcher or sandbox profile,
 and widgets stay in process unless a host sets the factory.
 
@@ -148,6 +150,19 @@ and widgets stay in process unless a host sets the factory.
   last frame) and joins the end's three threads, and a channel joins its `widget.answer` when the engine destroys it
   on the owner's thread; neither cuts short delegate or provider code that already runs. A host process whose
   engines are all remote has no thread named `widget.sandbox`.
+- The engine process's lockdown: `SandboxRemoteEngineEnd::serve(stream, build, lockdown)` takes a third, defaulted
+  argument, a `std::function<std::string()>` called once on `serve`'s thread after the opening is accepted and the
+  runtimes' resources are built, before `Ready` and before any runtime exists, so an engine process can give up what a
+  widget must not reach (an OS sandbox applied from inside) once it holds the bundles and before any widget code runs.
+  "" goes on serving; any other text refuses the stream with it through the existing `Refused` (the host's end ends
+  with "the engine process refused the stream: " and that text, every widget on the stream dies with "the widget
+  engine process ended" without loading), and an exception refuses it with "the engine process could not lock itself
+  down"; a refused opening and a stream that ends before one never call it. No wire kind or version changes, and a
+  caller without it serves as before. `remote_stream_engine_lockdown` (so `remote_stream_` runs 25 and `remote_` 87)
+  holds the callback with an opening, an open and a start queued in one write (no `Ready`, no boot until it returns),
+  refuses with a text and with an exception at scripted bytes and with a text through a real host's end, a client
+  attached while the callback was held, and checks the openings it is never called for. Run here (Debug, in process,
+  2026-11-14): the 25 and the whole suite's 183 tests, 0 failures.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps

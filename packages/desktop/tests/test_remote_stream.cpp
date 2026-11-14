@@ -1,4 +1,4 @@
-// The framed byte transport's tests (remote_stream.h: the wire, the theme's coding, the streams the tests use, the engines' thread names, both ends and WidgetHost over them, hostile bytes, stuck and blocked work and teardown, a host process whose engines are all remote), in the suite after the remote engine's: `twidget-tests remote_stream_`.
+// The framed byte transport's tests (remote_stream.h: the wire, the theme's coding, the streams the tests use, the engines' thread names, both ends and WidgetHost over them, the engine process's lockdown, hostile bytes, stuck and blocked work and teardown, a host process whose engines are all remote), in the suite after the remote engine's: `twidget-tests remote_stream_`.
 #include "test_support.h"
 #include "test_remote_support.h"
 
@@ -22,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -522,13 +523,13 @@ private:
     std::string first_;
 };
 
-/// The host's side of a stream written by hand from the documented wire, the engine's end serving the other side on a worker of the test's: each frame it reads is kept in order, and `answer` gives the frame that answers one (a query, an Intl request), written as soon as it was read.
+/// The host's side of a stream written by hand from the documented wire, the engine's end serving the other side on a worker of the test's, with `lockdown` when one is given: each frame it reads is kept in order, and `answer` gives the frame that answers one (a query, an Intl request), written as soon as it was read.
 class ScriptedHost {
 public:
     using Answer = std::function<std::optional<std::string>(const ParsedFrame&)>;
 
-    explicit ScriptedHost(Answer answer = nullptr)
-        : answer_(std::move(answer)), serving_([this] { return SandboxRemoteEngineEnd::serve(*engine_, kBuild); }), reading_([this] { return read(); }) {}
+    explicit ScriptedHost(Answer answer = nullptr, std::function<std::string()> lockdown = nullptr)
+        : answer_(std::move(answer)), serving_([this, lockdown] { return SandboxRemoteEngineEnd::serve(*engine_, kBuild, lockdown); }), reading_([this] { return read(); }) {}
     /// The pair shut down, the engine's end and the reader joined.
     ~ScriptedHost() {
         pair_.host->shutdown();
@@ -1035,7 +1036,7 @@ private:
     Background<bool> reading_;
 };
 
-/// A host's end opened with `resources` and the engine process's end over a memory pair, the engine's end serving on a worker of the test's; the destructor stops the host's end, then joins the engine's.
+/// A host's end opened with `resources` and the engine process's end over a memory pair, the engine's end serving on a worker of the test's, with `lockdown` when one is given; the destructor stops the host's end, then joins the engine's.
 struct StreamPeers {
     EndEvents events;
     MemoryStreamPair pair = memoryStreamPair(size_t(1) << 20);
@@ -1044,8 +1045,9 @@ struct StreamPeers {
     std::shared_ptr<SandboxRemoteHostEnd> end;
     Background<std::string> serving;
 
-    explicit StreamPeers(const std::string& engineBuild = kBuild, const SandboxResources& resources = *RES)
-        : end(SandboxRemoteHostEnd::start(pair.host, resources, kBuild, events.events(), {})), serving([this, engineBuild] { return SandboxRemoteEngineEnd::serve(*engineSide, engineBuild); }) {}
+    explicit StreamPeers(const std::string& engineBuild = kBuild, const SandboxResources& resources = *RES, std::function<std::string()> lockdown = nullptr)
+        : end(SandboxRemoteHostEnd::start(pair.host, resources, kBuild, events.events(), {})),
+          serving([this, engineBuild, lockdown] { return SandboxRemoteEngineEnd::serve(*engineSide, engineBuild, lockdown); }) {}
     ~StreamPeers() {
         end->stop();
         serving.finish(5);
@@ -1360,6 +1362,106 @@ TEST(remote_stream_host_refusals) {
         auto later = std::make_shared<StreamSink>();
         engine.host().channel()->attach(later);
         CHECK_MSG(later->events() == std::vector<std::string>{"disconnected"}, reason + ": " + joined(later->events()));
+    }
+}
+
+/// The engine process's lockdown runs once between the accepted opening and `Ready`: while it is held, the opening was read whole and the runtime's open and start queued with it neither get the answer nor boot, which both come once it returns ""; a reason it returns, or the fixed one for an exception it throws, refuses the stream and boots nothing, and over a real host's end the stream ends with that refusal and a client attached while it was held dies with the lost stream, never loaded; a malformed opening, another build and a stream that ends before or inside the opening never call it.
+TEST(remote_stream_engine_lockdown) {
+    const std::string opening = openingOf(*RES, true);
+    const std::optional<ParsedFrame> sent = frameAt(opening, uint32_t(opening.size() - 4));
+    const std::string queued = opening + FrameBytes(1, wire::Open).bytes() +
+                               FrameBytes(1, wire::Start).str("<script>console.log('ran')</script>").str(SandboxRemoteCoding::encodeConfig(testConfig())).bytes();
+    {
+        Gate held;
+        std::atomic<int> calls{0};
+        ScriptedHost host(nullptr, [&] {
+            calls++;
+            return held.wait() ? std::string() : std::string("the test never opened the gate");
+        });
+        CHECK(host.send(queued));
+        CHECK(held.waitedOn());
+        WatchedStream& engine = host.engineSide();
+        const std::optional<ParsedFrame> first = engine.firstFrame();
+        CHECK(sent && first && first->runtime == 0 && first->kind == wire::Opening && first->fields == sent->fields);
+        CHECK_MSG(engine.bytesRead() >= opening.size(), std::to_string(engine.bytesRead()) + " of " + std::to_string(opening.size()) + " bytes");
+        CHECK(!host.served(0.3));
+        CHECK_MSG(host.frameCount() == 0, joined(host.events(0)) + " / " + joined(host.events(1)));
+        held.open();
+        CHECK_MSG(eventually([&] { return host.saw(1, "log:ran") && host.saw(1, "loaded"); }, 20), joined(host.events(1)));
+        CHECK_MSG(host.events(0) == std::vector<std::string>{"ready:1"}, joined(host.events(0)));
+        host.close();
+        CHECK(host.served(5) == std::string());
+        CHECK(calls == 1);
+    }
+
+    std::atomic<int> calls{0};
+    const auto refuses = [&] {
+        calls++;
+        return std::string("locked: no");
+    };
+    const auto throws = [&]() -> std::string {
+        calls++;
+        throw std::runtime_error("no sandbox here");
+    };
+    const std::vector<std::pair<std::function<std::string()>, std::string>> refusing = {{refuses, "locked: no"}, {throws, "the engine process could not lock itself down"}};
+    for (const auto& [lockdown, reason] : refusing) {
+        calls = 0;
+        ScriptedHost host(nullptr, lockdown);
+        CHECK(host.send(queued));
+        CHECK_MSG(host.served(5) == reason, reason);
+        CHECK_MSG(eventually([&] { return host.events(0) == std::vector<std::string>{"refused:" + reason}; }), reason + ": " + joined(host.events(0)));
+        CHECK_MSG(host.frameCount() == 1 && host.events(1).empty() && calls == 1, reason + ": " + joined(host.events(1)));
+    }
+
+    {
+        Gate attached;
+        calls = 0;
+        StreamPeers peers(kBuild, *RES, [&] {
+            calls++;
+            attached.wait();
+            return std::string("locked: no");
+        });
+        CHECK(attached.waitedOn());
+        StreamDelegate delegate;
+        SandboxEngine client("<script>console.log('ran here')</script>", testConfig(), peers.end->channel());
+        client.setDelegate(&delegate);
+        client.start();
+        client.thread().sync([] {});
+        CHECK_MSG(eventually([&] { return peers.events.open() == 1; }), joined(peers.events.all()));
+        CHECK_MSG(delegate.events().empty() && !peers.events.ended(), joined(delegate.events()) + " / " + joined(peers.events.all()));
+        attached.open();
+        CHECK_MSG(eventually([&] { return peers.events.ended().has_value(); }), joined(peers.events.all()));
+        CHECK_MSG(endsOnce(peers.events.all(), "the engine process refused the stream: locked: no"), joined(peers.events.all()));
+        CHECK(peers.serving.within(5) == std::string("locked: no"));
+        CHECK_MSG(eventually([&] { return delegate.saw("died:" + kEngineGone); }), joined(delegate.events()));
+        client.thread().sync([] {});
+        CHECK_MSG(delegate.events() == std::vector<std::string>{"died:" + kEngineGone}, joined(delegate.events()));
+        CHECK(calls == 1);
+    }
+
+    struct Uncalled {
+        const char* name;
+        std::string bytes;
+        std::string reason;
+    };
+    const std::string stamp = firstLine(RES->validatorBundle);
+    const std::vector<Uncalled> uncalled = {
+        {"a malformed opening", FrameBytes(0, wire::Opening).i64(1).str(kBuild).str("s").str("").str(stamp).bytes(), "kind 1 with a field past the frame's end"},
+        {"another build", openingBytes(1, "other", "s", "", stamp, ""), "build \"other\", this end's is \"twidget-tests\""},
+        {"the end before the opening", "", ""},
+        {"the end inside the opening", smallOpening().substr(0, 30), "the stream ended inside a frame"},
+    };
+    for (const Uncalled& v : uncalled) {
+        calls = 0;
+        ScriptedHost host(nullptr, [&] {
+            calls++;
+            return std::string();
+        });
+        CHECK(host.send(v.bytes));
+        host.close();
+        const std::optional<std::string> reason = host.served(2);
+        CHECK_MSG(reason == v.reason, std::string(v.name) + ": " + reason.value_or("still serving after 2 s"));
+        CHECK_MSG(calls == 0, std::string(v.name) + ": called " + std::to_string(calls) + " times");
     }
 }
 

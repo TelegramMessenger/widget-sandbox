@@ -536,13 +536,19 @@ struct Route {
 /// `SandboxRemoteEngineEnd::serve` on the thread that reads, which alone keeps the runtimes by id and the reaper.
 class Serving {
 public:
-    Serving(SandboxRemoteStream& stream, std::string build) : stream_(stream), build_(std::move(build)), output_(std::make_shared<Output>(stream)) {}
+    Serving(SandboxRemoteStream& stream, std::string build, const std::function<std::string()>& lockdown)
+        : stream_(stream), build_(std::move(build)), lockdown_(lockdown), output_(std::make_shared<Output>(stream)) {}
 
     std::string run() {
         FrameReader reader(stream_, Side::Host);
         if (!reader.next(SandboxRemoteWire::kMaxOpeningBytes)) return refuse(reader.failure());
         if (std::string why = refusalOf(reader.frame(), build_); !why.empty()) return refuse(why);
         resources_ = resourcesOf(reader.frame());
+        if (lockdown_) {
+            std::string why;
+            try { why = lockdown_(); } catch (...) { why = "the engine process could not lock itself down"; }
+            if (!why.empty()) return refuse(why);
+        }
         output_->send(0, Kind::Ready, {SandboxRemoteWire::kVersion});
         std::string reason;
         while (reason.empty() && reader.next(SandboxRemoteWire::kMaxFrameBytes)) reason = dispatch(reader.frame());
@@ -654,6 +660,7 @@ private:
 
     SandboxRemoteStream& stream_;
     const std::string build_;
+    const std::function<std::string()>& lockdown_;
     const std::shared_ptr<Output> output_;
     std::shared_ptr<SandboxResources> resources_;
     std::map<uint32_t, std::shared_ptr<Route>> routes_;
@@ -663,7 +670,7 @@ private:
 
 } // namespace
 
-std::string SandboxRemoteEngineEnd::serve(SandboxRemoteStream& stream, const std::string& build) { return Serving(stream, build).run(); }
+std::string SandboxRemoteEngineEnd::serve(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown) { return Serving(stream, build, lockdown).run(); }
 
 // MARK: the host's end
 

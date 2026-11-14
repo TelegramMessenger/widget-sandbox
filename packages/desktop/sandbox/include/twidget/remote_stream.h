@@ -180,8 +180,8 @@ private:
 
 /// The engine process's end of one stream: no Qt, no file read, so a host may run it before Qt starts.
 struct SandboxRemoteEngineEnd {
-    /// Serves `stream` from the calling thread, its reader: checks the opening (a malformed one, another version or another build than `build` is refused), builds the runtimes' resources from its bundles, keeps a `SandboxRemoteServer` per runtime id on its own `widget.sandbox` thread and writes their frames under one lock; a runtime's probes run on its `widget.probe` thread and closed runtimes are destroyed on `widget.reaper`. Returns why the stream ended, "" at its end on a frame's boundary, once every runtime and thread it started is gone; a `shutdown` of `stream` from another thread ends it.
-    static std::string serve(SandboxRemoteStream& stream, const std::string& build);
+    /// Serves `stream` from the calling thread, its reader: checks the opening (a malformed one, another version or another build than `build` is refused), builds the runtimes' resources from its bundles, keeps a `SandboxRemoteServer` per runtime id on its own `widget.sandbox` thread and writes their frames under one lock; a runtime's probes run on its `widget.probe` thread and closed runtimes are destroyed on `widget.reaper`. Returns why the stream ended, "" at its end on a frame's boundary, once every runtime and thread it started is gone; a `shutdown` of `stream` from another thread ends it. A set `lockdown` is called once on this thread after the opening is accepted and the resources are built, before `Ready` and before any runtime exists (never for a refused opening or a stream that ends before one): "" goes on serving, any other text refuses the stream with it, and an exception refuses it with "the engine process could not lock itself down".
+    static std::string serve(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown = {});
 };
 
 } // namespace twidget

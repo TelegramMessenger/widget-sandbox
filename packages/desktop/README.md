@@ -50,7 +50,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 179 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine and its byte stream); `./build/twidget-tests remote_` runs the remote engine's 86, `remote_stream_` the byte stream's 24 of them
+./build/twidget-tests                             # 183 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine and its byte stream); `./build/twidget-tests remote_` runs the remote engine's 87, `remote_stream_` the byte stream's 25 of them
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
@@ -59,9 +59,9 @@ cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
 ./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
 cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
-TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 179 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 183 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
-TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 179 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
+TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 183 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
 TW_ENGINE_STREAM=1 ./build-debug/twidget-run --attacks     # 133 attacks, 0 leaks, "133 of them over the stream"; a stream that ends before the run's own stop fails the run
 ```
 
@@ -318,20 +318,32 @@ protocol (the `__host` JSON, `SandboxRemoteCoding`'s forms) as their payload.
 It is the byte-level twin of `SandboxLoopbackChannel`, its two ends sharing
 nothing but the stream. Standard C++ only, and nothing here is an OS stream, a
 process launcher or a sandbox profile: the host supplies the stream (a POSIX
-socket, a Windows pipe) and the process. No codec is public either: the frame
-layout below is documented so that a peer can be checked against it, and both
-ends share the library's private one. Nothing uses it until a host sets the
-factory; tdesktop sets none.
+socket, a Windows pipe), the process and the process's lockdown. No codec is
+public either: the frame layout below is documented so that a peer can be
+checked against it, and both ends share the library's private one. Nothing
+uses it until a host sets the factory; tdesktop sets one on macOS, outside its
+Mac App Store build and its builds against packaged libraries (an external Qt
+without its startup patches), and its engine process locks itself down in
+`lockdown`.
 
 - `SandboxRemoteHostEnd::start(stream, resources, build, events, limits)`, in
   the host's process, opens the stream and hands out a `SandboxRemoteChannel`
   per runtime (`channel()`, from any thread) for
   `SandboxEngine::setRemoteChannelFactory`. Every runtime on a stream runs the
   bundles of its opening, whatever resources the factory is given.
-- `SandboxRemoteEngineEnd::serve(stream, build)`, in the engine process, needs
-  no Qt and reads no file, so it may run before Qt starts: it checks the
-  opening, builds the runtimes' resources from it, keeps a
+- `SandboxRemoteEngineEnd::serve(stream, build, lockdown)`, in the engine
+  process, needs no Qt and reads no file, so it may run before Qt starts: it
+  checks the opening, builds the runtimes' resources from it, keeps a
   `SandboxRemoteServer` per runtime id and returns when the stream ends.
+  `lockdown`, when set, is called once on `serve`'s thread after the opening
+  was accepted and its resources built, before `Ready` and before any runtime
+  exists: the process holds the bundles and no widget code has run, the place
+  to apply an OS sandbox from inside. "" goes on serving; any other text
+  refuses the stream with it (the host's end ends with "the engine process
+  refused the stream: " and that text, and every widget on the stream dies
+  with "the widget engine process ended" without loading), and an exception
+  refuses it with "the engine process could not lock itself down". A refused
+  opening and a stream that ends before one never call it.
 - `SandboxRemoteHostEnd::refusing(reason)` is the channel of a host that has
   no engine process: `attach` reports `remoteDied(reason)`, so a `WidgetHost`
   dies with that reason after `start()`, and the widget runs nowhere, not in
@@ -359,8 +371,9 @@ end->stop();
 
 ```cpp
 // The engine process: returns why the stream ended ("" at its end on a frame's boundary) once every runtime and thread it started is gone.
+// `std::string lockDown()` is yours: "" once the process gave up what a widget must not reach, else why it could not, which refuses the stream.
 int serveEngines(twidget::SandboxRemoteStream& stream) {
-    return twidget::SandboxRemoteEngineEnd::serve(stream, "build-1").empty() ? 0 : 1;
+    return twidget::SandboxRemoteEngineEnd::serve(stream, "build-1", lockDown).empty() ? 0 : 1;
 }
 ```
 
@@ -593,14 +606,17 @@ switch's own stop, or an engine's end that returns before it, fails the run
 133 attacks, 0 leaks, 7 runtimes killed, 133 of them over the stream, every
 per-file row the same as in process.
 
-`twidget-tests remote_stream_` (24) checks the wire against the tests' own
+`twidget-tests remote_stream_` (25) checks the wire against the tests' own
 reading of the tables above, both ends against scripted bytes, a real
 `WidgetHost` over the stream (validated ops, layout answers, Intl through the
 host's provider, requests and wallet calls, the bytecode of the opening,
-several runtimes on one stream, the refusing channel), 47 hostile inputs, a
-stuck layout query, closes and ends while a call waits, races, POSIX socket
-pairs whose reader stops in either direction, payload limits, and in a child
-process on an inherited socket the thread names: no `widget.sandbox` with
-three remote `WidgetHost`s, exactly one once an engine runs in process. With
-the switch on, the 24 also ran under ASan and UBSan and under TSan: 0
-failures, no report.
+several runtimes on one stream, the refusing channel), the engine process's
+`lockdown` (held between the opening and `Ready`, its refusals at scripted
+bytes and through a real host's end, the openings it is never called for), 47
+hostile inputs, a stuck layout query, closes and ends while a call waits,
+races, POSIX socket pairs whose reader stops in either direction, payload
+limits, and in a child process on an inherited socket the thread names: no
+`widget.sandbox` with three remote `WidgetHost`s, exactly one once an engine
+runs in process. With the switch on, the 24 of 2026-11-13 also ran under ASan
+and UBSan and under TSan: 0 failures, no report. 2026-11-14, Debug, in
+process: the 25 and the whole suite's 183 tests, 0 failures.
