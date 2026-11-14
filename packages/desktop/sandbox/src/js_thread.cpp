@@ -29,6 +29,7 @@ JSThread::JSThread(std::string name) : name_(std::move(name)) {
         JSThread* self = b->self;
         delete b;
         self->run();
+        self->id_.store(std::thread::id());
         return 0;
     }, boot.get(), STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (!*h) {
@@ -64,6 +65,7 @@ void* JSThread::entry(void* p) {
     b->started->set_value();
     delete b;
     self->run();
+    self->id_.store(std::thread::id());
     return nullptr;
 }
 
