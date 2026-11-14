@@ -323,8 +323,8 @@ public either: the frame layout below is documented so that a peer can be
 checked against it, and both ends share the library's private one. Nothing
 uses it until a host sets the factory; tdesktop sets one on macOS, outside its
 Mac App Store build and its builds against packaged libraries (an external Qt
-without its startup patches), and its engine process locks itself down in
-`lockdown`.
+without its startup patches), and on Linux x86_64 and aarch64 in every build,
+and its engine process locks itself down in `lockdown`.
 
 - `SandboxRemoteHostEnd::start(stream, resources, build, events, limits)`, in
   the host's process, opens the stream and hands out a `SandboxRemoteChannel`

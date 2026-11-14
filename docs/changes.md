@@ -7,8 +7,9 @@ nothing until the host lists them; "default" items apply to every host.
 
 C++, opt-in: the desktop core's engine can run in another process, the twin of the Swift remote engine
 (`RemoteEngine.swift`). Nothing changes for a host that sets no channel factory: tdesktop sets one on macOS, outside its
-Mac App Store build and its builds against packaged libraries (an external Qt without its startup patches), and its
-engine process locks itself down in `lockdown` (below); its other builds keep their widgets' engines in process. This
+Mac App Store build and its builds against packaged libraries (an external Qt without its startup patches), and on Linux
+x86_64 and aarch64 in every build, and its engine process locks itself down in `lockdown` (below); its other builds keep
+their widgets' engines in process. This
 adds the contract, an in-process loopback and a platform-neutral transport over one byte
 stream per engine process; it supplies and enables no OS helper, OS stream adapter, process launcher or sandbox profile,
 and widgets stay in process unless a host sets the factory.
