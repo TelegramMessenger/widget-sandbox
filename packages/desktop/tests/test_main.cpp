@@ -44,6 +44,7 @@
 #include <cstdlib>
 #include <deque>
 #include <mach/mach.h>
+#include <malloc/malloc.h>
 #include <pthread.h>
 #include <spawn.h>
 #include <sys/sysctl.h>
@@ -736,6 +737,35 @@ TEST(stack_check_follows_the_calling_thread) {
     CHECK(depthHere > 20);
     CHECK(std::fabs(depthHere - depthOnCreator) / depthOnCreator < 0.1);
     t.sync([&] { js.reset(); });
+}
+
+/// What a task `sync` waits for throws reaches the caller, from a task that returns nothing, one that returns a value and one that throws no std::exception, and the thread goes on with its queue (before, it left the task and the thread's loop ended the process).
+TEST(an_exception_from_a_sync_task_reaches_its_caller) {
+    JSThread t("test.throws");
+    std::string caught = "nothing";
+    try {
+        t.sync([] { throw std::runtime_error("from a task that returns nothing"); });
+    } catch (const std::runtime_error& e) {
+        caught = e.what();
+    }
+    CHECK_MSG(caught == "from a task that returns nothing", caught);
+    caught = "nothing";
+    try {
+        caught = "returned " + std::to_string(t.sync([]() -> int { throw JSError("from a task that returns a value"); }));
+    } catch (const JSError& e) {
+        caught = e.what();
+    }
+    CHECK_MSG(caught == "from a task that returns a value", caught);
+    int thrown = 0;
+    try {
+        t.sync([] { throw 42; });
+    } catch (int value) {
+        thrown = value;
+    }
+    CHECK_MSG(thrown == 42, std::to_string(thrown));
+    CHECK(t.sync([&] { return t.isCurrent(); }));
+    CHECK(t.sync([] { return std::string("later"); }) == "later");
+    t.stop();
 }
 
 TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
@@ -3508,6 +3538,107 @@ TEST(a_thread_that_cannot_start_fails_its_owner_promptly) {
 #endif
 }
 
+// ───────────── a validator bundle that fails to evaluate ─────────────
+#ifdef __APPLE__
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define TW_TESTS_UNDER_ASAN 1
+#endif
+#endif
+
+/// The shipped validator bundle cut in half: this release's stamp still on its first line, then JavaScript that ends in the middle (a SyntaxError); with no bytecode, or with the shipped bytecode, which no longer matches it.
+static std::shared_ptr<SandboxResources> truncatedValidator(bool staleBytecode) {
+    auto res = std::make_shared<SandboxResources>(*RES);
+    res->validatorBundle.resize(res->validatorBundle.size() / 2);
+    if (!staleBytecode) res->validatorBytecode.clear();
+    return res;
+}
+
+/// Bytes the process's malloc zones hold.
+static size_t mallocInUse() {
+    malloc_statistics_t stats{};
+    malloc_zone_statistics(nullptr, &stats);
+    return stats.size_in_use;
+}
+
+/// `construct` must throw JSError with the bundle's SyntaxError and leave the task's thread count at `alone`; with `print` its first line and the counts are shown.
+static void expectJSError(const std::string& owner, int alone, bool print, const std::function<void()>& construct) {
+    std::string what = "constructed";
+    bool jsError = false;
+    const auto start = std::chrono::steady_clock::now();
+    try {
+        construct();
+    } catch (const JSError& e) {
+        what = e.what();
+        jsError = true;
+    } catch (const std::exception& e) {
+        what = std::string("not a JSError: ") + e.what();
+    }
+    const double ms = msSince(start);
+    const std::optional<int> after = threadsSettleAt(alone);
+    if (print) {
+        printf("    %s: \"%s\" in %.1f ms; %d threads before, %s after\n", owner.c_str(), what.substr(0, what.find('\n')).c_str(), ms, alone, countText(after).c_str());
+        fflush(stdout);
+    }
+    CHECK_MSG(jsError, owner + ": " + what);
+    CHECK_MSG(what.rfind("SyntaxError: ", 0) == 0 && what.find("validator-bundle.js") != std::string::npos, owner + ": " + what);
+    CHECK_MSG(after == alone, owner + ": " + std::to_string(alone) + " threads before, " + countText(after) + " after");
+}
+
+/// The child of `a_validator_bundle_that_fails_to_evaluate_throws_from_its_owners`, alone in a fresh process: `twidget-tests --child owners_of_a_broken_validator_bundle`.
+static void owners_of_a_broken_validator_bundle() {
+    const std::optional<int> alone = taskThreads();
+    CHECK_MSG(alone.has_value(), "the task's threads cannot be listed");
+    CHECK_MSG(!RES->validatorBytecode.empty(), "no shipped validator bytecode to go stale");
+    if (!alone || RES->validatorBytecode.empty()) return;
+    for (const bool stale : {false, true}) {
+        const std::optional<std::string> refusal = BundleStamp::refusal(*truncatedValidator(stale));
+        CHECK_MSG(!refusal, refusal.value_or(""));
+        if (refusal) return;
+    }
+    const auto round = [&](bool print) {
+        for (const bool stale : {false, true}) {
+            const auto resources = truncatedValidator(stale);
+            const std::string mode = stale ? "stale bytecode" : "no bytecode";
+            int fallbacks = 0;
+            expectJSError("TrustedValidator, " + mode, *alone, print, [&] {
+                TrustedValidator validator("light", resources, [&](const std::string& kind, const std::string&) { if (kind == "bytecode") fallbacks++; });
+            });
+            CHECK_MSG(fallbacks == (stale ? 1 : 0), "TrustedValidator, " + mode + ": " + std::to_string(fallbacks) + " bytecode diagnostics");
+            expectJSError("WidgetHost, " + mode, *alone, print, [&] {
+                ScriptedRenderer* renderer = nullptr;
+                WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), resources, scripted(renderer));
+            });
+        }
+    };
+    round(true);
+    const size_t first = mallocInUse();
+    round(false);
+    const size_t second = mallocInUse();
+#ifdef TW_TESTS_UNDER_ASAN
+    printf("    malloc in use: not checked under ASan, whose allocator holds freed blocks back (%zu after the first round, %zu after the second)\n", first, second);
+#else
+    printf("    malloc in use: %zu after the first round, %zu after the second (%+lld)\n", first, second, (long long)second - (long long)first);
+    CHECK_MSG(second <= first + 16384, std::to_string(second - first) + " more bytes in use after the second round than after the first");
+#endif
+    fflush(stdout);
+}
+
+#undef TW_TESTS_UNDER_ASAN
+#endif
+
+/// A validator bundle with this release's stamp that fails to evaluate makes its owners throw JSError and leave nothing behind: a fresh child (`--child owners_of_a_broken_validator_bundle`) constructs TrustedValidator and WidgetHost with no bytecode and with stale bytecode, twice; each throws the bundle's SyntaxError, the task's thread count comes back after each, and malloc holds no more after the second round than after the first (not checked under ASan). Before, the child ended on the uncaught JSError. The child exits 0 within 30 s, or it is killed and the test fails.
+TEST(a_validator_bundle_that_fails_to_evaluate_throws_from_its_owners) {
+#ifdef __APPLE__
+    const ChildRun child = runChild("owners_of_a_broken_validator_bundle", 30);
+    printf("%s", child.output.c_str());
+    if (!child.output.empty() && child.output.back() != '\n') printf("\n");
+    CHECK_MSG(child.ok, "the child (twidget-tests --child owners_of_a_broken_validator_bundle) " + child.ending);
+#else
+    printf("  not run on this platform: this test counts the task's threads and malloc's bytes in a child process (macOS)\n");
+#endif
+}
+
 // ───────────── WidgetHost + Blitz renderer (-DTW_BLITZ=ON) ─────────────
 #ifdef TW_HAVE_BLITZ
 
@@ -3660,6 +3791,10 @@ int main(int argc, char** argv) {
 #ifdef __APPLE__
         if (argc == 3 && std::strcmp(argv[2], "owners_at_the_thread_limit") == 0) {
             owners_at_the_thread_limit();
+            return g_failures ? 1 : 0;
+        }
+        if (argc == 3 && std::strcmp(argv[2], "owners_of_a_broken_validator_bundle") == 0) {
+            owners_of_a_broken_validator_bundle();
             return g_failures ? 1 : 0;
         }
 #endif

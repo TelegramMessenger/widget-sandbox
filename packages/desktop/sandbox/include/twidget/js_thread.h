@@ -14,6 +14,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <future>
 #include <map>
@@ -43,7 +44,7 @@ public:
     /// Runs `fn` on the thread after everything queued before it. Dropped once stopped.
     void async(std::function<void()> fn);
 
-    /// Runs `fn` on the thread and waits for it (inline when already there).
+    /// Runs `fn` on the thread and waits for it (inline when already there). Rethrows what `fn` throws here, in the caller; the thread goes on with its queue.
     template <class F>
     auto sync(F&& fn) -> std::invoke_result_t<F> {
         using R = std::invoke_result_t<F>;
@@ -51,8 +52,12 @@ public:
         std::promise<R> promise;
         auto future = promise.get_future();
         bool queued = post([&] {
-            if constexpr (std::is_void_v<R>) { fn(); promise.set_value(); }
-            else promise.set_value(fn());
+            try {
+                if constexpr (std::is_void_v<R>) { fn(); promise.set_value(); }
+                else promise.set_value(fn());
+            } catch (...) {
+                promise.set_exception(std::current_exception());
+            }
         });
         if (!queued) {
             if constexpr (std::is_void_v<R>) return;
