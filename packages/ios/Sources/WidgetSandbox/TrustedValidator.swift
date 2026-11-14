@@ -107,7 +107,7 @@ public final class TrustedValidator {
             onDiag("bundle-mismatch", refusal)
             throw BundleStamp.Refused(reason: refusal)
         }
-        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit)
+        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit, backend: QuickJSBackend.validatorDefault)
         self.js = js
         var fromBytecode = false
         js.registerFunction("__twNode") { [weak self] args in
@@ -125,7 +125,7 @@ public final class TrustedValidator {
             return .undefined
         }
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
-        if let bytecode = resources.validatorBytecode {
+        if let bytecode = resources.validatorBytecode, js.backend.runsBytecode {
             do { try js.evaluateBytecode(bytecode, source: resources.validatorBundle); fromBytecode = true }
             catch { onDiag("bytecode", "validator-bundle.js: falling back to source — \("\(error)".split(separator: "\n").first ?? "")") }
         }

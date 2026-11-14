@@ -387,7 +387,7 @@ public final class SandboxEngine {
 
     /// The optional host functions this engine's runtime was built with (fixed at init).
     public let runtimeFeatures: Set<String>
-    /// The build of QuickJS this engine's runtime is: native, or boxed (docs/decisions.md, "QuickJS in a wasm2c box").
+    /// The engine this runtime is: native QuickJS, boxed QuickJS (docs/decisions.md, "QuickJS in a wasm2c box"), or Nova.
     public let backend: QuickJSBackend
 
     /// Canvas word payloads (`__hostCanvas`) for the next ops batch, by key.
@@ -496,7 +496,7 @@ public final class SandboxEngine {
         let t0 = CACurrentMediaTime()
         // Generous one-off budget for our own bundle; its time is ours, not the widget's.
         js.deadline = ProcessInfo.processInfo.systemUptime + max(config.cpuLimitMs, 5000) / 1000
-        let how = evalBundle(resources.sandboxBundle, bytecode: resources.sandboxBytecode, filename: "sandbox-bundle.js")
+        let how = evalBundle(resources.sandboxBundle, bytecode: backend.runsBytecode ? resources.sandboxBytecode : nil, filename: "sandbox-bundle.js")
         js.deadline = .infinity
         js.cpuDeadline = .infinity
         // Fail closed: a runtime whose shim did not load completely (its network
@@ -527,7 +527,7 @@ public final class SandboxEngine {
             delegate?.engine(self, diag: "boot", detail: String(format: "sandbox bundle eval %.0f ms (%@%@)", bundleEval.ms, bundleEval.how, wasPrewarmed ? ", prewarmed" : ""))
         }
         // Only a host that opted in hears about it: which box runs this widget.
-        if backend == .boxed { delegate?.engine(self, diag: "engine", detail: js.engineDescription) }
+        if backend != .native { delegate?.engine(self, diag: "engine", detail: js.engineDescription) }
         task("boot", sliceMs: config.cpuLimitMs) {
             var bootConfig: [String: Any] = [
                 "memoryLimitBytes": self.config.memoryLimitBytes, "cpuLimitMs": self.config.cpuLimitMs,

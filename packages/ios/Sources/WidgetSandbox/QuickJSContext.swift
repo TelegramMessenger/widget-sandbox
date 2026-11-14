@@ -14,6 +14,19 @@ public enum QuickJSBackend: String {
     /// reads and writes that memory only, or ends the process. macOS only for now (`isBoxedAvailable`); slower
     /// (JS about 1.4 times with guard pages). The validator's engine stays native.
     case boxed
+    /// Nova (`packages/nova-engine`): a JavaScript engine written in Rust with no `unsafe`, so a script cannot reach
+    /// undefined behaviour in it, behind a small audited C interface. macOS only (`isNovaAvailable`); it runs the
+    /// sandbox bundle from source (no `.qbc`). Like `.boxed`, a build without it fails closed.
+    case nova
+
+    /// Whether this build can run `.nova`: the library is linked and enforces every limit (`NovaEngine.enforcesLimits`).
+    public static var isNovaAvailable: Bool {
+        #if os(macOS) && canImport(NovaEngineFFI)
+        return NovaEngine.enforcesLimits
+        #else
+        return false
+        #endif
+    }
 
     /// Whether this build can run `.boxed`. Where it cannot, a boxed engine fails closed: the widget stops with
     /// "Engine fault", it never falls back to the native engine.
@@ -25,15 +38,43 @@ public enum QuickJSBackend: String {
         #endif
     }
 
-    /// The backend of hosts and engines that do not name one: `.native`. A client that wants every widget boxed sets
-    /// it once at start, before the first host. A DEBUG build takes its first value from the environment
-    /// (`WIDGET_SANDBOX_ENGINE=boxed`), which is how the test suite runs on the boxed engine.
+    /// The backend of hosts and engines that do not name one: `.nova` in a build that links Nova and whose library
+    /// enforces its limits (`isNovaAvailable`), else `.native`. A client that wants another one sets it once at start,
+    /// before the first host. A DEBUG build takes its first value from the environment (`WIDGET_SANDBOX_ENGINE=native`
+    /// or `boxed`), which is how the test suite runs on the other engines.
     public static var `default`: QuickJSBackend = {
         #if DEBUG
         if let name = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_ENGINE"], let backend = QuickJSBackend(rawValue: name) { return backend }
         #endif
-        return .native
+        return isNovaAvailable ? .nova : .native
     }()
+
+    /// The backend of the trusted validator (`TrustedValidator`): `.nova` where `isNovaAvailable`, else `.native`, unless
+    /// a client sets it once at start. A DEBUG build takes its first value from `WIDGET_SANDBOX_VALIDATOR_ENGINE`.
+    /// `.boxed` is not offered for it.
+    public static var validatorDefault: QuickJSBackend = {
+        #if DEBUG
+        if let name = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_VALIDATOR_ENGINE"], let backend = QuickJSBackend(rawValue: name), backend != .boxed {
+            return backend
+        }
+        #endif
+        return isNovaAvailable ? .nova : .native
+    }()
+
+    #if os(macOS) && canImport(NovaEngineFFI)
+    /// Runs every widget engine, the engine pools and the trusted validator of the process on Nova: sets `default`,
+    /// `validatorDefault` and `EnginePool.shared.backend`. Main thread, once at start, before the first host. It
+    /// exists only in builds that link Nova, so a client that must not run widgets without it calls this and does not
+    /// compile without the library, instead of failing closed at run time.
+    public static func useNovaEverywhere() {
+        `default` = .nova
+        validatorDefault = .nova
+        EnginePool.shared.backend = .nova
+    }
+    #endif
+
+    /// Whether this backend runs the precompiled `.qbc` bundles (QuickJS bytecode); Nova evaluates their source.
+    var runsBytecode: Bool { self != .nova }
 }
 
 /// What `QuickJSContext` needs from an engine. Internal: the rest of the package sees `QuickJSContext` only.
@@ -92,18 +133,41 @@ public final class QuickJSContext {
             engine = UnavailableQuickJS(reason: reason)
             unavailableReason = reason
             #endif
+        case .nova:
+            #if os(macOS) && canImport(NovaEngineFFI)
+            do {
+                engine = try NovaEngine(memoryLimitBytes: memoryLimitBytes, maxStackBytes: maxStackBytes)
+                unavailableReason = nil
+            } catch {
+                let reason = (error as? QuickJSError).flatMap { if case .engineFault(let r) = $0 { return r } else { return nil } } ?? "\(error)"
+                engine = UnavailableQuickJS(reason: reason)
+                unavailableReason = reason
+            }
+            #else
+            let reason = "the Nova engine is not part of this build (macOS only)"
+            engine = UnavailableQuickJS(reason: reason)
+            unavailableReason = reason
+            #endif
         }
     }
 
     /// For the tests: makes every new boxed context fail with this reason, as a build without the box does.
     static var boxedFailureForTesting: String?
 
-    /// "native QuickJS", or the boxed engine with the commit it was built from and how its memory is fenced.
+    /// "native QuickJS", the boxed engine with the commit it was built from and how its memory is fenced, or Nova's
+    /// version with its commit.
     public var engineDescription: String {
         #if os(macOS) && canImport(CQuickJSBox)
         if backend == .boxed { return "boxed QuickJS \(BoxedQuickJS.quickJSCommit) (\(BoxedQuickJS.buildMode))" }
         #endif
-        return backend == .boxed ? "boxed QuickJS" : "native QuickJS"
+        #if os(macOS) && canImport(NovaEngineFFI)
+        if backend == .nova { return NovaEngine.version }
+        #endif
+        switch backend {
+        case .native: return "native QuickJS"
+        case .boxed: return "boxed QuickJS"
+        case .nova: return "Nova"
+        }
     }
 
     /// CPU time consumed by the calling thread, in seconds; unaffected by how busy the machine is.

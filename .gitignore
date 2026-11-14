@@ -24,3 +24,7 @@ apps/web/bench/ops/
 !packages/quickjs-wasm/dist/
 # Working-process documents (reviews, briefs, discussions) live outside the repository
 /notes/
+# Nova is built from nova-safe (packages/nova-engine/README.md), never committed
+/packages/nova-engine/NovaEngineFFI.xcframework/
+/packages/nova-engine/manifest.sha256
+/packages/nova-engine/BUILD_INFO

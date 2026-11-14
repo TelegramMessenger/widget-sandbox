@@ -28,21 +28,27 @@ final class MemoryTests: XCTestCase {
         XCTAssertEqual(rebuilt.nodes, built.nodes)
     }
 
+    /// Nova compiles the whole validator bundle when it loads it (QuickJS reads functions from `.qbc` as they run): about
+    /// 1.7 MB live, all of it reachable bytecode.
     func testValidatorDropsItsBuildGarbage() throws {
         let validator = try TrustedValidator(theme: "light") { _, _ in }
+        let bound = QuickJSBackend.validatorDefault == .nova ? 2_000_000 : 1_500_000
         let usage = try XCTUnwrap(validator.memoryUsage)
-        XCTAssertLessThan(try XCTUnwrap(usage["malloc"]), 1_500_000, "\(usage)")
+        XCTAssertLessThan(try XCTUnwrap(usage["malloc"]), bound, "\(usage)")
         validator.reset(theme: "light")
         let recycled = try XCTUnwrap(validator.memoryUsage)
-        XCTAssertLessThan(try XCTUnwrap(recycled["malloc"]), 1_500_000, "\(recycled)")
+        XCTAssertLessThan(try XCTUnwrap(recycled["malloc"]), bound, "\(recycled)")
     }
 
+    /// Nova compiles every function of the bundle when it loads it (QuickJS reads them from `.qbc` as they run), so
+    /// its live heap after the bundle is larger: about 3.4 MB, all of it reachable bytecode, none of it garbage.
     func testPrewarmedEngineDropsItsBundleGarbage() throws {
         let engine = SandboxEngine()
         engine.prewarm()
         XCTAssertTrue(engine.isPrewarmed)
         let usage = try XCTUnwrap(engine.memoryUsage)
-        XCTAssertLessThan(try XCTUnwrap(usage["malloc"]), 2_500_000, "\(usage)")
+        let bound = QuickJSBackend.default == .nova ? 4_000_000 : 2_500_000
+        XCTAssertLessThan(try XCTUnwrap(usage["malloc"]), bound, "\(usage)")
         engine.terminate()
     }
 

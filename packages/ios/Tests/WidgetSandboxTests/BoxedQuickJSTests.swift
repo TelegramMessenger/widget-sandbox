@@ -28,13 +28,22 @@ final class BoxedQuickJSTests: XCTestCase {
         }
     }
 
-    func testNativeIsTheDefault() throws {
+    /// Nova where this build links it and its library enforces its limits, the native engine elsewhere; never the box.
+    func testTheDefaultIsNovaWhereItIsLinkedElseNative() throws {
         XCTAssertEqual(QuickJSContext(memoryLimitBytes: 8 << 20).backend, .native)
-        guard ProcessInfo.processInfo.environment["WIDGET_SANDBOX_ENGINE"] == nil else { return } // a boxed run of the suite
-        XCTAssertEqual(QuickJSBackend.default, .native)
-        XCTAssertEqual(WidgetHost.Options().engine, .native)
-        XCTAssertEqual(SandboxEngine().backend, .native)
-        XCTAssertEqual(EnginePool.shared.backend, .native)
+        let expected: QuickJSBackend = QuickJSBackend.isNovaAvailable ? .nova : .native
+        guard ProcessInfo.processInfo.environment["WIDGET_SANDBOX_ENGINE"] == nil else { return } // a run of the suite on another engine
+        XCTAssertEqual(QuickJSBackend.default, expected)
+        XCTAssertEqual(WidgetHost.Options().engine, expected)
+        XCTAssertEqual(SandboxEngine().backend, expected)
+        XCTAssertEqual(EnginePool.shared.backend, expected)
+        guard ProcessInfo.processInfo.environment["WIDGET_SANDBOX_VALIDATOR_ENGINE"] == nil else { return }
+        XCTAssertEqual(QuickJSBackend.validatorDefault, expected)
+        #if os(macOS)
+        if ProcessInfo.processInfo.environment["WIDGET_SANDBOX_WITHOUT_NOVA"] == nil {
+            XCTAssertTrue(QuickJSBackend.isNovaAvailable, "the package links Nova unless WIDGET_SANDBOX_WITHOUT_NOVA is set")
+        }
+        #endif
     }
 
     func testTheBoxRunsTheEngineTheNativePackagesCompile() throws {

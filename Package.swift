@@ -69,7 +69,10 @@ let package = Package(
         ),
         .target(
             name: "WidgetSandbox",
-            dependencies: ["CQuickJS", "WidgetSandboxProtocol", .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS]))],
+            dependencies: [
+                "CQuickJS", "WidgetSandboxProtocol",
+                .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS])),
+            ],
             path: "packages/ios/Sources/WidgetSandbox",
             resources: [.copy("WidgetJS")]
         ),
@@ -81,6 +84,19 @@ let package = Package(
         ),
     ]
 )
+
+// Nova, a JavaScript engine in Rust without `unsafe`, as a static library behind a small C interface, macOS only. Its
+// xcframework is built, not committed (packages/nova-engine/README.md: Telegram for macOS builds it from its nova
+// submodule, anyone else with nova-safe's build script); until it is there, SwiftPM names the missing file.
+// WIDGET_SANDBOX_WITHOUT_NOVA=1 builds without it: then `.nova` fails closed and the default engine is QuickJS. The
+// switch is an environment variable, not a check for the file, because SwiftPM caches what a manifest evaluated to
+// by its text and environment, so a check for a file would keep its first answer.
+if Context.environment["WIDGET_SANDBOX_WITHOUT_NOVA"] == nil {
+    package.targets.append(.binaryTarget(name: "NovaEngineFFI", path: "packages/nova-engine/NovaEngineFFI.xcframework"))
+    for target in package.targets where target.name == "WidgetSandbox" {
+        target.dependencies.append(.target(name: "NovaEngineFFI", condition: .when(platforms: [.macOS])))
+    }
+}
 
 if optimizesDebug {
     for target in package.targets where target.type == .regular && target.name != "CQuickJS" {

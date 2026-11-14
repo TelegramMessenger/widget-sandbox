@@ -429,15 +429,19 @@ final class BytecodeTests: XCTestCase {
     }
 
     /// The shipped blobs load against the .js next to them (a stale pair fails here, not on a device);
-    /// a CDN script is an external script like any other (profile 1 bundles no libraries).
+    /// a CDN script is an external script like any other (profile 1 bundles no libraries). The blobs are QuickJS
+    /// bytecode: both engines here are native whatever the defaults (Nova runs the bundles from source).
     func testShippedBytecodeIsUsedAndNoLibraryIsBundled() throws {
+        let validatorDefault = QuickJSBackend.validatorDefault
+        QuickJSBackend.validatorDefault = .native
+        defer { QuickJSBackend.validatorDefault = validatorDefault }
         let r = SandboxResources.shared
         XCTAssertNotNil(r.sandboxBytecode, "pnpm build:ios ships sandbox-bundle.qbc")
         XCTAssertNotNil(r.validatorBytecode, "pnpm build:ios ships validator-bundle.qbc")
         let d = RecordingDelegate()
         var config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
         config.cpuLimitMs = 2000
-        let engine = SandboxEngine(html: "<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>", config: config)
+        let engine = SandboxEngine(html: "<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>", config: config, backend: .native)
         engine.delegate = d
         engine.start()
         wait(for: [d.loaded], timeout: 20)
