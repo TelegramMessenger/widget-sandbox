@@ -63,6 +63,8 @@ if(WIN32)
     # Intl on the system's ICU (icu.dll, Windows 10 1903 and later).
     target_sources(twidget-sandbox PRIVATE sandbox/src/icu_intl.cpp)
     target_link_libraries(twidget-sandbox PUBLIC bcrypt icu)
+    # windows.h's min and max macros would break std::min and std::max in the sources that include it.
+    target_compile_definitions(twidget-sandbox PRIVATE NOMINMAX)
 endif()
 if(NOT MSVC)
     target_compile_options(twidget-sandbox PRIVATE -Wall -Wextra)
