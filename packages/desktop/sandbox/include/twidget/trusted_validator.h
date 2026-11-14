@@ -26,7 +26,7 @@ class TrustedValidator {
 public:
     using DiagSink = std::function<void(const std::string& kind, const std::string& detail)>;
 
-    /// Throws JSError if the bundle fails to load.
+    /// Throws JSError if the bundle fails to load, std::system_error when its thread cannot start (JSThread).
     TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag);
     ~TrustedValidator();
 

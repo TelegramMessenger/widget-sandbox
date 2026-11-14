@@ -167,7 +167,7 @@ private:
 
 class WidgetHost final : public SandboxEngineDelegate {
 public:
-    /// Throws JSError if the validator bundle fails to load. Nothing runs until `start()`.
+    /// Throws JSError if the validator bundle fails to load, std::system_error when one of its three threads cannot start (JSThread; those already started are joined first). The widget runs only after `start()`.
     WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
                RendererFactory rendererFactory, std::shared_ptr<IntlProvider> intl = nullptr);
     /// The API before SDK v1: a colour scheme only (the scheme's default palette, no button tokens).
@@ -319,6 +319,11 @@ private:
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     static constexpr int kRenderAckQid = -1;
 
+    // Before the threads: the validator's constructor already posts `diag()` to the host thread, which may run it as late as its final join.
+    mutable std::mutex mutex_;              // diagnostics_, waiters
+    std::condition_variable cv_;
+    WidgetDiagnostics diagnostics_;
+
     JSThread hostThread_;
     std::string html_;
     /// The colour scheme ("light" | "dark") and the whole theme with its palette checked (host thread after start).
@@ -330,10 +335,6 @@ private:
     TrustedValidator validator_;
     std::unique_ptr<Renderer> renderer_;
     SandboxEngine engine_;
-
-    mutable std::mutex mutex_;              // diagnostics_, waiters
-    std::condition_variable cv_;
-    WidgetDiagnostics diagnostics_;
 
     // Host-thread state.
     bool rendererReady_ = false;

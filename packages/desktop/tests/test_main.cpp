@@ -38,6 +38,24 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef __APPLE__
+#include <cerrno>
+#include <csignal>
+#include <cstdlib>
+#include <deque>
+#include <mach/mach.h>
+#include <pthread.h>
+#include <spawn.h>
+#include <sys/sysctl.h>
+#include <sys/wait.h>
+#include <system_error>
+#include <unistd.h>
+
+extern char** environ;
+
+/// This executable as it was started (`argv[0]`), for a child case that must run alone in a fresh process.
+static std::string g_self;
+#endif
 
 using namespace twidget;
 
@@ -3194,6 +3212,302 @@ TEST(validator_stylesheet_text_is_only_shipped_sanitized) {
     CHECK(v.nodeCount() == 4);
 }
 
+// ───────────── a thread the OS refuses to start (macOS: the per-process thread limit) ─────────────
+#ifdef __APPLE__
+
+/// The task's threads as Mach counts them, nullopt when they cannot be listed; every port and the array are given back.
+static std::optional<int> taskThreads() {
+    thread_act_array_t threads = nullptr;
+    mach_msg_type_number_t count = 0;
+    if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS) return std::nullopt;
+    for (mach_msg_type_number_t i = 0; i < count; i++) mach_port_deallocate(mach_task_self(), threads[i]);
+    vm_deallocate(mach_task_self(), vm_address_t(threads), vm_size_t(count * sizeof(thread_act_t)));
+    return int(count);
+}
+
+/// Polls `taskThreads()` until it is `want`, for at most 2 s (a joined thread leaves the count a little later): the last count read.
+static std::optional<int> threadsSettleAt(int want) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    for (;;) {
+        const std::optional<int> count = taskThreads();
+        if (!count || *count == want || std::chrono::steady_clock::now() >= deadline) return count;
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+    }
+}
+
+static std::string countText(const std::optional<int>& count) { return count ? std::to_string(*count) : std::string("?"); }
+
+static double msSince(std::chrono::steady_clock::time_point start) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); }
+
+/// This process's thread allowance taken up by parked threads on the smallest stacks: `leave(k)` frees exactly k of it, `fill()` takes it back, and every parked thread ends with this object.
+class ThreadAllowance {
+public:
+    ThreadAllowance() = default;
+    ThreadAllowance(const ThreadAllowance&) = delete;
+    ThreadAllowance& operator=(const ThreadAllowance&) = delete;
+    ~ThreadAllowance() {
+        // Wake them all, then join: waking and joining one at a time takes twice as long.
+        for (Slot& slot : slots_) wake(slot);
+        for (Slot& slot : slots_) pthread_join(slot.thread, nullptr);
+    }
+
+    /// Parks threads until `pthread_create` refuses one with EAGAIN (at most 65536): the first fill sets `full()`, a later one must reach it again. Empty, or what went wrong.
+    std::string fill() {
+        pthread_attr_t attributes;
+        if (const int error = pthread_attr_init(&attributes)) return std::string("pthread_attr_init: ") + std::strerror(error);
+        std::string failure;
+        if (const int error = pthread_attr_setstacksize(&attributes, PTHREAD_STACK_MIN)) failure = std::string("pthread_attr_setstacksize: ") + std::strerror(error);
+        int refused = 0;
+        for (int tries = 0; failure.empty() && !refused; tries++) {
+            if (tries == 65536) {
+                failure = "no thread refused in 65536";
+                break;
+            }
+            Slot& slot = slots_.emplace_back();
+            refused = pthread_create(&slot.thread, &attributes, &ThreadAllowance::park, &slot);
+            if (refused) slots_.pop_back();
+        }
+        pthread_attr_destroy(&attributes);
+        if (failure.empty() && refused != EAGAIN) failure = std::string("pthread_create refused a thread with ") + std::strerror(refused) + ", not EAGAIN";
+        if (!failure.empty()) return failure;
+        const std::optional<int> count = taskThreads();
+        if (!count) return "the task's threads cannot be listed";
+        if (!full_) full_ = *count;
+        else if (*count != full_) return "full at " + std::to_string(*count) + " threads, the first time at " + std::to_string(full_);
+        return {};
+    }
+
+    /// Ends the `k` threads parked last and waits until the task counts `full() - k` threads: empty, or what went wrong.
+    std::string leave(int k) {
+        if (k > int(slots_.size())) return "only " + std::to_string(slots_.size()) + " threads are parked";
+        for (int i = 0; i < k; i++) wake(slots_[slots_.size() - 1 - i]);
+        for (int i = 0; i < k; i++) {
+            pthread_join(slots_.back().thread, nullptr);
+            slots_.pop_back();
+        }
+        const std::optional<int> count = threadsSettleAt(full_ - k);
+        if (count != full_ - k) return "the task counts " + countText(count) + " threads, not " + std::to_string(full_ - k);
+        return {};
+    }
+
+    int full() const { return full_; }
+    size_t parked() const { return slots_.size(); }
+
+private:
+    struct Slot {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool stop = false;
+        pthread_t thread{};
+    };
+
+    static void* park(void* p) {
+        Slot& slot = *static_cast<Slot*>(p);
+        std::unique_lock<std::mutex> lock(slot.mutex);
+        slot.cv.wait(lock, [&] { return slot.stop; });
+        return nullptr;
+    }
+
+    static void wake(Slot& slot) {
+        {
+            std::lock_guard<std::mutex> lock(slot.mutex);
+            slot.stop = true;
+        }
+        slot.cv.notify_one();
+    }
+
+    std::deque<Slot> slots_;
+    int full_ = 0;
+};
+
+/// With `k` threads free, `construct` must throw std::system_error EAGAIN from the start of `thread` within 1 s and the task's count must come back; then the allowance is full again. False when the child cannot go on.
+static bool expectNoStart(ThreadAllowance& allowance, const std::string& owner, int k, const std::string& thread, const std::function<void()>& construct) {
+    const std::string left = allowance.leave(k);
+    CHECK_MSG(left.empty(), owner + ": " + left);
+    if (!left.empty()) return false;
+    const int before = allowance.full() - k;
+    std::string what = "constructed";
+    bool refused = false;
+    const auto start = std::chrono::steady_clock::now();
+    try {
+        construct();
+    } catch (const std::system_error& e) {
+        what = e.what();
+        refused = e.code() == std::errc::resource_unavailable_try_again;
+    } catch (const std::exception& e) {
+        what = std::string("not a system_error: ") + e.what();
+    }
+    const double ms = msSince(start);
+    const std::optional<int> after = threadsSettleAt(before);
+    printf("    %s, %d free: \"%s\" in %.2f ms; %d threads before, %s after\n", owner.c_str(), k, what.c_str(), ms, before, countText(after).c_str());
+    fflush(stdout);
+    CHECK_MSG(refused, owner + ": " + what);
+    CHECK_MSG(what.find("JSThread " + thread + ": ") != std::string::npos, owner + ": " + what);
+    CHECK_MSG(what.find(std::generic_category().message(EAGAIN)) != std::string::npos, owner + ": " + what);
+    CHECK_MSG(ms < 1000, owner + ": " + std::to_string(ms) + " ms");
+    CHECK_MSG(after == before, owner + ": " + std::to_string(before) + " threads before, " + countText(after) + " after");
+    if (after != before) return false;
+    const std::string filled = allowance.fill();
+    CHECK_MSG(filled.empty(), owner + ": " + filled);
+    return filled.empty();
+}
+
+/// The child of `a_thread_that_cannot_start_fails_its_owner_promptly`, alone in a fresh process: `twidget-tests --child owners_at_the_thread_limit`.
+static void owners_at_the_thread_limit() {
+    const std::optional<int> alone = taskThreads();
+    CHECK_MSG(alone.has_value(), "the task's threads cannot be listed");
+    if (!alone) return;
+    const auto mine = BundleStamp::glue();
+    const auto otherValidator = resourcesWith("validator", BundleStamp{"9.9.9", mine.protocol, mine.profile + 1, mine.sdk}.line());
+    const auto host = [](std::shared_ptr<SandboxResources> resources) {
+        return [resources] {
+            ScriptedRenderer* renderer = nullptr;
+            WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), resources, scripted(renderer));
+        };
+    };
+    {
+        ThreadAllowance allowance;
+        const auto start = std::chrono::steady_clock::now();
+        const std::string filled = allowance.fill();
+        CHECK_MSG(filled.empty(), filled);
+        if (!filled.empty()) return;
+        int limit = 0;
+        size_t size = sizeof(limit);
+        const bool known = sysctlbyname("kern.num_taskthreads", &limit, &size, nullptr, 0) == 0;
+        const std::string limitText = known ? std::to_string(limit) : std::string("unavailable (") + std::strerror(errno) + ")";
+        printf("    full: %d threads, %zu of them parked, in %.0f ms; kern.num_taskthreads %s\n", allowance.full(), allowance.parked(), msSince(start), limitText.c_str());
+        fflush(stdout);
+        if (known) CHECK_MSG(allowance.full() == limit, std::to_string(allowance.full()) + " threads, kern.num_taskthreads " + limitText);
+        CHECK_MSG(allowance.parked() >= 3, std::to_string(allowance.parked()) + " threads parked");
+        if (allowance.parked() < 3) return;
+        const bool refusedAll = expectNoStart(allowance, "JSThread", 0, "test.unstartable", [] { JSThread thread("test.unstartable"); })
+            && expectNoStart(allowance, "SandboxEngine", 0, "widget.sandbox", [] { SandboxEngine engine("<p>x</p>", testConfig(), RES); })
+            && expectNoStart(allowance, "TrustedValidator", 0, "widget.validator", [] { TrustedValidator validator("light", RES, {}); })
+            && expectNoStart(allowance, "WidgetHost", 0, "twidget-host", host(RES))
+            && expectNoStart(allowance, "WidgetHost", 1, "widget.validator", host(RES))
+            && expectNoStart(allowance, "WidgetHost", 2, "widget.sandbox", host(RES))
+            && expectNoStart(allowance, "WidgetHost, validator of another release", 2, "widget.sandbox", host(otherValidator));
+        if (!refusedAll) return;
+        // The control: with three free the same host starts its three threads, records the refusal its validator posted, and ends them.
+        const std::string left = allowance.leave(3);
+        CHECK_MSG(left.empty(), left);
+        if (!left.empty()) return;
+        const int before = allowance.full() - 3;
+        std::optional<int> during;
+        int mismatches = -1;
+        std::string failure;
+        const auto constructed = std::chrono::steady_clock::now();
+        try {
+            ScriptedRenderer* renderer = nullptr;
+            WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), otherValidator, scripted(renderer));
+            during = taskThreads();
+            host.onHostThread([] {});
+            mismatches = host.diagnostics().countDiag("bundle-mismatch");
+        } catch (const std::exception& e) {
+            failure = e.what();
+        }
+        const double ms = msSince(constructed);
+        const std::optional<int> after = threadsSettleAt(before);
+        printf("    WidgetHost, validator of another release, 3 free: %s and destroyed in %.1f ms, bundle-mismatch %d; %d threads before, %s while it lived, %s after\n",
+               failure.empty() ? "constructed" : ("\"" + failure + "\"").c_str(), ms, mismatches, before, countText(during).c_str(), countText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(failure.empty(), failure);
+        CHECK_MSG(during == before + 3, std::to_string(before) + " threads before, " + countText(during) + " while it lived");
+        CHECK_MSG(mismatches == 1, std::to_string(mismatches) + " bundle-mismatch diagnostics");
+        CHECK_MSG(after == before, std::to_string(before) + " threads before, " + countText(after) + " after");
+    }
+    const std::optional<int> after = threadsSettleAt(*alone);
+    printf("    every parked thread ended: %s threads, %d before the fill\n", countText(after).c_str(), *alone);
+    fflush(stdout);
+    CHECK_MSG(after == alone, countText(after) + " threads, " + std::to_string(*alone) + " before the fill");
+}
+
+/// How a child case run in a fresh process ended: `ok` when it exited with 0, else `ending` says how; `output` is what it printed.
+struct ChildRun {
+    bool ok = false;
+    std::string ending;
+    std::string output;
+};
+
+/// `twidget-tests --child <name>` with its output in a temporary file, waited for at most `seconds`: past them it is killed and reaped.
+static ChildRun runChild(const std::string& name, int seconds) {
+    ChildRun run;
+    const char* tmp = std::getenv("TMPDIR");
+    std::string log = tmp && *tmp ? tmp : "/tmp";
+    if (log.back() != '/') log += '/';
+    log += "twidget-tests-child-XXXXXX";
+    const int fd = ::mkstemp(log.data());
+    if (fd < 0) {
+        run.ending = std::string("did not start: mkstemp: ") + std::strerror(errno);
+        return run;
+    }
+    std::string failure;
+    const auto step = [&](int error, const char* what) {
+        if (error && failure.empty()) failure = std::string(what) + ": " + std::strerror(error);
+        return !error;
+    };
+    std::string self = g_self, flag = "--child", child = name;
+    char* argv[] = {self.data(), flag.data(), child.data(), nullptr};
+    pid_t pid = -1;
+    posix_spawn_file_actions_t actions;
+    posix_spawnattr_t attributes;
+    const bool haveActions = step(posix_spawn_file_actions_init(&actions), "posix_spawn_file_actions_init");
+    const bool haveAttributes = haveActions && step(posix_spawnattr_init(&attributes), "posix_spawnattr_init");
+    const bool spawned = haveAttributes
+        && step(posix_spawn_file_actions_adddup2(&actions, fd, 1), "posix_spawn_file_actions_adddup2")
+        && step(posix_spawn_file_actions_adddup2(&actions, fd, 2), "posix_spawn_file_actions_adddup2")
+        && step(posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT), "posix_spawnattr_setflags")
+        && step(posix_spawn(&pid, self.c_str(), &actions, &attributes, argv, environ), "posix_spawn");
+    if (haveAttributes) posix_spawnattr_destroy(&attributes);
+    if (haveActions) posix_spawn_file_actions_destroy(&actions);
+    ::close(fd);
+    if (!spawned) {
+        ::unlink(log.c_str());
+        run.ending = "did not start: " + failure;
+        return run;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    for (;;) {
+        int status = 0;
+        const pid_t reaped = ::waitpid(pid, &status, WNOHANG);
+        if (reaped == pid) {
+            run.ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+            run.ending = WIFEXITED(status) ? "exited with " + std::to_string(WEXITSTATUS(status))
+                : WIFSIGNALED(status)      ? "was killed by signal " + std::to_string(WTERMSIG(status)) + " (" + ::strsignal(WTERMSIG(status)) + ")"
+                                           : "ended with wait status " + std::to_string(status);
+            break;
+        }
+        if (reaped < 0 && errno != EINTR) {
+            run.ending = std::string("was lost: waitpid: ") + std::strerror(errno);
+            break;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            ::kill(pid, SIGKILL);
+            while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+            run.ending = "was still running after " + std::to_string(seconds) + " s, killed";
+            break;
+        }
+        sleepMs(20);
+    }
+    run.output = readFile(log);
+    ::unlink(log.c_str());
+    return run;
+}
+
+#endif
+
+/// A thread the OS refuses fails its owner promptly and leaves nothing running: a fresh child (`--child owners_at_the_thread_limit`) uses up its thread allowance; JSThread, SandboxEngine and TrustedValidator with no thread free and WidgetHost with 0, 1 and 2 free (each of its three threads refused in turn, once after its validator of another release posted a diagnostic to the host thread) each throw std::system_error EAGAIN naming that thread within 1 s, and the task's thread count comes back; with 3 free that host constructs and records one `bundle-mismatch`. The child exits 0 within 30 s, or it is killed and the test fails.
+TEST(a_thread_that_cannot_start_fails_its_owner_promptly) {
+#ifdef __APPLE__
+    const ChildRun child = runChild("owners_at_the_thread_limit", 30);
+    printf("%s", child.output.c_str());
+    if (!child.output.empty() && child.output.back() != '\n') printf("\n");
+    CHECK_MSG(child.ok, "the child (twidget-tests --child owners_at_the_thread_limit) " + child.ending);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}
+
 // ───────────── WidgetHost + Blitz renderer (-DTW_BLITZ=ON) ─────────────
 #ifdef TW_HAVE_BLITZ
 
@@ -3338,7 +3652,20 @@ TEST(litehtml_frozen_after_kill_keeps_last_render) {
 
 int main(int argc, char** argv) {
     const char* filter = argc > 1 ? argv[1] : nullptr;
+#ifdef __APPLE__
+    g_self = argv[0];
+#endif
     try { RES = SandboxResources::fromDirectory(TW_WIDGET_JS); } catch (const std::exception& e) { fprintf(stderr, "%s\n", e.what()); return 2; }
+    if (filter && std::strcmp(filter, "--child") == 0) {
+#ifdef __APPLE__
+        if (argc == 3 && std::strcmp(argv[2], "owners_at_the_thread_limit") == 0) {
+            owners_at_the_thread_limit();
+            return g_failures ? 1 : 0;
+        }
+#endif
+        fprintf(stderr, "no such child case: %s\n", argc == 3 ? argv[2] : "give exactly one name after --child");
+        return 2;
+    }
     int ran = 0;
     for (const auto& t : registry()) {
         if (filter && std::strstr(t.name, filter) == nullptr) continue;

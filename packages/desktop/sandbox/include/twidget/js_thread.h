@@ -32,6 +32,7 @@ public:
     /// Safe QuickJS limit for a context that only ever runs on a JSThread.
     static constexpr size_t kJSStackLimit = size_t(6) << 20;
 
+    /// Starts the thread and waits until it runs. Throws std::system_error with the OS error (`pthread_create`'s, `_beginthreadex`'s errno) when it cannot start; nothing is waited for or left behind then.
     explicit JSThread(std::string name);
     ~JSThread();
     JSThread(const JSThread&) = delete;

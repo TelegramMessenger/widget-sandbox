@@ -182,6 +182,7 @@ public:
 
 class SandboxEngine {
 public:
+    /// Throws std::system_error when the engine's thread cannot start (JSThread). The widget runs only after `start()`.
     SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources,
                   std::shared_ptr<IntlProvider> intl = nullptr);
     /// Stops the thread; outstanding delegate calls finish first. Safe from any thread but the engine's.
