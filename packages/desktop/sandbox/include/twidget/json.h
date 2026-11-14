@@ -165,6 +165,8 @@ public:
         return _strtod_l(text, nullptr, c);
 #elif defined(__ANDROID__)
         return std::strtod(text, nullptr); // bionic: LC_NUMERIC is always "C"
+#elif defined(__OpenBSD__) || defined(__NetBSD__)
+        return strtod(text, nullptr); // restrictions of some BSD systems
 #else
         static const locale_t c = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
         return strtod_l(text, nullptr, c);
