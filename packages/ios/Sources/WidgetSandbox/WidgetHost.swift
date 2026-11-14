@@ -203,6 +203,13 @@ public final class WidgetHost: SandboxEngineDelegate {
     private let maxHeight: CGFloat
     private let createdAt = Date()
     private var opsSent = 0
+    /// Whether the renderer reported a size, and whether its last report said it had painted: it reports a size only
+    /// when it changes, so ops that keep the size bring no new report.
+    private var sizeReported = false
+    private var lastSizePainted = true
+    /// For each render ack not answered yet (oldest first), how many batches had been sent when it was asked for: the
+    /// renderer answers in order, after applying everything sent before the query.
+    private var renderAcksInFlight: [Int] = []
     public private(set) var frameCount = 0
 
     /// `theme`: the chat's theme for this bubble (docs/sdk-v1.md §5.1). `rendererFactory`: the renderer; the WebView renderer when nil.
@@ -549,9 +556,11 @@ public final class WidgetHost: SandboxEngineDelegate {
                 case .json(let clean):
                     self.opsSent += 1
                     self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                    self.askForRenderAckAfterFirstOps()
                 case .ops(let ops):
                     self.opsSent += 1
                     self.toRenderer(.ops(ops))
+                    self.askForRenderAckAfterFirstOps()
                 }
                 self.state.nodes = nodes
             }
@@ -571,9 +580,11 @@ public final class WidgetHost: SandboxEngineDelegate {
                 case .json(let clean):
                     self.opsSent += 1
                     self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                    self.askForRenderAckAfterFirstOps()
                 case .ops(let ops):
                     self.opsSent += 1
                     self.toRenderer(.ops(ops))
+                    self.askForRenderAckAfterFirstOps()
                 }
                 self.state.nodes = nodes
             }
@@ -746,13 +757,41 @@ public final class WidgetHost: SandboxEngineDelegate {
                 self.state.loaded = true
                 self.state.loadedMs = loadedMs
                 self.changed()
-                self.toRenderer("{\"type\":\"query\",\"qid\":\(Self.renderAckQid),\"query\":{\"q\":\"viewport\"}}")
+                self.askForRenderAck()
             }
             self.deliver(deliver)
         }
     }
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     private static let renderAckQid = -1
+
+    private func askForRenderAck() {
+        renderAcksInFlight.append(opsSent)
+        toRenderer("{\"type\":\"query\",\"qid\":\(Self.renderAckQid),\"query\":{\"q\":\"viewport\"}}")
+    }
+
+    /// The first batch sent after the render ack was answered (a widget that drew nothing while loading) asks for
+    /// another ack, answered once the renderer has applied it.
+    private func askForRenderAckAfterFirstOps() {
+        guard opsSent == 1, state.rendered, state.firstContentMs == nil, renderAcksInFlight.isEmpty else { return }
+        askForRenderAck()
+    }
+
+    /// The first content is the first size report after ops reached the renderer, or, when the size was reported
+    /// before them and they did not change it (a renderer that was ready before a slower engine sent anything), the
+    /// answer to a render ack asked for after them. An ack asked for before the first ops proves nothing about them:
+    /// if ops went out while it was on its way, another one is asked for.
+    private func renderAckAnswered() {
+        let covered = renderAcksInFlight.isEmpty ? 0 : renderAcksInFlight.removeFirst()
+        guard state.firstContentMs == nil, opsSent > 0 else { return }
+        if covered > 0 {
+            guard sizeReported, lastSizePainted else { return }
+            state.firstContentMs = Date().timeIntervalSince(createdAt) * 1000
+            changed()
+        } else if renderAcksInFlight.isEmpty {
+            askForRenderAck()
+        }
+    }
     public func engine(_ engine: SandboxEngine, stats: SandboxStats) {
         executor.async {
             self.state.stats = stats
@@ -826,6 +865,7 @@ public final class WidgetHost: SandboxEngineDelegate {
                     state.renderedMs = Date().timeIntervalSince(createdAt) * 1000
                     changed()
                 }
+                renderAckAnswered()
                 return
             }
             queryLock.lock()
@@ -836,7 +876,9 @@ public final class WidgetHost: SandboxEngineDelegate {
             resolveQuery(json: Self.json(msg["result"] ?? NSNull()), binary: binary)
         case "size":
             let height = min(max(CGFloat((msg["height"] as? NSNumber)?.doubleValue ?? 0), minHeight), maxHeight)
-            if state.firstContentMs == nil, opsSent > 0, (msg["painted"] as? Bool) != false {
+            sizeReported = true
+            lastSizePainted = (msg["painted"] as? Bool) != false
+            if state.firstContentMs == nil, opsSent > 0, lastSizePainted {
                 state.firstContentMs = Date().timeIntervalSince(createdAt) * 1000
                 changed()
             }
