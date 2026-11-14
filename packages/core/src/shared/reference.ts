@@ -8,10 +8,10 @@
 // removes, not a different root style.
 
 import { PROFILE_UA_STYLESHEET } from './profile-tables.ts';
-import { checkContentSafeArea, contentSafeAreaVariables, themeVariables, type ContentSafeArea } from './sdk-policy.ts';
+import { checkContentSafeArea, contentSafeAreaVariables, safeAreaVariables, themeVariables, viewportVariables, type ContentSafeArea, type SafeAreaInset } from './sdk-policy.ts';
 
 const declarations = (vars: Record<string, string>) => Object.entries(vars).map(([k, v]) => `${k}:${v}`).join(';');
-const rootVars = (scheme: 'light' | 'dark') => declarations({ ...themeVariables({ colorScheme: scheme }), ...contentSafeAreaVariables(null) });
+const rootVars = (scheme: 'light' | 'dark') => declarations({ ...themeVariables({ colorScheme: scheme }), ...safeAreaVariables(null), ...contentSafeAreaVariables(null) });
 
 /**
  * The UA layer, then the reference theme on `:root` for both colour schemes (`prefers-color-scheme` picks one). Not
@@ -35,6 +35,23 @@ export function referenceSafeArea(rtl = false): ContentSafeArea {
 
 /** The root variables of a content safe area for a reference rendering (after REFERENCE_STYLESHEET, which sets them to 0). */
 export const referenceSafeAreaCss = (area: Partial<ContentSafeArea>) => `:root{${declarations(contentSafeAreaVariables(area))}}`;
+
+/**
+ * The reference profile page (docs/sdk-v1.md §2.19): a phone in portrait, 390 × 844 CSS px, with the status bar and the
+ * home indicator (the device's edges) and the native header and the Start button inside them (the client's chrome), as
+ * the dev app's profile mode and the conformance set's profile cases draw it. A client passes its own numbers.
+ */
+export const REFERENCE_PROFILE = {
+  width: 390,
+  viewportHeight: 844,
+  safeArea: { top: 47, right: 0, bottom: 34, left: 0 },
+  contentSafeArea: { top: 56, right: 0, bottom: 64, left: 0, cornerLeft: 0, cornerRight: 0 },
+} as const satisfies { width: number; viewportHeight: number; safeArea: SafeAreaInset; contentSafeArea: ContentSafeArea };
+
+/** The root variables of a profile page for a reference rendering (after REFERENCE_STYLESHEET): both layers and the viewport. */
+export function referenceProfileCss(page: { viewportHeight: number; safeArea: Partial<SafeAreaInset>; contentSafeArea: Partial<ContentSafeArea> } = REFERENCE_PROFILE): string {
+  return `:root{${declarations({ ...safeAreaVariables(page.safeArea, 'profile'), ...contentSafeAreaVariables(page.contentSafeArea, 'profile'), ...viewportVariables('profile', page.viewportHeight) })}}`;
+}
 
 /**
  * The message time as a client draws it over the widget's corner, for the dev app and the reference pictures: a

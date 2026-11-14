@@ -1,0 +1,36 @@
+<!doctype html>
+<html data-test="auto/47-profile-page-height">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conformance: the page's height on a profile page</title>
+<!-- conformance {"title":"A bot's profile page: --tg-viewport-height is the whole area edge to edge, a hero of that height fills the screen, the page scrolls past it, the resize anchor is ignored","surface":"profile","message":[{"kind":"profile-prestart","view":"the bot's profile page before Start: the hero fills the screen, the rest scrolls under the Start button"}]} -->
+<!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111}@media(prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute;width:80px;height:60px;left:8px;top:8px}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}</style><script>var T=function(){var f=document,w=f.documentElement,m=typeof TelegramWidget!="undefined",C=window.__conformanceMode||(m?"sandbox":"native"),a=[],k={},l=[];var D,c,p,d,q,g,M,x,O=t=>typeof t=="string"?f.querySelector(t):t,u=t=>JSON.stringify(typeof t=="number"?Math.round(t*100)/100:t),A=()=>{x=x||setTimeout(T,0)};function i(t,e,n,o,r){r=r||{};let s=n==null?"skip":n=="pending"?n:(r.xfail?"x":"")+(n?"pass":"fail"),b=k[t+"|"+e]||(k[t+"|"+e]=a[a.length]=[t,e]);return b[2]=s,b[3]=(o?(""+o).slice(0,160):"")+(r.xfail&&s[0]=="x"?" (expected to fail: "+r.xfail+")":""),A(),s}function y(t,e,n,o){if(o&&o.sandboxOnly&&!m)return i(t,e,null,"sandbox only",o);let r;try{r=typeof n=="function"?n():n}catch(s){return i(t,e,!1,"threw "+s,o)}return r==null?i(t,e,null,"not applicable",o):i(t,e,r instanceof Array?!!r[0]:!!r,r[1],o)}var R=(t,e,n,o,r)=>y(t,e,[n,o],r),B=(t,e,n,o,r)=>y(t,e,[n===o,"got "+u(n)+", want "+u(o)],r),E=(t,e,n,o,r,s)=>y(t,e,[typeof n=="number"&&Math.abs(n-o)<=r,"got "+u(n)+", want "+u(o)+" ±"+r],s);function I(t){let e=O(t).getBoundingClientRect();return{x:e.left,y:e.top,w:e.width,h:e.height,r:e.right,b:e.bottom}}var F=t=>{l.push(t)};var J=()=>{},N=t=>{let e=t.getBoundingClientRect();return[e.left,e.top,e.width,e.height].map(n=>Math.round(n*10)/10)};function T(){x=0,p&&!d&&J();let t={pass:0,fail:0,xfail:0,xpass:0,skip:0,pending:0};for(let o of a)t[o[2]]++;let e=p&&!l.length,n=d||e&&!t.pending?"done":e&&q?"awaiting":"running";d=n=="done",w.setAttribute("data-conformance",JSON.stringify({v:1,id:w.getAttribute("data-test"),mode:C,status:n,n:t,checks:a,targets:D,stages:c})),h&&h(n,t)}var h;function S(){h=(t,e)=>{let n=[t];for(let o in e)e[o]&&n.push(o+" "+e[o]);f.getElementById("conf-list").textContent=[n.join(" · ")].concat(a.filter(o=>/^(fail|xpass|pending)/.test(o[2])).map(o=>o.join(" · "))).join(`
+`)}}function j(){if(c||(c={},[].forEach.call(f.querySelectorAll("[data-stage]"),e=>{c[e.getAttribute("data-stage")]=N(e)})),!l.length)return p=1,g&&M&&setTimeout(M,g),A();let t;try{t=l.shift()()}catch(e){i("harness","step",!1,e)}setTimeout(j,t||0)}function _(t){t=t||{},q=t.awaitInput,g=t.awaitInput||t.deadline,T();let e=()=>{e=()=>{},setTimeout(j,t.settle||60)};try{requestAnimationFrame(()=>requestAnimationFrame(()=>e()))}catch(n){}setTimeout(()=>e(),400)}S();return{eq:B,near:E,ok:R,rect:I,run:_,sandbox:m,step:F}}();</script><!-- /conformance:harness -->
+<style>
+#hero{box-sizing:border-box;min-height:var(--tg-viewport-height,200px);padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;background:linear-gradient(#46c,#9be)}
+#tail{height:240px;margin:8px;background:#eef}
+</style>
+</head>
+<body>
+<div id="hero"><div class="conf-head">47 · Profile: page height</div><div id="conf-list"></div></div>
+<div id="tail"></div>
+<script>
+// A profile page (docs/sdk-v1.md §2.19): at least the viewport tall, at most the page ceiling; no resize anchor.
+var TW = typeof TelegramWidget !== 'undefined' ? TelegramWidget : null;
+var S = T.sandbox ? {} : { sandboxOnly: true };
+var vh = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tg-viewport-height'));
+
+T.step(function () {
+  T.eq('tw.surface', "surface is 'profile'", TW && TW.surface, 'profile', S);
+  T.ok('tw.surface', '--tg-viewport-height is a length in px over 0 and at most the page ceiling (4000)', vh > 0 && vh <= 4000 && /px$/.test(getComputedStyle(document.documentElement).getPropertyValue('--tg-viewport-height').trim()), String(vh), S);
+  // Natively the variable is not set and the fallback applies.
+  T.near('tw.surface', 'a hero with min-height: var(--tg-viewport-height) is the viewport tall', T.rect('#hero').h, vh > 0 ? vh : 200, 0.5);
+  T.ok('behaviour.profile-page', 'the document is taller than the viewport (it scrolls with the profile)', T.rect('#tail').b > T.rect('#hero').h, T.rect('#tail').b + ' > ' + T.rect('#hero').h);
+  T.ok('tw.resize-anchor', "setResizeAnchor('bottom') is accepted and does nothing on a page", function () { try { TW.setResizeAnchor('bottom'); return true; } catch (e) { return [false, String(e)]; } }, '', S);
+  T.ok('tw.resize-anchor', 'setResizeAnchor still checks its argument', function () { try { TW.setResizeAnchor('middle'); return [false, 'no TypeError']; } catch (e) { return [e instanceof TypeError, String(e)]; } }, '', S);
+});
+T.run();
+</script>
+</body>
+</html>

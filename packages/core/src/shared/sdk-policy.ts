@@ -5,6 +5,8 @@
 // sdk_policy.cpp; all four are checked against tests/fixtures/sdk-policy.json,
 // so a rule change goes to the four copies and the fixture together.
 
+import { PROFILE_SURFACES } from './profile-tables.ts';
+
 export const MAX_LINK_LENGTH = 256;
 /** Bytes of keys and values (UTF-8) per storage area and message (4 KB: a 50-item to-do list; docs/decisions.md, "Strict limits from the start"). */
 export const STORAGE_QUOTA_BYTES = 4096;
@@ -408,8 +410,11 @@ export interface WidgetContext {
    * (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with `canQuery` too, never in a preview.
    */
   wallet?: boolean;
-  /** The kind of chat the message is in. A copy gets none (null in the widget): the bot must not learn where its widget was forwarded. */
-  chatType?: ChatType;
+  /**
+   * The kind of chat the message is in. A copy gets none (null in the widget): the bot must not learn where its widget
+   * was forwarded. A bot's profile page is in no chat: the glue gives it none, whatever is passed.
+   */
+  chatType?: ChatType | null;
   /** The account that looks at the widget. Only a widget with `canQuery` gets it (null elsewhere, previews included). */
   viewer?: WidgetViewer;
   /**
@@ -418,6 +423,12 @@ export interface WidgetContext {
    * Storage that is never committed. The request flags are ignored.
    */
   preview?: boolean;
+  /**
+   * Where the widget is shown (docs/sdk-v1.md §2.19): `'message'` (a bubble, the default) or `'profile'` (the bot's
+   * profile page: the flags of `bot_profile_widget` as they are, none before Start, `canQuery` and `backgroundQuery`
+   * after it, and no chat type). It fixes the geometry and the chat type, not the rules.
+   */
+  surface?: WidgetSurface;
 }
 
 /**
@@ -820,7 +831,11 @@ export const WIDGET_MESSAGE_KINDS = {
   copy: { isCopy: true, canQuery: false, backgroundQuery: false, chatType: 'private' },
   /** An inline result in the list, before it is sent: data, no input, nothing about the user. */
   preview: { isCopy: false, canQuery: false, backgroundQuery: false, chatType: 'private', preview: true },
-} as const satisfies Record<string, Required<Omit<WidgetContext, 'viewer' | 'preview' | 'wallet'>> & { preview?: boolean }>;
+  /** A bot's profile page before Start (a whitelisted bot): no flags, so no requests, viewer or wallet. A page has no chat. */
+  'profile-prestart': { isCopy: false, canQuery: false, backgroundQuery: false, chatType: null, surface: 'profile' },
+  /** A bot's profile page after Start: requests on a tap and in the background, as in the private chat with the bot, but no chat. */
+  profile: { isCopy: false, canQuery: true, backgroundQuery: true, chatType: null, surface: 'profile' },
+} as const satisfies Record<string, Required<Omit<WidgetContext, 'viewer' | 'preview' | 'wallet' | 'surface'>> & { preview?: boolean; surface?: WidgetSurface }>;
 export type WidgetMessageKind = keyof typeof WIDGET_MESSAGE_KINDS;
 
 /**
@@ -939,15 +954,78 @@ const TEXT_VARS: [keyof TextTokens, string, (v: unknown) => string | null][] = [
   ['padding', '--tg-text-padding', padding],
 ];
 
-// ── what the client draws over the widget (docs/sdk-v1.md §2.17) ──
+// ── where the widget is shown and what the client draws over it (docs/sdk-v1.md §2.17, §2.19) ──
 
 /**
- * The client's chrome over the widget, in logical px (docs/sdk-v1.md §2.17): a widget with no caption below it gets the
- * message time and status drawn over its bottom corner, as on a photo. `bottom` is the height of the time's band;
- * `cornerLeft` / `cornerRight` the width of the client's corner in that band, on a physical side (right in a
- * left-to-right interface, left in a right-to-left one, the other 0); `top`, `left` and `right` are 0. All 0 with a
- * caption below it (the time is in the caption's line; a caption shown above it, `invert_media`, is as none) and on a
- * client that draws nothing over the widget.
+ * Where the widget is shown (`WidgetContext.surface`, `TelegramWidget.surface`, docs/sdk-v1.md §2.19): `message` (a
+ * bubble in a chat, the default) or `profile` (the bot's profile page: one widget the width of the screen, as tall as
+ * its document). The place fixes the geometry (`PROFILE_SURFACES`, profile.json `tables.surfaces`), never the rules.
+ */
+export const WIDGET_SURFACES = ['message', 'profile'] as const;
+export type WidgetSurface = (typeof WIDGET_SURFACES)[number];
+export const DEFAULT_SURFACE: WidgetSurface = 'message';
+
+/** `profile` exactly; anything else is a message. */
+export function checkSurface(surface: unknown): WidgetSurface {
+  return surface === 'profile' ? 'profile' : 'message';
+}
+
+/** The geometry of a place (profile.json `tables.surfaces`): the same on every client, never a host option. */
+export function surfaceGeometry(surface: unknown) {
+  return PROFILE_SURFACES[checkSurface(surface)];
+}
+
+/**
+ * The widget's height on a place, in CSS px, from the content's: a bubble's is clamped to 50–600; a profile page's is
+ * at least the viewport (`viewportHeight`, the widget's area edge to edge) and at most the page ceiling.
+ */
+export function surfaceHeight(surface: unknown, contentHeight: number, viewportHeight = 0): number {
+  const g = surfaceGeometry(surface);
+  const min = g.viewport ? Math.max(g.height.min, checkViewportHeight(surface, viewportHeight)) : g.height.min;
+  const h = Number.isFinite(contentHeight) ? contentHeight : 0;
+  return Math.min(Math.max(h, min), g.height.max);
+}
+
+/**
+ * The client's viewport on a place (the widget's whole area edge to edge, what `--tg-viewport-height` is): on a profile
+ * page a finite number of CSS px in 1…the page ceiling, at most two decimals; anything else, and every bubble, is 0
+ * (no variable: a bubble's height is its content's).
+ */
+export function checkViewportHeight(surface: unknown, height: unknown): number {
+  const g = surfaceGeometry(surface);
+  if (!g.viewport || typeof height !== 'number' || !Number.isFinite(height) || height <= 0 || height > g.height.max) return 0;
+  return Math.round(height * 100) / 100;
+}
+
+/** Whether the widget's `setResizeAnchor` moves anything on a place: a bubble keeps the anchored edge, a page never moves. */
+export function surfaceKeepsResizeAnchor(surface: unknown): boolean {
+  return surfaceGeometry(surface).resizeAnchor;
+}
+
+/**
+ * The device's edges over the widget, in logical px (docs/sdk-v1.md §2.17): the notch or the camera cutout, the status
+ * bar, the home indicator, the Android navigation bar, the sides in landscape. Mini Apps' `safeAreaInset`. Always 0 in a
+ * bubble; on a profile page the client passes the screen's insets where the widget reaches the screen's edges.
+ */
+export interface SafeAreaInset {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+export const SAFE_AREA_FIELDS = ['top', 'right', 'bottom', 'left'] as const;
+/** No device edges over the widget: every bubble, and every host until the client passes its own. */
+export const NO_SAFE_AREA: Readonly<SafeAreaInset> = Object.freeze({ top: 0, right: 0, bottom: 0, left: 0 });
+
+/**
+ * The client's chrome over the widget, in logical px, measured inside the device's edges (docs/sdk-v1.md §2.17), as Mini
+ * Apps' `contentSafeAreaInset`. In a bubble: a widget with no caption below it gets the message time and status drawn
+ * over its bottom corner, as on a photo; `bottom` is the height of the time's band, `cornerLeft` / `cornerRight` the
+ * width of the client's corner in that band, on a physical side (right in a left-to-right interface, left in a
+ * right-to-left one, the other 0); `top`, `left` and `right` are 0. All 0 with a caption below it (the time is in the
+ * caption's line; a caption shown above it, `invert_media`, is as none) and on a client that draws nothing over the
+ * widget. On a profile page: the native header (back, the name, the menu) over the top and the Start / Open App button
+ * over the bottom; no corners.
  */
 export interface ContentSafeArea {
   top: number;
@@ -958,23 +1036,50 @@ export interface ContentSafeArea {
   cornerRight: number;
 }
 export const CONTENT_SAFE_AREA_FIELDS = ['top', 'right', 'bottom', 'left', 'cornerLeft', 'cornerRight'] as const;
-/** The largest inset (`top`, `right`, `bottom`, `left`) and corner a client may pass; a value outside 0…max is 0. */
-export const MAX_SAFE_AREA_INSET = 64;
-export const MAX_SAFE_AREA_CORNER = 200;
+/** The largest inset (`top`, `right`, `bottom`, `left`) and corner a client may pass in a bubble; a value outside 0…max is 0. */
+export const MAX_SAFE_AREA_INSET = PROFILE_SURFACES.message.contentSafeArea.bottom;
+export const MAX_SAFE_AREA_CORNER = PROFILE_SURFACES.message.contentSafeArea.cornerRight;
 /** No chrome over the widget: what every host has until the client passes its own. */
 export const NO_CONTENT_SAFE_AREA: Readonly<ContentSafeArea> = Object.freeze({ top: 0, right: 0, bottom: 0, left: 0, cornerLeft: 0, cornerRight: 0 });
 
-/** Every field a finite number of logical px in its range (insets 0–64, corners 0–200), at most two decimals; anything else is 0. */
-export function checkContentSafeArea(area: unknown): ContentSafeArea {
+/**
+ * Each field a finite number of logical px in 0…the place's maximum for it (`null`: no maximum), at most two decimals;
+ * anything else is 0.
+ */
+function checkInsets<K extends string>(area: unknown, fields: readonly K[], max: Readonly<Record<K, number | null>>): Record<K, number> {
   const a = (typeof area === 'object' && area !== null ? area : {}) as Record<string, unknown>;
-  const out = { ...NO_CONTENT_SAFE_AREA };
-  for (const field of CONTENT_SAFE_AREA_FIELDS) {
-    const v = a[field];
-    const max = field.startsWith('corner') ? MAX_SAFE_AREA_CORNER : MAX_SAFE_AREA_INSET;
-    if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max) out[field] = Math.round(v * 100) / 100;
+  const out = {} as Record<K, number>;
+  for (const field of fields) {
+    const v = a[field], cap = max[field];
+    out[field] = typeof v === 'number' && Number.isFinite(v) && v >= 0 && (cap === null || v <= cap) ? Math.round(v * 100) / 100 : 0;
   }
   return out;
 }
+
+/**
+ * The device's edges as the widget sees them on a place (profile.json `tables.surfaces`): all 0 in a bubble; on a
+ * profile page any finite number ≥ 0 on every side, as the client passes it (the client is trusted, and a foldable or a
+ * split screen has edges no range foresees).
+ */
+export function checkSafeArea(area: unknown, surface: unknown = DEFAULT_SURFACE): SafeAreaInset {
+  return checkInsets(area, SAFE_AREA_FIELDS, surfaceGeometry(surface).safeArea);
+}
+
+/**
+ * The client's chrome as the widget sees it on a place: in a bubble insets 0–64 and corners 0–200; on a profile page
+ * any finite number ≥ 0 on every side (a header and a Start button grow with a large system font), and the corners 0.
+ */
+export function checkContentSafeArea(area: unknown, surface: unknown = DEFAULT_SURFACE): ContentSafeArea {
+  return checkInsets(area, CONTENT_SAFE_AREA_FIELDS, surfaceGeometry(surface).contentSafeArea);
+}
+
+/** The root variables of the device's edges, by field. */
+const DEVICE_SAFE_AREA_VARS: [keyof SafeAreaInset, string][] = [
+  ['top', '--tg-safe-area-inset-top'],
+  ['right', '--tg-safe-area-inset-right'],
+  ['bottom', '--tg-safe-area-inset-bottom'],
+  ['left', '--tg-safe-area-inset-left'],
+];
 
 /** The root variables of the content safe area, by field. */
 const SAFE_AREA_VARS: [keyof ContentSafeArea, string][] = [
@@ -986,32 +1091,52 @@ const SAFE_AREA_VARS: [keyof ContentSafeArea, string][] = [
   ['cornerRight', '--tg-content-safe-area-corner-right'],
 ];
 
-/**
- * The `env()` names the validator rewrites to the root variable the renderer sets (docs/sdk-v1.md §2.17):
- * `env(safe-area-inset-bottom, 8px)` → `var(--tg-content-safe-area-inset-bottom, 8px)`. Exact names, as in CSS.
- */
-export const SAFE_AREA_ENV_VARIABLES: Readonly<Record<string, string>> = Object.freeze({
-  'safe-area-inset-top': '--tg-content-safe-area-inset-top',
-  'safe-area-inset-right': '--tg-content-safe-area-inset-right',
-  'safe-area-inset-bottom': '--tg-content-safe-area-inset-bottom',
-  'safe-area-inset-left': '--tg-content-safe-area-inset-left',
-});
+/** The widget's whole area on a profile page, edge to edge (Mini Apps' name); not set in a bubble. */
+export const VIEWPORT_HEIGHT_VARIABLE = '--tg-viewport-height';
 
-/** The CSS variables of a content safe area (checked; every one always set, `0px` for none). */
-export function contentSafeAreaVariables(area: unknown): Record<string, string> {
-  const a = checkContentSafeArea(area);
+/**
+ * The `env()` names the validator rewrites to the two layers the renderer sets (docs/sdk-v1.md §2.17), the device's and
+ * the client's: `env(safe-area-inset-bottom, 8px)` → `calc(var(--tg-safe-area-inset-bottom, 0px) +
+ * var(--tg-content-safe-area-inset-bottom, 8px))`, their sum. Exact names, as in CSS.
+ */
+export const SAFE_AREA_ENV_VARIABLES: Readonly<Record<string, readonly [device: string, content: string]>> = Object.freeze({
+  'safe-area-inset-top': ['--tg-safe-area-inset-top', '--tg-content-safe-area-inset-top'],
+  'safe-area-inset-right': ['--tg-safe-area-inset-right', '--tg-content-safe-area-inset-right'],
+  'safe-area-inset-bottom': ['--tg-safe-area-inset-bottom', '--tg-content-safe-area-inset-bottom'],
+  'safe-area-inset-left': ['--tg-safe-area-inset-left', '--tg-content-safe-area-inset-left'],
+} as const);
+
+/** The CSS variables of the device's edges on a place (checked; every one always set, `0px` for none). */
+export function safeAreaVariables(area: unknown, surface: unknown = DEFAULT_SURFACE): Record<string, string> {
+  const a = checkSafeArea(area, surface);
+  const vars: Record<string, string> = {};
+  for (const [field, name] of DEVICE_SAFE_AREA_VARS) vars[name] = a[field] + 'px';
+  return vars;
+}
+
+/** The CSS variables of a content safe area on a place (checked; every one always set, `0px` for none). */
+export function contentSafeAreaVariables(area: unknown, surface: unknown = DEFAULT_SURFACE): Record<string, string> {
+  const a = checkContentSafeArea(area, surface);
   const vars: Record<string, string> = {};
   for (const [field, name] of SAFE_AREA_VARS) vars[name] = a[field] + 'px';
   return vars;
 }
 
-/** Every variable name the renderer may set on the widget's root: the theme's and the content safe area's. */
+/** `--tg-viewport-height` on a place: the checked viewport on a profile page, nothing in a bubble or without one. */
+export function viewportVariables(surface: unknown, viewportHeight: unknown): Record<string, string> {
+  const h = checkViewportHeight(surface, viewportHeight);
+  return h > 0 ? { [VIEWPORT_HEIGHT_VARIABLE]: h + 'px' } : {};
+}
+
+/** Every variable name the renderer may set on the widget's root: the theme's, both safe-area layers' and the viewport's. */
 export const THEME_VARIABLES: readonly string[] = [
   ...THEME_KEYS.map((k) => '--tg-theme-' + k.replace(/_/g, '-')),
   '--tg-color-scheme',
   ...BUTTON_VARS.map(([, name]) => name),
   ...TEXT_VARS.map(([, name]) => name),
+  ...DEVICE_SAFE_AREA_VARS.map(([, name]) => name),
   ...SAFE_AREA_VARS.map(([, name]) => name),
+  VIEWPORT_HEIGHT_VARIABLE,
 ];
 
 /**

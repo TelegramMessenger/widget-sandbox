@@ -1,0 +1,48 @@
+<!doctype html>
+<html data-test="auto/48-profile-before-start">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conformance: a profile page before Start</title>
+<!-- conformance {"title":"A bot's profile page before Start: the server sends no flags (no can_query), so no viewer, no request and no wallet, and a page has no chat (no chatType)","actions":[{"tap":"ask","ids":["tw.request"]}],"surface":"profile","message":[{"kind":"profile-prestart","view":"the bot's profile page before Start"}]} -->
+<!-- conformance:harness --><style>html,body{margin:0;padding:0}body{font:13px/1.35 system-ui,sans-serif;color:#111}@media(prefers-color-scheme:dark){body{color:#e8e8e8}}[data-stage]{position:relative;overflow:hidden;background:#fff;box-sizing:border-box}.conf-stages{position:relative}.conf-stages>[data-stage]{position:absolute;width:80px;height:60px;left:8px;top:8px}.conf-head{height:18px;margin:6px 8px 2px;font-weight:600;white-space:nowrap;overflow:hidden}#conf-list{margin:2px 8px 8px;white-space:pre-wrap;font:11px/1.35 monospace;overflow-wrap:anywhere}.conf-probes{margin:0 8px}</style><script>var T=function(){var p=document,M=p.documentElement,g=typeof TelegramWidget!="undefined",E=window.__conformanceMode||(g?"sandbox":"native"),c=[],q={},d=[],l={},x,u,h,f,S,m,y,b,A=t=>typeof t=="string"?p.querySelector(t):t,T=t=>JSON.stringify(typeof t=="number"?Math.round(t*100)/100:t),j=()=>{b=b||setTimeout(k,0)};function i(t,e,n,o,r){r=r||{};let s=n==null?"skip":n=="pending"?n:(r.xfail?"x":"")+(n?"pass":"fail"),a=q[t+"|"+e]||(q[t+"|"+e]=c[c.length]=[t,e]);return a[2]=s,a[3]=(o?(""+o).slice(0,160):"")+(r.xfail&&s[0]=="x"?" (expected to fail: "+r.xfail+")":""),j(),s}function C(t,e,n,o){if(o&&o.sandboxOnly&&!g)return i(t,e,null,"sandbox only",o);let r;try{r=typeof n=="function"?n():n}catch(s){return i(t,e,!1,"threw "+s,o)}return r==null?i(t,e,null,"not applicable",o):i(t,e,r instanceof Array?!!r[0]:!!r,r[1],o)}var I=(t,e,n,o,r)=>C(t,e,[n,o],r),F=(t,e,n,o,r)=>C(t,e,[n===o,"got "+T(n)+", want "+T(o)],r);function J(t,e,n){y=()=>{for(let s of c)s[2]=="pending"&&(s[2]="fail",s[3]+=" (timed out)");f=1,k()};let o=(s,a)=>{r.done||(r.done=i(t,e,s,a,n))},r={done:n&&n.sandboxOnly&&!g,pass:s=>o(!0,s),fail:s=>o(!1,s),skip:s=>o(null,s),result:(s,a)=>o(!!s,a)};return i(t,e,r.done?null:"pending",r.done?"sandbox only":n&&n.hint,n),r}var N=t=>{d.push(t)};var _=(t,e)=>{l[t]=e,D=()=>{x={};for(let n in l)A(l[n])&&(x[n]=O(A(l[n])))}},D=()=>{},O=t=>{let e=t.getBoundingClientRect();return[e.left,e.top,e.width,e.height].map(n=>Math.round(n*10)/10)};function k(){b=0,h&&!f&&D();let t={pass:0,fail:0,xfail:0,xpass:0,skip:0,pending:0};for(let o of c)t[o[2]]++;let e=h&&!d.length,n=f||e&&!t.pending?"done":e&&S?"awaiting":"running";f=n=="done",M.setAttribute("data-conformance",JSON.stringify({v:1,id:M.getAttribute("data-test"),mode:E,status:n,n:t,checks:c,targets:x,stages:u})),w&&w(n,t)}var w;function R(){w=(t,e)=>{let n=[t];for(let o in e)e[o]&&n.push(o+" "+e[o]);p.getElementById("conf-list").textContent=[n.join(" · ")].concat(c.filter(o=>/^(fail|xpass|pending)/.test(o[2])).map(o=>o.join(" · "))).join(`
+`)}}function B(){if(u||(u={},[].forEach.call(p.querySelectorAll("[data-stage]"),e=>{u[e.getAttribute("data-stage")]=O(e)})),!d.length)return h=1,m&&y&&setTimeout(y,m),j();let t;try{t=d.shift()()}catch(e){i("harness","step",!1,e)}setTimeout(B,t||0)}function v(t){t=t||{},S=t.awaitInput,m=t.awaitInput||t.deadline,k();let e=()=>{e=()=>{},setTimeout(B,t.settle||60)};try{requestAnimationFrame(()=>requestAnimationFrame(()=>e()))}catch(n){}setTimeout(()=>e(),400)}R();return{eq:F,ok:I,run:v,sandbox:g,step:N,target:_,wait:J}}();</script><!-- /conformance:harness -->
+</head>
+<body>
+<div class="conf-head">48 · Profile: before Start</div>
+<div class="conf-probes"><button id="ask" style="width:160px;height:36px">Ask (a tap)</button></div>
+<div id="conf-list"></div>
+<script>
+// Before Start (docs/sdk-v1.md §2.19): no flags from the server, so nothing that needs canQuery, and no chat on a page.
+var TW = typeof TelegramWidget !== 'undefined' ? TelegramWidget : null;
+var S = T.sandbox ? {} : { sandboxOnly: true };
+// Natively there is no SDK: every check is recorded as sandbox only.
+var W = TW || {};
+T.step(function () {
+  T.eq('tw.surface', "surface is 'profile'", W.surface, 'profile', S);
+  T.ok('behaviour.profile-start', 'chatType is null (a profile page has no chat)', W.chatType === null, String(W.chatType), S);
+  T.ok('tw.context', 'isForward and isPreview are false', W.isForward === false && W.isPreview === false, W.isForward + ' / ' + W.isPreview, S);
+  T.ok('tw.context', 'viewer is null (no canQuery before Start)', W.viewer === null, JSON.stringify(W.viewer), S);
+  T.ok('behaviour.profile-start', 'wallet is null (no canQuery before Start)', W.wallet === null, String(W.wallet), S);
+});
+// Without a tap: NOT_ALLOWED at once (never in the background before Start). It runs after the tap's request has settled.
+var bg = T.wait('tw.request', 'a request without a tap is refused with NOT_ALLOWED', S);
+function background() {
+  var p;
+  try { p = TW && TW.request('conf:a48:bg'); } catch (e) { return bg.fail('threw ' + e); }
+  if (!p) return bg.fail('no request');
+  p.then(function () { bg.fail('resolved'); }, function (e) { bg.result(e.code === 'NOT_ALLOWED', e.code); });
+}
+// A tap: NOT_ALLOWED too, no canQuery before Start.
+var tap = T.wait('tw.request', 'a request on a tap is refused with NOT_ALLOWED too', S);
+document.getElementById('ask').onclick = function () {
+  var p;
+  try { p = TW.request('conf:a48:tap'); } catch (x) { return tap.fail('threw ' + x); }
+  p.then(function () { tap.fail('resolved'); }, function (x) { tap.result(x.code === 'NOT_ALLOWED', x.code); })
+    .then(function () { setTimeout(background, 0); });
+};
+T.target('ask', '#ask');
+T.run({ awaitInput: 20000 });
+</script>
+</body>
+</html>

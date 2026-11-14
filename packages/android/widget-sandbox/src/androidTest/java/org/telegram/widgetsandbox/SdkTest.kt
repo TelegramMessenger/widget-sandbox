@@ -210,6 +210,39 @@ class SdkTest {
         engine.terminate()
     }
 
+    /**
+     * The bot's profile page (docs/sdk-v1.md §2.19): the place and both layers from the first line (no corners on a page),
+     * one safeAreaChanged per change of the device's edges, and the resize anchor goes nowhere. In a bubble the device's
+     * edges are 0 whatever the client passed.
+     */
+    @Test
+    fun profileSurfaceReachesTheWidget() {
+        val html = "<script>var d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;" +
+            " console.log('place=' + [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':'));" +
+            " TelegramWidget.onEvent('safeAreaChanged', function () { var a = TelegramWidget.safeAreaInset; console.log('changed=' + [a.top, a.left, a.right, a.bottom, Object.isFrozen(a), a !== d].join(':')); });" +
+            " TelegramWidget.setResizeAnchor('bottom');</script>"
+        val (d, engine) = run(html) {
+            // A page has no chat, whatever chat type the client passes.
+            it.context = WidgetContext(chatType = "private", surface = WidgetSurface.PROFILE)
+            // Past the old ranges as passed, a negative side 0, no corners on a page.
+            it.safeArea = WidgetSafeArea(top = 120.0, bottom = 34.0, left = -5.0)
+            it.contentSafeArea = WidgetContentSafeArea(top = 90.0, bottom = 150.0, left = 40.0, cornerRight = 64.0)
+        }
+        assertTrue("${d.logs}", d.logged().contains("place=profile:120:34:0:90:150:40:0:null"))
+        val turned = WidgetSafeArea(right = 59.0, bottom = 21.0, left = 59.0)
+        engine.safeArea(turned)
+        engine.safeArea(turned)
+        engine.thread.sync {}
+        assertEquals(listOf("changed=0:59:59:21:true:true"), d.logged().filter { it.startsWith("changed=") })
+        assertEquals("a page never moves", emptyList<String>(), d.resizeAnchors.toList())
+        engine.terminate()
+        val (b, bubble) = run("<script>console.log('place=' + TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset));</script>") {
+            it.safeArea = WidgetSafeArea(top = 47.0, bottom = 34.0)
+        }
+        assertTrue("${b.logs}", b.logged().contains("place=message:{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}"))
+        bubble.terminate()
+    }
+
     /** `setResizeAnchor` (v0.1.3): the shim sends only changes, the glue takes them with no gesture and hidden, never as an action. */
     @Test
     fun resizeAnchorIsNoAction() {

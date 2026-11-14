@@ -28,6 +28,13 @@ gets the bot's `result`; the server's flags on the message say where it may ask
 They are part of SDK v1 and of layer 233 from the launch. A widget in an
 inline-results list, before it is sent, runs as a preview (§2.16).
 
+**The bot's profile page** (2026-11-12, an addition to SDK v1, a clarification of profile 1,
+`P1-profile` in `docs/decisions.md`): the same widget, with the same HTML, profile
+and limits, shown full screen on a bot's profile page. The client says where it
+shows the widget (`context.surface`), passes the device's edges as a second
+safe-area layer under its own chrome, and the page is at least the screen tall
+(§2.17, §2.19).
+
 Related documents, not repeated here: `docs/integration.md` (embedding the
 host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
 `docs/protocol.md` (the full wire protocol), `docs/changes.md`
@@ -47,7 +54,7 @@ host on each platform), `docs/tgw-format.md` (the widget payload: mini-HTML),
 | size | reports the content height and the widget's resize anchor (`setResizeAnchor`, v0.1.3) | sizes the bubble from the bot's hint before load, caps it, clips; keeps the anchored edge in place when the height changes (§5.6) |
 | failures | freezes the last frame with a badge and reports `dead` | rebuilds it after a crash; after 2 crashes in a row leaves it stopped |
 | the widget's state | `chatData` (the chat state), `publicData` (the shared state), `chatDataChanged`, `publicDataChanged` in the widget; the limits; a copy without chat state | passes the message's state at creation and the full state again on every change (`setData`): the server's update, and the shared state it polls (§5.11) |
-| where the widget is | `isForward`, `chatType`, `viewer` in the widget; a copy is told nothing about the chat it is in (no `chatType`); the widget knows its `viewer` only where it may send requests | passes the server's flags (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer at creation (`context`) |
+| where the widget is | `isForward`, `chatType`, `viewer` in the widget; a copy is told nothing about the chat it is in and a profile page is in none (no `chatType`); the widget knows its `viewer` only where it may send requests | passes the server's flags (`isCopy`, `canQuery`, `backgroundQuery`), the chat type and the viewer at creation (`context`) |
 | requests | the limits of `data`, the server's flags, one tap per request or the background rules, one in flight, the answer's limits | sends each request like a callback button's press, hands back the bot's `result` or the failure (§5.11) |
 | copyText | the text's limits, one tap per call | copies the text and shows a toast that says what was copied |
 
@@ -69,8 +76,10 @@ laid over the same calls later (D19).
 | `colorScheme` | `'light' \| 'dark'`, read-only | before v1: `theme` |
 | `themeParams` | `ThemeParams`, read-only, a fresh frozen object per change | |
 | `isActive` | `boolean`, read-only (`!document.hidden`) | |
-| `contentSafeAreaInset` | `{ top, right, bottom, left, cornerLeft, cornerRight }` in CSS px, read-only, a fresh frozen object per change | §2.17: the client's time over the bottom corner of a widget with no caption below it; detect it with `TelegramWidget.contentSafeAreaInset !== undefined` |
-| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated' \| 'chatDataChanged' \| 'publicDataChanged' \| 'contentSafeAreaChanged'` (`chatDataChanged`, `publicDataChanged`: §2.13; `contentSafeAreaChanged`: §2.17); the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
+| `contentSafeAreaInset` | `{ top, right, bottom, left, cornerLeft, cornerRight }` in CSS px, read-only, a fresh frozen object per change | §2.17: the client's chrome over the widget (in a bubble the time over the bottom corner of a widget with no caption below it, on a profile page the native header and the Start button); detect it with `TelegramWidget.contentSafeAreaInset !== undefined` |
+| `safeAreaInset` | `{ top, right, bottom, left }` in CSS px, read-only, a fresh frozen object per change | §2.17: the device's edges (the notch, the status bar, the home indicator), always 0 in a bubble; detect it with `TelegramWidget.safeAreaInset !== undefined` |
+| `surface` | `'message' \| 'profile'`, read-only | §2.19: a bubble in a chat, or the bot's profile page; detect it with `TelegramWidget.surface !== undefined` |
+| `onEvent(type, handler)`, `offEvent(type, handler)` | `type`: `'themeChanged' \| 'activated' \| 'deactivated' \| 'chatDataChanged' \| 'publicDataChanged' \| 'contentSafeAreaChanged' \| 'safeAreaChanged'` (`chatDataChanged`, `publicDataChanged`: §2.13; `contentSafeAreaChanged`, `safeAreaChanged`: §2.17); the handler is called with `this` = `TelegramWidget` and no arguments | before v1: `on(event, cb)`, reserved; removed |
 | `openLink(url)` | `(url: string) => void` | before v1 without the checks below |
 | `openTelegramLink(url)` | `(url: string) => void` | |
 | `HapticFeedback.impactOccurred(style)` | `style`: `'light' \| 'medium' \| 'heavy' \| 'rigid' \| 'soft'` | |
@@ -81,7 +90,7 @@ laid over the same calls later (D19).
 | `watchPublicData()`, `unwatchPublicData()` | `() => void` | §2.13: follow the shared state live (the client polls it only for widgets that watch) and stop; no tap needed |
 | `chatData`, `publicData` | `string \| null`, read-only | §2.13: the widget's chat state and shared state, which only the bot writes; `chatData` is null in a copy |
 | `isForward` | `boolean`, read-only | §2.13: this message is a forwarded copy |
-| `chatType` | `'private' \| 'group' \| 'supergroup' \| 'channel' \| null`, read-only | §2.13: null in a copy (it is told nothing about the chat it is in) and in a preview, or when the client does not say |
+| `chatType` | `'private' \| 'group' \| 'supergroup' \| 'channel' \| null`, read-only | §2.13: null in a copy (it is told nothing about the chat it is in), in a preview and on a profile page (§2.19), or when the client does not say |
 | `viewer` | `{ id, first_name?, last_name?, username?, is_premium? } \| null` (Mini Apps' `WebAppUser`), read-only, frozen | §2.13: the user looking at the widget; null wherever the widget may not send requests (no `canQuery`), a preview included |
 | `isPreview` | `boolean`, read-only | §2.16: an inline result shown before it is sent |
 | `request(data, options?)` | `(data: string, options?: { wallet?: boolean }) => Promise<{ result: string \| null }>` | §2.14; `{ wallet: true }`: §2.18 |
@@ -355,6 +364,9 @@ out of v1 (§6).
   destruction and app restarts, and is deleted with the message, the chat
   (or its history), the account and on "Clear cache". It is never sent to the
   bot or the server.
+- On a bot's profile page (§2.19) the key is (account, bot): the page has no
+  message. It is the same before and after Start and apart from the storage of the
+  bot's messages.
 - `sessionStorage` has the same key and lives in the client's memory until the
   app restarts.
 - Quota: 4 KB per area and message (4096 bytes of keys and values counted in
@@ -451,7 +463,9 @@ whose framework predates v0.1.3 has no such method: check
 `typeof TelegramWidget.setResizeAnchor === 'function'` (the profile number does
 not tell: it stays 1). The anchor is a request: a client keeps it for a bubble
 on screen; for a bubble off screen it keeps what is on screen in place
-(§5.6). The widget is not told which edge moved.
+(§5.6). The widget is not told which edge moved. On a profile page (§2.19) the
+page grows downward from its top whatever the anchor: the call is checked as
+anywhere else and does nothing.
 
 ### 2.13 The widget's state and where it is
 
@@ -465,7 +479,7 @@ widget gets:
 | `chatData` | the **chat state**: tied to this message and seen only in its chat; in the private chat it is the user's, in a group every member sees the same one; a forward never carries it. A text of up to 1024 bytes (UTF-8), or `null`. For example a game in progress, whose turn it is | `null`, always |
 | `publicData` | the **shared state**: seen wherever the widget is shown. A static widget keeps it in the message, and a forward gets a copy as of the forward, which never changes again; a shared widget (the server's object by `widget_id`, like a poll) has one shared state for all its messages and forwards, which changes for all of them at once. A text of up to 1024 bytes (UTF-8), or `null`. For example poll results, a price | the copy taken at the forward, or the shared widget's shared state |
 | `isForward` | the message is a forwarded copy | `true` |
-| `chatType` | `'private'`, `'group'`, `'supergroup'` or `'channel'`: the kind of chat the message is in (Bot API `Chat.type`; `'channel'` is not used yet); `null` when the client does not say | `null`, always: a copy is told nothing about the chat it is in (below) |
+| `chatType` | `'private'`, `'group'`, `'supergroup'` or `'channel'`: the kind of chat the message is in (Bot API `Chat.type`; `'channel'` is not used yet); `null` on a bot's profile page, which is in no chat (§2.19), and when the client does not say | `null`, always: a copy is told nothing about the chat it is in (below) |
 | `viewer` | the account looking at the widget, shaped like Mini Apps' `WebAppUser`: `id` (the Telegram user id, the same the bot gets with a request), `first_name`, `last_name`, `username` and `is_premium` (only when true); a field the client does not have is absent (frozen); **only where the widget may send requests** (the message's `can_query`), else `null`, in an original too | the viewer if the copy may send requests (below), else `null` |
 
 - Only the bot writes the state: when it sends the widget and by separate
@@ -630,9 +644,27 @@ it is not a message yet and is not the user's:
 Draw the same first state a sent widget would draw: the preview is what the
 user is about to send.
 
-### 2.17 The client's time over the widget: the content safe area
+### 2.17 The client's chrome over the widget: the safe area
 
-A message with a widget and **no caption below it** (no caption, or a caption
+The client draws some things of its own over the widget, and the widget gets their
+size the way a web page gets the screen's notch, in two layers:
+
+- **The device's edges** (`safeAreaInset`, `--tg-safe-area-inset-*`): the
+  notch or the camera cutout, the status bar, the home indicator, the Android
+  navigation bar, the sides in landscape. Only a widget that reaches the screen's
+  edges has them, on a profile page (§2.19). In a bubble they are always 0.
+- **The client's chrome inside them** (`contentSafeAreaInset`,
+  `--tg-content-safe-area-*`): in a bubble the message time over the bottom corner of
+  a widget with no caption below it (below), on a profile page the native header at
+  the top and the Start button at the bottom (§2.19). It is measured from the inner
+  edge of the first layer, as in Mini Apps.
+
+`env(safe-area-inset-*)` is the sum of both: what the widget keeps clear at each
+edge. A widget that only keeps clear of everything uses `env()` and needs neither
+object. One that draws under the chrome on purpose (a cover picture behind the
+status bar and the header) reads the layers apart.
+
+**In a bubble.** A message with a widget and **no caption below it** (no caption, or a caption
 shown above the media, `invert_media`) gets its time and status (the ticks,
 "edited", a channel's views) drawn by the client **over the widget's bottom
 corner**, on a backing, as over a photo: the right corner in a left-to-right
@@ -659,26 +691,36 @@ the client gives the numbers:
 - `env(safe-area-inset-top|right|bottom|left[, fallback])` is in profile 1 (a
   clarification of 2026-10-29, before widgets launched; `P1-safe-area` in
   `profile.json`). The validator rewrites it, in stylesheets, `style` attributes
-  and CSSOM writes alike, to `var(--tg-content-safe-area-inset-…[, fallback])`: the
-  engine's own `env()` belongs to the document (on the web, to the chat page) and
-  comes from the view's system insets, so it never reaches the renderer. The
-  variables are always set (0 with a caption below), so a fallback applies only where a
-  client sets nothing. Any other `env()` name (`keyboard-inset-*`, `titlebar-area-*`)
+  and CSSOM writes alike, to the sum of the two layers,
+  `calc(var(--tg-safe-area-inset-…, 0px) + var(--tg-content-safe-area-inset-…[, fallback]))`
+  (before the profile page `var(--tg-content-safe-area-inset-…[, fallback])` alone). A
+  unitless `0` fallback becomes `0px`, which a sum needs. The engine's own `env()`
+  belongs to the document (on the web, to the chat page) and comes from the view's
+  system insets, so it never reaches the renderer. The variables are always set (0
+  with a caption below), so a fallback applies only where a client sets nothing. Any other `env()` name (`keyboard-inset-*`, `titlebar-area-*`)
   resolves to its fallback, or drops the declaration without one; `env()` inside
   `url()` and the other URL-taking functions is rejected like `var()`. `CSS.supports`
   and `@supports` answer `true` for the safe-area insets only.
 - The root variables, set by the renderer like the theme's (inline and
-  `!important`, names from a fixed list, values checked): `--tg-content-safe-area-inset-top`,
+  `!important`, names from a fixed list, values checked). The device's edges:
+  `--tg-safe-area-inset-top`, `-right`, `-bottom`, `-left` (Mini Apps' names), 0 in a
+  bubble. The client's chrome: `--tg-content-safe-area-inset-top`,
   `-right`, `-bottom`, `-left` (bottom = the height of the time's band, the rest
   0; the names are Mini Apps', so `var(--tg-content-safe-area-inset-bottom)` from
   Mini Apps code works too) and `--tg-content-safe-area-corner-left`, `-right`: the
   width the client's corner takes in the band, on its physical side (`right` in a
-  left-to-right interface, `left` in a right-to-left one, the other 0). An inset is
-  0–64 px and a corner 0–200 px; a client value outside that is 0.
-- The renderer's UA layer (§2.4) adds the band to the body's bottom padding
-  (`:where(body){padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}`), so
-  an unstyled widget (and one that sets only `body { margin: 0 }`) stays clear of
-  the time and is that much taller. A widget that sets the body's padding, or resets
+  left-to-right interface, `left` in a right-to-left one, the other 0). In a bubble an
+  inset is 0–64 px and a corner 0–200 px. On a profile page every inset of both layers
+  is the client's value as it is, any finite number of px ≥ 0 with no upper bound (a
+  large system font makes the header and the Start button taller, and a foldable or a
+  split screen has edges of its own), and the corners are 0. A value outside its
+  place's range, or one that is not a finite number ≥ 0, is 0 (`tables.surfaces` in
+  `profile.json`).
+- The renderer's UA layer (§2.4) pads the body by the sum on all four sides
+  (`:where(body){padding:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px)) …}`,
+  before the profile page the band alone at the bottom), so an unstyled widget (and one that
+  sets only `body { margin: 0 }`) stays clear of the time, or of the screen's edges and
+  the chrome on a page, and is that much taller. A widget that sets the body's padding, or resets
   every padding (`* { padding: 0 }`), handles the band itself. The converse: a widget that
   pads for the band itself must set the body's padding too (`body { margin: 0; padding: 0 }`),
   or the default bottom padding comes on top of its own (`corpus/safe-area`, README).
@@ -689,6 +731,12 @@ the client gives the numbers:
   by an edit, an "edited" mark that widens the time) gives a fresh frozen object and fires
   `contentSafeAreaChanged`, in one task, with the variables already set. It never
   changes per frame.
+- `TelegramWidget.safeAreaInset`, `{ top, right, bottom, left }` in CSS px, is
+  the device's edges for script, all 0 in a bubble. A change (a rotation, a window
+  resized) gives a fresh frozen object and fires `safeAreaChanged`, in one task, with
+  the variables already set. The client passes each layer on its own, so a rotation
+  that changes both fires both events, and a widget that lays itself out from both
+  listens to both.
 
 ### 2.18 The wallet
 
@@ -756,6 +804,61 @@ TelegramWidget.wallet.signData({ type: 'text', text: 'I accept the terms of orde
   A failure after the window (`TIMEOUT`, `FAILED`) means the bot's answer did not come: the transaction may have
   been sent; ask the bot about the order again rather than paying twice.
 
+### 2.19 The bot's profile page
+
+A bot can show a widget **full screen on its profile page**: the page a user opens
+from the bot's name, before and after pressing Start. It is the same kind of
+widget as in a message: one HTML, the same profile, the same limits and size
+(4 KB after zlib, 32 KB uncompressed), the same SDK. Only the place differs.
+
+- `TelegramWidget.surface` is `'profile'` there and `'message'` in a bubble. It
+  never changes while the widget runs. A client without the page shows widgets in
+  messages only and has no `surface`: `TelegramWidget.surface === undefined` is a
+  bubble.
+- **Width and height.** The page is the width of the screen (no cap) and as tall as
+  the widget's document: at least the viewport, at most the page ceiling of
+  **4000 px** (provisional), clipped above it like a bubble above its cap. It scrolls
+  with the profile. A document shorter than the viewport is laid out in the
+  viewport's height, so a page that should fill the screen needs no script.
+- `--tg-viewport-height` on the root is the page's whole area, edge to edge, in px
+  (the screen's or the window's height, the device's edges and the chrome
+  included). It is not set in a bubble, where a `var()` fallback applies. A hero of
+  `min-height: var(--tg-viewport-height, 240px)` fills the screen on a page and is
+  240 px tall in a bubble. `vh` stays out of the profile.
+- **Safe area.** The device's edges are the first layer, the native header (back,
+  the bot's name, the menu) at the top and the Start or Open App button at the
+  bottom are the second, inside them. There are no corners. `env(safe-area-inset-*)`
+  is the sum, so `padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom)`
+  keeps a page clear of everything. A cover picture that runs under the status bar
+  and the header keeps only its text clear (§2.17).
+- **The resize anchor** is ignored on a page: it grows downward from its top
+  (§2.12).
+- **Before and after Start.** The page is shown before the user starts the bot
+  only for a bot the server allows to (a whitelist). Any other bot shows the native
+  profile until Start. The widget gets the server's flags for the page as they are,
+  with no new member:
+
+| phase | `chatType` | `isForward` | `viewer` | `request` | `wallet` |
+|---|---|---|---|---|---|
+| before Start | `null` | `false` | `null` | `NOT_ALLOWED` | `null` |
+| after Start | `null` | `false` | the user | on a tap and in the background, as in the private chat with the bot | as in the private chat |
+
+  Before Start the widget may not ask the bot, so it has no viewer and no wallet
+  either (both go with requests, §2.13, §2.18). After Start it may ask on a tap and
+  in the background. A page is in no chat: `chatType` is `null` before and after
+  Start. The client re-creates the widget when the bot's profile widget changes,
+  Start included, and the new run starts with the new flags.
+- **The state.** The page has the bot's two strings like a message (§2.13):
+  `chatData` and `publicData` are the profile widget's own, which the bot sets with
+  the widget. Nothing ties them to a message.
+- **Storage** (§2.8) on a page is keyed by the account and the bot, not by a
+  message: the page before and after Start, and after a re-creation, keeps it. It
+  is apart from the storage of the bot's messages.
+- **Draw both states.** One HTML draws the page before Start, with no viewer and
+  no requests (what the bot is, why to start it), and after Start, with both (what
+  the bot does for this user). It keeps its own content clear of the header and the
+  Start button with `env()`.
+
 ## 3. Protocol
 
 What carries the API between the sandbox (QuickJS), the host glue and the
@@ -774,7 +877,9 @@ one policy with a shared JSON fixture, as `cpu-budget` does:
 | `theme` | `'light' \| 'dark'` | client (`colorScheme`) | |
 | `themeParams` | `Record<ThemeKey, '#rrggbb'>` | client | |
 | `locale` | BCP 47 string, at most 35 characters | client | |
-| `contentSafeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }`, CSS px | client (§2.17, §5.12; all 0 when absent); the shim checks it: an inset 0–64, a corner 0–200, two decimals, else 0 | |
+| `surface` | `'message' \| 'profile'` | client (`context.surface`, §2.19; `'message'` when absent or anything else) | |
+| `contentSafeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }`, CSS px | client (§2.17, §5.12; all 0 when absent); the shim checks it per place: in a bubble an inset 0–64 and a corner 0–200, on a page any finite inset ≥ 0 and the corners 0; two decimals, else 0 | |
+| `deviceSafeArea` | `{ top, right, bottom, left }`, CSS px | client (`safeArea`, §2.17; all 0 when absent); the shim checks it per place: all 0 in a bubble, on a page any finite number ≥ 0; two decimals, else 0 | |
 | `profile` | integer | glue (`WidgetSandboxVersion` / `twidget::version`, generated from `VERSION.json`'s `profile`) | the shim reports `profile-mismatch` when it differs from the bundle's; the native glue does not start a bundle stamped with another profile (`bundle-mismatch`, `docs/integration.md` "Pinning a release") |
 | `storage` | `{ local: Record<string, string>, session: Record<string, string> }` | client (the preload), glue checks the quota | |
 | `policy` | `'strict'` | glue default | |
@@ -782,7 +887,7 @@ one policy with a shared JSON fixture, as `cpu-budget` does:
 | `isCopy` | `boolean` | client (`context.isCopy`, the server's `is_copy`); the widget's `isForward` | |
 | `canQuery` | `boolean` | client (`context.canQuery`, the server's `can_query`); the shim refuses a request at once without it; `false` in a preview | |
 | `isPreview` | `boolean` | client (`context.preview`): an inline result before it is sent (§2.16) | |
-| `chatType` | one of the four or `null` | client (`context`), `null` in every copy and in a preview | |
+| `chatType` | one of the four or `null` | client (`context`), `null` in every copy, in a preview and on a profile page | |
 | `viewer` | `{ id, first_name?, last_name?, username?, is_premium? } \| null` | client (`context`), checked: an id of 1 to 2^53 − 1 (else `null`), names of 1–64 UTF-16 code units, a username of 5–32 characters of A–Z, a–z, 0–9 and _, `is_premium` only when true; a field that breaks its rule is left out (`data-rejected`); `null` without `canQuery` (an original sent without requests allowed, a copy that may not ask, a preview) | |
 
 The client's values are trusted but still checked: unknown theme keys and
@@ -871,6 +976,7 @@ in order.
 |---|---|
 | `theme` | `{ theme: 'light' \| 'dark', themeParams }` (before v1: the scheme only) |
 | `safeArea` | `{ top, right, bottom, left, cornerLeft, cornerRight }` (§2.17): the shim checks it, and on a change sets a fresh `contentSafeAreaInset`, drops its cached layout answers and fires `contentSafeAreaChanged`, in one task. Not deferred under the CPU quota (it comes from the client, never from the widget, and only with the bubble's layout) |
+| `deviceSafeArea` | `{ top, right, bottom, left }` (§2.17): the device's edges, checked per place; on a change the shim sets a fresh `safeAreaInset`, drops its cached layout answers and fires `safeAreaChanged`, in one task. Not deferred, like `safeArea` |
 | `visibility` | `{ visible }` |
 | `event` | a renderer event, with `gesture: n` for a trusted press |
 | `bridge` | `{ type: 'data', chatData, publicData }` (the full state after a change: the shim fires `chatDataChanged`, then `publicDataChanged`, for each that differs), or `{ type: 'answer', id, result }` / `{ type: 'answer', id, error, reason? }`. Deferred under the CPU quota like `theme`, in order |
@@ -884,15 +990,18 @@ for the widget's state and the answers to `request`.
 | message | payload |
 |---|---|
 | `theme` | `{ type: 'theme', theme: { colorScheme, params, button, text } }`: the renderer core builds the variables of §2.3 and §2.4 (`themeVariables`) and sets them on the root (`:root`, or `[data-tw-root]` on the shadow-DOM renderer); the colour scheme itself still goes to the renderer element (`color-scheme`, the WebView's appearance) as before. A native renderer does the same with its own copy of `themeVariables` (`apps/renderer-litehtml/src/theme.cpp`) |
-| `safeArea` | `{ type: 'safeArea', inset: { top, right, bottom, left, cornerLeft, cornerRight } }` (§2.17): the renderer core sets the six `--tg-content-safe-area-*` variables (`contentSafeAreaVariables`) on the root next to the theme's, 0 until the first one; hosts send it right after `theme` and on every `setContentSafeArea`. The litehtml prototype's twin is `theme::safe_area_variables`; Blitz ignores it (the fallback of a widget's `env()` then applies) |
+| `surface` | `{ type: 'surface', surface, viewportHeight }` (§2.19): where the widget is and, on a page, its viewport in CSS px (0 < h ≤ 4000, two decimals, else 0; always 0 in a bubble). The renderer core checks both layers against this place's ranges and sets `--tg-viewport-height` on a page. Hosts send it right after `theme` and again on every viewport change |
+| `safeArea` | `{ type: 'safeArea', inset: { top, right, bottom, left, cornerLeft, cornerRight } }` (§2.17): the renderer core sets the six `--tg-content-safe-area-*` variables (`contentSafeAreaVariables`) on the root next to the theme's, 0 until the first one; hosts send it right after `surface` and on every `setContentSafeArea`. The litehtml prototype's twin is `theme::safe_area_variables`; Blitz ignores it (the fallback of a widget's `env()` then applies) |
+| `deviceSafeArea` | `{ type: 'deviceSafeArea', inset: { top, right, bottom, left } }` (§2.17): the renderer core sets the four `--tg-safe-area-inset-*` variables (`safeAreaVariables`), 0 until the first one and always in a bubble; hosts send it right after `safeArea` and on every `setSafeArea`. The frozen prototypes ignore it |
 
-| `policy` | `{ type: 'policy', policy, paintReports? }` (v0.6.0): the host's policy, right after `safeArea`. Under `strict` (also before it arrives, and for anything but exactly `compat`) the renderer core counts heavy boxes (`paint-policy.ts`) and reports `limit`; under `compat` it counts nothing. `paintReports` (tooling) asks for `paint { heavy, backdrop }` on every change |
+| `policy` | `{ type: 'policy', policy, paintReports? }` (v0.6.0): the host's policy, right after `deviceSafeArea` (before the profile page, `safeArea`). Under `strict` (also before it arrives, and for anything but exactly `compat`) the renderer core counts heavy boxes (`paint-policy.ts`) and reports `limit`; under `compat` it counts nothing. `paintReports` (tooling) asks for `paint { heavy, backdrop }` on every change |
 | `arbitrate` | `{ type: 'arbitrate', bubble, touch?, rtl? }` (v0.1.2): `bubble` true, the renderer plays the bubble itself with the gesture policy (the web hosts, `bubbleGestures`): a press the bubble takes ends for the widget with `pointercancel` and the host gets `bubble`. `touch`: a mouse's primary button arbitrates as a finger (and the widget sees `pointerType: 'touch'`). `rtl`: the edge strip is on the right. Native hosts leave it off: their own recognizers take the presses |
 
 The renderer takes only variable names from the fixed list above and values
 that match their grammar (`#rrggbb`, CSS lengths, a font shorthand with a
-generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3, a
-safe-area inset of 0–64 px and a corner of 0–200 px).
+generic family, numbers 0–1, a font size of 8–64 px, a line height of 1–3, the
+safe-area insets and corners in their place's ranges, `tables.surfaces` in
+`profile.json`).
 
 ### 3.5 Renderer → host
 
@@ -929,6 +1038,7 @@ public enum WidgetResizeAnchor: String { case top, bottom }   // v0.1.3: WidgetD
 init(html: String, theme: WidgetTheme = WidgetTheme(), width: CGFloat = 400, options: Options = Options(), …) throws
 // Options: maximumHeight (600), policy (.strict), features, pools, …, locale ("en-US"), storage (the preload),
 //          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
+//          safeArea (WidgetSafeArea(): the device's edges on a profile page, 0 in a bubble, §2.17), viewportHeight (0: a profile page's viewport, §2.19)
 public struct WidgetContentSafeArea { var top, right, bottom, left, cornerLeft, cornerRight: Double }   // points = CSS px, 0 by default
 var onChange: ((WidgetDiagnostics) -> Void)?           // height, resizeAnchor (v0.1.3), watchesPublicData, loaded, rendered, dead, diags, actions
 var onWatchPublicData: ((Bool) -> Void)?                // the widget started or stopped watching its shared state (§5.11): on a change
@@ -938,6 +1048,7 @@ var onStorageCommit: ((WidgetStorageArea, [String: String]) -> Void)?   // local
 var onGestureClaim: ((WidgetGestureClaim) -> Void)?   // every primary pointerdown; drive the bubble's recognizers with GestureArbiter (§5.5)
 func setTheme(_ theme: WidgetTheme)
 func setContentSafeArea(_ area: WidgetContentSafeArea)   // only with the bubble's layout (a caption edit or move), never per frame
+func setSafeArea(_ area: WidgetSafeArea); func setViewportHeight(_ height: Double)   // a profile page: only with the screen's layout (a rotation, a window resized), never per frame
 func setVisible(_ visible: Bool); func snapshot(completion:); func destroy()
 // the renderer seam (rendererFactory), v0.6.0: a renderer of your own reports the paint limit, once, before it draws that frame (§5.14)
 public enum WidgetPaintLimit: String { case paint = "paint-limit", backdrop = "backdrop-limit" }   // maxHeavyBoxes 16, maxBackdropBoxes 2; message(count:)
@@ -950,7 +1061,7 @@ The widget's state and requests (§2.13–§2.15, §5.11):
 public struct WidgetData { var chatData: String?; var publicData: String? }          // the full state: the chat state and the shared state
 public enum WidgetChatType: String { case `private`, group, supergroup, channel }
 public struct WidgetViewer { var id: Int64; var firstName: String?; var lastName: String?; var username: String?; var isPremium = false }  // the account's own
-public struct WidgetContext { var isCopy = false; var canQuery = false; var backgroundQuery = false; var chatType: WidgetChatType?; var viewer: WidgetViewer?; var preview = false; var wallet = false }  // the server's flags; preview: §2.16; wallet: §2.18
+public struct WidgetContext { var isCopy = false; var canQuery = false; var backgroundQuery = false; var chatType: WidgetChatType?; var viewer: WidgetViewer?; var preview = false; var wallet = false; var surface: WidgetSurface = .message }  // the server's flags; preview: §2.16; wallet: §2.18; surface (.message | .profile): §2.19
 public struct WidgetRequest { let data: String; let wallet: Bool }   // wallet: attach the wallet card (with_wallet)
 public struct WidgetRequestAnswer { var result: String? }
 public enum WidgetRequestFailure: Error { case timeout, rateLimited, notAllowed, failed, rejected, badRequest }   // rejected, badRequest: wallet calls
@@ -981,6 +1092,7 @@ sealed class WidgetAction { Ready; OpenLink(url); OpenTelegramLink(url); Haptic(
 WidgetHost(context, html, theme: WidgetTheme, widthDp, options, resources, rendererFactory)
 // Options: minHeightDp (50), maxHeightDp (600), policy ("strict"), features, pools, …, locale ("en-US"), storage (the preload),
 //          contentSafeArea (WidgetContentSafeArea(): the client's time over a widget with no caption below it, §2.17, §5.12)
+//          safeArea (WidgetSafeArea(): the device's edges on a profile page, 0 in a bubble, §2.17), viewportHeight (0.0: a profile page's viewport, §2.19)
 data class WidgetContentSafeArea(val top: Double = 0.0, val right: Double = 0.0, val bottom: Double = 0.0, val left: Double = 0.0, val cornerLeft: Double = 0.0, val cornerRight: Double = 0.0)   // dp = CSS px
 var onChange: ((WidgetDiagnostics) -> Unit)?               // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions
 var onWatchPublicData: ((Boolean) -> Unit)?                 // the widget started or stopped watching its shared state (§5.11): on a change
@@ -990,6 +1102,7 @@ var onStorageCommit: ((area: String, values: Map<String, String>) -> Unit)?   //
 var onGesture: ((WidgetGestureClaim) -> Unit)?             // v0.1.2: x, y, hold (y always false since v0.1.3); drive the bubble's recognizers with GestureArbiter (§5.5)
 var onGestureClaim: ((x: Boolean, y: Boolean) -> Unit)?    // deprecated since v0.1.2: called right after onGesture
 fun setTheme(theme: WidgetTheme); fun setContentSafeArea(area: WidgetContentSafeArea); fun setVisible(visible: Boolean); fun destroy()
+fun setSafeArea(area: WidgetSafeArea); fun setViewportHeight(height: Double)   // a profile page: only with the screen's layout, never per frame
 // the renderer seam (rendererFactory), v0.6.0: a renderer of your own reports the paint limit, once, before it draws that frame (§5.14)
 enum class WidgetPaintLimit(val code: String) { PAINT("paint-limit"), BACKDROP("backdrop-limit") }   // MAX_HEAVY_BOXES 16, MAX_BACKDROP_BOXES 2; message(count)
 interface Renderer { …; fun limitExceeded(code: WidgetPaintLimit, count: Int) /* default: posts the limit message to WidgetHost */ }
@@ -1002,7 +1115,7 @@ data class WidgetData(val chatData: String? = null, val publicData: String? = nu
 data class WidgetViewer(val id: Long, val firstName: String? = null, val lastName: String? = null, val username: String? = null, val isPremium: Boolean = false)
 data class WidgetContext(val isCopy: Boolean = false, val canQuery: Boolean = false, val backgroundQuery: Boolean = false,
                          val chatType: String? = null, val viewer: WidgetViewer? = null, val preview: Boolean = false,
-                         val wallet: Boolean = false)   // the server's flags; preview: §2.16; wallet: §2.18
+                         val wallet: Boolean = false, val surface: WidgetSurface = WidgetSurface.MESSAGE)   // the server's flags; preview: §2.16; wallet: §2.18; surface (MESSAGE | PROFILE): §2.19
 data class WidgetRequest(val data: String, val wallet: Boolean = false)   // wallet: attach the wallet card (with_wallet)
 data class WidgetRequestAnswer(val result: String? = null)
 enum class WidgetRequestFailure { TIMEOUT, RATE_LIMITED, FAILED, REJECTED, BAD_REQUEST }   // REJECTED, BAD_REQUEST: wallet calls
@@ -1032,6 +1145,7 @@ struct WidgetAction { enum Kind { Ready, OpenLink, OpenTelegramLink, Haptic } ki
 WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions, std::shared_ptr<SandboxResources>, RendererFactory, …);
 // WidgetHostOptions: …, std::string locale ("en-US"), WidgetStorage storage (the preload),
 //                    WidgetContentSafeArea contentSafeArea (the client's time over a widget with no caption below it, §2.17, §5.12)
+//                    WidgetSafeArea safeArea (the device's edges on a profile page, 0 in a bubble, §2.17), double viewportHeight (a profile page's viewport, §2.19)
 struct WidgetContentSafeArea { double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0; };   // CSS px
 std::function<void(const WidgetDiagnostics&)> onChange;           // … height, resizeAnchor ("top" | "bottom", v0.1.3), watchesPublicData, actions, storageCommits (first 1000)
 std::function<void(bool)> onWatchPublicData;                      // the widget started or stopped watching its shared state (§5.11): on a change
@@ -1041,6 +1155,7 @@ std::function<void(const std::string& area, const std::map<std::string, std::str
 std::function<void(const WidgetGestureClaim&)> onGesture;          // v0.1.2: x, y, hold (y always false since v0.1.3; twidget/gesture_policy.h, GestureArbiter)
 std::function<void(bool x, bool y)> onGestureClaim;                 // deprecated since v0.1.2: called right after onGesture
 void start(); void setTheme(const WidgetTheme&); void setContentSafeArea(const WidgetContentSafeArea&); void setVisible(bool); void destroy();
+void setSafeArea(const WidgetSafeArea&); void setViewportHeight(double);   // a profile page: only with the screen's layout, never per frame
 // the renderer seam (RendererFactory), v0.6.0: a renderer of your own reports the paint limit, once, before it draws that frame (§5.14)
 enum class WidgetPaintLimit { Paint, Backdrop };   // kMaxHeavyBoxes 16, kMaxBackdropBoxes 2; paintLimitCode, paintLimitMessage, paintLimitFromCode
 void Renderer::limitExceeded(WidgetPaintLimit code, int count);
@@ -1051,7 +1166,7 @@ The widget's state and requests:
 ```cpp
 struct WidgetData { std::optional<std::string> chatData, publicData; };
 struct WidgetViewer { int64_t id = 0; std::optional<std::string> firstName, lastName, username; bool isPremium = false; };
-struct WidgetContext { bool isCopy = false, canQuery = false, backgroundQuery = false; std::string chatType; /* "" = none */ std::optional<WidgetViewer> viewer; bool preview = false; bool wallet = false; };
+struct WidgetContext { bool isCopy = false, canQuery = false, backgroundQuery = false; std::string chatType; /* "" = none */ std::optional<WidgetViewer> viewer; bool preview = false; bool wallet = false; WidgetSurface surface = WidgetSurface::Message; };   // surface (Message | Profile): §2.19
 struct WidgetRequest { std::string data; bool wallet = false; };   // wallet: attach the wallet card (with_wallet)
 struct WidgetRequestAnswer { std::optional<std::string> result; };
 enum class WidgetRequestFailure { None, Timeout, RateLimited, Failed, Rejected, BadRequest };   // Rejected, BadRequest: wallet calls
@@ -1082,12 +1197,13 @@ new WidgetHost(container, html, {
   theme,                                   // WidgetTheme, or a plain 'light' | 'dark'
   locale, storage: { local, session },     // the client's language and Web Storage preload
   contentSafeArea: { bottom, cornerRight, cornerLeft },   // the client's time over a widget with no caption below it (§2.17, §5.12); 0 by default
+  safeArea: { top, right, bottom, left }, viewportHeight,   // a profile page (§2.17, §2.19): the device's edges, the viewport in CSS px; 0 in a bubble
   onAction(action), onStorageCommit(area, values), onGestureClaim({ x, y, hold }),
   bubbleGestures, onBubbleGesture({ action, gesture, x, y, edge }),   // v0.1.2: the renderer plays the bubble (§5.5)
   onResize(height, anchor),                // anchor: 'top' | 'bottom', the widget's setResizeAnchor (v0.1.3)
   onWatchPublicData(on),                   // the widget started or stopped watching its shared state (§5.11): on a change
   data: { chatData, publicData },          // the chat state and the shared state as the message has them now
-  context: { isCopy, canQuery, backgroundQuery, chatType, viewer: { id, firstName, lastName, username, isPremium }, preview, wallet },   // the server's flags (preview: §2.16; wallet: §2.18); fixed for the host's life
+  context: { isCopy, canQuery, backgroundQuery, chatType, viewer: { id, firstName, lastName, username, isPremium }, preview, wallet, surface },   // the server's flags (preview: §2.16; wallet: §2.18; surface 'message' | 'profile': §2.19); fixed for the host's life
   onRequest({ data, wallet }),             // resolve with the server's answer { result } or reject 'TIMEOUT' | 'RATE_LIMITED' | 'FAILED'; wallet: attach the wallet card
   onWallet(call),                          // §2.18, §5.13: { method: 'sendTransaction', transaction, data } | { method: 'signData', payload, data }; resolve with the bot's answer or reject 'REJECTED' | 'BAD_REQUEST' | …
   onCopyText(text),
@@ -1097,6 +1213,7 @@ host.resizeAnchor;                         // v0.1.3: the latest anchor, 'top' u
 host.watchesPublicData;                    // the widget's latest watchPublicData / unwatchPublicData, false until then
 host.setTheme(theme); host.setVisible(visible); host.setBubbleGestures(mode); host.destroy();
 host.setContentSafeArea({ bottom, cornerRight, cornerLeft }); host.contentSafeArea;   // only with the bubble's layout, never per frame
+host.setSafeArea({ top, right, bottom, left }); host.safeArea; host.setViewportHeight(h); host.surface;   // a profile page: only with the screen's layout
 host.setData({ chatData, publicData });    // the state changed (the server's update, the polled shared state): the full state
 // @telegram/widget-sandbox/shared/gesture-policy: GestureArbiter, claimOf and the thresholds, for a client's own recognizers
 ```
@@ -1117,7 +1234,12 @@ renderer's `theme` message, which `--ops-file` writes before the ops, then the
 `safeArea` one). `contentSafeArea` and `script` steps `{ safeArea }` are the client's
 time over the widget (§2.17; `RunResult.contentSafeArea`); from a shell
 `--safe-area bottom[,cornerRight[,cornerLeft]]` (`--safe-area 24,64`, or `24,0,64` for a
-right-to-left client).
+right-to-left client). A profile page (§2.19): `context.surface` `'profile'`, `safeArea` (the
+device's edges) and `viewportHeight`; from a shell `--surface profile` or a profile phase
+(`--message profile-prestart` or `profile`), `--viewport-height 844`
+and `--safe-area` with both layers by name (`--safe-area device-top=47,top=56,bottom=64,device-bottom=34`;
+without it the reference page's numbers). The page is laid out at 390 px unless `--width` says
+otherwise, and the CLI prints its height (at least the viewport, at most the ceiling).
 Gestures are injected per event (`gesture: n`). Since v0.1.2 `width` (the bubble's,
 default 400) and `gestures` (`tap`, `hold`, `double-tap`, `swipe`, `right-click`) run the
 widget on the real renderer core in headless Chromium after load: `RunResult.gestures`
@@ -1136,7 +1258,7 @@ run), `script` steps `{ data }` (the client's `setData`) and `{ visible }` (a
 hidden → visible step resets the background interval); `RunResult.requests`
 (each request's data, whether it went out without a tap, the gate's verdict and
 what went back) and `copiedTexts`. From a shell: `--message
-private|group|via-bot|no-queries|live-copy|copy|preview`, or `--copy`, `--can-query`,
+private|group|via-bot|no-queries|live-copy|copy|preview|profile-prestart|profile`, or `--copy`, `--can-query`,
 `--background-query`, `--chat-type` one by one; `--viewer id[,first,last,username,premium]`, `--chat-data`,
 `--public-data`, `--answer '{"result":"…"}'` or `--answer-error TIMEOUT`,
 `--set-data '{…}'`; the CLI prints a `request` line per request and a
@@ -1194,6 +1316,9 @@ ignore them.
 ### 5.4 Storage
 
 - Key: (account, chat, message id) of the message the widget belongs to (§2.8).
+  On a bot's profile page (§2.19): (account, bot), kept across Start and every
+  re-creation, deleted with the account and on "Clear cache". The framework never
+  sees the key: the client keeps the areas and passes them back.
 - At creation, pass the stored `local` area and the in-memory `session` area as
   `storage`.
 - On `onStorageCommit(area, values)`: keep `values` as the new content of that
@@ -1533,6 +1658,48 @@ backdrop-filter, opacity below 1 but a disabled or pressed `<button>`'s own dimm
 `packages/core/tests/fixtures/paint-policy.json`, and past 16 (or 2 with backdrop-filter) calls the seam's
 `limitExceeded(code, count)` before it draws that frame. It draws the stopped widget without those effects; the host
 does the rest (`docs/integration.md`, "Heavy boxes").
+
+### 5.15 The bot's profile page (§2.19)
+
+- Show the page only where the server sends the bot's profile widget
+  (`bot_profile_widget` in the bot's full user). Before Start the server sends it
+  only for a bot it allows to (a whitelist). Any other bot shows the native profile
+  until Start.
+- Create the host with `context.surface` set to profile and the flags of
+  `bot_profile_widget` as they are: `canQuery` = `can_query`, `backgroundQuery` =
+  `background_query`, `isCopy` false. Before Start the server sends neither. Pass no
+  chat type: a page is in no chat, and the framework drops one on a page anyway.
+  Pass the viewer and `wallet` as for a message: without `canQuery` the framework
+  drops both. Pass the profile widget's own `chat_data` and `public_data`, and the
+  storage kept for (account, bot) (§5.4).
+- The width is the screen's (or the window's), with no cap. Pass the viewport
+  (`viewportHeight`: the whole area edge to edge), the device's edges (`safeArea`:
+  the status bar or the notch, the home indicator, the navigation bar, the sides in
+  landscape) and your chrome inside them (`contentSafeArea`: `top` the native header
+  below the status bar, `bottom` the Start or Open App button above the home
+  indicator, the sides where your chrome covers them, the corners 0), in points / dp /
+  CSS px, **at creation**. Pass the real numbers, however large (a large system font, a
+  foldable, Split View): a page has no ranges, and only a value that is not a finite
+  number ≥ 0 is 0.
+  Change them with `setViewportHeight`, `setSafeArea` and `setContentSafeArea` only
+  when the screen's layout changes (a rotation, a window resized, the button's
+  label), never per frame.
+- The height the host reports is the page's: at least the viewport, at most the page
+  ceiling (4000 px, provisional), clipped above it. The page scrolls with the profile
+  as one list: no inner scrolling, and vertical drags stay the list's (the gesture
+  policy is unchanged). There is no resize anchor: keep the page's top in place.
+- Draw the header (back, the bot's name, the menu) and the Start or Open App button
+  over the widget, each on its own backing. Taps on them are yours, never the
+  widget's. The header does not collapse as the page scrolls (its height is the
+  `top` the widget was given).
+- Destroy the host and create it again whenever `bot_profile_widget` changes: its
+  payload or its flags, Start included. The widget has no HTML version: the client
+  gets the current one each time the profile opens. The storage stays. Visibility,
+  failures and restarts are as for a bubble (§5.7, §5.8): the page is hidden when
+  the user leaves the profile.
+- The conformance set's profile cases (`auto/46`–`48`, `"surface": "profile"` in their
+  header) run on your profile screen, not in a chat: no server call sets a bot's
+  profile widget yet, so open them through your own profile screen's debug path.
 
 ## 6. Out of v1 and the decisions of 2026-10-17
 

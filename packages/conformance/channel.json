@@ -1199,6 +1199,42 @@
    "caption": "auto/44-stop-nodes · Strict limits: more than 2000 nodes in the document stop the widget, 1900 more do not. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it)",
    "photos": [],
    "zlib": 2270
+  },
+  {
+   "widget": "auto/46-profile-safe-area.html",
+   "width": 0,
+   "height": 0,
+   "message": {
+    "kind": "profile-prestart",
+    "view": "the bot's profile page before Start"
+   },
+   "caption": "auto/46-profile-safe-area · A bot's profile page: TelegramWidget.surface, the device's edges (safeAreaInset, --tg-safe-area-inset-*) and the client's chrome inside them (contentSafeAreaInset), no corners, env(safe-area-inset-*) as the sum of both, the UA layer's body padding on all four sides. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it) On the bot's profile page, before Start (no server call sets a bot's profile widget yet: open it through your client's own profile screen).",
+   "photos": [],
+   "zlib": 3119
+  },
+  {
+   "widget": "auto/47-profile-page-height.html",
+   "width": 0,
+   "height": 0,
+   "message": {
+    "kind": "profile-prestart",
+    "view": "the bot's profile page before Start: the hero fills the screen, the rest scrolls under the Start button"
+   },
+   "caption": "auto/47-profile-page-height · A bot's profile page: --tg-viewport-height is the whole area edge to edge, a hero of that height fills the screen, the page scrolls past it, the resize anchor is ignored. the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it) On the bot's profile page, before Start (no server call sets a bot's profile widget yet: open it through your client's own profile screen).",
+   "photos": [],
+   "zlib": 2682
+  },
+  {
+   "widget": "auto/48-profile-before-start.html",
+   "width": 0,
+   "height": 0,
+   "message": {
+    "kind": "profile-prestart",
+    "view": "the bot's profile page before Start"
+   },
+   "caption": "auto/48-profile-before-start · A bot's profile page before Start: the server sends no flags (no can_query), so no viewer, no request and no wallet, and a page has no chat (no chatType). the widget checks itself: its result line at the bottom must say \"done\" and show no \"fail\" (each failure is listed under it) On the bot's profile page, before Start (no server call sets a bot's profile widget yet: open it through your client's own profile screen).",
+   "photos": [],
+   "zlib": 2810
   }
  ],
  "bot": {

@@ -817,7 +817,57 @@ export const PROFILE_CSS = {
  ]
 } as const;
 
-export const PROFILE_UA_STYLESHEET = "@layer tw-ua{:where(html){color:var(--tg-theme-text-color);font:var(--tg-text-font-size,15px)/var(--tg-text-line-height,1.35) system-ui,sans-serif;-webkit-text-size-adjust:none;text-size-adjust:none;overflow-wrap:break-word;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}:where(body){margin:var(--tg-text-padding,8px 12px);padding:0;padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}:where(h1,h2,h3,h4,h5,h6){margin:.75em 0 .35em;font-weight:600;line-height:1.25}:where(h1){font-size:1.6em}:where(h2){font-size:1.35em}:where(h3){font-size:1.2em}:where(h4){font-size:1.07em}:where(h5){font-size:1em}:where(h6){font-size:.87em}:where(p,ul,ol,menu,dl,pre,blockquote,figure,table){margin:.6em 0}:where(ul,ol,menu){padding:0 0 0 1.5em;padding-inline-start:1.5em;padding-inline-end:0}:where(ul,menu){list-style-type:disc}:where(ol){list-style-type:decimal}:where(li ul,li menu){list-style-type:circle}:where(li ul,li ol,li menu,li dl){margin:0}:where(dt){font-weight:600}:where(dd){margin:0 0 0 1.5em;margin-inline-start:1.5em;margin-inline-end:0}:where(table){border-collapse:collapse;border-spacing:0}:where(caption){padding:0 0 .3em;color:var(--tg-theme-hint-color);font-size:.87em;text-align:left;text-align:start}:where(th,td){padding:.3em .6em;border-bottom:1px solid var(--tg-theme-section-separator-color);text-align:left;text-align:start;vertical-align:top}:where(th){font-weight:600}:where(th:last-child,td:last-child){padding-right:0;padding-inline-end:0;padding-inline-start:.6em}:where(th:first-child,td:first-child){padding-left:0;padding-inline-start:0;padding-inline-end:.6em}:where(hr){height:0;margin:.6em 0;border:0;border-top:1px solid var(--tg-theme-section-separator-color)}:where(pre,code,kbd,samp){font-family:ui-monospace,monospace;font-size:.9em}:where(pre code,pre kbd,pre samp){font-size:1em}:where(pre){padding:.5em .7em;border-radius:6px;background:rgba(128,128,128,.12);white-space:pre-wrap}:where(blockquote){padding:0 0 0 .75em;padding-inline-start:.75em;padding-inline-end:0;border-left:3px solid var(--tg-theme-accent-text-color);border-inline-start:3px solid var(--tg-theme-accent-text-color);border-inline-end:0}:where(figcaption){margin:.3em 0 0;color:var(--tg-theme-hint-color);font-size:.87em}:where(img){max-width:100%}:where(a[href]){color:var(--tg-theme-link-color);text-decoration:none}:where(b,strong){font-weight:600}:where(i,em,cite,dfn,var){font-style:italic}:where(small){font-size:.85em}:where(sub,sup){position:relative;font-size:.75em;line-height:0;vertical-align:baseline}:where(sup){top:-.5em}:where(sub){bottom:-.25em}:where(mark){background:rgba(255,204,0,.4);color:inherit}:where(body>:first-child){margin-top:0}:where(body>:last-child){margin-bottom:0}:where(button){appearance:none;-webkit-appearance:none;margin:0;border:0;border-radius:var(--tg-button-radius,8px);padding:var(--tg-button-padding,8px 14px);min-height:var(--tg-button-height,auto);font:var(--tg-button-font,500 14px/1.2 system-ui,sans-serif);background:var(--tg-button-bg,rgba(51,144,236,.12));color:var(--tg-button-text,inherit);cursor:pointer;-webkit-tap-highlight-color:transparent}:where(button:not([disabled])):active{opacity:var(--tg-button-pressed-opacity,.7)}:where(button[disabled]){opacity:var(--tg-button-disabled-opacity,.5);cursor:default}}" as const;
+export const PROFILE_UA_STYLESHEET = "@layer tw-ua{:where(html){color:var(--tg-theme-text-color);font:var(--tg-text-font-size,15px)/var(--tg-text-line-height,1.35) system-ui,sans-serif;-webkit-text-size-adjust:none;text-size-adjust:none;overflow-wrap:break-word;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}:where(body){margin:var(--tg-text-padding,8px 12px);padding:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px)) calc(var(--tg-safe-area-inset-right,0px) + var(--tg-content-safe-area-inset-right,0px)) calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,0px)) calc(var(--tg-safe-area-inset-left,0px) + var(--tg-content-safe-area-inset-left,0px))}:where(h1,h2,h3,h4,h5,h6){margin:.75em 0 .35em;font-weight:600;line-height:1.25}:where(h1){font-size:1.6em}:where(h2){font-size:1.35em}:where(h3){font-size:1.2em}:where(h4){font-size:1.07em}:where(h5){font-size:1em}:where(h6){font-size:.87em}:where(p,ul,ol,menu,dl,pre,blockquote,figure,table){margin:.6em 0}:where(ul,ol,menu){padding:0 0 0 1.5em;padding-inline-start:1.5em;padding-inline-end:0}:where(ul,menu){list-style-type:disc}:where(ol){list-style-type:decimal}:where(li ul,li menu){list-style-type:circle}:where(li ul,li ol,li menu,li dl){margin:0}:where(dt){font-weight:600}:where(dd){margin:0 0 0 1.5em;margin-inline-start:1.5em;margin-inline-end:0}:where(table){border-collapse:collapse;border-spacing:0}:where(caption){padding:0 0 .3em;color:var(--tg-theme-hint-color);font-size:.87em;text-align:left;text-align:start}:where(th,td){padding:.3em .6em;border-bottom:1px solid var(--tg-theme-section-separator-color);text-align:left;text-align:start;vertical-align:top}:where(th){font-weight:600}:where(th:last-child,td:last-child){padding-right:0;padding-inline-end:0;padding-inline-start:.6em}:where(th:first-child,td:first-child){padding-left:0;padding-inline-start:0;padding-inline-end:.6em}:where(hr){height:0;margin:.6em 0;border:0;border-top:1px solid var(--tg-theme-section-separator-color)}:where(pre,code,kbd,samp){font-family:ui-monospace,monospace;font-size:.9em}:where(pre code,pre kbd,pre samp){font-size:1em}:where(pre){padding:.5em .7em;border-radius:6px;background:rgba(128,128,128,.12);white-space:pre-wrap}:where(blockquote){padding:0 0 0 .75em;padding-inline-start:.75em;padding-inline-end:0;border-left:3px solid var(--tg-theme-accent-text-color);border-inline-start:3px solid var(--tg-theme-accent-text-color);border-inline-end:0}:where(figcaption){margin:.3em 0 0;color:var(--tg-theme-hint-color);font-size:.87em}:where(img){max-width:100%}:where(a[href]){color:var(--tg-theme-link-color);text-decoration:none}:where(b,strong){font-weight:600}:where(i,em,cite,dfn,var){font-style:italic}:where(small){font-size:.85em}:where(sub,sup){position:relative;font-size:.75em;line-height:0;vertical-align:baseline}:where(sup){top:-.5em}:where(sub){bottom:-.25em}:where(mark){background:rgba(255,204,0,.4);color:inherit}:where(body>:first-child){margin-top:0}:where(body>:last-child){margin-bottom:0}:where(button){appearance:none;-webkit-appearance:none;margin:0;border:0;border-radius:var(--tg-button-radius,8px);padding:var(--tg-button-padding,8px 14px);min-height:var(--tg-button-height,auto);font:var(--tg-button-font,500 14px/1.2 system-ui,sans-serif);background:var(--tg-button-bg,rgba(51,144,236,.12));color:var(--tg-button-text,inherit);cursor:pointer;-webkit-tap-highlight-color:transparent}:where(button:not([disabled])):active{opacity:var(--tg-button-pressed-opacity,.7)}:where(button[disabled]){opacity:var(--tg-button-disabled-opacity,.5);cursor:default}}" as const;
+
+export const PROFILE_SURFACES = {
+ "message": {
+  "height": {
+   "min": 50,
+   "max": 600
+  },
+  "viewport": false,
+  "resizeAnchor": true,
+  "safeArea": {
+   "top": 0,
+   "right": 0,
+   "bottom": 0,
+   "left": 0
+  },
+  "contentSafeArea": {
+   "top": 64,
+   "right": 64,
+   "bottom": 64,
+   "left": 64,
+   "cornerLeft": 200,
+   "cornerRight": 200
+  }
+ },
+ "profile": {
+  "height": {
+   "min": 50,
+   "max": 4000
+  },
+  "viewport": true,
+  "resizeAnchor": false,
+  "safeArea": {
+   "top": null,
+   "right": null,
+   "bottom": null,
+   "left": null
+  },
+  "contentSafeArea": {
+   "top": null,
+   "right": null,
+   "bottom": null,
+   "left": null,
+   "cornerLeft": 0,
+   "cornerRight": 0
+  },
+  "provisional": [
+   "height.max"
+  ]
+ }
+} as const;
 
 /** All of them (a bundle that imports one table alone gets only that one). */
-export const PROFILE_TABLES = { html: PROFILE_HTML, svg: PROFILE_SVG, images: PROFILE_IMAGES, events: PROFILE_EVENTS, methods: PROFILE_METHODS, properties: PROFILE_PROPERTIES, canvas: PROFILE_CANVAS, css: PROFILE_CSS, uaStylesheet: PROFILE_UA_STYLESHEET };
+export const PROFILE_TABLES = { html: PROFILE_HTML, svg: PROFILE_SVG, images: PROFILE_IMAGES, events: PROFILE_EVENTS, methods: PROFILE_METHODS, properties: PROFILE_PROPERTIES, canvas: PROFILE_CANVAS, css: PROFILE_CSS, uaStylesheet: PROFILE_UA_STYLESHEET, surfaces: PROFILE_SURFACES };

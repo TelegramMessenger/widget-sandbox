@@ -35,12 +35,43 @@ namespace twidget {
 /// (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes in it; with a
 /// caption everything is 0 (the time is in the caption's line). The widget sees it as `env(safe-area-inset-*)`, the
 /// `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed as given: the renderer core
-/// and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+/// and the shim keep an inset of 0–64 and a corner of 0–200 in a bubble, and on a profile page any finite inset ≥ 0
+/// with the corners 0; anything else is 0.
 struct WidgetContentSafeArea {
     double top = 0, right = 0, bottom = 0, left = 0, cornerLeft = 0, cornerRight = 0;
     /// The TS `ContentSafeArea` shape; a value that is not finite is 0 (JSON has no NaN).
     Json json() const;
 };
+
+/// The device's edges over the widget, in CSS px (docs/sdk-v1.md §2.17): on a profile page the status bar and the cutout
+/// (`top`), the home indicator or the navigation bar (`bottom`), the sides in landscape. The widget sees it as
+/// `env(safe-area-inset-*)` (the sum with `WidgetContentSafeArea`), the `--tg-safe-area-inset-*` variables and
+/// `TelegramWidget.safeAreaInset`. Passed as given: the renderer core and the shim keep any finite value ≥ 0 on a page
+/// (NaN, infinite and negative are 0), and everything is 0 in a bubble.
+struct WidgetSafeArea {
+    double top = 0, right = 0, bottom = 0, left = 0;
+    /// The TS `SafeAreaInset` shape; a value that is not finite is 0 (JSON has no NaN).
+    Json json() const;
+};
+
+/// The geometry of each place, profile.json's `tables.surfaces` (checked by `profile-surface.test.ts`): a bubble is
+/// 50–600 high and its resize anchor moves it, a page is at least its viewport and at most `kPageMaxHeight` and never moves.
+namespace surface {
+/// The least height of either place, in CSS px.
+constexpr double kMinHeight = 50;
+/// A bubble's greatest height, in CSS px.
+constexpr double kMessageMaxHeight = 600;
+/// A profile page's greatest height, in CSS px. Provisional: the page ceiling waits for the clients' measurements.
+constexpr double kPageMaxHeight = 4000;
+/// Whether the widget's `setResizeAnchor` moves anything here: a bubble keeps the anchored edge, a page never moves.
+inline bool keepsResizeAnchor(WidgetSurface s) { return s == WidgetSurface::Message; }
+/// A profile page's viewport as the glue passes it on: finite, in 1…the page ceiling, two decimals; anything else, and
+/// every bubble, is 0 (no `--tg-viewport-height`).
+double checkViewportHeight(WidgetSurface s, double height);
+/// The height the client lays the widget out at: a bubble's content in [50, 600], a page's at least its viewport (and
+/// 50), at most the page ceiling.
+double height(WidgetSurface s, double content, double viewport);
+} // namespace surface
 
 /// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start").
 struct SandboxConfig {
@@ -71,6 +102,8 @@ struct SandboxConfig {
     std::string locale = std::string(sdk::DEFAULT_LOCALE);
     /// What the client draws over the widget at boot (docs/sdk-v1.md §2.17); later changes go through `contentSafeArea`.
     WidgetContentSafeArea contentSafeArea;
+    /// The device's edges over the widget at boot (docs/sdk-v1.md §2.17), 0 in a bubble whatever is passed; later changes go through `safeArea`.
+    WidgetSafeArea safeArea;
     /// Web Storage of this message as the client keeps it; an area over the quota drops the whole
     /// preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
@@ -218,6 +251,10 @@ public:
     /// What the client draws over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.contentSafeAreaInset` and
     /// `contentSafeAreaChanged` in one task; the shim checks the values. Before boot it only replaces the config's.
     void contentSafeArea(const WidgetContentSafeArea& area);
+    /// The device's edges over the widget changed (docs/sdk-v1.md §2.17): `TelegramWidget.safeAreaInset` and
+    /// `safeAreaChanged` in one task; the shim checks the values against the place (0 in a bubble). Before boot it only
+    /// replaces the config's.
+    void safeArea(const WidgetSafeArea& area);
     /// The host knows whether the widget is on screen; the sandbox does not.
     void setVisible(bool visible);
     /// The renderer's primary press began / ended (pointerdown; pointerup or pointercancel), trusted input only, never the

@@ -83,6 +83,13 @@ struct WidgetViewer {
     }
 };
 
+/// Where the widget is shown (docs/sdk-v1.md §2.19), fixed for the host's life: a bubble in a chat (the default) or the
+/// bot's profile page, full screen. `TelegramWidget.surface` in the widget; the geometry is `surface::` in sandbox_engine.h.
+enum class WidgetSurface { Message, Profile };
+
+/// The wire name: "message" | "profile".
+inline const char* surfaceName(WidgetSurface s) { return s == WidgetSurface::Profile ? "profile" : "message"; }
+
 /// Where the widget is and what it may do, from the message (`messageMediaWidget`'s flags, which the server computes)
 /// and the chat; fixed for the host's life (docs/sdk-v1.md §2.14, §4.4). The framework derives nothing itself; all
 /// false (the default): no requests.
@@ -96,6 +103,7 @@ struct WidgetContext {
     bool backgroundQuery = false;
     /// "private" | "group" | "supergroup" | "channel" (`Chat.type` of the Bot API); "" or anything else is none. A copy
     /// (with `canQuery` or not) and a preview get none: the bot learns nothing about where its widget was forwarded.
+    /// A profile page is in no chat: none there either.
     std::string chatType;
     /// The account that looks at the widget. A copy without `canQuery` gets none.
     std::optional<WidgetViewer> viewer;
@@ -106,6 +114,10 @@ struct WidgetContext {
     /// The client has Gram Wallet for this user: it supports the wallet and the wallet is available in the user's
     /// country (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with `canQuery` too, never in a preview.
     bool wallet = false;
+    /// Where the widget is shown (docs/sdk-v1.md §2.19). On a profile page the client passes the flags of
+    /// `bot_profile_widget` as they are: none before the user pressed Start, `canQuery` and `backgroundQuery` after it.
+    /// A page has no chat: the glue gives the widget no `chatType` there.
+    WidgetSurface surface = WidgetSurface::Message;
 };
 
 /// What the client sends to the bot, as a callback button's press: `data` (1–64 bytes). Whether it came from a tap is

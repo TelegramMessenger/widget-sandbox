@@ -18,6 +18,7 @@
         <span class="spacer"></span>
         <label class="single-only" title="the bubble's width: what a client lays the widget out at (the reference and compare columns follow); free: drag the column's corner"><select id="width"></select> <span id="width-value" class="muted"></span></label>
         <label title="who gets a press (docs/sdk-v1.md §5.5): the bubble of a phone client or of a desktop client, unless touch-action claims it; off: the widget gets everything (no client does that)">gestures <select id="gesture-mode"></select></label>
+        <label class="single-only" title="where the widget is shown (docs/sdk-v1.md §2.19): a bubble in a chat, or the bot's profile page full screen (a phone at 390 × 844 with the status bar, the native header, the Start button and the home indicator over it); the phase before and after Start is the Bot panel's message kind">place <select id="surface"><option value="message">bubble</option><option value="profile">profile page</option></select></label>
         <label class="single-only" title="the message time (docs/sdk-v1.md §2.17): in the caption's line (nothing over the widget), or over the widget's bottom corner as on a photo, right (a left-to-right client) or left (right-to-left); the widget gets the band and the corner as env(safe-area-inset-bottom), --tg-content-safe-area-* and TelegramWidget.contentSafeAreaInset">time <select id="time-corner"></select></label>
         <label><input type="checkbox" id="dark"> dark</label>
         <label class="single-only"><input type="checkbox" id="reference"> reference mode</label>
@@ -34,7 +35,17 @@
         <div class="chat" id="chat-sandbox">
           <!-- the network marker (docs/integration.md "The network marker"): shown when the message has can_query -->
           <div class="bubble-head">sandbox <span id="net-marker" class="net-marker hidden" title="can_query: a tap on this widget may send data to the bot's server (docs/integration.md, the network marker)">⇅ may send data to the bot</span></div>
-          <div class="bubble"><div class="frame-wrap" id="sandbox-wrap"></div><div id="time-corner-view" class="hidden"></div></div>
+          <div class="bubble"><div class="frame-wrap" id="sandbox-wrap"></div><div id="time-corner-view" class="hidden"></div>
+            <!-- profile mode (?surface=profile, a profile message kind): the client's chrome over the bot's profile page, drawn
+                 outside the widget at the reference page's numbers (REFERENCE_PROFILE): the status bar and the native header
+                 over the top, the Start / Open App button and the home indicator over the bottom -->
+            <div id="profile-chrome" class="profile-chrome hidden">
+              <div class="profile-status"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="profile-header"><span class="profile-back">‹</span><span class="profile-avatar"></span><span class="profile-name"></span></div>
+              <div class="profile-bottom"><button id="profile-start" type="button" title="the bot's Start button (docs/sdk-v1.md §2.19): the client re-creates the widget as the private chat's, its storage kept">Start</button></div>
+              <div class="profile-home"><span></span></div>
+            </div>
+          </div>
           <div id="widget-error" class="hidden"></div>
         </div>
         <!-- compare mode: one more column per renderer the main bubble is not using (main.ts fills it) -->

@@ -222,8 +222,10 @@ describe('sdk-policy (TS only)', () => {
     for (const v of ['--tg-theme-text-color', '--tg-theme-link-color', '--tg-text-font-size', '--tg-text-line-height', '--tg-text-padding']) assert.ok(layer.includes(`var(${v}`), v);
     // the bubble's fill is the canvas behind the renderer: no root background, so a body background reaches the canvas
     assert.ok(!/:where\(html\)\{[^}]*background/.test(layer));
-    // The body pads for the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17), 0 with a caption below.
-    assert.match(layer, /:where\(body\)\{margin:var\(--tg-text-padding,8px 12px\);padding:0;padding-bottom:var\(--tg-content-safe-area-inset-bottom,0px\)\}/);
+    // The body pads by both safe-area layers on every side (docs/sdk-v1.md §2.17): in a bubble the client's time over a
+    // widget with no caption below it (0 with a caption below), on a profile page the device's edges plus the native chrome.
+    const sum = (side: string) => `calc(var(--tg-safe-area-inset-${side},0px) + var(--tg-content-safe-area-inset-${side},0px))`;
+    assert.ok(layer.includes(`:where(body){margin:var(--tg-text-padding,8px 12px);padding:${['top', 'right', 'bottom', 'left'].map(sum).join(' ')}}`));
     // selection off on the root only: user-select is not inherited, so an element's `auto` follows its parent and
     // `user-select: text` on a container reaches its children
     assert.match(layer, /:where\(html\)\{[^}]*;user-select:none;/);

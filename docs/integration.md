@@ -246,6 +246,39 @@ are its conformance cases (sent without a caption, and once more with the captio
 above), and `corpus/safe-area` has examples (its `07` is posted three times: no
 caption, a caption below, a caption above).
 
+## The bot's profile page
+
+A bot can show a widget full screen on its profile page, before and after the
+user presses Start (an addition to SDK v1, `docs/sdk-v1.md` §2.19, §5.15). It is the same widget
+as in a message, with the same host, renderer and limits. What differs is what you
+pass:
+
+- `context.surface` set to profile, and the flags of `bot_profile_widget` as the
+  server sends them (`canQuery`, `backgroundQuery`): none before Start, both after
+  it. Pass no `chatType`: a page is in no chat, and the glue drops one there. Without
+  `canQuery` the glue drops the viewer and the wallet too. Destroy and re-create the
+  host whenever `bot_profile_widget` changes, Start included.
+- The width of the screen, and `viewportHeight`: the page's whole area edge to edge.
+  The host reports the page's height, at least the viewport and at most 4000 px
+  (provisional), and keeps no resize anchor there.
+- Two safe-area layers. `safeArea` is the device's edges (the status bar or the notch,
+  the home indicator, the navigation bar, the sides in landscape). `contentSafeArea`
+  is your chrome measured inside them: `top` the native header, `bottom` the Start or
+  Open App button, the sides where your chrome covers them, the corners 0. Pass the
+  real numbers, however large (a large system font, a foldable, Split View): a page
+  has no ranges, and only a value that is not a finite number ≥ 0 is 0. The widget's `env(safe-area-inset-*)`
+  is their sum. Pass both at creation and change them with `setSafeArea`,
+  `setContentSafeArea` and `setViewportHeight` only on a rotation or a window resize.
+- Storage keyed by (account, bot), kept across Start.
+
+The page scrolls with the profile as one list, and vertical drags stay the list's.
+Draw the header and the button over the widget on their own backing: their taps are
+yours. A client that shows widgets only in messages passes none of this. The dev
+app's `?surface=profile` draws the page with the reference numbers (390 × 844, device
+edges 47 / 34, chrome 56 / 64), and `auto/46`–`48` are its conformance cases (no
+server call sets a bot's profile widget yet: open them through your own profile
+screen).
+
 ## Heavy boxes
 
 Since v0.6.0 a widget has at most 16 heavy boxes at once, of them at most 2 with `backdrop-filter`; past either it

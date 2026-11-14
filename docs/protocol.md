@@ -4,8 +4,8 @@ Three trust domains exchange plain JSON messages:
 
 ```
 sandbox (QuickJS, UNTRUSTED) ──ops / queries / listen / pd / raf / log / diag / bridge / storage──▶ host (trusted)
-sandbox ◀── events / timer & frame ticks / query results / viewport / theme / safeArea / visibility ──── host
-host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / safeArea / policy / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
+sandbox ◀── events / timer & frame ticks / query results / viewport / theme / safeArea / deviceSafeArea / visibility ──── host
+host ──validated RenderOps / queries / listen / preventDefault / requestFrame / theme / surface / safeArea / deviceSafeArea / policy / frozen / arbitrate──▶ renderer (trusted code, sandboxed iframe)
 host ◀── events / query results / size / resize / frame / media / gesture / bubble / limit / violation ──── renderer
 ```
 
@@ -396,6 +396,8 @@ Host → worker: `init {html, sab, config, sandboxBundle}`, `event {ev}`,
 `frame {time}`, `viewport`, `resize {entries}`, `theme {theme, themeParams}`,
 `safeArea {inset}` (the client's time over the widget, docs/sdk-v1.md §2.17: the shim's `safeArea` dispatch with
 `{top, right, bottom, left, cornerLeft, cornerRight}`; not deferred under the CPU quota),
+`deviceSafeArea {inset}` (the device's edges, docs/sdk-v1.md §2.17, `{top, right, bottom, left}`, checked per
+place; `safeAreaInset` and `safeAreaChanged`; not deferred either),
 `visibility {visible}`, `bridge {event}` (a change of the widget's state, a request's answer;
 see "Bridge calls and storage commits" below). (The profile-0
 `bridge {event, data}` message, host → widget events for `sendMessage`, went
@@ -411,14 +413,18 @@ widget's root, ignoring style ops of the widget that would set those names
 there and re-applying them when the widget replaces the root's `style`
 attribute — `safeArea {inset}` — the six `--tg-content-safe-area-*` variables
 (`contentSafeAreaVariables`, docs/sdk-v1.md §2.17), set and protected the same
-way, `0px` until the first one; hosts send it right after `theme` — and `frozen {reason, fatal}` — the runtime is gone
+way, `0px` until the first one; hosts send it right after `surface` — `surface {surface, viewportHeight}`
+(docs/sdk-v1.md §2.19): where the widget is and a page's viewport; the renderer checks both safe-area layers against
+the place's ranges (`tables.surfaces`: on a page any finite inset ≥ 0, no corners) and sets `--tg-viewport-height` on a page; hosts send it right after `theme` and
+on every viewport change — `deviceSafeArea {inset}`: the four `--tg-safe-area-inset-*` variables
+(`safeAreaVariables`), always `0px` in a bubble; hosts send it right after `safeArea` — and `frozen {reason, fatal}` — the runtime is gone
 (or paused): the renderer keeps the DOM as it is, cancels the pending frame,
 stops forwarding events, sets `data-tw-frozen="fatal"|"paused"` on `<html>`
 (`pointer-events: none`, a slight grayscale when fatal) and shows a small badge
 with `reason` (a renderer element, never in the widget's node table). The host
 sends it from its death path; the iframe / WKWebView / WebView stays on screen
 until the owner calls `destroy()`. And `policy {policy, paintReports?}`, the host's
-`SandboxConfig.policy`, sent at load right after `safeArea`: under `strict` (also before
+`SandboxConfig.policy`, sent at load right after `deviceSafeArea`: under `strict` (also before
 it arrives, and for any value but exactly `compat`) the renderer counts heavy boxes
 (`packages/core/src/shared/paint-policy.ts`, decisions.md "Heavy boxes"), under `compat`
 it counts nothing; `paintReports` (tooling: the Node harness) asks for
@@ -576,13 +582,15 @@ client's duties are in docs/sdk-v1.md.
 | `viewport`, `theme` | | as before |
 | `themeParams` | `{}` | the chat's palette, `#rrggbb` per Mini Apps key (docs/sdk-v1.md §2.3), checked by the glue; missing keys take the scheme's defaults in the shim |
 | `locale` | `en-US` | the client's UI language (BCP 47, ≤ 35 characters), checked by the glue: `navigator.language` and the Intl default |
-| `contentSafeArea` | all 0 | the client's time over a widget with no caption below it (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left, cornerLeft, cornerRight}`; the shim checks it (an inset 0–64, a corner 0–200, else 0): `TelegramWidget.contentSafeAreaInset` |
+| `surface` | `message` | where the widget is (docs/sdk-v1.md §2.19): `message` or `profile`, anything else `message`: `TelegramWidget.surface`; on `profile` the shim drops `setResizeAnchor` |
+| `contentSafeArea` | all 0 | the client's chrome over the widget (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left, cornerLeft, cornerRight}`; the shim checks it per place (in a bubble an inset 0–64 and a corner 0–200, on a page any finite inset ≥ 0 and the corners 0; else 0): `TelegramWidget.contentSafeAreaInset` |
+| `deviceSafeArea` | all 0 | the device's edges (docs/sdk-v1.md §2.17), CSS px `{top, right, bottom, left}`; the shim checks it per place (all 0 in a bubble, on a page any finite number ≥ 0; else 0): `TelegramWidget.safeAreaInset` |
 | `profile` | 1 | the widget profile the glue enforces (`VERSION.json`'s `profile`); the shim reports `profile-mismatch` when its bundle's differs |
 | `storage` | `{}` | the client's Web Storage preload `{local?, session?}`, checked by the glue (4096 bytes of UTF-8 per area; over it: `storage-rejected`, empty) |
 | `chatData`, `publicData` | `null` | the chat state and the shared state, which only the bot writes, checked by the glue (text of 1–1024 bytes of UTF-8 without a NUL, else `null` and `data-rejected`); a copy's `chatData` is `null` |
 | `isCopy` | `false` | a forwarded copy (the server's `is_copy`; the widget's `isForward`) |
 | `canQuery` | `false` | the server's `can_query`: the shim refuses a request at once without it |
-| `chatType` | `null` | `private`, `group`, `supergroup` or `channel`; `null` in every copy (`isCopy`) and in a preview |
+| `chatType` | `null` | `private`, `group`, `supergroup` or `channel`; `null` in every copy (`isCopy`), in a preview and on a profile page (`surface`) |
 | `viewer` | `null` | `{id, first_name?, last_name?, username?, is_premium?}` (`WebAppUser`): an id of 1 to 2^53 − 1, names of 1–64 UTF-16 code units, a username of 5–32 of `[A-Za-z0-9_]`, `is_premium` only when true; `null` without `canQuery` (and so in a preview) |
 
 The policy that counts and decides lives in trusted glue only:

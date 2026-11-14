@@ -40,6 +40,13 @@ client implements), `packages/conformance/CLIENTS.md` (the conformance set),
       ([integration.md, "The time over a widget with no caption below it"](integration.md#the-time-over-a-widget-with-no-caption-below-it),
       [sdk-v1.md §5.12](sdk-v1.md#512-the-time-over-a-widget-with-no-caption-below-it-217)). `visual/17-time-corner`,
       `corpus/safe-area`.
+- [ ] The bot's profile page, once the server sets a bot's profile widget: the widget the width of the
+      screen, at least the viewport tall, with `context.surface` profile, the flags of `bot_profile_widget` as they
+      are (none before Start), no chat type, `safeArea` (the device's edges), `contentSafeArea` (your header and
+      Start button inside them) and `viewportHeight`. Re-created whenever `bot_profile_widget` changes, Start
+      included, storage kept per (account, bot)
+      ([integration.md, "The bot's profile page"](integration.md#the-bots-profile-page),
+      [sdk-v1.md §5.15](sdk-v1.md#515-the-bots-profile-page-219)). `auto/46`–`48`.
 - [ ] A test bot sends widgets (≤ 4 KB compressed, every conformance widget included) to a
       tester's private chat; forward them into the shared test channel (bots may send
       widgets only to private chats).

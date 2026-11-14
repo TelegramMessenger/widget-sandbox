@@ -117,7 +117,8 @@ public struct WidgetTheme: Equatable {
 /// `cornerRight` (or `cornerLeft` in a right-to-left interface: a physical side) the width of the corner the time takes
 /// in it; with a caption below it everything is 0 (the time is in the caption's line; a caption shown above it, `invert_media`, is as none). The widget sees it as
 /// `env(safe-area-inset-*)`, the `--tg-content-safe-area-*` variables and `TelegramWidget.contentSafeAreaInset`. Passed
-/// as given: the renderer core and the shim keep an inset of 0–64 and a corner of 0–200, anything else is 0.
+/// as given: the renderer core and the shim keep an inset of 0–64 and a corner of 0–200 in a bubble, and on a profile
+/// page any finite inset ≥ 0 with the corners 0; anything else is 0.
 public struct WidgetContentSafeArea: Equatable {
     public var top: Double
     public var right: Double
@@ -143,6 +144,74 @@ public struct WidgetContentSafeArea: Equatable {
 
     /// The host → renderer message (docs/sdk-v1.md §3.4); the renderer core sets the `--tg-content-safe-area-*` variables.
     var rendererMessage: String { SandboxEngine.json(["type": "safeArea", "inset": json]) }
+}
+
+/// The device's edges over the widget, in points = CSS px (docs/sdk-v1.md §2.17): on a profile page the status bar and
+/// the cutout (`top`), the home indicator (`bottom`), the sides in landscape. The widget sees it as
+/// `env(safe-area-inset-*)` (the sum with `WidgetContentSafeArea`), the `--tg-safe-area-inset-*` variables and
+/// `TelegramWidget.safeAreaInset`. Passed as given: the renderer core and the shim keep any finite value ≥ 0 on a page
+/// (NaN, infinite and negative are 0), and everything is 0 in a bubble.
+public struct WidgetSafeArea: Equatable {
+    public var top: Double
+    public var right: Double
+    public var bottom: Double
+    public var left: Double
+
+    public init(top: Double = 0, right: Double = 0, bottom: Double = 0, left: Double = 0) {
+        self.top = top
+        self.right = right
+        self.bottom = bottom
+        self.left = left
+    }
+
+    /// The TS `SafeAreaInset` shape; a value that is not finite is 0 (JSON has no NaN).
+    var json: [String: Any] {
+        let finite = { (v: Double) -> Double in v.isFinite ? v : 0 }
+        return ["top": finite(top), "right": finite(right), "bottom": finite(bottom), "left": finite(left)]
+    }
+
+    /// The host → renderer message (docs/sdk-v1.md §3.4); the renderer core sets the `--tg-safe-area-inset-*` variables.
+    var rendererMessage: String { SandboxEngine.json(["type": "deviceSafeArea", "inset": json]) }
+}
+
+/// Where the widget is shown (docs/sdk-v1.md §2.19), fixed for the host's life: `message` (a bubble in a chat, the
+/// default) or `profile` (the bot's profile page, full screen). The widget reads it as `TelegramWidget.surface`. The
+/// geometry is profile.json's `tables.surfaces` (checked by `profile-surface.test.ts`): a bubble is 50–600 high and its
+/// resize anchor moves it, a page is at least its viewport and at most `pageMaximumHeight` and never moves.
+public enum WidgetSurface: String, Equatable, CaseIterable {
+    case message, profile
+
+    /// The least height of either place, in points.
+    public static let minimumHeight: Double = 50
+    /// A bubble's greatest height, in points (`WidgetHost.Options.maximumHeight` may lower it).
+    public static let messageMaximumHeight: Double = 600
+    /// A profile page's greatest height, in points. Provisional: the page ceiling waits for the clients' measurements.
+    public static let pageMaximumHeight: Double = 4000
+
+    /// Whether the widget's `setResizeAnchor` moves anything here: a bubble keeps the anchored edge, a page never moves.
+    public var keepsResizeAnchor: Bool { self == .message }
+
+    /// A profile page's viewport as the glue passes it on: a finite number in 1…the page ceiling, two decimals; anything
+    /// else, and every bubble, is 0 (no `--tg-viewport-height`).
+    public func checkViewportHeight(_ height: Double) -> Double {
+        guard self == .profile, height.isFinite, height > 0, height <= Self.pageMaximumHeight else { return 0 }
+        return (height * 100).rounded() / 100
+    }
+
+    /// The height the client lays the widget out at for its content height: a bubble's in [50, `maximum`], a page's at
+    /// least the viewport (and 50), at most the page ceiling.
+    public func height(content: Double, viewport: Double, bubbleMaximum: Double = messageMaximumHeight) -> Double {
+        let h = content.isFinite ? content : 0
+        switch self {
+        case .message: return min(max(h, Self.minimumHeight), bubbleMaximum)
+        case .profile: return min(max(h, max(Self.minimumHeight, checkViewportHeight(viewport))), Self.pageMaximumHeight)
+        }
+    }
+
+    /// The host → renderer message (docs/sdk-v1.md §3.4), sent before both safe-area layers: the place and a page's viewport.
+    func rendererMessage(viewportHeight: Double) -> String {
+        SandboxEngine.json(["type": "surface", "surface": rawValue, "viewportHeight": checkViewportHeight(viewportHeight)])
+    }
 }
 
 /// Web Storage of one message as the client keeps it (docs/sdk-v1.md §2.8, §5.4), passed as the preload.
@@ -287,7 +356,7 @@ public struct WidgetContext: Equatable {
     /// widget appears on screen, then one per 5 s while visible; one made off screen waits for it to appear.
     public var backgroundQuery = false
     /// The kind of chat the message is in. A copy gets none (null in the widget): the bot learns nothing about where its
-    /// widget was forwarded.
+    /// widget was forwarded. A profile page is in no chat: none there either.
     public var chatType: WidgetChatType?
     /// The account that looks at the widget. Only a widget with `canQuery` gets it (null elsewhere, previews included).
     public var viewer: WidgetViewer?
@@ -298,8 +367,12 @@ public struct WidgetContext: Equatable {
     /// The client has Gram Wallet for this user: it supports the wallet and the wallet is available in the user's
     /// country (docs/sdk-v1.md §2.18). The widget gets `TelegramWidget.wallet` only with `canQuery` too, never in a preview.
     public var wallet = false
+    /// Where the widget is shown (docs/sdk-v1.md §2.19): a bubble (the default) or the bot's profile page. On a page
+    /// the client passes the flags of `bot_profile_widget` as they are: none before the user pressed Start, `canQuery`
+    /// and `backgroundQuery` after it. A page has no chat: the glue gives the widget no `chatType` there.
+    public var surface: WidgetSurface = .message
 
-    public init(isCopy: Bool = false, canQuery: Bool = false, backgroundQuery: Bool = false, chatType: WidgetChatType? = nil, viewer: WidgetViewer? = nil, preview: Bool = false, wallet: Bool = false) {
+    public init(isCopy: Bool = false, canQuery: Bool = false, backgroundQuery: Bool = false, chatType: WidgetChatType? = nil, viewer: WidgetViewer? = nil, preview: Bool = false, wallet: Bool = false, surface: WidgetSurface = .message) {
         self.isCopy = isCopy
         self.canQuery = canQuery
         self.backgroundQuery = backgroundQuery
@@ -307,11 +380,12 @@ public struct WidgetContext: Equatable {
         self.viewer = viewer
         self.preview = preview
         self.wallet = wallet
+        self.surface = surface
     }
 
     /// The flags as the glue applies them: a preview has none, whatever the client passed; the wallet only with `canQuery`.
     var effective: WidgetContext {
-        if preview { return WidgetContext(chatType: chatType, viewer: viewer, preview: true) }
+        if preview { return WidgetContext(chatType: chatType, viewer: viewer, preview: true, surface: surface) }
         var out = self
         out.wallet = wallet && canQuery
         return out

@@ -485,10 +485,11 @@ final class BinaryOpsHostileTests: XCTestCase {
         }
         XCTAssertEqual(results[0], results[1])
         let text = String(decoding: (try? JSONSerialization.data(withJSONObject: results[1], options: [.withoutEscapingSlashes])) ?? Data(), as: UTF8.self)
-        XCTAssertTrue(text.contains("var(--tg-content-safe-area-inset-bottom,8px)"), text)
-        XCTAssertTrue(text.contains("padding:0 max(12px,var(--tg-content-safe-area-inset-right)) calc(8px + var(--tg-content-safe-area-inset-bottom))"), text)
+        // env(safe-area-inset-*) is the sum of both layers: the device's edges and the client's chrome (docs/sdk-v1.md §2.17).
+        XCTAssertTrue(text.contains("calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,8px))"), text)
+        XCTAssertTrue(text.contains("padding:0 max(12px,calc(var(--tg-safe-area-inset-right,0px) + var(--tg-content-safe-area-inset-right))) calc(8px + calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom)))"), text)
         // The style element's text reaches the renderer only as the sanitized `css` op (its raw text node is never inserted).
-        XCTAssertTrue(text.contains("{\"op\":\"css\",\"id\":3,\"text\":\"a{width:13px}b{bottom:var(--tg-content-safe-area-inset-bottom)}\"}"), text)
+        XCTAssertTrue(text.contains("{\"op\":\"css\",\"id\":3,\"text\":\"a{width:13px}b{bottom:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom))}\"}"), text)
     }
 
     func testJSONOpsStillGoThroughTheNativeModel() {

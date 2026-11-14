@@ -36,7 +36,8 @@
     "R1": "Resize anchor, v0.1.3 (Artem, 2026-10-24): TelegramWidget.setResizeAnchor('top' | 'bottom') says which edge of the bubble stays put on screen when the widget's height changes (top by default: it grows downward; bottom: it grows upward and the content above moves). An SDK v1 addition inside profile 1: TelegramWidget.profile stays 1 and widgets detect the method with typeof. It goes through the bridge as a checked call (sdk-policy, four copies and the fixture), needs no gesture, and the host keeps the latest value and reports it with the height; the client's list compensates its scroll",
     "I1": "The bot's data and requests (Artem, 2026-10-25; the server's spec): a widget is fixed code plus changeable state: the HTML never changes after sending; the state changes, and only the bot writes it. TelegramWidget.chatData, the chat state (one original message, seen only in its chat: in a group every member sees it; never forwarded), and publicData, the shared state (wherever the widget is shown: a forward gets a copy, or shares a shared widget's one state with the original): each a text of up to 1024 bytes (UTF-8), read-only in the widget; chatDataChanged / publicDataChanged when they change (no restart). isForward, chatType and viewer (Mini Apps' WebAppUser: id, first_name, last_name, username, is_premium; a field that breaks its rule is left out); a forward is told nothing about the chat it is in (no chatType: the bot must not learn where its widget was forwarded), and the widget knows its viewer only where it may ask the bot (can_query), originals included. request(data of 1-64 bytes): a callback button inside the widget; where it may ask is the server's per message (can_query: originals of a widget sent with allow_queries, forwards of one sent with fwd_allow_queries; background_query: the original in the private chat with the bot); the client marks a widget with can_query as one whose tap may send data to the bot's server; on a tap, one per tap (shared with openLink, openTelegramLink and copyText); in the background while visible: one when the widget appears on screen, then one per 5 s; one in flight; resolves { result } (text of at most 1024 bytes), rejects with error.code; the answer does not change the state. copyText(text of 1-256 characters) on a tap; the client's toast shows what it copied. Part of SDK v1 and layer 233 from the launch, inside profile 1. TelegramWidget.isPreview: an inline result in the list before it is sent gets its state but no input, no bridge call but ready and setResizeAnchor, no chat type or viewer, and Web Storage that is never committed. The checks are sdk-policy (four copies and the fixture)",
     "P1-safe-area": "Clarified on 2026-10-29 (Artem; widgets were not launched yet), not profile 2: a client draws the message time and its status over the bottom corner of a widget with no caption below it, as on a photo (with a caption below the time is in the caption's line and nothing is drawn over the widget; a caption shown above the widget, invert_media, is as none: Artem's decision of 2026-10-30). env(safe-area-inset-top|right|bottom|left[, fallback]) is in: the validator rewrites it to var(--tg-content-safe-area-inset-…[, fallback]), root variables the renderer sets like the theme's (bottom = the height of the time's band, the others 0), with --tg-content-safe-area-corner-left|right for the width of the client's corner in that band (a physical side: right in a left-to-right interface, left in a right-to-left one); 0 with a caption below. Another env() name resolves to its fallback or drops the declaration. The UA layer adds the band to the body's bottom padding, and TelegramWidget.contentSafeAreaInset with the contentSafeAreaChanged event gives the same numbers to script",
-    "L3": "The nesting-depth cap (Artem, 2026-11-12, v0.6.5): at most 1024 levels of element nesting in the document; past it the widget stops (strict). The web renders through a shadow root in the host chat page with no per-widget iframe, where a renderer-process crash on extreme nesting (Chromium at ~1,650 nested elements, under the 2000-node cap) takes the whole chat page down; the validator rejects a too-deep document before any renderer lays it out, so one cap shields every client. A tightening of profile 1 (widgets were not launched yet), not profile 2"
+    "L3": "The nesting-depth cap (Artem, 2026-11-12, v0.6.5): at most 1024 levels of element nesting in the document; past it the widget stops (strict). The web renders through a shadow root in the host chat page with no per-widget iframe, where a renderer-process crash on extreme nesting (Chromium at ~1,650 nested elements, under the 2000-node cap) takes the whole chat page down; the validator rejects a too-deep document before any renderer lays it out, so one cap shields every client. A tightening of profile 1 (widgets were not launched yet), not profile 2",
+    "P1-profile": "Clarified on 2026-11-12 (Artem; the bot's profile page, not launched), not profile 2: the same widget (profile 1, SDK v1, the payload of a message) is also shown on a bot's profile page, one widget the width of the screen that scrolls with the profile and is as tall as its document: at least the viewport, at most the page ceiling (4000 px, provisional: the ceiling is an open question), clipped hard above it, with no resize anchor. context.surface says where (message or profile) and TelegramWidget.surface gives it to script. The geometry of each place is a fixed table (tables.surfaces), the same on every client and never a host option; the counted caps are those of a message. The safe area has two layers, as in Mini Apps: the device's edges (--tg-safe-area-inset-*, TelegramWidget.safeAreaInset and safeAreaChanged; always 0 in a bubble) and the client's chrome measured inside them (--tg-content-safe-area-inset-*, contentSafeAreaInset: the time's band in a bubble, the native header and the Start button on a page, with no corners there). On a page every side of both layers is the client's value as it is, any finite number ≥ 0 with no upper bound (2026-11-14: a large system font, a foldable, Split View), and a bubble keeps the ranges of P1-safe-area. env(safe-area-inset-top|right|bottom|left[, fallback]) is their sum, calc(var(--tg-safe-area-inset-…, 0px) + var(--tg-content-safe-area-inset-…[, fallback])), so a bubble draws as before, and the UA layer pads the body by the sum on all four sides. --tg-viewport-height is the page's whole area edge to edge (vh stays out). A page has no chat (chatType null) and the client passes the server's flags as they are (2026-11-14): none before Start (no requests, no viewer, no wallet), requests on a tap and in the background after it. The client re-creates the widget whenever the server's widget changes, Start included, and keeps its storage"
   },
   "features": [
     {
@@ -2111,7 +2112,7 @@
           "env"
         ]
       },
-      "note": "env(safe-area-inset-top|right|bottom|left[, fallback]) becomes var(--tg-content-safe-area-inset-…[, fallback]), the root variable the renderer sets (the client's time over the bottom corner of a widget with no caption below it); another name resolves to its fallback or the declaration is dropped; never inside url()."
+      "note": "env(safe-area-inset-top|right|bottom|left[, fallback]) is the sum of the two safe-area layers, the device's edges and the client's chrome over the widget (in a bubble the message time over the bottom corner of a widget with no caption below it; on a profile page the screen's edges, the native header and the Start button): the validator rewrites it to calc(var(--tg-safe-area-inset-…, 0px) + var(--tg-content-safe-area-inset-…[, fallback])), root variables the renderer sets (a unitless 0 fallback becomes 0px); another name resolves to its fallback, or the declaration is dropped without one; never inside url()."
     },
     {
       "id": "sel.basic",
@@ -3608,7 +3609,41 @@
           "--tg-content-safe-area-*"
         ]
       },
-      "note": "bottom is the height of the band the client draws the message time in over a widget with no caption below it; cornerRight (left-to-right interface) or cornerLeft (right-to-left) the width of its corner in that band; 0 with a caption below."
+      "note": "In a bubble bottom is the height of the band the client draws the message time in over a widget with no caption below it; cornerRight (left-to-right interface) or cornerLeft (right-to-left) the width of its corner in that band; 0 with a caption below. On a profile page top is the native header and bottom the Start / Open App button, measured inside the device's edges (safeAreaInset); no corners. Detect it with TelegramWidget.contentSafeAreaInset !== undefined (the profile stays 1)."
+    },
+    {
+      "id": "tw.safe-area",
+      "area": "sdk",
+      "title": "TelegramWidget.safeAreaInset { top, right, bottom, left } (logical px, frozen, a fresh object per change) and safeAreaChanged, with the --tg-safe-area-inset-* variables on the root, updated in one task: the device's edges",
+      "status": "in",
+      "decision": "P1-profile",
+      "today": "host",
+      "match": {
+        "apis": [
+          "TelegramWidget.safeAreaInset"
+        ],
+        "properties": [
+          "--tg-safe-area-*"
+        ]
+      },
+      "note": "The notch or the camera cutout, the status bar, the home indicator, the Android navigation bar, the sides in landscape, as Mini Apps' safeAreaInset; always 0 in a bubble. env(safe-area-inset-*) is this plus contentSafeAreaInset. Detect it with TelegramWidget.safeAreaInset !== undefined (the profile stays 1)."
+    },
+    {
+      "id": "tw.surface",
+      "area": "sdk",
+      "title": "TelegramWidget.surface: 'message' (a bubble in a chat) or 'profile' (the bot's profile page), and --tg-viewport-height on a page: its whole area edge to edge",
+      "status": "in",
+      "decision": "P1-profile",
+      "today": "host",
+      "match": {
+        "apis": [
+          "TelegramWidget.surface"
+        ],
+        "properties": [
+          "--tg-viewport-height"
+        ]
+      },
+      "note": "One HTML for every place: a page reads it to lay itself out for the screen. A page has no chat (chatType null). --tg-viewport-height is not set in a bubble (a var() fallback applies there); vh stays out. Detect it with TelegramWidget.surface !== undefined (the profile stays 1; a client before it shows widgets in messages only)."
     },
     {
       "id": "tw.bot-data",
@@ -4255,6 +4290,24 @@
       "decision": "P1-safe-area",
       "today": "host",
       "note": "WidgetHost contentSafeArea / setContentSafeArea on every host; never per frame; the floating day pill has no contract and is drawn over the widget like over a photo."
+    },
+    {
+      "id": "behaviour.profile-page",
+      "area": "behaviour",
+      "title": "On a bot's profile page the widget is the width of the screen and as tall as its document: at least the viewport, at most the page ceiling (clipped hard above it), with no resize anchor; it scrolls with the profile; the native header (back, the name, the menu) and the Start / Open App button stay over it on their own backing, and taps on them are the client's",
+      "status": "in",
+      "decision": "P1-profile",
+      "today": "host",
+      "note": "The client passes context.surface 'profile', the device's edges (safeArea), its chrome inside them (contentSafeArea) and the viewport (viewportHeight) before the first render and changes them only with the screen's layout (a rotation, a window resized), never per frame; the header does not collapse as the page scrolls. The page ceiling (4000 px) is provisional."
+    },
+    {
+      "id": "behaviour.profile-start",
+      "area": "behaviour",
+      "title": "A profile page has no chat: chatType is null before Start and after it. Before Start the server sends no flags, so the widget has no requests, no viewer and no wallet. After Start it has the flags the server sends with the widget (requests on a tap and in the background). The client re-creates the widget whenever the server's widget changes, Start included, and keeps its storage, keyed by the account and the bot",
+      "status": "in",
+      "decision": "P1-profile",
+      "today": "host",
+      "note": "The server's whitelist decides only whether a page is shown before Start: a bot outside it shows the native profile until Start. The widget does not tell the phases apart by its context: the client passes the server's flags as they are."
     },
     {
       "id": "behaviour.data-edit",

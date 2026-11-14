@@ -16,7 +16,7 @@
 
 import { EVENT_TYPES, type CanvasCmd, type HostToRenderer, type Query, type RenderOp, type RendererToHost, type WidgetEvent } from '../shared/protocol';
 import { PROFILE_UA_STYLESHEET } from '../shared/profile-tables';
-import { THEME_VARIABLES, contentSafeAreaVariables, themeVariables } from '../shared/sdk-policy';
+import { THEME_VARIABLES, checkSurface, contentSafeAreaVariables, safeAreaVariables, themeVariables, viewportVariables, type WidgetSurface } from '../shared/sdk-policy';
 import { GestureArbiter, claimOf, type GestureClaim, type GestureVerdict, type PointerKind } from '../shared/gesture-policy';
 import { PaintCounter, animationPaint, boxPaint, boxShadowBlurred, boxShadowWithoutBlur, hidesSubtree, type BoxPaint, type PaintKeyframe, type PaintVerdict } from '../shared/paint-policy';
 import { AnimationState, applyAnims, cssAnimationList } from './web-animations';
@@ -1415,9 +1415,19 @@ function onMessage(msg: HostToRenderer) {
       break;
     case 'safeArea':
       // The UA layer's body padding follows the band; the size observers report the new height.
-      safeAreaVars = contentSafeAreaVariables(msg.inset);
-      applyThemeVariables();
-      paintEverything();
+      contentInset = msg.inset;
+      updatePlaceVariables();
+      break;
+    case 'deviceSafeArea':
+      deviceInset = msg.inset;
+      updatePlaceVariables();
+      break;
+    case 'surface':
+      // Where the widget is (a bubble or a profile page) and the page's viewport: the ranges of both safe-area layers
+      // and --tg-viewport-height follow it (docs/sdk-v1.md §2.19).
+      surface = checkSurface(msg.surface);
+      viewportHeight = msg.viewportHeight;
+      updatePlaceVariables();
       break;
     case 'policy': {
       // compat counts nothing (the stress kit's measuring runs); anything else is strict
@@ -1436,8 +1446,25 @@ function onMessage(msg: HostToRenderer) {
 // ───────────────────────── theme and safe-area variables (docs/sdk-v1.md §2.3, §2.4, §2.17, §3.4) ─────────────────────────
 
 let themeVars: Record<string, string> = {};
-/** The client's chrome over the widget (docs/sdk-v1.md §2.17): always set, 0 until the host says otherwise. */
-let safeAreaVars: Record<string, string> = contentSafeAreaVariables(null);
+/** Where the widget is shown (a bubble until the host says otherwise) and, on a profile page, its viewport. */
+let surface: WidgetSurface = 'message';
+let viewportHeight: unknown = 0;
+/** What the host passed for the device's edges and the client's chrome, checked against the place's ranges when applied. */
+let deviceInset: unknown = null;
+let contentInset: unknown = null;
+/** Both safe-area layers (docs/sdk-v1.md §2.17), always set, 0 until the host says otherwise; the viewport on a page. */
+let safeAreaVars: Record<string, string> = placeVariables();
+
+function placeVariables(): Record<string, string> {
+  return { ...safeAreaVariables(deviceInset, surface), ...contentSafeAreaVariables(contentInset, surface), ...viewportVariables(surface, viewportHeight) };
+}
+
+/** A safe-area layer, the place or the viewport changed: the root variables, and every box recomputed for the paint count. */
+function updatePlaceVariables() {
+  safeAreaVars = placeVariables();
+  applyThemeVariables();
+  paintEverything();
+}
 
 /** The host's variables, inline and important on the widget's root: no widget stylesheet or root style op overrides them. */
 function applyThemeVariables() {

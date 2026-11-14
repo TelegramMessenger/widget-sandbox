@@ -345,6 +345,55 @@ for (const shadow of [false, true]) {
     expect((await tw(page)).requests.map((r: any) => r.data)).toEqual(['hello']);
   });
 
+  test(`${renderer}: a profile page before Start has no flags, after Start requests in the background too, and never a chat type`, async ({ page }) => {
+    // The client passes a chat type: a page has no chat, the glue drops it.
+    await withContext(page, { message: 'profile-prestart', chatType: 'private', viewer: 1001 });
+    await page.evaluate(() => (window as any).__tw.bot.edit('sdk/profile.html', { chatData: 'mine', publicData: 'p' }));
+    let root = await open(page, REQUEST_WIDGET, 'sdk/profile.html');
+    await expect(root.locator('#data')).toHaveText('mine|p|false||');
+    await expect(root.locator('#out')).toHaveText('timer NOT_ALLOWED');
+    await root.locator('#b').click();
+    await expect(root.locator('#out')).toHaveText('err NOT_ALLOWED');
+    expect((await tw(page)).requests).toEqual([]);
+    // After Start: the server's flags, background requests included, the viewer known, still no chat type.
+    await withContext(page, { message: 'profile', chatType: 'private', viewer: 1001 });
+    root = await open(page, REQUEST_WIDGET, 'sdk/profile.html');
+    await expect(root.locator('#data')).toHaveText(/\|false\|\|1001$/);
+    // The timer's request goes out without a tap (and resolves, which the widget does not print).
+    await expect.poll(async () => (await tw(page)).requests.map((r: any) => r.data)).toEqual(['timer']);
+    await expect(root.locator('#out')).toHaveText('');
+  });
+
+  test(`${renderer}: a profile page has both safe-area layers, env() as their sum, the viewport and a page's height`, async ({ page }) => {
+    await page.goto('/?surface=profile' + (shadow ? '&shadow=1' : ''));
+    const root = await open(page, `<div id="e" style="width:env(safe-area-inset-top);height:4px"></div><p id="out"></p><script>
+      var T = TelegramWidget, s = getComputedStyle(document.documentElement);
+      document.getElementById('out').textContent = [T.surface, JSON.stringify(T.safeAreaInset), T.contentSafeAreaInset.top, T.contentSafeAreaInset.bottom,
+        s.getPropertyValue('--tg-viewport-height').trim(), getComputedStyle(document.body).paddingTop, getComputedStyle(document.body).paddingBottom].join(' ');
+      T.setResizeAnchor('bottom');
+    </script>`, 'sdk/profile-geometry.html');
+    // The dev app's reference page: device 47 / 34, chrome 56 / 64, 390 × 844.
+    await expect(root.locator('#out')).toHaveText('profile {"top":47,"right":0,"bottom":34,"left":0} 56 64 844px 103px 98px');
+    expect(await root.locator('#e').evaluate((e) => e.getBoundingClientRect().width)).toBe(103);
+    await page.waitForFunction(() => (window as any).__tw.state.height > 0);
+    const st = await tw(page);
+    expect(st.height).toBe(844);
+    expect(st.resizeAnchor).toBe('top');
+  });
+
+  test(`${renderer}: a profile page takes the client's insets as they are, past the old ranges, and no corners`, async ({ page }) => {
+    await page.goto('/?surface=profile' + (shadow ? '&shadow=1' : ''));
+    await page.evaluate(() => (window as any).__tw.setProfileLayers({
+      safeArea: { top: 120, right: 0, bottom: 34, left: 40 }, contentSafeArea: { top: 90, right: 0, bottom: 150, left: 0, cornerLeft: 0, cornerRight: 64 },
+    }));
+    const root = await open(page, `<div id="e" style="width:env(safe-area-inset-top);height:4px"></div><p id="out"></p><script>
+      var T = TelegramWidget, c = T.contentSafeAreaInset;
+      document.getElementById('out').textContent = [JSON.stringify(T.safeAreaInset), c.top, c.bottom, c.cornerRight, getComputedStyle(document.body).paddingBottom].join(' ');
+    </script>`, 'sdk/profile-insets.html');
+    await expect(root.locator('#out')).toHaveText('{"top":120,"right":0,"bottom":34,"left":40} 90 150 0 184px');
+    expect(await root.locator('#e').evaluate((e) => e.getBoundingClientRect().width)).toBe(210);
+  });
+
   test(`${renderer}: a preview (an inline result not sent yet) has its data but gets no tap, asks nothing and knows no viewer`, async ({ page }) => {
     await withContext(page, { message: 'preview', chatType: null, viewer: 1001 });
     await page.evaluate(() => (window as any).__tw.bot.edit('sdk/preview.html', { chatData: 'c', publicData: 'p' }));

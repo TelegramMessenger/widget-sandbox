@@ -144,6 +144,8 @@ async function post(api: Api, cfg: ReturnType<typeof loadConfig>, id: string, va
   for (const p of posts) {
     const m = p.message;
     if (m?.inline) { console.log(`${id}: an inline result: type the bot's username and conf-preview in any chat (the bot must be running)`); continue; }
+    // A bot's profile page (docs/sdk-v1.md §2.19): no Bot API call sets a bot's profile widget yet, so nothing to send.
+    if (m?.kind?.startsWith('profile')) { console.log(`${id}${p.variant ? ` (${p.variant})` : ''}: a bot's profile page (${m.kind}): no server call sets a bot's profile widget yet; open it through the client's own profile screen`); continue; }
     const chat = m?.chat === 'group' ? cfg.group || die('TW_BOT_GROUP is not set') : cfg.user || die('TW_BOT_USER is not set');
     const sent = await api('sendWidget', { chat_id: chat, ...sendFields(m, p) });
     console.log(`${id}${p.variant ? ` (${p.variant})` : ''}: message ${sent?.message_id} in ${chat}${m?.forward ? ': now forward it, the test looks at the forward' : ''}`);

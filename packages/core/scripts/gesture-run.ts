@@ -65,12 +65,12 @@ export interface RendererPage {
   close(): Promise<void>;
 }
 
-/** Opens the renderer core in a page `width` CSS px wide; `onMessage` gets each renderer → host message (parsed). */
-export async function openRenderer(width: number, onMessage: (msg: any) => void): Promise<RendererPage> {
+/** Opens the renderer core in a page `width` CSS px wide (and `height` tall, 900 by default: a profile page's viewport); `onMessage` gets each renderer → host message (parsed). */
+export async function openRenderer(width: number, height: number | undefined, onMessage: (msg: any) => void): Promise<RendererPage> {
   const { chromium } = await import('@playwright/test');
   const out = await build(rendererBuildOptions(root, 'webkit'));
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  const page = await browser.newPage({ viewport: { width, height: height ?? 900 } });
   page.on('pageerror', (e) => console.error('[renderer]', e.message));
   // The WKWebView transport: messages out through `webkit.messageHandlers.tw`, in through `__twReceive(json)`.
   await page.exposeFunction('__twOut', (json: string) => { try { onMessage(JSON.parse(json)); } catch {} });

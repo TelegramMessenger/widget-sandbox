@@ -175,3 +175,23 @@ section.grow { flex: 1; }
 .wallet-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 .wallet-buttons button { padding: 6px 14px; }
 #wallet-confirm { background: var(--accent); color: #fff; border: 0; border-radius: 6px; }
+
+/* Profile mode (?surface=profile): the bot's profile page full screen on a phone at the reference page's numbers
+   (REFERENCE_PROFILE in shared/reference.ts). The page scrolls inside the phone; the chrome stays over it. */
+.chat.profile-page { width: 390px; }
+.chat.profile-page .bubble { width: 390px; height: 844px; border-radius: 44px; box-shadow: 0 0 0 10px #1c1c1e, 0 6px 24px rgba(0,0,0,.25); margin: 10px; }
+.chat.profile-page .frame-wrap { height: 844px; overflow-y: auto; scrollbar-width: none; }
+.profile-chrome { position: absolute; inset: 0; pointer-events: none; z-index: 2; font: 15px/1.2 system-ui, sans-serif; color: var(--text, #000); }
+.profile-chrome.hidden { display: none; }
+.profile-status { position: absolute; top: 0; left: 0; right: 0; height: 47px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 8px; box-sizing: border-box; font-weight: 600; font-size: 15px; }
+.profile-header { position: absolute; top: 47px; left: 0; right: 0; height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 12px; box-sizing: border-box;
+  background: color-mix(in srgb, var(--bubble) 78%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.profile-back { font-size: 30px; line-height: 1; color: #3390ec; }
+.profile-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #6ec6ff, #3390ec); }
+.profile-name { font-weight: 600; }
+.profile-bottom { position: absolute; bottom: 34px; left: 0; right: 0; height: 64px; display: flex; align-items: center; padding: 0 16px; box-sizing: border-box;
+  background: color-mix(in srgb, var(--bubble) 78%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.profile-bottom button { pointer-events: auto; flex: 1; height: 46px; border: 0; border-radius: 12px; background: #3390ec; color: #fff; font: 600 16px system-ui, sans-serif; cursor: pointer; }
+.profile-bottom button[disabled] { cursor: default; opacity: .85; }
+.profile-home { position: absolute; bottom: 0; left: 0; right: 0; height: 34px; display: flex; align-items: center; justify-content: center; }
+.profile-home span { width: 134px; height: 5px; border-radius: 3px; background: currentColor; opacity: .85; }

@@ -101,6 +101,14 @@ public final class WidgetHost: SandboxEngineDelegate {
         /// the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
         /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
         public var contentSafeArea = WidgetContentSafeArea()
+        /// The device's edges over the widget (docs/sdk-v1.md §2.17): on a profile page (`context.surface`) the status bar
+        /// and the cutout, the home indicator, the sides in landscape; ignored (0) in a bubble. Pass it here, before the
+        /// first render; later only with the screen's layout (`setSafeArea`), never per frame. On a page `contentSafeArea`
+        /// is the native header over the top and the Start / Open App button over the bottom, measured inside this one.
+        public var safeArea = WidgetSafeArea()
+        /// On a profile page: the widget's whole area edge to edge, in points (the screen under the native header and
+        /// button included): `--tg-viewport-height`, and the page is never shorter. Ignored in a bubble. Later: `setViewportHeight`.
+        public var viewportHeight: Double = 0
         /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); over the quota it is dropped whole (`storage-rejected`).
         public var storage = WidgetStorage()
         /// The bot's `chatData` and `publicData` as the message has them now (docs/sdk-v1.md §2.13); later edits go through `setData`.
@@ -196,8 +204,9 @@ public final class WidgetHost: SandboxEngineDelegate {
     private var qid = 0
     private var pendingQuery: PendingQuery?
     private let queryLock = NSLock()
-    private let minHeight: CGFloat = 50
     private let maxHeight: CGFloat
+    /// A profile page's checked viewport (0 in a bubble), `setViewportHeight`.
+    private var viewportHeight: Double = 0
     private let createdAt = Date()
     private var opsSent = 0
     public private(set) var frameCount = 0
@@ -254,6 +263,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.themeParams = widgetTheme.params
         config.locale = options.locale
         config.contentSafeArea = options.contentSafeArea
+        config.safeArea = options.safeArea
         config.storage = options.storage
         config.data = options.data
         config.context = options.context
@@ -310,7 +320,11 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         // The theme variables go first, before the renderer can announce `ready` (a pooled one replays it when onMessage is set).
         toRenderer(widgetTheme.rendererMessage)
+        // The place first: it bounds both safe-area layers and sets a page's viewport.
+        viewportHeight = options.context.surface.checkViewportHeight(options.viewportHeight)
+        toRenderer(options.context.surface.rendererMessage(viewportHeight: viewportHeight))
         toRenderer(options.contentSafeArea.rendererMessage)
+        toRenderer(options.safeArea.rendererMessage)
         // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
         toRenderer("{\"type\":\"policy\",\"policy\":\"\(options.policy.rawValue)\"}")
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
@@ -402,6 +416,30 @@ public final class WidgetHost: SandboxEngineDelegate {
         config.contentSafeArea = area
         toRenderer(area.rendererMessage)
         engine.contentSafeArea(area)
+    }
+
+    /// The device's edges over the widget changed with the screen's layout (docs/sdk-v1.md §2.17): a rotation, a window
+    /// resized. The renderer gets the `--tg-safe-area-inset-*` variables and the widget `safeAreaInset` and
+    /// `safeAreaChanged`, from this one call; never per frame. Always 0 in a bubble.
+    public func setSafeArea(_ area: WidgetSafeArea) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.setSafeArea(area) }
+        }
+        guard !destroyed else { return }
+        config.safeArea = area
+        toRenderer(area.rendererMessage)
+        engine.safeArea(area)
+    }
+
+    /// A profile page's viewport changed with the screen's layout: `--tg-viewport-height`, and the page's least height.
+    /// Ignored in a bubble.
+    public func setViewportHeight(_ height: Double) {
+        guard executor.isCurrent else {
+            return executor.async { [weak self] in self?.setViewportHeight(height) }
+        }
+        guard !destroyed else { return }
+        viewportHeight = options.context.surface.checkViewportHeight(height)
+        toRenderer(options.context.surface.rendererMessage(viewportHeight: viewportHeight))
     }
 
     /// The bot's data changed (`updateMessageWidgetData`, or a new `public_data` from polling the shared object;
@@ -822,7 +860,8 @@ public final class WidgetHost: SandboxEngineDelegate {
             let binary = (msg["binaryBase64"] as? String).flatMap { Data(base64Encoded: $0) }
             resolveQuery(json: Self.json(msg["result"] ?? NSNull()), binary: binary)
         case "size":
-            let height = min(max(CGFloat((msg["height"] as? NSNumber)?.doubleValue ?? 0), minHeight), maxHeight)
+            // A bubble's height is the content's in [50, maximumHeight], a profile page's at least its viewport (WidgetSurface).
+            let height = CGFloat(options.context.surface.height(content: (msg["height"] as? NSNumber)?.doubleValue ?? 0, viewport: viewportHeight, bubbleMaximum: Double(maxHeight)))
             if state.firstContentMs == nil, opsSent > 0, (msg["painted"] as? Bool) != false {
                 state.firstContentMs = Date().timeIntervalSince(createdAt) * 1000
                 changed()

@@ -35,7 +35,8 @@
   "L1": "Strict limits from the start (2026-10-29): about twice what real widgets use; past a counted cap the widget stops (docs/decisions.md)",
   "L2": "Heavy boxes (Artem, 2026-11-02, after the client teams' stress-kit runs on five devices): at most 16 heavy boxes at once (a blurred box-shadow layer, a filter, a backdrop-filter, opacity below 1 but a disabled or pressed <button>'s, or a running animation of filter, backdrop-filter or opacity, or of box-shadow through a blurred layer), of them at most 2 with backdrop-filter; every renderer counts on the computed style (packages/core/src/shared/paint-policy.ts and its fixture) and past either the widget stops. A tightening of profile 1 (widgets were not launched yet), not profile 2",
   "P1-safe-area": "Clarified on 2026-10-29 (Artem; widgets were not launched yet), not profile 2: a client draws the message time and its status over the bottom corner of a widget with no caption below it, as on a photo (with a caption below the time is in the caption's line and nothing is drawn over the widget; a caption shown above the widget, invert_media, is as none: Artem's decision of 2026-10-30). env(safe-area-inset-top|right|bottom|left[, fallback]) is in: the validator rewrites it to var(--tg-content-safe-area-inset-…[, fallback]), root variables the renderer sets like the theme's (bottom = the height of the time's band, the others 0), with --tg-content-safe-area-corner-left|right for the width of the client's corner in that band (a physical side: right in a left-to-right interface, left in a right-to-left one); 0 with a caption below. Another env() name resolves to its fallback or drops the declaration. The UA layer adds the band to the body's bottom padding, and TelegramWidget.contentSafeAreaInset with the contentSafeAreaChanged event gives the same numbers to script",
-  "L3": "The nesting-depth cap (Artem, 2026-11-12, v0.6.5): at most 1024 levels of element nesting in the document; past it the widget stops (strict). The web renders through a shadow root in the host chat page with no per-widget iframe, where a renderer-process crash on extreme nesting (Chromium at ~1,650 nested elements, under the 2000-node cap) takes the whole chat page down; the validator rejects a too-deep document before any renderer lays it out, so one cap shields every client. A tightening of profile 1 (widgets were not launched yet), not profile 2"
+  "L3": "The nesting-depth cap (Artem, 2026-11-12, v0.6.5): at most 1024 levels of element nesting in the document; past it the widget stops (strict). The web renders through a shadow root in the host chat page with no per-widget iframe, where a renderer-process crash on extreme nesting (Chromium at ~1,650 nested elements, under the 2000-node cap) takes the whole chat page down; the validator rejects a too-deep document before any renderer lays it out, so one cap shields every client. A tightening of profile 1 (widgets were not launched yet), not profile 2",
+  "P1-profile": "Clarified on 2026-11-12 (Artem; the bot's profile page, not launched), not profile 2: the same widget (profile 1, SDK v1, the payload of a message) is also shown on a bot's profile page, one widget the width of the screen that scrolls with the profile and is as tall as its document: at least the viewport, at most the page ceiling (4000 px, provisional: the ceiling is an open question), clipped hard above it, with no resize anchor. context.surface says where (message or profile) and TelegramWidget.surface gives it to script. The geometry of each place is a fixed table (tables.surfaces), the same on every client and never a host option; the counted caps are those of a message. The safe area has two layers, as in Mini Apps: the device's edges (--tg-safe-area-inset-*, TelegramWidget.safeAreaInset and safeAreaChanged; always 0 in a bubble) and the client's chrome measured inside them (--tg-content-safe-area-inset-*, contentSafeAreaInset: the time's band in a bubble, the native header and the Start button on a page, with no corners there). On a page every side of both layers is the client's value as it is, any finite number ≥ 0 with no upper bound (2026-11-14: a large system font, a foldable, Split View), and a bubble keeps the ranges of P1-safe-area. env(safe-area-inset-top|right|bottom|left[, fallback]) is their sum, calc(var(--tg-safe-area-inset-…, 0px) + var(--tg-content-safe-area-inset-…[, fallback])), so a bubble draws as before, and the UA layer pads the body by the sum on all four sides. --tg-viewport-height is the page's whole area edge to edge (vh stays out). A page has no chat (chatType null) and the client passes the server's flags as they are (2026-11-14): none before Start (no requests, no viewer, no wallet), requests on a tap and in the background after it. The client re-creates the widget whenever the server's widget changes, Start included, and keeps its storage"
  },
  "tables": {
   "html": {
@@ -843,7 +844,56 @@
     "prefers-reduced-motion"
    ]
   },
-  "uaStylesheet": "@layer tw-ua{:where(html){color:var(--tg-theme-text-color);font:var(--tg-text-font-size,15px)/var(--tg-text-line-height,1.35) system-ui,sans-serif;-webkit-text-size-adjust:none;text-size-adjust:none;overflow-wrap:break-word;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}:where(body){margin:var(--tg-text-padding,8px 12px);padding:0;padding-bottom:var(--tg-content-safe-area-inset-bottom,0px)}:where(h1,h2,h3,h4,h5,h6){margin:.75em 0 .35em;font-weight:600;line-height:1.25}:where(h1){font-size:1.6em}:where(h2){font-size:1.35em}:where(h3){font-size:1.2em}:where(h4){font-size:1.07em}:where(h5){font-size:1em}:where(h6){font-size:.87em}:where(p,ul,ol,menu,dl,pre,blockquote,figure,table){margin:.6em 0}:where(ul,ol,menu){padding:0 0 0 1.5em;padding-inline-start:1.5em;padding-inline-end:0}:where(ul,menu){list-style-type:disc}:where(ol){list-style-type:decimal}:where(li ul,li menu){list-style-type:circle}:where(li ul,li ol,li menu,li dl){margin:0}:where(dt){font-weight:600}:where(dd){margin:0 0 0 1.5em;margin-inline-start:1.5em;margin-inline-end:0}:where(table){border-collapse:collapse;border-spacing:0}:where(caption){padding:0 0 .3em;color:var(--tg-theme-hint-color);font-size:.87em;text-align:left;text-align:start}:where(th,td){padding:.3em .6em;border-bottom:1px solid var(--tg-theme-section-separator-color);text-align:left;text-align:start;vertical-align:top}:where(th){font-weight:600}:where(th:last-child,td:last-child){padding-right:0;padding-inline-end:0;padding-inline-start:.6em}:where(th:first-child,td:first-child){padding-left:0;padding-inline-start:0;padding-inline-end:.6em}:where(hr){height:0;margin:.6em 0;border:0;border-top:1px solid var(--tg-theme-section-separator-color)}:where(pre,code,kbd,samp){font-family:ui-monospace,monospace;font-size:.9em}:where(pre code,pre kbd,pre samp){font-size:1em}:where(pre){padding:.5em .7em;border-radius:6px;background:rgba(128,128,128,.12);white-space:pre-wrap}:where(blockquote){padding:0 0 0 .75em;padding-inline-start:.75em;padding-inline-end:0;border-left:3px solid var(--tg-theme-accent-text-color);border-inline-start:3px solid var(--tg-theme-accent-text-color);border-inline-end:0}:where(figcaption){margin:.3em 0 0;color:var(--tg-theme-hint-color);font-size:.87em}:where(img){max-width:100%}:where(a[href]){color:var(--tg-theme-link-color);text-decoration:none}:where(b,strong){font-weight:600}:where(i,em,cite,dfn,var){font-style:italic}:where(small){font-size:.85em}:where(sub,sup){position:relative;font-size:.75em;line-height:0;vertical-align:baseline}:where(sup){top:-.5em}:where(sub){bottom:-.25em}:where(mark){background:rgba(255,204,0,.4);color:inherit}:where(body>:first-child){margin-top:0}:where(body>:last-child){margin-bottom:0}:where(button){appearance:none;-webkit-appearance:none;margin:0;border:0;border-radius:var(--tg-button-radius,8px);padding:var(--tg-button-padding,8px 14px);min-height:var(--tg-button-height,auto);font:var(--tg-button-font,500 14px/1.2 system-ui,sans-serif);background:var(--tg-button-bg,rgba(51,144,236,.12));color:var(--tg-button-text,inherit);cursor:pointer;-webkit-tap-highlight-color:transparent}:where(button:not([disabled])):active{opacity:var(--tg-button-pressed-opacity,.7)}:where(button[disabled]){opacity:var(--tg-button-disabled-opacity,.5);cursor:default}}"
+  "uaStylesheet": "@layer tw-ua{:where(html){color:var(--tg-theme-text-color);font:var(--tg-text-font-size,15px)/var(--tg-text-line-height,1.35) system-ui,sans-serif;-webkit-text-size-adjust:none;text-size-adjust:none;overflow-wrap:break-word;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}:where(body){margin:var(--tg-text-padding,8px 12px);padding:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px)) calc(var(--tg-safe-area-inset-right,0px) + var(--tg-content-safe-area-inset-right,0px)) calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,0px)) calc(var(--tg-safe-area-inset-left,0px) + var(--tg-content-safe-area-inset-left,0px))}:where(h1,h2,h3,h4,h5,h6){margin:.75em 0 .35em;font-weight:600;line-height:1.25}:where(h1){font-size:1.6em}:where(h2){font-size:1.35em}:where(h3){font-size:1.2em}:where(h4){font-size:1.07em}:where(h5){font-size:1em}:where(h6){font-size:.87em}:where(p,ul,ol,menu,dl,pre,blockquote,figure,table){margin:.6em 0}:where(ul,ol,menu){padding:0 0 0 1.5em;padding-inline-start:1.5em;padding-inline-end:0}:where(ul,menu){list-style-type:disc}:where(ol){list-style-type:decimal}:where(li ul,li menu){list-style-type:circle}:where(li ul,li ol,li menu,li dl){margin:0}:where(dt){font-weight:600}:where(dd){margin:0 0 0 1.5em;margin-inline-start:1.5em;margin-inline-end:0}:where(table){border-collapse:collapse;border-spacing:0}:where(caption){padding:0 0 .3em;color:var(--tg-theme-hint-color);font-size:.87em;text-align:left;text-align:start}:where(th,td){padding:.3em .6em;border-bottom:1px solid var(--tg-theme-section-separator-color);text-align:left;text-align:start;vertical-align:top}:where(th){font-weight:600}:where(th:last-child,td:last-child){padding-right:0;padding-inline-end:0;padding-inline-start:.6em}:where(th:first-child,td:first-child){padding-left:0;padding-inline-start:0;padding-inline-end:.6em}:where(hr){height:0;margin:.6em 0;border:0;border-top:1px solid var(--tg-theme-section-separator-color)}:where(pre,code,kbd,samp){font-family:ui-monospace,monospace;font-size:.9em}:where(pre code,pre kbd,pre samp){font-size:1em}:where(pre){padding:.5em .7em;border-radius:6px;background:rgba(128,128,128,.12);white-space:pre-wrap}:where(blockquote){padding:0 0 0 .75em;padding-inline-start:.75em;padding-inline-end:0;border-left:3px solid var(--tg-theme-accent-text-color);border-inline-start:3px solid var(--tg-theme-accent-text-color);border-inline-end:0}:where(figcaption){margin:.3em 0 0;color:var(--tg-theme-hint-color);font-size:.87em}:where(img){max-width:100%}:where(a[href]){color:var(--tg-theme-link-color);text-decoration:none}:where(b,strong){font-weight:600}:where(i,em,cite,dfn,var){font-style:italic}:where(small){font-size:.85em}:where(sub,sup){position:relative;font-size:.75em;line-height:0;vertical-align:baseline}:where(sup){top:-.5em}:where(sub){bottom:-.25em}:where(mark){background:rgba(255,204,0,.4);color:inherit}:where(body>:first-child){margin-top:0}:where(body>:last-child){margin-bottom:0}:where(button){appearance:none;-webkit-appearance:none;margin:0;border:0;border-radius:var(--tg-button-radius,8px);padding:var(--tg-button-padding,8px 14px);min-height:var(--tg-button-height,auto);font:var(--tg-button-font,500 14px/1.2 system-ui,sans-serif);background:var(--tg-button-bg,rgba(51,144,236,.12));color:var(--tg-button-text,inherit);cursor:pointer;-webkit-tap-highlight-color:transparent}:where(button:not([disabled])):active{opacity:var(--tg-button-pressed-opacity,.7)}:where(button[disabled]){opacity:var(--tg-button-disabled-opacity,.5);cursor:default}}",
+  "surfaces": {
+   "message": {
+    "height": {
+     "min": 50,
+     "max": 600
+    },
+    "viewport": false,
+    "resizeAnchor": true,
+    "safeArea": {
+     "top": 0,
+     "right": 0,
+     "bottom": 0,
+     "left": 0
+    },
+    "contentSafeArea": {
+     "top": 64,
+     "right": 64,
+     "bottom": 64,
+     "left": 64,
+     "cornerLeft": 200,
+     "cornerRight": 200
+    }
+   },
+   "profile": {
+    "height": {
+     "min": 50,
+     "max": 4000
+    },
+    "viewport": true,
+    "resizeAnchor": false,
+    "safeArea": {
+     "top": null,
+     "right": null,
+     "bottom": null,
+     "left": null
+    },
+    "contentSafeArea": {
+     "top": null,
+     "right": null,
+     "bottom": null,
+     "left": null,
+     "cornerLeft": 0,
+     "cornerRight": 0
+    },
+    "provisional": [
+     "height.max"
+    ]
+   }
+  }
  },
  "features": [
   {
@@ -2795,7 +2845,7 @@
    "title": "env() (safe-area-inset-*, …)",
    "status": "in",
    "decision": "P1-safe-area",
-   "note": "env(safe-area-inset-top|right|bottom|left[, fallback]) is the client's chrome over the widget (the message time over the bottom corner of a widget with no caption below it): the validator rewrites it to var(--tg-content-safe-area-inset-…[, fallback]), a root variable the renderer sets; another name resolves to its fallback, or the declaration is dropped without one; never inside url().",
+   "note": "env(safe-area-inset-top|right|bottom|left[, fallback]) is the sum of the two safe-area layers, the device's edges and the client's chrome over the widget (in a bubble the message time over the bottom corner of a widget with no caption below it; on a profile page the screen's edges, the native header and the Start button): the validator rewrites it to calc(var(--tg-safe-area-inset-…, 0px) + var(--tg-content-safe-area-inset-…[, fallback])), root variables the renderer sets (a unitless 0 fallback becomes 0px); another name resolves to its fallback, or the declaration is dropped without one; never inside url().",
    "match": {
     "functions": [
      "env"
@@ -4242,13 +4292,45 @@
    "title": "TelegramWidget.contentSafeAreaInset { top, right, bottom, left, cornerLeft, cornerRight } (logical px, frozen, a fresh object per change) and contentSafeAreaChanged, with the --tg-content-safe-area-inset-* / -corner-left|right variables on the root, updated in one task",
    "status": "in",
    "decision": "P1-safe-area",
-   "note": "bottom is the height of the band the client draws the message time in over a widget with no caption below it; cornerRight (left-to-right interface) or cornerLeft (right-to-left) the width of its corner in that band; 0 with a caption below. Detect it with TelegramWidget.contentSafeAreaInset !== undefined (the profile stays 1).",
+   "note": "In a bubble bottom is the height of the band the client draws the message time in over a widget with no caption below it; cornerRight (left-to-right interface) or cornerLeft (right-to-left) the width of its corner in that band; 0 with a caption below. On a profile page top is the native header and bottom the Start / Open App button, measured inside the device's edges (safeAreaInset); no corners. Detect it with TelegramWidget.contentSafeAreaInset !== undefined (the profile stays 1).",
    "match": {
     "apis": [
      "TelegramWidget.contentSafeAreaInset"
     ],
     "properties": [
      "--tg-content-safe-area-*"
+    ]
+   }
+  },
+  {
+   "id": "tw.safe-area",
+   "area": "sdk",
+   "title": "TelegramWidget.safeAreaInset { top, right, bottom, left } (logical px, frozen, a fresh object per change) and safeAreaChanged, with the --tg-safe-area-inset-* variables on the root, updated in one task: the device's edges",
+   "status": "in",
+   "decision": "P1-profile",
+   "note": "The notch or the camera cutout, the status bar, the home indicator, the Android navigation bar, the sides in landscape, as Mini Apps' safeAreaInset; always 0 in a bubble. env(safe-area-inset-*) is this plus contentSafeAreaInset. Detect it with TelegramWidget.safeAreaInset !== undefined (the profile stays 1).",
+   "match": {
+    "apis": [
+     "TelegramWidget.safeAreaInset"
+    ],
+    "properties": [
+     "--tg-safe-area-*"
+    ]
+   }
+  },
+  {
+   "id": "tw.surface",
+   "area": "sdk",
+   "title": "TelegramWidget.surface: 'message' (a bubble in a chat) or 'profile' (the bot's profile page), and --tg-viewport-height on a page: its whole area edge to edge",
+   "status": "in",
+   "decision": "P1-profile",
+   "note": "One HTML for every place: a page reads it to lay itself out for the screen. A page has no chat (chatType null). --tg-viewport-height is not set in a bubble (a var() fallback applies there); vh stays out. Detect it with TelegramWidget.surface !== undefined (the profile stays 1; a client before it shows widgets in messages only).",
+   "match": {
+    "apis": [
+     "TelegramWidget.surface"
+    ],
+    "properties": [
+     "--tg-viewport-height"
     ]
    }
   },
@@ -4796,6 +4878,22 @@
    "status": "in",
    "decision": "P1-safe-area",
    "note": "WidgetHost contentSafeArea / setContentSafeArea on every host; never per frame; the floating day pill has no contract and is drawn over the widget like over a photo."
+  },
+  {
+   "id": "behaviour.profile-page",
+   "area": "behaviour",
+   "title": "On a bot's profile page the widget is the width of the screen and as tall as its document: at least the viewport, at most the page ceiling (clipped hard above it), with no resize anchor; it scrolls with the profile; the native header (back, the name, the menu) and the Start / Open App button stay over it on their own backing, and taps on them are the client's",
+   "status": "in",
+   "decision": "P1-profile",
+   "note": "The client passes context.surface 'profile', the device's edges (safeArea), its chrome inside them (contentSafeArea) and the viewport (viewportHeight) before the first render and changes them only with the screen's layout (a rotation, a window resized), never per frame; the header does not collapse as the page scrolls. The page ceiling (4000 px) is provisional."
+  },
+  {
+   "id": "behaviour.profile-start",
+   "area": "behaviour",
+   "title": "A profile page has no chat: chatType is null before Start and after it. Before Start the server sends no flags, so the widget has no requests, no viewer and no wallet. After Start it has the flags the server sends with the widget (requests on a tap and in the background). The client re-creates the widget whenever the server's widget changes, Start included, and keeps its storage, keyed by the account and the bot",
+   "status": "in",
+   "decision": "P1-profile",
+   "note": "The server's whitelist decides only whether a page is shown before Start: a bot outside it shows the native profile until Start. The widget does not tell the phases apart by its context: the client passes the server's flags as they are."
   },
   {
    "id": "behaviour.resize-anchor",

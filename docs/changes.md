@@ -3,6 +3,58 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: the bot's profile page
+
+The framework side of the bot's profile page (`docs/sdk-v1.md` §2.17, §2.19, §5.15; `docs/decisions.md`, "The bot's
+profile page"; a clarification of profile 1, `P1-profile`). The same widget, one HTML with the payload of a message, is
+shown full screen on a bot's profile page, before and after Start. The server's call that sets a bot's profile widget,
+the whitelist and the clients' screens are not part of it. It is an
+addition to SDK v1, like the widget's state, the safe area and the wallet, so `VERSION.json`'s `sdk` stays 1. A
+client that shows widgets only in messages passes nothing new and keeps v0.6.5's layout and behaviour.
+
+- **Where the widget is.** `context.surface` (`'message'` by default, or `'profile'`) on every host, and
+  `TelegramWidget.surface` in the shim. The geometry of each place is a fixed table, `tables.surfaces` in
+  `profile.json` (`PROFILE_SURFACES`): a bubble is 50–600 px tall, a page at least the viewport and at most the page
+  ceiling of 4000 px (provisional), with no width cap. Every host reports a page's height in those bounds and ignores
+  the resize anchor there (the shim checks the call and drops it, and the native engines drop it too). The counted caps
+  are unchanged.
+- **The device's edges, a second safe-area layer.** `--tg-safe-area-inset-top|right|bottom|left` on the root,
+  `TelegramWidget.safeAreaInset` and the event `safeAreaChanged`, `safeArea` at creation and `setSafeArea` on every
+  host. Always 0 in a bubble. The content layer (`contentSafeArea`) is the client's chrome inside them: the time's band
+  in a bubble as before, the native header and the Start button on a page, with no corners there. On a page every side
+  of both layers is the client's value as it is, any finite number ≥ 0 with no upper bound (a large system font, a
+  foldable, Split View), and only NaN, an infinite, a negative or a non-number is 0. A bubble keeps v0.4.0's ranges.
+- **`env(safe-area-inset-*)` is the sum.** The validator (`css-sanitizer.ts`, also the Swift `NativeValidator`'s
+  oracle) rewrites it to `calc(var(--tg-safe-area-inset-…, 0px) + var(--tg-content-safe-area-inset-…[, fallback]))`. A
+  unitless `0` fallback becomes `0px`. In a bubble the first term is 0, so widgets draw as before.
+- **The UA layer** pads the body by the sum on all four sides (before: the band at the bottom).
+- **`--tg-viewport-height`** on a page: its whole area edge to edge, from the host's `viewportHeight` (0 < h ≤ 4000).
+  Not set in a bubble.
+- **Before and after Start, with no new SDK member.** The client passes the server's flags for the page as they are:
+  none before Start (no requests, and so no viewer and no wallet), requests on a tap and in the background after it.
+  A page is in no chat: every host gives the widget no `chatType` there, whatever the client passes, as in a copy and
+  a preview, and the shim drops one too. `WIDGET_MESSAGE_KINDS` gains `profile-prestart` and `profile` for the tooling.
+  `sdk-policy.ts`, its three twins and the fixture are unchanged. Storage is the client's, keyed by (account, bot) on
+  a page.
+- **Hosts.** Web `WidgetHostOptions.context.surface`, `safeArea`, `viewportHeight`, `setSafeArea`,
+  `setViewportHeight`, `safeArea`, `surface`. Swift `WidgetContext.surface` (`WidgetSurface`),
+  `WidgetHost.Options.safeArea` (`WidgetSafeArea`), `viewportHeight`, `setSafeArea(_:)`, `setViewportHeight(_:)`. Kotlin
+  `WidgetContext.surface`, `WidgetHost.Options.safeArea`, `viewportHeight`, `setSafeArea`, `setViewportHeight`. C++
+  `WidgetContext::surface`, `WidgetHostOptions::safeArea`, `viewportHeight`, `WidgetHost::setSafeArea`,
+  `setViewportHeight`. New messages: the renderer's `surface` and `deviceSafeArea`, the shim's `deviceSafeArea`
+  dispatch, the boot fields `surface` and `deviceSafeArea` (`docs/protocol.md`).
+- **Tooling.** The Node harness's `--surface profile`, `--viewport-height` and `--safe-area` by name with both layers
+  (`device-top=47,top=56,…`), and `--message profile-prestart|profile`. The dev app's
+  `?surface=profile` (the **place** select): a phone frame with the status bar, the native header, the Start button and
+  the home indicator over the page, the reference page's numbers (`REFERENCE_PROFILE`: 390 × 844, device 47 / 34,
+  chrome 56 / 64), and the phase from the Bot panel's message kind. Reference mode draws the page with the same numbers.
+- **Conformance.** `auto/46-profile-safe-area` (both layers, the env() sum, the UA padding), `auto/47-profile-page-height`
+  (`--tg-viewport-height`, a hero of the viewport's height, the resize anchor ignored) and `auto/48-profile-before-start`
+  (no chatType, viewer, request or wallet). A profile case says `"surface": "profile"` in its header with a profile
+  message kind. Its height gate is the page's (4000 px at 390 px wide), and the test bot cannot post it.
+- **Not done here.** The stress kit at screen size (a page's paint and layout cost) was skipped: the page has the
+  counted caps of a message, so the kit's ladders apply as they are. Telegram's clients have not built the screen.
+
 ## v0.6.5 — release notes (2026-11-12)
 
 Default, every host. A validator cap on how deeply a widget's elements may nest, with the deep-document fix that lets a

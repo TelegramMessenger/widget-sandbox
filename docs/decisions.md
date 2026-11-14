@@ -2354,3 +2354,60 @@ scroll would need a theme update per frame. Painting the bubble in `bg_color` ma
 without an edge; the bubble's other parts (the header, the caption, the reactions, the time) sit on that colour, and a
 selected bubble gets the theme's selection overlay over it. Incoming bubbles have one colour already; a translucent
 fill keeps the old rule (the colour the widget's area shows most).
+
+## The bot's profile page (2026-11-12)
+
+The design talk with Artem of 2026-11-11 (`P1-profile` in `profile.json`; `docs/sdk-v1.md` §2.17, §2.19, §5.15): a bot
+can show a widget full screen on its profile page, before and after the user presses Start. The framework side is
+here. The server's call that sets a bot's profile widget, the whitelist and the clients' screens are not.
+
+**The same widget, another place.** One HTML, the payload of a message (4 KB after zlib, 32 KB uncompressed), profile
+1 and SDK v1 with the same counted caps. A second kind of widget (a profile-only format, other limits) would split
+the authors' guide and every client's renderer for one screen. The host is told where it is (`context.surface`,
+`message` or `profile`) and the widget reads it as `TelegramWidget.surface`. The geometry of each place is a fixed
+table in `profile.json` (`tables.surfaces`), the same on every client and never a host option: in a bubble 50–600 px
+tall with the content layer's ranges of v0.4.0, on a page at least the viewport and at most the page ceiling, 4000 px.
+The ceiling is provisional (the open question of the talk: one number for a page that should not grow without end and
+still fit a long one). There is no width cap: the page is the screen's width.
+
+**Two safe-area layers, as in Mini Apps.** A page reaches the screen's edges, so it has the device's insets (the notch,
+the status bar, the home indicator, the navigation bar) under the client's own chrome (the native header and the Start
+button). Mini Apps already split them as `safeAreaInset` and `contentSafeAreaInset`, measured one inside the other, and
+models know the names. The device layer is new (`--tg-safe-area-inset-*`, `TelegramWidget.safeAreaInset`,
+`safeAreaChanged`, `setSafeArea` on every host) and always 0 in a bubble. The content layer keeps its names and means
+the chrome in both places: the time's band in a bubble, the header and the button on a page, with no corners there.
+`env(safe-area-inset-*)` means "keep this clear" and is the sum of both: the validator rewrites it to
+`calc(var(--tg-safe-area-inset-…, 0px) + var(--tg-content-safe-area-inset-…[, fallback]))`, so a bubble (where the first
+term is 0) draws exactly as before, and the UA layer pads the body by the sum on all four sides. A unitless `0` fallback
+becomes `0px`, which a sum needs. A page has no ranges (Artem, 2026-11-14): every side of both layers is the client's
+value as it is, any finite number ≥ 0, and only NaN, an infinite, a negative or a non-number is 0. The client is trusted
+code, and its header and Start button grow with a large system font, a foldable or Split View: the first proposal (the
+device top, left and right 0–80 px and bottom 0–64 px, the header 0–64 px and the button 0–96 px, a value outside them
+0) put the content under the header exactly there. The page's corners stay 0 (they are the time's corner of a bubble),
+a bubble keeps v0.4.0's ranges with the device layer 0, and `viewportHeight` keeps its bound (0 < h ≤ 4000, the page
+ceiling).
+
+**The page's height.** A page is at least the viewport tall, so a widget that fills the screen needs no script, and
+`--tg-viewport-height` gives the whole area edge to edge for a hero that should fill it. `vh` stays out of the profile
+(it would mean the bubble's height in a message, a different value on every client). The resize anchor has no meaning on
+a page, which grows downward from its top: the call is checked and does nothing.
+
+**Before and after Start, with no new member** (Artem, 2026-11-14). The client passes the flags of the server's
+`bot_profile_widget` as they are, and the widget reads them as in a message. Before Start there is no `can_query`, so
+the widget has no requests, and the glue's rules of a message take the viewer and the wallet away with them. The
+whitelist decides only whether the page is shown before Start. After Start the server sends `can_query` and
+`background_query` (the widget is set only through BotFather, with `allow_queries` always true for now). A page is in
+no chat, before Start or after it: every host gives the widget no `chatType` there, whatever the client passes, as in a
+copy and a preview, and the shim drops one too. So the widget does not tell the phases apart by its context. The
+widget has no HTML version: the client gets the current one each time the profile opens and re-creates the host
+whenever `bot_profile_widget` changes (its payload or its flags, Start included). The checks are those of
+`sdk-policy.ts` and its three twins, unchanged (`WIDGET_MESSAGE_KINDS` has the two phases for the tooling). Storage is
+the client's, keyed by (account, bot) on a page: nothing in the framework names a message id. The first design
+(2026-11-12) gave the page a forward's flags before Start, with requests on a tap for a bot the server allowed them,
+and `chatType` `'private'` after Start. Artem replaced it on 2026-11-14.
+
+**A clarification of profile 1, an addition to SDK v1.** Like `P1-safe-area`, before any page launched:
+`TelegramWidget.profile` stays 1 and `VERSION.json`'s `sdk` stays 1, as for the widget's state, the safe area and the
+wallet. A widget detects them by presence (`TelegramWidget.surface !== undefined`). A client that shows widgets only in messages
+passes nothing and keeps v0.6.5's layout and behaviour, except that `env()` and the body's padding are now written as
+sums whose first term is 0.
