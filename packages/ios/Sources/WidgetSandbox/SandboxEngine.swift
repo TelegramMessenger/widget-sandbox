@@ -1259,7 +1259,8 @@ public final class SandboxEngine {
     }
 
     /// One of our own bundles: the precompiled `.qbc` when shipped and matching the source,
-    /// else the source. Returns "bytecode" or "source" for the diag.
+    /// else the code compiled once for the process (Nova), else the source. Returns "bytecode", "compiled once" or
+    /// "source" for the diag.
     private func evalBundle(_ source: String, bytecode: Data?, filename: String) -> String {
         // Bundles of another release are refused before anything runs, as a stale `.qbc` is (BundleStamp.swift).
         // A prewarm that fails is retried by start(), which reports it.
@@ -1276,12 +1277,11 @@ public final class SandboxEngine {
             }
         }
         do {
-            try js.evaluate(source, filename: filename)
+            return try js.evaluateBundle(source, filename: filename) ? "compiled once" : "source"
         } catch {
             handleError(error, where: filename)
             return "failed"
         }
-        return "source"
     }
 
     private func evalScript(_ code: String, filename: String, asModule: Bool = false) {

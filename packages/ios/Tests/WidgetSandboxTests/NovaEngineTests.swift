@@ -191,6 +191,48 @@ final class NovaEngineTests: XCTestCase {
         }
     }
 
+    /// Each bundle is compiled once for the process and every Nova engine evaluates that shared code: the same globals as
+    /// evaluating the source, in any number of engines, on any thread.
+    func testTheBundlesRunFromCodeCompiledOnce() throws {
+        let r = SandboxResources.shared
+        for (name, source) in [("sandbox-bundle.js", r.sandboxBundle), ("validator-bundle.js", r.validatorBundle)] {
+            var answers: [String] = []
+            let lock = NSLock()
+            let group = DispatchGroup()
+            for _ in 0..<3 {
+                group.enter()
+                let thread = JSThread(name: "compiled-bundle")
+                thread.async {
+                    defer { group.leave() }
+                    guard let js = try? self.context(.nova, memory: 256 << 20) else { return }
+                    js.registerFunction("__host") { _ in .undefined }
+                    js.registerFunction("__hostBinary") { _ in .null }
+                    js.registerFunction("__twNode") { _ in .string("") }
+                    js.registerFunction("__diag") { _ in .undefined }
+                    let shared = (try? js.evaluateBundle(source, filename: name)) ?? false
+                    let globals = (try? js.evaluate("typeof __twDispatch + typeof __twValidator + typeof atob", filename: "t.js").string) ?? "threw"
+                    lock.lock()
+                    answers.append("\(shared) \(globals ?? "nil")")
+                    lock.unlock()
+                }
+            }
+            XCTAssertEqual(group.wait(timeout: .now() + 60), .success)
+            let expected = name.hasPrefix("sandbox") ? "true functionundefinedfunction" : "true undefinedobjectfunction"
+            XCTAssertEqual(answers, Array(repeating: expected, count: 3), name)
+        }
+        XCTAssertGreaterThanOrEqual(NovaCompiledBundles.shared.compiledCount, 2)
+    }
+
+    func testABundleThatDoesNotCompileIsEvaluatedFromItsSource() throws {
+        let js = try context(.nova)
+        XCTAssertNil(NovaCompiledBundles.shared.script(for: "var x = ;", filename: "broken-bundle.js"))
+        XCTAssertThrowsError(try js.evaluateBundle("var x = ;", filename: "broken-bundle.js")) { error in
+            XCTAssertTrue("\(error)".contains("SyntaxError"), "\(error)")
+        }
+        XCTAssertTrue(try js.evaluateBundle("globalThis.fromBundle = 'yes'", filename: "small-bundle.js"))
+        XCTAssertEqual(try js.evaluate("globalThis.fromBundle", filename: "t.js").string, "yes")
+    }
+
     func testCpuDeadlineInterruptsTheEngine() throws {
         try XCTSkipUnless(QuickJSBackend.isNovaAvailable)
         let js = try context(.nova)
@@ -321,7 +363,7 @@ final class NovaEngineTests: XCTestCase {
             XCTAssertTrue(novaMessages.joined().contains("sum 6 {\\\"ok\\\":true}"), "features \(features.sorted())")
             XCTAssertTrue(nova.diags["engine"]?.details.first?.hasPrefix("nova_embed ") == true, String(describing: nova.diags["engine"]))
             XCTAssertNil(native.diags["engine"])
-            XCTAssertTrue(nova.diags["boot"]?.details.first?.contains("(source") == true, String(describing: nova.diags["boot"]))
+            XCTAssertTrue(nova.diags["boot"]?.details.first?.contains("(compiled once") == true, String(describing: nova.diags["boot"]))
             XCTAssertNil(nova.diags["bytecode"], "no fallback diag: Nova never tries the .qbc")
         }
     }

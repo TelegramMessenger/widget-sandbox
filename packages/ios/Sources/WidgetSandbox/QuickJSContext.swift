@@ -77,6 +77,13 @@ public enum QuickJSBackend: String {
     var runsBytecode: Bool { self != .nova }
 }
 
+extension QuickJSEngine {
+    func evaluateBundle(_ source: String, filename: String) throws -> Bool {
+        try evaluate(source, filename: filename, asModule: false)
+        return false
+    }
+}
+
 /// What `QuickJSContext` needs from an engine. Internal: the rest of the package sees `QuickJSContext` only.
 protocol QuickJSEngine: AnyObject {
     var deadline: TimeInterval { get set }
@@ -91,6 +98,9 @@ protocol QuickJSEngine: AnyObject {
     func registerWordsFunction(_ name: String, _ handler: @escaping (Double, UnsafeBufferPointer<Double>, String) -> Void)
     func registerOpsFunction(_ name: String, _ handler: @escaping (UnsafeBufferPointer<Int32>, UnsafeBufferPointer<UInt8>) -> Void)
     func evaluate(_ code: String, filename: String, asModule: Bool) throws -> JSResult
+    /// One of our own bundles as a global script; true when it ran from code compiled once for the process and shared
+    /// by every engine (Nova), false when it was evaluated from its source.
+    func evaluateBundle(_ source: String, filename: String) throws -> Bool
     func evaluateBytecode(_ blob: Data, source: String) throws -> JSResult
     func compileBytecode(_ code: String, filename: String) throws -> Data
     func captureGlobalFunction(_ name: String) -> Bool
@@ -223,6 +233,13 @@ public final class QuickJSContext {
     @discardableResult
     public func evaluate(_ code: String, filename: String, asModule: Bool = false) throws -> JSResult {
         try engine.evaluate(code, filename: filename, asModule: asModule)
+    }
+
+    /// Runs one of our own bundles, never widget code: on Nova from code compiled once for the process and shared by
+    /// every engine (the first engine compiles it), elsewhere from its source. True when it ran from the shared code.
+    @discardableResult
+    func evaluateBundle(_ source: String, filename: String) throws -> Bool {
+        try engine.evaluateBundle(source, filename: filename)
     }
 
     /// Runs one of our own precompiled bundles (`.qbc`, see qjs_shim.h), checked
