@@ -31,6 +31,12 @@ public protocol Renderer: AnyObject {
     func destroy()
 }
 
+/// A renderer that parses its messages off the main thread (one in another process): the host takes the parsed
+/// message from `onParsedMessage` and parses nothing on the main thread. Its `onMessage` still works for others.
+public protocol ParsedMessageRenderer: AnyObject {
+    var onParsedMessage: (([String: Any]) -> Void)? { get set }
+}
+
 public protocol TaskRenderer: AnyObject {
     func beginTask()
     func endTask()

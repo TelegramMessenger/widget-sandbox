@@ -327,6 +327,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
         toRenderer("{\"type\":\"policy\",\"policy\":\"\(options.policy.rawValue)\"}")
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
+        (renderer as? ParsedMessageRenderer)?.onParsedMessage = { [weak self] msg in self?.onRenderer(message: msg) }
         publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
             rendererLoaded = true
@@ -479,6 +480,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         engine.terminate()
         sideChannels.forEach { $0.destroy() }
         renderer.onMessage = nil
+        (renderer as? ParsedMessageRenderer)?.onParsedMessage = nil
         renderer.onDiag = nil
         if options.pools, options.recyclesRenderers, let web = renderer as? RendererWebView {
             RendererPool.shared.recycle(web)
@@ -833,7 +835,12 @@ public final class WidgetHost: SandboxEngineDelegate {
     // MARK: renderer → host (main thread)
 
     private func onRenderer(_ json: String) {
-        guard let msg = SandboxEngine.parse(json) as? [String: Any], let type = msg["type"] as? String else { return }
+        guard let msg = SandboxEngine.parse(json) as? [String: Any] else { return }
+        onRenderer(message: msg)
+    }
+
+    private func onRenderer(message msg: [String: Any]) {
+        guard let type = msg["type"] as? String else { return }
         switch type {
         case "ready":
             if rendererReady { return }
