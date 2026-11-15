@@ -2,7 +2,9 @@
 import PackageDescription
 
 // The macOS integration branch runs widgets, our bundles and the trusted validator on Nova (packages/nova-engine). The
-// WidgetSandbox library, the one an app links, has no QuickJS in it: CQuickJS (quickjs-ng) and CQuickJSBox (the same
+// WidgetSandbox library, the one an app links, has no JavaScript engine in it: Nova is in WidgetSandboxNova, which
+// registers it at run time (`registerNovaEngine()`, `QuickJSBackend.useNovaEverywhere()`), so an app can link
+// WidgetSandbox and run every widget and validator in a process of its own. QuickJS is not in WidgetSandbox either: CQuickJS (quickjs-ng) and CQuickJSBox (the same
 // engine in a wasm2c box) are reached only through WidgetSandboxQuickJS, which plugs the native and the boxed engine
 // into WidgetSandbox at run time (QuickJSBackend's engine registry) together with their `.qbc` bytecode, when its
 // `registerQuickJSEngines()` is called. It exists for comparison: the tests (the Nova differential, the QuickJS suites)
@@ -18,6 +20,7 @@ let package = Package(
     products: [
         .library(name: "WidgetSandbox", targets: ["WidgetSandbox"]),
         .library(name: "WidgetSandboxProtocol", targets: ["WidgetSandboxProtocol"]),
+        .library(name: "WidgetSandboxNova", targets: ["WidgetSandboxNova"]),
         .library(name: "WidgetSandboxQuickJS", targets: ["WidgetSandboxQuickJS"]),
         .library(name: "CQuickJS", targets: ["CQuickJS"]),
         .library(name: "CQuickJSBox", targets: ["CQuickJSBox"]),
@@ -78,12 +81,18 @@ let package = Package(
         .binaryTarget(name: "NovaEngineFFI", path: "packages/nova-engine/NovaEngineFFI.xcframework"),
         .target(
             name: "WidgetSandbox",
-            dependencies: [
-                "WidgetSandboxProtocol",
-                .target(name: "NovaEngineFFI", condition: .when(platforms: [.macOS])),
-            ],
+            dependencies: ["WidgetSandboxProtocol"],
             path: "packages/ios/Sources/WidgetSandbox",
             resources: [.copy("WidgetJS")]
+        ),
+        // Nova behind WidgetSandbox's engine interface; registers only when `registerNovaEngine()` is called.
+        .target(
+            name: "WidgetSandboxNova",
+            dependencies: [
+                "WidgetSandbox",
+                .target(name: "NovaEngineFFI", condition: .when(platforms: [.macOS])),
+            ],
+            path: "packages/ios/Sources/WidgetSandboxNova"
         ),
         // The native and the boxed QuickJS engines behind WidgetSandbox's engine interface, with the bundles' bytecode
         // (packages/core/scripts/build-native-bundles.ts writes it here).
@@ -98,7 +107,7 @@ let package = Package(
         ),
         .testTarget(
             name: "WidgetSandboxTests",
-            dependencies: ["WidgetSandbox", "WidgetSandboxQuickJS"],
+            dependencies: ["WidgetSandbox", "WidgetSandboxNova", "WidgetSandboxQuickJS"],
             path: "packages/ios/Tests/WidgetSandboxTests",
             resources: [.copy("Fixtures")]
         ),

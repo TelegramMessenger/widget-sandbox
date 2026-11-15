@@ -173,7 +173,7 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private let engine: SandboxEngine
     private let sideChannels: [WidgetSideChannel]
-    private let validator: TrustedValidator
+    private let validator: WidgetValidator
     private let renderer: Renderer
     private let options: Options
     /// What the engine boots with; `setData` before the engine starts updates its data. Executor only after init.
@@ -248,7 +248,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             validator.onDiag = { k, d in diagSink(k, d) }
             prewarmed.append("validator")
         } else {
-            validator = TrustedValidator.background(theme: theme, resources: resources, thread: options.sharedValidatorThread ? TrustedValidator.sharedThreadForNextValidator() : nil) { k, d in diagSink(k, d) }
+            validator = WidgetValidators.make(theme: theme, resources: resources, shared: options.sharedValidatorThread) { k, d in diagSink(k, d) }
         }
         var config = SandboxConfig(innerWidth: viewport.w, innerHeight: viewport.h, devicePixelRatio: scale, theme: theme)
         config.memoryLimitBytes = options.memoryLimitBytes
@@ -489,7 +489,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         validatorLock.lock()
         validatorReleased = true
         validatorLock.unlock()
-        if options.pools, TrustedValidator.isShared(validator.thread) { ValidatorPool.shared.recycle(validator) }
+        if options.pools, validator.recyclable { ValidatorPool.shared.recycle(validator) }
     }
 
     // MARK: engine → host (engine queue)

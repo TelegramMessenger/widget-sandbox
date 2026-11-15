@@ -23,11 +23,7 @@ public enum QuickJSBackend: String {
 
     /// Whether this build can run `.nova`: the library is linked and enforces every limit (`NovaEngine.enforcesLimits`).
     public static var isNovaAvailable: Bool {
-        #if os(macOS) && canImport(NovaEngineFFI)
-        return NovaEngine.enforcesLimits
-        #else
-        return false
-        #endif
+        QuickJSEngineRegistry.registration(for: .nova)?.isAvailable() ?? false
     }
 
     /// Whether this build can run `.boxed`. Where it cannot, a boxed engine fails closed: the widget stops with
@@ -64,17 +60,6 @@ public enum QuickJSBackend: String {
         return isNovaAvailable ? .nova : .native
     }()
 
-    #if os(macOS) && canImport(NovaEngineFFI)
-    /// Runs every widget engine, the engine pools and the trusted validator of the process on Nova: sets `default`,
-    /// `validatorDefault` and `EnginePool.shared.backend`. Main thread, once at start, before the first host. It
-    /// exists only in builds that link Nova, so a client that must not run widgets without it calls this and does not
-    /// compile without the library, instead of failing closed at run time.
-    public static func useNovaEverywhere() {
-        `default` = .nova
-        validatorDefault = .nova
-        EnginePool.shared.backend = .nova
-    }
-    #endif
 
     /// Whether this backend runs the precompiled `.qbc` bundles (QuickJS bytecode); Nova evaluates their source.
     var runsBytecode: Bool { self != .nova }
@@ -137,14 +122,13 @@ public enum QuickJSBackend: String {
 /// The QuickJS engines of this process. WidgetSandboxQuickJS registers them, with the bundles' `.qbc`, when its
 /// `registerQuickJSEngines()` is called, and only then: nothing here looks for that target, so a process that does
 /// not make that call (an app that does not link the target) has no QuickJS, and `.native` and `.boxed` fail closed.
-/// Nova is not registered here: it is part of WidgetSandbox.
+/// Nova registers here too, from WidgetSandboxNova (`registerNovaEngine()`).
 @_spi(QuickJSEngines) public enum QuickJSEngineRegistry {
     private static let lock = NSLock()
     private static var engines: [QuickJSBackend: QuickJSEngineRegistration] = [:]
     private static var bytecode: [String: Data] = [:]
 
     public static func register(_ registration: QuickJSEngineRegistration, for backend: QuickJSBackend) {
-        precondition(backend != .nova, "Nova is part of WidgetSandbox")
         lock.lock()
         engines[backend] = registration
         lock.unlock()
@@ -185,37 +169,21 @@ public final class QuickJSContext {
     /// times more native stack than the stack QuickJS measures there).
     public init(memoryLimitBytes: Int, maxStackBytes: Int = 384 << 10, backend: QuickJSBackend = .default) {
         self.backend = backend
-        switch backend {
-        case .native, .boxed:
-            do {
-                if backend == .boxed, let reason = Self.boxedFailureForTesting { throw QuickJSError.engineFault(reason) }
-                guard let registration = QuickJSEngineRegistry.registration(for: backend) else {
-                    throw QuickJSError.engineFault(backend == .native
-                        ? "native QuickJS is not part of this build (WidgetSandboxQuickJS is not registered)"
-                        : "the boxed QuickJS engine is not part of this build (WidgetSandboxQuickJS is not registered, macOS only)")
+        do {
+            if backend == .boxed, let reason = Self.boxedFailureForTesting { throw QuickJSError.engineFault(reason) }
+            guard let registration = QuickJSEngineRegistry.registration(for: backend) else {
+                switch backend {
+                case .native: throw QuickJSError.engineFault("native QuickJS is not part of this build (WidgetSandboxQuickJS is not registered)")
+                case .boxed: throw QuickJSError.engineFault("the boxed QuickJS engine is not part of this build (WidgetSandboxQuickJS is not registered, macOS only)")
+                case .nova: throw QuickJSError.engineFault("the Nova engine is not part of this process (WidgetSandboxNova is not registered, macOS only)")
                 }
-                engine = try registration.make(memoryLimitBytes, maxStackBytes)
-                unavailableReason = nil
-            } catch {
-                let reason = (error as? QuickJSError).flatMap { if case .engineFault(let r) = $0 { return r } else { return nil } } ?? "\(error)"
-                engine = UnavailableQuickJS(reason: reason)
-                unavailableReason = reason
             }
-        case .nova:
-            #if os(macOS) && canImport(NovaEngineFFI)
-            do {
-                engine = try NovaEngine(memoryLimitBytes: memoryLimitBytes, maxStackBytes: maxStackBytes)
-                unavailableReason = nil
-            } catch {
-                let reason = (error as? QuickJSError).flatMap { if case .engineFault(let r) = $0 { return r } else { return nil } } ?? "\(error)"
-                engine = UnavailableQuickJS(reason: reason)
-                unavailableReason = reason
-            }
-            #else
-            let reason = "the Nova engine is not part of this build (macOS only)"
+            engine = try registration.make(memoryLimitBytes, maxStackBytes)
+            unavailableReason = nil
+        } catch {
+            let reason = (error as? QuickJSError).flatMap { if case .engineFault(let r) = $0 { return r } else { return nil } } ?? "\(error)"
             engine = UnavailableQuickJS(reason: reason)
             unavailableReason = reason
-            #endif
         }
     }
 
@@ -225,12 +193,9 @@ public final class QuickJSContext {
     /// "native QuickJS", the boxed engine with the commit it was built from and how its memory is fenced, or Nova's
     /// version with its commit.
     public var engineDescription: String {
-        if backend != .nova, unavailableReason == nil, let registration = QuickJSEngineRegistry.registration(for: backend) {
+        if unavailableReason == nil, let registration = QuickJSEngineRegistry.registration(for: backend) {
             return registration.description()
         }
-        #if os(macOS) && canImport(NovaEngineFFI)
-        if backend == .nova { return NovaEngine.version }
-        #endif
         switch backend {
         case .native: return "native QuickJS"
         case .boxed: return "boxed QuickJS"

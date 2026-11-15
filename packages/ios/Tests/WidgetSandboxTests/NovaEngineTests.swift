@@ -1,5 +1,6 @@
 import XCTest
 @testable import WidgetSandbox
+@testable import WidgetSandboxNova
 
 /// The Nova engine (packages/nova-engine) behind the same `QuickJSContext` as QuickJS: the same host functions with the
 /// same arguments, the same answers to the sandbox's own needs, the bundles from source, and a widget rendered the same.

@@ -100,7 +100,7 @@ public final class ValidatorPool {
     public var targetSize = 0 { didSet { refill() } }
     public var resources: SandboxResources = .shared
     public private(set) var created = 0, taken = 0, hits = 0, recycled = 0
-    private var idle: [TrustedValidator] = []
+    private var idle: [WidgetValidator] = []
     private let lock = NSLock()
 
     public var count: Int { lock.lock(); defer { lock.unlock() }; return idle.count }
@@ -110,9 +110,10 @@ public final class ValidatorPool {
         refill()
     }
 
-    public func take(theme: String) -> TrustedValidator? {
+    public func take(theme: String) -> WidgetValidator? {
         lock.lock()
         taken += 1
+        idle.removeAll { !$0.isAlive }
         let taken = idle.popLast()
         if taken != nil { hits += 1 }
         lock.unlock()
@@ -139,8 +140,8 @@ public final class ValidatorPool {
     /// Back into the pool with a fresh instance (the previous widget's node model
     /// is gone): cheaper than a new context, so the pool holds up to twice its
     /// target of recycled validators.
-    public func recycle(_ validator: TrustedValidator) {
-        guard count < max(targetSize * 2, 1) else { return }
+    public func recycle(_ validator: WidgetValidator) {
+        guard validator.isAlive, count < max(targetSize * 2, 1) else { return }
         validator.perform { [self] in
             validator.onDiag = { _, _ in }
             validator.reset(theme: "light")
@@ -155,7 +156,7 @@ public final class ValidatorPool {
     private func refill() {
         while count < targetSize {
             let t0 = CACurrentMediaTime()
-            let made = TrustedValidator.background(theme: "light", resources: resources, thread: TrustedValidator.sharedThreadForNextValidator(), onDiag: { _, _ in })
+            let made = WidgetValidators.make(theme: "light", resources: resources, shared: true, onDiag: { _, _ in })
             lock.lock()
             idle.append(made)
             lock.unlock()
@@ -177,7 +178,7 @@ public enum WidgetWarmup {
     public static func prewarm(renderers: Int, engines: Int, validators: Int, width: CGFloat = 360, parkingView: PlatformView? = nil) {
         _ = SandboxResources.shared
         _ = SandboxEngine.parse("{\"type\":\"ready\"}")
-        _ = TrustedValidator.sharedThreadForNextValidator()
+        if WidgetValidators.factory == nil { _ = TrustedValidator.sharedThreadForNextValidator() }
         if renderers > 0 { RendererEnvironment.shared.prewarm() }
         RendererPool.shared.width = width
         if let parkingView { RendererPool.shared.parkingView = parkingView }
