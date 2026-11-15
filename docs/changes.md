@@ -177,6 +177,10 @@ and widgets stay in process unless a host sets the factory.
 - With MSVC every target of the desktop package compiles its sources as UTF-8 (`/utf-8`, as tdesktop compiles the same
   sources); read in the system's code page, `json_parse_and_dump`'s literal lost its emoji (warning C4566) and the test
   failed. No other compiled string changes.
+- With MSVC the interpreter (`twquickjs`) is optimised in Debug builds too, as the package already did with every other
+  compiler: `/O2` without Debug's `/Od`, `/Ob0` and `/RTC1`. The package's C++ targets keep their Debug options and the
+  other configurations are unchanged. With the unoptimised interpreter a Win32 Debug engine ran `timer-flood.html` into
+  the 500 ms slice and was killed. tdesktop builds its own interpreter with its own flags.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps

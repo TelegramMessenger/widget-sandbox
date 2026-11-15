@@ -39,6 +39,12 @@ if(NOT MSVC)
     # Always optimise the interpreter, also in debug builds: an -O0 quickjs-ng spends
     # ~10 KB of C stack per JS call and is several times slower.
     target_compile_options(twquickjs PRIVATE -O2 -fno-strict-aliasing -Wno-unused-parameter -Wno-sign-compare -Wno-implicit-fallthrough)
+else()
+    # twquickjs is the only C target; keep C++ Debug checks while optimising the interpreter.
+    foreach(flag /Od /Ob0 /RTC1)
+        string(REPLACE "${flag}" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+    endforeach()
+    target_compile_options(twquickjs PRIVATE $<$<CONFIG:Debug>:/O2>)
 endif()
 if(NOT WIN32)
     target_link_libraries(twquickjs PUBLIC m)
