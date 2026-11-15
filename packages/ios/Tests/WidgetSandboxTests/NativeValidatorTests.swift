@@ -315,7 +315,7 @@ final class NativeValidatorDifferentialTests: QuickJSTestCase {
         XCTAssertTrue(tables.dropped.contains("script"))
         XCTAssertEqual(tables.methods["scrollTo"], 2)
         XCTAssertEqual(tables.maxNodes, 50_000)
-        XCTAssertTrue(tables.placeholder.hasPrefix("data:image/svg+xml,"))
+        XCTAssertTrue(tables.placeholder.hasPrefix("data:image/png;base64,"))
     }
 }
 

@@ -328,6 +328,12 @@ public final class WidgetHost: SandboxEngineDelegate {
         toRenderer("{\"type\":\"policy\",\"policy\":\"\(options.policy.rawValue)\"}")
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
         (renderer as? ParsedMessageRenderer)?.onParsedMessage = { [weak self] msg, encoded in self?.onRenderer(message: msg, encoded: encoded) }
+        if let timed = renderer as? MainTimedRenderer {
+            let meter = MainTimeMeter(label: "widget")
+            meter.onTrip = { [weak self] in self?.mainTimeTripped() }
+            timed.mainMeter = meter
+            mainMeter = meter
+        }
         publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
             rendererLoaded = true
@@ -366,9 +372,12 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private func onMain(_ block: @escaping () -> Void) {
         if Thread.isMainThread {
-            block()
+            metered(block)
         } else {
-            DispatchQueue.main.async(execute: block)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return block() }
+                self.metered(block)
+            }
         }
     }
 
@@ -520,10 +529,31 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private func deliver(_ block: @escaping () -> Void) {
         if options.asyncValidation {
-            executor.paced(block)
+            executor.paced { [weak self] in
+                guard let self = self else { return block() }
+                self.metered(block)
+            }
+        } else {
+            metered(block)
+        }
+    }
+
+    /// The meter of a widget whose renderer is another process's (`MainTimedRenderer`); nil for in-process renderers,
+    /// whose own drawing runs inside these blocks.
+    public private(set) var mainMeter: MainTimeMeter?
+    public static let mainTimeReason = "the widget took too much of the main thread"
+
+    private func metered(_ block: () -> Void) {
+        if let meter = mainMeter, Thread.isMainThread {
+            meter.measure(block)
         } else {
             block()
         }
+    }
+
+    private func mainTimeTripped() {
+        die(Self.mainTimeReason)
+        (renderer as? MainTimedRenderer)?.mainTimeTripped(Self.mainTimeReason)
     }
 
     private func inOrder(_ block: @escaping () -> Void) {
@@ -586,19 +616,25 @@ public final class WidgetHost: SandboxEngineDelegate {
             return deliver { self.die(Self.backlogReason) }
         }
         validate { [self] in
-            defer { leaveBacklog(bytes) }
             let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
             let stopped = validator.stopped
+            let prebuilt: String?
+            if case .json(let clean) = batch {
+                prebuilt = "{\"type\":\"ops\",\"ops\":" + clean + "}"
+            } else {
+                prebuilt = nil
+            }
             deliver {
+                defer { self.leaveBacklog(bytes) }
                 // A counted cap passed under strict: the widget stops like it does for memory or CPU (the renderer keeps its last render).
                 if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
-                case .json(let clean):
+                case .json:
                     self.opsSent += 1
-                    self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                    self.toRenderer(.json(prebuilt ?? "{}"))
                     self.askForRenderAckAfterFirstOps()
                 case .ops(let ops):
                     self.opsSent += 1
@@ -616,18 +652,24 @@ public final class WidgetHost: SandboxEngineDelegate {
             return deliver { self.die(Self.backlogReason) }
         }
         validate { [self] in
-            defer { leaveBacklog(bytes) }
             let batch = validator.processBinary(binaryOps, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
             let stopped = validator.stopped
+            let prebuilt: String?
+            if case .json(let clean) = batch {
+                prebuilt = "{\"type\":\"ops\",\"ops\":" + clean + "}"
+            } else {
+                prebuilt = nil
+            }
             deliver {
+                defer { self.leaveBacklog(bytes) }
                 if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
-                case .json(let clean):
+                case .json:
                     self.opsSent += 1
-                    self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                    self.toRenderer(.json(prebuilt ?? "{}"))
                     self.askForRenderAckAfterFirstOps()
                 case .ops(let ops):
                     self.opsSent += 1
@@ -1002,10 +1044,23 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
     }
 
+    public static let maxDiagKinds = 64
+    public static let maxDiagsPerSecond = 100
+    private var diagWindowStart: CFTimeInterval = 0
+    private var diagsInWindow = 0
+
     private func diag(_ kind: String, _ detail: String) {
         guard executor.isCurrent else {
             return executor.async { [weak self] in self?.diag(kind, detail) }
         }
+        let now = CACurrentMediaTime()
+        if now - diagWindowStart >= 1 {
+            diagWindowStart = now
+            diagsInWindow = 0
+        }
+        diagsInWindow += 1
+        guard diagsInWindow <= Self.maxDiagsPerSecond else { return }
+        guard state.diags[kind] != nil || state.diags.count < Self.maxDiagKinds else { return }
         var entry = state.diags[kind] ?? (0, [])
         entry.count += 1
         if entry.details.count < 50 { entry.details.append(detail) }
@@ -1030,11 +1085,13 @@ public final class WidgetHost: SandboxEngineDelegate {
         publishLock.unlock()
         guard schedule else { return }
         DispatchQueue.main.async {
-            self.publishLock.lock()
-            self.changeScheduled = false
-            let snapshot = self.published
-            self.publishLock.unlock()
-            self.onChange?(snapshot)
+            self.metered {
+                self.publishLock.lock()
+                self.changeScheduled = false
+                let snapshot = self.published
+                self.publishLock.unlock()
+                self.onChange?(snapshot)
+            }
         }
     }
 
