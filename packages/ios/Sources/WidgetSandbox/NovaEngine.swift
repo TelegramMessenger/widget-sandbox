@@ -14,6 +14,46 @@
 import Foundation
 import NovaEngineFFI
 
+/// Our own bundles compiled once per process (`nova_script_compile`) and evaluated by every Nova engine
+/// (`nova_engine_eval_script`): an engine then skips parsing and compiling about 600 KB of JavaScript, which was most of
+/// its boot. A compiled script holds no engine state, is never freed, and cannot be made from bytes; only bundles of
+/// the package come here, never widget code. A bundle the engine cannot share, or that does not compile, is
+/// evaluated from its source, which also reports the error.
+final class NovaCompiledBundles {
+    static let shared = NovaCompiledBundles()
+
+    private struct Entry {
+        let source: String
+        let script: OpaquePointer?
+    }
+
+    private let lock = NSLock()
+    private var entries: [String: [Entry]] = [:]
+
+    /// The compiled script of `source`, compiling it the first time (other engines wait meanwhile rather than compile
+    /// it too); nil when it cannot be shared or does not compile. Every distinct source is compiled once and kept.
+    func script(for source: String, filename: String) -> OpaquePointer? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let entry = entries[filename]?.first(where: { $0.source == source }) {
+            return entry.script
+        }
+        var text = source
+        var error = nova_result()
+        let script = text.withUTF8 { nova_script_compile($0.baseAddress, $0.count, &error) }
+        nova_result_free(&error)
+        entries[filename, default: []].append(Entry(source: source, script: script))
+        return script
+    }
+
+    /// For the tests: how many bundles compiled to shared code.
+    var compiledCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.values.joined().filter { $0.script != nil }.count
+    }
+}
+
 final class NovaEngine: QuickJSEngine {
     /// "nova_embed <version> (nova <commit>)".
     static var version: String { String(cString: nova_embed_version()) }
@@ -207,6 +247,17 @@ final class NovaEngine: QuickJSEngine {
         var result = nova_result()
         let status = code.withUTF8 { nova_engine_eval(engine, $0.baseAddress, $0.count, asModule, &result) }
         return try take(status, &result)
+    }
+
+    func evaluateBundle(_ source: String, filename: String) throws -> Bool {
+        guard let script = NovaCompiledBundles.shared.script(for: source, filename: filename) else {
+            _ = try evaluate(source, filename: filename, asModule: false)
+            return false
+        }
+        var result = nova_result()
+        let status = nova_engine_eval_script(engine, script, &result)
+        _ = try take(status, &result)
+        return true
     }
 
     func evaluateBytecode(_ blob: Data, source: String) throws -> JSResult {

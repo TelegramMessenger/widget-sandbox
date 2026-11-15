@@ -129,7 +129,7 @@ public final class TrustedValidator {
             do { try js.evaluateBytecode(bytecode, source: resources.validatorBundle); fromBytecode = true }
             catch { onDiag("bytecode", "validator-bundle.js: falling back to source — \("\(error)".split(separator: "\n").first ?? "")") }
         }
-        if !fromBytecode { try js.evaluate(resources.validatorBundle, filename: "validator-bundle.js") }
+        if !fromBytecode { try js.evaluateBundle(resources.validatorBundle, filename: "validator-bundle.js") }
         // Flatten the API into globals so QuickJSContext.call can reach it.
         try js.evaluate("""
             globalThis.__v_processOps = (j) => __twValidator.processOps(j);
