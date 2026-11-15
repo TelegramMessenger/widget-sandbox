@@ -2,22 +2,23 @@ import Foundation
 import QuartzCore
 
 /// Main-thread time spent on behalf of one widget connection (its renderer, engine and validator output). Every block
-/// a widget runs on the main thread goes through `measure`, which records only that block's own duration on the
-/// monotonic clock. Time is kept in 100 ms slots over a 2 s sliding window; a slot counts at most `slotCap`.
+/// a widget runs on the main thread goes through `measure`, which records the block's own duration on the monotonic
+/// clock plus `blockOverhead` (the dispatch and bookkeeping around even an empty block). Time is kept in 100 ms slots
+/// over a 2 s sliding window.
 ///
-/// A connection trips when, sustained over the window, it takes more than `connectionLimit` of the main thread: over
-/// 80 ms in the last 2 s, over 40 ms in the last 1 s, and spread over at least `sustainedSlots` of the 20 slots, so one
-/// heavy first layout or open never trips it. All connections together trip the heaviest one past `globalLimit` (120 ms
-/// in the last 1 s, 240 ms in the last 2 s). A tripped meter calls `onTrip` once, on the main thread, after the block.
+/// The first `grace` seconds after a widget's first block are its open (first layout, first frames) and count for
+/// nothing. After that a widget trips when it has taken more than 40 ms of the main thread in the last 1 s and more than
+/// 80 ms in the last 2 s, however that time is packed, or when one block runs longer than `maxBlock`. All widgets
+/// together trip the heaviest one past 120 ms in 1 s and 240 ms in 2 s. A tripped meter calls `onTrip` once, on the
+/// main thread, after the block.
 public final class MainTimeMeter {
     public static let connectionLimit: CFTimeInterval = 0.040
     public static let globalLimit: CFTimeInterval = 0.120
     public static let slot: CFTimeInterval = 0.1
     public static let slots = 20
-    public static let sustainedSlots = 8
-    /// What one slot can add to a window: twice the limit's share of a slot, so one long block (a first layout, a
-    /// heavy open) counts as 8 ms however long it ran, and only work spread over many slots adds up to a trip.
-    public static let slotCap: CFTimeInterval = 0.008
+    public static let grace: CFTimeInterval = 2
+    public static let maxBlock: CFTimeInterval = 0.1
+    public static let blockOverhead: CFTimeInterval = 0.00002
 
     private static var meters: [WeakMeter] = []
 
@@ -32,6 +33,7 @@ public final class MainTimeMeter {
     private var buckets = [CFTimeInterval](repeating: 0, count: MainTimeMeter.slots)
     private var bucketSlot = [Int](repeating: Int.min, count: MainTimeMeter.slots)
     private var registered = false
+    private var graceEnds: CFTimeInterval?
 
     public init(label: String) {
         self.label = label
@@ -41,7 +43,13 @@ public final class MainTimeMeter {
     public func measure(_ body: () -> Void) {
         let started = CACurrentMediaTime()
         body()
-        record(CACurrentMediaTime() - started, now: CACurrentMediaTime())
+        let ended = CACurrentMediaTime()
+        record(ended - started, now: ended)
+    }
+
+    public func inGrace(now: CFTimeInterval) -> Bool {
+        guard let graceEnds = graceEnds else { return true }
+        return now < graceEnds
     }
 
     public func record(_ seconds: CFTimeInterval, now: CFTimeInterval) {
@@ -50,38 +58,41 @@ public final class MainTimeMeter {
             MainTimeMeter.meters.removeAll { $0.meter == nil }
             MainTimeMeter.meters.append(WeakMeter(self))
         }
+        if graceEnds == nil {
+            graceEnds = now - max(0, seconds) + MainTimeMeter.grace
+        }
+        guard !inGrace(now: now) else { return }
+        let charged = max(0, seconds) + MainTimeMeter.blockOverhead
         let index = Int((now / MainTimeMeter.slot).rounded(.down))
         let position = ((index % MainTimeMeter.slots) + MainTimeMeter.slots) % MainTimeMeter.slots
         if bucketSlot[position] != index {
             bucketSlot[position] = index
             buckets[position] = 0
         }
-        buckets[position] += max(0, seconds)
+        buckets[position] += charged
         guard !tripped else { return }
-        if sustained(now: now) {
+        if seconds > MainTimeMeter.maxBlock || over(now: now) {
             trip()
             return
         }
         MainTimeMeter.checkGlobal(now: now)
     }
 
-    /// Main time in the last `seconds` (at most 2 s) and the number of slots with any.
+    /// Main time charged in the last `seconds` (at most 2 s) and the number of slots with any.
     public func usage(over seconds: CFTimeInterval, now: CFTimeInterval) -> (time: CFTimeInterval, slots: Int) {
         let current = Int((now / MainTimeMeter.slot).rounded(.down))
         let span = min(MainTimeMeter.slots, Int((seconds / MainTimeMeter.slot).rounded()))
         var time: CFTimeInterval = 0
         var used = 0
         for position in 0..<MainTimeMeter.slots where bucketSlot[position] > current - span && bucketSlot[position] <= current {
-            time += min(buckets[position], MainTimeMeter.slotCap)
+            time += buckets[position]
             if buckets[position] > 0 { used += 1 }
         }
         return (time, used)
     }
 
-    private func sustained(now: CFTimeInterval) -> Bool {
-        let two = usage(over: 2, now: now)
-        let one = usage(over: 1, now: now)
-        return two.time > MainTimeMeter.connectionLimit * 2 && one.time > MainTimeMeter.connectionLimit && two.slots >= MainTimeMeter.sustainedSlots
+    private func over(now: CFTimeInterval) -> Bool {
+        return usage(over: 1, now: now).time > MainTimeMeter.connectionLimit && usage(over: 2, now: now).time > MainTimeMeter.connectionLimit * 2
     }
 
     private func trip() {
@@ -99,14 +110,14 @@ public final class MainTimeMeter {
         var heaviest: (meter: MainTimeMeter, time: CFTimeInterval)?
         for weak in meters {
             guard let meter = weak.meter, !meter.tripped else { continue }
-            let last = meter.usage(over: 1, now: now)
-            one += last.time
-            two += meter.usage(over: 2, now: now).time
-            if last.time > (heaviest?.time ?? 0) {
-                heaviest = (meter, last.time)
+            let last = meter.usage(over: 2, now: now).time
+            one += meter.usage(over: 1, now: now).time
+            two += last
+            if last > (heaviest?.time ?? 0) {
+                heaviest = (meter, last)
             }
         }
-        guard one > globalLimit, two > globalLimit * 2, let heaviest = heaviest, heaviest.meter.usage(over: 2, now: now).slots >= sustainedSlots else { return }
+        guard one > globalLimit, two > globalLimit * 2, let heaviest = heaviest else { return }
         heaviest.meter.trip()
     }
 }
