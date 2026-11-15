@@ -11,7 +11,9 @@
 //        pnpm build:macos      (same outputs as ios: one Swift package)
 //        pnpm build:android
 //        pnpm build:desktop
-//        tsx scripts/build-native-bundles.ts <target> --out <dir>   (writes only the bundles to <dir>; used by the freshness test)
+//        tsx scripts/build-native-bundles.ts <target> --out <dir> [--bytecode-out <dir>]
+//            (writes only the bundles to <dir>, and the .qbc to --bytecode-out on a target that keeps them apart
+//            (ios, macos: required there); used by the freshness test)
 
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
@@ -43,8 +45,16 @@ if (!target) {
   console.error(`unknown target "${targetName}"; expected one of ${Object.keys(TARGETS).join(', ')}`);
   process.exit(1);
 }
-const outIndex = process.argv.indexOf('--out');
-const outDir = outIndex > 0 ? path.resolve(process.argv[outIndex + 1]) : undefined;
+function argument(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index > 0 ? path.resolve(process.argv[index + 1]) : undefined;
+}
+const outDir = argument('--out');
+const bytecodeOutDir = argument('--bytecode-out');
+if (outDir && 'bytecode' in target && !bytecodeOutDir) {
+  console.error(`${targetName} keeps its bytecode in ${target.bytecode}: pass --bytecode-out <dir> with --out`);
+  process.exit(1);
+}
 const res = outDir ?? path.join(root, target.js);
 fs.mkdirSync(res, { recursive: true });
 // No bundled libraries since profile 1 (docs/profile-v1.md, js.libraries): what an older build left goes.
@@ -74,7 +84,7 @@ await emit('validator-bundle.js', validatorBuildOptions(pkgRoot));
 // On the Swift package the bytecode belongs to the WidgetSandboxQuickJS target, never to the WidgetSandbox bundle an
 // app ships (Package.swift).
 const qjsc = buildQjsc();
-const bytecodeDir = outDir ?? path.join(root, 'bytecode' in target ? target.bytecode : target.js);
+const bytecodeDir = 'bytecode' in target ? bytecodeOutDir ?? path.join(root, target.bytecode) : res;
 fs.mkdirSync(bytecodeDir, { recursive: true });
 for (const name of ['sandbox-bundle.js', 'validator-bundle.js']) {
   const out = name.replace(/\.js$/, '.qbc');

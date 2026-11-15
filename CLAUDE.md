@@ -200,7 +200,8 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
   every client draws it, and adding one is profile 2, not an edit of profile 1.
 - The same three JS bundles ship to every native platform via
   `packages/core/scripts/build-native-bundles.ts`, with precompiled `.qbc` bytecode next to
-  the two QuickJS bundles and the libraries (never commit a `.js` without
+  the two QuickJS bundles and the libraries (in the Swift package the `.qbc` go to `WidgetSandboxQuickJS/WidgetJS`;
+  `shipped-bundles.test.ts` checks both directories against a fresh build) (never commit a `.js` without
   re-running the build: the engine refuses a stale `.qbc` and falls back to
   source, and the tests on every platform fail; a bundle without `VERSION.json`'s stamp, or of another
   protocol/profile/sdk, is refused outright, no fallback). Port the host glue, not the JS. iOS and
