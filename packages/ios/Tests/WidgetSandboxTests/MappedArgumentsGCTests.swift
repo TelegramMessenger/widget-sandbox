@@ -10,7 +10,7 @@ final class MappedArgumentsGCTests: QuickJSTestCase {
         for(let i=0;i<300;i++){f({i});f({i},{j:i});}
         keep
         """
-        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit)
+        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit, backend: .native)
         let result = try JSThread(name: "mapped-arguments").sync { Result { try js.evaluate(source, filename: "mapped.js") } }.get()
         XCTAssertEqual(result.number, 1_200_000)
         JSThread(name: "mapped-arguments-gc").sync { js.collectGarbage() }

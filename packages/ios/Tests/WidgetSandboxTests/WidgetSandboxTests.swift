@@ -308,7 +308,7 @@ final class QuickJSContextTests: QuickJSTestCase {
         var depthOnCreator = 0.0
         let made = expectation(description: "created on another thread")
         let t = Thread {
-            js = QuickJSContext(memoryLimitBytes: 16 << 20)
+            js = QuickJSContext(memoryLimitBytes: 16 << 20, backend: .native)
             depthOnCreator = (try? js!.evaluate(probe, filename: "t.js"))?.number ?? -1
             made.fulfill()
         }
@@ -330,7 +330,7 @@ final class QuickJSContextTests: QuickJSTestCase {
     func testPinnedThreadGivesDeepRecursion() {
         let t = JSThread(name: "test.js")
         let depth: Double = t.sync {
-            let js = QuickJSContext(memoryLimitBytes: 16 << 20, maxStackBytes: JSThread.jsStackLimit)
+            let js = QuickJSContext(memoryLimitBytes: 16 << 20, maxStackBytes: JSThread.jsStackLimit, backend: .native)
             let probe = "(function(){ var n = 0; function r(){ n++; r(); } try { r(); } catch (e) { if (!(e instanceof RangeError)) throw e; } return n; })()"
             return (try? js.evaluate(probe, filename: "t.js"))?.number ?? -1
         }
@@ -416,7 +416,7 @@ final class TrustedValidatorTests: QuickJSTestCase {
 /// Precompiled bundles (`.qbc`, built by `pnpm build:ios` next to each `.js`).
 final class BytecodeTests: QuickJSTestCase {
     func testRoundTripAndStaleBlobRefused() throws {
-        let js = QuickJSContext(memoryLimitBytes: 16 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 16 << 20, backend: .native)
         let blob = try js.compileBytecode("globalThis.answer = 6 * 7;", filename: "t.js")
         XCTAssertGreaterThan(blob.count, 24)
         try js.evaluateBytecode(blob, source: "globalThis.answer = 6 * 7;")

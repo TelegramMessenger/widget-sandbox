@@ -30,7 +30,7 @@ final class BoxedQuickJSTests: QuickJSTestCase {
 
     /// Nova where this build links it and its library enforces its limits, the native engine elsewhere; never the box.
     func testTheDefaultIsNovaWhereItIsLinkedElseNative() throws {
-        XCTAssertEqual(QuickJSContext(memoryLimitBytes: 8 << 20).backend, .native)
+        XCTAssertEqual(QuickJSContext(memoryLimitBytes: 8 << 20).backend, QuickJSBackend.default)
         let expected: QuickJSBackend = QuickJSBackend.isNovaAvailable ? .nova : .native
         guard ProcessInfo.processInfo.environment["WIDGET_SANDBOX_ENGINE"] == nil else { return } // a run of the suite on another engine
         XCTAssertEqual(QuickJSBackend.default, expected)

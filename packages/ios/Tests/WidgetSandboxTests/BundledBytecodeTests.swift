@@ -7,7 +7,7 @@ final class BundledBytecodeTests: QuickJSTestCase {
     private func assertMatches(_ name: String, source: String?, bytecode: Data?, file: StaticString = #filePath, line: UInt = #line) throws {
         let source = try XCTUnwrap(source, name, file: file, line: line)
         let bytecode = try XCTUnwrap(bytecode, name + " bytecode", file: file, line: line)
-        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit)
+        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit, backend: .native)
         let fresh = try js.compileBytecode(source, filename: name)
         XCTAssertEqual(bytecode, fresh, "\(name)'s .qbc doesn't match this engine and source; run pnpm build:ios", file: file, line: line)
     }

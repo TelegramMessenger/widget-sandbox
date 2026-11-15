@@ -183,7 +183,7 @@ public final class QuickJSContext {
     /// real one. A debug build of quickjs-ng needs ~10 KB of C stack per JS call.
     /// The boxed engine derives its own limit from it (the box's code uses several
     /// times more native stack than the stack QuickJS measures there).
-    public init(memoryLimitBytes: Int, maxStackBytes: Int = 384 << 10, backend: QuickJSBackend = .native) {
+    public init(memoryLimitBytes: Int, maxStackBytes: Int = 384 << 10, backend: QuickJSBackend = .default) {
         self.backend = backend
         switch backend {
         case .native, .boxed:

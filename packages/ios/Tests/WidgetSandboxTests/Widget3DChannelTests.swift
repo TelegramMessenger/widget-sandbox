@@ -201,7 +201,7 @@ final class Widget3DChannelTests: QuickJSTestCase {
         XCTAssertEqual(surface?.lock.withLock { surface?.stopped }, "destroyed")
         XCTAssertNil(renderer.surfaceLayer)
         XCTAssertNil(renderer.surfaceLayout)
-        let js = QuickJSContext(memoryLimitBytes: 8 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native)
         channel.install(in: js)
         XCTAssertEqual((try? js.evaluate("typeof gl3d + typeof __tw3d", filename: "t.js"))?.string, "undefinedundefined")
         channel.connect(renderer)
@@ -241,7 +241,7 @@ final class Widget3DChannelTests: QuickJSTestCase {
     func testCallsBeforeConnectWorkAndLayersComeAfterConnect() {
         let backend = FakeBackend()
         let channel = Widget3DChannel(backend: backend)
-        let js = QuickJSContext(memoryLimitBytes: 8 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native)
         channel.install(in: js)
         XCTAssertEqual((try? js.evaluate("String(gl3d.bind(3)) + gl3d.call('size', 3) + typeof __tw3d", filename: "t.js"))?.string, "1100,50,2undefined")
         XCTAssertEqual(channel.surfaceCount, 1)
@@ -288,7 +288,7 @@ final class Widget3DChannelTests: QuickJSTestCase {
         let backend = FakeBackend()
         backend.isAvailable = false
         let channel = Widget3DChannel(backend: backend)
-        let js = QuickJSContext(memoryLimitBytes: 8 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native)
         channel.install(in: js)
         XCTAssertEqual((try? js.evaluate("typeof gl3d + typeof __tw3d", filename: "t.js"))?.string, "undefinedundefined")
     }
