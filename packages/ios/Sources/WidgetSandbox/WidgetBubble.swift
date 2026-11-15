@@ -149,6 +149,25 @@ public final class WidgetBubble {
         adopting?.setContentSafeArea(area)
     }
 
+    /// The device's edges over a profile page changed with the screen's layout (docs/sdk-v1.md §2.17): `WidgetHost.setSafeArea`
+    /// on the live host and the one the bubble is about to adopt, and the options a rebuilt host boots with.
+    public func setSafeArea(_ area: WidgetSafeArea) {
+        guard area != options.safeArea else { return }
+        options.safeArea = area
+        host?.setSafeArea(area)
+        pendingPrepared?.host.setSafeArea(area)
+        adopting?.setSafeArea(area)
+    }
+
+    /// A profile page's viewport changed with the window's size (`WidgetHost.setViewportHeight`).
+    public func setViewportHeight(_ height: Double) {
+        guard height != options.viewportHeight else { return }
+        options.viewportHeight = height
+        host?.setViewportHeight(height)
+        pendingPrepared?.host.setViewportHeight(height)
+        adopting?.setViewportHeight(height)
+    }
+
     public func setTheme(_ theme: WidgetTheme) {
         guard theme != self.theme else {
             return
