@@ -40,8 +40,8 @@ describe('widget profile: the generated files', () => {
     const block = guide.slice(guide.indexOf('<!-- agent-block -->'), guide.indexOf('<!-- /agent-block -->'));
     for (const f of profile.features) if (f.status === 'out') assert.ok(block.includes(f.title), f.id);
     // 2450 since the client's time over the corner (2026-10-29, docs/sdk-v1.md §2.17) took the block past 2400; 2600 since the wallet (§2.18);
-    // 2700 since the paint limit (v0.6.0, decisions.md "Heavy boxes").
-    assert.ok(block.split(/\s+/).length <= 2700, `agent block: ${block.split(/\s+/).length} words`);
+    // 2700 since the paint limit (v0.6.0, decisions.md "Heavy boxes"); 2750 since the bot's profile page (§2.19).
+    assert.ok(block.split(/\s+/).length <= 2750, `agent block: ${block.split(/\s+/).length} words`);
   });
   it('docs/profile-v1.md lists every feature', () => {
     const doc = fs.readFileSync(path.join(pkgRoot, '..', '..', 'docs', 'profile-v1.md'), 'utf8');

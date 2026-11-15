@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { widgetSandbox } from '@telegram/widget-sandbox/vite';
-import { REFERENCE_STYLESHEET, referenceSafeAreaCss } from '@telegram/widget-sandbox/shared/reference';
+import { REFERENCE_STYLESHEET, referenceProfileCss, referenceSafeAreaCss } from '@telegram/widget-sandbox/shared/reference';
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(appRoot, '..', '..');
@@ -111,8 +111,11 @@ export default defineConfig({
             res.setHeader('Content-Security-Policy', REFERENCE_CSP);
             // `?safeArea=bottom,cornerRight,cornerLeft` (the dev app's time control): the root variables a renderer sets for
             // the client's time, there before the widget's first script runs (its env() stays the browser's own).
-            const area = (new URLSearchParams((req.url || '').split('?')[1] ?? '').get('safeArea') ?? '').split(',').map(Number);
-            res.end(withDoctype(fs.readFileSync(p, 'utf8'), area.some((n) => n > 0) ? referenceSafeAreaCss({ bottom: area[0], cornerRight: area[1], cornerLeft: area[2] }) : ''));
+            // `?profile=1` (the dev app's profile page): both safe-area layers and the viewport of the reference page instead.
+            const query = new URLSearchParams((req.url || '').split('?')[1] ?? '');
+            const area = (query.get('safeArea') ?? '').split(',').map(Number);
+            const vars = query.get('profile') === '1' ? referenceProfileCss() : area.some((n) => n > 0) ? referenceSafeAreaCss({ bottom: area[0], cornerRight: area[1], cornerLeft: area[2] }) : '';
+            res.end(withDoctype(fs.readFileSync(p, 'utf8'), vars));
             return;
           }
           next();

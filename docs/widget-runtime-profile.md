@@ -74,6 +74,34 @@ it.
   `TelegramWidget.contentSafeAreaInset` (`docs/sdk-v1.md` §2.17); examples in
   `corpus/safe-area`.
 
+## The bot's profile page
+
+A bot can show the same widget full screen on its profile page (`docs/sdk-v1.md`
+§2.19). It is the same HTML, size and profile: the widget learns where it is from
+`TelegramWidget.surface` (`'profile'` there, `'message'` in a bubble).
+
+- **Size.** The page is the screen's width and as tall as the document: at least the
+  screen, at most 4000 px (clipped above it). It scrolls with the profile, so a long
+  page is fine. `--tg-viewport-height` is the screen's height (unset in a bubble):
+  `min-height: var(--tg-viewport-height, 240px)` fills the screen on a page and stays
+  240 px in a bubble. The resize anchor does nothing on a page.
+- **Keep clear of the screen and the client.** The status bar and the home
+  indicator, and inside them the client's header (back, the bot's name, the menu) and
+  its Start button, are drawn over the page. `env(safe-area-inset-top)` and
+  `env(safe-area-inset-bottom)` are all of it: `padding: env(safe-area-inset-top) 12px
+  env(safe-area-inset-bottom)` keeps a page clear. The defaults pad an unstyled body
+  the same way. A cover picture that should run under the status bar and the header
+  starts at the top and pads only its text. In JS `TelegramWidget.safeAreaInset` (the
+  device) and `contentSafeAreaInset` (the client's header and button). The numbers can
+  be large (a large system font, a foldable): never hard-code them.
+- **Draw both states.** The page is shown before the user starts the bot (if the bot
+  is allowed to) and after. Before Start `viewer` is `null` and `request` is refused.
+  After Start the widget knows the viewer and may ask the bot, on a tap and in the
+  background, as in the private chat with the bot. `chatType` is `null` on a page in
+  both: a page is in no chat. The client re-creates the widget at Start. One HTML
+  draws both: before Start what the bot is and why to start it, after Start what it
+  does for this user.
+
 ## Input: who gets a press
 
 Taps (`click`) and pointer events (`pointerdown`/`move`/`up`/`cancel`,
@@ -156,7 +184,7 @@ stylesheets, fonts and images are never loaded. The full list, generated
 from the profile:
 
 <!-- profile:summary -->
-*Generated from `packages/core/profile.json` (profile 1): 280 features, 202 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
+*Generated from `packages/core/profile.json` (profile 1): 284 features, 206 in, 78 out; each one with how it is removed in `docs/profile-v1.md`.*
 
 - **HTML elements and attributes** (20 in, 14 out): ruby, rt, rp, bdi, bdo · Legacy presentational elements: center, font, big, tt, strike, nobr · &lt;img src="data:image/svg+xml"> · &lt;img> with data: AVIF, BMP, ICO · &lt;img src="https://…"> (any non-data: URL) · Form controls: form, input, select, option, optgroup, textarea, label, fieldset, legend, datalist, output · progress, meter · dialog, popover attribute · audio, video, source, track · script, iframe, frame, object, embed, link, meta, base, portal, template, slot, math, fencedframe, … · align, valign, bgcolor, border, cellpadding, cellspacing, color, face, nowrap · contenteditable, spellcheck, inputmode, enterkeyhint, autocapitalize · draggable · tabindex, autofocus, accesskey
 - **Inline SVG** (5 in, 5 out): clipPath, mask, pattern, marker · SVG filter primitives · SMIL animation: animate, animateTransform, animateMotion · foreignObject · &lt;image href="data:…"> inside SVG
@@ -166,10 +194,10 @@ from the profile:
 - **Animation** (7 in, 1 out): Magic move
 - **Canvas 2D** (13 in, 8 out): createConicGradient · createPattern from a canvas or image · globalCompositeOperation · shadowBlur, shadowColor, shadowOffsetX/Y · ctx.filter · getImageData / putImageData / createImageData · toDataURL, toBlob, captureStream · WebGL, OffscreenCanvas, bitmaprenderer contexts
 - **JavaScript runtime** (25 in, 9 out): element.focus() / blur() / select(), document.activeElement: the widget takes keyboard focus · Bundled libraries by CDN name: Chart.js 4, D3 7 · fetch, XMLHttpRequest, WebSocket, EventSource, RTCPeerConnection, sendBeacon, importScripts, Worker, BroadcastChannel · location assignment, history, window.open, form submission · alert, confirm, prompt, print · clipboard, share, vibrate, geolocation, mediaDevices, Notification · attachShadow, customElements.define · Blob, FileReader, URL.createObjectURL · requestFullscreen
-- **TelegramWidget (SDK v1)** (17 in, 1 out): TelegramWidget.sendMessage
+- **TelegramWidget (SDK v1)** (19 in, 1 out): TelegramWidget.sendMessage
 - **Input** (9 in, 5 out): touchstart / touchmove / touchend · Key events: keydown / keyup / keypress, beforeinput / input from keys, focus / blur / focusin / focusout from keys · Enter / Space activate a focused button or link · A key press counts as a user gesture for privileged bridge calls · wheel and scroll events
 - **Limits** (22 in, 0 out)
-- **Client behaviour** (17 in, 0 out)
+- **Client behaviour** (19 in, 0 out)
 <!-- /profile:summary -->
 
 ## `TelegramWidget` in brief
@@ -184,7 +212,8 @@ TelegramWidget.openTelegramLink('https://t.me/…'); // in a tap handler: opens 
 TelegramWidget.HapticFeedback.impactOccurred('light'); // notificationOccurred, selectionChanged
 TelegramWidget.ready();                      // optional: first state drawn
 TelegramWidget.setResizeAnchor('bottom');    // v0.1.3: grow upward ('top', the default: downward)
-TelegramWidget.contentSafeAreaInset;         // { bottom, cornerLeft, cornerRight, … } px: the client's time over the corner; 'contentSafeAreaChanged'
+TelegramWidget.contentSafeAreaInset;         // { bottom, cornerLeft, cornerRight, … } px: the client's time over the corner (on a page: its header, its button); 'contentSafeAreaChanged'
+TelegramWidget.surface;                      // 'message' | 'profile' (the bot's profile page); safeAreaInset { top, right, bottom, left }: the screen's edges there; 'safeAreaChanged'
 TelegramWidget.chatData;                     // the chat state (this message, this chat), or null; publicData: the shared state
 TelegramWidget.onEvent('chatDataChanged', fn); // and 'publicDataChanged': the bot changed the state: redraw from it
 TelegramWidget.request('vote:2').then((a) => a.result, (e) => e.code); // ask the bot, in a tap handler
@@ -457,6 +486,16 @@ THE BUBBLE
   covered, so content may enter the band on the other side.
 More: {docs}/guide#the-bubble
 
+THE BOT'S PROFILE PAGE
+- On the bot's profile page TelegramWidget.surface is 'profile': the screen's
+  width, at least the screen tall (--tg-viewport-height, unset in a bubble),
+  at most 4000 px, and it scrolls. env(safe-area-inset-top|bottom) covers the
+  status bar, the client's header and its Start button: pad by it (it can
+  be large).
+- Draw both states. Before Start viewer is null and request() is refused:
+  say why to start the bot. After Start the viewer is there and request()
+  works. chatType is null on a page.
+
 WHAT WORKS
 - HTML: div, span, p, h1-h6, ul/ol/li, dl, table, details/summary (toggle
   event), figure, header/section/nav/article, b/i/em/strong/small/code/pre/
@@ -548,7 +587,9 @@ TELEGRAMWIDGET (window.TelegramWidget; undefined outside Telegram: check it)
 - setResizeAnchor('top' | 'bottom'): the edge of the bubble that stays still
   when your height changes ('top' by default; 'bottom' for a log or thread
   that grows at the bottom). Older clients lack it:
-  TelegramWidget.setResizeAnchor?.('bottom').
+  TelegramWidget.setResizeAnchor?.('bottom'). Not on a profile page.
+- safeAreaInset { top, right, bottom, left }: the screen's edges, 0 in a
+  bubble ('safeAreaChanged').
 - No sendMessage, alert/confirm/prompt, navigator.clipboard (use copyText),
   window.open (use openLink), share or fullscreen.
 More: {docs}/sdk

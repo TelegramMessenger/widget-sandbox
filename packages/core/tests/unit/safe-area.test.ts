@@ -19,27 +19,27 @@ const sheet = (css: string, scope: 'document' | 'shadow' = 'document') => {
 describe('safe area: the validator rewrites env()', () => {
   it('a safe-area inset becomes its root variable, the fallback kept, silently', () => {
     for (const [css, want] of [
-      ['a{padding-bottom:env(safe-area-inset-bottom)}', 'a{padding-bottom:var(--tg-content-safe-area-inset-bottom)}'],
-      ['a{width:env(safe-area-inset-left,31px)}', 'a{width:var(--tg-content-safe-area-inset-left,31px)}'],
-      ['a{padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px))}', 'a{padding:12px 12px calc(12px + var(--tg-content-safe-area-inset-bottom,0px))}'],
-      ['a{margin:max(8px,env(safe-area-inset-top)) env(safe-area-inset-right)}', 'a{margin:max(8px,var(--tg-content-safe-area-inset-top)) var(--tg-content-safe-area-inset-right)}'],
-      ['a{--pad:env(safe-area-inset-bottom, 4px)}', 'a{--pad:var(--tg-content-safe-area-inset-bottom,4px)}'],
-      ['a{width:var(--w, env(safe-area-inset-right))}', 'a{width:var(--w,var(--tg-content-safe-area-inset-right))}'],
-      ['a{bottom:light-dark(env(safe-area-inset-bottom), 0px)}', 'a{bottom:var(--tg-content-safe-area-inset-bottom)}'],
+      ['a{padding-bottom:env(safe-area-inset-bottom)}', 'a{padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom))}'],
+      ['a{width:env(safe-area-inset-left,31px)}', 'a{width:calc(var(--tg-safe-area-inset-left,0px) + var(--tg-content-safe-area-inset-left,31px))}'],
+      ['a{padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px))}', 'a{padding:12px 12px calc(12px + calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,0px)))}'],
+      ['a{margin:max(8px,env(safe-area-inset-top)) env(safe-area-inset-right)}', 'a{margin:max(8px,calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top))) calc(var(--tg-safe-area-inset-right,0px) + var(--tg-content-safe-area-inset-right))}'],
+      ['a{--pad:env(safe-area-inset-bottom, 4px)}', 'a{--pad:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,4px))}'],
+      ['a{width:var(--w, env(safe-area-inset-right))}', 'a{width:var(--w,calc(var(--tg-safe-area-inset-right,0px) + var(--tg-content-safe-area-inset-right)))}'],
+      ['a{bottom:light-dark(env(safe-area-inset-bottom), 0px)}', 'a{bottom:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom))}'],
     ]) {
       const r = sheet(css);
       assert.equal(r.out, want, css);
       assert.deepEqual(r.diags, [], css);
     }
     // The shadow renderer's page has its own env(): the widget never reads it.
-    assert.equal(sheet('a{bottom:env(safe-area-inset-bottom)}', 'shadow').out, 'a{bottom:var(--tg-content-safe-area-inset-bottom)}');
+    assert.equal(sheet('a{bottom:env(safe-area-inset-bottom)}', 'shadow').out, 'a{bottom:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom))}');
   });
 
   it('in a style attribute, a CSSOM write and an SVG presentation attribute too', () => {
     const diag = () => {};
-    assert.equal(sanitizeStyleAttribute('padding-bottom: env(safe-area-inset-bottom, 8px)', diag), 'padding-bottom:var(--tg-content-safe-area-inset-bottom,8px)');
-    assert.deepEqual(sanitizeStyleProperty('margin-bottom', 'env(safe-area-inset-bottom)', diag), { name: 'margin-bottom', value: 'var(--tg-content-safe-area-inset-bottom)' });
-    assert.equal(sanitizeCssValue('env(safe-area-inset-bottom)', diag), 'var(--tg-content-safe-area-inset-bottom)');
+    assert.equal(sanitizeStyleAttribute('padding-bottom: env(safe-area-inset-bottom, 8px)', diag), 'padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,8px))');
+    assert.deepEqual(sanitizeStyleProperty('margin-bottom', 'env(safe-area-inset-bottom)', diag), { name: 'margin-bottom', value: 'calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom))' });
+    assert.equal(sanitizeCssValue('env(safe-area-inset-bottom)', diag), 'calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom))');
   });
 
   it('another name resolves to its fallback (checked like any value) or drops the declaration', () => {
@@ -137,10 +137,10 @@ describe('safe area: TelegramWidget.contentSafeAreaInset', () => {
     const r = await runWidget('<div id="d"></div><script>var d = document.getElementById("d"); d.style.paddingBottom = "env(safe-area-inset-bottom, 8px)";'
       + 'setTimeout(function () { d.style.marginTop = "env(safe-area-inset-top)"; d.style.marginBottom = "env(keyboard-inset-height)"; }, 0);</script>');
     const attr = r.renderOps.find((o: any) => o.op === 'attr' && o.name === 'style') as any;
-    assert.equal(attr?.value, 'padding-bottom:var(--tg-content-safe-area-inset-bottom,8px)');
+    assert.equal(attr?.value, 'padding-bottom:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,8px))');
     const styles = r.renderOps.filter((o: any) => o.op === 'style').map((o: any) => `${o.name}:${o.value}`);
     // A dropped declaration reaches the renderer as a removal, as for any rejected CSSOM write.
-    assert.deepEqual(styles, ['margin-top:var(--tg-content-safe-area-inset-top)', 'margin-bottom:']);
+    assert.deepEqual(styles, ['margin-top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top))', 'margin-bottom:']);
     assert.ok(r.diags.some((d) => d.detail === 'margin-bottom: env(keyboard-inset-height)'), JSON.stringify(r.diags));
   });
 });

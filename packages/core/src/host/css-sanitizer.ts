@@ -16,9 +16,10 @@
 //     they get the same check; var()/env()/attr() inside them is rejected
 //     because the substituted value cannot be checked statically.
 //   - env(): the engine's own values never reach the renderer. A safe-area inset
-//     becomes the root variable the renderer sets (`env(safe-area-inset-bottom,
-//     8px)` → `var(--tg-content-safe-area-inset-bottom, 8px)`, docs/sdk-v1.md
-//     §2.17); another name resolves to its fallback, or drops the declaration.
+//     becomes the sum of the two root variables the renderer sets, the device's
+//     edges and the client's chrome (`env(safe-area-inset-bottom, 8px)` →
+//     `calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,8px))`,
+//     docs/sdk-v1.md §2.17); another name resolves to its fallback, or drops the declaration.
 //   - the widget profile (packages/core/profile.json, docs/profile-v1.md): only
 //     its properties, functions, units, pseudo-classes, at-rules and media
 //     features pass; `@supports` is decided here from the profile; nested rules
@@ -174,15 +175,13 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
           diag('profile', `${where}: ${envLabel(node)}`);
           return;
         }
-        if (env !== 'var') {
-          // Another name: its fallback takes the function's place, checked here as light-dark()'s branch is.
-          diag('profile', `${where}: ${envLabel(node)} → its fallback`);
-          const repl = new csstree.List<csstree.CssNode>().fromArray(env);
-          csstree.walk({ type: 'Value', children: repl } as csstree.Value, visitor);
-          list.replace(item, repl);
-          return csstree.walk.skip;
-        }
-        // A safe-area inset is now var(--tg-content-safe-area-inset-…[, fallback]): checked below as a var().
+        if (env.kind === 'fallback') diag('profile', `${where}: ${envLabel(node)} → its fallback`);
+        // Another name: its fallback takes the function's place; a safe-area inset: the sum of the two layers, its
+        // fallback inside the second var(). Either is checked here, as light-dark()'s branch is.
+        const repl = new csstree.List<csstree.CssNode>().fromArray(env.nodes);
+        csstree.walk({ type: 'Value', children: repl } as csstree.Value, visitor);
+        list.replace(item, repl);
+        return csstree.walk.skip;
       }
       switch (node.type) {
         case 'Raw':
@@ -252,21 +251,26 @@ function valueIsSafe(value: csstree.CssNode, urlKind: UrlKind, diag: Diag, where
 
 /**
  * `env()` (docs/sdk-v1.md §2.17). The engine's own values belong to the document (in the shadow renderer, to the chat
- * page) and come from the view's system insets, so none reaches the renderer: `env(safe-area-inset-bottom[, fb])` is
- * renamed in place to `var(--tg-content-safe-area-inset-bottom[, fb])`, the root variable the renderer sets ('var');
- * any other name gives the nodes of its fallback; null drops the declaration (no fallback, or not `env(<name>[, …])`).
+ * page) and come from the view's system insets, so none reaches the renderer: `env(safe-area-inset-bottom[, fb])` becomes
+ * `calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom[,fb]))`, the sum of the root
+ * variables the renderer sets for the device's edges (0 in a bubble, and on a renderer that does not set it) and the
+ * client's chrome; a unitless `0` fallback becomes `0px` (a number cannot be added to a length). Any other name gives
+ * the nodes of its fallback; null drops the declaration (no fallback, or not `env(<name>[, …])`).
  */
-function resolveEnv(node: csstree.FunctionNode): 'var' | csstree.CssNode[] | null {
+function resolveEnv(node: csstree.FunctionNode): { kind: 'inset' | 'fallback'; nodes: csstree.CssNode[] } | null {
   const args = node.children.toArray();
   const name = args[0]?.type === 'Identifier' ? args[0].name : null;
   if (name === null || (args.length > 1 && !(args[1].type === 'Operator' && args[1].value === ','))) return null;
   const fallback = args.slice(2);
   if (Object.prototype.hasOwnProperty.call(SAFE_AREA_ENV_VARIABLES, name)) {
-    node.name = 'var';
-    (args[0] as csstree.Identifier).name = SAFE_AREA_ENV_VARIABLES[name];
-    return 'var';
+    const [device, content] = SAFE_AREA_ENV_VARIABLES[name];
+    const fb = fallback.filter((n) => n.type !== 'WhiteSpace');
+    const zero = fb.length === 1 && fb[0].type === 'Number' && Number(fb[0].value) === 0;
+    const tail = fallback.length ? ',' + (zero ? '0px' : csstree.generate({ type: 'Value', children: new csstree.List<csstree.CssNode>().fromArray(fallback) } as csstree.Value).trim()) : '';
+    const sum = csstree.parse(`calc(var(${device},0px) + var(${content}${tail}))`, { ...PARSE_OPTS, context: 'value' } as csstree.ParseOptions) as csstree.Value;
+    return { kind: 'inset', nodes: sum.children.toArray() };
   }
-  return fallback.length ? fallback : null;
+  return fallback.length ? { kind: 'fallback', nodes: fallback } : null;
 }
 
 function envLabel(node: csstree.FunctionNode): string {

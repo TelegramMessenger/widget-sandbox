@@ -1625,8 +1625,11 @@ TEST(sdk_content_safe_area_reaches_the_renderer_and_the_widget) {
     CHECK(host.waitLoaded(20));
     {
         std::lock_guard<std::mutex> l(renderer->mutex);
-        CHECK_MSG(renderer->messages.size() > 1 && renderer->messages[1] == "{\"type\":\"safeArea\",\"inset\":{\"top\":99,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}",
-                  renderer->messages.size() > 1 ? renderer->messages[1] : "nothing sent");
+        // The theme, then the place, then both safe-area layers, before any op.
+        CHECK_MSG(renderer->messages.size() > 3 && renderer->messages[1] == "{\"type\":\"surface\",\"surface\":\"message\",\"viewportHeight\":0}" &&
+                      renderer->messages[2] == "{\"type\":\"safeArea\",\"inset\":{\"top\":99,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}}" &&
+                      renderer->messages[3] == "{\"type\":\"deviceSafeArea\",\"inset\":{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}}",
+                  renderer->messages.size() > 2 ? renderer->messages[2] : "nothing sent");
     }
     CHECK_MSG(host.probe("JSON.stringify(first)") == "{\"top\":0,\"right\":0,\"bottom\":24,\"left\":0,\"cornerLeft\":0,\"cornerRight\":72}", host.probe("JSON.stringify(first)"));
     WidgetContentSafeArea rtl;
@@ -1795,6 +1798,55 @@ TEST(sdk_resize_anchor_is_host_state_next_to_the_height) {
     CHECK(plain.waitLoaded(20));
     CHECK(plain.waitRendered(5));
     CHECK(plain.diagnostics().resizeAnchor == "top" && plain.diagnostics().height > 0);
+}
+
+/// The bot's profile page (docs/sdk-v1.md §2.19): the place and both layers reach the renderer and the widget from its
+/// first line (no corners on a page), setSafeArea fires one safeAreaChanged, the page is at least its viewport tall and
+/// at most the (provisional) ceiling, and the widget's resize anchor goes nowhere. In a bubble the device's edges are 0.
+TEST(sdk_profile_surface_layers_height_and_anchor) {
+    CHECK(surface::height(WidgetSurface::Message, 9000, 844) == 600 && surface::height(WidgetSurface::Message, 10, 844) == 50);
+    CHECK(surface::height(WidgetSurface::Profile, 120, 844) == 844 && surface::height(WidgetSurface::Profile, 9000, 844) == surface::kPageMaxHeight);
+    CHECK(surface::checkViewportHeight(WidgetSurface::Profile, 844.123) == 844.12 && surface::checkViewportHeight(WidgetSurface::Profile, 4001) == 0);
+    CHECK(surface::checkViewportHeight(WidgetSurface::Message, 844) == 0 && surface::kPageMaxHeight == 4000);
+    WidgetHostOptions options;
+    options.context.surface = WidgetSurface::Profile;
+    options.context.chatType = "private"; // a page has no chat: null for the widget
+    options.safeArea.top = 120; // past the old ranges: as passed on a page
+    options.safeArea.bottom = 34;
+    options.safeArea.left = -5; // negative: 0 for the widget
+    options.contentSafeArea.top = 90;
+    options.contentSafeArea.bottom = 150;
+    options.contentSafeArea.left = 40;
+    options.contentSafeArea.cornerRight = 64; // no corners on a page: 0 for the widget
+    options.viewportHeight = 844;
+    WidgetHost host("<p>x</p><script>var log = [], d = TelegramWidget.safeAreaInset, c = TelegramWidget.contentSafeAreaInset;"
+                    "var place = [TelegramWidget.surface, d.top, d.bottom, d.left, c.top, c.bottom, c.left, c.cornerRight, String(TelegramWidget.chatType)].join(':');"
+                    "TelegramWidget.onEvent('safeAreaChanged', function () { var a = TelegramWidget.safeAreaInset; log.push([a.top, a.left, a.right, a.bottom, Object.isFrozen(a), a !== d].join(':')); });"
+                    "TelegramWidget.setResizeAnchor('bottom');</script>",
+                    WidgetTheme{}, 390, options, RES,
+                    [](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> { return std::make_unique<GrowingRenderer>(); });
+    host.start();
+    CHECK(host.waitLoaded(20));
+    CHECK(host.waitRendered(5));
+    CHECK_MSG(host.probe("place") == "profile:120:34:0:90:150:40:0:null", host.probe("place"));
+    CHECK_MSG(host.diagnostics().height == 844, std::to_string(host.diagnostics().height));
+    CHECK(host.diagnostics().resizeAnchor == "top");
+    WidgetSafeArea turned;
+    turned.left = 59;
+    turned.right = 59;
+    turned.bottom = 21;
+    host.setSafeArea(turned);
+    host.setSafeArea(turned);
+    host.onHostThread([] {});
+    CHECK_MSG(host.probe("log.join('|')") == "0:59:59:21:true:true", host.probe("log.join('|')"));
+    host.destroy();
+    WidgetHostOptions bubbleOptions;
+    bubbleOptions.safeArea.top = 47;
+    WidgetHost bubble("<script>var s = TelegramWidget.surface + ':' + JSON.stringify(TelegramWidget.safeAreaInset);</script>", WidgetTheme{}, 300, bubbleOptions, RES,
+                      [](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> { return std::make_unique<GrowingRenderer>(); });
+    bubble.start();
+    CHECK(bubble.waitLoaded(20));
+    CHECK_MSG(bubble.probe("s") == "message:{\"top\":0,\"right\":0,\"bottom\":0,\"left\":0}", bubble.probe("s"));
 }
 
 // ───────────── The bot's data and requests through the real engine and WidgetHost (docs/sdk-v1.md §2.13–§2.15) ─────────────

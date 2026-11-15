@@ -91,6 +91,14 @@ struct WidgetHostOptions {
     /// the message time at the bottom and its corner; zero (the default) with a caption below it. Pass it here, before the first
     /// render, so the first height already has the band; later only with the bubble's layout (`setContentSafeArea`).
     WidgetContentSafeArea contentSafeArea;
+    /// The device's edges over the widget (docs/sdk-v1.md §2.17): on a profile page (`context.surface`) the status bar and
+    /// the cutout, the home indicator, the sides in landscape; ignored (0) in a bubble. Pass it here, before the first
+    /// render; later only with the screen's layout (`setSafeArea`), never per frame. On a page `contentSafeArea` is the
+    /// native header over the top and the Start / Open App button over the bottom, measured inside this one.
+    WidgetSafeArea safeArea;
+    /// On a profile page: the widget's whole area edge to edge, in CSS px (the screen under the native header and button
+    /// included): `--tg-viewport-height`, and the page is never shorter. Ignored in a bubble. Later: `setViewportHeight`.
+    double viewportHeight = 0;
     /// Web Storage of this message as the client keeps it (docs/sdk-v1.md §5.4); an area over the
     /// 4 KB quota drops the whole preload (diagnostic `storage-rejected`, the widget starts empty).
     WidgetStorage storage;
@@ -196,6 +204,13 @@ public:
     /// added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
     /// widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
     void setContentSafeArea(const WidgetContentSafeArea& area);
+    /// The device's edges over the widget changed with the screen's layout (docs/sdk-v1.md §2.17): a rotation, a window
+    /// resized. The renderer gets the `--tg-safe-area-inset-*` variables and the widget `safeAreaInset` and
+    /// `safeAreaChanged`, from this one call; never per frame. Always 0 in a bubble.
+    void setSafeArea(const WidgetSafeArea& area);
+    /// A profile page's viewport changed with the screen's layout: `--tg-viewport-height`, and the page's least height.
+    /// Ignored in a bubble.
+    void setViewportHeight(double height);
     /// A DOM event for the widget that did not come from the renderer (the harness's `--events`).
     void event(const std::string& json);
     /// Trusted diagnostic code evaluated in the widget context (tests / harness only).
@@ -309,6 +324,10 @@ private:
     std::string themeMessage() const;
     /// `{"type":"safeArea","inset":{…}}` (docs/sdk-v1.md §3.4).
     static std::string safeAreaMessage(const WidgetContentSafeArea& area);
+    /// `{"type":"deviceSafeArea","inset":{…}}` (docs/sdk-v1.md §3.4).
+    static std::string deviceSafeAreaMessage(const WidgetSafeArea& area);
+    /// `{"type":"surface","surface","viewportHeight"}` (docs/sdk-v1.md §3.4), sent before both safe-area layers.
+    std::string surfaceMessage() const;
     void resolveQuery(const std::string& json, std::optional<std::vector<uint8_t>> binary);
     void diag(const std::string& kind, const std::string& detail);
     void changed();
@@ -344,6 +363,8 @@ private:
     bool callbacksClosed_ = false;
     std::vector<std::string> pendingToRenderer_;
     double viewportW_, viewportH_, viewportDpr_;
+    /// A profile page's checked viewport (0 in a bubble), `setViewportHeight`; host thread.
+    double pageViewport_ = 0;
     int qid_ = 0;
     int opsSent_ = 0;
     int tasksAtError_ = 0;

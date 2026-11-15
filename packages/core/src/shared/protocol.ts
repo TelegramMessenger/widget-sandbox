@@ -2,7 +2,7 @@
 // Types only (plus a few constants): no code here runs with any privilege.
 
 import { PROFILE_EVENTS } from './profile-tables';
-import type { ChatType, ContentSafeArea, RequestError, StorageCommit, ThemeParams, WidgetTheme, WidgetUser } from './sdk-policy';
+import type { ChatType, ContentSafeArea, RequestError, SafeAreaInset, StorageCommit, ThemeParams, WidgetSurface, WidgetTheme, WidgetUser } from './sdk-policy';
 import type { BubbleAction, Gesture } from './gesture-policy';
 import type { PaintLimitCode } from './paint-policy';
 
@@ -162,6 +162,16 @@ export type HostToRenderer =
    * `--tg-content-safe-area-*` variables `contentSafeAreaVariables` makes of it on the widget's root (0 until then).
    */
   | { type: 'safeArea'; inset: ContentSafeArea }
+  /**
+   * The device's edges over the widget (docs/sdk-v1.md §2.17, §3.4): the renderer sets the `--tg-safe-area-inset-*`
+   * variables `safeAreaVariables` makes of it (0 until then, and always 0 in a bubble).
+   */
+  | { type: 'deviceSafeArea'; inset: SafeAreaInset }
+  /**
+   * Where the widget is shown and, on a profile page, its whole area edge to edge (docs/sdk-v1.md §2.19, §3.4): the
+   * ranges of both safe-area layers and `--tg-viewport-height` follow it. A bubble until the host sends it.
+   */
+  | { type: 'surface'; surface: WidgetSurface; viewportHeight: number }
   /** The runtime is gone (fatal) or paused: keep the last render, stop forwarding events and frames, show a badge with `reason`. */
   | { type: 'frozen'; reason: string; fatal: boolean }
   /**
@@ -244,13 +254,18 @@ export interface SandboxConfig {
   locale?: string;
   /** What the client draws over the widget (docs/sdk-v1.md §2.17), logical px; all 0 when absent. The shim checks it. */
   contentSafeArea?: ContentSafeArea;
+  /** The device's edges over the widget (docs/sdk-v1.md §2.17), logical px; all 0 when absent and in a bubble. The shim checks it. */
+  deviceSafeArea?: SafeAreaInset;
+  /** Where the widget is shown (`WidgetContext.surface`, docs/sdk-v1.md §2.19): `TelegramWidget.surface`; a message when absent. */
+  surface?: WidgetSurface;
   /** The widget profile the glue enforces (`PROFILE_VERSION`); the shim reports a mismatch with its own. */
   profile?: number;
   /** The client's preload of Web Storage (docs/sdk-v1.md §2.8), checked by the glue (`checkStorageCommit`). */
   storage?: StorageCommit;
   /**
    * The bot's two strings and where the widget is (docs/sdk-v1.md §2.13), checked by the glue: null for none; a
-   * forwarded copy (`isCopy`) gets no `chatData` and no `chatType`, and no `viewer` unless it may request (`canQuery`).
+   * forwarded copy (`isCopy`) gets no `chatData` and no `chatType`, and no `viewer` unless it may request (`canQuery`);
+   * a profile page (`surface`) gets no `chatType`.
    */
   chatData?: string | null;
   publicData?: string | null;
@@ -321,6 +336,8 @@ export type HostToWorker =
   | { type: 'theme'; theme: 'light' | 'dark'; themeParams?: Partial<ThemeParams> }
   /** The shim's `safeArea` dispatch: `TelegramWidget.contentSafeAreaInset` and `contentSafeAreaChanged` (docs/sdk-v1.md §2.17). */
   | { type: 'safeArea'; inset: ContentSafeArea }
+  /** The shim's `deviceSafeArea` dispatch: `TelegramWidget.safeAreaInset` and `safeAreaChanged` (docs/sdk-v1.md §2.17). */
+  | { type: 'deviceSafeArea'; inset: SafeAreaInset }
   | { type: 'visibility'; visible: boolean }
   /** Into the widget (the shim's `bridge` dispatch): the bot's data changed, or the answer to a request. */
   | { type: 'bridge'; event: BridgeEvent };
