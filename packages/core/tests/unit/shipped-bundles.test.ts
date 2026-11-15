@@ -11,7 +11,7 @@ const root = path.resolve(pkgRoot, '..', '..');
 
 // The Swift package ships the .js in WidgetSandbox and keeps the .qbc in WidgetSandboxQuickJS, which an app does not link.
 const SHIPPED: Record<string, { js: string; bytecode?: string }> = {
-  ios: { js: 'packages/ios/Sources/WidgetSandbox/WidgetJS', bytecode: 'packages/ios/Sources/WidgetSandboxQuickJS/WidgetJS' },
+  ios: { js: 'packages/ios/Sources/WidgetSandboxResources/WidgetJS', bytecode: 'packages/ios/Sources/WidgetSandboxQuickJS/WidgetJS' },
   android: { js: 'packages/android/widget-sandbox/src/main/assets/WidgetJS' },
   desktop: { js: 'packages/desktop/WidgetJS' },
 };

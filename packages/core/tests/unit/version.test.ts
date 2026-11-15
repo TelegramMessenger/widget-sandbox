@@ -13,7 +13,7 @@ import { assertVersionsAgree, bundleStamp, parseStamp, platformConstants, readVe
 const version = readVersion();
 
 const SHIPPED = {
-  ios: 'packages/ios/Sources/WidgetSandbox/WidgetJS',
+  ios: 'packages/ios/Sources/WidgetSandboxResources/WidgetJS',
   android: 'packages/android/widget-sandbox/src/main/assets/WidgetJS',
   desktop: 'packages/desktop/WidgetJS',
 } as const;

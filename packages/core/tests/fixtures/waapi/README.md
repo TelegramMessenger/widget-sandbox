@@ -15,8 +15,8 @@ Captured from `sam/new-features` at `d8ea9aa82`. To regenerate:
 
 ```sh
 APP=/path/to/telegrammacos
-git -C $APP show <rev>:packages/WidgetSandbox/Sources/WidgetSandbox/WidgetJS/sandbox-bundle.js > /tmp/app-sandbox-bundle.js
-git -C $APP show <rev>:packages/WidgetSandbox/Sources/WidgetSandbox/WidgetJS/validator-bundle.js > /tmp/app-validator-bundle.js
+git -C $APP show <rev>:packages/WidgetSandbox/Sources/WidgetSandboxResources/WidgetJS/sandbox-bundle.js > /tmp/app-sandbox-bundle.js
+git -C $APP show <rev>:packages/WidgetSandbox/Sources/WidgetSandboxResources/WidgetJS/validator-bundle.js > /tmp/app-validator-bundle.js
 cd packages/core
 TW_APP_SANDBOX_BUNDLE=/tmp/app-sandbox-bundle.js TW_APP_VALIDATOR_BUNDLE=/tmp/app-validator-bundle.js \
   npx tsx --test tests/unit/web-animations.test.ts

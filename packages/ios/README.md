@@ -44,7 +44,7 @@ ios/
 ## Build
 
 ```bash
-pnpm build:ios                       # bundles → packages/ios/Sources/WidgetSandbox/WidgetJS, corpus → apps/ios/DemoApp/Corpus
+pnpm build:ios                       # bundles → packages/ios/Sources/WidgetSandboxResources/WidgetJS, corpus → apps/ios/DemoApp/Corpus
 cd apps/ios/DemoApp && xcodegen generate  # regenerates TwidgetDemo.xcodeproj (brew install xcodegen)
 open apps/ios/DemoApp/TwidgetDemo.xcodeproj
 ```

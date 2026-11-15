@@ -28,7 +28,7 @@ apps/ios/DemoApp/Sources/
 ## Build and run
 
 ```bash
-corepack pnpm build:macos            # = build:ios: bundles → packages/ios/Sources/WidgetSandbox/WidgetJS, corpus → apps/ios/DemoApp/Corpus
+corepack pnpm build:macos            # = build:ios: bundles → packages/ios/Sources/WidgetSandboxResources/WidgetJS, corpus → apps/ios/DemoApp/Corpus
 cd apps/macos/DemoApp && xcodegen generate # regenerates TwidgetDemoMac.xcodeproj (brew install xcodegen)
 open apps/macos/DemoApp/TwidgetDemoMac.xcodeproj
 ```

@@ -1825,19 +1825,49 @@ public final class SandboxResources {
     /// does not build.
     public let refusal: String?
 
-    /// `bundle` defaults to the package's resource bundle.
-    public convenience init(bundle: Bundle? = nil) {
-        let bundle = bundle ?? Bundle.module
-        func read(_ name: String, _ ext: String, _ sub: String) -> String {
-            guard let url = bundle.url(forResource: name, withExtension: ext, subdirectory: sub), let s = try? String(contentsOf: url, encoding: .utf8) else {
-                fatalError("WidgetSandbox: missing resource \(sub)/\(name).\(ext) — run `pnpm build:ios`")
+    /// Name of the bundle `WidgetSandboxResources` builds; a client that runs widget JavaScript in its own process links
+    /// that product (WidgetSandboxNova and WidgetSandboxQuickJS do). A client that does not finds none and gets empty
+    /// bundles with `refusal` set: nothing it does in process can run them, and nothing traps.
+    public static let resourceBundleName = "WidgetSandbox_WidgetSandboxResources.bundle"
+    public static let missingRefusal = "the widget sandbox resources are not in this process"
+
+    static func locateBundle() -> Bundle? {
+        var places: [URL?] = [Bundle.main.resourceURL, Bundle.main.bundleURL, Bundle(for: SandboxResources.self).resourceURL, Bundle(for: SandboxResources.self).bundleURL.deletingLastPathComponent()]
+        places += Bundle.allBundles.map { $0.bundleURL.deletingLastPathComponent() }
+        for place in places.compactMap({ $0 }) {
+            if let bundle = Bundle(url: place.appendingPathComponent(resourceBundleName)) {
+                return bundle
             }
-            return s
         }
-        self.init(sandboxBundle: read("sandbox-bundle", "js", "WidgetJS"), rendererBundle: read("renderer-bundle", "js", "WidgetJS"),
-                  validatorBundle: read("validator-bundle", "js", "WidgetJS"),
+        return nil
+    }
+
+    /// `bundle` defaults to the `WidgetSandboxResources` bundle when this process has one.
+    public convenience init(bundle: Bundle? = nil) {
+        guard let bundle = bundle ?? SandboxResources.locateBundle() else {
+            self.init(missing: SandboxResources.missingRefusal)
+            return
+        }
+        func read(_ name: String, _ ext: String, _ sub: String) -> String? {
+            guard let url = bundle.url(forResource: name, withExtension: ext, subdirectory: sub) else { return nil }
+            return try? String(contentsOf: url, encoding: .utf8)
+        }
+        guard let sandbox = read("sandbox-bundle", "js", "WidgetJS"), let renderer = read("renderer-bundle", "js", "WidgetJS"), let validator = read("validator-bundle", "js", "WidgetJS") else {
+            self.init(missing: SandboxResources.missingRefusal)
+            return
+        }
+        self.init(sandboxBundle: sandbox, rendererBundle: renderer, validatorBundle: validator,
                   sandboxBytecode: bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) } ?? QuickJSEngineRegistry.bytecode(named: "sandbox-bundle"),
                   validatorBytecode: bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) } ?? QuickJSEngineRegistry.bytecode(named: "validator-bundle"))
+    }
+
+    private init(missing reason: String) {
+        sandboxBundle = ""
+        rendererBundle = ""
+        validatorBundle = ""
+        sandboxBytecode = nil
+        validatorBytecode = nil
+        refusal = reason
     }
 
     /// Bundles from elsewhere (a client's own resource layout, tests).

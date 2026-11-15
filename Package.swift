@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "WidgetSandbox", targets: ["WidgetSandbox"]),
         .library(name: "WidgetSandboxProtocol", targets: ["WidgetSandboxProtocol"]),
         .library(name: "WidgetSandboxNova", targets: ["WidgetSandboxNova"]),
+        .library(name: "WidgetSandboxResources", targets: ["WidgetSandboxResources"]),
         .library(name: "WidgetSandboxQuickJS", targets: ["WidgetSandboxQuickJS"]),
         .library(name: "CQuickJS", targets: ["CQuickJS"]),
         .library(name: "CQuickJSBox", targets: ["CQuickJSBox"]),
@@ -82,14 +83,18 @@ let package = Package(
         .target(
             name: "WidgetSandbox",
             dependencies: ["WidgetSandboxProtocol"],
-            path: "packages/ios/Sources/WidgetSandbox",
+            path: "packages/ios/Sources/WidgetSandbox"
+        ),
+        .target(
+            name: "WidgetSandboxResources",
+            path: "packages/ios/Sources/WidgetSandboxResources",
             resources: [.copy("WidgetJS")]
         ),
         // Nova behind WidgetSandbox's engine interface; registers only when `registerNovaEngine()` is called.
         .target(
             name: "WidgetSandboxNova",
             dependencies: [
-                "WidgetSandbox",
+                "WidgetSandbox", "WidgetSandboxResources",
                 .target(name: "NovaEngineFFI", condition: .when(platforms: [.macOS])),
             ],
             path: "packages/ios/Sources/WidgetSandboxNova"
@@ -99,7 +104,7 @@ let package = Package(
         .target(
             name: "WidgetSandboxQuickJS",
             dependencies: [
-                "WidgetSandbox", "CQuickJS",
+                "WidgetSandbox", "WidgetSandboxResources", "CQuickJS",
                 .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS])),
             ],
             path: "packages/ios/Sources/WidgetSandboxQuickJS",

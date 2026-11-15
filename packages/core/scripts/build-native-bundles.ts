@@ -28,7 +28,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 /** This package (packages/core): the bundles' sources. */
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const ios = { transport: 'webkit', js: 'packages/ios/Sources/WidgetSandbox/WidgetJS', bytecode: 'packages/ios/Sources/WidgetSandboxQuickJS/WidgetJS', fixtures: 'packages/ios/Tests/WidgetSandboxTests/Fixtures' } as const;
+const ios = { transport: 'webkit', js: 'packages/ios/Sources/WidgetSandboxResources/WidgetJS', bytecode: 'packages/ios/Sources/WidgetSandboxQuickJS/WidgetJS', fixtures: 'packages/ios/Tests/WidgetSandboxTests/Fixtures' } as const;
 const TARGETS = {
   ios,
   // macOS uses the same Swift package, bundles (WKWebView transport) and demo corpus as iOS.

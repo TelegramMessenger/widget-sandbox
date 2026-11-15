@@ -127,7 +127,7 @@ Timings:
 
 ```bash
 packages/quickjs-box/tools/build.sh
-J=packages/ios/Sources/WidgetSandbox/WidgetJS
+J=packages/ios/Sources/WidgetSandboxResources/WidgetJS
 .cache/qjsbox-tools/qjsbox-run-guard-pages bench $J/sandbox-bundle.js $J/sandbox-bundle.qbc
 .cache/qjsbox-tools/qjsbox-run-bounds-checks bench $J/sandbox-bundle.js $J/sandbox-bundle.qbc
 ```
