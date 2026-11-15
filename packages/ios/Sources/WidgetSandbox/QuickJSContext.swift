@@ -10,7 +10,7 @@ import Foundation
 
 /// Which build of QuickJS runs a widget's code.
 public enum QuickJSBackend: String {
-    /// quickjs-ng compiled into the process, from the WidgetSandboxQuickJS target; fails closed where it is not linked.
+    /// quickjs-ng compiled into the process, from the WidgetSandboxQuickJS target; fails closed where it is not registered.
     case native
     /// The same engine commit compiled to wasm and back to C, in a memory of its own: a memory bug in the engine
     /// reads and writes that memory only, or ends the process. macOS only for now (`isBoxedAvailable`); slower
@@ -191,8 +191,8 @@ public final class QuickJSContext {
                 if backend == .boxed, let reason = Self.boxedFailureForTesting { throw QuickJSError.engineFault(reason) }
                 guard let registration = QuickJSEngineRegistry.registration(for: backend) else {
                     throw QuickJSError.engineFault(backend == .native
-                        ? "native QuickJS is not part of this build (WidgetSandboxQuickJS is not linked)"
-                        : "the boxed QuickJS engine is not part of this build (WidgetSandboxQuickJS is not linked, macOS only)")
+                        ? "native QuickJS is not part of this build (WidgetSandboxQuickJS is not registered)"
+                        : "the boxed QuickJS engine is not part of this build (WidgetSandboxQuickJS is not registered, macOS only)")
                 }
                 engine = try registration.make(memoryLimitBytes, maxStackBytes)
                 unavailableReason = nil

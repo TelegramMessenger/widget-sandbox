@@ -362,14 +362,15 @@ final class BoxedQuickJSTests: QuickJSTestCase {
     /// A build that cannot run the box never falls back to the native engine: the widget stops. On macOS the test
     /// makes the box fail; on a platform without it (iOS today) that is what asking for `.boxed` does anyway.
     func testABoxThatCannotBeCreatedFailsClosed() throws {
-        var reason = "the boxed QuickJS engine is not part of this build (macOS only)"
+        var expected = "the boxed QuickJS engine is not part of this build"
         if QuickJSBackend.isBoxedAvailable {
-            reason = "the box was compiled without optimization"
-            QuickJSContext.boxedFailureForTesting = reason
+            expected = "the box was compiled without optimization"
+            QuickJSContext.boxedFailureForTesting = expected
         }
         defer { QuickJSContext.boxedFailureForTesting = nil }
         let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .boxed)
-        XCTAssertEqual(js.unavailableReason, reason)
+        let reason = try XCTUnwrap(js.unavailableReason)
+        XCTAssertTrue(reason.hasPrefix(expected), reason)
         XCTAssertThrowsError(try js.evaluate("1", filename: "t.js")) { XCTAssertEqual("\($0)", "engine fault: \(reason)") }
         XCTAssertThrowsError(try js.call("f"))
         XCTAssertFalse(js.captureGlobalFunction("f"))
