@@ -32,9 +32,11 @@ public protocol Renderer: AnyObject {
 }
 
 /// A renderer that parses its messages off the main thread (one in another process): the host takes the parsed
-/// message from `onParsedMessage` and parses nothing on the main thread. Its `onMessage` still works for others.
+/// message from `onParsedMessage` and parses nothing on the main thread. `encoded` holds, by key (`ev`, `result`,
+/// `entries`), the JSON the host would otherwise write on the main thread for that member; the renderer builds it from
+/// the same parsed message. Its `onMessage` still works for others.
 public protocol ParsedMessageRenderer: AnyObject {
-    var onParsedMessage: (([String: Any]) -> Void)? { get set }
+    var onParsedMessage: ((_ message: [String: Any], _ encoded: [String: String]) -> Void)? { get set }
 }
 
 public protocol TaskRenderer: AnyObject {
