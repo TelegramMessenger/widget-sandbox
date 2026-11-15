@@ -24,7 +24,7 @@ compare the engines (`Package.swift`), so there is no build without Nova.
 
 ## How it is built
 
-Telegram for macOS has [nova-safe](https://github.com/macosswift/nova-safe) as the submodule `submodules/nova`
+Telegram for macOS has [nova-safe](https://github.com/TelegramMessenger/nova-safe) as the submodule `submodules/nova`
 and builds the library with its other native libraries (`scripts/configure_frameworks.sh`, the `nova-engine`
 project in `core-xprojects`), into this directory of its `third-party/widget-sandbox` checkout. It is rebuilt
 when the submodule, the Rust toolchain or Xcode changes, and the build checks `manifest.sha256`.
