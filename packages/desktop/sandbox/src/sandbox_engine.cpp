@@ -97,8 +97,8 @@ static int countCanvasCommands(const std::string& json) {
 
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
-SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
-    : thread_("widget.sandbox"), html_(std::move(html)), config_(config), resources_(std::move(resources)),
+SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl, QuickJSBackend backend)
+    : thread_("widget.sandbox"), backend_(backend), html_(std::move(html)), config_(config), resources_(std::move(resources)),
       intl_(intl ? std::move(intl) : std::make_shared<BasicIntl>()), visible_(config.visible),
       budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs),
       mainBudget_(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0) {
@@ -146,7 +146,12 @@ void SandboxEngine::stop(const std::string& reason) {
 void SandboxEngine::boot() {
     if (started_) return;
     started_ = true;
-    js_ = std::make_unique<QuickJSContext>(config_.memoryLimitBytes, JSThread::kJSStackLimit);
+    js_ = std::make_unique<QuickJSContext>(config_.memoryLimitBytes, JSThread::kJSStackLimit, backend_);
+    // Fail closed: an engine this build cannot provide never runs widget code, nor QuickJS in its place.
+    if (!js_->available()) {
+        kill("Engine fault: " + js_->unavailableReason());
+        return;
+    }
     js_->registerFunction("__host", [this](const std::vector<std::string>& args) {
         return hostCall(args.empty() ? "" : args[0], args.size() > 1 ? args[1] : "");
     });
@@ -180,6 +185,8 @@ void SandboxEngine::boot() {
             return;
         }
         if (delegate_) delegate_->onDiag(*this, "boot", "sandbox bundle eval " + std::to_string(int(excludeMs_)) + " ms (" + how + ")");
+        // Name the engine once a widget has booted on another one than the native default.
+        if (backend_ != QuickJSBackend::Native && delegate_) delegate_->onDiag(*this, "engine", js_->engineDescription());
         resetDeadline();
         Json config = Json::object();
         config.set("memoryLimitBytes", double(config_.memoryLimitBytes));
@@ -916,6 +923,15 @@ std::string SandboxEngine::evalBundle(const std::string& source, const std::vect
     if (auto refusal = BundleStamp::refusal(*resources_)) {
         if (delegate_) delegate_->onDiag(*this, "bundle-mismatch", *refusal);
         return "failed";
+    }
+    if (!js_->runsBytecode()) {
+        // Nova: from code compiled once per process (or from source when the bundle cannot be shared).
+        try {
+            return js_->evaluateBundle(source, filename) ? "compiled once" : "source";
+        } catch (const JSError& e) {
+            handleError(e.what(), filename);
+            return "failed";
+        }
     }
     if (!bytecode.empty()) {
         try {

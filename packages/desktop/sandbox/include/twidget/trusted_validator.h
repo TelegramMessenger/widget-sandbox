@@ -26,8 +26,11 @@ class TrustedValidator {
 public:
     using DiagSink = std::function<void(const std::string& kind, const std::string& detail)>;
 
-    /// Throws JSError if the bundle fails to load.
-    TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag);
+    /// Throws JSError if the bundle fails to load. `backend`: the engine the validator's own (trusted) code runs on;
+    /// one this build cannot provide leaves the validator without a bundle (diagnostic `engine`), so every call
+    /// answers empty and nothing reaches the renderer.
+    TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag,
+                     QuickJSBackend backend = quickjsDefaultBackend());
     ~TrustedValidator();
 
     /// Untrusted ops batch (JSON) → validated RenderOps (JSON array; "[]" if nothing survived).

@@ -15,6 +15,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(TW_BLITZ "Build the Blitz renderer prototype (needs rustup's cargo)" OFF)
+option(TW_NOVA "Link the Nova JavaScript engine (QuickJSBackend::Nova; needs rustup's cargo and TW_NOVA_DIR)" OFF)
 
 set(TW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(QJS "${TW_ROOT}/ios/Sources/CQuickJS")
@@ -45,6 +46,7 @@ find_package(Threads REQUIRED)
 add_library(twidget-sandbox STATIC
     sandbox/src/js_thread.cpp
     sandbox/src/quickjs_context.cpp
+    sandbox/src/nova_engine.cpp
     sandbox/src/cpu_budget.cpp
     sandbox/src/sdk_policy.cpp
     sandbox/src/gesture_policy.cpp
@@ -63,6 +65,53 @@ if(WIN32)
 endif()
 if(NOT MSVC)
     target_compile_options(twidget-sandbox PRIVATE -Wall -Wextra)
+endif()
+
+# ───────────── Nova engine (optional) ─────────────
+# QuickJSBackend::Nova: the nova-safe fork of the Nova JavaScript engine (Rust, every engine crate
+# `#![forbid(unsafe_code)]`), built by cargo from a checkout at TW_NOVA_DIR as the static library of
+# its nova_embed_ffi crate and linked through its C interface (nova_engine.h). Without it a Nova
+# context fails closed. Run the tests and the harness on it with WIDGET_SANDBOX_ENGINE=nova.
+if(TW_NOVA)
+    if(NOT TW_NOVA_DIR OR NOT EXISTS "${TW_NOVA_DIR}/nova_embed_ffi/include/nova_engine.h")
+        message(FATAL_ERROR "TW_NOVA needs -DTW_NOVA_DIR=<a checkout of nova-safe> (nova_embed_ffi/include/nova_engine.h not found)")
+    endif()
+    find_program(TW_CARGO cargo HINTS "$ENV{HOME}/.cargo/bin" /opt/homebrew/opt/rustup/bin)
+    find_program(TW_RUSTC rustc HINTS "$ENV{HOME}/.cargo/bin" /opt/homebrew/opt/rustup/bin)
+    if(NOT TW_CARGO OR NOT TW_RUSTC)
+        message(FATAL_ERROR "TW_NOVA needs cargo and rustc (rustup); none found in PATH, ~/.cargo/bin or /opt/homebrew/opt/rustup/bin")
+    endif()
+    if(NOT TW_RUST_TARGET)
+        # In the checkout: its rust-toolchain.toml picks the toolchain, and with it the host triple.
+        execute_process(COMMAND "${TW_RUSTC}" -vV WORKING_DIRECTORY "${TW_NOVA_DIR}" OUTPUT_VARIABLE rustc_info OUTPUT_STRIP_TRAILING_WHITESPACE)
+        string(REGEX MATCH "host: ([^\n]+)" _ "${rustc_info}")
+        set(TW_RUST_TARGET "${CMAKE_MATCH_1}" CACHE STRING "Rust target triple the Rust libraries are built for")
+    endif()
+    set(TW_NOVA_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/nova-target")
+    set(TW_NOVA_LIB "${TW_NOVA_TARGET_DIR}/${TW_RUST_TARGET}/release/${CMAKE_STATIC_LIBRARY_PREFIX}nova_embed_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    execute_process(COMMAND git rev-parse --short=12 HEAD WORKING_DIRECTORY "${TW_NOVA_DIR}" OUTPUT_VARIABLE TW_NOVA_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    # cargo decides what is stale: the command runs on every build and leaves an up-to-date library alone.
+    add_custom_target(twidget-nova-cargo
+        COMMAND "${CMAKE_COMMAND}" -E env "NOVA_EMBED_COMMIT=${TW_NOVA_COMMIT}" "CARGO_TARGET_DIR=${TW_NOVA_TARGET_DIR}"
+                "${TW_CARGO}" build --package nova_embed_ffi --release --locked --target "${TW_RUST_TARGET}"
+        WORKING_DIRECTORY "${TW_NOVA_DIR}"
+        BYPRODUCTS "${TW_NOVA_LIB}"
+        COMMENT "cargo build nova_embed_ffi (${TW_RUST_TARGET}; the first build takes a minute or two)"
+        VERBATIM)
+    add_library(twidget-nova-rs STATIC IMPORTED)
+    set_target_properties(twidget-nova-rs PROPERTIES IMPORTED_LOCATION "${TW_NOVA_LIB}")
+    add_dependencies(twidget-nova-rs twidget-nova-cargo)
+    # What `cargo rustc -- --print native-static-libs` lists for the crate.
+    if(APPLE)
+        # libSystem only.
+    elseif(UNIX)
+        set_property(TARGET twidget-nova-rs PROPERTY INTERFACE_LINK_LIBRARIES ${CMAKE_DL_LIBS} Threads::Threads m)
+    else()
+        message(FATAL_ERROR "TW_NOVA: the Windows link line (ws2_32, userenv, ntdll…) is not wired up yet")
+    endif()
+    target_compile_definitions(twidget-sandbox PRIVATE TW_NOVA_ENGINE=1)
+    target_include_directories(twidget-sandbox PRIVATE "${TW_NOVA_DIR}/nova_embed_ffi/include")
+    target_link_libraries(twidget-sandbox PUBLIC twidget-nova-rs)
 endif()
 
 # ───────────── Blitz renderer prototype (optional) ─────────────

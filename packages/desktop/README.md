@@ -79,6 +79,34 @@ payload. SVG loaded as an image may not fetch external resources in any engine,
 and the browser attack suite confirms zero canary hits for those files. A
 native renderer that is not a browser engine must keep that property.
 
+## The Nova engine (`-DTW_NOVA=ON`)
+
+`QuickJSBackend::Nova` runs a widget's code, and the validator's, on Nova instead of QuickJS: the nova-safe fork
+(github.com/macosswift/nova-safe), a JavaScript engine in Rust whose engine crates are built with
+`#![forbid(unsafe_code)]`, behind the C interface of its `nova_embed_ffi` crate (`sandbox/src/nova_engine.cpp`).
+QuickJS stays the default; an engine is chosen per host (`WidgetHostOptions.engine`, `.validatorEngine`) or for the
+process with `WIDGET_SANDBOX_ENGINE=nova`. A build without the library has no Nova: a host that asks for it stops
+with `Engine fault`, it never runs on QuickJS instead.
+
+```bash
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_NOVA=ON -DTW_NOVA_DIR=<a checkout of nova-safe> && cmake --build build
+WIDGET_SANDBOX_ENGINE=nova ./build/twidget-tests && WIDGET_SANDBOX_ENGINE=nova ./build/twidget-run --attacks
+```
+
+A client with its own build (Android) links `libnova_embed_ffi.a` itself and defines `TW_NOVA_ENGINE` for the
+sandbox sources. Build the library with `cargo rustc -p nova_embed_ffi --release --crate-type staticlib`: a plain
+`cargo build` also makes the crate's rlib and then leaves the profile's fat LTO out. 64-bit targets only.
+
+What differs from QuickJS, all of it in `tests/test_main.cpp` (`onNova()`):
+
+- Our bundles run from code compiled once per process (`nova_script_compile`), never from the `.qbc`: the boot
+  diagnostic says `compiled once`.
+- An uncaught error's text has no stack.
+- One allocation that does not fit under the memory limit is a RangeError the script may catch; a heap grown past
+  the limit ends the widget (`Memory limit exceeded`), as do the CPU limits, with a termination no `try` stops.
+  `corpus/attacks/mem-cap-probe.html` therefore stays alive, capped, where QuickJS stops it.
+- There is no `InternalError`.
+
 ## Blitz renderer prototype (`-DTW_BLITZ=ON`)
 
 The same Rust crate the mobile and macOS demos use (`../renderer-blitz`:

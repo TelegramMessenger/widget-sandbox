@@ -4,10 +4,14 @@
 
 namespace twidget {
 
-TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag)
+TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<SandboxResources> resources, DiagSink onDiag, QuickJSBackend backend)
     : thread_("widget.validator"), onDiag_(std::move(onDiag)) {
     thread_.sync([&] {
-        js_ = std::make_unique<QuickJSContext>(size_t(256) << 20, JSThread::kJSStackLimit);
+        js_ = std::make_unique<QuickJSContext>(size_t(256) << 20, JSThread::kJSStackLimit, backend);
+        if (!js_->available()) {
+            if (onDiag_) onDiag_("engine", "validator: " + js_->unavailableReason());
+            return;
+        }
         js_->registerFunction("__diag", [this](const std::vector<std::string>& args) {
             std::string kind = args.empty() ? "" : args[0], detail = args.size() > 1 ? args[1] : "";
             if (kind == "limit") {
@@ -26,7 +30,11 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
         }
         // Precompiled when shipped and matching the source, else the source (same rule as the engine).
         bool fromBytecode = false;
-        if (!resources->validatorBytecode.empty()) {
+        if (!js_->runsBytecode()) {
+            // Nova: from code compiled once per process (or from source when the bundle cannot be shared).
+            js_->evaluateBundle(resources->validatorBundle, "validator-bundle.js");
+            fromBytecode = true;
+        } else if (!resources->validatorBytecode.empty()) {
             try { js_->evaluateBytecode(resources->validatorBytecode, resources->validatorBundle); fromBytecode = true; }
             catch (const JSError& e) { if (onDiag_) onDiag_("bytecode", std::string("validator-bundle.js: falling back to source — ") + e.what()); }
         }

@@ -62,6 +62,15 @@ static std::string readFile(const std::string& p) {
 
 static void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
+/// The suite on Nova (`WIDGET_SANDBOX_ENGINE=nova`, a build with -DTW_NOVA=ON): what differs from QuickJS is the text
+/// of an uncaught error (no stack), an allocation that alone does not fit under the memory limit (a RangeError the
+/// script may catch; only a heap grown past the limit ends the widget), no `InternalError`, and no `.qbc`.
+static bool onNova() { return quickjsDefaultBackend() == QuickJSBackend::Nova; }
+
+/// Memory until the limit stops the widget, in any engine: small arrays (Nova refuses one large allocation with a
+/// RangeError instead).
+static const char* const kFlood = "var a = []; for (;;) a.push([1.5, 2.5, 3.5, 4.5]);";
+
 static SandboxConfig testConfig() {
     SandboxConfig c;
     c.cpuLimitMs = 2000;
@@ -720,6 +729,100 @@ TEST(stack_check_follows_the_calling_thread) {
     t.sync([&] { js.reset(); });
 }
 
+/// QuickJSBackend::Nova behind the same QuickJSContext: values in and out, host functions, the limits, promise jobs,
+/// a bundle from code compiled once. A build without Nova (no -DTW_NOVA=ON) checks that such a context fails closed.
+TEST(the_nova_engine_runs_behind_the_same_context) {
+    JSThread t("test.nova");
+    t.sync([&] {
+        QuickJSContext js(size_t(16) << 20, JSThread::kJSStackLimit, QuickJSBackend::Nova);
+        if (!novaAvailable()) {
+            CHECK(!js.available() && !js.unavailableReason().empty() && novaDescription().empty());
+            bool threw = false;
+            try { js.evaluate("1", "t.js"); } catch (const JSError&) { threw = true; }
+            CHECK_MSG(threw, "a Nova context of a build without Nova must not evaluate anything");
+            return;
+        }
+        CHECK_MSG(js.available() && js.engineDescription().rfind("nova_embed ", 0) == 0, js.engineDescription());
+        CHECK(!js.runsBytecode());
+        CHECK(js.evaluate("6 * 7", "t.js").number == 42);
+        CHECK(js.evaluate("'a' + 'b'", "t.js").string == std::string("ab"));
+        CHECK(!js.evaluate("undefined", "t.js").string && !js.evaluate("({})", "t.js").number);
+
+        // Host functions: strings up to their first NUL, numbers formatted, anything else empty; every kind of return.
+        std::vector<std::string> seen;
+        HostReturn reply = HostReturn::undefined();
+        js.registerFunction("__h", [&](const std::vector<std::string>& args) { seen = args; return reply; });
+        js.evaluate("__h('one\\u0000two', 3, 2.5, null, {}, '\\ud800')", "t.js");
+        CHECK(seen.size() == 6 && seen[0] == "one" && seen[1] == "3" && seen[2] == "2.5" && seen[3].empty() && seen[4].empty() && seen[5] == "\xED\xA0\x80");
+        reply = HostReturn::string("x\xED\xB0\x80");
+        CHECK_MSG(js.evaluate("__h() === 'x\\udc00' ? 1 : 0", "t.js").number == 1, "a lone surrogate comes back from the host as it went out");
+        reply = HostReturn::number(2.5);
+        CHECK(js.evaluate("__h() * 2", "t.js").number == 5);
+        reply = HostReturn::null();
+        CHECK(js.evaluate("__h() === null ? 1 : 0", "t.js").number == 1);
+        reply = HostReturn::arrayBuffer({1, 2, 3});
+        CHECK(js.evaluate("var b = __h(); b instanceof ArrayBuffer ? new Uint8Array(b).join(',') : typeof b", "t.js").string == std::string("1,2,3"));
+        reply = HostReturn::rangeError("too long");
+        CHECK(js.evaluate("try { __h(); 'returned' } catch (e) { (e instanceof RangeError) + ' ' + e.message }", "t.js").string == std::string("true too long"));
+        // A host function that throws ends the script, and the script cannot catch it.
+        js.registerFunction("__fail", [](const std::vector<std::string>&) -> HostReturn { throw std::runtime_error("broken"); });
+        std::string failure;
+        try { js.evaluate("try { __fail(); } catch (e) {} 'went on'", "t.js"); } catch (const JSError& e) { failure = e.what(); }
+        CHECK_MSG(failure.find("host function failed: broken") != std::string::npos && js.uncatchable, failure);
+
+        // Errors as the native engine words them.
+        std::string thrown;
+        try { js.evaluate("throw new TypeError('nope')", "t.js"); } catch (const JSError& e) { thrown = e.what(); }
+        CHECK_MSG(thrown == "TypeError: nope" && !js.uncatchable, thrown);
+        thrown.clear();
+        try { js.call("missing"); } catch (const JSError& e) { thrown = e.what(); }
+        CHECK_MSG(thrown == "missing is not a function", thrown);
+        // A source that is not UTF-8 is read as QuickJS reads it, the bad byte as U+FFFD.
+        CHECK(js.evaluate("'a\xFF" "b'.length", "t.js").number == 3);
+
+        // A captured function outlives its global; call arguments are strings, lone surrogates included.
+        js.evaluate("function join(a, b) { return a + '|' + b + '|' + b.length; }", "t.js");
+        CHECK(js.captureGlobalFunction("join") && !js.captureGlobalFunction("nothing"));
+        js.evaluate("delete globalThis.join", "t.js");
+        CHECK(js.call("join", {"a", "\xED\xA0\x80"}).string == std::string("a|\xED\xA0\x80|1"));
+
+        // Promise jobs run one at a time; a job's error goes to the callback.
+        js.evaluate("var log = []; Promise.resolve().then(function () { log.push('job'); }); Promise.reject(new Error('late')).then(null, function (e) { throw e; });", "t.js");
+        CHECK(js.hasPendingJob());
+        std::vector<std::string> jobErrors;
+        for (int i = 0; i < 16 && js.executePendingJob([&](const JSError& e) { jobErrors.emplace_back(e.what()); }); i++) {}
+        CHECK(!js.hasPendingJob() && js.evaluate("log.join()", "t.js").string == std::string("job"));
+
+        // The interrupt: uncatchable, and the engine goes on with the next call.
+        js.deadline = QuickJSContext::now() + 0.05;
+        std::string stopped;
+        try { js.evaluate("try { for (;;) {} } catch (e) { 'caught' } finally { for (;;) {} }", "t.js"); } catch (const JSError& e) { stopped = e.what(); }
+        CHECK_MSG(stopped == "InternalError: interrupted" && js.interrupted && js.uncatchable, stopped);
+        js.deadline = std::numeric_limits<double>::infinity();
+        js.interrupted = false;
+        CHECK(js.evaluate("1 + 1", "t.js").number == 2);
+        // Deep recursion is a RangeError the script may catch, not a native stack overflow.
+        CHECK(js.evaluate("(function f() { try { return f(); } catch (e) { return e.name; } })()", "t.js").string == std::string("RangeError"));
+
+        // Our bundles: compiled once per process, evaluated by every engine.
+        const std::string bundle = "globalThis.bundled = (globalThis.bundled || 0) + 1;";
+        CHECK(js.evaluateBundle(bundle, "test-bundle.js"));
+        QuickJSContext other(size_t(16) << 20, JSThread::kJSStackLimit, QuickJSBackend::Nova);
+        CHECK(other.evaluateBundle(bundle, "test-bundle.js") && other.evaluate("bundled", "t.js").number == 1);
+        CHECK(js.evaluate("bundled", "t.js").number == 1);
+        bool syntax = false;
+        try { js.evaluateBundle("let = = 1", "broken-bundle.js"); } catch (const JSError& e) { syntax = std::string(e.what()).rfind("SyntaxError", 0) == 0; }
+        CHECK_MSG(syntax, "a bundle that does not compile reports its SyntaxError from the source");
+
+        // The memory limit: a heap grown past it ends the script, uncatchable.
+        QuickJSContext small(size_t(4) << 20, JSThread::kJSStackLimit, QuickJSBackend::Nova);
+        std::string memory;
+        try { small.evaluate(std::string("try { ") + kFlood + " } catch (e) { 'caught' }", "t.js"); } catch (const JSError& e) { memory = e.what(); }
+        CHECK_MSG(memory == "InternalError: out of memory" && small.uncatchable, memory);
+        CHECK(small.memoryUsed() <= (size_t(4) << 20) + (size_t(1) << 20));
+    });
+}
+
 TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
     JSThread t("test.js");
     int calls = 0;
@@ -824,7 +927,7 @@ TEST(cpu_limit_kills_infinite_loop) {
 /// Once the widget is stopped the jobs still queued never run: the cleanup callback, a job whose throw is logged, shows one that did.
 TEST(jobs_queued_when_the_widget_is_stopped_never_run) {
     const std::string cleanup = "var registry = new FinalizationRegistry(function () { throw new Error('ran after the stop'); });";
-    Run memory("<script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); var a = []; for (;;) a.push(new Array(100000).fill(1.5)); });</script>");
+    Run memory("<script>" + cleanup + "Promise.resolve().then(function () { registry.register({}, 1); " + (onNova() ? kFlood : "var a = []; for (;;) a.push(new Array(100000).fill(1.5));") + " });</script>");
     memory.barrier();
     {
         auto l = memory.host.lock();
@@ -861,7 +964,7 @@ TEST(an_uncatchable_error_stops_the_widget_whatever_its_text) {
     auto cfg = testConfig();
     cfg.cpuLimitMs = 10000;
     const std::string later = "setTimeout(function () { console.log('went on'); }, 0);";
-    const std::string flood = "var a = []; for (;;) a.push(new Array(100000).fill(1.5));";
+    const std::string flood = onNova() ? kFlood : "var a = []; for (;;) a.push(new Array(100000).fill(1.5));";
     auto stopped = [&](const std::string& script, const std::string& reason) {
         Run r("<script>" + later + script + "</script>", cfg);
         r.barrier();
@@ -871,11 +974,17 @@ TEST(an_uncatchable_error_stops_the_widget_whatever_its_text) {
         CHECK_MSG(r.host.died && r.host.died->find(reason) != std::string::npos, script + " → " + r.host.died.value_or("alive: " + r.logsText()));
         CHECK_MSG(!r.host.hasLog("getter ran") && !r.host.hasLog("went on"), script + " → " + r.logsText());
     };
-    stopped("Object.defineProperty(InternalError.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
-            "Memory limit exceeded (8 MB)");
-    stopped("throw new InternalError('made by the widget');", "Engine error: InternalError: made by the widget");
-    stopped("var e = new InternalError('own'); Object.defineProperty(e, 'message', { get: function () { console.log('getter ran'); return 'read'; } }); throw e;",
-            "Engine error: InternalError: ");
+    if (onNova()) {
+        // No InternalError a script could make or rename: the memory limit is a termination, not an exception.
+        stopped("Object.defineProperty(RangeError.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
+                "Memory limit exceeded (8 MB)");
+    } else {
+        stopped("Object.defineProperty(InternalError.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
+                "Memory limit exceeded (8 MB)");
+        stopped("throw new InternalError('made by the widget');", "Engine error: InternalError: made by the widget");
+        stopped("var e = new InternalError('own'); Object.defineProperty(e, 'message', { get: function () { console.log('getter ran'); return 'read'; } }); throw e;",
+                "Engine error: InternalError: ");
+    }
     stopped("throw { get name() { " + flood + " }, message: Symbol('m') };", "Memory limit exceeded (8 MB)");
 }
 
@@ -888,8 +997,10 @@ TEST(an_ordinary_uncaught_error_is_logged_and_the_widget_goes_on) {
         CHECK_MSG(!r.host.died && r.host.hasLog("went on"), script + " → " + r.host.died.value_or("alive") + ": " + r.logsText());
         CHECK_MSG(r.host.countLogPrefix("Uncaught ") == 1 && r.host.hasLogPrefix(text), script + " → " + r.logsText());
     };
-    logged("throw new Error('plain');", "Uncaught Error: plain\n    at ");
-    logged("(function f() { f(); })();", "Uncaught RangeError: Maximum call stack size exceeded\n    at f (inline-script-1.js:1:");
+    // Nova's errors have no stack.
+    logged("throw new Error('plain');", onNova() ? "Uncaught Error: plain" : "Uncaught Error: plain\n    at ");
+    logged("(function f() { f(); })();", onNova() ? "Uncaught RangeError: Maximum call stack size exceeded"
+                                                  : "Uncaught RangeError: Maximum call stack size exceeded\n    at f (inline-script-1.js:1:");
     logged("throw { name: 'Custom', message: 'text' };", "Uncaught Custom: text");
     logged("throw 'a string';", "Uncaught a string");
     logged("throw { get name() { throw new Error('inner'); }, message: 'm' };", "Uncaught Error: ");
@@ -3065,7 +3176,8 @@ TEST(shipped_bytecode_is_used_and_no_library_is_bundled) {
     CHECK(!r.host.died);
     bool bootFromBytecode = false, skipped = false, fallback = false;
     for (auto& d : r.host.diags) {
-        if (d.first == "boot" && d.second.find("(bytecode)") != std::string::npos) bootFromBytecode = true;
+        // Nova runs the bundle from code compiled once per process, never the `.qbc`.
+        if (d.first == "boot" && d.second.find(onNova() ? "(compiled once)" : "(bytecode)") != std::string::npos) bootFromBytecode = true;
         if (d.first == "script-skipped" && d.second.find("chart.js") != std::string::npos) skipped = true;
         if (d.first == "bytecode") fallback = true;
     }

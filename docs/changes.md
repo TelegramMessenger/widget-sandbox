@@ -3,6 +3,17 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: the Nova engine in the C++ core (opt-in, 2026-11-15)
+
+`QuickJSBackend::Nova` in `packages/desktop`: the widget's code and the validator's run on Nova (the nova-safe fork,
+a JavaScript engine in Rust whose engine crates forbid `unsafe`) instead of QuickJS, behind the same
+`QuickJSContext`. Opt-in per host (`WidgetHostOptions.engine`, `.validatorEngine`) or per process
+(`WIDGET_SANDBOX_ENGINE=nova`), and only in a build that links the library (`-DTW_NOVA=ON -DTW_NOVA_DIR=…`, or a
+client's own `TW_NOVA_ENGINE`); elsewhere such a host stops with `Engine fault`. QuickJS stays the default and
+nothing changes for a host that does not ask. The Swift package has had it since `macos/nova-engine`; the Kotlin
+glue and the web do not. What differs from QuickJS is listed in `packages/desktop/README.md`, "The Nova engine".
+64-bit targets only: nova_vm does not compile for 32-bit ones.
+
 ## Unreleased: QuickJS `fbc91d8`, the Desktop engine fixes (2026-11-15)
 
 A QuickJS security update: the fork pin moves from `b526a81` to `fbc91d8`, the tip of the fork's
