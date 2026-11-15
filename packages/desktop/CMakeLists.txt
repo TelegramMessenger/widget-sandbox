@@ -13,6 +13,10 @@ set(CMAKE_C_STANDARD 11)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
+if(MSVC)
+    # The sources are UTF-8, as tdesktop compiles them; MSVC would read them in the system's code page.
+    add_compile_options(/utf-8)
+endif()
 
 option(TW_BLITZ "Build the Blitz renderer prototype (needs rustup's cargo)" OFF)
 

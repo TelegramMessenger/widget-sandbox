@@ -174,6 +174,9 @@ and widgets stay in process unless a host sets the factory.
   `crlf_bundles_load_as_lf_and_boot_from_bytecode` writes the bundles with LF and with CRLF line ends, loads the same
   sources and bytecode from both, boots an engine and its validator from the CRLF copy's bytecode, and still falls back
   to source on stale bytecode and refuses an incompatible stamp; the suite runs 184 tests.
+- With MSVC every target of the desktop package compiles its sources as UTF-8 (`/utf-8`, as tdesktop compiles the same
+  sources); read in the system's code page, `json_parse_and_dump`'s literal lost its emoji (warning C4566) and the test
+  failed. No other compiled string changes.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps
