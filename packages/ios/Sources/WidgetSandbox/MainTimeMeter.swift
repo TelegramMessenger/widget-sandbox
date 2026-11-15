@@ -8,10 +8,11 @@ import QuartzCore
 /// Per widget, keyed by `key` (the widget's identity, so a restart or a scroll rebuild keeps its history):
 /// - The first `grace` seconds of a key's first meter are its open: the 40 ms/s rule does not apply, but the open may
 ///   spend at most `graceBudget`. A key gets one grace per `graceMemory`; a meter of a key that tripped gets none.
-/// - After the first block, one block over `maxBlock` trips it.
+/// - One block over `maxBlock` trips it, except a graced widget's first block.
 /// - Past the grace it trips over 40 ms in the last 1 s and 80 ms in the last 2 s.
 /// All widgets together, graced ones included, trip the heaviest past 120 ms in 1 s and 240 ms in 2 s when more than
-/// one widget is spending (one widget alone answers to its own rules). Above all of
+/// one widget is spending more than `offenderFloor` a second; only those can be chosen (one widget alone answers to its
+/// own rules). Above all of
 /// them, the service breaker: all widget time over `serviceLimit` of the main thread across `serviceWindow` calls
 /// `onServiceTrip` (the client ends every widget connection and backs off). A tripped meter calls `onTrip` once, on the
 /// main thread, after the block.
@@ -21,7 +22,8 @@ public final class MainTimeMeter {
     public static let slot: CFTimeInterval = 0.1
     public static let slots = 20
     public static let grace: CFTimeInterval = 2
-    public static let graceBudget: CFTimeInterval = 0.3
+    public static let graceBudget: CFTimeInterval = 0.2
+    public static let offenderFloor: CFTimeInterval = 0.005
     public static let graceMemory: CFTimeInterval = 600
     public static let maxBlock: CFTimeInterval = 0.1
     public static let blockOverhead: CFTimeInterval = 0.00002
@@ -113,7 +115,7 @@ public final class MainTimeMeter {
         if graced {
             graceSpent += charged
         }
-        if (blocks > 1 && spent > MainTimeMeter.maxBlock) || (graced && graceSpent > MainTimeMeter.graceBudget) || (!graced && over(now: now)) {
+        if ((blocks > 1 || !graced) && spent > MainTimeMeter.maxBlock) || (graced && graceSpent > MainTimeMeter.graceBudget) || (!graced && over(now: now)) {
             trip(now: now)
             return
         }
@@ -198,9 +200,11 @@ public final class MainTimeMeter {
         for weak in meters {
             guard let meter = weak.meter, !meter.tripped else { continue }
             let last = meter.usage(over: 2, now: now).time
-            if last > 0 { contributors += 1 }
-            one += meter.usage(over: 1, now: now).time
+            let recent = meter.usage(over: 1, now: now).time
+            one += recent
             two += last
+            guard recent > offenderFloor else { continue }
+            contributors += 1
             if last > (heaviest?.time ?? 0) {
                 heaviest = (meter, last)
             }
