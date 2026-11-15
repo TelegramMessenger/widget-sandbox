@@ -53,8 +53,8 @@ options.engine = .boxed
   configuration, and the generated code and WABT's runtime are compiled only through the files in `src`.
 - **The other memory mode.** macOS fences the box with guard pages: each box reserves 8 GiB of address space, and an
   access outside its memory hits an unmapped page. Everywhere else the build uses bounds checks: no reservation, no
-  signals, the same C, slower. `QJSBOX_BOUNDS_CHECKS=1` (the package: `WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1` in the
-  environment of the build) forces bounds checks on macOS, to test the mode the other platforms will run.
+  signals, the same C, slower. `QJSBOX_BOUNDS_CHECKS=1` forces bounds checks on macOS, to test the mode the other
+  platforms will run (`tools/`; the Swift package on the macOS integration branch builds guard pages only).
 
 ## 3. What a fault looks like
 
@@ -98,10 +98,9 @@ packages/quickjs-box/build.sh --check            # --docker: the wasm in the pin
 # shipped .qbc, and what a corrupted engine does (the process ends):
 packages/quickjs-box/tools/build.sh test
 
-# The Swift suite: native (the default), then every widget engine boxed, then boxed with bounds checks.
+# The Swift suite: the default engine, then every widget engine boxed.
 swift test
 WIDGET_SANDBOX_ENGINE=boxed swift test
-WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1 WIDGET_SANDBOX_ENGINE=boxed swift test --scratch-path .cache/build-bounds
 
 # Boxed against native over every corpus, the conformance set, the stress kit and the attacks (several minutes);
 # it prints how many widgets were compared and the JS time on each engine:

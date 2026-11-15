@@ -40,9 +40,7 @@ final class BoxedQuickJSTests: QuickJSTestCase {
         guard ProcessInfo.processInfo.environment["WIDGET_SANDBOX_VALIDATOR_ENGINE"] == nil else { return }
         XCTAssertEqual(QuickJSBackend.validatorDefault, expected)
         #if os(macOS)
-        if ProcessInfo.processInfo.environment["WIDGET_SANDBOX_WITHOUT_NOVA"] == nil {
-            XCTAssertTrue(QuickJSBackend.isNovaAvailable, "the package links Nova unless WIDGET_SANDBOX_WITHOUT_NOVA is set")
-        }
+        XCTAssertTrue(QuickJSBackend.isNovaAvailable, "the package links Nova on macOS")
         #endif
     }
 
@@ -50,9 +48,9 @@ final class BoxedQuickJSTests: QuickJSTestCase {
         let js = try context(.boxed)
         // packages/quickjs-box/build.sh --check proves the box is built from the submodule's commit; here: it says so.
         XCTAssertTrue(js.engineDescription.hasPrefix("boxed QuickJS "), js.engineDescription)
-        // Guard pages on macOS; a build with WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1 runs the mode of every other platform.
-        let boundsChecks = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_BOX_BOUNDS_CHECKS"] != nil
-        XCTAssertTrue(js.engineDescription.hasSuffix(boundsChecks ? "(bounds-checks)" : "(guard-pages)"), js.engineDescription)
+        #if os(macOS)
+        XCTAssertTrue(js.engineDescription.hasSuffix("(guard-pages)"), js.engineDescription)
+        #endif
         XCTAssertEqual(try context(.native).engineDescription, "native QuickJS")
     }
 
