@@ -31,6 +31,11 @@ pnpm workspace). A framework change touches `packages/` only.
   `src/shared/reference.ts` adds the reference theme to it for every reference rendering.
 - `packages/ios` — the Swift package (iOS + macOS); its manifest is the
   repo-root `Package.swift` (SwiftPM needs it there for a git dependency).
+  On the macOS integration branch (`macos/nova-only`) the `WidgetSandbox` library runs on Nova and links no QuickJS:
+  the native and boxed engines and the `.qbc` are in `WidgetSandboxQuickJS` (`Sources/WidgetSandboxQuickJS`), which
+  only the tests and tools link, to compare the engines; they register them by calling `registerQuickJSEngines()`
+  (`QuickJSEngineRegistry`; the test classes inherit `QuickJSTestCase`, whose class `setUp` makes the call). Nothing
+  registers them implicitly.
 - `packages/android` — the `widget-sandbox` Gradle library,
   `org.telegram.widgetsandbox:widget-sandbox` (its own settings.gradle.kts).
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.
@@ -198,7 +203,8 @@ re-parses the serialised HTML on every batch (the HTMLBubbles model).
   every client draws it, and adding one is profile 2, not an edit of profile 1.
 - The same three JS bundles ship to every native platform via
   `packages/core/scripts/build-native-bundles.ts`, with precompiled `.qbc` bytecode next to
-  the two QuickJS bundles and the libraries (never commit a `.js` without
+  the two QuickJS bundles and the libraries (in the Swift package the `.qbc` go to `WidgetSandboxQuickJS/WidgetJS`;
+  `shipped-bundles.test.ts` checks both directories against a fresh build) (never commit a `.js` without
   re-running the build: the engine refuses a stale `.qbc` and falls back to
   source, and the tests on every platform fail; a bundle without `VERSION.json`'s stamp, or of another
   protocol/profile/sdk, is refused outright, no fallback). Port the host glue, not the JS. iOS and
@@ -243,14 +249,14 @@ corepack pnpm test:resize-corpus      # one widget per resize anchor (corpus/res
 corepack pnpm test:safe-area-corpus   # the client's time over a widget with no caption below it (corpus/safe-area, README there): 7 widgets (a diagnostic of the six numbers, full-bleed cards LTR and RTL, an unstyled note, CSS as models write it, a canvas chart, the caption pair), both sides with the band (?time=corner; Chromium's env() override for the reference) → docs/compat-report-safe-area.md; the feed's corpus=safe-area; the test group's Safe area topic without captions, --topic safe-area; the native demos list it with the band
 corepack pnpm test:showcase           # 27 interactive demos on widget profile 1 (corpus/showcase, README there; the web feed's content) → docs/compat-report-showcase.md; in the iOS/macOS demo: the showcase/<batch> sections, --autorun showcase, and the iOS chat feed's Widgets picker (showcase by default; --feed-set corpus=showcase from a shell)
 corepack pnpm test:common             # 32 widgets on the common WebView/Blitz/litehtml profile (corpus/common, README there) → docs/compat-report-common.md; --autorun common in the iOS/macOS demo, --es autorun common on Android, CORPUS=common scripts/android-bench.sh <renderer> 20 (the frozen prototypes: their opt-in builds)
-corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetSandbox/WidgetJS, corpus → apps/ios/DemoApp/Corpus
+corepack pnpm build:ios               # bundles → packages/ios/Sources/WidgetSandboxResources/WidgetJS, corpus → apps/ios/DemoApp/Corpus
 corepack pnpm build:macos             # same outputs (the macOS demo references them)
 corepack pnpm build:android           # bundles → packages/android/widget-sandbox/src/main/assets/WidgetJS, corpus → apps/android/demo/src/main/assets/Corpus
 corepack pnpm build:desktop           # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build && ./build/twidget-tests && ./build/twidget-run --attacks   # C++ core: 86 tests; 130 attacks, 0 leaks into validated ops; also --corpus ../../corpus/compat
 packages/quickjs-box/build.sh [--docker]   # rebuild the QuickJS box: wasm/ (emscripten 6.0.12 pinned, --docker: the emsdk image), generated/ + wabt/ (wasm2c built once from the pinned WABT commit into .cache/), manifest.sha256; --check [--docker]: both stages in a temp dir, compared; --check-generated: stage 2 only (no emcc); --out DIR [fork checkout]: the same tree elsewhere (another engine commit)
 packages/quickjs-box/tools/build.sh test   # the box alone, in C: qjsbox-run in guard-pages and bounds-checks mode (→ .cache/qjsbox-tools/) and its selftest in each; `qjsbox-run bench sandbox-bundle.js sandbox-bundle.qbc` for timings
-WIDGET_SANDBOX_ENGINE=boxed swift test   # the Swift suite with every widget engine boxed (DEBUG builds read the variable; the validator stays native); with WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1 and --scratch-path .cache/build-bounds: the bounds-check mode of the other platforms; WIDGET_SANDBOX_BOX_DIFFERENTIAL=full swift test --filter BoxedEngineDifferentialTests: every corpus, the conformance set, the stress kit and the attacks through the host on both engines (minutes)
+WIDGET_SANDBOX_ENGINE=boxed swift test   # the Swift suite with every widget engine boxed (DEBUG builds read the variable; the validator stays native); WIDGET_SANDBOX_BOX_DIFFERENTIAL=full swift test --filter BoxedEngineDifferentialTests: every corpus, the conformance set, the stress kit and the attacks through the host on both engines (minutes)
 packages/quickjs-wasm/build.sh [--docker]   # rebuild dist/ + dist.sha256 (emscripten 6.0.12 pinned; --docker: the emsdk image by digest); --check [--docker]: rebuild in a temp dir and compare
 corepack pnpm tsx packages/core/scripts/profile-build.ts   # after editing packages/core/profile.json: regenerates src/shared/profile-tables.ts + docs/profile-v1.md + the out lists in docs/widget-runtime-profile.md (the guide's and its agent block's) (--check: exit 1 when stale; profile.test.ts runs it); then pnpm build:ios|android|desktop
 corepack pnpm tsx packages/core/scripts/intl-cases.ts   # after adding an Intl case (or an ICU update of Node): rewrites packages/core/tests/fixtures/intl-cases.json with V8's answers (--check: exit 1 when stale; intl-cases.test.ts runs it); then pnpm build:ios|android|desktop copy it to the native tests

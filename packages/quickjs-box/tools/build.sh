@@ -35,7 +35,7 @@ for mode in $MODES; do
   echo "built $OUT/qjsbox-run-$mode ($("$OUT/qjsbox-run-$mode" info))"
 done
 [ "$TEST" = 1 ] || exit 0
-J="$ROOT/packages/ios/Sources/WidgetSandbox/WidgetJS"
+J="$ROOT/packages/ios/Sources/WidgetSandboxResources/WidgetJS"
 FAIL=0
 for mode in $MODES; do
   echo "== selftest, $mode"

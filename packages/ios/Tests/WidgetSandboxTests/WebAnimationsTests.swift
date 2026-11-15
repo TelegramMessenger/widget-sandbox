@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class WebAnimationsTests: XCTestCase {
+final class WebAnimationsTests: QuickJSTestCase {
     private static let skeleton = "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null},{\"op\":\"el\",\"id\":7,\"tag\":\"div\"},{\"op\":\"ins\",\"parent\":3,\"id\":7,\"before\":null}]"
 
     private final class Box {

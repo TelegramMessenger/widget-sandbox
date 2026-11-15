@@ -3,7 +3,7 @@ import XCTest
 
 /// SdkPolicy.swift against the fixture shared with sdk-policy.ts, SdkPolicy.kt and sdk_policy.cpp
 /// (tests/fixtures/sdk-policy.json, copied here by `pnpm build:ios`): every section.
-final class SdkPolicyTests: XCTestCase {
+final class SdkPolicyTests: QuickJSTestCase {
     private var fixture: [String: Any] = [:]
 
     override func setUpWithError() throws {

@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class ShimFastPathDifferentialTests: XCTestCase {
+final class ShimFastPathDifferentialTests: QuickJSTestCase {
     static func ops(_ html: String, features: Set<String>) -> String {
         let d = RecordingDelegate()
         var config = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")

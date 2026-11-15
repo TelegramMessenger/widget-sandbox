@@ -95,6 +95,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var asyncValidation = false
         /// Boot hosts that the feed creates ahead of the viewport on a background queue (WidgetPreparer) and adopt them once their first content is laid out.
         public var backgroundBoot = false
+        /// The widget's identity for its main-time meter (MainTimeMeter.key): a message id, not the host, so a restart or
+        /// a scroll rebuild keeps the widget's grace and trips.
+        public var meterKey: String?
         public var assetResolver: WidgetAssetResolver?
         /// `.strict` unless a test or tool asks for `.compat` (SandboxPolicy).
         public var policy: SandboxPolicy = .strict
@@ -181,7 +184,7 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private let engine: SandboxEngine
     private let sideChannels: [WidgetSideChannel]
-    private let validator: TrustedValidator
+    private let validator: WidgetValidator
     private let renderer: Renderer
     private let options: Options
     /// What the engine boots with; `setData` before the engine starts updates its data. Executor only after init.
@@ -257,7 +260,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             validator.onDiag = { k, d in diagSink(k, d) }
             prewarmed.append("validator")
         } else {
-            validator = TrustedValidator.background(theme: theme, resources: resources, thread: options.sharedValidatorThread ? TrustedValidator.sharedThreadForNextValidator() : nil) { k, d in diagSink(k, d) }
+            validator = WidgetValidators.make(theme: theme, resources: resources, shared: options.sharedValidatorThread) { k, d in diagSink(k, d) }
         }
         var config = SandboxConfig(innerWidth: viewport.w, innerHeight: viewport.h, devicePixelRatio: scale, theme: theme)
         config.memoryLimitBytes = options.memoryLimitBytes
@@ -341,6 +344,13 @@ public final class WidgetHost: SandboxEngineDelegate {
         // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
         toRenderer("{\"type\":\"policy\",\"policy\":\"\(options.policy.rawValue)\"}")
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
+        (renderer as? ParsedMessageRenderer)?.onParsedMessage = { [weak self] msg, encoded in self?.onRenderer(message: msg, encoded: encoded) }
+        if let timed = renderer as? MainTimedRenderer {
+            let meter = MainTimeMeter(label: "widget", key: options.meterKey)
+            meter.onTrip = { [weak self] in self?.mainTimeTripped() }
+            timed.mainMeter = meter
+            mainMeter = meter
+        }
         publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
             rendererLoaded = true
@@ -379,9 +389,12 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private func onMain(_ block: @escaping () -> Void) {
         if Thread.isMainThread {
-            block()
+            metered(block)
         } else {
-            DispatchQueue.main.async(execute: block)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return block() }
+                self.metered(block)
+            }
         }
     }
 
@@ -517,6 +530,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         engine.terminate()
         sideChannels.forEach { $0.destroy() }
         renderer.onMessage = nil
+        (renderer as? ParsedMessageRenderer)?.onParsedMessage = nil
         renderer.onDiag = nil
         if options.pools, options.recyclesRenderers, let web = renderer as? RendererWebView {
             RendererPool.shared.recycle(web)
@@ -527,7 +541,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         validatorLock.lock()
         validatorReleased = true
         validatorLock.unlock()
-        if options.pools, TrustedValidator.isShared(validator.thread) { ValidatorPool.shared.recycle(validator) }
+        if options.pools, validator.recyclable { ValidatorPool.shared.recycle(validator) }
     }
 
     // MARK: engine → host (engine queue)
@@ -556,10 +570,31 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private func deliver(_ block: @escaping () -> Void) {
         if options.asyncValidation {
-            executor.paced(block)
+            executor.paced { [weak self] in
+                guard let self = self else { return block() }
+                self.metered(block)
+            }
+        } else {
+            metered(block)
+        }
+    }
+
+    /// The meter of a widget whose renderer is another process's (`MainTimedRenderer`); nil for in-process renderers,
+    /// whose own drawing runs inside these blocks.
+    public private(set) var mainMeter: MainTimeMeter?
+    public static let mainTimeReason = "the widget took too much of the main thread"
+
+    private func metered(_ block: () -> Void) {
+        if let meter = mainMeter, Thread.isMainThread {
+            meter.measure(block)
         } else {
             block()
         }
+    }
+
+    private func mainTimeTripped() {
+        die(Self.mainTimeReason)
+        (renderer as? MainTimedRenderer)?.mainTimeTripped(Self.mainTimeReason)
     }
 
     private func inOrder(_ block: @escaping () -> Void) {
@@ -580,20 +615,67 @@ public final class WidgetHost: SandboxEngineDelegate {
         self.engine(engine, ops: json, canvas: [:])
     }
 
+    /// Ops batches the engine sent that the validator has not taken up yet. Past either cap the engine is outrunning
+    /// validation (a validator in another process can hold a batch for seconds): the widget stops with `backlogReason`
+    /// instead of queueing more.
+    public static let maxPendingBatches = 64
+    public static let maxPendingBytes = 64 << 20
+    public static let backlogReason = "the widget engine sent ops faster than they could be validated"
+    private let backlogLock = NSLock()
+    private var backlogBatches = 0
+    private var backlogBytes = 0
+
+    private static func canvasBytes(_ canvas: [Int: WidgetCanvasBatch]) -> Int {
+        return canvas.values.reduce(0) { total, batch in total + batch.words.count * 8 + batch.strings.reduce(0) { $0 + $1.utf8.count + 16 } }
+    }
+
+    private func enterBacklog(_ bytes: Int) -> Bool {
+        backlogLock.lock()
+        defer { backlogLock.unlock() }
+        guard backlogBatches < Self.maxPendingBatches, backlogBytes + bytes <= Self.maxPendingBytes else { return false }
+        backlogBatches += 1
+        backlogBytes += bytes
+        return true
+    }
+
+    private func leaveBacklog(_ bytes: Int) {
+        backlogLock.lock()
+        backlogBatches -= 1
+        backlogBytes -= bytes
+        backlogLock.unlock()
+    }
+
+    public var pendingValidation: (batches: Int, bytes: Int) {
+        backlogLock.lock()
+        defer { backlogLock.unlock() }
+        return (backlogBatches, backlogBytes)
+    }
+
     public func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) {
+        let bytes = json.utf8.count + Self.canvasBytes(canvas)
+        guard enterBacklog(bytes) else {
+            return deliver { self.die(Self.backlogReason) }
+        }
         validate { [self] in
             let batch = validator.processOpsForRenderer(json, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
             let stopped = validator.stopped
+            let prebuilt: String?
+            if case .json(let clean) = batch {
+                prebuilt = "{\"type\":\"ops\",\"ops\":" + clean + "}"
+            } else {
+                prebuilt = nil
+            }
             deliver {
+                defer { self.leaveBacklog(bytes) }
                 // A counted cap passed under strict: the widget stops like it does for memory or CPU (the renderer keeps its last render).
                 if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
-                case .json(let clean):
+                case .json:
                     self.opsSent += 1
-                    self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                    self.toRenderer(.json(prebuilt ?? "{}"))
                     self.askForRenderAckAfterFirstOps()
                 case .ops(let ops):
                     self.opsSent += 1
@@ -606,18 +688,29 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
 
     public func engine(_ engine: SandboxEngine, binaryOps: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) {
+        let bytes = binaryOps.words.count * 4 + binaryOps.strings.count + Self.canvasBytes(canvas)
+        guard enterBacklog(bytes) else {
+            return deliver { self.die(Self.backlogReason) }
+        }
         validate { [self] in
             let batch = validator.processBinary(binaryOps, canvas: canvas, typed: typedOps)
             let nodes = validator.nodeCount
             let stopped = validator.stopped
+            let prebuilt: String?
+            if case .json(let clean) = batch {
+                prebuilt = "{\"type\":\"ops\",\"ops\":" + clean + "}"
+            } else {
+                prebuilt = nil
+            }
             deliver {
+                defer { self.leaveBacklog(bytes) }
                 if let stopped { return self.die(stopped) }
                 switch batch {
                 case .empty:
                     break
-                case .json(let clean):
+                case .json:
                     self.opsSent += 1
-                    self.toRenderer(.json("{\"type\":\"ops\",\"ops\":\(clean)}"))
+                    self.toRenderer(.json(prebuilt ?? "{}"))
                     self.askForRenderAckAfterFirstOps()
                 case .ops(let ops):
                     self.opsSent += 1
@@ -871,7 +964,12 @@ public final class WidgetHost: SandboxEngineDelegate {
     // MARK: renderer → host (main thread)
 
     private func onRenderer(_ json: String) {
-        guard let msg = SandboxEngine.parse(json) as? [String: Any], let type = msg["type"] as? String else { return }
+        guard let msg = SandboxEngine.parse(json) as? [String: Any] else { return }
+        onRenderer(message: msg)
+    }
+
+    private func onRenderer(message msg: [String: Any], encoded: [String: String] = [:]) {
+        guard let type = msg["type"] as? String else { return }
         switch type {
         case "ready":
             if rendererReady { return }
@@ -890,9 +988,9 @@ public final class WidgetHost: SandboxEngineDelegate {
                 if ((ev as? [String: Any])?["type"] as? String) == "pointerdown" { pressBegan() }
                 // Only input the renderer saw as real (the DOM event's isTrusted; every input event of a native renderer) is a gesture.
                 if (msg["trusted"] as? Bool) == true, let gesture = gesture(for: ev) {
-                    engine.activationEvent(json: Self.json(ev), gesture: gesture)
+                    engine.activationEvent(json: encoded["ev"] ?? Self.json(ev), gesture: gesture)
                 } else {
-                    engine.event(json: Self.json(ev))
+                    engine.event(json: encoded["ev"] ?? Self.json(ev))
                 }
             }
         case "result":
@@ -911,7 +1009,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             queryLock.unlock()
             guard match else { return }
             let binary = (msg["binaryBase64"] as? String).flatMap { Data(base64Encoded: $0) }
-            resolveQuery(json: Self.json(msg["result"] ?? NSNull()), binary: binary)
+            resolveQuery(json: encoded["result"] ?? Self.json(msg["result"] ?? NSNull()), binary: binary)
         case "size":
             // A bubble's height is the content's in [50, maximumHeight], a profile page's at least its viewport (WidgetSurface).
             let height = CGFloat(options.context.surface.height(content: (msg["height"] as? NSNumber)?.doubleValue ?? 0, viewport: viewportHeight, bubbleMaximum: Double(maxHeight)))
@@ -931,7 +1029,7 @@ public final class WidgetHost: SandboxEngineDelegate {
                 engine.viewport(innerWidth: vp.0, innerHeight: vp.1, dpr: vp.2)
             }
         case "resize":
-            if let entries = msg["entries"] { engine.resize(entriesJson: Self.json(entries)) }
+            if let entries = msg["entries"] { engine.resize(entriesJson: encoded["entries"] ?? Self.json(entries)) }
         case "frame":
             frameCount += 1
             engine.frame(time: (msg["time"] as? NSNumber)?.doubleValue ?? 0)
@@ -988,10 +1086,23 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
     }
 
+    public static let maxDiagKinds = 64
+    public static let maxDiagsPerSecond = 100
+    private var diagWindowStart: CFTimeInterval = 0
+    private var diagsInWindow = 0
+
     private func diag(_ kind: String, _ detail: String) {
         guard executor.isCurrent else {
             return executor.async { [weak self] in self?.diag(kind, detail) }
         }
+        let now = CACurrentMediaTime()
+        if now - diagWindowStart >= 1 {
+            diagWindowStart = now
+            diagsInWindow = 0
+        }
+        diagsInWindow += 1
+        guard diagsInWindow <= Self.maxDiagsPerSecond else { return }
+        guard state.diags[kind] != nil || state.diags.count < Self.maxDiagKinds else { return }
         var entry = state.diags[kind] ?? (0, [])
         entry.count += 1
         if entry.details.count < 50 { entry.details.append(detail) }
@@ -1016,15 +1127,20 @@ public final class WidgetHost: SandboxEngineDelegate {
         publishLock.unlock()
         guard schedule else { return }
         DispatchQueue.main.async {
-            self.publishLock.lock()
-            self.changeScheduled = false
-            let snapshot = self.published
-            self.publishLock.unlock()
-            self.onChange?(snapshot)
+            self.metered {
+                self.publishLock.lock()
+                self.changeScheduled = false
+                let snapshot = self.published
+                self.publishLock.unlock()
+                self.onChange?(snapshot)
+            }
         }
     }
 
     static func json(_ value: Any) -> String { SandboxEngine.json(value) }
+
+    /// The JSON the host writes for a member of a renderer message, for a `ParsedMessageRenderer` to build off the main thread.
+    public static func encodedMember(_ value: Any) -> String { SandboxEngine.json(value) }
 
     /// A JSON `true` (not a number that bridges to one).
     static func isTrue(_ value: Any?) -> Bool {

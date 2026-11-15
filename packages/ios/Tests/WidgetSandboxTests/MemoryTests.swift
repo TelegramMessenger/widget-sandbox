@@ -2,7 +2,7 @@ import XCTest
 import Darwin
 @testable import WidgetSandbox
 
-final class MemoryTests: XCTestCase {
+final class MemoryTests: QuickJSTestCase {
     private static let tree = """
         [{"op":"el","id":2,"tag":"html","attrs":{}},{"op":"el","id":3,"tag":"body","attrs":{}},{"op":"ins","parent":1,"id":2,"before":null},{"op":"ins","parent":2,"id":3,"before":null},\
         {"op":"el","id":4,"tag":"div","attrs":{"class":"card"}},{"op":"text","id":5,"data":"secret of the previous widget"},{"op":"ins","parent":4,"id":5,"before":null},{"op":"ins","parent":3,"id":4,"before":null}]

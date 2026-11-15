@@ -5,7 +5,7 @@ import XCTest
 /// validator measures its thread's CPU time per call for the widget's messages, WidgetHost hands it to the engine, the
 /// engine records it like the widget's own JS time. The twins: desktop `validator_time_counts_against_the_js_quota`,
 /// `widget_host_charges_the_validators_time`, Android ValidatorCpuTest.
-final class ValidatorTimeTests: XCTestCase {
+final class ValidatorTimeTests: QuickJSTestCase {
     private final class Ticks: SandboxEngineDelegate {
         let loaded = XCTestExpectation(description: "loaded")
         let lock = NSLock()

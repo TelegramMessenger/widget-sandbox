@@ -17,7 +17,7 @@ import XCTest
 ///
 /// By default a few widgets of two corpora. `WIDGET_SANDBOX_BOX_DIFFERENTIAL=full` runs every corpus, the conformance
 /// set, the stress kit and the attacks (several minutes), and prints the JS time each engine took.
-final class BoxedEngineDifferentialTests: XCTestCase {
+final class BoxedEngineDifferentialTests: QuickJSTestCase {
     private static let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
@@ -139,7 +139,7 @@ final class BoxedEngineDifferentialTests: XCTestCase {
     }
 
     func testCorpusWidgetsRenderTheSameOnBothEngines() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable, "the boxed engine is not part of this build")
+        try requireBoxedQuickJS()
         let full = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_BOX_DIFFERENTIAL"] == "full"
         let widgets = widgets(full)
         guard !widgets.isEmpty else { throw XCTSkip("the corpora are not readable from this test process") }

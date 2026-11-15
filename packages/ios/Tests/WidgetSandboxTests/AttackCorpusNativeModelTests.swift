@@ -4,7 +4,7 @@ import XCTest
 /// corpus/attacks through the binary ops path and the Swift native node model
 /// (`binaryOps` + `canvasWords`, strict policy): nothing reaches the renderer that
 /// the script validator would not let through on the JSON path.
-final class AttackCorpusNativeModelTests: XCTestCase {
+final class AttackCorpusNativeModelTests: QuickJSTestCase {
     private static let attacks = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("corpus/attacks")

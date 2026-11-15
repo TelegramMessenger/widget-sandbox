@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class IconExpansionScanTests: XCTestCase {
+final class IconExpansionScanTests: QuickJSTestCase {
     func testByteScanAgreesWithFoundation() {
         let pieces = ["icon:", "ICON:", "Icon:", "iCoN:", "icon", "con:", "icon :", "i\u{307}con:", "\u{130}con:", "\u{131}con:", "\u{ff29}\u{ff23}\u{ff2f}\u{ff2e}\u{ff1a}", "ic\u{f3}n:", "icön:", "icon\u{ff1a}",
                       ":", "::", "i", "c", "o", "n", "I", "C", "O", "N", "\"", "\\", "é", "🙂", "Привет", "\u{2028}", "\u{0}", " ", "x", "{\"op\":\"attr\",\"name\":\"src\",\"value\":\"", "url(", "\u{212a}", "\u{17f}"]

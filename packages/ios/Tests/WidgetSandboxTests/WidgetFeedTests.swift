@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class WidgetFeedTests: XCTestCase {
+final class WidgetFeedTests: QuickJSTestCase {
     private let viewport = CGRect(x: 0, y: 1000, width: 400, height: 500)
 
     private func rows(_ count: Int, height: CGFloat = 100) -> [CGRect] {

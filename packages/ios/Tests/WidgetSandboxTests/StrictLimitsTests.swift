@@ -8,7 +8,7 @@ import WidgetSandboxProtocol
 /// before; the shim refuses at the same numbers (canvas, timers) so the author gets an error in the widget; the
 /// main-thread window (layout queries + the modelled cost of the ops) defers frames apart from the JS quota. The native
 /// node model (`binaryOps`) and the canvas-word shortcut stop exactly where the script validator does.
-final class StrictLimitsTests: XCTestCase {
+final class StrictLimitsTests: QuickJSTestCase {
     typealias Rig = NativeValidatorDifferentialTests.Rig
 
     private static let skeleton = "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null}]"

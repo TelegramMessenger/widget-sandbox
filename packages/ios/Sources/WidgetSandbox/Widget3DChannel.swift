@@ -1,4 +1,3 @@
-import CQuickJS
 import Foundation
 import QuartzCore
 import WidgetSandboxProtocol
@@ -85,17 +84,12 @@ public final class Widget3DChannel: WidgetSideChannel {
     private var layers: [Int: CALayer] = [:]
     private var visible = true
     private var destroyed = false
-    private var magic: Int32 = -1
     private weak var renderer: SurfaceHostingRenderer?
 
     public init(backend: Widget3DBackend, maxSurfaces: Int = Widget3DChannel.defaultMaxSurfaces, maxBytesPerCall: Int = Widget3DChannel.defaultMaxBytesPerCall) {
         self.backend = backend
         self.maxSurfaces = max(0, min(maxSurfaces, Widget3DChannel.defaultMaxSurfaces * 4))
         self.maxBytesPerCall = max(0, min(maxBytesPerCall, Widget3DChannel.defaultMaxBytesPerCall))
-    }
-
-    deinit {
-        Widget3DChannel.unregister(magic)
     }
 
     public var isDestroyed: Bool {
@@ -126,22 +120,24 @@ public final class Widget3DChannel: WidgetSideChannel {
         guard backend.isAvailable, let adapter = backend.adapterSource else {
             return
         }
-        // `__tw3d` is a host function written against quickjs-ng itself; the boxed engine lets no engine pointer out.
-        guard let context = js.nativeContext else {
-            onDiag?("3d", "not available on the boxed engine")
-            return
-        }
+        // `__tw3d` hands typed arrays over in place, which only the native engine does (WidgetSandboxQuickJS); the
+        // boxed engine lets no engine pointer out and Nova copies.
         lock.lock()
         if destroyed {
             lock.unlock()
             return
         }
-        Widget3DChannel.unregister(magic)
-        magic = Widget3DChannel.register(self)
-        let magic = self.magic
         lock.unlock()
-        let fn = qjs_new_cfunction_magic(context, widget3DTrampoline, "__tw3d", 8, magic)
-        _ = qjs_set_global_prop(context, "__tw3d", fn)
+        let installed = js.registerSideChannelFunction("__tw3d") { [weak self] args in
+            guard let self, !self.isDestroyed else {
+                return .undefined
+            }
+            return self.call(args)
+        }
+        guard installed else {
+            onDiag?("3d", js.backend == .nova ? "not available on Nova" : "not available on the boxed engine")
+            return
+        }
         do {
             _ = try js.evaluate("try { (\(adapter))(globalThis.__tw3d); } finally { delete globalThis.__tw3d; }", filename: "twidget3d.js")
         } catch {
@@ -283,12 +279,9 @@ public final class Widget3DChannel: WidgetSideChannel {
         surfaces.removeAll()
         let removed = Array(layers.values)
         layers.removeAll()
-        let magic = self.magic
-        self.magic = -1
         let renderer = self.renderer
         self.renderer = nil
         lock.unlock()
-        Widget3DChannel.unregister(magic)
         callLock.lock()
         defer { callLock.unlock() }
         for surface in all {
@@ -309,81 +302,5 @@ public final class Widget3DChannel: WidgetSideChannel {
         } else {
             DispatchQueue.main.async(execute: detach)
         }
-    }
-
-    private static let registryLock = NSLock()
-    private static var registry: [Int32: Weak] = [:]
-    private static var nextMagic: Int32 = 1
-
-    private struct Weak {
-        weak var channel: Widget3DChannel?
-    }
-
-    private static func register(_ channel: Widget3DChannel) -> Int32 {
-        registryLock.lock()
-        defer { registryLock.unlock() }
-        var magic = nextMagic
-        while registry[magic] != nil {
-            magic = magic == Int32.max ? 1 : magic + 1
-        }
-        nextMagic = magic == Int32.max ? 1 : magic + 1
-        registry[magic] = Weak(channel: channel)
-        return magic
-    }
-
-    private static func unregister(_ magic: Int32) {
-        guard magic >= 0 else {
-            return
-        }
-        registryLock.lock()
-        registry[magic] = nil
-        registryLock.unlock()
-    }
-
-    fileprivate static func channel(_ magic: Int32) -> Widget3DChannel? {
-        registryLock.lock()
-        defer { registryLock.unlock() }
-        return registry[magic]?.channel
-    }
-}
-
-private func widget3DTrampoline(_ ctx: OpaquePointer?, _ this: JSValue, _ argc: Int32, _ argv: UnsafeMutablePointer<JSValue>?, _ magic: Int32) -> JSValue {
-    guard let ctx, let argv, argc > 0, Int(argc) <= Widget3DChannel.maxArguments, let channel = Widget3DChannel.channel(magic) else {
-        return qjs_undefined()
-    }
-    var args: [Widget3DArgument] = []
-    args.reserveCapacity(Int(argc))
-    for i in 0 ..< Int(argc) {
-        let value = argv[i]
-        if qjs_is_number(value) {
-            args.append(.number(qjs_to_float64(ctx, value)))
-        } else if qjs_is_string(value) {
-            if i == 0, let c = qjs_to_cstring(ctx, value) {
-                let op = String(cString: c)
-                qjs_free_cstring(ctx, c)
-                args.append(op.utf8.count <= 32 ? .string(op) : .none)
-            } else {
-                args.append(.none)
-            }
-        } else {
-            var pointer: UnsafeMutablePointer<UInt8>?
-            var length = 0
-            let type = qjs_typed_array_bytes(ctx, value, &pointer, &length)
-            if type >= 0, let pointer {
-                let kind: Widget3DBytes.Kind = type == Int32(JS_TYPED_ARRAY_FLOAT32.rawValue) ? .float32 : type == Int32(JS_TYPED_ARRAY_UINT16.rawValue) ? .uint16 : type == Int32(JS_TYPED_ARRAY_UINT32.rawValue) ? .uint32 : .other
-                args.append(.bytes(Widget3DBytes(borrowedPointer: UnsafeRawPointer(pointer), length: length, kind: kind)))
-            } else {
-                if type < 0, let pending = qjs_take_exception_description(ctx) { free(pending) }
-                args.append(.none)
-            }
-        }
-    }
-    switch channel.call(args) {
-    case .number(let n):
-        return qjs_new_float64(ctx, n)
-    case .string(let s):
-        return s.withCString { qjs_new_string(ctx, $0) }
-    default:
-        return qjs_undefined()
     }
 }

@@ -15,6 +15,7 @@
 #if os(macOS) && canImport(CQuickJSBox)
 import CQuickJSBox
 import Foundation
+@_spi(QuickJSEngines) import WidgetSandbox
 
 final class BoxedQuickJS: QuickJSEngine {
     /// False when CQuickJSBox was compiled without optimization: such a box is 11-48 times slower than the native

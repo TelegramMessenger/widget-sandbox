@@ -3,7 +3,7 @@ import XCTest
 @testable import WidgetSandbox
 
 /// Loads the real renderer bundle in a WKWebView and waits for its `ready` message.
-final class RendererWebViewTests: XCTestCase {
+final class RendererWebViewTests: QuickJSTestCase {
     @MainActor
     func testRendererAnnouncesReadyAndAnswersQueries() async throws {
         let renderer = RendererWebView(rendererBundle: SandboxResources.shared.rendererBundle, theme: "light")

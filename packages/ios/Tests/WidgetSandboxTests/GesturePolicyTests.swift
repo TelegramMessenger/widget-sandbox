@@ -3,7 +3,7 @@ import XCTest
 
 /// GesturePolicy.swift against the fixture shared with gesture-policy.ts, GesturePolicy.kt and gesture_policy.cpp
 /// (tests/fixtures/gesture-policy.json, copied here by `pnpm build:ios`): every section.
-final class GesturePolicyTests: XCTestCase {
+final class GesturePolicyTests: QuickJSTestCase {
     private var fixture: [String: Any] = [:]
 
     override func setUpWithError() throws {

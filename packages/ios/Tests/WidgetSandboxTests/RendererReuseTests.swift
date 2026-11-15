@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class RendererReuseTests: XCTestCase {
+final class RendererReuseTests: QuickJSTestCase {
     @MainActor
     private func wait(until done: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(15)

@@ -2,7 +2,7 @@ import XCTest
 import JavaScriptCore
 @testable import WidgetSandbox
 
-final class IntlBridgeTests: XCTestCase {
+final class IntlBridgeTests: QuickJSTestCase {
     private func request(_ options: [String: Any], timestamp: Double, locale: String = "en-GB", method: String? = nil) throws -> String {
         var request: [String: Any] = ["kind": method == nil ? "date" : "dateMethod", "locale": locale, "opts": options, "value": timestamp]
         if let method = method { request["method"] = method }

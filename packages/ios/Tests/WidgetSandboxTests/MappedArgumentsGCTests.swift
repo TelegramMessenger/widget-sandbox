@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class MappedArgumentsGCTests: XCTestCase {
+final class MappedArgumentsGCTests: QuickJSTestCase {
     func testGCWhileMappedArgumentsAreLiveDoesNotCorruptTheHeap() throws {
         let source = """
         function wrap(c){return function(a,b){let n=arguments.length;return n===0?c.call(this):n===1?c.call(this,a):c.call(this,a,b)}}
@@ -10,7 +10,7 @@ final class MappedArgumentsGCTests: XCTestCase {
         for(let i=0;i<300;i++){f({i});f({i},{j:i});}
         keep
         """
-        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit)
+        let js = QuickJSContext(memoryLimitBytes: 256 << 20, maxStackBytes: JSThread.jsStackLimit, backend: .native)
         let result = try JSThread(name: "mapped-arguments").sync { Result { try js.evaluate(source, filename: "mapped.js") } }.get()
         XCTAssertEqual(result.number, 1_200_000)
         JSThread(name: "mapped-arguments-gc").sync { js.collectGarbage() }

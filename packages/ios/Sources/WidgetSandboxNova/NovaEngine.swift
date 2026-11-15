@@ -13,6 +13,7 @@
 #if os(macOS) && canImport(NovaEngineFFI)
 import Foundation
 import NovaEngineFFI
+@_spi(QuickJSEngines) import WidgetSandbox
 
 /// Our own bundles compiled once per process (`nova_script_compile`) and evaluated by every Nova engine
 /// (`nova_engine_eval_script`): an engine then skips parsing and compiling about 600 KB of JavaScript, which was most of

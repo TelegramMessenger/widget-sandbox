@@ -5,9 +5,9 @@ import XCTest
 /// `QuickJSContext` as the native one: the same answers, the same host functions, the same shipped bytecode, and the
 /// limits that are enforced differently inside a box (memory, stack). What a fault inside the box does (the process
 /// ends) is checked without Swift, by `packages/quickjs-box/tools/build.sh test`.
-final class BoxedQuickJSTests: XCTestCase {
+final class BoxedQuickJSTests: QuickJSTestCase {
     private func context(_ backend: QuickJSBackend, memory: Int = 16 << 20) throws -> QuickJSContext {
-        if backend == .boxed { try XCTSkipUnless(QuickJSBackend.isBoxedAvailable, "the boxed engine is not part of this build") }
+        if backend == .boxed { try requireBoxedQuickJS() }
         let js = QuickJSContext(memoryLimitBytes: memory, maxStackBytes: JSThread.jsStackLimit, backend: backend)
         XCTAssertNil(js.unavailableReason)
         XCTAssertEqual(js.backend, backend)
@@ -28,9 +28,16 @@ final class BoxedQuickJSTests: XCTestCase {
         }
     }
 
+    /// QuickJSTestCase registered both QuickJS engines: on macOS a test that needs one fails without it, never skips.
+    func testTheQuickJSEnginesAreRegistered() throws {
+        XCTAssertTrue(QuickJSBackend.isNativeAvailable)
+        try requireBoxedQuickJS()
+        XCTAssertNil(QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native).unavailableReason)
+    }
+
     /// Nova where this build links it and its library enforces its limits, the native engine elsewhere; never the box.
     func testTheDefaultIsNovaWhereItIsLinkedElseNative() throws {
-        XCTAssertEqual(QuickJSContext(memoryLimitBytes: 8 << 20).backend, .native)
+        XCTAssertEqual(QuickJSContext(memoryLimitBytes: 8 << 20).backend, QuickJSBackend.default)
         let expected: QuickJSBackend = QuickJSBackend.isNovaAvailable ? .nova : .native
         guard ProcessInfo.processInfo.environment["WIDGET_SANDBOX_ENGINE"] == nil else { return } // a run of the suite on another engine
         XCTAssertEqual(QuickJSBackend.default, expected)
@@ -40,9 +47,7 @@ final class BoxedQuickJSTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["WIDGET_SANDBOX_VALIDATOR_ENGINE"] == nil else { return }
         XCTAssertEqual(QuickJSBackend.validatorDefault, expected)
         #if os(macOS)
-        if ProcessInfo.processInfo.environment["WIDGET_SANDBOX_WITHOUT_NOVA"] == nil {
-            XCTAssertTrue(QuickJSBackend.isNovaAvailable, "the package links Nova unless WIDGET_SANDBOX_WITHOUT_NOVA is set")
-        }
+        XCTAssertTrue(QuickJSBackend.isNovaAvailable, "the package links Nova on macOS")
         #endif
     }
 
@@ -50,9 +55,9 @@ final class BoxedQuickJSTests: XCTestCase {
         let js = try context(.boxed)
         // packages/quickjs-box/build.sh --check proves the box is built from the submodule's commit; here: it says so.
         XCTAssertTrue(js.engineDescription.hasPrefix("boxed QuickJS "), js.engineDescription)
-        // Guard pages on macOS; a build with WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1 runs the mode of every other platform.
-        let boundsChecks = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_BOX_BOUNDS_CHECKS"] != nil
-        XCTAssertTrue(js.engineDescription.hasSuffix(boundsChecks ? "(bounds-checks)" : "(guard-pages)"), js.engineDescription)
+        #if os(macOS)
+        XCTAssertTrue(js.engineDescription.hasSuffix("(guard-pages)"), js.engineDescription)
+        #endif
         XCTAssertEqual(try context(.native).engineDescription, "native QuickJS")
     }
 
@@ -240,7 +245,7 @@ final class BoxedQuickJSTests: XCTestCase {
     /// QuickJS limits its recursion on the box's own stack; the limit is set so that the native stack the box's
     /// code uses stays inside what the thread has (the tools' selftest measures 17 recursion shapes).
     func testRunawayRecursionIsARangeErrorOnAnEngineThread() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let thread = JSThread(name: "boxed.recursion")
         defer { thread.stop() }
         let (plain, viaForEach): (String?, String?) = thread.sync {
@@ -327,7 +332,7 @@ final class BoxedQuickJSTests: XCTestCase {
         """
 
     func testAWidgetOnTheBoxedEngineRendersWhatTheNativeEngineRenders() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         for features in [Set<String>(), ["binaryOps", "canvasWords"]] {
             let (native, nativeMessages) = try run(Self.widget, engine: .native, features: features)
             let (boxed, boxedMessages) = try run(Self.widget, engine: .boxed, features: features)
@@ -344,7 +349,7 @@ final class BoxedQuickJSTests: XCTestCase {
     }
 
     func testLimitsStopABoxedWidgetLikeANativeOne() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let spin = try run("<p>x</p><script>for (;;) {}</script>", engine: .boxed).0
         XCTAssertTrue(spin.dead?.hasPrefix("CPU limit exceeded") == true, String(describing: spin.dead))
         let hog = try run("<p>x</p><script>var keep = []; for (;;) keep.push(new Uint8Array(1 << 20).fill(1));</script>", engine: .boxed).0
@@ -357,14 +362,15 @@ final class BoxedQuickJSTests: XCTestCase {
     /// A build that cannot run the box never falls back to the native engine: the widget stops. On macOS the test
     /// makes the box fail; on a platform without it (iOS today) that is what asking for `.boxed` does anyway.
     func testABoxThatCannotBeCreatedFailsClosed() throws {
-        var reason = "the boxed QuickJS engine is not part of this build (macOS only)"
+        var expected = "the boxed QuickJS engine is not part of this build"
         if QuickJSBackend.isBoxedAvailable {
-            reason = "the box was compiled without optimization"
-            QuickJSContext.boxedFailureForTesting = reason
+            expected = "the box was compiled without optimization"
+            QuickJSContext.boxedFailureForTesting = expected
         }
         defer { QuickJSContext.boxedFailureForTesting = nil }
         let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .boxed)
-        XCTAssertEqual(js.unavailableReason, reason)
+        let reason = try XCTUnwrap(js.unavailableReason)
+        XCTAssertTrue(reason.hasPrefix(expected), reason)
         XCTAssertThrowsError(try js.evaluate("1", filename: "t.js")) { XCTAssertEqual("\($0)", "engine fault: \(reason)") }
         XCTAssertThrowsError(try js.call("f"))
         XCTAssertFalse(js.captureGlobalFunction("f"))
@@ -376,7 +382,7 @@ final class BoxedQuickJSTests: XCTestCase {
     }
 
     func testThePoolHandsOutOnlyTheBackendThatWasAskedFor() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let pool = EnginePool.shared
         let (size, backend) = (pool.targetSize, pool.backend)
         defer { pool.backend = backend; pool.targetSize = size; pool.drain() }

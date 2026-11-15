@@ -2,7 +2,7 @@ import XCTest
 @testable import WidgetSandbox
 
 /// End-to-end on the real stack: engine thread → validator thread → WKWebView.
-final class WidgetHostTests: XCTestCase {
+final class WidgetHostTests: QuickJSTestCase {
     @MainActor
     func testValidatorDiagnosticsReachTheHost() async throws {
         // Two external URLs in a stylesheet the widget builds at runtime: the

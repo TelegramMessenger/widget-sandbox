@@ -3,7 +3,7 @@ import QuartzCore
 import WidgetSandboxProtocol
 @testable import WidgetSandbox
 
-final class Widget3DChannelTests: XCTestCase {
+final class Widget3DChannelTests: QuickJSTestCase {
     final class FakeSurface: Widget3DSurface {
         var onDiag: ((String, String) -> Void)?
         let lock = NSLock()
@@ -201,7 +201,7 @@ final class Widget3DChannelTests: XCTestCase {
         XCTAssertEqual(surface?.lock.withLock { surface?.stopped }, "destroyed")
         XCTAssertNil(renderer.surfaceLayer)
         XCTAssertNil(renderer.surfaceLayout)
-        let js = QuickJSContext(memoryLimitBytes: 8 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native)
         channel.install(in: js)
         XCTAssertEqual((try? js.evaluate("typeof gl3d + typeof __tw3d", filename: "t.js"))?.string, "undefinedundefined")
         channel.connect(renderer)
@@ -241,7 +241,7 @@ final class Widget3DChannelTests: XCTestCase {
     func testCallsBeforeConnectWorkAndLayersComeAfterConnect() {
         let backend = FakeBackend()
         let channel = Widget3DChannel(backend: backend)
-        let js = QuickJSContext(memoryLimitBytes: 8 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native)
         channel.install(in: js)
         XCTAssertEqual((try? js.evaluate("String(gl3d.bind(3)) + gl3d.call('size', 3) + typeof __tw3d", filename: "t.js"))?.string, "1100,50,2undefined")
         XCTAssertEqual(channel.surfaceCount, 1)
@@ -274,7 +274,7 @@ final class Widget3DChannelTests: XCTestCase {
 
     /// On the boxed engine no engine pointer leaves the box, so the channel installs nothing and says so.
     func testTheBoxedEngineGetsNoChannel() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let backend = FakeBackend()
         let (host, _, _) = self.host("<p id=o>x</p><script>document.getElementById('o').textContent = typeof gl3d + typeof __tw3d;</script>", backend: backend, engine: .boxed)
         wait { host.diagnostics.rendered }
@@ -288,7 +288,7 @@ final class Widget3DChannelTests: XCTestCase {
         let backend = FakeBackend()
         backend.isAvailable = false
         let channel = Widget3DChannel(backend: backend)
-        let js = QuickJSContext(memoryLimitBytes: 8 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native)
         channel.install(in: js)
         XCTAssertEqual((try? js.evaluate("typeof gl3d + typeof __tw3d", filename: "t.js"))?.string, "undefinedundefined")
     }

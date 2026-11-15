@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class StylesheetWarmupTests: XCTestCase {
+final class StylesheetWarmupTests: QuickJSTestCase {
     static let sheets = [
         "body { color: red; background: url(https://evil.example/x.png); } .a { behavior: url(x.htc) }",
         "@import url('https://evil.example/a.css'); @media (prefers-color-scheme: dark) { .b { color: white } } .c { width: calc(100% - 4px) }",

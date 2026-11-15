@@ -3,9 +3,9 @@ import XCTest
 
 /// Strings cross the QuickJS boundary by length, so an embedded NUL neither truncates
 /// an argument nor a result (a widget could otherwise hide the tail of a message).
-final class QuickJSStringTests: XCTestCase {
+final class QuickJSStringTests: QuickJSTestCase {
     func testEmbeddedNulSurvivesArgumentsAndResults() throws {
-        let js = QuickJSContext(memoryLimitBytes: 8 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native)
         try js.evaluate("globalThis.echo = (s) => s + '|' + s.length;", filename: "t.js")
         guard case .string(let out) = try js.call("echo", ["a\u{0}b\u{0}é"]) else { return XCTFail("not a string") }
         XCTAssertEqual(out, "a\u{0}b\u{0}é|5")
@@ -14,7 +14,7 @@ final class QuickJSStringTests: XCTestCase {
     }
 
     func testMemoryUsageReportsTheHeapAndShrinksAfterCollection() throws {
-        let js = QuickJSContext(memoryLimitBytes: 32 << 20)
+        let js = QuickJSContext(memoryLimitBytes: 32 << 20, backend: .native)
         try js.evaluate("globalThis.big = Array.from({length: 20000}, (_, i) => ({i, s: 'v' + i}));", filename: "m.js")
         let before = js.memoryUsage["used"] ?? 0
         XCTAssertGreaterThan(before, 1 << 20)

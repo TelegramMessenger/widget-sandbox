@@ -4,7 +4,7 @@ import WidgetSandboxProtocol
 
 /// Text values are capped at 32 KB and document text at 48 KB under strict by the validator bundle every native glue
 /// loads (and the native node model); past a cap the widget stops (docs/decisions.md, "Strict limits from the start").
-final class TextBudgetTests: XCTestCase {
+final class TextBudgetTests: QuickJSTestCase {
     static var strict: WidgetHost.Options {
         var options = WidgetHost.Options()
         options.policy = .strict

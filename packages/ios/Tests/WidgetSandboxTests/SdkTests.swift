@@ -3,7 +3,7 @@ import XCTest
 
 /// SDK v1 through the real sandbox bundle in QuickJS and the real host glue (docs/sdk-v1.md §2–§4.1):
 /// the Swift twin of packages/core/tests/unit/sdk.test.ts. The checks themselves are SdkPolicyTests.
-final class SdkTests: XCTestCase {
+final class SdkTests: QuickJSTestCase {
     typealias Harness = UserActivationTests.Harness
 
     // MARK: links

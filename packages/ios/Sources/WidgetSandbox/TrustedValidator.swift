@@ -412,7 +412,7 @@ public final class TrustedValidator {
         return typed ? Self.typedOps(out) : .json(out)
     }
 
-    static func typedOps(_ json: String) -> RenderBatch {
+    public static func typedOps(_ json: String) -> RenderBatch {
         guard let list = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [Any] else { return .json(json) }
         var ops: [WidgetOp] = []
         ops.reserveCapacity(list.count)

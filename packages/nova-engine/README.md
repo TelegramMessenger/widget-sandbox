@@ -18,15 +18,13 @@ Only this README is committed. The build writes, next to it (all three are in `.
 | `BUILD_INFO` | the nova-safe commit and the rustc it was built with |
 
 The package needs it: until it is built, SwiftPM stops with "local binary target 'NovaEngineFFI' … does not contain
-a binary artifact". To build without Nova (iOS, or a machine without Rust), set `WIDGET_SANDBOX_WITHOUT_NOVA=1`:
-`QuickJSBackend.isNovaAvailable` is then false, the default engine is QuickJS, a `.nova` engine fails closed, and
-`QuickJSBackend.useNovaEverywhere()` does not exist, so a client that calls it does not compile. (An environment
-variable and not a check for the file: SwiftPM caches a manifest's result by its text and environment, so a check for
-a file would keep answering what it found first.)
+a binary artifact". On the macOS integration branch (`macos/nova-only`) the WidgetSandbox library always links Nova
+and no QuickJS: quickjs-ng and its box are in the WidgetSandboxQuickJS target, which the tests and tools link to
+compare the engines (`Package.swift`), so there is no build without Nova.
 
 ## How it is built
 
-Telegram for macOS has [nova-safe](https://github.com/macosswift/nova-safe) as the submodule `submodules/nova`
+Telegram for macOS has [nova-safe](https://github.com/TelegramMessenger/nova-safe) as the submodule `submodules/nova`
 and builds the library with its other native libraries (`scripts/configure_frameworks.sh`, the `nova-engine`
 project in `core-xprojects`), into this directory of its `third-party/widget-sandbox` checkout. It is rebuilt
 when the submodule, the Rust toolchain or Xcode changes, and the build checks `manifest.sha256`.

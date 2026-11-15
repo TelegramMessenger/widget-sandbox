@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class QueryBudgetTests: XCTestCase {
+final class QueryBudgetTests: QuickJSTestCase {
     private final class SlowHost: SandboxEngineDelegate {
         var died: String?
         var queries = 0

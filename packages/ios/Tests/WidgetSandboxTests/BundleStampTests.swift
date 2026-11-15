@@ -3,8 +3,8 @@ import XCTest
 
 /// VERSION.json's stamp on the bundles (BundleStamp.swift): the shipped bundles carry this glue's, and the engine
 /// and the validator refuse bundles of another protocol, profile or sdk, or without a stamp, before anything runs.
-final class BundleStampTests: XCTestCase {
-    private let shared = SandboxResources.shared
+final class BundleStampTests: QuickJSTestCase {
+    private var shared: SandboxResources { .shared }
 
     /// `source` with its first line replaced by `line` (nil: removed).
     private func restamped(_ source: String, _ line: String?) -> String {

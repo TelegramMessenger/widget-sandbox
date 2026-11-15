@@ -2,7 +2,7 @@ import XCTest
 import WidgetSandboxProtocol
 @testable import WidgetSandbox
 
-final class TaskRendererHostTests: XCTestCase {
+final class TaskRendererHostTests: QuickJSTestCase {
     private class Probe: Renderer {
         let view = PlatformView(frame: CGRect(x: 0, y: 0, width: 360, height: 200))
         var onMessage: ((String) -> Void)?

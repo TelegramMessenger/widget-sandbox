@@ -1,10 +1,11 @@
 import XCTest
 @testable import WidgetSandbox
+@testable import WidgetSandboxNova
 
 /// The Nova engine (packages/nova-engine) behind the same `QuickJSContext` as QuickJS: the same host functions with the
 /// same arguments, the same answers to the sandbox's own needs, the bundles from source, and a widget rendered the same.
 /// A build of the library that does not enforce all three limits (interrupt, memory, stack) is refused.
-final class NovaEngineTests: XCTestCase {
+final class NovaEngineTests: QuickJSTestCase {
     private func context(_ backend: QuickJSBackend, memory: Int = 16 << 20) throws -> QuickJSContext {
         if backend == .nova { try XCTSkipUnless(QuickJSBackend.isNovaAvailable, "the Nova engine is not part of this build") }
         let js = QuickJSContext(memoryLimitBytes: memory, maxStackBytes: JSThread.jsStackLimit, backend: backend)

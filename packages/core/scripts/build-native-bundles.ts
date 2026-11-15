@@ -11,7 +11,9 @@
 //        pnpm build:macos      (same outputs as ios: one Swift package)
 //        pnpm build:android
 //        pnpm build:desktop
-//        tsx scripts/build-native-bundles.ts <target> --out <dir>   (writes only the bundles to <dir>; used by the freshness test)
+//        tsx scripts/build-native-bundles.ts <target> --out <dir> [--bytecode-out <dir>]
+//            (writes only the bundles to <dir>, and the .qbc to --bytecode-out on a target that keeps them apart
+//            (ios, macos: required there); used by the freshness test)
 
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
@@ -26,7 +28,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 /** This package (packages/core): the bundles' sources. */
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const ios = { transport: 'webkit', js: 'packages/ios/Sources/WidgetSandbox/WidgetJS', fixtures: 'packages/ios/Tests/WidgetSandboxTests/Fixtures' } as const;
+const ios = { transport: 'webkit', js: 'packages/ios/Sources/WidgetSandboxResources/WidgetJS', bytecode: 'packages/ios/Sources/WidgetSandboxQuickJS/WidgetJS', fixtures: 'packages/ios/Tests/WidgetSandboxTests/Fixtures' } as const;
 const TARGETS = {
   ios,
   // macOS uses the same Swift package, bundles (WKWebView transport) and demo corpus as iOS.
@@ -43,8 +45,16 @@ if (!target) {
   console.error(`unknown target "${targetName}"; expected one of ${Object.keys(TARGETS).join(', ')}`);
   process.exit(1);
 }
-const outIndex = process.argv.indexOf('--out');
-const outDir = outIndex > 0 ? path.resolve(process.argv[outIndex + 1]) : undefined;
+function argument(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index > 0 ? path.resolve(process.argv[index + 1]) : undefined;
+}
+const outDir = argument('--out');
+const bytecodeOutDir = argument('--bytecode-out');
+if (outDir && 'bytecode' in target && !bytecodeOutDir) {
+  console.error(`${targetName} keeps its bytecode in ${target.bytecode}: pass --bytecode-out <dir> with --out`);
+  process.exit(1);
+}
 const res = outDir ?? path.join(root, target.js);
 fs.mkdirSync(res, { recursive: true });
 // No bundled libraries since profile 1 (docs/profile-v1.md, js.libraries): what an older build left goes.
@@ -71,10 +81,15 @@ await emit('validator-bundle.js', validatorBuildOptions(pkgRoot));
 // a web view and has none). The compiler is built from the vendored quickjs-ng, so the bytecode
 // always matches the engine the apps link; each blob carries the source's length and hash and is
 // refused at load time if the .js next to it changed (see qjs_shim.h).
+// On the Swift package the bytecode belongs to the WidgetSandboxQuickJS target, never to the WidgetSandbox bundle an
+// app ships (Package.swift).
 const qjsc = buildQjsc();
+const bytecodeDir = 'bytecode' in target ? bytecodeOutDir ?? path.join(root, target.bytecode) : res;
+fs.mkdirSync(bytecodeDir, { recursive: true });
 for (const name of ['sandbox-bundle.js', 'validator-bundle.js']) {
   const out = name.replace(/\.js$/, '.qbc');
-  execFileSync(qjsc, [path.join(res, name), path.join(res, out), path.basename(name)], { stdio: 'inherit' });
+  if (bytecodeDir !== res) fs.rmSync(path.join(res, out), { force: true });
+  execFileSync(qjsc, [path.join(res, name), path.join(bytecodeDir, out), path.basename(name)], { stdio: 'inherit' });
 }
 
 /** Builds packages/tools/qjsc from packages/ios/Sources/CQuickJS (the fork submodule + shim) into .cache/ (gitignored) when it is missing or older than its sources. */

@@ -1,14 +1,16 @@
-// One QuickJS runtime and context behind one interface, whichever build of the
-// engine runs it: the native one (QuickJS.swift, the default everywhere) or the
-// same engine inside a wasm2c box (QuickJSBoxed.swift; docs/decisions.md,
-// "QuickJS in a wasm2c box"). All methods must be called from the thread/queue
-// that owns the context.
+// One JavaScript runtime and context behind one interface, whichever engine runs
+// it: Nova (NovaEngine.swift), or, when the WidgetSandboxQuickJS target is linked,
+// the native QuickJS engine or the same engine inside a wasm2c box
+// (docs/decisions.md, "QuickJS in a wasm2c box"). WidgetSandbox itself links no
+// QuickJS: those two register here at run time (`QuickJSEngineRegistry`) when a
+// client calls `registerQuickJSEngines()`, and a process without them fails closed. All methods must be called from the
+// thread/queue that owns the context.
 
 import Foundation
 
 /// Which build of QuickJS runs a widget's code.
 public enum QuickJSBackend: String {
-    /// The engine compiled into the process. The default on every platform.
+    /// quickjs-ng compiled into the process, from the WidgetSandboxQuickJS target; fails closed where it is not registered.
     case native
     /// The same engine commit compiled to wasm and back to C, in a memory of its own: a memory bug in the engine
     /// reads and writes that memory only, or ends the process. macOS only for now (`isBoxedAvailable`); slower
@@ -21,21 +23,18 @@ public enum QuickJSBackend: String {
 
     /// Whether this build can run `.nova`: the library is linked and enforces every limit (`NovaEngine.enforcesLimits`).
     public static var isNovaAvailable: Bool {
-        #if os(macOS) && canImport(NovaEngineFFI)
-        return NovaEngine.enforcesLimits
-        #else
-        return false
-        #endif
+        QuickJSEngineRegistry.registration(for: .nova)?.isAvailable() ?? false
     }
 
     /// Whether this build can run `.boxed`. Where it cannot, a boxed engine fails closed: the widget stops with
     /// "Engine fault", it never falls back to the native engine.
     public static var isBoxedAvailable: Bool {
-        #if os(macOS) && canImport(CQuickJSBox)
-        return BoxedQuickJS.isOptimized
-        #else
-        return false
-        #endif
+        QuickJSEngineRegistry.registration(for: .boxed)?.isAvailable() ?? false
+    }
+
+    /// Whether this build can run `.native`: WidgetSandboxQuickJS is linked.
+    public static var isNativeAvailable: Bool {
+        QuickJSEngineRegistry.registration(for: .native)?.isAvailable() ?? false
     }
 
     /// The backend of hosts and engines that do not name one: `.nova` in a build that links Nova and whose library
@@ -61,31 +60,25 @@ public enum QuickJSBackend: String {
         return isNovaAvailable ? .nova : .native
     }()
 
-    #if os(macOS) && canImport(NovaEngineFFI)
-    /// Runs every widget engine, the engine pools and the trusted validator of the process on Nova: sets `default`,
-    /// `validatorDefault` and `EnginePool.shared.backend`. Main thread, once at start, before the first host. It
-    /// exists only in builds that link Nova, so a client that must not run widgets without it calls this and does not
-    /// compile without the library, instead of failing closed at run time.
-    public static func useNovaEverywhere() {
-        `default` = .nova
-        validatorDefault = .nova
-        EnginePool.shared.backend = .nova
-    }
-    #endif
 
     /// Whether this backend runs the precompiled `.qbc` bundles (QuickJS bytecode); Nova evaluates their source.
     var runsBytecode: Bool { self != .nova }
 }
 
-extension QuickJSEngine {
+@_spi(QuickJSEngines) public extension QuickJSEngine {
     func evaluateBundle(_ source: String, filename: String) throws -> Bool {
         try evaluate(source, filename: filename, asModule: false)
         return false
     }
+
+    var nativeContext: OpaquePointer? { nil }
+
+    func registerSideChannelFunction(_ name: String, _ handler: @escaping ([Widget3DArgument]) -> HostReturn) -> Bool { false }
 }
 
-/// What `QuickJSContext` needs from an engine. Internal: the rest of the package sees `QuickJSContext` only.
-protocol QuickJSEngine: AnyObject {
+/// What `QuickJSContext` needs from an engine. SPI for the engines of WidgetSandboxQuickJS; the rest of the package
+/// and its clients see `QuickJSContext` only.
+@_spi(QuickJSEngines) public protocol QuickJSEngine: AnyObject {
     var deadline: TimeInterval { get set }
     var cpuDeadline: TimeInterval { get set }
     var interrupted: Bool { get set }
@@ -106,6 +99,59 @@ protocol QuickJSEngine: AnyObject {
     func captureGlobalFunction(_ name: String) -> Bool
     func call(_ name: String, _ args: [String]) throws -> JSResult
     func executePendingJobs(onError: (QuickJSError) -> Void)
+    /// quickjs-ng's context, for tests; nil on every other engine.
+    var nativeContext: OpaquePointer? { get }
+    /// `name(op, ...)` for a side channel that reads typed arrays in place (Widget3DChannel); false when this engine
+    /// cannot have one.
+    func registerSideChannelFunction(_ name: String, _ handler: @escaping ([Widget3DArgument]) -> HostReturn) -> Bool
+}
+
+/// An engine WidgetSandboxQuickJS provides for `.native` or `.boxed`.
+@_spi(QuickJSEngines) public struct QuickJSEngineRegistration {
+    public let isAvailable: () -> Bool
+    public let description: () -> String
+    public let make: (_ memoryLimitBytes: Int, _ maxStackBytes: Int) throws -> QuickJSEngine
+
+    public init(isAvailable: @escaping () -> Bool, description: @escaping () -> String, make: @escaping (_ memoryLimitBytes: Int, _ maxStackBytes: Int) throws -> QuickJSEngine) {
+        self.isAvailable = isAvailable
+        self.description = description
+        self.make = make
+    }
+}
+
+/// The QuickJS engines of this process. WidgetSandboxQuickJS registers them, with the bundles' `.qbc`, when its
+/// `registerQuickJSEngines()` is called, and only then: nothing here looks for that target, so a process that does
+/// not make that call (an app that does not link the target) has no QuickJS, and `.native` and `.boxed` fail closed.
+/// Nova registers here too, from WidgetSandboxNova (`registerNovaEngine()`).
+@_spi(QuickJSEngines) public enum QuickJSEngineRegistry {
+    private static let lock = NSLock()
+    private static var engines: [QuickJSBackend: QuickJSEngineRegistration] = [:]
+    private static var bytecode: [String: Data] = [:]
+
+    public static func register(_ registration: QuickJSEngineRegistration, for backend: QuickJSBackend) {
+        lock.lock()
+        engines[backend] = registration
+        lock.unlock()
+    }
+
+    /// The `.qbc` of one of our bundles, by its name without the extension ("sandbox-bundle").
+    public static func registerBytecode(_ data: Data, named name: String) {
+        lock.lock()
+        bytecode[name] = data
+        lock.unlock()
+    }
+
+    static func registration(for backend: QuickJSBackend) -> QuickJSEngineRegistration? {
+        lock.lock()
+        defer { lock.unlock() }
+        return engines[backend]
+    }
+
+    static func bytecode(named name: String) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return bytecode[name]
+    }
 }
 
 public final class QuickJSContext {
@@ -121,43 +167,23 @@ public final class QuickJSContext {
     /// real one. A debug build of quickjs-ng needs ~10 KB of C stack per JS call.
     /// The boxed engine derives its own limit from it (the box's code uses several
     /// times more native stack than the stack QuickJS measures there).
-    public init(memoryLimitBytes: Int, maxStackBytes: Int = 384 << 10, backend: QuickJSBackend = .native) {
+    public init(memoryLimitBytes: Int, maxStackBytes: Int = 384 << 10, backend: QuickJSBackend = .default) {
         self.backend = backend
-        switch backend {
-        case .native:
-            engine = NativeQuickJS(memoryLimitBytes: memoryLimitBytes, maxStackBytes: maxStackBytes)
+        do {
+            if backend == .boxed, let reason = Self.boxedFailureForTesting { throw QuickJSError.engineFault(reason) }
+            guard let registration = QuickJSEngineRegistry.registration(for: backend) else {
+                switch backend {
+                case .native: throw QuickJSError.engineFault("native QuickJS is not part of this build (WidgetSandboxQuickJS is not registered)")
+                case .boxed: throw QuickJSError.engineFault("the boxed QuickJS engine is not part of this build (WidgetSandboxQuickJS is not registered, macOS only)")
+                case .nova: throw QuickJSError.engineFault("the Nova engine is not part of this process (WidgetSandboxNova is not registered, macOS only)")
+                }
+            }
+            engine = try registration.make(memoryLimitBytes, maxStackBytes)
             unavailableReason = nil
-        case .boxed:
-            #if os(macOS) && canImport(CQuickJSBox)
-            do {
-                if let reason = Self.boxedFailureForTesting { throw QuickJSError.engineFault(reason) }
-                engine = try BoxedQuickJS(memoryLimitBytes: memoryLimitBytes, maxStackBytes: maxStackBytes)
-                unavailableReason = nil
-            } catch {
-                let reason = (error as? QuickJSError).flatMap { if case .engineFault(let r) = $0 { return r } else { return nil } } ?? "\(error)"
-                engine = UnavailableQuickJS(reason: reason)
-                unavailableReason = reason
-            }
-            #else
-            let reason = "the boxed QuickJS engine is not part of this build (macOS only)"
+        } catch {
+            let reason = (error as? QuickJSError).flatMap { if case .engineFault(let r) = $0 { return r } else { return nil } } ?? "\(error)"
             engine = UnavailableQuickJS(reason: reason)
             unavailableReason = reason
-            #endif
-        case .nova:
-            #if os(macOS) && canImport(NovaEngineFFI)
-            do {
-                engine = try NovaEngine(memoryLimitBytes: memoryLimitBytes, maxStackBytes: maxStackBytes)
-                unavailableReason = nil
-            } catch {
-                let reason = (error as? QuickJSError).flatMap { if case .engineFault(let r) = $0 { return r } else { return nil } } ?? "\(error)"
-                engine = UnavailableQuickJS(reason: reason)
-                unavailableReason = reason
-            }
-            #else
-            let reason = "the Nova engine is not part of this build (macOS only)"
-            engine = UnavailableQuickJS(reason: reason)
-            unavailableReason = reason
-            #endif
         }
     }
 
@@ -167,12 +193,9 @@ public final class QuickJSContext {
     /// "native QuickJS", the boxed engine with the commit it was built from and how its memory is fenced, or Nova's
     /// version with its commit.
     public var engineDescription: String {
-        #if os(macOS) && canImport(CQuickJSBox)
-        if backend == .boxed { return "boxed QuickJS \(BoxedQuickJS.quickJSCommit) (\(BoxedQuickJS.buildMode))" }
-        #endif
-        #if os(macOS) && canImport(NovaEngineFFI)
-        if backend == .nova { return NovaEngine.version }
-        #endif
+        if unavailableReason == nil, let registration = QuickJSEngineRegistry.registration(for: backend) {
+            return registration.description()
+        }
         switch backend {
         case .native: return "native QuickJS"
         case .boxed: return "boxed QuickJS"
@@ -205,7 +228,11 @@ public final class QuickJSContext {
 
     /// The native engine's context, for the one piece of glue that talks to quickjs-ng itself (the 3D side
     /// channel, debug builds only); nil on the boxed engine, where no engine pointer leaves the box.
-    var nativeContext: OpaquePointer? { (engine as? NativeQuickJS)?.context }
+    var nativeContext: OpaquePointer? { engine.nativeContext }
+
+    func registerSideChannelFunction(_ name: String, _ handler: @escaping ([Widget3DArgument]) -> HostReturn) -> Bool {
+        engine.registerSideChannelFunction(name, handler)
+    }
 
     public var memoryUsed: Int { engine.memoryUsed }
 

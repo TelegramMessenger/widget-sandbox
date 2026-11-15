@@ -221,7 +221,7 @@ enum CanvasWords {
     private static let prefix = Array("{\"op\":\"canvas\",\"id\":".utf8)
     private static let middle = Array(",\"bin\":".utf8)
 
-    private struct Placeholder {
+    fileprivate struct Placeholder {
         var range: Range<Int>
         var id: Int
         var key: Int
@@ -230,7 +230,7 @@ enum CanvasWords {
     /// Each payload key counts once: a later `{"op":"canvas","id":N,"bin":K}` with the same K stays
     /// in the JSON as it is, without commands, and the validator rejects it, so one payload is
     /// never expanded or validated more than once per batch.
-    private static func placeholders(_ b: UnsafeBufferPointer<UInt8>) -> [Placeholder] {
+    fileprivate static func placeholders(_ b: UnsafeBufferPointer<UInt8>) -> [Placeholder] {
         var out: [Placeholder] = []
         var seen = Set<Int>()
         var i = 0
@@ -294,5 +294,23 @@ enum CanvasWords {
             out += String(decoding: b[last...], as: UTF8.self)
             return out
         }
+    }
+}
+
+public enum WidgetCanvasReplies {
+    public static func passes(_ batch: WidgetCanvasBatch, strict: Bool) -> Bool {
+        guard CanvasWords.envelope(batch) else { return false }
+        return !strict || (CanvasWords.textCharges(batch).isEmpty && CanvasWords.resizes(batch).isEmpty)
+    }
+
+    public static func placeholders(_ json: String) -> [(id: Int, key: Int)] {
+        CanvasWords.placeholderPairs(json)
+    }
+}
+
+extension CanvasWords {
+    static func placeholderPairs(_ json: String) -> [(id: Int, key: Int)] {
+        var json = json
+        return json.withUTF8 { b in placeholders(b).map { ($0.id, $0.key) } }
     }
 }
