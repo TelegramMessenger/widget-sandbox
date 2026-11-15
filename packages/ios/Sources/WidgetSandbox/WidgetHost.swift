@@ -95,6 +95,9 @@ public final class WidgetHost: SandboxEngineDelegate {
         public var asyncValidation = false
         /// Boot hosts that the feed creates ahead of the viewport on a background queue (WidgetPreparer) and adopt them once their first content is laid out.
         public var backgroundBoot = false
+        /// The widget's identity for its main-time meter (MainTimeMeter.key): a message id, not the host, so a restart or
+        /// a scroll rebuild keeps the widget's grace and trips.
+        public var meterKey: String?
         public var assetResolver: WidgetAssetResolver?
         /// `.strict` unless a test or tool asks for `.compat` (SandboxPolicy).
         public var policy: SandboxPolicy = .strict
@@ -329,7 +332,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
         (renderer as? ParsedMessageRenderer)?.onParsedMessage = { [weak self] msg, encoded in self?.onRenderer(message: msg, encoded: encoded) }
         if let timed = renderer as? MainTimedRenderer {
-            let meter = MainTimeMeter(label: "widget")
+            let meter = MainTimeMeter(label: "widget", key: options.meterKey)
             meter.onTrip = { [weak self] in self?.mainTimeTripped() }
             timed.mainMeter = meter
             mainMeter = meter
