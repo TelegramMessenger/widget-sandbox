@@ -7,7 +7,7 @@ import XCTest
 /// ends) is checked without Swift, by `packages/quickjs-box/tools/build.sh test`.
 final class BoxedQuickJSTests: QuickJSTestCase {
     private func context(_ backend: QuickJSBackend, memory: Int = 16 << 20) throws -> QuickJSContext {
-        if backend == .boxed { try XCTSkipUnless(QuickJSBackend.isBoxedAvailable, "the boxed engine is not part of this build") }
+        if backend == .boxed { try requireBoxedQuickJS() }
         let js = QuickJSContext(memoryLimitBytes: memory, maxStackBytes: JSThread.jsStackLimit, backend: backend)
         XCTAssertNil(js.unavailableReason)
         XCTAssertEqual(js.backend, backend)
@@ -26,6 +26,13 @@ final class BoxedQuickJSTests: QuickJSTestCase {
         } catch {
             return "threw:\(error)"
         }
+    }
+
+    /// QuickJSTestCase registered both QuickJS engines: on macOS a test that needs one fails without it, never skips.
+    func testTheQuickJSEnginesAreRegistered() throws {
+        XCTAssertTrue(QuickJSBackend.isNativeAvailable)
+        try requireBoxedQuickJS()
+        XCTAssertNil(QuickJSContext(memoryLimitBytes: 8 << 20, backend: .native).unavailableReason)
     }
 
     /// Nova where this build links it and its library enforces its limits, the native engine elsewhere; never the box.
@@ -238,7 +245,7 @@ final class BoxedQuickJSTests: QuickJSTestCase {
     /// QuickJS limits its recursion on the box's own stack; the limit is set so that the native stack the box's
     /// code uses stays inside what the thread has (the tools' selftest measures 17 recursion shapes).
     func testRunawayRecursionIsARangeErrorOnAnEngineThread() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let thread = JSThread(name: "boxed.recursion")
         defer { thread.stop() }
         let (plain, viaForEach): (String?, String?) = thread.sync {
@@ -325,7 +332,7 @@ final class BoxedQuickJSTests: QuickJSTestCase {
         """
 
     func testAWidgetOnTheBoxedEngineRendersWhatTheNativeEngineRenders() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         for features in [Set<String>(), ["binaryOps", "canvasWords"]] {
             let (native, nativeMessages) = try run(Self.widget, engine: .native, features: features)
             let (boxed, boxedMessages) = try run(Self.widget, engine: .boxed, features: features)
@@ -342,7 +349,7 @@ final class BoxedQuickJSTests: QuickJSTestCase {
     }
 
     func testLimitsStopABoxedWidgetLikeANativeOne() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let spin = try run("<p>x</p><script>for (;;) {}</script>", engine: .boxed).0
         XCTAssertTrue(spin.dead?.hasPrefix("CPU limit exceeded") == true, String(describing: spin.dead))
         let hog = try run("<p>x</p><script>var keep = []; for (;;) keep.push(new Uint8Array(1 << 20).fill(1));</script>", engine: .boxed).0
@@ -374,7 +381,7 @@ final class BoxedQuickJSTests: QuickJSTestCase {
     }
 
     func testThePoolHandsOutOnlyTheBackendThatWasAskedFor() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let pool = EnginePool.shared
         let (size, backend) = (pool.targetSize, pool.backend)
         defer { pool.backend = backend; pool.targetSize = size; pool.drain() }

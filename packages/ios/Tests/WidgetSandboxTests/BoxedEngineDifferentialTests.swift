@@ -139,7 +139,7 @@ final class BoxedEngineDifferentialTests: QuickJSTestCase {
     }
 
     func testCorpusWidgetsRenderTheSameOnBothEngines() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable, "the boxed engine is not part of this build")
+        try requireBoxedQuickJS()
         let full = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_BOX_DIFFERENTIAL"] == "full"
         let widgets = widgets(full)
         guard !widgets.isEmpty else { throw XCTSkip("the corpora are not readable from this test process") }

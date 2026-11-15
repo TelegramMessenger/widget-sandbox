@@ -274,7 +274,7 @@ final class Widget3DChannelTests: QuickJSTestCase {
 
     /// On the boxed engine no engine pointer leaves the box, so the channel installs nothing and says so.
     func testTheBoxedEngineGetsNoChannel() throws {
-        try XCTSkipUnless(QuickJSBackend.isBoxedAvailable)
+        try requireBoxedQuickJS()
         let backend = FakeBackend()
         let (host, _, _) = self.host("<p id=o>x</p><script>document.getElementById('o').textContent = typeof gl3d + typeof __tw3d;</script>", backend: backend, engine: .boxed)
         wait { host.diagnostics.rendered }
