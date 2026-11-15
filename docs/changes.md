@@ -3,6 +3,30 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: QuickJS `fbc91d8`, the Desktop engine fixes (2026-11-15)
+
+A QuickJS security update: the fork pin moves from `b526a81` to `fbc91d8`, the tip of the fork's
+`tdesktop-fixes` branch (Telegram Desktop's engine, 49 commits; `b526a81` is its ancestor, so this is a fast
+forward). Reported against Telegram Android 13.2.2 and widget-sandbox `1cde006` as memory corruption reachable
+from a widget's script, without a tap or a host call.
+
+- The bug: `OP_ret` (the return from a `finally` block) took its return address from the value stack without
+  checking that it was the one its `OP_gosub` pushed, so a script could resume its function inside the bytes of
+  an instruction's operand, for example a 32-bit constant. The opcodes found there run unchecked:
+  `get_loc`/`put_loc` with an index past the frame's locals read and write 16-byte slots outside it, and
+  `OP_call`'s cleanup and `get_var_ref` then work on what was written. `new super()`, which the parser accepted,
+  was one way to get the stack into that state. Below the sandbox, on every platform that compiles the fork.
+- The fix (all in the fork, Telegram Desktop's since `c8af6d2`): `OP_ret` checks that it returns to the address
+  its `OP_gosub` pushed (`08a83c9`), the parser refuses `new super()` (`db22ea7`), a function has at most 65536
+  scopes (`b163d1c`), direct eval with an empty argument scope stays in bounds (`d86b4b8`), the closure variable
+  limit is checked everywhere (`e9a41e4`), and about forty smaller memory-safety and interrupt fixes found by the
+  Desktop review (use-after-free, NULL dereferences on allocation failure, reference count overflows, interrupt
+  polling in long builtin loops). Each comes with a test in the fork's `tests/`.
+- The bundles, the `.qbc` files and the bytecode format are unchanged (no opcode, atom or `BC_VERSION` change).
+  The wasm dist is not rebuilt here.
+- Not part of it: the earlier report about 65536 captured variables in mapped arguments (Android 13.2.2's
+  `ca3594d`) was already fixed by `8f0d3b6`, which `b526a81` contains.
+
 ## Unreleased: the bot's profile page
 
 The framework side of the bot's profile page (`docs/sdk-v1.md` §2.17, §2.19, §5.15; `docs/decisions.md`, "The bot's
