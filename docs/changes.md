@@ -64,8 +64,10 @@ and widgets stay in process unless a host sets the factory.
   counted (`SandboxEngine::remoteHold`, also after a query timed out) and counts as work of its own what it keeps beyond
   it: a validated result larger than its input, each diagnostic the validator reports meanwhile, a bridge call's copy
   next to its action (its checked arguments, at most 276 bytes with the method, while the call's own admission still
-  counts what came). So a stalled host thread fed by a running dispatch thread meets the same bounds. The message
-  past either kills the widget once, after what came before it ("the widget engine process sent more than the host keeps
+  counts what came). So a stalled host thread fed by a running dispatch thread meets the same bounds. A query or an Intl
+  request that runs gives its own admission back inside its delivery, before its answer is published, unless work its
+  delegate queued still shares it, so a caller that has its answer no longer finds that call counted. The message past
+  either kills the widget once, after what came before it ("the widget engine process sent more than the host keeps
   queued", the engine's side told to stop and closed even while the host thread is held; the host hears the death after
   the work it took); from then on the sink takes nothing and answers a query or an Intl request at once, never waiting.
   These are payload bytes and queued calls up to the moment the work runs, not allocator memory (each call's closure and
@@ -181,6 +183,12 @@ and widgets stay in process unless a host sets the factory.
   compiler: `/O2` without Debug's `/Od`, `/Ob0` and `/RTC1`. The package's C++ targets keep their Debug options and the
   other configurations are unchanged. With the unoptimised interpreter a Win32 Debug engine ran `timer-flood.html` into
   the 500 ms slice and was killed. tdesktop builds its own interpreter with its own flags.
+- A client engine's query or Intl request kept its admission until the dispatch thread destroyed the finished call,
+  after its answer was published, so a caller that had its answer could still find that call and its bytes in
+  `remoteBacklog()`, and an exact backlog check after a synchronous call depended on scheduling. A call that runs now
+  gives it back inside its delivery, before its answer is published; work its delegate queued keeps it as before.
+  `remote_a_synchronous_call_gives_its_place_back_before_it_answers` checks 5000 Intl and query answers: each is right
+  and leaves nothing counted; `remote_` runs 88 and the suite 185 tests.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps

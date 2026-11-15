@@ -50,7 +50,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 184 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine and its byte stream); `./build/twidget-tests remote_` runs the remote engine's 87, `remote_stream_` the byte stream's 25 of them
+./build/twidget-tests                             # 185 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine and its byte stream); `./build/twidget-tests remote_` runs the remote engine's 88, `remote_stream_` the byte stream's 25 of them
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
@@ -59,9 +59,9 @@ cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
 ./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
 cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
-TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 184 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 185 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
-TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 184 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
+TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 185 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
 TW_ENGINE_STREAM=1 ./build-debug/twidget-run --attacks     # 133 attacks, 0 leaks, "133 of them over the stream"; a stream that ends before the run's own stop fails the run
 ```
 
@@ -205,12 +205,17 @@ What it is on this platform:
   input, each validator diagnostic, a bridge call's copy next to its action:
   its checked arguments re-serialized, while the call's own place still counts
   what came); a delegate of your own that queues work holds `remoteHold()` in
-  it the same way. The message past either bound kills the widget once ("the
-  widget engine process sent more than the host keeps queued"), and the sink
-  then takes nothing more and never waits. The bounds count payload bytes and
-  queued calls up to the moment that work runs, not allocator memory (each
-  call's closure and containers come on top) and not what the host keeps
-  afterwards. Of that, `WidgetHost` keeps at most
+  it the same way. A query or an Intl request (`remoteQuery`, `remoteIntl`)
+  that the dispatch thread runs gives its own place back as that delivery
+  ends, before its answer is returned, so a caller that has the answer no
+  longer finds that call counted, unless work its delegate queued with it
+  still shares the place (`WidgetHost`'s host-thread work, until it has run or
+  been dropped, also after the query timed out). The message past either bound
+  kills the widget once ("the widget engine process sent more than the host
+  keeps queued"), and the sink then takes nothing more and never waits. The
+  bounds count payload bytes and queued calls up to the moment that work runs,
+  not allocator memory (each call's closure and containers come on top) and
+  not what the host keeps afterwards. Of that, `WidgetHost` keeps at most
   `WidgetHost::kRendererBacklogBytes` (64 MiB, each message serialized with
   its wrapper) and `kRendererBacklogMessages` (16384 messages) of the engine's
   renderer messages until the renderer's `ready`, its own theme, safe area,

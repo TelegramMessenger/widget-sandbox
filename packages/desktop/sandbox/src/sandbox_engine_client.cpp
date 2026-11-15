@@ -347,7 +347,7 @@ private:
         submit(std::move(admitted), [detail = std::move(detail)](SandboxEngine& engine) { engine.clientReport(engine.rejectedBridgeReported_, "protocol-violation", detail); });
     }
 
-    /// `fn`'s value from the dispatch thread after everything queued before it, holding `admitted` until then (`remoteHold` shares it while `fn` runs); nullopt once the engine is gone or its thread stopped.
+    /// `fn`'s value from the dispatch thread after everything queued before it, holding `admitted` while `fn` runs (`remoteHold` shares it) and giving it back as `fn` returns, before its value is published, so a caller with the value no longer finds its call counted unless work the delegate queued still shares it; nullopt once the engine is gone or its thread stopped.
     template <class R, class F>
     std::optional<R> await(Admitted admitted, F fn) {
         std::optional<Posted<R>> posted;
@@ -355,8 +355,8 @@ private:
             std::lock_guard<std::mutex> l(life_->mutex);
             SandboxEngine* engine = life_->engine;
             if (!engine) return std::nullopt;
-            posted.emplace(engine->thread_, [engine, admitted = std::move(admitted), fn = std::move(fn)] {
-                Delivering delivering(*engine, admitted);
+            posted.emplace(engine->thread_, [engine, admitted = std::move(admitted), fn = std::move(fn)]() mutable {
+                Delivering delivering(*engine, std::move(admitted));
                 return fn(*engine);
             });
         }

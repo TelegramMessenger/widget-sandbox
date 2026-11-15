@@ -1313,6 +1313,27 @@ TEST(remote_work_a_delegate_queues_keeps_its_message_counted) {
     }
 }
 
+/// A synchronous call gives its place back as its delivery ends, before its answer: right after each of 5000 answers whose delegate and provider keep nothing, alternately the client's own Intl formatting and the recorder's layout answer, the answer is the one made for it and the client counts neither its bytes nor its call.
+TEST(remote_a_synchronous_call_gives_its_place_back_before_it_answers) {
+    RemoteRun r;
+    SandboxRemoteSink& sink = r.sink();
+    int wrong = 0, counted = 0;
+    std::string firstWrong, firstCounted;
+    const auto call = [](int i, bool intl) { return std::to_string(i) + (intl ? " (Intl)" : " (query)"); };
+    for (int i = 0; i < 5000; i++) {
+        const bool intl = i % 2 == 0;
+        QueryAnswer answer;
+        if (intl) answer.json = sink.remoteIntl(kNumberRequest);
+        else answer = sink.remoteQuery("{\"q\":1}");
+        const SandboxEngine::RemoteBacklog b = r.engine.remoteBacklog();
+        const bool right = intl ? answer.json == "1,234.5" : answer.json == "{\"answer\":1}" && !answer.binary;
+        if (!right && !wrong++) firstWrong = call(i, intl) + ": " + answer.json;
+        if ((b.bytes || b.calls) && !counted++) firstCounted = call(i, intl) + ", " + std::to_string(b.bytes) + " bytes, " + std::to_string(b.calls) + " calls";
+    }
+    CHECK_MSG(wrong == 0, std::to_string(wrong) + " of 5000 answers were not the ones made for them, the first " + firstWrong);
+    CHECK_MSG(counted == 0, std::to_string(counted) + " of 5000 answers came with their call still counted, the first " + firstCounted);
+}
+
 /// Resize anchors pass `checkResizeAnchor` (also in a preview), a public-data watch reaches no preview, stats come bounded as the wire's numbers are whatever struct arrives, and after a death nothing more comes.
 TEST(remote_anchors_watches_stats_and_loaded_follow_the_hosts_rules) {
     {
