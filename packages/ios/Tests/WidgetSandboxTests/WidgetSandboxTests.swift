@@ -377,6 +377,7 @@ final class TrustedValidatorTests: QuickJSTestCase {
         XCTAssertFalse(attachedJson.lowercased().contains("onerror"), attachedJson)
         XCTAssertFalse(attachedJson.contains("\"tag\":\"iframe\""), attachedJson)
         XCTAssertTrue(out.contains("data-tg-placeholder"), out)
+        XCTAssertTrue(out.contains("data:image/png;base64,iVBORw0KGgo"), "the stripped image's placeholder is not a PNG: \(out)")
         XCTAssertTrue(diags.contains { $0.0 == "url-blocked" }, "diags=\(diags)")
         XCTAssertEqual(v.validateQuery("{\"q\":\"rect\",\"id\":4}"), "{\"q\":\"rect\",\"id\":4}")
         XCTAssertNil(v.validateQuery("{\"q\":\"eval\",\"code\":\"1\"}"))

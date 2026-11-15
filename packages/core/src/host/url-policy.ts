@@ -258,11 +258,6 @@ export function isFragment(raw: string): boolean {
   return normalize(String(raw)).startsWith('#');
 }
 
-/** 1×1 transparent placeholder used where an external image was stripped. */
+/** 48×48 PNG placeholder (a grey picture glyph) used where an external image was stripped; PNG so renderers that decode only raster images draw it. */
 export const PLACEHOLDER_IMAGE =
-  'data:image/svg+xml,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">' +
-      '<rect width="48" height="48" fill="#8882"/><path d="M8 36l10-12 8 9 6-7 8 10z" fill="#8886"/>' +
-      '<circle cx="33" cy="15" r="4" fill="#8886"/></svg>',
-  );
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAMKADAAQAAAABAAAAMAAAAADbN2wMAAACW0lEQVRoBe1XTUsDMRA1+1GsUOxBLVTwoEU9SntQ2tLe/Gv9T169evA3eCt4EASFbj98U3bLtNtkk40lLSQgyc5MJu+9SUYVo9Ho+uiAR3DA2JfQPQHXFfQV8BWwVMBfIUsBrbf7ClhLaJkgstxfersQojafzx+QoJEmGQdB8L5YLL5NkjohQOAB9BmAYwb2ErYL+F5MSDh5A6Q8gHLwSx5kS6vCeKmXTggAUnZttqFT+XLxrgjkgJQ1uCIwVgBW+XLbnBBIu02yiQaPNyHfpl317aQLUZehbnOwbZQUTUm8cnVh459aaydXSAuZZpAnoCnUzsJ8BVJpW3iA9zuTWZHYuo0CeAMtsYP+LbD+wVkfivP+3WV1hQC8BkQ9zIKQYXoiQgYobxHbMojPhZYmEMdxBdkGUJ7mbAQg0ccvqHpmkM2Ia4JsG/7ObDY7k8UV2csSCHBoD8mpAmsDwGKQGoLEyZqDfYRhWIe/iziqmoiiqJ8kSZWFaC9LEcCZbdVVgb8KkEMAzP3NT8RAnnz8/R2joiSIMR7jDTiE7qzOvT0FycF0Og0zOSuVSgTgAyKY2bIZNrpGnexbdzYikKpucsg5lH0kMKiImEwmXQCVvg/4bhCqI86KHy/jyrhtgeT0f+yq42yLkdiuYP/FXqQQTUkMN9Oj/gLhT26UrbUqIOk4spw5O4DfgQC1zMJBLE0etQ4BaccpRFM+QPtRFxKAIMqOUx6jeifO1XrUhW8ApX/DUfSzl6OwAnuJmoHyBJgYTpa+Ak5kZ4f6CjAxnCx9BZzIzg71FWBiOFn+Aco6nEiPPHIZAAAAAElFTkSuQmCC';
