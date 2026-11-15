@@ -1,13 +1,15 @@
 // swift-tools-version:5.9
 import PackageDescription
 
+// The macOS integration branch runs widgets, our bundles and the trusted validator on Nova (packages/nova-engine). The
+// WidgetSandbox library, the one an app links, has no QuickJS in it: CQuickJS (quickjs-ng) and CQuickJSBox (the same
+// engine in a wasm2c box) are reached only through WidgetSandboxQuickJS, which plugs the native and the boxed engine
+// into WidgetSandbox at run time (QuickJSBackend's engine registry) together with their `.qbc` bytecode. It exists for
+// comparison: the tests (the Nova differential, the QuickJS suites) and tools link it, Telegram for macOS does not.
+// Without it `.native` and `.boxed` fail closed, as `.boxed` does where the box is not built.
 let localCheckout = !#filePath.contains("/checkouts/")
 let optimizedC: [CSetting] = localCheckout ? [.unsafeFlags(["-O3"])] : []
 let optimizesDebug = localCheckout && Context.environment["WIDGET_SANDBOX_DEBUG_UNOPTIMIZED"] == nil
-// The QuickJS box fences its memory with guard pages on macOS and with bounds checks everywhere else
-// (packages/quickjs-box/src/qjsbox_config.h). WIDGET_SANDBOX_BOX_BOUNDS_CHECKS=1 builds the second mode
-// on macOS too, so the tests can run it.
-let boxBoundsChecks: [CSetting] = Context.environment["WIDGET_SANDBOX_BOX_BOUNDS_CHECKS"] != nil ? [.define("QJSBOX_BOUNDS_CHECKS", to: "1")] : []
 
 let package = Package(
     name: "WidgetSandbox",
@@ -15,6 +17,7 @@ let package = Package(
     products: [
         .library(name: "WidgetSandbox", targets: ["WidgetSandbox"]),
         .library(name: "WidgetSandboxProtocol", targets: ["WidgetSandboxProtocol"]),
+        .library(name: "WidgetSandboxQuickJS", targets: ["WidgetSandboxQuickJS"]),
         .library(name: "CQuickJS", targets: ["CQuickJS"]),
         .library(name: "CQuickJSBox", targets: ["CQuickJSBox"]),
     ],
@@ -60,43 +63,46 @@ let package = Package(
             cSettings: [
                 .headerSearchPath("generated"),
                 .headerSearchPath("wabt"),
-            ] + boxBoundsChecks + optimizedC
+            ] + optimizedC
         ),
         // Typed host -> renderer ops for in-process native renderers; no dependencies.
         .target(
             name: "WidgetSandboxProtocol",
             path: "packages/ios/Sources/WidgetSandboxProtocol"
         ),
+        // Nova, a JavaScript engine in Rust without `unsafe`, as a static library behind a small C interface, macOS
+        // only. Its xcframework is built, not committed (packages/nova-engine/README.md: Telegram for macOS builds it
+        // from its nova submodule, anyone else with nova-safe's build script); until it is there, SwiftPM names the
+        // missing file.
+        .binaryTarget(name: "NovaEngineFFI", path: "packages/nova-engine/NovaEngineFFI.xcframework"),
         .target(
             name: "WidgetSandbox",
             dependencies: [
-                "CQuickJS", "WidgetSandboxProtocol",
-                .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS])),
+                "WidgetSandboxProtocol",
+                .target(name: "NovaEngineFFI", condition: .when(platforms: [.macOS])),
             ],
             path: "packages/ios/Sources/WidgetSandbox",
             resources: [.copy("WidgetJS")]
         ),
+        // The native and the boxed QuickJS engines behind WidgetSandbox's engine interface, with the bundles' bytecode
+        // (packages/core/scripts/build-native-bundles.ts writes it here).
+        .target(
+            name: "WidgetSandboxQuickJS",
+            dependencies: [
+                "WidgetSandbox", "CQuickJS",
+                .target(name: "CQuickJSBox", condition: .when(platforms: [.macOS])),
+            ],
+            path: "packages/ios/Sources/WidgetSandboxQuickJS",
+            resources: [.copy("WidgetJS")]
+        ),
         .testTarget(
             name: "WidgetSandboxTests",
-            dependencies: ["WidgetSandbox"],
+            dependencies: ["WidgetSandbox", "WidgetSandboxQuickJS"],
             path: "packages/ios/Tests/WidgetSandboxTests",
             resources: [.copy("Fixtures")]
         ),
     ]
 )
-
-// Nova, a JavaScript engine in Rust without `unsafe`, as a static library behind a small C interface, macOS only. Its
-// xcframework is built, not committed (packages/nova-engine/README.md: Telegram for macOS builds it from its nova
-// submodule, anyone else with nova-safe's build script); until it is there, SwiftPM names the missing file.
-// WIDGET_SANDBOX_WITHOUT_NOVA=1 builds without it: then `.nova` fails closed and the default engine is QuickJS. The
-// switch is an environment variable, not a check for the file, because SwiftPM caches what a manifest evaluated to
-// by its text and environment, so a check for a file would keep its first answer.
-if Context.environment["WIDGET_SANDBOX_WITHOUT_NOVA"] == nil {
-    package.targets.append(.binaryTarget(name: "NovaEngineFFI", path: "packages/nova-engine/NovaEngineFFI.xcframework"))
-    for target in package.targets where target.name == "WidgetSandbox" {
-        target.dependencies.append(.target(name: "NovaEngineFFI", condition: .when(platforms: [.macOS])))
-    }
-}
 
 if optimizesDebug {
     for target in package.targets where target.type == .regular && target.name != "CQuickJS" {

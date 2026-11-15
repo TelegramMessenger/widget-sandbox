@@ -26,7 +26,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 /** This package (packages/core): the bundles' sources. */
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const ios = { transport: 'webkit', js: 'packages/ios/Sources/WidgetSandbox/WidgetJS', fixtures: 'packages/ios/Tests/WidgetSandboxTests/Fixtures' } as const;
+const ios = { transport: 'webkit', js: 'packages/ios/Sources/WidgetSandbox/WidgetJS', bytecode: 'packages/ios/Sources/WidgetSandboxQuickJS/WidgetJS', fixtures: 'packages/ios/Tests/WidgetSandboxTests/Fixtures' } as const;
 const TARGETS = {
   ios,
   // macOS uses the same Swift package, bundles (WKWebView transport) and demo corpus as iOS.
@@ -71,10 +71,15 @@ await emit('validator-bundle.js', validatorBuildOptions(pkgRoot));
 // a web view and has none). The compiler is built from the vendored quickjs-ng, so the bytecode
 // always matches the engine the apps link; each blob carries the source's length and hash and is
 // refused at load time if the .js next to it changed (see qjs_shim.h).
+// On the Swift package the bytecode belongs to the WidgetSandboxQuickJS target, never to the WidgetSandbox bundle an
+// app ships (Package.swift).
 const qjsc = buildQjsc();
+const bytecodeDir = outDir ?? path.join(root, 'bytecode' in target ? target.bytecode : target.js);
+fs.mkdirSync(bytecodeDir, { recursive: true });
 for (const name of ['sandbox-bundle.js', 'validator-bundle.js']) {
   const out = name.replace(/\.js$/, '.qbc');
-  execFileSync(qjsc, [path.join(res, name), path.join(res, out), path.basename(name)], { stdio: 'inherit' });
+  if (bytecodeDir !== res) fs.rmSync(path.join(res, out), { force: true });
+  execFileSync(qjsc, [path.join(res, name), path.join(bytecodeDir, out), path.basename(name)], { stdio: 'inherit' });
 }
 
 /** Builds packages/tools/qjsc from packages/ios/Sources/CQuickJS (the fork submodule + shim) into .cache/ (gitignored) when it is missing or older than its sources. */

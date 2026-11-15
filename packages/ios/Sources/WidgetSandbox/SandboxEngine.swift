@@ -1816,7 +1816,8 @@ public final class SandboxResources {
     public let sandboxBundle: String
     public let rendererBundle: String
     public let validatorBundle: String
-    /// Precompiled bytecode of the bundles (`.qbc` next to the `.js`, built together; nil when not shipped).
+    /// Precompiled bytecode of the bundles (`.qbc`, built with the `.js`): next to them in `bundle`, else the copy
+    /// WidgetSandboxQuickJS registers; nil without QuickJS.
     public let sandboxBytecode: Data?
     public let validatorBytecode: Data?
     /// Why this glue refuses these bundles (the first bundle whose stamp is not this glue's protocol, profile and
@@ -1835,8 +1836,8 @@ public final class SandboxResources {
         }
         self.init(sandboxBundle: read("sandbox-bundle", "js", "WidgetJS"), rendererBundle: read("renderer-bundle", "js", "WidgetJS"),
                   validatorBundle: read("validator-bundle", "js", "WidgetJS"),
-                  sandboxBytecode: bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) },
-                  validatorBytecode: bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) })
+                  sandboxBytecode: bundle.url(forResource: "sandbox-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) } ?? QuickJSEngineRegistry.bytecode(named: "sandbox-bundle"),
+                  validatorBytecode: bundle.url(forResource: "validator-bundle", withExtension: "qbc", subdirectory: "WidgetJS").flatMap { try? Data(contentsOf: $0) } ?? QuickJSEngineRegistry.bytecode(named: "validator-bundle"))
     }
 
     /// Bundles from elsewhere (a client's own resource layout, tests).

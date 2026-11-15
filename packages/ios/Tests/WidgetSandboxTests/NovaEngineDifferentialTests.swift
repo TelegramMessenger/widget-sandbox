@@ -141,6 +141,7 @@ final class NovaEngineDifferentialTests: XCTestCase {
 
     func testCorpusWidgetsRenderTheSameOnNova() throws {
         try XCTSkipUnless(QuickJSBackend.isNovaAvailable, "the Nova engine is not part of this build")
+        XCTAssertTrue(QuickJSBackend.isNativeAvailable, "the comparison runs native QuickJS from WidgetSandboxQuickJS")
         try XCTSkipIf(ProcessInfo.processInfo.environment["WIDGET_SANDBOX_NOVA_DIFFERENTIAL"] == nil, "opt-in: WIDGET_SANDBOX_NOVA_DIFFERENTIAL=1 or full")
         let full = ProcessInfo.processInfo.environment["WIDGET_SANDBOX_NOVA_DIFFERENTIAL"] == "full"
         let widgets = widgets(full)
