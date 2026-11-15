@@ -2,7 +2,7 @@ import XCTest
 @testable import WidgetSandbox
 
 /// Regression tests for engine and host lifecycle fixes ported from the macOS app.
-final class EngineLifecycleTests: XCTestCase {
+final class EngineLifecycleTests: QuickJSTestCase {
     private func config(memory: Int = 64 << 20) -> SandboxConfig {
         var c = SandboxConfig(innerWidth: 400, innerHeight: 300, devicePixelRatio: 2, theme: "light")
         c.memoryLimitBytes = memory

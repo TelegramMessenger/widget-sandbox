@@ -3,7 +3,7 @@ import XCTest
 
 /// The heavy-box paint limit (docs/decisions.md "Heavy boxes"): the renderer counts (the WebView renderer's core, or a
 /// client's own renderer through `limitExceeded`), the host stops the widget like a counted cap, compat counts nothing.
-final class PaintLimitTests: XCTestCase {
+final class PaintLimitTests: QuickJSTestCase {
     private func pump(_ timeout: TimeInterval, _ condition: () -> Bool) {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() && Date() < deadline {

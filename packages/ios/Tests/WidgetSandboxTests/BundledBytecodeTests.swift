@@ -3,7 +3,7 @@ import XCTest
 
 /// The shipped `.qbc` files are exactly what this engine compiles from the shipped
 /// sources: a QuickJS bump or a `.js` change without `pnpm build:*` fails here, not on a device.
-final class BundledBytecodeTests: XCTestCase {
+final class BundledBytecodeTests: QuickJSTestCase {
     private func assertMatches(_ name: String, source: String?, bytecode: Data?, file: StaticString = #filePath, line: UInt = #line) throws {
         let source = try XCTUnwrap(source, name, file: file, line: line)
         let bytecode = try XCTUnwrap(bytecode, name + " bytecode", file: file, line: line)

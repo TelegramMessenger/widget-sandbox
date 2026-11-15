@@ -5,7 +5,7 @@ import XCTest
 /// the executor and pacer work: validation on the main thread, a validator
 /// thread per widget, the widget's scripts after the renderer's `ready`, and
 /// bridge calls, logs and diagnostics after the ops that came before them.
-final class HostDefaultsTests: XCTestCase {
+final class HostDefaultsTests: QuickJSTestCase {
     final class DeferredRenderer: Renderer {
         let inner = RecordingRenderer()
         var view: PlatformView { inner.view }

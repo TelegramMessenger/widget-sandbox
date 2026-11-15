@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class FirstContentTests: XCTestCase {
+final class FirstContentTests: QuickJSTestCase {
     func testSizeReportedWhileApplyingOpsCountsAsFirstContent() {
         let host = try! WidgetHost(html: "<div style='height:120px'>Hello</div>", theme: WidgetTheme(), width: 300, rendererFactory: { _, _, _ in SynchronousSizeRenderer() })
         defer { host.destroy() }

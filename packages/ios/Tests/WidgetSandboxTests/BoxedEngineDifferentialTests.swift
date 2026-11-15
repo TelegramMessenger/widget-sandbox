@@ -17,7 +17,7 @@ import XCTest
 ///
 /// By default a few widgets of two corpora. `WIDGET_SANDBOX_BOX_DIFFERENTIAL=full` runs every corpus, the conformance
 /// set, the stress kit and the attacks (several minutes), and prints the JS time each engine took.
-final class BoxedEngineDifferentialTests: XCTestCase {
+final class BoxedEngineDifferentialTests: QuickJSTestCase {
     private static let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 

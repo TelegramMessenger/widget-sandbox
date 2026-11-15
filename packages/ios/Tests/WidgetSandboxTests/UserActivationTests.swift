@@ -3,7 +3,7 @@ import XCTest
 
 /// User activation on the SDK v1 calls (docs/protocol.md, "User activation"; docs/sdk-v1.md §2.5): one real
 /// pointer press on the visible widget unlocks one link call (openLink or openTelegramLink), made in that press's task.
-final class UserActivationTests: XCTestCase {
+final class UserActivationTests: QuickJSTestCase {
     func testNothingRunsAfterDestroy() {
         let renderer = RecordingRenderer()
         var actions = 0

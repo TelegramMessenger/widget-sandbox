@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class CpuTimeLimitTests: XCTestCase {
+final class CpuTimeLimitTests: QuickJSTestCase {
     private func run(_ html: String, cpuLimitMs: Double, contention: Bool, timeout: TimeInterval = 20) -> WidgetDiagnostics {
         var options = WidgetHost.Options()
         options.cpuLimitMs = cpuLimitMs

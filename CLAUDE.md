@@ -33,7 +33,9 @@ pnpm workspace). A framework change touches `packages/` only.
   repo-root `Package.swift` (SwiftPM needs it there for a git dependency).
   On the macOS integration branch (`macos/nova-only`) the `WidgetSandbox` library runs on Nova and links no QuickJS:
   the native and boxed engines and the `.qbc` are in `WidgetSandboxQuickJS` (`Sources/WidgetSandboxQuickJS`), which
-  registers them at run time (`QuickJSEngineRegistry`) and which only the tests and tools link, to compare the engines.
+  only the tests and tools link, to compare the engines; they register them by calling `registerQuickJSEngines()`
+  (`QuickJSEngineRegistry`; the test classes inherit `QuickJSTestCase`, whose class `setUp` makes the call). Nothing
+  registers them implicitly.
 - `packages/android` — the `widget-sandbox` Gradle library,
   `org.telegram.widgetsandbox:widget-sandbox` (its own settings.gradle.kts).
 - `packages/desktop` — the Qt-free C++ core for tdesktop-class hosts.

@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class HostOpsAttackTests: XCTestCase {
+final class HostOpsAttackTests: QuickJSTestCase {
     func host(_ html: String, renderer: RecordingRenderer) -> WidgetHost {
         let host = try! WidgetHost(html: html, theme: WidgetTheme(), width: 300, rendererFactory: { _, _, _ in renderer })
         let deadline = Date().addingTimeInterval(5)

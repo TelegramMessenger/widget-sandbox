@@ -4,7 +4,7 @@ import WidgetSandboxProtocol
 
 /// WidgetSandboxProtocol: validated render ops as typed values and back to the JSON
 /// contract of docs/protocol.md, and the JSON fallback of `Renderer.send(ops:)`.
-final class WidgetOpTests: XCTestCase {
+final class WidgetOpTests: QuickJSTestCase {
     private let batch = """
     [{"op":"el","id":2,"tag":"html","attrs":[],"adopt":"html"},
      {"op":"el","id":3,"tag":"svg","ns":"svg","attrs":[["viewBox","0 0 10 10"],["class","a \\"b\\""]]},

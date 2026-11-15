@@ -40,7 +40,7 @@ final class RecordingDelegate: SandboxEngineDelegate {
     func engine(_ engine: SandboxEngine, died reason: String) { lock.lock(); died = reason; lock.unlock(); loaded.fulfill() }
 }
 
-final class SandboxEngineTests: XCTestCase {
+final class SandboxEngineTests: QuickJSTestCase {
     let canary = "http://127.0.0.1:9999/hit/ios-unit"
 
     private func run(_ html: String, cpuLimitMs: Double = 2000, timeout: TimeInterval = 20, configure: (inout SandboxConfig) -> Void = { _ in }) -> (RecordingDelegate, SandboxEngine) {
@@ -297,7 +297,7 @@ final class SandboxEngineTests: XCTestCase {
     }
 }
 
-final class QuickJSContextTests: XCTestCase {
+final class QuickJSContextTests: QuickJSTestCase {
     /// A serial DispatchQueue hops between pool threads; the runtime must re-read the
     /// stack top on every entry or later calls fail with a bogus RangeError (seen on
     /// the simulator when the theme toggle fired after d3 had loaded).
@@ -348,7 +348,7 @@ final class QuickJSContextTests: XCTestCase {
     }
 }
 
-final class TrustedValidatorTests: XCTestCase {
+final class TrustedValidatorTests: QuickJSTestCase {
     func testDiagBridge() throws {
         var diags: [(String, String)] = []
         let v = try TrustedValidator(theme: "light") { diags.append(($0, $1)) }
@@ -414,7 +414,7 @@ final class TrustedValidatorTests: XCTestCase {
 
 
 /// Precompiled bundles (`.qbc`, built by `pnpm build:ios` next to each `.js`).
-final class BytecodeTests: XCTestCase {
+final class BytecodeTests: QuickJSTestCase {
     func testRoundTripAndStaleBlobRefused() throws {
         let js = QuickJSContext(memoryLimitBytes: 16 << 20)
         let blob = try js.compileBytecode("globalThis.answer = 6 * 7;", filename: "t.js")

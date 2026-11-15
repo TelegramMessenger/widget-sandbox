@@ -3,7 +3,7 @@ import XCTest
 
 /// Strings cross the QuickJS boundary by length, so an embedded NUL neither truncates
 /// an argument nor a result (a widget could otherwise hide the tail of a message).
-final class QuickJSStringTests: XCTestCase {
+final class QuickJSStringTests: QuickJSTestCase {
     func testEmbeddedNulSurvivesArgumentsAndResults() throws {
         let js = QuickJSContext(memoryLimitBytes: 8 << 20)
         try js.evaluate("globalThis.echo = (s) => s + '|' + s.length;", filename: "t.js")

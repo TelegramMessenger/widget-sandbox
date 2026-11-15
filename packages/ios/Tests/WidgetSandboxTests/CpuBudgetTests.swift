@@ -3,7 +3,7 @@ import XCTest
 
 /// CpuBudget.swift against the fixture shared with cpu-budget.ts, CpuBudget.kt and cpu_budget.cpp
 /// (tests/fixtures/cpu-budget.json, copied here by `pnpm build:ios`).
-final class CpuBudgetTests: XCTestCase {
+final class CpuBudgetTests: QuickJSTestCase {
     func testSharedFixture() throws {
         let url = try XCTUnwrap(Bundle.module.url(forResource: "cpu-budget", withExtension: "json", subdirectory: "Fixtures"))
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])

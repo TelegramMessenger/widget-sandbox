@@ -5,7 +5,7 @@ import XCTest
 /// `QuickJSContext` as the native one: the same answers, the same host functions, the same shipped bytecode, and the
 /// limits that are enforced differently inside a box (memory, stack). What a fault inside the box does (the process
 /// ends) is checked without Swift, by `packages/quickjs-box/tools/build.sh test`.
-final class BoxedQuickJSTests: XCTestCase {
+final class BoxedQuickJSTests: QuickJSTestCase {
     private func context(_ backend: QuickJSBackend, memory: Int = 16 << 20) throws -> QuickJSContext {
         if backend == .boxed { try XCTSkipUnless(QuickJSBackend.isBoxedAvailable, "the boxed engine is not part of this build") }
         let js = QuickJSContext(memoryLimitBytes: memory, maxStackBytes: JSThread.jsStackLimit, backend: backend)

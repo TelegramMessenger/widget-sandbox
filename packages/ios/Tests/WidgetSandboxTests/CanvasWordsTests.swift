@@ -4,7 +4,7 @@ import XCTest
 /// Canvas words (`config.features` = canvasWords): the payloads the shim hands to
 /// `__hostCanvas` are spliced back into the ops JSON byte for byte as JSON.stringify
 /// would have written the commands, and a hostile payload is dropped, not trusted.
-final class CanvasWordsTests: XCTestCase {
+final class CanvasWordsTests: QuickJSTestCase {
     private static let widget = """
         <canvas id="c" width="200" height="100"></canvas><script>
         var c = document.getElementById('c').getContext('2d'), f = 0;
@@ -92,7 +92,7 @@ final class CanvasWordsTests: XCTestCase {
     }
 }
 
-final class CanvasWordsFuzzTests: XCTestCase {
+final class CanvasWordsFuzzTests: QuickJSTestCase {
     func testRandomWordPayloadsNeverCrash() {
         var state: UInt64 = 0x9E3779B97F4A7C15
         func next() -> UInt64 {

@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class MappedArgumentsGCTests: XCTestCase {
+final class MappedArgumentsGCTests: QuickJSTestCase {
     func testGCWhileMappedArgumentsAreLiveDoesNotCorruptTheHeap() throws {
         let source = """
         function wrap(c){return function(a,b){let n=arguments.length;return n===0?c.call(this):n===1?c.call(this,a):c.call(this,a,b)}}

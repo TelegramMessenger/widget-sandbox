@@ -4,9 +4,10 @@ import PackageDescription
 // The macOS integration branch runs widgets, our bundles and the trusted validator on Nova (packages/nova-engine). The
 // WidgetSandbox library, the one an app links, has no QuickJS in it: CQuickJS (quickjs-ng) and CQuickJSBox (the same
 // engine in a wasm2c box) are reached only through WidgetSandboxQuickJS, which plugs the native and the boxed engine
-// into WidgetSandbox at run time (QuickJSBackend's engine registry) together with their `.qbc` bytecode. It exists for
-// comparison: the tests (the Nova differential, the QuickJS suites) and tools link it, Telegram for macOS does not.
-// Without it `.native` and `.boxed` fail closed, as `.boxed` does where the box is not built.
+// into WidgetSandbox at run time (QuickJSBackend's engine registry) together with their `.qbc` bytecode, when its
+// `registerQuickJSEngines()` is called. It exists for comparison: the tests (the Nova differential, the QuickJS suites)
+// and tools link it and make that call, Telegram for macOS does neither. Without it `.native` and `.boxed` fail closed,
+// as `.boxed` does where the box is not built.
 let localCheckout = !#filePath.contains("/checkouts/")
 let optimizedC: [CSetting] = localCheckout ? [.unsafeFlags(["-O3"])] : []
 let optimizesDebug = localCheckout && Context.environment["WIDGET_SANDBOX_DEBUG_UNOPTIMIZED"] == nil

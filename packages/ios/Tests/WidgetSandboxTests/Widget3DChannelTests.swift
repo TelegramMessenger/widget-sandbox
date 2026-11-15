@@ -3,7 +3,7 @@ import QuartzCore
 import WidgetSandboxProtocol
 @testable import WidgetSandbox
 
-final class Widget3DChannelTests: XCTestCase {
+final class Widget3DChannelTests: QuickJSTestCase {
     final class FakeSurface: Widget3DSurface {
         var onDiag: ((String, String) -> Void)?
         let lock = NSLock()

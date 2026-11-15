@@ -3,7 +3,7 @@ import XCTest
 
 /// `WidgetHost.Options.nativeScrolling` is an experiment outside widget profile 1 (docs/decisions.md, "Native scrolling:
 /// an experiment"): the validator keeps `overflow: auto` only when the host turns it on, which a release build never does.
-final class NativeScrollingTests: XCTestCase {
+final class NativeScrollingTests: QuickJSTestCase {
     private static let skeleton = "[{\"op\":\"el\",\"id\":2,\"tag\":\"html\"},{\"op\":\"ins\",\"parent\":1,\"id\":2,\"before\":null},{\"op\":\"el\",\"id\":3,\"tag\":\"body\"},{\"op\":\"ins\",\"parent\":2,\"id\":3,\"before\":null}]"
     private static let scroller = "[{\"op\":\"el\",\"id\":10,\"tag\":\"div\",\"attrs\":{}},{\"op\":\"ins\",\"parent\":3,\"id\":10,\"before\":null},{\"op\":\"style\",\"id\":10,\"name\":\"overflow-y\",\"value\":\"auto\",\"important\":false}]"
 

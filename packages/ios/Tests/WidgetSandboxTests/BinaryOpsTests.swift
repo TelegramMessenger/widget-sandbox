@@ -3,7 +3,7 @@ import XCTest
 
 /// Binary DOM ops (`config.features` = binaryOps): the engine hands its delegate the
 /// same ops JSON, byte for byte, as the JSON path; malformed buffers are rejected whole.
-final class BinaryOpsTests: XCTestCase {
+final class BinaryOpsTests: QuickJSTestCase {
     private static let widgets = [
         """
         <div id="d" class="a b" style="color: red !important; width: 1px" data-x="1">x<b>y</b><!-- c --></div>

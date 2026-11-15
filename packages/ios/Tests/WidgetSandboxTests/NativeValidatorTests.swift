@@ -2,7 +2,7 @@ import XCTest
 import WidgetSandboxProtocol
 @testable import WidgetSandbox
 
-final class NativeValidatorDifferentialTests: XCTestCase {
+final class NativeValidatorDifferentialTests: QuickJSTestCase {
     final class Rig {
         let validator: TrustedValidator
         var diags: [String] = []
@@ -319,7 +319,7 @@ final class NativeValidatorDifferentialTests: XCTestCase {
     }
 }
 
-final class BinaryOpsHostileTests: XCTestCase {
+final class BinaryOpsHostileTests: QuickJSTestCase {
     typealias Rig = NativeValidatorDifferentialTests.Rig
 
     static func payload(_ words: [Int32], _ strings: String = "") -> BinaryOpsPayload {

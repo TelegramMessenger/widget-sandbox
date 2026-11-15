@@ -6,7 +6,7 @@ import WidgetSandboxProtocol
 /// validator output parsed into `WidgetOp`s on the validator thread, and canvas
 /// word batches validated natively (no JSON at all) when every payload passes the
 /// envelope on a known canvas.
-final class TypedDeliveryTests: XCTestCase {
+final class TypedDeliveryTests: QuickJSTestCase {
     final class TypedRenderer: Renderer {
         let inner = RecordingRenderer()
         var view: PlatformView { inner.view }

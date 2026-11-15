@@ -4,7 +4,7 @@ import WidgetSandboxProtocol
 
 /// A client-mode engine whose remote side is the test: every privileged call is forged, so only the host's own
 /// gates (taps it delivered, visibility, the message's flags) decide.
-final class RemoteEngineTests: XCTestCase {
+final class RemoteEngineTests: QuickJSTestCase {
     private final class Channel: SandboxRemoteChannel {
         var sink: SandboxRemoteSink?
         var calls: [String] = []

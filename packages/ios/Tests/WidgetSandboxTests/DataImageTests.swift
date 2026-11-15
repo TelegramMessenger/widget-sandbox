@@ -5,7 +5,7 @@ import XCTest
 /// as a decoder would, past `maxImagePixels` refused, bytes of none of the profile's formats broken; the body read as
 /// fetch decodes it. The cases of packages/core/tests/unit/url-policy-images.test.ts, each also checked against the
 /// validator bundle's `checkUrl` (the script validator through `TrustedValidator`): one verdict for every URL.
-final class DataImageTests: XCTestCase {
+final class DataImageTests: QuickJSTestCase {
     typealias Rig = NativeValidatorDifferentialTests.Rig
 
     private static let repo = URL(fileURLWithPath: #filePath)

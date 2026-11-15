@@ -2,7 +2,7 @@ import XCTest
 @testable import WidgetSandbox
 import WidgetSandboxProtocol
 
-final class ReviewRegressionTests: XCTestCase {
+final class ReviewRegressionTests: QuickJSTestCase {
     private func batch(_ lengths: [Double], _ joined: String) -> WidgetCanvasBatch? {
         let words: [Double] = [0, 0, 0, 0] + lengths + [Double(lengths.count)]
         return words.withUnsafeBufferPointer { CanvasWords.batch(words: $0, strings: joined) }

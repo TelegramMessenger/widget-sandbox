@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class WidgetBubbleTests: XCTestCase {
+final class WidgetBubbleTests: QuickJSTestCase {
     func testContentSafeAreaFollowsCaptionEditsAcrossHostRecreation() throws {
         let feed = WidgetFeed()
         feed.schedule = { _ in }

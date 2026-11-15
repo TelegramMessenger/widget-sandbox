@@ -4,7 +4,7 @@ import XCTest
 /// The chat-feed machinery: shared WebKit environment, prewarmed pools,
 /// parallel boot and validation off the main thread — end to end on the
 /// real stack, like WidgetHostTests.
-final class PoolsTests: XCTestCase {
+final class PoolsTests: QuickJSTestCase {
     private func wait(_ seconds: Double, until done: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline, !done() { try await Task.sleep(nanoseconds: 50_000_000) }

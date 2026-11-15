@@ -1,7 +1,7 @@
 import XCTest
 @testable import WidgetSandbox
 
-final class MainPacerTests: XCTestCase {
+final class MainPacerTests: QuickJSTestCase {
     func testDeliveriesKeepTheirOrderAndLeaveTheMainRunLoopBetweenBudgets() {
         var order: [Int] = []
         var turns = 0

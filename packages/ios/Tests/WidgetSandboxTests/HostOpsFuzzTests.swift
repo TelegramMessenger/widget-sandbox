@@ -2,7 +2,7 @@ import XCTest
 @testable import WidgetSandbox
 import WidgetSandboxProtocol
 
-final class HostOpsFuzzTests: XCTestCase {
+final class HostOpsFuzzTests: QuickJSTestCase {
     struct RNG {
         var state: UInt64
         mutating func next() -> UInt64 {

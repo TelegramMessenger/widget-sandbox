@@ -2,7 +2,7 @@ import XCTest
 @testable import WidgetSandbox
 import WidgetSandboxProtocol
 
-final class IconExpansionTests: XCTestCase {
+final class IconExpansionTests: QuickJSTestCase {
     /// A raster icon: SVG images are outside widget profile 1 (docs/profile-v1.md), so a resolver answers with PNG, JPEG, GIF or WebP.
     static let airplane = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
     /// A real PNG of about 20 KB: past the strict attribute cap (8 K) on its own, past a text value's (32 K) twice.

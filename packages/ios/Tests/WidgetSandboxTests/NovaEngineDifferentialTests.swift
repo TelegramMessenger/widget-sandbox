@@ -12,7 +12,7 @@ import XCTest
 /// Opt-in while Nova still differs from QuickJS (the compatibility track of nova-safe): `WIDGET_SANDBOX_NOVA_DIFFERENTIAL=1`
 /// runs a few widgets of two corpora, `=full` every corpus, the conformance set, the stress kit and the attacks (several
 /// minutes), and prints the JS time each engine took; a path from the repository root runs one widget.
-final class NovaEngineDifferentialTests: XCTestCase {
+final class NovaEngineDifferentialTests: QuickJSTestCase {
     private static let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 

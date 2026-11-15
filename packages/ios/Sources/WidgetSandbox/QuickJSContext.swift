@@ -2,8 +2,8 @@
 // it: Nova (NovaEngine.swift), or, when the WidgetSandboxQuickJS target is linked,
 // the native QuickJS engine or the same engine inside a wasm2c box
 // (docs/decisions.md, "QuickJS in a wasm2c box"). WidgetSandbox itself links no
-// QuickJS: those two register here at run time (`QuickJSEngineRegistry`), and a
-// build without them fails closed. All methods must be called from the
+// QuickJS: those two register here at run time (`QuickJSEngineRegistry`) when a
+// client calls `registerQuickJSEngines()`, and a process without them fails closed. All methods must be called from the
 // thread/queue that owns the context.
 
 import Foundation
@@ -134,22 +134,14 @@ public enum QuickJSBackend: String {
     }
 }
 
-/// The QuickJS engines of this process. WidgetSandboxQuickJS registers them, with the bundles' `.qbc`, from
-/// `widget_sandbox_quickjs_register`, which the registry calls the first time it is asked when the process has that
-/// symbol, that is when the target is linked; an app that does not link it has no QuickJS, and `.native` and
-/// `.boxed` fail closed. Nova is not registered here: it is part of WidgetSandbox.
+/// The QuickJS engines of this process. WidgetSandboxQuickJS registers them, with the bundles' `.qbc`, when its
+/// `registerQuickJSEngines()` is called, and only then: nothing here looks for that target, so a process that does
+/// not make that call (an app that does not link the target) has no QuickJS, and `.native` and `.boxed` fail closed.
+/// Nova is not registered here: it is part of WidgetSandbox.
 @_spi(QuickJSEngines) public enum QuickJSEngineRegistry {
     private static let lock = NSLock()
     private static var engines: [QuickJSBackend: QuickJSEngineRegistration] = [:]
     private static var bytecode: [String: Data] = [:]
-
-    private static let linked: Void = {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "widget_sandbox_quickjs_register") else {
-            return
-        }
-        typealias Register = @convention(c) () -> Void
-        unsafeBitCast(symbol, to: Register.self)()
-    }()
 
     public static func register(_ registration: QuickJSEngineRegistration, for backend: QuickJSBackend) {
         precondition(backend != .nova, "Nova is part of WidgetSandbox")
@@ -166,14 +158,12 @@ public enum QuickJSBackend: String {
     }
 
     static func registration(for backend: QuickJSBackend) -> QuickJSEngineRegistration? {
-        _ = linked
         lock.lock()
         defer { lock.unlock() }
         return engines[backend]
     }
 
     static func bytecode(named name: String) -> Data? {
-        _ = linked
         lock.lock()
         defer { lock.unlock() }
         return bytecode[name]
