@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <future>
 #include <iterator>
@@ -44,6 +45,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <vector>
 #ifdef __APPLE__
@@ -3169,6 +3171,170 @@ TEST(bundle_stamp_engine_and_validator_refuse_another_release) {
     TrustedValidator v("light", resourcesWith("validator", ""), [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
     CHECK(v.processOps("[{\"op\":\"el\",\"id\":2,\"tag\":\"p\"}]") == "[]");
     CHECK_MSG(!diags.empty() && diags[0].first == "bundle-mismatch", diags.empty() ? "none" : diags[0].first);
+}
+
+/// A directory `<temp>/<prefix><clock>-<n>` that this call created itself, so a test may write into it and remove it: a
+/// name already taken (another run's) is left as it is and the next `n` tried. nullopt, after a failed check, when none was created.
+static std::optional<std::filesystem::path> newTempDirectory(const std::string& prefix) {
+    std::error_code error;
+    const std::filesystem::path temp = std::filesystem::temp_directory_path(error);
+    CHECK_MSG(!error, "temp_directory_path: " + error.message());
+    if (error) return std::nullopt;
+    const std::string stamp = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    std::string why = "every name is taken";
+    for (int attempt = 0; attempt < 100; attempt++) {
+        const std::filesystem::path candidate = temp / (prefix + stamp + "-" + std::to_string(attempt));
+        if (std::filesystem::create_directory(candidate, error) && !error) return candidate;
+        // Not created and no error: a directory of that name is there; file_exists: something else is. Not this run's either way.
+        if (error && error != std::errc::file_exists) {
+            why = candidate.string() + ": " + error.message();
+            break;
+        }
+    }
+    CHECK_MSG(false, "no new directory in " + temp.string() + ": " + why);
+    return std::nullopt;
+}
+
+/// Bundles checked out with CRLF line ends load as their LF sources and boot from the shipped bytecode; stale bytecode and another release's stamp are still refused.
+TEST(crlf_bundles_load_as_lf_and_boot_from_bytecode) {
+    CHECK_MSG(!RES->sandboxBytecode.empty() && !RES->validatorBytecode.empty(), "pnpm build:desktop ships .qbc next to the bundles");
+    for (const std::string* source : {&RES->sandboxBundle, &RES->validatorBundle, &RES->rendererBundle}) CHECK_MSG(source->find('\r') == std::string::npos, source->substr(0, 80));
+    const std::optional<std::filesystem::path> reserved = newTempDirectory("twidget-tests-crlf-");
+    if (!reserved) return;
+    const std::filesystem::path& root = *reserved;
+    bool written = true;
+    auto directory = [&](const std::string& label, const std::string& sandbox, const std::string& validator, const std::string& renderer,
+                         const std::vector<uint8_t>& sandboxBytecode, const std::vector<uint8_t>& validatorBytecode) {
+        const std::filesystem::path dir = root / label;
+        if (!written) return dir.string();
+        std::error_code error;
+        written = std::filesystem::create_directory(dir, error) && !error;
+        CHECK_MSG(written, dir.string() + ": " + error.message());
+        if (!written) return dir.string();
+        auto write = [&](const char* name, const void* data, size_t size) {
+            std::ofstream out(dir / name, std::ios::binary);
+            out.write(static_cast<const char*>(data), std::streamsize(size));
+            out.close();
+            const bool ok = !out.fail();
+            CHECK_MSG(ok, (dir / name).string());
+            written = written && ok;
+        };
+        write("sandbox-bundle.js", sandbox.data(), sandbox.size());
+        write("validator-bundle.js", validator.data(), validator.size());
+        if (!renderer.empty()) write("renderer-bundle.js", renderer.data(), renderer.size());
+        write("sandbox-bundle.qbc", sandboxBytecode.data(), sandboxBytecode.size());
+        write("validator-bundle.qbc", validatorBytecode.data(), validatorBytecode.size());
+        return dir.string();
+    };
+    auto withCrlf = [](const std::string& lf) {
+        std::string out;
+        for (char c : lf) {
+            if (c == '\n') out += '\r';
+            out += c;
+        }
+        return out;
+    };
+    auto mine = BundleStamp::glue();
+    const std::string otherRelease = restamped(RES->sandboxBundle, BundleStamp{"9.9.9", mine.protocol + 1, mine.profile, mine.sdk}.line());
+    const std::vector<uint8_t> crlfBytes = {'\r', '\n'};
+    const std::string lfDir = directory("lf", RES->sandboxBundle, RES->validatorBundle, RES->rendererBundle, RES->sandboxBytecode, RES->validatorBytecode);
+    const std::string crlfDir = directory("crlf", withCrlf(RES->sandboxBundle), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle), RES->sandboxBytecode, RES->validatorBytecode);
+    const std::string ruleDir = directory("rule", "a\r\nb\rc\r\r\nd\r", "\r\n\r\n", "", crlfBytes, {});
+    const std::string staleDir = directory("stale", withCrlf(RES->sandboxBundle) + "\r", withCrlf(RES->validatorBundle) + "\r", withCrlf(RES->rendererBundle), RES->sandboxBytecode, RES->validatorBytecode);
+    const std::string stampDir = directory("stamp", withCrlf(otherRelease), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle), RES->sandboxBytecode, RES->validatorBytecode);
+    if (!written) {
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+
+    auto lf = SandboxResources::fromDirectory(lfDir);
+    auto crlf = SandboxResources::fromDirectory(crlfDir);
+    CHECK(lf->sandboxBundle == RES->sandboxBundle);
+    CHECK(lf->validatorBundle == RES->validatorBundle);
+    CHECK(lf->rendererBundle == RES->rendererBundle);
+    CHECK(crlf->sandboxBundle == lf->sandboxBundle);
+    CHECK(crlf->validatorBundle == lf->validatorBundle);
+    CHECK(crlf->rendererBundle == lf->rendererBundle);
+    for (const auto& res : {lf, crlf}) {
+        CHECK(res->sandboxBytecode == RES->sandboxBytecode);
+        CHECK(res->validatorBytecode == RES->validatorBytecode);
+    }
+
+    auto rule = SandboxResources::fromDirectory(ruleDir);
+    CHECK(rule->sandboxBundle == "a\nb\rc\r\nd\r");
+    CHECK(rule->validatorBundle == "\n\n");
+    CHECK(rule->rendererBundle.empty());
+    CHECK(rule->sandboxBytecode == crlfBytes);
+    CHECK(rule->validatorBytecode.empty());
+
+    const std::string widget = "<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>";
+    auto boot = [&](const std::shared_ptr<SandboxResources>& res, bool alive, const std::function<void(RecordingHost&)>& check) {
+        RecordingHost host("light", res, false);
+        std::unique_ptr<SandboxEngine> engine = fixtureEngine(widget, testConfig(), res);
+        engine->setDelegate(&host);
+        engine->start();
+        CHECK(host.waitLoaded(20));
+        if (alive && engine->isRemote()) engine->probe("0");
+        engine->thread().sync([] {});
+        auto l = host.lock();
+        check(host);
+    };
+    auto diagsOf = [](const RecordingHost& host) {
+        std::string s;
+        for (auto& d : host.diags) s += d.first + ": " + d.second + "\n";
+        return s;
+    };
+
+    boot(crlf, true, [&](RecordingHost& host) {
+        CHECK_MSG(!host.died, host.died.value_or(""));
+        bool fromBytecode = false;
+        for (auto& d : host.diags) if (d.first == "boot" && d.second.find("(bytecode)") != std::string::npos) fromBytecode = true;
+        CHECK_MSG(fromBytecode, diagsOf(host));
+        for (const char* kind : {"bytecode", "validator:bytecode", "bundle-mismatch", "validator:bundle-mismatch"}) CHECK_MSG(!host.hasDiag(kind), kind + std::string("\n") + diagsOf(host));
+        CHECK(host.hasLog("widget ran"));
+    });
+
+    auto stale = SandboxResources::fromDirectory(staleDir);
+    CHECK(stale->sandboxBundle == lf->sandboxBundle + "\r");
+    CHECK(stale->validatorBundle == lf->validatorBundle + "\r");
+    CHECK(stale->rendererBundle == lf->rendererBundle);
+    boot(stale, true, [&](RecordingHost& host) {
+        CHECK_MSG(!host.died, host.died.value_or(""));
+        auto refused = [](const std::string& detail) {
+            return detail.find("falling back to source") != std::string::npos && detail.find("different source") != std::string::npos;
+        };
+        int fallback = -1, fromSource = -1;
+        for (size_t i = 0; i < host.diags.size(); i++) {
+            const auto& [kind, detail] = host.diags[i];
+            if (kind == "bytecode" && refused(detail)) fallback = int(i);
+            if (kind == "boot" && detail.find("(source)") != std::string::npos) fromSource = int(i);
+        }
+        CHECK_MSG(host.countDiag("bytecode") == 1 && fallback >= 0 && fromSource > fallback, diagsOf(host));
+        CHECK_MSG(host.countDiag("validator:bytecode") == 1, diagsOf(host));
+        for (auto& d : host.diags) if (d.first == "validator:bytecode") CHECK_MSG(refused(d.second), d.second);
+        CHECK_MSG(!host.hasDiag("bundle-mismatch") && !host.hasDiag("validator:bundle-mismatch"), diagsOf(host));
+        CHECK(host.hasLog("widget ran"));
+    });
+
+    auto stamp = SandboxResources::fromDirectory(stampDir);
+    auto inMemory = std::make_shared<SandboxResources>(*RES);
+    inMemory->sandboxBundle = otherRelease;
+    const std::string refusal = BundleStamp::refusal(*inMemory).value_or("");
+    CHECK(stamp->sandboxBundle == otherRelease);
+    CHECK_MSG(!refusal.empty() && BundleStamp::refusal(*stamp).value_or("") == refusal, BundleStamp::refusal(*stamp).value_or("none"));
+    boot(stamp, false, [&](RecordingHost& host) {
+        CHECK_MSG(host.died == std::optional<std::string>("sandbox bundle failed to load"), host.died.value_or("alive"));
+        int mismatches = 0;
+        for (auto& d : host.diags) if (d.first == "bundle-mismatch") { mismatches++; CHECK_MSG(d.second == refusal, d.second); }
+        CHECK_MSG(mismatches == 1, diagsOf(host));
+        CHECK_MSG(host.countDiag("validator:bundle-mismatch") == 1, diagsOf(host));
+        CHECK(!host.hasLog("widget ran"));
+        CHECK(host.ops.empty());
+    });
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
 }
 
 TEST(validator_diag_bridge) {

@@ -166,6 +166,14 @@ and widgets stay in process unless a host sets the factory.
   2026-11-14): the 25 and the whole suite's 183 tests, 0 failures.
 - With glibc, a `JSThread` whose thread has ended no longer takes a thread created afterwards for its own (glibc reuses
   a joined thread's `pthread_t`), so the client engine stops answering such a caller inline.
+- `SandboxResources::fromDirectory` reads each CRLF pair of the three bundles' sources as LF, so a Windows checkout with
+  Git's `core.autocrlf=true` (widget-sandbox has no `.gitattributes`, so the bundles come out with CRLF line ends) loads
+  the sources their stamp and `.qbc` were built from instead of refusing them ("has no version stamp", and every engine
+  died "sandbox bundle failed to load"). A lone CR stays, LF input comes back as it is, the `.qbc` are read as they
+  are, and the stamp and bytecode checks are unchanged; tdesktop's own loader already read the sources this way.
+  `crlf_bundles_load_as_lf_and_boot_from_bytecode` writes the bundles with LF and with CRLF line ends, loads the same
+  sources and bytecode from both, boots an engine and its validator from the CRLF copy's bytecode, and still falls back
+  to source on stale bytecode and refuses an incompatible stamp; the suite runs 184 tests.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps
