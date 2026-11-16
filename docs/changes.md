@@ -292,6 +292,27 @@ and widgets stay in process unless a host sets the factory.
   its first good reading, and a failed reading returns the thread's last value instead of wall time, the next good one
   counting on from it. C++ only: the quota policy and its fixture, the slice, the limits, `SandboxEngine`,
   `TrustedValidator`, the public header and the other platforms' clocks are unchanged, and no test is added.
+- On Windows both desktop suites pass from a checkout made with `core.autocrlf=true`, as it is, after three
+  corrections of test code only (`test_main.cpp`; C++ only, the Swift and Kotlin twins of the query test unchanged):
+  `layout_query_loop_is_killed_instead_of_blocking_the_host`'s renderer waits out its 5 ms per answer on a
+  high-resolution waitable timer, re-armed until 5 ms have passed, where `sleep_for(5 ms)` waited for Windows' 15.6 ms
+  timer tick and the 1000 ms guard fired at 66–68 queries; a timer it cannot make, set or wait on fails the test with
+  the call's error, and the test checks that every query was answered and none in under 5 ms.
+  `paint_limit_stops_the_widget` waits for the host thread (`onHostThread`) before it reads the renderer's `frozen`,
+  which `WidgetHost::onDied` sends after it publishes `dead`, in the same closure. A `twidget-tests --child` case puts
+  its stdout and stderr in binary mode, so the parent's byte comparison sees the `\n` the case wrote, not the runtime's
+  `\r\n`. Run here (2026-11-16, Windows 11, MSVC Win32 Debug, the thread-cycle clock): 201 tests (the 204 less six
+  macOS and Linux only `remote_stream_` cases, plus the three `icu_intl_` ones), 0 failures in process, with
+  `TW_ENGINE_STREAM=1` (125 of 125 fixture engines over the stream, 0 ends before its finish) and with
+  `TW_ENGINE_LOOPBACK=1` (125 of 125 behind the loopback); `twidget-run --attacks` 133 attacks, 0 leaks, 7 runtimes
+  killed in all three, every per-file row the same, diagnostics and death texts included. One Windows exception, in
+  Debug builds: `timer-flood.html` reads `ok cpu-throttled, timer-limit` where Linux's Debug in-process row reads `ok
+  timer-limit`, because the Debug build's JS for it (309–344 ms; `cpu-throttled` in 20 of 20 runs in each mode) passes
+  the 300 ms per 1000 ms quota by the time its first timer comes due; a RelWithDebInfo build of the same tree takes
+  171–173 ms and reads `ok timer-limit` 20 of 20, no run reached the 500 ms slice, and the machine's other processes
+  used at most 5.4 % of its 32 logical processors. Per-file equality with macOS was not checked: no committed record
+  holds macOS's per-file rows; the totals, the seven dead files and their death texts are those macOS's records give.
+  `packages/desktop/README.md` ("Build and run") has the commands and the tables.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps

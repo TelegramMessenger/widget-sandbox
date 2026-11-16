@@ -73,6 +73,76 @@ TW_ENGINE_HOSTED=stream ./build/twidget-tests      # the same over a hosting str
 TW_ENGINE_HOSTED=stream ./build/twidget-run --attacks      # 133 attacks, 0 leaks in the validated ops the run asked for, "133 hosted over the stream"; =loopback too, and --corpus ../../corpus/compat with either
 ```
 
+On Windows (MSVC, Git Bash) the same suites build and run from `packages/desktop` as checked out with
+`core.autocrlf=true`: no LF export and no bundle rebuild (`SandboxResources::fromDirectory` reads the bundles' CRLF
+sources as LF). CMake on `PATH`, Visual Studio 2026 with the v143 toolset; each run clears the three switches and sets
+at most one:
+
+```bash
+cmake -S . -B build-win -G "Visual Studio 18 2026" -A Win32 -T v143
+cmake --build build-win --config Debug --target twidget-tests twidget-run --parallel
+env -u TW_ENGINE_STREAM -u TW_ENGINE_LOOPBACK -u TW_ENGINE_HOSTED ./build-win/Debug/twidget-tests.exe                       # in process
+env -u TW_ENGINE_STREAM -u TW_ENGINE_LOOPBACK -u TW_ENGINE_HOSTED ./build-win/Debug/twidget-run.exe --attacks
+env -u TW_ENGINE_STREAM -u TW_ENGINE_LOOPBACK -u TW_ENGINE_HOSTED TW_ENGINE_STREAM=1 ./build-win/Debug/twidget-tests.exe    # over the byte stream
+env -u TW_ENGINE_STREAM -u TW_ENGINE_LOOPBACK -u TW_ENGINE_HOSTED TW_ENGINE_STREAM=1 ./build-win/Debug/twidget-run.exe --attacks
+env -u TW_ENGINE_STREAM -u TW_ENGINE_LOOPBACK -u TW_ENGINE_HOSTED TW_ENGINE_LOOPBACK=1 ./build-win/Debug/twidget-tests.exe  # behind the loopback
+env -u TW_ENGINE_STREAM -u TW_ENGINE_LOOPBACK -u TW_ENGINE_HOSTED TW_ENGINE_LOOPBACK=1 ./build-win/Debug/twidget-run.exe --attacks
+cmake --build build-win --config RelWithDebInfo --target twidget-run --parallel   # the timing control; NDEBUG compiles the loopback switch out, so it is timed in process
+env -u TW_ENGINE_STREAM -u TW_ENGINE_LOOPBACK -u TW_ENGINE_HOSTED ./build-win/RelWithDebInfo/twidget-run.exe ../../corpus/attacks/timer-flood.html \
+    --wait-ms 1500 --verbose --events '{"type":"click","targetId":2,"clientX":5,"clientY":5}'   # one run's `js N ms` and its cpu-throttled detail; the click is the one --attacks adds; ./build-win/Debug/ and a switch for the Debug figures
+```
+
+Windows record (2026-11-16): Windows 11 Pro 10.0.26300 (x64), Intel Core i9-14900K (32 logical processors), MSVC
+19.44 (v143), Win32, Debug: the interpreter (`twquickjs`) `/O2` with inlining, the package's C++ `/Od /Ob0 /RTC1
+/MDd`, every target `/utf-8`. On this processor the widget's CPU time is the thread's cycles over CPUID leaf 0x15's rate
+(GenuineIntel, invariant TSC, Hyper-V's root partition: `docs/decisions.md`, "CPU time, not wall-clock time"). The
+three Windows fixture corrections are in `docs/changes.md`. One run of each command above:
+
+| Mode | `twidget-tests` | Fixture engines and widgets | `twidget-run --attacks` |
+| --- | --- | --- | --- |
+| in process | 201 tests, 13204 checks, 0 failures | 125 engines, none remote; 19 widgets, none hosted | 133 attacks, 0 leaks, 7 runtimes killed |
+| `TW_ENGINE_STREAM=1` | 201 tests, 13206 checks, 0 failures | 125 of 125 over the stream (148 channels on 8 streams, 0 ends before its finish); 1 widget, not hosted | the same, 133 through a client-mode engine, 133 of them over the stream |
+| `TW_ENGINE_LOOPBACK=1` | 201 tests, 13204 checks, 0 failures | 125 of 125 behind the loopback; 19 widgets, none hosted | the same, 133 through a client-mode engine |
+
+201 tests compile on Windows: the 204 less six `remote_stream_` cases that are macOS and Linux only, plus the three
+Windows-only `icu_intl_` tests. Every test has a result in each mode; no bundle was refused and none fell back to
+source. `--attacks` gives 126 `ok` and 7 `dead` in each mode, the dead ones `deep-nesting.html`,
+`fallback-at-boot.html`, `layout-query-loop.html`, `mem-cap-probe.html`, `mem-huge-bitmaps.html`,
+`mem-steady-growth.html` and `mem-uncaught-growth.html`, and every per-file row is the same in the three modes without
+exception: status, diagnostic kinds and counts, death text.
+
+One Windows exception, in Debug builds: `timer-flood.html` reads `ok cpu-throttled, timer-limit` where Linux's
+committed in-process row (Debug, an older framework commit) reads `ok timer-limit`. Its measured cause is the Debug
+build's execution cost against the unchanged quota: the widget's JS passes the 300 ms per 1000 ms quota by the time its
+first timer comes due, so the quota defers that timer and reports it, while an optimised build of the same tree stays
+under it. The quota acts as designed (the boot task's overrun is a debt, the next timer waits it out, the widget stays
+`ok`) and nothing is stopped, so this is not a product deviation. 20 runs of each, interleaved, with the commands
+above (`js` is the run's whole JS, the boot task most of it; the detail is the quota's own reading in "deferred 1
+timer: N ms of the 300 ms per 1000 ms budget used"):
+
+| `timer-flood.html` | Single-file runs: diagnostics | `cpu-throttled` | `js`, ms (min / median / max) | Detail, ms of 300 | `--attacks` on the file alone | Deaths |
+| --- | --- | --- | --- | --- | --- | --- |
+| Debug, in process | `cpu-throttled, timer-limit` | 20 of 20 | 310 / 317 / 329 | 307–323 | `ok cpu-throttled, timer-limit` 20 of 20 | none in 40 |
+| Debug, `TW_ENGINE_STREAM=1` | `cpu-throttled, timer-limit` | 20 of 20 | 309 / 316.5 / 344 | 306–341 | `ok cpu-throttled, timer-limit` 20 of 20 | none in 40 |
+| Debug, `TW_ENGINE_LOOPBACK=1` | `cpu-throttled, timer-limit` | 20 of 20 | 311 / 316 / 324 | 308–319 | `ok cpu-throttled, timer-limit` 20 of 20 | none in 40 |
+| RelWithDebInfo, in process | `timer-limit` | 0 of 20 | 171 / 172 / 173 | none printed | `ok timer-limit` 20 of 20 | none in 40 |
+
+The diagnostic came in every Debug run of every mode, so it does not follow the mode, and the full rows agree. No run
+died: the widget never reached the 500 ms slice ("CPU limit exceeded: more than 500 ms of continuous execution"). The
+machine was otherwise idle: in 1 s windows over both batches the processes other than the runs used 0.9–5.4 % of its
+32 logical processors (median 1.7 %) and no compiler or linker ran; each full run above started with the whole machine
+at 1.0–5.6 %. The A/B changes the build configuration as a whole (the C++ glue `/O2 /Ob1` without `/RTC1`, the
+release CRT and its heap, no checked iterators, `NDEBUG`, and the interpreter's `/Ob1` and release CRT): it shows the
+Debug build's cost, not which of the CRT heap, checked iterators, inlining or `/RTC1` causes it.
+
+Per-file equality with macOS was not checked: no committed record holds macOS's per-file `--attacks` rows. What
+committed macOS evidence states (Debug) is what these runs give: 133 attacks, 0 leaks, 126 `ok`, the same seven `dead`
+files, each dead row with the diagnostics macOS's records print and a death text that begins with theirs (cut short
+there), and every row the same across the modes. For the diagnostics of `ok` rows only Linux's committed in-process rows
+exist (Linux, Debug, an older framework commit): `timer-flood.html` is the exception above, and `cpu-kill-after.html`
+reads `ok cpu-throttled` here in all three modes where Linux read `ok cpu-throttled×2` in 9 of 10 runs (the report comes
+at most once a second inside the 1500 ms wait; one run per mode here, and no cause is measured for the count).
+
 Status (2026-10-17, macOS arm64): tests 45/45; compat 12/12 and
 generated/with-profile 20/20 load without errors; attacks 98 with 0 URLs
 leaking into validated ops and the four expected kills (`fallback-at-boot.html`,
