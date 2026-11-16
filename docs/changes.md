@@ -278,6 +278,20 @@ and widgets stay in process unless a host sets the factory.
   gives it back inside its delivery, before its answer is published; work its delegate queued keeps it as before.
   `remote_a_synchronous_call_gives_its_place_back_before_it_answers` checks 5000 Intl and query answers: each is right
   and leaves nothing counted; `remote_` runs 88 and the suite 185 tests.
+- On Windows `QuickJSContext::threadCpuTime()` read `GetThreadTimes`, which advances in whole clock ticks (15.625 ms by
+  default), so a task or a validation of a few milliseconds was charged 0 or a whole tick, timer-woken bursts less than
+  their CPU time, and `widget_host_charges_the_validators_time` failed. It now reads the thread's cycles
+  (`QueryThreadCycleTime`) over the TSC frequency the processor enumerates in CPUID leaf 0x15, where those cycles are
+  known to be time at that rate: x86 or x64 code on an x86 or x64 Windows, a GenuineIntel processor with an invariant
+  TSC and a complete leaf 0x15, and no hypervisor, or Hyper-V's own root partition not nested (`docs/decisions.md`, "CPU
+  time, not wall-clock time": the checks, their order and their limits). Everything else keeps `GetThreadTimes` and its
+  whole ticks: ARM64 builds, x86 and x64 builds emulated on ARM64, AMD processors, Intel ones that do not enumerate the
+  rate, a TSC that is not invariant, and a guest of a hypervisor that shows itself in CPUID; there a short task or
+  validation can still be charged 0 and a widget woken by timers can still run above its quota by what its bursts miss.
+  The source is decided once per process, before its first reading's count, and never changes; each thread counts from
+  its first good reading, and a failed reading returns the thread's last value instead of wall time, the next good one
+  counting on from it. C++ only: the quota policy and its fixture, the slice, the limits, `SandboxEngine`,
+  `TrustedValidator`, the public header and the other platforms' clocks are unchanged, and no test is added.
 - Tests: `twidget-tests remote_` (62): the 25 Swift `RemoteEngineTests` (the canvas and binary-op coding cases, which
   C++ has no counterpart for, as wallet and data/safe-area coding cases) and 37 C++ cases for lifetimes, the server and
   the bounds (a real `WidgetHost` with its host thread held among them), eleven of them for what the host keeps
