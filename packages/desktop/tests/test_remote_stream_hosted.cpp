@@ -983,7 +983,7 @@ TEST(remote_stream_hosted_platform_flood_stays_within_the_bounds) {
         batch.clear();
     }
     CHECK_MSG(eventually([&] { return other->saw("log:log:during " + std::to_string(logs)); }, 10), joined(other->events()));
-    CHECK_MSG(eventually([&] { return engine.saw(1, "close"); }, 10), joined(engine.frames(1)));
+    CHECK_MSG(eventually([&] { return engine.saw(1, "close") && engine.events().open() == 1; }, 10), joined(engine.frames(1)) + " / " + joined(engine.events().all()));
     std::vector<std::string> stops;
     for (const std::string& frame : engine.frames(1))
         if (frame.rfind("stop:", 0) == 0) stops.push_back(frame);
