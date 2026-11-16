@@ -68,6 +68,8 @@ extern char** environ;
 #endif
 
 #ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -4080,6 +4082,13 @@ int main(int argc, char** argv) {
     g_self = argv[0];
     try { RES = SandboxResources::fromDirectory(TW_WIDGET_JS); } catch (const std::exception& e) { fprintf(stderr, "%s\n", e.what()); return 2; }
     if (argc > 2 && std::string_view(argv[1]) == "--child") {
+#ifdef _WIN32
+        // The parent compares a child's output byte for byte: no "\r\n" for each "\n".
+        if (_setmode(_fileno(stdout), _O_BINARY) == -1 || _setmode(_fileno(stderr), _O_BINARY) == -1) {
+            fprintf(stderr, "can't set the child's stdout and stderr to binary\n");
+            return 2;
+        }
+#endif
         for (const auto& c : childCases()) {
             if (std::string_view(c.name) != argv[2]) continue;
             c.fn();
