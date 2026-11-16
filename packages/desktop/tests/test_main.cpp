@@ -67,6 +67,16 @@
 extern char** environ;
 #endif
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 using namespace twidget;
 
 int g_failures = 0;
@@ -1107,15 +1117,60 @@ TEST(cpu_quota_throttles_greedy_timer) {
     CHECK_MSG(ticks < 12, std::to_string(ticks) + " ticks: " + r.logsText());
 }
 
+#ifdef _WIN32
+/// Windows' sleep_for(5 ms) takes a 15.6 ms timer tick; this waits until `deadline` on a high-resolution timer (empty: waited).
+static std::string waitOnTimer(HANDLE timer, std::chrono::steady_clock::time_point deadline) {
+    for (auto now = std::chrono::steady_clock::now(); now < deadline; now = std::chrono::steady_clock::now()) {
+        LARGE_INTEGER due;
+        due.QuadPart = -std::chrono::ceil<std::chrono::duration<LONGLONG, std::ratio<1, 10000000>>>(deadline - now).count();
+        if (!SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+            const DWORD error = GetLastError();
+            return "SetWaitableTimer failed, error " + std::to_string(error);
+        }
+        const DWORD result = WaitForSingleObject(timer, 1000);
+        if (result == WAIT_FAILED) {
+            const DWORD error = GetLastError();
+            return "WaitForSingleObject failed, error " + std::to_string(error);
+        }
+        if (result != WAIT_OBJECT_0) return "WaitForSingleObject returned " + std::to_string(result);
+    }
+    return {};
+}
+#endif
+
 /// The layout-query limit (CpuBudget::queryLimitHit): a forced-layout loop burns no JS
 /// CPU of its own but keeps the host answering queries; with a slow renderer (5 ms per
-/// answer) it is killed past 128 answered queries instead of holding the renderer.
+/// answer, on a high-resolution timer on Windows) it is killed past 128 answered queries
+/// instead of holding the renderer.
 /// The twin of QueryBudgetTests.swift and QueryBudgetTest.kt.
 TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
+#ifdef _WIN32
+    const std::unique_ptr<void, decltype(&CloseHandle)> timer(CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE), &CloseHandle);
+    const DWORD createError = timer ? ERROR_SUCCESS : GetLastError();
+    CHECK_MSG(timer != nullptr, "CreateWaitableTimerExW failed, error " + std::to_string(createError));
+    if (!timer) return;
+#endif
+    int answers = 0;
+    auto shortest = std::chrono::steady_clock::duration::max();
+    std::string waitError;
     auto cfg = testConfig();
     cfg.cpuLimitMs = 200;
     Run r("<div id=a></div><script>const a = document.getElementById('a'); let i = 0; for (;;) { a.style.width = (i++ % 300) + 'px'; a.offsetHeight; }</script>", cfg, false);
-    r.host.answer = [](const Json&) -> std::optional<std::string> { std::this_thread::sleep_for(std::chrono::milliseconds(5)); return std::nullopt; };
+    r.host.answer = [&](const Json&) -> std::optional<std::string> {
+        const auto began = std::chrono::steady_clock::now();
+#ifdef _WIN32
+        const std::string error = waitOnTimer(timer.get(), began + std::chrono::milliseconds(5));
+#else
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        const std::string error;
+#endif
+        const auto elapsed = std::chrono::steady_clock::now() - began;
+        auto l = r.host.lock();
+        answers++;
+        shortest = std::min(shortest, elapsed);
+        if (waitError.empty()) waitError = error;
+        return std::nullopt;
+    };
     auto t0 = std::chrono::steady_clock::now();
     r.engine.start();
     r.host.waitLoaded(10);
@@ -1127,6 +1182,11 @@ TEST(layout_query_loop_is_killed_instead_of_blocking_the_host) {
     CHECK_MSG(r.host.died && r.host.died->find("more than 128 layout queries in one boot task") != std::string::npos, r.host.died.value_or("alive"));
     CHECK_MSG(seconds < 5, std::to_string(seconds) + " s");
     CHECK_MSG(int(r.host.queries.size()) == CpuBudget::kQueryLimit + 1, std::to_string(r.host.queries.size()) + " queries");
+    CHECK_MSG(waitError.empty(), waitError);
+    const double shortestMs = std::chrono::duration<double, std::milli>(shortest).count();
+    const std::string measured = std::to_string(answers) + " answers of " + std::to_string(r.host.queries.size()) + " queries, the shortest " + std::to_string(shortestMs) + " ms";
+    CHECK_MSG(answers == int(r.host.queries.size()), measured);
+    CHECK_MSG(shortest >= std::chrono::milliseconds(5), measured);
 }
 
 /// 30 ms per answer: the 1000 ms guard (CpuBudget::kQueryBudgetMs) fires at the 34th query, and a loop that ends on the
