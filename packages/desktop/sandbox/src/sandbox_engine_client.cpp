@@ -8,9 +8,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <future>
 #include <limits>
+#include <mutex>
 #include <string_view>
 #include <utility>
 
@@ -20,7 +23,10 @@ namespace {
 
 constexpr const char* kEngineGone = "the widget engine process ended";
 constexpr const char* kEngineFlooded = "the widget engine process sent more than the host keeps queued";
-constexpr const char* kPlatformUnanswered = "the host answered no request of the widget's renderer";
+/// The diagnostic and the deaths of a hosted widget whose renderer's platform request went unanswered.
+constexpr const char* kPlatformTimeout = "platform-timeout";
+constexpr const char* kPlatformLate = "the host's platform did not answer the widget's renderer within 3 s";
+constexpr const char* kPlatformNone = "the host's platform answers no requests of the widget's renderer";
 /// The levels the shim's `console` sends; any other is "log".
 constexpr std::array<std::string_view, 5> kLogLevels = {"log", "info", "warn", "error", "debug"};
 
@@ -282,25 +288,32 @@ public:
         return answer.size() > kRemoteMessageLimit ? std::string() : answer;
     }
 
+    // A death a widget kept past it (`keepAtDeath_`) or a kept route hears closes nothing: the engine's side's own report of a keep's stop, and any later one, has no effect there.
     void remoteDied(const std::string& reason) override {
         Admitted admitted = admit(std::min(reason.size(), kRemoteTextLimit));
         if (!admitted) return;
-        submit(std::move(admitted), [reason = reason.substr(0, kRemoteTextLimit)](SandboxEngine& engine) { engine.remoteKill(reason, false); });
+        submit(std::move(admitted), [reason = reason.substr(0, kRemoteTextLimit)](SandboxEngine& engine) {
+            engine.remoteDeath(reason);
+            if (!engine.keepAtDeath_ && !engine.kept_) engine.closeRoute(reason, false, false);
+        });
     }
 
     void remoteDisconnected() override {
-        if (Admitted admitted = admit(0)) submit(std::move(admitted), [](SandboxEngine& engine) { engine.remoteKill(kEngineGone, false); });
+        if (Admitted admitted = admit(0)) submit(std::move(admitted), [](SandboxEngine& engine) { engine.remoteKill(kEngineGone, false, true); });
     }
 
-    // A hosted runtime's calls: sized first (a message past its bound is dropped, a request past it answered ""), then admitted as any other.
+    // A hosted runtime's calls: sized first (a message past its bound is dropped, a request past it answered ""), then admitted as any other. The renderer's platform traffic is the route's, not the widget's: it is carried while the route is open, past the widget's death on a route kept open.
     void remotePlatformMessage(const std::string& message) override {
         if (!hosted_) return violation("a platform message from an engine-only runtime");
         if (message.size() > kRemotePlatformLimit) return violation("a platform message over 32 MB");
-        if (Admitted admitted = admit(message.size()))
-            deliver(std::move(admitted), [message](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onHostedMessage(engine, message); });
+        if (Admitted admitted = admit(message.size())) {
+            submit(std::move(admitted), [message](SandboxEngine& engine) {
+                if (engine.routeOpen_ && engine.delegate_) engine.delegate_->onHostedMessage(engine, message);
+            });
+        }
     }
 
-    // Waits for the delegate on the dispatch thread as a query does; no answer for a live widget ends it, unless the delegate's own stop already did.
+    // Delivered on the dispatch thread in order with the other calls, then waited for here, on the caller's thread (the transport's), up to `kPlatformAnswerSeconds` from its arrival: the dispatch thread never waits for the host's platform, so a keep (`keepHosted`) can switch the delegate while a request waits and the request survives it. One at a time; none at once once the route closed or the client is going.
     std::optional<std::string> remotePlatformRequest(const std::string& message) override {
         if (!hosted_) {
             violation("a platform request from an engine-only runtime");
@@ -310,14 +323,59 @@ public:
             violation("a platform request over 32 MB");
             return std::string();
         }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(kPlatformAnswerSeconds));
+        auto call = std::make_shared<PlatformCall>();
+        bool second = false;
+        {
+            // The closed check and the publish in one step: a close settles this call or the request answers none here.
+            std::lock_guard<std::mutex> l(platformMutex_);
+            if (requestsClosed_) return std::nullopt;
+            second = waiting_ != nullptr;
+            if (!second) waiting_ = call;
+        }
+        if (second) {
+            violation("a second platform request while one waits");
+            return std::nullopt;
+        }
         Admitted admitted = admit(message.size());
-        if (!admitted) return std::nullopt;
-        return await<std::optional<std::string>>(std::move(admitted), [message](SandboxEngine& engine) -> std::optional<std::string> {
-            if (engine.dead_) return std::nullopt;
-            std::optional<std::string> answer = engine.delegate_ ? engine.delegate_->onHostedRequest(engine, message) : std::nullopt;
-            if (!answer) engine.remoteKill(kPlatformUnanswered, true);
-            return answer;
-        }).value_or(std::nullopt);
+        if (!admitted) {
+            finished(call);
+            return std::nullopt;
+        }
+        submit(std::move(admitted), [call, message](SandboxEngine& engine) {
+            if (!engine.routeOpen_ || !engine.delegate_) return call->settle(std::nullopt, false);
+            engine.delegate_->onHostedRequest(engine, message, hostedResponder([call](std::optional<std::string> answer) {
+                const bool none = !answer;
+                call->settle(std::move(answer), none);
+            }));
+        });
+        std::optional<std::string> answer;
+        bool none = false, late = false;
+        {
+            std::unique_lock<std::mutex> l(call->mutex);
+            late = !call->cv.wait_until(l, deadline, [&] { return call->settled; });
+            // A `respond` from now on is late: ignored.
+            call->settled = true;
+            answer = std::move(call->answer);
+            none = call->none;
+        }
+        finished(call);
+        if (answer) return answer;
+        // Settled by a close: no kill, the route is ending already.
+        if (late || none) submit(nullptr, [reason = late ? kPlatformLate : kPlatformNone](SandboxEngine& engine) { engine.platformKill(reason); });
+        return std::nullopt;
+    }
+
+    /// The route closed or the client is going: the waiting platform request answers none at once, without a kill, and so does every later one.
+    void settleWaiting() {
+        std::shared_ptr<PlatformCall> call;
+        {
+            std::lock_guard<std::mutex> l(platformMutex_);
+            requestsClosed_ = true;
+            call = std::move(waiting_);
+            waiting_.reset();
+        }
+        if (call) call->settle(std::nullopt, false);
     }
 
     // Only for a host that asked at its hosted start (`hostedOps_`, set on the dispatch thread before anything after the start is delivered).
@@ -332,9 +390,15 @@ public:
         });
     }
 
+    // Noted also for a dead widget (`hostedReady_`): a renderer that announced itself is one a host may keep.
     void remoteRendererReady() override {
         if (!hosted_) return violation("a renderer's ready from an engine-only runtime");
-        if (Admitted admitted = admit(0)) deliver(std::move(admitted), [](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onHostedRendererReady(engine); });
+        if (Admitted admitted = admit(0)) {
+            submit(std::move(admitted), [](SandboxEngine& engine) {
+                engine.hostedReady_ = true;
+                if (!engine.dead_ && engine.delegate_) engine.delegate_->onHostedRendererReady(engine);
+            });
+        }
     }
 
     void remoteRendered() override {
@@ -349,6 +413,32 @@ public:
     }
 
 private:
+    /// A platform request waiting for the host's platform on its caller's thread: settled once, by its responder, a close, or its waiter at the timeout.
+    struct PlatformCall {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool settled = false;
+        std::optional<std::string> answer;
+        /// Settled by `unanswered()`: no platform for it.
+        bool none = false;
+        /// Once; later calls are ignored.
+        void settle(std::optional<std::string> value, bool unanswered) {
+            {
+                std::lock_guard<std::mutex> l(mutex);
+                if (settled) return;
+                settled = true;
+                answer = std::move(value);
+                none = unanswered;
+            }
+            cv.notify_all();
+        }
+    };
+    /// `call` is no longer the waiting one.
+    void finished(const std::shared_ptr<PlatformCall>& call) {
+        std::lock_guard<std::mutex> l(platformMutex_);
+        if (waiting_ == call) waiting_.reset();
+    }
+
     /// What is queued and has neither run nor been dropped; `overflowed` once a message did not fit.
     struct Backlog {
         std::atomic<size_t> bytes{0};
@@ -386,7 +476,7 @@ private:
         if (calls <= kRemoteQueuedCalls && total <= kRemoteQueuedBytes) return std::make_shared<Reservation>(backlog_, bytes);
         backlog_->bytes -= bytes;
         backlog_->calls--;
-        if (!backlog_->overflowed.exchange(true)) submit(nullptr, [](SandboxEngine& engine) { engine.remoteKill(kEngineFlooded, true); });
+        if (!backlog_->overflowed.exchange(true)) submit(nullptr, [](SandboxEngine& engine) { engine.remoteKill(kEngineFlooded, true, true); });
         return nullptr;
     }
 
@@ -435,6 +525,10 @@ private:
     std::shared_ptr<Liveness> life_;
     const bool hosted_;
     const std::shared_ptr<Backlog> backlog_ = std::make_shared<Backlog>();
+    /// The platform request waiting now, and whether requests are closed (`settleWaiting`).
+    std::mutex platformMutex_;
+    std::shared_ptr<PlatformCall> waiting_;
+    bool requestsClosed_ = false;
 };
 
 // MARK: construction
@@ -453,9 +547,11 @@ SandboxEngine::SandboxEngine(HostedTag, std::string html, SandboxConfig config, 
 void SandboxEngine::attachClient(std::shared_ptr<SandboxRemoteChannel> remote, bool hosted) {
     remote_ = std::move(remote);
     client_ = std::make_shared<RemoteClient>(liveness_, hosted);
+    // Before anything the channel delivers: its calls run on the dispatch thread after this.
+    routeOpen_ = bool(remote_);
     // A host's factory without a channel: dead from the first task, never in process.
     if (remote_) remote_->attach(client_);
-    else thread_.async([this] { remoteKill(kEngineGone, false); });
+    else thread_.async([this] { remoteKill(kEngineGone, false, false); });
 }
 
 std::unique_ptr<SandboxEngine> SandboxEngine::hostedClient(std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl) {
@@ -520,8 +616,8 @@ void SandboxEngine::clientStart() {
 }
 
 void SandboxEngine::clientKill(const std::string& reason, bool atOnce) {
-    if (atOnce && thread_.isCurrent()) return remoteKill(reason, true);
-    thread_.async([this, reason] { remoteKill(reason, true); });
+    if (atOnce && thread_.isCurrent()) return remoteKill(reason, true, false);
+    thread_.async([this, reason] { remoteKill(reason, true, false); });
 }
 
 void SandboxEngine::clientActivationEvent(const std::string& json, int gesture) {
@@ -578,12 +674,13 @@ void SandboxEngine::clientSetDelegate(SandboxEngineDelegate* delegate) {
 
 // MARK: a hosted client's own inputs (the host's order, on the dispatch thread)
 
-void SandboxEngine::startHosted(SandboxHostedStart start) {
+void SandboxEngine::startHosted(SandboxHostedStart start, bool keepAtDeath) {
     if (!hosted_) return;
-    thread_.async([this, start = std::move(start)] {
+    thread_.async([this, start = std::move(start), keepAtDeath] {
         if (dead_ || started_) return;
         started_ = true;
         hostedOps_ = start.validatedOps;
+        keepAtDeath_ = keepAtDeath;
         hosted_->startHosted(html_, config_, start);
     });
 }
@@ -598,8 +695,26 @@ void SandboxEngine::hostedTheme(const WidgetTheme& theme) {
 void SandboxEngine::platform(std::string message) {
     if (!hosted_) return;
     thread_.async([this, message = std::move(message)] {
-        if (!dead_) hosted_->platform(message);
+        if (routeOpen_) hosted_->platform(message);
     });
+}
+
+// The old delegate hears a live widget's death before the switch, the new one nothing of it; what the old one queued with its own threads is its business (WidgetHost::keepRenderer drains it).
+bool SandboxEngine::keepHosted(SandboxEngineDelegate& kept) {
+    if (!hosted_) return false;
+    return Posted<bool>(thread_, [this, &kept] {
+        if (!started_ || !routeOpen_ || !hostedReady_ || kept_) return false;
+        if (!dead_) {
+            remoteDeath("terminated");
+            remote_->stop("terminated");
+        }
+        grants_.clear();
+        remoteTaskOpen_ = false;
+        delegate_ = &kept;
+        kept_ = true;
+        hosted_->kept();
+        return true;
+    }).get().value_or(false);
 }
 
 // The press is the grant and the touch at once (packages/desktop/README.md, "Who decides"); stamped here with the clock the gates read, as `clientPress` does.
@@ -699,22 +814,44 @@ void SandboxEngine::clientRequest(int64_t id, const std::optional<WidgetRequest>
 
 // MARK: death
 
-void SandboxEngine::remoteKill(const std::string& reason, bool tellRemote) {
-    if (dead_) return;
+void SandboxEngine::remoteKill(const std::string& reason, bool hostDecided, bool ended) {
+    const bool lived = remoteDeath(reason);
+    // A dead route (a kept one, or one kept open past its death) closes with the close alone: its engine is gone already.
+    closeRoute(reason, hostDecided && lived, ended);
+}
+
+bool SandboxEngine::remoteDeath(const std::string& reason) {
+    if (dead_) return false;
     dead_ = true;
     const std::string bounded = reason.substr(0, kRemoteTextLimit);
     const bool taskOpen = std::exchange(remoteTaskOpen_, false);
     if (delegate_) {
         delegate_->onDied(*this, bounded);
-        // The engine's own end of that task cannot come through a closed channel.
+        // The engine's own end of that task reaches no delegate after the death.
         if (taskOpen) delegate_->onTaskCompleted(*this);
     } else {
         pendingDeath_ = bounded;
     }
-    if (!remote_) return;
-    if (tellRemote) remote_->stop(bounded);
-    remote_->close();
+    return true;
 }
+
+void SandboxEngine::closeRoute(const std::string& reason, bool stop, bool ended) {
+    if (!routeOpen_) return;
+    routeOpen_ = false;
+    clientSettleWaiting();
+    const std::string bounded = reason.substr(0, kRemoteTextLimit);
+    if (stop) remote_->stop(bounded);
+    remote_->close();
+    if (kept_ && ended && delegate_) delegate_->onHostedEnded(*this, bounded);
+}
+
+void SandboxEngine::platformKill(const std::string& reason) {
+    if (!routeOpen_) return;
+    if (delegate_) delegate_->onDiag(*this, kPlatformTimeout, reason);
+    remoteKill(reason, true, true);
+}
+
+void SandboxEngine::clientSettleWaiting() { client_->settleWaiting(); }
 
 void SandboxEngine::clientReport(int& counter, const char* kind, const std::string& detail) {
     if (dead_ || !delegate_ || counter >= sdk::MAX_REJECTION_REPORTS) return;

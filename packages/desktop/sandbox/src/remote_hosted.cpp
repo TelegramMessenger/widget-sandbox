@@ -1,4 +1,4 @@
-// The engine process's side of a hosted widget (remote_hosted.h, desktop core only): SandboxHostedRuntime builds the widget's engine, a TrustedValidator and the embedder's renderer as a served WidgetHost and routes that engine's calls, and the in-process loopback and the stream's `serveHosting` run over it. A translation unit of its own, so the engine-only transport (remote_engine.cpp, remote_stream.cpp) references no WidgetHost or validator.
+// The engine process's side of a hosted widget (remote_hosted.h, desktop core only): SandboxHostedRuntime builds the widget's engine, a TrustedValidator and the embedder's renderer as a served WidgetHost and routes that engine's calls, keeps the renderer alone once that engine died until the host's `Close`, and the in-process loopback and the stream's `serveHosting` run over it. A translation unit of its own, so the engine-only transport (remote_engine.cpp, remote_stream.cpp) references no WidgetHost or validator.
 #include "twidget/remote_hosted.h"
 
 #include "remote_internal.h"
@@ -45,7 +45,7 @@ constexpr const char* kNotBuilt = "the widget could not be built in the engine p
 
 } // namespace
 
-/// One hosted widget on the engine's side: from its start a served WidgetHost (the glue between its engine, validator and renderer, as in process) whose engine has this as its delegate. The render calls go to the served host's own delegate methods, the engine's other calls to an unstarted SandboxRemoteServer that relays them to the sink and numbers its requests and wallet calls for `answer`; the glue's reports, the asked-for batches and the renderer's platform traffic go to the sink directly. The death and the load go through the served host's thread first, so they reach the sink after what the glue sent before them.
+/// One hosted widget on the engine's side: from its start a served WidgetHost (the glue between its engine, validator and renderer, as in process) whose engine has this as its delegate. The render calls go to the served host's own delegate methods, the engine's other calls to an unstarted SandboxRemoteServer that relays them to the sink and numbers its requests and wallet calls for `answer`; the glue's reports, the asked-for batches and the renderer's platform traffic go to the sink directly. The death and the load go through the served host's thread first, so they reach the sink after what the glue sent before them. At its engine's death (a limit of its own, the host's `stop`) the renderer stays, without engine or validator, until `close` and the owner's destruction: after the death's reports the served host's cut (`WidgetHost::keepRendererOnly`) frees them on the glue's thread, every input but the renderer's platform traffic is dropped and a probe answers "ERROR no runtime", while that traffic still crosses both ways.
 class SandboxHostedRuntime final : public detail::HostedRuntime, public SandboxEngineDelegate {
 public:
     SandboxHostedRuntime(std::shared_ptr<SandboxRemoteSink> sink, std::shared_ptr<SandboxResources> resources, HostedRendererFactory renderers)
@@ -74,11 +74,13 @@ public:
     void answer(int64_t id, const SandboxRemoteOutcome& outcome) override { forwarder_.answer(id, outcome); }
     std::string probe(const std::string& code) override;
     void platform(const std::string& message) override {
-        input([platform = platform_, message](WidgetHost& host) {
-            host.host([platform, message] {
-                if (platform->onMessage) platform->onMessage(message);
-            });
-        });
+        input(
+            [platform = platform_, message](WidgetHost& host) {
+                host.host([platform, message] {
+                    if (platform->onMessage) platform->onMessage(message);
+                });
+            },
+            true);
     }
     void close() override;
 
@@ -108,16 +110,21 @@ public:
         host.host([this, &engine] { forwarder_.onLoaded(engine); });
         host.onLoaded(engine);
     }
-    // The death after the glue's reports before it (a validator's `limit` among them), then the renderer frozen with the host's `stoppedLabel`.
+    // The death after the glue's reports before it (a validator's `limit` among them), then the renderer frozen with the host's `stoppedLabel`, then the cut that keeps the renderer alone: in the glue thread's order, so the death's reports and `frozen` come first.
     void onDied(SandboxEngine& engine, const std::string& reason) override {
         WidgetHost& host = served();
         host.host([this, &engine, reason] { forwarder_.onDied(engine, reason); });
         host.onDied(engine, reason);
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            engineEnded_ = true;
+        }
+        host.host([&host] { host.keepRendererOnly(); });
     }
 
 private:
-    /// `call` with the served host: kept until it is built, dropped after `close`; the lock only decides, the host is called after it.
-    void input(std::function<void(WidgetHost&)> call);
+    /// `call` with the served host: kept until it is built, dropped after `close` and, unless it is the renderer's platform traffic (`rendererTraffic`), once the engine ended; the lock only decides, the host is called after it.
+    void input(std::function<void(WidgetHost&)> call, bool rendererTraffic = false);
     /// The served host for `start` (throws as WidgetHost's constructor does).
     std::unique_ptr<WidgetHost> build(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start);
     /// For the served engine's delegate calls, which come only once the host is built.
@@ -131,6 +138,8 @@ private:
     std::mutex mutex_;
     bool started_ = false;
     bool closed_ = false;
+    /// The served engine died (`onDied`): only the renderer is kept.
+    bool engineEnded_ = false;
     std::vector<std::function<void(WidgetHost&)>> waiting_;
     const std::shared_ptr<HostedPlatform> platform_;
     std::unique_ptr<WidgetHost> host_;
@@ -209,11 +218,11 @@ void SandboxHostedRuntime::start(const std::string& html, const SandboxConfig& c
     host.start();
 }
 
-void SandboxHostedRuntime::input(std::function<void(WidgetHost&)> call) {
+void SandboxHostedRuntime::input(std::function<void(WidgetHost&)> call, bool rendererTraffic) {
     WidgetHost* host = nullptr;
     {
         std::lock_guard<std::mutex> l(mutex_);
-        if (closed_) return;
+        if (closed_ || (engineEnded_ && !rendererTraffic)) return;
         if (!host_) return waiting_.push_back(std::move(call));
         host = host_.get();
     }
@@ -224,7 +233,7 @@ std::string SandboxHostedRuntime::probe(const std::string& code) {
     WidgetHost* host = nullptr;
     {
         std::lock_guard<std::mutex> l(mutex_);
-        if (!closed_) host = host_.get();
+        if (!closed_ && !engineEnded_) host = host_.get();
     }
     if (!host) return "ERROR no runtime";
     // A barrier both ways, as in process: the inputs before the probe posted their engine work from the glue's thread first, and what the glue made of the engine's calls before it is on the sink before its answer.
@@ -244,6 +253,7 @@ void SandboxHostedRuntime::close() {
     }
     platform_->close();
     forwarder_.close();
+    // A released engine (its death's cut) drops it.
     if (host) host->engine_->terminate();
 }
 

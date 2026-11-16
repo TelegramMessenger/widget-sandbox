@@ -11,6 +11,7 @@
 #include "twidget/widget_host.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -28,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-/// Swift's RemoteEngineTests.Channel: the test is the engine's side; each call with its arguments and its thread, under a lock. A hosted channel too (`hostedStart:`, `hostedTheme:`, `platform:`), calls an engine-mode client never makes.
+/// Swift's RemoteEngineTests.Channel: the test is the engine's side; each call with its arguments and its thread, under a lock. A hosted channel too (`hostedStart:`, `hostedTheme:`, `platform:`, `kept`), calls an engine-mode client never makes.
 class FakeRemoteChannel final : public SandboxHostedChannel {
 public:
     /// Called on the calling thread after a call is recorded, outside the lock; set it while no input is on its way.
@@ -77,6 +78,7 @@ public:
     }
     void hostedTheme(const WidgetTheme& theme) override { record("hostedTheme:" + SandboxRemoteCoding::encodeTheme(theme)); }
     void platform(const std::string& message) override { record("platform:" + message); }
+    void kept() override { record("kept"); }
     void close() override {
         std::shared_ptr<SandboxRemoteSink> sink;
         {
@@ -348,10 +350,12 @@ public:
     std::function<void(SandboxEngine&)> atBegin;
     /// What `onQuery` answers; set it while no query is on its way.
     std::string queryAnswer = "{\"answer\":1}";
-    /// What `onHostedRequest` answers (nullopt: none); set it while no platform request is on its way.
+    /// What `onHostedRequest` answers (nullopt: `unanswered()`); set it while no platform request is on its way.
     std::optional<std::string> platformAnswer = "platform-answer";
     /// Runs inside `onHostedRequest` after its event, before it answers; set it while no platform request is on its way.
     std::function<void(SandboxEngine&)> duringPlatformRequest;
+    /// `onHostedRequest` keeps each responder unanswered instead (`platformResponder`); set it while no platform request is on its way.
+    bool holdPlatformRequests = false;
 
     void onOps(SandboxEngine& engine, const std::string&) override {
         record("ops");
@@ -407,11 +411,18 @@ public:
     }
     void onTaskCompleted(SandboxEngine&) override { record("end"); }
     void onHostedMessage(SandboxEngine&, const std::string& message) override { record("hosted-message:" + message); }
-    std::optional<std::string> onHostedRequest(SandboxEngine& engine, const std::string& message) override {
+    void onHostedRequest(SandboxEngine& engine, const std::string& message, HostedRequestResponder respond) override {
         record("hosted-request:" + message);
         if (duringPlatformRequest) duringPlatformRequest(engine);
-        return platformAnswer;
+        if (holdPlatformRequests) {
+            std::lock_guard<std::mutex> l(mutex_);
+            platformResponders_.push_back(std::move(respond));
+            return;
+        }
+        if (platformAnswer) respond(*platformAnswer);
+        else respond.unanswered();
     }
+    void onHostedEnded(SandboxEngine&, const std::string& reason) override { record("hosted-ended:" + reason); }
     void onHostedOps(SandboxEngine&, const std::string&) override { record("hosted-ops"); }
     void onHostedRendererReady(SandboxEngine&) override { record("renderer-ready"); }
     void onHostedRendered(SandboxEngine&) override { record("rendered"); }
@@ -467,6 +478,12 @@ public:
         if (i >= responders_.size()) return std::nullopt;
         return responders_[i];
     }
+    /// The responder of the `i`th platform request it kept (`holdPlatformRequests`), none before it came.
+    std::optional<HostedRequestResponder> platformResponder(size_t i) {
+        std::lock_guard<std::mutex> l(mutex_);
+        if (i >= platformResponders_.size()) return std::nullopt;
+        return platformResponders_[i];
+    }
     /// Completes that call from the calling thread (nullopt: `unsupported()`); false when there is none.
     bool respond(size_t i, const std::optional<WidgetRequestOutcome>& outcome) {
         std::optional<WidgetRequestResponder> r = responder(i);
@@ -485,6 +502,7 @@ private:
     std::vector<std::pair<std::string, StorageArea>> commits_;
     std::vector<WalletCall> walletCalls_;
     std::vector<WidgetRequestResponder> responders_;
+    std::vector<HostedRequestResponder> platformResponders_;
 };
 
 /// What RecordingIntl answers "alive" at once, unrecorded: on the dispatch thread, a probe of whether the client still has its engine ("" once its destructor let it go).
@@ -531,13 +549,16 @@ inline const char* kRealEngineWidget =
     "    return TelegramWidget.wallet.signData({ type: 'text', text: 'sign' }, 'w'); })"
     "  .then(function (b) { log.push('signed:' + b.result); }, function (e) { log.push('err:' + e.code); }); };</script>";
 
-/// The engine process's renderer of the hosted tests (`hostedTest`), talking to the host's platform: as ScriptedRenderer it announces `ready` on load (unless `readyOnLoad` is false), answers every query with `queryResult` and keeps what the glue sent; it keeps its platform's messages too and acts on them: `say:<x>` sends x, `ask:<x>` asks x from a thread of its own (never the glue's) and then sends `got:<answer>` (`got:none` for none), `tap` frames a trusted click on the widget's first element (`kTapOnButton`) with a press as a native renderer does (`gesture`, the click, `release`), `untrusted-tap` sends that click alone and untrusted, `stall` holds the glue's thread (where its platform's messages come) for 200 ms; with `echoOps` it sends `ops:<n>` after its nth batch.
+/// The engine process's renderer of the hosted tests (`hostedTest`), talking to the host's platform: as ScriptedRenderer it announces `ready` on load (unless `readyOnLoad` is false), answers every query with `queryResult` and keeps what the glue sent; it keeps its platform's messages too and acts on them: `say:<x>` sends x, `ask:<x>` asks x from a thread of its own and then sends `got:<answer>` (`got:none` for none), `wait:<x>` asks x on the glue's thread itself (where its platform's messages come) and then sends `waited:<answer>` (`waited:none`), both answers kept in order (`answers`), `burst:<n>` sends `b:0` .. `b:<n-1>`, `threads` sends `threads:` and its `inventory` ("unlisted" without one), `tap` frames a trusted click on the widget's first element (`kTapOnButton`) with a press as a native renderer does (`gesture`, the click, `release`), `untrusted-tap` sends that click alone and untrusted, `stall` holds the glue's thread for 200 ms; with `echoOps` it sends `ops:<n>` after its nth batch, with `askOnOps` it asks `laid:<n>` inside the glue's call that hands it that batch and then sends `laid:<n>:<answer>`; a set `gone` turns true when it is destroyed.
 struct HostedTestRenderer final : Renderer {
     explicit HostedTestRenderer(std::shared_ptr<SandboxHostedPlatform> platform) : platform(std::move(platform)) {
         this->platform->onMessage = [this](const std::string& message) { heard(message); };
     }
     /// Waits for a request it is still asking.
-    ~HostedTestRenderer() override { asker_.join(); }
+    ~HostedTestRenderer() override {
+        asker_.join();
+        if (gone) *gone = true;
+    }
 
     void load() override {
         if (readyOnLoad) onMessage("{\"type\":\"ready\"}");
@@ -551,7 +572,12 @@ struct HostedTestRenderer final : Renderer {
         if (!m) return;
         const std::string& type = (*m)["type"].asString();
         if (type == "query") onMessage("{\"type\":\"result\",\"qid\":" + std::to_string((*m)["qid"].asInt()) + ",\"result\":" + queryResult + "}");
-        else if (type == "ops" && echoOps) platform->send("ops:" + std::to_string(++batches_));
+        else if (type == "ops" && (echoOps || askOnOps)) {
+            const std::string n = std::to_string(++batches_);
+            if (echoOps) platform->send("ops:" + n);
+            // Inside the glue's own call, on its thread, as a renderer whose layout asks its platform (a font, a text's width).
+            if (askOnOps) platform->send("laid:" + n + ":" + platform->request("laid:" + n).value_or("none"));
+        }
     }
     void setTheme(const std::string& theme) override {
         std::lock_guard<std::mutex> l(mutex);
@@ -589,6 +615,11 @@ struct HostedTestRenderer final : Renderer {
     bool readyOnLoad = true;
     std::string queryResult = "null";
     bool echoOps = false;
+    bool askOnOps = false;
+    /// What `threads` reports (a test's thread inventory); set before the host starts.
+    std::function<std::string()> inventory;
+    /// Set before the host starts: true once this renderer is destroyed.
+    std::shared_ptr<std::atomic<bool>> gone;
     std::mutex mutex;
     std::vector<std::string> messages;
     std::vector<std::string> themes;
@@ -600,6 +631,20 @@ private:
             heard_.push_back(message);
         }
         if (message.rfind("say:", 0) == 0) return platform->send(message.substr(4));
+        if (message.rfind("wait:", 0) == 0) {
+            std::optional<std::string> answer = platform->request(message.substr(5));
+            {
+                std::lock_guard<std::mutex> l(mutex);
+                answers_.push_back(answer);
+            }
+            return platform->send("waited:" + answer.value_or("none"));
+        }
+        if (message.rfind("burst:", 0) == 0) {
+            const int n = std::atoi(message.c_str() + 6);
+            for (int i = 0; i < n; i++) platform->send("b:" + std::to_string(i));
+            return;
+        }
+        if (message == "threads") return platform->send("threads:" + (inventory ? inventory() : std::string("unlisted")));
         if (message.rfind("ask:", 0) == 0) {
             return asker_.async([this, question = message.substr(4)] {
                 std::optional<std::string> answer = platform->request(question);
@@ -625,7 +670,7 @@ private:
     std::vector<std::optional<std::string>> answers_;
     /// The glue's thread only.
     int batches_ = 0;
-    /// Where its requests wait: never the glue's host thread, which their answers may need.
+    /// Where `ask:` waits, apart from the glue's host thread (`wait:` waits there).
     JSThread asker_{"hosted.asker"};
 };
 

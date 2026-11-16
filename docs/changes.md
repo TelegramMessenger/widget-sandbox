@@ -3,6 +3,65 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: a hosted widget's renderer kept past its engine (2026-11-16)
+
+C++, desktop core only, part of the hosted mode below (no Swift twin: Swift and Kotlin have no hosted mode). Opt-in: a
+host that never keeps a renderer sees nothing new, a hosted widget destroyed without a keep included, and the local
+mode and the engine mode keep their behaviour, their frames and their tests. No frame kind or wire rule changes.
+
+- Kept renderers (`widget_host.h`): `WidgetHost::keepRenderer(HostedKeptRenderer::Observers)`, hosted only, from the
+  owner's thread, ends the widget as `destroy()` does (a live one dies "terminated", `Stop` crosses) but hands its
+  route to a `HostedKeptRenderer` that outlives the `WidgetHost`: the engine process's renderer, without engine or
+  validator, reachable through its platform traffic alone, both ways under the live widget's bounds, its observers
+  (`onPlatformMessage`, `onPlatformRequest(message, respond)` with the 3 s rule, `onEnded(reason)`) on a
+  `twidget-host` thread of its own, with `sendPlatform`, `ended()`, `remoteBacklog()` and `release()` (idempotent, the
+  destructor's: `Close`, then no observer call). `WidgetHost::keepsRenderer` (false), read at `start()`, keeps the
+  route of a widget that dies of its own (a CPU or memory limit, a validator cap, its error) open for a later keep;
+  unset, such a death closes it at once, as before. `keepRenderer` returns null, the widget ended as `destroy()` ends
+  it, when there is nothing to keep (a local host, never started, destroyed, a renderer that never announced itself,
+  a route that ended, a death reported without `keepsRenderer`). What the client handed the `WidgetHost` before the
+  keep reaches its observers before `keepRenderer` returns, a waiting request's `respond` still answering after it;
+  the handle's observers get the rest.
+- On a kept route only the platform traffic crosses: the keep clears the grants, and every other kind the engine
+  process sends for it is taken and has no effect (its Intl requests are answered ""); what ends a live route's
+  stream ends it too. A kept renderer ends at its `release()`, or with `onEnded` once and last at a flood, a platform
+  request unanswered 3 s or with no `onPlatformRequest`, or the end of the stream or engine process ("the widget
+  engine process ended"). A dead widget's route, kept or kept open, closes with `Close` alone.
+- The engine process keeps the renderer at every death of a hosted widget's engine until `Close`: after the death's
+  reports, on the glue's thread, the engine is released (new `SandboxEngine::release()`: its thread joined and its
+  QuickJS context freed, the object kept for its references) and the validator destroyed, every input but the
+  platform traffic dropped and a probe answered "ERROR no runtime". A host that does not keep sends `Close` right after
+  the death, as before.
+- `SandboxRemoteHostEnd::Events::runtimes` counts kept routes out (`SandboxHostedChannel::kept()`, defaulted, which the
+  client calls at the keep: the stream's channel counts by it, the hosted test switch's passes it on). The framework
+  neither keeps the engine process alive for kept renderers nor ends it for them.
+- A hosted renderer may wait for its platform on the glue's thread: `SandboxHostedPlatform::request` is callable from
+  any thread, inside `onMessage` and inside the renderer calls the glue makes included, live or kept (never inside the
+  `HostedRendererFactory`); such a wait holds up only that widget's glue, and a request left unanswered 3 s ends that
+  widget alone.
+- For a hosted delegate of your own (`SandboxEngineDelegate`; `WidgetHost`'s observers are unchanged):
+  `onHostedRequest(engine, message, HostedRequestResponder respond)` is asynchronous (it returned the answer):
+  return at once and call `respond(answer)` or `respond.unanswered()` once, from any thread, within
+  `SandboxEngine::kPlatformAnswerSeconds` (3; `WidgetHost::kPlatformAnswerSeconds` is now its alias). The client waits
+  on the request's own caller thread, never on its dispatch thread; no answer in time, or `unanswered()`, kills the
+  widget with diagnostic `platform-timeout` and "the host's platform did not answer the widget's renderer within 3 s"
+  or "the host's platform answers no requests of the widget's renderer" (a delegate that answered none died "the host
+  answered no request of the widget's renderer", without the diagnostic). A second request while one waits on the
+  same client is a `protocol-violation` answered none; one after the client closed its route, or in its destructor, is
+  answered none at once. New on `SandboxEngine`: `startHosted(start, keepAtDeath)`, `keepHosted(delegate)` and the
+  delegate's `onHostedEnded(engine, reason)`.
+- Tests: `twidget-tests hosted_` (29): the client's kept route over a fake channel (what it carries, the ends it
+  decides), a stopped and a dead renderer kept over the loopback (nothing lost or reordered across the keep, one
+  `widget.sandbox` and one `widget.validator` thread fewer), what cannot be kept, waits on the glue's thread, a probe
+  that answers when its engine's thread stops under it; over the stream, `remote_stream_hosted_` (14, so
+  `remote_stream_` runs 39 and `remote_` 102): kept renderers between real ends (the runtime count, one `Close` at the
+  release, the engine process's exit), kept routes against a lying engine end, a glue-thread wait that holds up no
+  other widget, and a child engine process that keeps only a kept renderer (no `widget.sandbox` or `widget.validator`
+  thread). Run here (Debug, 2026-11-16): 214 tests in each of the five modes (in process, `TW_ENGINE_LOOPBACK=1`,
+  `TW_ENGINE_STREAM=1`, `TW_ENGINE_HOSTED=loopback` and `=stream`), 0 failures; `twidget-run --attacks` 133 attacks, 0
+  leaks, 7 runtimes killed, the same files and reasons in process and in both hosted modes, 133 hosted; `--corpus
+  corpus/compat` 19 / 19 loaded in all three, every per-file status the same.
+
 ## Unreleased: the whole widget in the engine process (2026-11-16)
 
 C++, desktop core only, opt-in: a second remote mode, the hosted mode (`twidget/remote_hosted.h`), in which the engine

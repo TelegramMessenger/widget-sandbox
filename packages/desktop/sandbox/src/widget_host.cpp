@@ -105,11 +105,6 @@ HostedHook& hostedHook() {
     return hook;
 }
 
-/// The diagnostic and the deaths of a hosted widget whose renderer's platform request went unanswered.
-constexpr const char* kPlatformTimeout = "platform-timeout";
-constexpr const char* kPlatformLate = "the host's platform did not answer the widget's renderer within 3 s";
-constexpr const char* kPlatformNone = "the host's platform answers no requests of the widget's renderer";
-
 } // namespace
 
 // The deprecated observers are members: their implicit construction and destruction here use nothing of them.
@@ -166,8 +161,8 @@ WidgetHost::WidgetHost(ServedTag, std::string html, WidgetTheme theme, SandboxCo
 
 WidgetHost::~WidgetHost() {
     destroy();
-    // No delegate calls once the engine thread (a client's dispatch thread) is gone; the host thread drains while every member lives.
-    engine_->thread().join();
+    // No delegate calls once the engine thread (a client's dispatch thread) is gone; the host thread drains while every member lives. A kept client is the handle's.
+    if (engine_) engine_->thread().join();
     hostThread_.join();
     if (validator_) validator_->setCpuSink(nullptr);
 }
@@ -203,7 +198,11 @@ void WidgetHost::wire(SandboxEngineDelegate& engineDelegate) {
     validator_->setCpuSink([this](double ms) { engine_->chargeValidator(ms); });
     // A client-mode engine may have died already (no channel, a lost connection): it gets this host in start(), after the owner set onChange and stoppedLabel.
     if (!engine_->isRemote()) engine_->setDelegate(&engineDelegate);
-    renderer_->onDiag = [this](const std::string& k, const std::string& d) { host([this, k, d] { diag(k, d); }); };
+    renderer_->onDiag = [this](const std::string& k, const std::string& d) {
+        host([this, k, d] {
+            if (!rendererOnly_) diag(k, d);
+        });
+    };
     // The widget boots once the renderer announced itself, so the very first layout queries have something to measure.
     renderer_->onMessage = [this](const std::string& json) { onRenderer(json); };
 }
@@ -215,7 +214,7 @@ void WidgetHost::start() {
         // On the client's dispatch thread before the engine's start below: what it kept (a death) comes now, nothing came before.
         if (engine_->isRemote()) engine_->setDelegate(this);
         // The engine process loads its renderer and boots the widget; validated batches only for an observer set by now.
-        if (hosting_.hosted) return engine_->startHosted(SandboxHostedStart{widgetTheme_, stoppedLabel, bool(onRenderOps)});
+        if (hosting_.hosted) return engine_->startHosted(SandboxHostedStart{widgetTheme_, stoppedLabel, bool(onRenderOps)}, keepsRenderer);
         // Queued until the renderer is ready, so the variables are its first message, before any ops.
         toRenderer(themeMessage());
         toRenderer(safeAreaMessage(config_.contentSafeArea));
@@ -244,7 +243,7 @@ void WidgetHost::host(std::function<void()> fn, SandboxEngine::RemoteHold hold) 
 }
 
 void WidgetHost::engineWork(std::function<void()> fn, SandboxEngine::RemoteHold hold) {
-    host([this, fn = std::move(fn)] { if (!engineCut_) fn(); }, std::move(hold));
+    host([this, fn = std::move(fn)] { if (!engineCut_ && !rendererOnly_) fn(); }, std::move(hold));
 }
 
 void WidgetHost::validatorDiag(const std::string& kind, const std::string& detail) {
@@ -289,6 +288,8 @@ void WidgetHost::setTheme(const WidgetTheme& theme) {
         theme_ = theme.colorScheme;
         widgetTheme_ = theme;
         if (hosting_.hosted) return engine_->hostedTheme(widgetTheme_);
+        // A served host kept for its renderer alone has no validator or engine to re-theme.
+        if (rendererOnly_) return;
         renderer_->setTheme(theme_);
         toRenderer(themeMessage());
         // Past the cut the renderer never gets the nodes the re-themed stylesheets would name.
@@ -299,7 +300,7 @@ void WidgetHost::setTheme(const WidgetTheme& theme) {
 
 void WidgetHost::setContentSafeArea(const WidgetContentSafeArea& area) {
     host([this, area] {
-        if (destroyed_) return;
+        if (destroyed_ || rendererOnly_) return;
         config_.contentSafeArea = area;
         if (started_) toRenderer(safeAreaMessage(area));
         engine_->contentSafeArea(area);
@@ -314,10 +315,17 @@ std::string WidgetHost::safeAreaMessage(const WidgetContentSafeArea& area) {
     return msg.dump();
 }
 
-void WidgetHost::setVisible(bool visible) { engine_->setVisible(visible); }
-void WidgetHost::setData(const WidgetData& data) { engine_->setData(data); }
-void WidgetHost::event(const std::string& json) { engine_->event(json); }
-std::string WidgetHost::probe(const std::string& code) { return engine_->probe(code); }
+// After a keep the client is the handle's: the owner's inputs find none (`start`, `setTheme` and `setContentSafeArea` stop at `destroyed_` on the host thread first).
+void WidgetHost::setVisible(bool visible) {
+    if (engine_) engine_->setVisible(visible);
+}
+void WidgetHost::setData(const WidgetData& data) {
+    if (engine_) engine_->setData(data);
+}
+void WidgetHost::event(const std::string& json) {
+    if (engine_) engine_->event(json);
+}
+std::string WidgetHost::probe(const std::string& code) { return engine_ ? engine_->probe(code) : "ERROR no runtime"; }
 
 Renderer& WidgetHost::renderer() {
     if (!renderer_) throw std::logic_error("WidgetHost: a hosted widget's renderer is the engine process's");
@@ -325,27 +333,38 @@ Renderer& WidgetHost::renderer() {
 }
 
 void WidgetHost::sendPlatform(std::string message) {
-    if (hosting_.hosted) engine_->platform(std::move(message));
+    if (hosting_.hosted && engine_) engine_->platform(std::move(message));
 }
 
 void WidgetHost::pressDelivered() {
-    if (hosting_.hosted) engine_->pressDelivered();
+    if (hosting_.hosted && engine_) engine_->pressDelivered();
 }
 
 void WidgetHost::releaseDelivered() {
-    if (hosting_.hosted) engine_->releaseDelivered();
+    if (hosting_.hosted && engine_) engine_->releaseDelivered();
 }
 
 void WidgetHost::destroy() {
     if (destroyed_.exchange(true)) return;
-    // Unblock an engine thread waiting for a renderer answer, and a client's dispatch thread waiting for the platform's, before the engine is stopped.
+    // Unblock an engine thread waiting for a renderer answer before the engine is stopped; a hosted client's waiting platform request answers none as its route closes.
     resolveQuery("{\"error\":\"dead\"}", std::nullopt);
-    resolvePlatform();
     engine_->terminate();
     hostThread_.sync([this] {
         if (renderer_) renderer_->destroy();
         callbacksClosed_ = true;
     });
+}
+
+// The engine is dead, so its thread never waits for this one again (no layout query after the death; one before it is answered here): the join cannot hang, and once it returned nothing calls the validator but this thread, which destroys it.
+void WidgetHost::keepRendererOnly() {
+    if (destroyed_ || rendererOnly_) return;
+    rendererOnly_ = true;
+    resolveQuery("{\"error\":\"dead\"}", std::nullopt);
+    engine_->release();
+    if (validator_) {
+        validator_->setCpuSink(nullptr);
+        validator_.reset();
+    }
 }
 
 WidgetDiagnostics WidgetHost::diagnostics() const {
@@ -396,7 +415,7 @@ void WidgetHost::onOps(SandboxEngine& engine, const std::string& json) {
 }
 
 QueryAnswer WidgetHost::onQuery(SandboxEngine& engine, const std::string& json) {
-    if (destroyed_) return {"{\"error\":\"dead\"}", std::nullopt};
+    if (destroyed_ || rendererOnly_) return {"{\"error\":\"dead\"}", std::nullopt};
     auto pending = std::make_shared<PendingQuery>();
     {
         std::lock_guard<std::mutex> l(queryMutex_);
@@ -420,7 +439,7 @@ QueryAnswer WidgetHost::onQuery(SandboxEngine& engine, const std::string& json) 
         return {"{\"error\":\"dead\"}", std::nullopt};
     }
     host([this, pending, clean] {
-        if (destroyed_ || engineCut_) return resolveQuery("{\"error\":\"dead\"}", std::nullopt);
+        if (destroyed_ || engineCut_ || rendererOnly_) return resolveQuery("{\"error\":\"dead\"}", std::nullopt);
         if (!clean) return resolveQuery("{\"error\":\"invalid query\"}", std::nullopt);
         qid_++;
         {
@@ -663,7 +682,7 @@ void WidgetHost::onDied(SandboxEngine& engine, const std::string& reason) {
 
 void WidgetHost::onRenderer(const std::string& json) {
     host([this, json] {
-        if (destroyed_) return;
+        if (destroyed_ || rendererOnly_) return;
         if (auto msg = Json::parse(json)) handleRendererMessage(*msg);
     });
 }
@@ -807,13 +826,13 @@ void WidgetHost::handleRendererMessage(const Json& msg) {
 
 // Neither has a renderer to reach in hosted mode: the safe area's message, `frozen` and the render acknowledgement are the engine process's.
 void WidgetHost::toRenderer(const std::string& json) {
-    if (destroyed_ || !renderer_) return;
+    if (destroyed_ || rendererOnly_ || !renderer_) return;
     if (rendererReady_) renderer_->send(json);
     else pendingToRenderer_.push_back(PendingMessage{json, false});
 }
 
 bool WidgetHost::engineToRenderer(std::string json) {
-    if (destroyed_ || engineCut_ || !renderer_) return false;
+    if (destroyed_ || engineCut_ || rendererOnly_ || !renderer_) return false;
     if (rendererReady_) {
         renderer_->send(json);
         return true;
@@ -869,7 +888,7 @@ void WidgetHost::changed() {
 
 void WidgetHost::onHostedMessage(SandboxEngine& engine, const std::string& message) {
     engineWork([this, message] {
-        if (!destroyed_ && onPlatformMessage) onPlatformMessage(message);
+        if (!platformClosed() && onPlatformMessage) onPlatformMessage(message);
     }, engine.remoteHold());
 }
 
@@ -913,67 +932,107 @@ void WidgetHost::onHostedNodes(SandboxEngine& engine, int nodes) {
     }, engine.remoteHold());
 }
 
-// The dispatch thread waits here as an engine thread waits for a layout query's answer; a stop from here is at once, so the client's own kill for a missing answer finds the widget dead.
-std::optional<std::string> WidgetHost::onHostedRequest(SandboxEngine& engine, const std::string& message) {
-    auto pending = std::make_shared<PendingPlatform>();
-    {
-        std::lock_guard<std::mutex> l(platformMutex_);
-        pendingPlatform_ = pending;
-    }
-    // A destroy() that settled before this was published.
-    if (destroyed_) pending->settle(std::nullopt, true);
-    host([this, pending, message] {
-        if (destroyed_ || !onPlatformRequest) {
-            pending->settle(std::nullopt, true);
-            return;
-        }
-        onPlatformRequest(message, [pending](std::string answer) { pending->settle(std::move(answer), false); });
+// The client waits for the answer on the request's own thread: this only hands it to `onPlatformRequest` on the host thread, whose `respond` holds only the request. One that comes once the platform observers are closed is left to the route's close (`destroy()`, a keep that keeps nothing), so it ends the widget as that close does.
+void WidgetHost::onHostedRequest(SandboxEngine& engine, const std::string& message, HostedRequestResponder respond) {
+    host([this, message, respond] {
+        if (platformClosed()) return;
+        if (!onPlatformRequest) return respond.unanswered();
+        onPlatformRequest(message, [respond](std::string answer) { respond(std::move(answer)); });
     }, engine.remoteHold());
-    std::optional<std::string> answer;
-    bool unanswered = false;
-    {
-        std::unique_lock<std::mutex> l(pending->mutex);
-        pending->cv.wait_for(l, std::chrono::duration<double>(kPlatformAnswerSeconds), [&] { return pending->settled; });
-        // A `respond` from now on is late: ignored.
-        pending->settled = true;
-        answer = pending->answer;
-        unanswered = pending->unanswered;
-    }
-    {
-        std::lock_guard<std::mutex> l(platformMutex_);
-        if (pendingPlatform_ == pending) pendingPlatform_.reset();
-    }
-    if (answer) return answer;
-    if (destroyed_) {
-        engine.stop("terminated");
-        return std::nullopt;
-    }
-    const std::string reason = unanswered ? kPlatformNone : kPlatformLate;
-    host([this, reason] { diag(kPlatformTimeout, reason); });
-    engine.stop(reason);
-    return std::nullopt;
 }
 
-bool WidgetHost::PendingPlatform::settle(std::optional<std::string> value, bool none) {
-    {
-        std::lock_guard<std::mutex> l(mutex);
-        if (settled) return false;
-        settled = true;
-        unanswered = none;
-        answer = std::move(value);
+// The client goes on the host thread, after everything it handed this host before the switch (the platform traffic among it, `keeping_`), so each platform message reaches exactly one observer, this host's first.
+std::unique_ptr<HostedKeptRenderer> WidgetHost::keepRenderer(HostedKeptRenderer::Observers observers) {
+    if (!hosting_.hosted) {
+        destroy();
+        return nullptr;
     }
-    cv.notify_all();
-    return true;
+    keeping_ = true;
+    if (destroyed_.exchange(true)) return nullptr;
+    std::unique_ptr<HostedKeptRenderer> kept(new HostedKeptRenderer(std::move(observers)));
+    if (!engine_->keepHosted(kept->delegate())) {
+        // Nothing to keep: the widget ends as destroy() ends it; the handle opens its gate before it joins its thread.
+        engine_->terminate();
+        hostThread_.sync([this] { callbacksClosed_ = true; });
+        return nullptr;
+    }
+    hostThread_.sync([&] {
+        callbacksClosed_ = true;
+        kept->adopt(std::move(engine_));
+    });
+    return kept;
 }
 
-void WidgetHost::resolvePlatform() {
-    std::shared_ptr<PendingPlatform> pending;
-    {
-        std::lock_guard<std::mutex> l(platformMutex_);
-        pending = std::move(pendingPlatform_);
-        pendingPlatform_.reset();
+// ───────────── a kept renderer (HostedKeptRenderer) ─────────────
+
+/// Its platform traffic to the observers on the handle's thread, in order, each queued call keeping its message counted; every other call is dropped (the client delivers none of them past the keep but a layout query's refusal).
+class HostedKeptRenderer::Delegate final : public SandboxEngineDelegate {
+public:
+    explicit Delegate(HostedKeptRenderer& kept) : kept_(kept) {}
+
+    void onOps(SandboxEngine&, const std::string&) override {}
+    QueryAnswer onQuery(SandboxEngine&, const std::string&) override { return {"{\"error\":\"dead\"}", std::nullopt}; }
+    void onListen(SandboxEngine&, const std::string&) override {}
+    void onPreventDefault(SandboxEngine&, const std::string&) override {}
+    void onRequestFrame(SandboxEngine&) override {}
+    void onLog(SandboxEngine&, const std::string&, const std::string&) override {}
+    void onDiag(SandboxEngine&, const std::string&, const std::string&) override {}
+    void onLoaded(SandboxEngine&) override {}
+    void onStats(SandboxEngine&, const SandboxStats&) override {}
+    void onDied(SandboxEngine&, const std::string&) override {}
+
+    void onHostedMessage(SandboxEngine& engine, const std::string& message) override {
+        kept_.thread_.async([&kept = kept_, message, hold = engine.remoteHold()] {
+            if (!kept.released_ && kept.observers_.onPlatformMessage) kept.observers_.onPlatformMessage(message);
+        });
     }
-    if (pending) pending->settle(std::nullopt, true);
+    void onHostedRequest(SandboxEngine& engine, const std::string& message, HostedRequestResponder respond) override {
+        kept_.thread_.async([&kept = kept_, message, respond, hold = engine.remoteHold()] {
+            if (kept.released_ || !kept.observers_.onPlatformRequest) return respond.unanswered();
+            kept.observers_.onPlatformRequest(message, [respond](std::string answer) { respond(std::move(answer)); });
+        });
+    }
+    void onHostedEnded(SandboxEngine&, const std::string& reason) override {
+        kept_.ended_ = true;
+        kept_.thread_.async([&kept = kept_, reason] {
+            if (!kept.released_ && kept.observers_.onEnded) kept.observers_.onEnded(reason);
+        });
+    }
+
+private:
+    HostedKeptRenderer& kept_;
+};
+
+HostedKeptRenderer::HostedKeptRenderer(Observers observers) : thread_("twidget-host"), observers_(std::move(observers)), delegate_(std::make_unique<Delegate>(*this)) {
+    thread_.async([gate = gate_.get_future().share()] { gate.wait(); });
+}
+
+HostedKeptRenderer::~HostedKeptRenderer() { release(); }
+
+SandboxEngineDelegate& HostedKeptRenderer::delegate() { return *delegate_; }
+
+void HostedKeptRenderer::adopt(std::unique_ptr<SandboxEngine> client) {
+    client_ = std::move(client);
+    openGate();
+}
+
+void HostedKeptRenderer::openGate() {
+    if (std::exchange(gateOpen_, true)) return;
+    gate_.set_value();
+}
+
+void HostedKeptRenderer::sendPlatform(std::string message) {
+    if (client_) client_->platform(std::move(message));
+}
+
+SandboxEngine::RemoteBacklog HostedKeptRenderer::remoteBacklog() const { return client_ ? client_->remoteBacklog() : SandboxEngine::RemoteBacklog{}; }
+
+// The client first (its dispatch thread joined, the engine process told by its destructor), so nothing is queued here after the join.
+void HostedKeptRenderer::release() {
+    if (released_.exchange(true)) return;
+    client_.reset();
+    openGate();
+    thread_.join();
 }
 
 bool GestureCounter::isUserActivation(const Json& ev) {

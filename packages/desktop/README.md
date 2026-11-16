@@ -680,13 +680,14 @@ engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`,
   alone calls `Events`. A runtime's query or Intl request (and a hosted
   widget's platform request) goes to its own `widget.answer`, made at the
   first one, where the client's sink answers it as before (the delegate, or
-  the host's `IntlProvider`, on the client's dispatch thread): one runtime
-  waiting for its layout answer stalls no other runtime's frames. An engine's
-  runtime has one such request at a time; a hosted widget has at most one of
-  each kind at once, an Intl request and a platform request, which may wait
-  together. A probe's answer that comes meanwhile is published once none
-  waits any more and their answers were queued, so a probe still returns
-  after everything that came before it.
+  the host's `IntlProvider`, on the client's dispatch thread; a platform
+  request waits there for its responder, which the dispatch thread hands the
+  delegate without waiting): one runtime waiting for its layout answer stalls
+  no other runtime's frames. An engine's runtime has one such request at a
+  time; a hosted widget has at most one of each kind at once, an Intl request
+  and a platform request, which may wait together. A probe's answer that comes
+  meanwhile is published once none waits any more and their answers were
+  queued, so a probe still returns after everything that came before it.
 - A client-mode engine's dispatch thread is `widget.client`, an engine with a
   runtime keeps `widget.sandbox`: a host process whose engines are all remote
   has no thread of that name (JSThread names threads on Apple and Linux).
@@ -700,7 +701,8 @@ engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`,
 
 ### The owner's part
 
-- `Events::runtimes(open)` gives the current count of open runtimes: changes
+- `Events::runtimes(open)` gives the current count of open runtimes, a hosted
+  route whose renderer is kept not among them ("Kept renderers" below): changes
   close together may come as their last count only, so expect the latest
   count, not one report per change. A stream that ends with runtimes open
   reports 0, then `Events::ended(reason)` comes once and last. Both come from
@@ -734,8 +736,8 @@ switch's own stop, or an engine's end that returns before it, fails the run
 133 attacks, 0 leaks, 7 runtimes killed, 133 of them over the stream, every
 per-file row the same as in process.
 
-`twidget-tests remote_stream_` runs 35 tests: the 25 described here and the
-hosted mode's ten `remote_stream_hosted_` (described in its section below).
+`twidget-tests remote_stream_` runs 39 tests: the 25 described here and the
+hosted mode's fourteen `remote_stream_hosted_` (in its section below).
 The 25 check the wire against the tests' own reading of the tables above, both
 ends against scripted bytes, a real `WidgetHost` over the stream (validated
 ops, layout answers, Intl through the host's provider, requests and wallet
@@ -791,9 +793,13 @@ mode, the one its opening names.
   `SandboxEngine::kRemotePlatformLimit` bytes, in its order and in order with
   the widget's other reports, on the host thread), `onPlatformRequest(message,
   respond)` (a request the renderer waits for, one at a time: call `respond`
-  once, from any thread, within `WidgetHost::kPlatformAnswerSeconds`, 3 s;
-  never wait for the widget inside it, its dispatch thread waits for the
-  answer), and `pressDelivered` / `releaseDelivered` (below).
+  once, from any thread, within `WidgetHost::kPlatformAnswerSeconds`, 3 s; the
+  client waits for it on the request's own thread, never on its dispatch
+  thread, but still never wait for the widget inside it: a `probe` from there
+  may wait for the very request it answers), `pressDelivered` /
+  `releaseDelivered` (below), and `keepsRenderer` with `keepRenderer`, which
+  keep the engine process's renderer past the widget ("Kept renderers"
+  below).
 - What hosted mode has not: `renderer()` throws `std::logic_error`; `event()`,
   `onGesture` and `onGestureClaim` do nothing, the renderer's input and its
   gesture claims being its platform traffic; `diagnostics().height` stays 0
@@ -817,16 +823,17 @@ mode, the one its opening names.
   preventDefault, anim, frame requests, theme re-sanitising, `frozen` with the
   host's `stoppedLabel`) and a renderer from the factory. The factory gets the
   opening's resources, the scheme, the width and a `SandboxHostedPlatform`:
-  `send(message)` and `request(message)` (from any thread but the glue's: the
-  host's answer, or nullopt once the runtime closed or the stream ended; one
-  waits at a time, a second waits for the first) towards the host, and
-  `onMessage`, set when the renderer is built, the host's messages in order on
-  the glue's thread. The framework knows no particular renderer. A factory
-  that throws or returns nothing ends only that widget ("the widget could not
-  be built in the engine process: …"); a validator bundle that does not load
-  ends the engine process, every widget on its stream with it, as it ends a
-  host whose validator is in process. The factory never waits for the host
-  (no `request` inside it).
+  `send(message)` and `request(message)` (from any thread, the glue's
+  included, inside `onMessage` and inside the renderer calls the glue makes,
+  but never inside the factory: the host's answer, or nullopt once the runtime
+  closed or the stream ended; one waits at a time, a second waits for the
+  first) towards the host, and `onMessage`, set when the renderer is built, the
+  host's messages in order on the glue's thread. The framework knows no
+  particular renderer. A factory that throws or returns nothing ends only that
+  widget ("the widget could not be built in the engine process: …"); a
+  validator bundle that does not load ends the engine process, every widget on
+  its stream with it, as it ends a host whose validator is in process. The
+  factory never waits for the host (no `request` inside it).
   `serveHosting` is defined in `remote_hosted.cpp`, so a helper that calls only
   `serve` links no `WidgetHost` or validator.
 
@@ -896,6 +903,99 @@ a "press" in a platform message is only a message, and `PressBegan` or
 `Activation` from the engine's side ends the stream as the other direction's
 kinds always did.
 
+### Kept renderers
+
+A hosted widget's renderer can outlive its engine, its validator and its
+`WidgetHost`, so an embedder that keeps a stopped widget's picture (tdesktop
+destroys the host and keeps the renderer) keeps the engine process's document
+behind it. Desktop core only, opt-in: a host that never keeps behaves as
+before, a death included.
+
+- `std::unique_ptr<HostedKeptRenderer> WidgetHost::keepRenderer(Observers)`,
+  hosted only, from the owner's thread: it ends the widget as `destroy()`
+  does (a live one dies "terminated" and `Stop` crosses, never `Close`) and
+  hands its route to the handle, which outlives the `WidgetHost`; destroy
+  that afterwards as usual, its inputs doing nothing. `bool keepsRenderer`
+  (false), read at `start()`, also keeps the route of a widget that dies of
+  its own (a CPU or memory limit, a validator cap, its error): the death the
+  engine process reports leaves the route open, the renderer's traffic still
+  reaching this `WidgetHost`'s `sendPlatform`, `onPlatformMessage` and
+  `onPlatformRequest`, until `keepRenderer` takes it or `destroy()` closes
+  it; unset, such a death closes the route at once, as before. Null, the
+  widget ended as `destroy()` ends it, when there is nothing to keep: a local
+  host, a host never started, destroyed or kept already, a renderer that
+  never announced itself, a route that ended (the stream, a flood, a lost
+  frame, a platform request unanswered or with no `onPlatformRequest`), or a
+  death reported without `keepsRenderer`.
+- The handle: `Observers{onPlatformMessage, onPlatformRequest(message,
+  respond), onEnded(reason)}`, given at the keep and called in order on the
+  handle's own `twidget-host` thread; `sendPlatform(message)`, `ended()`,
+  `remoteBacklog()` (tests) and `release()` (idempotent, also the
+  destructor's: the client is destroyed, its dispatch thread joined and
+  `Close` sent, queued observer calls are dropped, then the handle's thread
+  ends; from the owner's thread, never its own). Nothing else exists on it:
+  no press, grant, haptic, bridge call, request, storage, theme, data, safe
+  area or probe.
+- The keep's boundary: everything the client handed the `WidgetHost` before
+  the keep reaches that host's observers before `keepRenderer` returns, a
+  request among it with a `respond` that still answers after the keep; the
+  handle's observers start after that, with the rest, so each platform
+  message reaches one observer, in order.
+- What crosses a kept route: only the renderer's platform traffic, both ways,
+  under the live widget's bounds (below), one request waiting at a time. The
+  keep clears the grants; every other kind a hosted runtime may send is taken
+  and has no effect (the widget is dead: no action, haptic, copy, storage,
+  request or wallet answer, validated batch or report, and a straggler
+  `Died`, the engine's report of the keep's own stop, closes nothing), its
+  Intl requests are answered "", and what ends a live route's stream (a kind
+  a hosted runtime never sends, a second platform or Intl request, a
+  malformed or oversized frame) ends it on a kept one too.
+- What ends it: the host's `release()`, which the host asked for and hears
+  nothing of; or, reported by `onEnded` once and last (and `ended()`), a
+  flood, a platform request left unanswered 3 s or arriving with no
+  `onPlatformRequest` on the handle, and the end of the stream or of the
+  engine process ("the widget engine process ended"). A dead route, kept or
+  kept open past its death, closes with `Close` alone: its engine is gone, so
+  no `Stop` goes with it.
+- The engine process: every death of a hosted widget's engine (its own limit
+  or the host's `Stop`) keeps the renderer until `Close`. After the death's
+  reports and `frozen`, on the glue's `twidget-host`, the served host's cut
+  stops the renderer's messages to the glue, the engine's queued work and
+  every input but the platform traffic, answers a waiting layout query dead,
+  releases the engine (`SandboxEngine::release()`: `widget.sandbox` joined and
+  its QuickJS context freed, the object left for the references to it) and
+  destroys the validator (`widget.validator` and its context). The renderer,
+  its `SandboxHostedPlatform` and the glue's thread stay; a probe answers
+  "ERROR no runtime". No frame kind is added: a host that keeps withholds
+  `Close`, one that does not sends it right after the death as before, and
+  `Close` destroys the runtime on `widget.reaper` (the loopback: in its
+  destructor) as it always did.
+- The count and the process's lifetime: `Events::runtimes` leaves kept
+  routes out (the client tells its channel, `SandboxHostedChannel::kept()`),
+  so an embedder that idles its engine process at 0 needs no count of its
+  own. The framework neither keeps that process alive for kept renderers nor
+  ends it for them: when it exits, every kept handle hears `onEnded`.
+- Under it, for a delegate of your own: `SandboxEngine::startHosted(start,
+  keepAtDeath)`, `keepHosted(SandboxEngineDelegate&)` (synchronous on the
+  dispatch thread: a live widget's death through the old delegate and
+  `stop("terminated")`, then the grants go, the new delegate hears only
+  platform traffic and the channel hears `kept()`) and
+  `SandboxEngineDelegate::onHostedEnded(engine, reason)`.
+
+```cpp
+host->keepsRenderer = true; // before start(): a death of its own keeps the route too
+host->start();
+// ...the widget stops or dies; the embedder keeps its picture:
+twidget::HostedKeptRenderer::Observers observers;
+observers.onPlatformMessage = [](const std::string& message) { postToRenderer(message); };
+observers.onPlatformRequest = [](const std::string& message, std::function<void(std::string)> respond) { respond(measure(message)); };
+observers.onEnded = [](const std::string& reason) { dropPicture(reason); };
+std::unique_ptr<twidget::HostedKeptRenderer> kept = host->keepRenderer(std::move(observers));
+host.reset();
+if (kept) kept->sendPlatform(resizeMessage);
+kept.reset(); // release(): Close, and the engine process destroys the renderer
+```
+
 ### Bounds
 
 - `PlatformMessage` and `PlatformRequest` strings are cut to
@@ -911,16 +1011,27 @@ kinds always did.
   `Nodes` is clamped to [0, `INT_MAX`]. `Platform` from the host is bound by
   the frame: a message that does not fit loses its runtime.
 - One platform request waits per hosted widget; a second while the first is
-  in the host's hands ends the stream. It goes to its runtime's
-  `widget.answer` and is answered through the client on its dispatch thread,
-  as a query is, so one widget's wait delays no other. Without `respond`
-  within 3 s, or with no `onPlatformRequest` when it arrives, that widget dies
-  with diagnostic `platform-timeout` ("the host's platform did not answer the
-  widget's renderer within 3 s", or "the host's platform answers no requests
-  of the widget's renderer"): its client sends `Stop` and `Close`, the
+  in the host's hands ends the stream (a transport that hands a client a
+  second one anyway gets none for it, a `protocol-violation`). It goes to its
+  runtime's `widget.answer`, and the client waits for it there, on the
+  request's own caller thread (on the loopback, the engine side's caller):
+  its dispatch thread only hands it to the delegate, the asynchronous
+  `SandboxEngineDelegate::onHostedRequest(engine, message,
+  HostedRequestResponder)`, and never waits, so neither that widget's other
+  traffic nor any other widget waits behind it. Without `respond` within
+  `SandboxEngine::kPlatformAnswerSeconds` (3 s) of its arrival, or with no
+  `onPlatformRequest` when it arrives (`respond.unanswered()`), that widget
+  dies with diagnostic `platform-timeout` ("the host's platform did not
+  answer the widget's renderer within 3 s", or "the host's platform answers
+  no requests of the widget's renderer"): its client sends `Stop` and `Close`
+  (`Close` alone for a dead widget's route, a kept one among them), the
   renderer's `request` returns nullopt, a late `respond` changes nothing, and
   the stream's other widgets go on. `destroy()` while a request waits settles
-  it at once, and the widget dies "terminated".
+  it at once, and the widget dies "terminated"; a request that comes once the
+  client closed its route, or is being destroyed, is answered none at once.
+- A kept route has the same bounds: the frame bound and
+  `kRemotePlatformLimit`, the client's queued bytes and calls (counted until
+  the handle's observer returned), one waiting request and its 3 s.
 
 ### Threads
 
@@ -928,14 +1039,32 @@ kinds always did.
   from its first Intl or platform request, `widget.answer`; per stream
   `widget.reader`, `widget.writer` and `widget.monitor`. There is no
   `widget.validator` and no `widget.sandbox` for a hosted widget: no QuickJS
-  runtime in the host.
+  runtime in the host. A kept renderer has the handle's `twidget-host` (its
+  observers) and its client's `widget.client` and `widget.answer`, until its
+  release.
 - The engine process, per hosted widget: the served host's `twidget-host`
   (the glue and every renderer call), `widget.validator`, `widget.sandbox`,
   the renderer's own threads, and `widget.probe` from its first probe; per
   stream `serve`'s caller (the reader, which builds each widget at its start,
   the validator's construction included) and `widget.reaper`. Every library
   thread is a `JSThread`, and a widget's are made while it is built, inside
-  the catch that turns a failure into that widget's death.
+  the catch that turns a failure into that widget's death. A kept renderer
+  keeps the glue's `twidget-host`, its own threads and a `widget.probe`
+  already made, no `widget.sandbox` and no `widget.validator`:
+  `remote_stream_hosted_kept_engine_process_keeps_only_the_renderer` reads
+  them in a child engine process (one of each while live, none while kept).
+- The glue's thread may wait for the platform: a renderer's `request` inside
+  `onMessage` or inside a renderer call the glue makes (a layout that asks
+  for a text's width), live or kept, gets its answer. No thread that answers
+  it ever waits for that glue thread (on a stream the reader posts the
+  request and a frame of the host's answers it; on the loopback the client's
+  record does, and the host thread runs `onPlatformRequest` without waiting),
+  so nothing deadlocks; the engine waits for its glue only in a layout
+  query (3 s), and the glue for its engine only in the cut after the
+  engine's death. Such a wait holds up only that widget's glue (its layout
+  answers, which count against its query budget, its other platform
+  messages, a probe's flush), never another widget's, and a request left
+  unanswered ends that widget alone after 3 s.
 
 ### The lockdown
 
@@ -981,25 +1110,34 @@ runs every widget hosted with `CannedRenderer` (`ready` on load,
 `RecordingHost::cannedAnswer` for every query, no frames), scans the validated
 ops it asked for, and delivers `--events` as the renderer's (a numeric
 `gesture` makes one trusted, framed by `gesture` or `release`); it applies the
-same checks to its streams. 2026-11-16, Debug: 204 tests, 0 failures with
-either value, 19 of 19 fixture widgets hosted (over the stream on 19 streams,
-no frame of a kind that stays in the engine process on any, `ValidatedOps`
-only on the 2 whose widget asked); `--attacks` 133 attacks, 0 leaks, 7
-runtimes killed, the same files and reasons as in process, 133 hosted;
-`--corpus ../../corpus/compat` 19 / 19 loaded, every row's status that of in
-process.
+same checks to its streams. 2026-11-16, Debug, with kept renderers: 214
+tests, 0 failures with either value, 19 of 19 fixture widgets hosted (over the
+stream on 19 streams, no frame of a kind that stays in the engine process on
+any, `ValidatedOps` only on the 2 whose widget asked); `--attacks` 133
+attacks, 0 leaks, 7 runtimes killed, the same files and reasons as in
+process, 133 hosted; `--corpus ../../corpus/compat` 19 / 19 loaded, every
+row's status that of in process.
 
-`twidget-tests hosted_` (19) runs the hosted mode's own tests: the coders, the
+`twidget-tests hosted_` (29) runs the hosted mode's own tests: the coders, the
 hosted client's grants from delivered presses and its bounds against a fake
-channel, the loopback (the whole widget in the engine's side, the tap,
-privileged calls on the host's presses, platform traffic and the 3 s rule,
+channel, the client's kept route (only platform traffic crosses it, and the
+ends it decides: a flood, an unanswered request, the transport's end), the
+loopback (the whole widget in the engine's side, the tap, privileged calls on
+the host's presses, platform traffic and the 3 s rule, a stopped and a dead
+renderer kept, with nothing lost across the keep and one engine and one
+validator thread fewer, what cannot be kept, waits on the glue's thread,
 build failures), a probe behind the safe area and theme that the engine's
-side's glue thread relays, over the loopback and a hosting stream, and
-`remote_stream_hosted_` (10): the wire against the tests' own reading of the
+side's glue thread relays, over the loopback and a hosting stream, a probe
+that answers when its engine's thread stops under it, and
+`remote_stream_hosted_` (14): the wire against the tests' own reading of the
 tables, the hosting opening and the lockdown, the engine's end serving a
 widget, a real `WidgetHost` over the stream with a frame count (and an
 engine-mode control that shows `Ops` and `Query`), a lying engine end written
 frame by frame, hostile frames, a platform flood within the bounds, an
-unanswered request that kills only its runtime among three, and two child
-processes: an engine end that cannot open a file and a host's thread names (no
-`widget.validator` or `widget.sandbox` with three hosted widgets).
+unanswered request that kills only its runtime among three, a stopped and a
+dead renderer kept on one stream (the runtime count, one `Close` at the
+release, the engine process's end), kept routes against a lying engine end,
+a glue-thread wait that holds up no other widget, and three child processes:
+an engine end that cannot open a file, a host's thread names (no
+`widget.validator` or `widget.sandbox` with three hosted widgets) and an
+engine end that keeps only a kept renderer.

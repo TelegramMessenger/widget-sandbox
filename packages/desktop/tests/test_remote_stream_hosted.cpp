@@ -1,4 +1,4 @@
-// A hosting stream's tests (remote_stream.h's hosted kinds, `SandboxRemoteEngineEnd::serveHosting` and `SandboxRemoteHostEnd::startHosting`: the wire, the engine process's end and a hosted widget on it, the host's end with hosted WidgetHosts over real and lying ends, hostile frames, a flood, an unanswered request, an engine process that reads no file and a host process whose widgets are all hosted), in the suite after the byte stream's other tests: `twidget-tests remote_stream_hosted_`.
+// A hosting stream's tests (remote_stream.h's hosted kinds, `SandboxRemoteEngineEnd::serveHosting` and `SandboxRemoteHostEnd::startHosting`: the wire, the engine process's end and a hosted widget on it, the host's end with hosted WidgetHosts over real and lying ends, hostile frames, a flood, an unanswered request, renderers kept past their engines over real and lying ends, waits on the glue's thread, an engine process that reads no file, one that keeps only a kept renderer and a host process whose widgets are all hosted), in the suite after the byte stream's other tests: `twidget-tests remote_stream_hosted_`.
 #include "test_support.h"
 #include "test_remote_support.h"
 #include "test_remote_stream_support.h"
@@ -565,13 +565,14 @@ static std::vector<std::string> diagsOf(const WidgetDiagnostics& d, const std::s
 /// How a hosted widget dies when its host's platform let its renderer's request go unanswered (WidgetHost's `kPlatformAnswerSeconds`).
 static const std::string kPlatformLate = "the host's platform did not answer the widget's renderer within 3 s";
 
-/// A hosted WidgetHost on `end`'s hosting stream (its `hostedChannel`), `width` px wide (what the engine end's renderer factory gets), started: its Intl provider answers `intlAnswer`, its platform requests are answered "answer:<message>" (with `answering` false each responder is kept and never called); what reached its callbacks, in order under a lock: each validated batch (asked for before its start), platform message and platform request, each request and wallet call with its responder.
+/// A hosted WidgetHost on `end`'s hosting stream (its `hostedChannel`), `width` px wide (what the engine end's renderer factory gets), started after `configure` ran on it: its Intl provider answers `intlAnswer`, its platform requests are answered "answer:<message>" (with `answering` false each responder is kept and never called); what reached its callbacks, in order under a lock: each validated batch (asked for before its start), platform message and platform request, each request and wallet call with its responder.
 struct HostedStreamHost {
     using Respond = std::function<void(const WidgetRequestOutcome&)>;
     const std::shared_ptr<StreamIntl> intl = std::make_shared<StreamIntl>();
     std::unique_ptr<WidgetHost> host;
 
-    HostedStreamHost(SandboxRemoteHostEnd& end, const char* html, WidgetHostOptions options, double width, std::string intlAnswer, bool answering = true) {
+    HostedStreamHost(SandboxRemoteHostEnd& end, const char* html, WidgetHostOptions options, double width, std::string intlAnswer, bool answering = true,
+                     const std::function<void(WidgetHost&)>& configure = nullptr) {
         intl->answer = std::move(intlAnswer);
         host = std::make_unique<WidgetHost>(html, WidgetTheme{}, width, std::move(options), end.hostedChannel(), intl);
         host->onRenderOps = [this](const std::string& ops) {
@@ -595,6 +596,7 @@ struct HostedStreamHost {
         };
         host->onRequest = [this](const WidgetRequest& request, Respond respond) { keep("request:" + request.data + (request.wallet ? ":wallet" : ""), std::move(respond)); };
         host->onWallet = [this](const WalletCall& call, Respond respond) { keep("wallet:" + std::string(call.methodName()) + ":" + call.data + ":" + call.payload.text.value_or(""), std::move(respond)); };
+        if (configure) configure(*host);
         host->start();
     }
     /// The WidgetHost goes first: it joins its threads while what its callbacks use still lives.
@@ -1084,6 +1086,456 @@ TEST(remote_stream_hosted_unanswered_request_kills_only_its_runtime) {
     CHECK(built.count() == 3);
 }
 
+// ───────────── a kept renderer over the stream (WidgetHost::keepRenderer) ─────────────
+
+/// How a hosted widget dies when the engine process sent more than its client keeps queued.
+static const std::string kFloodedReason = "the widget engine process sent more than the host keeps queued";
+
+/// What a kept renderer's observers heard, in order under a lock: "message:<m>", "request:<m>" and "ended:<reason>" (and when that came). A request is answered "answer:<m>" unless it is `hold`, whose `respond` is kept for the test; the message `block` waits on `gate` on the handle's thread before it is noted.
+struct KeptObservers {
+    /// Set before `observers()` is handed over.
+    std::string hold;
+    std::string block;
+    Gate* gate = nullptr;
+
+    HostedKeptRenderer::Observers observers() {
+        HostedKeptRenderer::Observers o;
+        o.onPlatformMessage = [this](const std::string& message) {
+            if (gate && message == block) gate->wait();
+            std::lock_guard<std::mutex> l(mutex_);
+            events_.push_back("message:" + message);
+        };
+        o.onPlatformRequest = [this](const std::string& message, std::function<void(std::string)> respond) {
+            {
+                std::lock_guard<std::mutex> l(mutex_);
+                events_.push_back("request:" + message);
+                if (!hold.empty() && message == hold) return held_.push_back(std::move(respond));
+            }
+            respond("answer:" + message);
+        };
+        o.onEnded = [this](const std::string& reason) {
+            std::lock_guard<std::mutex> l(mutex_);
+            events_.push_back("ended:" + reason);
+            endedAt_ = std::chrono::steady_clock::now();
+        };
+        return o;
+    }
+    std::vector<std::string> events() {
+        std::lock_guard<std::mutex> l(mutex_);
+        return events_;
+    }
+    /// The messages heard that begin with `prefix`, in order.
+    std::vector<std::string> messages(const std::string& prefix = "") {
+        std::vector<std::string> out;
+        for (const std::string& e : events())
+            if (e.rfind("message:" + prefix, 0) == 0) out.push_back(e.substr(8));
+        return out;
+    }
+    bool heard(const std::string& message) { return has(events(), "message:" + message); }
+    std::vector<std::string> ends() {
+        std::vector<std::string> out;
+        for (const std::string& e : events())
+            if (e.rfind("ended:", 0) == 0) out.push_back(e.substr(6));
+        return out;
+    }
+    /// When the first `onEnded` came, nullopt before it.
+    std::optional<std::chrono::steady_clock::time_point> endedAt() {
+        std::lock_guard<std::mutex> l(mutex_);
+        return endedAt_;
+    }
+    /// The `i`th kept responder, empty before it came.
+    std::function<void(std::string)> held(size_t i) {
+        std::lock_guard<std::mutex> l(mutex_);
+        return i < held_.size() ? held_[i] : nullptr;
+    }
+    size_t count() {
+        std::lock_guard<std::mutex> l(mutex_);
+        return events_.size();
+    }
+
+private:
+    std::mutex mutex_;
+    std::vector<std::string> events_;
+    std::vector<std::function<void(std::string)>> held_;
+    std::optional<std::chrono::steady_clock::time_point> endedAt_;
+};
+
+/// A widget that dies of its CPU limit soon after it loaded.
+static const char* kDiesSoon = "<p>kept</p><script>setTimeout(function () { for (;;) {} }, 300);</script>";
+
+/// The host's frames of `runtime` the engine's side of `counted` read, of every kind.
+static size_t hostFramesOf(CountingStream& counted, uint32_t runtime) {
+    size_t n = 0;
+    for (int kind = 0; kind <= UINT8_MAX; kind++) n += counted.readOf(uint8_t(kind), runtime);
+    return n;
+}
+
+/// A kept renderer's traffic both ways through its handle: 20 `say:<tag><i>` heard back in order, an `ask:` the renderer makes on a thread of its own and a `wait:` it makes on the glue's thread, each answered through the handle; "" when all came within 5 s, else what was heard.
+static std::string keptTraffic(HostedKeptRenderer& kept, KeptObservers& heard, const std::string& tag) {
+    std::vector<std::string> said;
+    for (int i = 1; i <= 20; i++) {
+        said.push_back(tag + std::to_string(i));
+        kept.sendPlatform("say:" + said.back());
+    }
+    kept.sendPlatform("ask:" + tag + "-thread");
+    kept.sendPlatform("wait:" + tag + "-glue");
+    const bool came = eventually([&] { return heard.messages(tag).size() >= said.size() && heard.heard("got:answer:" + tag + "-thread") && heard.heard("waited:answer:" + tag + "-glue"); });
+    return came && heard.messages(tag) == said ? std::string() : tag + ": " + joined(heard.events());
+}
+
+/// A stopped and a dead kept renderer on one stream between real ends: one its host stopped (`keepRenderer` on a live widget, `Stop` once) and one dead of its own CPU limit (`keepsRenderer`: the WidgetHost still has its traffic past the death and the route still counts); each keep takes one runtime out of `Events::runtimes` while the stream goes on. With both WidgetHosts gone each handle carries 20 messages each way in order and gets a request of the renderer's own thread and one of the glue's thread answered; no `Close` crosses for either until its release, exactly one after it and no frame of that runtime after that, its renderer goes, and the other still answers. Then the engine's side closes its end, as an exiting engine process: the other handle hears `onEnded("the widget engine process ended")` once and last, its renderer goes, and the released one hears nothing.
+TEST(remote_stream_hosted_kept_renderers) {
+    const auto stoppedGone = std::make_shared<std::atomic<bool>>(false), deadGone = std::make_shared<std::atomic<bool>>(false);
+    std::atomic<int> made{0};
+    BuiltRenderers built;
+    StreamPeers peers(kBuild, *RES, nullptr, built.factory([&](HostedTestRenderer& r) { r.gone = made++ ? deadGone : stoppedGone; }));
+    CountingStream& counted = *peers.counted;
+    KeptObservers stoppedHeard, deadHeard;
+    std::unique_ptr<HostedKeptRenderer> stoppedKept, deadKept;
+    {
+        // One after the other, so the stopped widget is runtime 1 and its renderer the first built.
+        HostedStreamHost stopped(*peers.end, "<p>stopped</p>", WidgetHostOptions(), 300, "INTL");
+        CHECK(stopped.shown());
+        HostedStreamHost dead(*peers.end, kDiesSoon, WidgetHostOptions(), 300, "INTL", true, [](WidgetHost& h) { h.keepsRenderer = true; });
+        CHECK(dead.shown());
+        CHECK_MSG(eventually([&] { return peers.events.open() == 2; }), joined(peers.events.all()));
+        CHECK(dead.host->waitUntil(died, 10));
+        const std::string reason = dead.host->diagnostics().dead.value_or("");
+        CHECK_MSG(reason.rfind("CPU limit exceeded", 0) == 0, reason);
+        dead.host->sendPlatform("say:past the death");
+        CHECK_MSG(eventually([&] { return has(dead.messages(), "past the death"); }), joined(dead.messages()));
+        CHECK_MSG(peers.events.open() == 2 && counted.readOf(wire::Close) == 0, joined(peers.events.all()));
+        stoppedKept = stopped.host->keepRenderer(stoppedHeard.observers());
+        CHECK(stoppedKept);
+        CHECK_MSG(eventually([&] { return peers.events.open() == 1; }), joined(peers.events.all()));
+        deadKept = dead.host->keepRenderer(deadHeard.observers());
+        CHECK(deadKept);
+        CHECK_MSG(eventually([&] { return peers.events.open() == 0; }), joined(peers.events.all()));
+    }
+    if (!stoppedKept || !deadKept) return;
+    CHECK_MSG(eventually([&] { return counted.readOf(wire::Stop, 1) == 1; }), std::to_string(counted.readOf(wire::Stop, 1)) + " stops");
+    const std::string stoppedTraffic = keptTraffic(*stoppedKept, stoppedHeard, "s");
+    CHECK_MSG(stoppedTraffic.empty(), stoppedTraffic);
+    const std::string deadTraffic = keptTraffic(*deadKept, deadHeard, "d");
+    CHECK_MSG(deadTraffic.empty(), deadTraffic);
+    CHECK_MSG(counted.readOf(wire::Close) == 0 && counted.readOf(wire::Stop, 2) == 0, std::to_string(counted.readOf(wire::Close)) + " closes");
+    CHECK(!*stoppedGone && !*deadGone && !stoppedKept->ended() && !deadKept->ended());
+    CHECK_MSG(!peers.events.ended() && peers.events.open() == 0, joined(peers.events.all()));
+    CHECK(built.count() == 2);
+
+    stoppedKept->release();
+    CHECK_MSG(eventually([&] { return counted.readOf(wire::Close, 1) == 1; }), std::to_string(counted.readOf(wire::Close, 1)) + " closes");
+    CHECK_MSG(eventually([&] { return stoppedGone->load(); }), "the released renderer is still in the engine end");
+    const size_t closedAt = hostFramesOf(counted, 1);
+    const size_t heardAt = stoppedHeard.count();
+    stoppedKept->sendPlatform("say:after the release");
+    const std::string otherTraffic = keptTraffic(*deadKept, deadHeard, "e");
+    CHECK_MSG(otherTraffic.empty(), otherTraffic);
+    CHECK_MSG(counted.readOf(wire::Close, 1) == 1 && hostFramesOf(counted, 1) == closedAt, std::to_string(hostFramesOf(counted, 1)) + " frames for " + std::to_string(closedAt));
+    CHECK(counted.readOf(wire::Close, 2) == 0 && stoppedHeard.count() == heardAt && !*deadGone);
+
+    peers.pair.engine->close();
+    CHECK_MSG(eventually([&] { return !deadHeard.ends().empty(); }), joined(deadHeard.events()));
+    CHECK_MSG(deadHeard.ends() == std::vector<std::string>{kEngineGone} && deadHeard.events().back() == "ended:" + kEngineGone, joined(deadHeard.events()));
+    CHECK(deadKept->ended() && peers.events.ended().has_value());
+    CHECK_MSG(eventually([&] { return deadGone->load(); }), "the other renderer outlived its engine process's end");
+    deadKept->release();
+    CHECK_MSG(deadHeard.ends().size() == 1 && stoppedHeard.ends().empty() && !stoppedKept->ended(), joined(stoppedHeard.events()));
+}
+
+/// The bridge call of runtime `runtime` an engine end writes by hand.
+static std::string bridgeOn(uint32_t runtime, const std::string& method, const std::string& args) { return FrameBytes(runtime, wire::Bridge).str(method).str(args).bytes(); }
+
+/// One frame of each kind a hosted runtime may send on `runtime` but its renderer's platform traffic, ending with an Intl request: the calls a kept route takes and drops.
+static std::string keptRouteJunk(uint32_t runtime) {
+    FrameBytes stats(runtime, wire::Stats);
+    for (size_t i = 0; i < SandboxRemoteCoding::kStatsFields; i++) stats.f64(0);
+    return bridgeOn(runtime, "openLink", linkArgs("https://example.com/kept")) + bridgeOn(runtime, "haptic", "[\"selection\"]") + FrameBytes(runtime, wire::CopyText).str("kept").bytes() +
+           FrameBytes(runtime, wire::Request).i64(1).str("kept").boolean(0).bytes() + FrameBytes(runtime, wire::Wallet).i64(2).str("{}").bytes() +
+           FrameBytes(runtime, wire::Storage).str("{\"local\":{\"k\":\"v\"}}").bytes() + FrameBytes(runtime, wire::ResizeAnchor).str("bottom").bytes() +
+           FrameBytes(runtime, wire::WatchesPublicData).boolean(1).bytes() + bare(runtime, wire::Loaded) + stats.bytes() + logFrame(runtime, "kept") +
+           FrameBytes(runtime, wire::Diag).str("kind").str("kept").bytes() + FrameBytes(runtime, wire::ValidatedOps).str("[]").bytes() + bare(runtime, wire::RendererReady) +
+           bare(runtime, wire::Rendered) + FrameBytes(runtime, wire::Nodes).i64(3).bytes() + FrameBytes(runtime, wire::Died).str("later").bytes() + bare(runtime, wire::TaskStarted) +
+           bare(runtime, wire::TaskCompleted) + intlFrame(runtime, "{\"kind\":\"number\",\"value\":1}");
+}
+
+/// The host's frames of `runtime` that begin with `prefix`, as `describeHost` gives them.
+static std::vector<std::string> framesWith(ScriptedEngine& engine, uint32_t runtime, const std::string& prefix) {
+    std::vector<std::string> out;
+    for (const std::string& frame : engine.frames(runtime))
+        if (frame.rfind(prefix, 0) == 0) out.push_back(frame);
+    return out;
+}
+
+/// A lying engine end against kept routes (ScriptedEngine on a hosting stream): three hosted WidgetHosts with `keepsRenderer` whose renderers announced themselves and which then, by the engine end's word, died are kept, with no `Stop` or `Close` at the keep, and destroyed. On a kept route every kind a hosted runtime may send but its platform traffic has no effect (the bridge's link and haptic, copyText, a request, a wallet call, storage, the resize anchor, the public data watch, loaded, stats, a log, a diagnostic, validated ops, renderer ready, rendered, nodes, a death, a task) and the host writes no `Answer`, `Stop` or `Close` for it; its Intl request is answered "", the handle hears only the platform message after them and the backlog returns to 0; a platform message past `kRemotePlatformLimit` within the frame bound is dropped and the next one heard. A request the handle leaves unanswered ends that route 3 to 4 s later (`onEnded` with the 3 s reason, `Close` alone: its widget is dead, and no answer for a late `respond`) while the second runtime still hears its messages; a flood on the third while its handle's thread is held ends that route once (`Close` alone, the backlog within the bounds and then 0, `onEnded` flooded after every message the client took), the stream going on for the second; a second waiting request on the second ends the stream as on a live route, its handle hears `onEnded("the widget engine process ended")`, and no handle hears a second end. On a fresh stream a malformed frame on a kept route ends it: that kept handle hears the same, and a live widget with `keepsRenderer` killed by it keeps nothing.
+TEST(remote_stream_hosted_kept_route_against_a_lying_engine_end) {
+    const std::string lied = "CPU limit exceeded (by the engine end's word)";
+    ScriptedEngine engine({}, true);
+    Gate holding;
+    KeptObservers heard[3];
+    heard[0].hold = "never";
+    heard[1].hold = "first";
+    heard[2].block = "hold";
+    heard[2].gate = &holding;
+    std::unique_ptr<HostedKeptRenderer> kept[3];
+    {
+        std::vector<std::unique_ptr<WidgetHost>> hosts;
+        for (int i = 0; i < 3; i++) {
+            hosts.push_back(std::make_unique<WidgetHost>("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), engine.host().hostedChannel()));
+            hosts.back()->keepsRenderer = true;
+            hosts.back()->start();
+        }
+        CHECK_MSG(eventually([&] { return engine.saw(1, "hosted-start") && engine.saw(2, "hosted-start") && engine.saw(3, "hosted-start"); }), joined(engine.frames(3)));
+        CHECK(engine.ready());
+        std::string born;
+        for (uint32_t runtime = 1; runtime <= 3; runtime++) born += bare(runtime, wire::RendererReady) + FrameBytes(runtime, wire::Died).str(lied).bytes();
+        CHECK(engine.send(born));
+        for (int i = 0; i < 3; i++) {
+            CHECK_MSG(hosts[i]->waitUntil(died, 5) && hosts[i]->diagnostics().dead == std::optional<std::string>(lied), hosts[i]->diagnostics().dead.value_or("alive"));
+            kept[i] = hosts[i]->keepRenderer(heard[i].observers());
+            CHECK_MSG(kept[i], "runtime " + std::to_string(i + 1) + " kept nothing");
+        }
+    }
+    if (!kept[0] || !kept[1] || !kept[2]) {
+        holding.open();
+        return;
+    }
+
+    CHECK(engine.send(keptRouteJunk(1)));
+    CHECK_MSG(eventually([&] { return engine.saw(1, "intl-answer:"); }), joined(engine.frames(1)));
+    CHECK(engine.send(platformMessageFrame(1, "only this")));
+    CHECK_MSG(eventually([&] { return !heard[0].events().empty(); }), "nothing heard");
+    CHECK_MSG(heard[0].events() == std::vector<std::string>{"message:only this"}, joined(heard[0].events()));
+    CHECK_MSG(eventually([&] { return backlogIs(*kept[0], 0, 0); }), backlogText(*kept[0]));
+    for (uint32_t runtime = 1; runtime <= 3; runtime++)
+        CHECK_MSG(framesWith(engine, runtime, "stop:").empty() && framesWith(engine, runtime, "close").empty() && framesWith(engine, runtime, "answer:").empty(), joined(engine.frames(runtime)));
+    const size_t limit = SandboxEngine::kRemotePlatformLimit;
+    CHECK(engine.send(platformMessageFrame(1, std::string(limit + 1, 'p')) + platformMessageFrame(1, "next")));
+    CHECK_MSG(eventually([&] { return heard[0].heard("next"); }, 10), joined(heard[0].events()));
+    CHECK_MSG((heard[0].messages() == std::vector<std::string>{"only this", "next"}), joined(heard[0].events()));
+
+    // An unanswered request ends its route alone, after 3 s; the second runtime is heard meanwhile.
+    const auto asked = std::chrono::steady_clock::now();
+    CHECK(engine.send(platformRequestFrame(1, "never")));
+    CHECK_MSG(eventually([&] { return has(heard[0].events(), "request:never"); }), joined(heard[0].events()));
+    for (int i = 1; i <= 3; i++) {
+        const std::string message = "meanwhile " + std::to_string(i);
+        CHECK(engine.send(platformMessageFrame(2, message)));
+        CHECK_MSG(eventually([&] { return heard[1].heard(message); }), joined(heard[1].events()));
+    }
+    const double meanwhile = msSince(asked);
+    CHECK_MSG(meanwhile < 3000 && !kept[0]->ended(), std::to_string(meanwhile) + " ms");
+    CHECK_MSG(eventually([&] { return heard[0].endedAt().has_value(); }, 6), joined(heard[0].events()));
+    const double waited = std::chrono::duration<double>(heard[0].endedAt().value_or(asked) - asked).count();
+    CHECK_MSG(waited >= SandboxEngine::kPlatformAnswerSeconds && waited < SandboxEngine::kPlatformAnswerSeconds + 1, std::to_string(waited) + " s");
+    printf("    the kept route's unanswered request ended it %.2f s after it\n", waited);
+    CHECK_MSG(heard[0].ends() == std::vector<std::string>{kPlatformLate} && kept[0]->ended(), joined(heard[0].events()));
+    CHECK_MSG(eventually([&] { return framesWith(engine, 1, "close").size() == 1; }), joined(engine.frames(1)));
+    if (const std::function<void(std::string)> late = heard[0].held(0)) late("too late");
+    CHECK_MSG(!kept[1]->ended() && !kept[2]->ended() && heard[1].ends().empty(), joined(heard[1].events()));
+
+    // A flood on the third while its handle's thread is held.
+    CHECK(engine.send(platformMessageFrame(3, "hold")));
+    CHECK(holding.waitedOn());
+    std::atomic<bool> flooding{true};
+    std::atomic<size_t> maxBytes{0}, maxCalls{0};
+    Background<bool> watching([&] {
+        while (flooding) {
+            const SandboxEngine::RemoteBacklog b = kept[2]->remoteBacklog();
+            maxBytes = std::max(maxBytes.load(), b.bytes);
+            maxCalls = std::max(maxCalls.load(), b.calls);
+            std::this_thread::yield();
+        }
+        return true;
+    });
+    const size_t total = SandboxEngine::kRemoteQueuedCalls + 256;
+    std::string batch;
+    size_t during = 0;
+    for (size_t i = 1; i <= total; i++) {
+        batch += platformMessageFrame(3, "f" + std::to_string(i));
+        if (i % 2048 && i != total) continue;
+        batch += platformMessageFrame(2, "during " + std::to_string(++during));
+        CHECK(engine.send(batch));
+        batch.clear();
+    }
+    CHECK_MSG(eventually([&] { return heard[1].heard("during " + std::to_string(during)); }, 10), joined(heard[1].messages("during ")));
+    CHECK_MSG(eventually([&] { return !framesWith(engine, 3, "close").empty(); }, 10), joined(engine.frames(3)));
+    flooding = false;
+    CHECK(watching.finish(5));
+    std::vector<std::string> duringAll;
+    for (size_t i = 1; i <= during; i++) duringAll.push_back("during " + std::to_string(i));
+    CHECK_MSG(heard[1].messages("during ") == duringAll, firstDifference(heard[1].messages("during "), duringAll));
+    CHECK_MSG(framesWith(engine, 3, "close").size() == 1 && framesWith(engine, 3, "stop:").empty() && kept[2]->ended(), joined(engine.frames(3)));
+    // Held at the bound: "hold" and the first messages after it, `kRemoteQueuedCalls` in all; the next refused, the route ended.
+    size_t heldBytes = std::string("hold").size();
+    for (size_t i = 1; i < SandboxEngine::kRemoteQueuedCalls; i++) heldBytes += 1 + std::to_string(i).size();
+    const size_t tried = 1 + std::to_string(SandboxEngine::kRemoteQueuedCalls).size();
+    CHECK_MSG(backlogIs(*kept[2], heldBytes, SandboxEngine::kRemoteQueuedCalls), backlogText(*kept[2]));
+    CHECK_MSG(maxCalls <= SandboxEngine::kRemoteQueuedCalls + 1 && maxBytes <= heldBytes + tried && heldBytes + tried < SandboxEngine::kRemoteQueuedBytes,
+              std::to_string(maxBytes) + " bytes, " + std::to_string(maxCalls) + " calls");
+    CHECK_MSG(heard[2].ends().empty(), joined(heard[2].ends()));
+    holding.open();
+    CHECK_MSG(eventually([&] { return backlogIs(*kept[2], 0, 0); }, 10), backlogText(*kept[2]));
+    CHECK_MSG(eventually([&] { return !heard[2].ends().empty(); }, 10), "no end heard");
+    const std::vector<std::string> flooded = heard[2].events();
+    CHECK_MSG(flooded.size() == SandboxEngine::kRemoteQueuedCalls + 1 && flooded.front() == "message:hold" && flooded.back() == "ended:" + kFloodedReason && heard[2].ends().size() == 1,
+              std::to_string(flooded.size()) + " events, the last " + (flooded.empty() ? std::string() : flooded.back()));
+    CHECK_MSG(!engine.events().ended(), joined(engine.events().all()));
+    CHECK(engine.send(platformMessageFrame(2, "after the flood")));
+    CHECK_MSG(eventually([&] { return heard[1].heard("after the flood"); }), joined(heard[1].messages("after")));
+
+    // A second waiting request on the second ends the stream, as on a live route.
+    CHECK(engine.send(platformRequestFrame(2, "first")));
+    CHECK_MSG(eventually([&] { return has(heard[1].events(), "request:first"); }), joined(heard[1].events()));
+    CHECK(engine.send(platformRequestFrame(2, "second")));
+    CHECK_MSG(eventually([&] { return engine.events().ended().has_value(); }, 2), joined(engine.events().all()));
+    CHECK_MSG(endsOnce(engine.events().all(), "kind 97 on runtime 2 while its platform request is unanswered"), joined(engine.events().all()));
+    CHECK_MSG(eventually([&] { return !heard[1].ends().empty(); }), joined(heard[1].events()));
+    CHECK_MSG(heard[1].ends() == std::vector<std::string>{kEngineGone} && heard[1].events().back() == "ended:" + kEngineGone && kept[1]->ended(), joined(heard[1].events()));
+    if (const std::function<void(std::string)> late = heard[1].held(0)) late("too late");
+    for (KeptObservers& h : heard) CHECK_MSG(h.ends().size() == 1, joined(h.ends()));
+    for (uint32_t runtime = 1; runtime <= 3; runtime++)
+        CHECK_MSG(framesWith(engine, runtime, "platform-answer:").empty() && framesWith(engine, runtime, "answer:").empty() && framesWith(engine, runtime, "stop:").empty(), joined(engine.frames(runtime)));
+    for (std::unique_ptr<HostedKeptRenderer>& k : kept) k->release();
+    for (KeptObservers& h : heard) CHECK_MSG(h.ends().size() == 1, joined(h.ends()));
+
+    // A malformed frame on the kept route of a fresh stream: that route learns the end, and the live widget it killed keeps nothing.
+    ScriptedEngine fresh({}, true);
+    KeptObservers keptHeard, liveHeard;
+    std::unique_ptr<HostedKeptRenderer> handle;
+    auto dying = std::make_unique<WidgetHost>("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), fresh.host().hostedChannel());
+    WidgetHost live("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), fresh.host().hostedChannel());
+    dying->keepsRenderer = live.keepsRenderer = true;
+    dying->start();
+    live.start();
+    CHECK_MSG(eventually([&] { return fresh.saw(1, "hosted-start") && fresh.saw(2, "hosted-start"); }), joined(fresh.frames(2)));
+    CHECK(fresh.ready());
+    CHECK(fresh.send(bare(1, wire::RendererReady) + FrameBytes(1, wire::Died).str(lied).bytes() + bare(2, wire::RendererReady)));
+    CHECK(dying->waitUntil(died, 5));
+    CHECK(live.waitUntil([](const WidgetDiagnostics& d) { return d.rendererReadyMs.has_value(); }, 5) && !live.diagnostics().dead);
+    handle = dying->keepRenderer(keptHeard.observers());
+    CHECK(handle);
+    dying.reset();
+    CHECK(fresh.send(FrameBytes(1, wire::Nodes).raw("x").bytes()));
+    CHECK_MSG(eventually([&] { return fresh.events().ended().has_value(); }, 2), joined(fresh.events().all()));
+    CHECK_MSG(endsOnce(fresh.events().all(), "kind 101 with a field past the frame's end"), joined(fresh.events().all()));
+    CHECK_MSG(eventually([&] { return !keptHeard.ends().empty(); }), joined(keptHeard.events()));
+    CHECK_MSG(keptHeard.ends() == std::vector<std::string>{kEngineGone} && handle && handle->ended(), joined(keptHeard.events()));
+    CHECK_MSG(live.waitUntil(died, 5) && live.diagnostics().dead == std::optional<std::string>(kEngineGone), live.diagnostics().dead.value_or("alive"));
+    CHECK(!live.keepRenderer(liveHeard.observers()));
+    CHECK(liveHeard.count() == 0);
+    if (handle) handle->release();
+}
+
+/// What an engine end's renderer did with its platform, kept by the test past the renderer: each message it sent and each request's answer, in order, under a lock.
+struct PlatformTap {
+    std::mutex mutex;
+    std::vector<std::string> sent;
+    std::vector<std::optional<std::string>> answers;
+
+    bool hasSent(const std::string& message) {
+        std::lock_guard<std::mutex> l(mutex);
+        return std::find(sent.begin(), sent.end(), message) != sent.end();
+    }
+    std::vector<std::optional<std::string>> answered() {
+        std::lock_guard<std::mutex> l(mutex);
+        return answers;
+    }
+};
+
+/// A renderer's platform that tells its tap what the renderer sends and what its requests got, and passes every call on to the runtime's platform (whose messages it hands to its own `onMessage`); it goes with its renderer, once the glue's thread, the only one that calls `onMessage`, has ended.
+class TappedPlatform final : public SandboxHostedPlatform {
+public:
+    TappedPlatform(std::shared_ptr<SandboxHostedPlatform> platform, std::shared_ptr<PlatformTap> tap) : platform_(std::move(platform)), tap_(std::move(tap)) {
+        platform_->onMessage = [this](const std::string& message) {
+            if (onMessage) onMessage(message);
+        };
+    }
+    ~TappedPlatform() override { platform_->onMessage = nullptr; }
+    TappedPlatform(const TappedPlatform&) = delete;
+    TappedPlatform& operator=(const TappedPlatform&) = delete;
+
+    void send(const std::string& message) override {
+        {
+            std::lock_guard<std::mutex> l(tap_->mutex);
+            tap_->sent.push_back(message);
+        }
+        platform_->send(message);
+    }
+    std::optional<std::string> request(const std::string& message) override {
+        std::optional<std::string> answer = platform_->request(message);
+        {
+            std::lock_guard<std::mutex> l(tap_->mutex);
+            tap_->answers.push_back(answer);
+        }
+        return answer;
+    }
+
+private:
+    const std::shared_ptr<SandboxHostedPlatform> platform_;
+    const std::shared_ptr<PlatformTap> tap_;
+};
+
+/// A glue thread's wait holds up no other widget: two hosted widgets on one stream between real ends. A's renderer waits on its glue's thread inside `onMessage` (`wait:`) for a request A's host keeps unanswered; meanwhile B, built after that, whose renderer also asks inside the glue's call that hands it each batch (`askOnOps`), loads, renders with its layout answer and Intl, answers a probe and exchanges a `say:` and a `wait:` both ways, all within 3 s of A's request. A dies 3 to 4 s after it with `platform-timeout`, its renderer's request on the glue's thread returns nullopt (it sends `waited:none`) and the renderer goes; `Stop` and `Close` crossed for A only, a late answer changes nothing, B goes on and the stream does not end.
+TEST(remote_stream_hosted_glue_thread_waits_hold_up_no_other_widget) {
+    const auto tapA = std::make_shared<PlatformTap>(), tapB = std::make_shared<PlatformTap>();
+    const auto goneA = std::make_shared<std::atomic<bool>>(false), goneB = std::make_shared<std::atomic<bool>>(false);
+    StreamPeers peers(kBuild, *RES, nullptr, [&](std::shared_ptr<SandboxResources>, const std::string&, double width, std::shared_ptr<SandboxHostedPlatform> platform) -> std::unique_ptr<Renderer> {
+        const bool a = width == 301;
+        auto renderer = std::make_unique<HostedTestRenderer>(std::make_shared<TappedPlatform>(std::move(platform), a ? tapA : tapB));
+        tall(*renderer);
+        renderer->askOnOps = !a;
+        renderer->gone = a ? goneA : goneB;
+        return renderer;
+    });
+    CountingStream& counted = *peers.counted;
+    HostedStreamHost a(*peers.end, kHostWidget, WidgetHostOptions(), 301, "INTL-A", false);
+    CHECK(a.shown() && a.renders("h:20"));
+    const auto since = std::chrono::steady_clock::now();
+    a.host->sendPlatform("wait:held");
+    CHECK_MSG(eventually([&] { return a.requests() == std::vector<std::string>{"held"}; }), joined(a.requests()));
+
+    HostedStreamHost b(*peers.end, kHostWidget, WidgetHostOptions(), 302, "INTL-B");
+    CHECK(b.shown());
+    CHECK_MSG(b.renders("h:20") && b.renders("n:INTL-B"), b.rendered().substr(0, 500));
+    CHECK(b.host->probe("d.textContent") == "h:20");
+    b.host->sendPlatform("say:b");
+    b.host->sendPlatform("wait:b");
+    CHECK_MSG(eventually([&] { return has(b.messages(), "b") && has(b.messages(), "waited:answer:b"); }), joined(b.messages()));
+    const double meanwhile = msSince(since);
+    CHECK_MSG(meanwhile < 3000 && !a.host->diagnostics().dead, std::to_string(meanwhile) + " ms after A's request");
+    size_t laid = 0;
+    for (const std::string& m : b.messages()) {
+        if (m.rfind("laid:", 0) != 0) continue;
+        const std::string n = std::to_string(++laid);
+        CHECK_MSG(m == "laid:" + n + ":answer:laid:" + n, m);
+    }
+    CHECK_MSG(laid > 0, joined(b.messages()));
+
+    CHECK(a.host->waitUntil(died, 6));
+    const double waited = msSince(since) / 1000;
+    CHECK_MSG(waited >= WidgetHost::kPlatformAnswerSeconds && waited < WidgetHost::kPlatformAnswerSeconds + 1, std::to_string(waited) + " s");
+    printf("    B shown and answered %.0f ms after A's request; A dead %.2f s after it\n", meanwhile, waited);
+    const WidgetDiagnostics d = a.host->diagnostics();
+    CHECK_MSG(d.dead == std::optional<std::string>(kPlatformLate), d.dead.value_or("alive"));
+    CHECK(diagsOf(d, "platform-timeout") == std::vector<std::string>{kPlatformLate});
+    CHECK_MSG(eventually([&] { return tapA->hasSent("waited:none"); }), "A's renderer is still waiting");
+    CHECK(tapA->answered() == std::vector<std::optional<std::string>>{std::nullopt});
+    CHECK_MSG(eventually([&] { return goneA->load(); }), "A's renderer is still in the engine end");
+    CHECK_MSG(eventually([&] { return counted.readOf(wire::Stop, 1) == 1 && counted.readOf(wire::Close, 1) == 1; }),
+              std::to_string(counted.readOf(wire::Stop, 1)) + " stops, " + std::to_string(counted.readOf(wire::Close, 1)) + " closes");
+    if (const std::function<void(std::string)> late = a.unanswered(0)) late("too late");
+    settleHost(*a.host);
+    CHECK(a.host->diagnostics().dead == std::optional<std::string>(kPlatformLate));
+
+    CHECK(b.host->probe("1 + 1") == "2");
+    b.host->sendPlatform("say:b2");
+    CHECK_MSG(eventually([&] { return has(b.messages(), "b2"); }), joined(b.messages()));
+    CHECK(counted.readOf(wire::Stop, 2) == 0 && counted.readOf(wire::Close, 2) == 0 && !*goneB);
+    CHECK(eventually([&] { return peers.events.open() == 1; }));
+    CHECK_MSG(!b.host->diagnostics().dead && !peers.events.ended(), joined(peers.events.all()));
+}
+
 #ifndef _WIN32
 /// The lines of a child's output its case printed for the parent (indented by four spaces), each with its newline.
 static std::string childLines(const std::string& output) {
@@ -1256,5 +1708,113 @@ TEST(remote_stream_hosted_thread_process) {
     CHECK_MSG(lines.find("    hosted only: ") != std::string::npos && lines.find("    with a local widget: ") != std::string::npos, lines);
 #endif
     CHECK(built.count() == 3);
+}
+
+/// This process's threads as `namesText` gives them, "unlisted" where the tests read no thread names.
+static std::string threadInventory() {
+#if defined(__APPLE__) || defined(__linux__)
+    if (const std::optional<std::map<std::string, int>> names = threadNames()) return namesText(*names);
+#endif
+    return "unlisted";
+}
+
+/// The count `names` (`namesText`'s "name×count" list) gives `name`, 0 when it lists none.
+static int countIn(const std::string& names, const std::string& name) {
+    const std::string key = name + "×";
+    for (size_t at = 0; at < names.size();) {
+        const size_t end = std::min(names.find(' ', at), names.size());
+        const std::string item = names.substr(at, end - at);
+        if (item.rfind(key, 0) == 0) return std::atoi(item.c_str() + key.size());
+        at = end + 1;
+    }
+    return 0;
+}
+
+/// The renderer's next `threads` report, asked through `send` and read from `messages` (what its host heard, in order); "" when none came within 5 s.
+static std::string threadsThrough(const std::function<void(std::string)>& send, const std::function<std::vector<std::string>()>& messages) {
+    const auto reports = [&] {
+        std::vector<std::string> out;
+        for (const std::string& m : messages())
+            if (m.rfind("threads:", 0) == 0) out.push_back(m.substr(8));
+        return out;
+    };
+    const size_t before = reports().size();
+    send("threads");
+    std::string report;
+    eventually([&] {
+        const std::vector<std::string> all = reports();
+        if (all.size() <= before) return false;
+        report = all[before];
+        return true;
+    });
+    return report;
+}
+
+/// The child of `remote_stream_hosted_kept_engine_process_keeps_only_the_renderer`, an engine process serving `serveHosting` on the socket it inherited: its HostedTestRenderers (layout answers `kTallAnswer`) answer `threads` with this process's thread inventory, each report printed as it goes. It prints the renderers it built and why serving ended.
+CHILD_CASE(remote_stream_hosted_kept_engine_process) {
+    const auto stream = std::make_shared<SocketStream>(kChildStreamFd);
+    std::atomic<int> built{0};
+    const std::string served = SandboxRemoteEngineEnd::serveHosting(*stream, kBuild, nullptr,
+                                                                    [&](std::shared_ptr<SandboxResources>, const std::string&, double, std::shared_ptr<SandboxHostedPlatform> platform) -> std::unique_ptr<Renderer> {
+                                                                        built++;
+                                                                        auto renderer = std::make_unique<HostedTestRenderer>(std::move(platform));
+                                                                        tall(*renderer);
+                                                                        renderer->inventory = [] {
+                                                                            const std::string names = threadInventory();
+                                                                            printf("    threads: %s\n", names.c_str());
+                                                                            fflush(stdout);
+                                                                            return names;
+                                                                        };
+                                                                        return renderer;
+                                                                    });
+    printf("    renderers %d; served until \"%s\"\n", built.load(), served.c_str());
+    fflush(stdout);
+    CHECK(built == 1);
+}
+
+/// A kept renderer leaves its engine process neither its engine nor its validator: a fresh child of the suite's (`remote_stream_hosted_kept_engine_process`) serves `serveHosting` on its descriptor 3 for one hosted WidgetHost here with `keepsRenderer`. While the widget lives, its renderer there reports one `widget.sandbox`, one `widget.validator` and one `twidget-host` thread in that process; once `keepRenderer` kept it and the WidgetHost is gone, the same renderer, asked through the handle, reports no `widget.sandbox` and no `widget.validator` and still its one `twidget-host`. Released, the route goes, and the child exits 0, having printed its inventories.
+TEST(remote_stream_hosted_kept_engine_process_keeps_only_the_renderer) {
+    SocketStreamPair pair = socketStreamPair();
+    CHECK(pair.host && pair.engine);
+    if (!pair.host || !pair.engine) return;
+    Background<ChildRun> child([&] { return runChildOn("remote_stream_hosted_kept_engine_process", *pair.engine, 60); });
+    EndEvents events;
+    const std::shared_ptr<SandboxRemoteHostEnd> end = SandboxRemoteHostEnd::startHosting(pair.host, *RES, kBuild, events.events(), {});
+    std::string live, kept;
+    {
+        KeptObservers heard;
+        std::unique_ptr<HostedKeptRenderer> handle;
+        {
+            HostedStreamHost h(*end, "<p>kept</p>", WidgetHostOptions(), 300, "INTL", true, [](WidgetHost& w) { w.keepsRenderer = true; });
+            CHECK_MSG(h.shown(), h.host->diagnostics().dead.value_or("not shown"));
+            live = threadsThrough([&](std::string m) { h.host->sendPlatform(std::move(m)); }, [&] { return h.messages(); });
+            handle = h.host->keepRenderer(heard.observers());
+            CHECK(handle);
+        }
+        if (handle) {
+            // The engine end's cut follows the keep's stop: ask until the report comes after it.
+            CHECK_MSG(eventually([&] {
+                          kept = threadsThrough([&](std::string m) { handle->sendPlatform(std::move(m)); }, [&] { return heard.messages(); });
+                          return !kept.empty() && countIn(kept, "widget.sandbox") == 0;
+                      }, 10),
+                      kept);
+            CHECK(!handle->ended());
+            handle->release();
+        }
+    }
+    CHECK_MSG(eventually([&] { return events.open() == 0; }), joined(events.all()));
+    end->stop();
+    const ChildRun run = child.finish(60);
+    const std::string lines = childLines(run.output);
+    printf("%s", lines.c_str());
+    CHECK_MSG(run.status == 0, std::to_string(run.status) + ": " + run.output);
+    CHECK_MSG(lines.find("    renderers 1; served until ") != std::string::npos, lines);
+#if defined(__APPLE__) || defined(__linux__)
+    CHECK_MSG(countIn(live, "widget.sandbox") == 1 && countIn(live, listed("widget.validator")) == 1 && countIn(live, "twidget-host") == 1, "live: " + live);
+    CHECK_MSG(countIn(kept, "widget.sandbox") == 0 && countIn(kept, listed("widget.validator")) == 0 && countIn(kept, "twidget-host") == 1, "kept: " + kept);
+    CHECK_MSG(lines.find("    threads: " + live + "\n") != std::string::npos && lines.find("    threads: " + kept + "\n") != std::string::npos, lines);
+#else
+    CHECK_MSG(live == "unlisted" && kept == "unlisted", live + " / " + kept);
+#endif
 }
 #endif

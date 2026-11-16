@@ -42,7 +42,7 @@ public:
     virtual void stop(const std::string& reason) = 0;
     /// Settles the forwarded request or wallet call `id`, once.
     virtual void answer(int64_t id, const SandboxRemoteOutcome& outcome) = 0;
-    /// The widget's probe, a barrier both ways: it runs after the engine work the inputs before it queued through the glue's thread, and what its glue sent before it is on the sink before it returns; "ERROR no runtime" before `start` and after `close`. Never from the thread answering the runtime's synchronous calls.
+    /// The widget's probe, a barrier both ways: it runs after the engine work the inputs before it queued through the glue's thread, and what its glue sent before it is on the sink before it returns; "ERROR no runtime" before `start`, after `close` and once its engine died. Never from the thread answering the runtime's synchronous calls.
     virtual std::string probe(const std::string& code) = 0;
     /// A platform message for the renderer, on the glue's host thread in order (`SandboxHostedPlatform::onMessage`).
     virtual void platform(const std::string& message) = 0;

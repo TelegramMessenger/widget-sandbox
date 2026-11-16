@@ -188,7 +188,7 @@ public:
         if (glue_ == proxy) glue_ = nullptr;
     }
 
-    /// Before the WidgetHost goes (its client's channel is released inside its destructor): no input reaches it from then on.
+    /// Before the WidgetHost goes (its client's channel is released inside its destructor, or kept past it by a kept renderer): no input reaches it from then on.
     void detachHost() {
         std::lock_guard<std::mutex> l(routeMutex_);
         host_ = nullptr;
@@ -439,6 +439,11 @@ private:
         }
         void hostedTheme(const WidgetTheme& theme) override { inner_->hostedTheme(theme); }
         void platform(const std::string& message) override { inner_->platform(message); }
+        // The client is the kept renderer's from now on and its WidgetHost may go first: no fixture input reaches that host any more.
+        void kept() override {
+            session_->detachHost();
+            inner_->kept();
+        }
         void start(const std::string& html, const SandboxConfig& config) override { inner_->start(html, config); }
         void event(const std::string& json) override { inner_->event(json); }
         void activationEvent(const std::string& json, int gesture) override { inner_->activationEvent(json, gesture); }

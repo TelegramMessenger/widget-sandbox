@@ -161,7 +161,7 @@ class SandboxRemoteHostEnd {
 public:
     /// What the owner hears, from `widget.monitor` and outside every lock of this end; an empty one is skipped. Each returns at once and posts what it does, never stopping, destroying or calling into this end.
     struct Events {
-        /// How many runtimes are open now: changes close together may come as their last count, and a stream that ends with runtimes open reports 0 before `ended`.
+        /// How many runtimes are open now, a hosted route whose renderer its client kept (`SandboxHostedChannel::kept`) not among them: changes close together may come as their last count, and a stream that ends with runtimes open reports 0 before `ended`. The stream's lifetime stays the owner's: kept routes neither hold it open nor end it.
         std::function<void(size_t open)> runtimes;
         /// Once and last: why the stream ended.
         std::function<void(const std::string& reason)> ended;

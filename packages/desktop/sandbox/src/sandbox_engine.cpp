@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <future>
 #include <limits>
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
@@ -123,6 +124,8 @@ SandboxEngine::~SandboxEngine() {
     thread_.join();
     // The thread is gone: nothing else touches the context, so it can be freed here.
     js_.reset();
+    // A platform request waiting on its caller's thread returns now, and every later one at once, so the channel's threads (a stream's `widget.answer`, a loopback's glue) are free as it closes.
+    if (client_) clientSettleWaiting();
     // From the owner's thread: a disconnection the channel reports while it closes meets the null liveness record. A hosted client's channel is the same one.
     if (remote_) remote_->close();
     remote_.reset();
@@ -146,6 +149,13 @@ void SandboxEngine::start() {
 void SandboxEngine::terminate() {
     if (client_) return clientKill("terminated", false);
     thread_.async([this] { kill("terminated"); });
+}
+
+// Its thread never waits for its caller's once dead (no host call, so no layout query, after the death), so the join returns once the queue drained; the destructor's own join and reset then find nothing.
+void SandboxEngine::release() {
+    if (client_) return;
+    thread_.join();
+    js_.reset();
 }
 
 void SandboxEngine::stop(const std::string& reason) {
@@ -455,7 +465,7 @@ void SandboxEngine::setVisible(bool v) {
 
 std::string SandboxEngine::probe(const std::string& code) {
     if (client_) return clientProbe(code);
-    return thread_.sync([&]() -> std::string {
+    auto evaluate = [this, code]() -> std::string {
         if (!js_ || dead_) return "ERROR no runtime";
         try {
             auto r = js_->evaluate("(function(){ try { return String(" + code + "); } catch (e) { return 'THREW ' + e; } })()", "probe.js");
@@ -463,7 +473,17 @@ std::string SandboxEngine::probe(const std::string& code) {
         } catch (const JSError& e) {
             return std::string("ERROR ") + e.what();
         }
-    });
+    };
+    if (thread_.isCurrent()) return evaluate();
+    // The task owns the promise alone, so one the thread refuses or drops at its stop (a released engine, maybe under this very wait) breaks it, where `JSThread::sync` would wait forever.
+    auto promise = std::make_shared<std::promise<std::string>>();
+    std::future<std::string> answer = promise->get_future();
+    thread_.async([promise = std::move(promise), evaluate = std::move(evaluate)] { promise->set_value(evaluate()); });
+    try {
+        return answer.get();
+    } catch (const std::future_error&) {
+        return "ERROR no runtime";
+    }
 }
 
 void SandboxEngine::enqueue(const std::string& kind, const std::string& arg) {

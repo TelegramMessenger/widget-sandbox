@@ -859,6 +859,8 @@ struct HostRoute {
     Pending pending = Pending::None;
     /// A hosted renderer's platform request in the host's hands, until its answer is queued or the client gave none: a second one meanwhile ends the stream.
     bool platformPending = false;
+    /// Its client kept the renderer alone (`SandboxHostedChannel::kept`): not one of the open runtimes `Events::runtimes` counts, its frames still taken by the stream's rules.
+    bool kept = false;
     /// The last probe sequence sent; the one `probe` waits for (0: none) and its answer.
     int64_t lastProbe = 0;
     int64_t waiting = 0;
@@ -967,7 +969,7 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
         queuedFrames_ = 0;
     }
 
-    /// `widget.monitor`'s loop: ends the stream when one write outlasts its bound, with no other call needed, and alone reports to the owner outside the lock: the open count as it changes, then the end once and last.
+    /// `widget.monitor`'s loop: ends the stream when one write outlasts its bound, with no other call needed, and alone reports to the owner outside the lock: the open count (kept routes left out) as it changes, then the end once and last.
     void watch() {
         size_t reported = 0;
         std::unique_lock<std::mutex> l(mutex_);
@@ -976,8 +978,8 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
                 endLocked("a write to the stream blocked for more than " + Json::number(stallMs_) + " ms");
                 continue;
             }
-            if (routes_.size() != reported) {
-                reported = routes_.size();
+            if (const size_t live = liveLocked(); live != reported) {
+                reported = live;
                 l.unlock();
                 if (events_.runtimes) events_.runtimes(reported);
                 l.lock();
@@ -1054,6 +1056,13 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
     void admit(HostRoute& route, std::string frame) {
         std::lock_guard<std::mutex> l(mutex_);
         if (route.state == HostRoute::State::Live) queueLocked(std::move(frame));
+    }
+
+    /// The channel's `kept`: a live route counts no more among the open runtimes, and the monitor reports the new count.
+    void keep(HostRoute& route) {
+        std::lock_guard<std::mutex> l(mutex_);
+        if (route.state != HostRoute::State::Live || std::exchange(route.kept, true)) return;
+        watched_.notify_all();
     }
 
     /// The channel's `close`: the route goes with its `Close` and a waiting probe wakes; its client, which closes, hears nothing.
@@ -1325,6 +1334,11 @@ private:
         watched_.notify_all();
     }
 
+    /// The open routes but the kept ones: the runtimes `Events::runtimes` reports.
+    size_t liveLocked() const {
+        return size_t(std::count_if(routes_.begin(), routes_.end(), [](const auto& entry) { return !entry.second->kept; }));
+    }
+
     /// "ERROR no runtime" for a route that is not live, once its client heard why (at most a probe's wait).
     std::string settledLocked(std::unique_lock<std::mutex>& l, HostRoute& route) {
         route.settled.wait_for(l, probeWait_, [&] { return route.state == HostRoute::State::New || route.state == HostRoute::State::Gone; });
@@ -1429,6 +1443,7 @@ public:
         else connection_->lose(route_);
     }
     void platform(const std::string& message) override { send(Kind::Platform, {message}); }
+    void kept() override { connection_->keep(*route_); }
 
 private:
     /// Encoded outside the lock once the route is live, then admitted only if it still is.

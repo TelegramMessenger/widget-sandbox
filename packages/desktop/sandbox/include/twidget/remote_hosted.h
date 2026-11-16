@@ -1,4 +1,4 @@
-// The whole widget in another process (desktop core only; Swift and Kotlin have no hosted mode): the engine process hosts a widget's engine, a TrustedValidator and a renderer its embedder builds, so ops, layout queries, events and frame requests never leave it, while the host keeps a hosted client (`SandboxEngine::hostedClient`) that delivers the host's inputs, decides every privileged call again on the presses the host delivered and carries the renderer's traffic with its platform as opaque messages; the contract a transport and a renderer author implement (the engine-only one is remote_engine.h's).
+// The whole widget in another process (desktop core only; Swift and Kotlin have no hosted mode): the engine process hosts a widget's engine, a TrustedValidator and a renderer its embedder builds, so ops, layout queries, events and frame requests never leave it, while the host keeps a hosted client (`SandboxEngine::hostedClient`) that delivers the host's inputs, decides every privileged call again on the presses the host delivered and carries the renderer's traffic with its platform as opaque messages; when the widget's engine dies the engine process keeps its renderer, without engine or validator, its platform traffic still carried, until the host's `close` (a host that keeps it: `WidgetHost::keepRenderer`); the contract a transport and a renderer author implement (the engine-only one is remote_engine.h's).
 #pragma once
 
 #include "twidget/remote_engine.h"
@@ -13,7 +13,7 @@
 
 namespace twidget {
 
-/// Host → engine for a hosted client, with `SandboxRemoteChannel`'s rules (its dispatch thread, the host's order, no call but `probe` waits) and three calls of its own: a hosted client makes `attach`, `startHosted`, `hostedTheme`, `platform`, `contentSafeArea`, `setData`, `setVisible`, `stop`, `answer`, `probe` and `close`, never `start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded` or `chargeValidator` (the widget's own glue makes those inside the engine process); only inline pure virtuals are declared (no key function), so no translation unit depends on another for its vtable.
+/// Host → engine for a hosted client, with `SandboxRemoteChannel`'s rules (its dispatch thread, the host's order, no call but `probe` waits) and four calls of its own: a hosted client makes `attach`, `startHosted`, `hostedTheme`, `platform`, `kept`, `contentSafeArea`, `setData`, `setVisible`, `stop`, `answer`, `probe` and `close`, never `start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded` or `chargeValidator` (the widget's own glue makes those inside the engine process); only inline virtuals are declared (no key function), so no translation unit depends on another for its vtable.
 class SandboxHostedChannel : public SandboxRemoteChannel {
 public:
     /// The widget, its configuration and its hosted start, once (the client's `startHosted`): the engine process builds the widget's engine, validator and renderer from them.
@@ -22,6 +22,8 @@ public:
     virtual void hostedTheme(const WidgetTheme& theme) = 0;
     /// An opaque message of the host's platform for the widget's renderer, in order (`SandboxHostedPlatform::onMessage`).
     virtual void platform(const std::string& message) = 0;
+    /// The host kept the widget's renderer (the client's `keepHosted`, once, after the widget died): from now on only the renderer's platform traffic crosses on this route, until `close`; a transport may count the route out of its live runtimes. The default does nothing.
+    virtual void kept() {}
 };
 
 /// The renderer's side of its traffic with the host's platform, in the engine process (what a `HostedRendererFactory` gets for the renderer it builds): opaque to the framework both ways, each message at most `SandboxEngine::kRemotePlatformLimit` bytes (the host drops a longer message and answers a longer request "").
@@ -30,9 +32,9 @@ public:
     virtual ~SandboxHostedPlatform() = default;
     /// A message for the host's platform, from any thread; the host gets them in the order they were sent.
     virtual void send(const std::string& message) = 0;
-    /// A request the renderer waits for, from any thread but the glue's host thread: the host's answer, given within `WidgetHost::kPlatformAnswerSeconds` or the widget dies; one waits at a time per widget (a second waits here for the first), and nullopt once the runtime closed or the transport ended, also for a request that was waiting then.
+    /// A request the renderer waits for, from any thread, the glue's host thread included (inside `onMessage` and inside the renderer calls the glue makes, while the widget lives or once its renderer is kept), but never inside the `HostedRendererFactory` (the thread that builds the renderer would wait for itself): the host's answer, given within `SandboxEngine::kPlatformAnswerSeconds` or the widget dies; a wait on the glue's host thread holds up only that widget's glue (its layout queries, its other platform messages, a probe), never another widget; one waits at a time per widget (a second waits here for the first), and nullopt once the runtime closed or the transport ended, also for a request that was waiting then.
     virtual std::optional<std::string> request(const std::string& message) = 0;
-    /// The host's platform messages for the renderer, in order, on the glue's host thread (the thread every renderer call is made on); set it when the renderer is built, before the factory returns.
+    /// The host's platform messages for the renderer, in order, on the glue's host thread (the thread every renderer call is made on, which a kept renderer keeps); set it when the renderer is built, before the factory returns.
     std::function<void(const std::string& message)> onMessage;
 };
 
