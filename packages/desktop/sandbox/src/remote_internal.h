@@ -1,4 +1,4 @@
-// What the remote engine's translation units share without making it public: the engine's side's Intl provider over a sink, the loopback's sink, the hosted runtime the engine's side drives and the stream's serving loop. Library sources only; nothing under include/ names it.
+// What the engine side's translation units of the remote engine share without making it public: the engine's side's Intl provider over a sink (remote_engine.cpp's server, remote_hosted.cpp's runtime), the loopback's sink (remote_engine.cpp's, which remote_hosted.cpp's loopback uses too), the hosted runtime the engine's side drives (built in remote_hosted.cpp, driven by remote_stream_engine.cpp) and the stream's serving loop (remote_stream_engine.cpp's). Library sources only; nothing under include/ names it, and no source of the host's side (the client, the stream's host end, the coding) includes it.
 #pragma once
 
 #include "twidget/intl.h"
@@ -56,7 +56,7 @@ std::unique_ptr<HostedRuntime> makeHostedRuntime(std::shared_ptr<SandboxRemoteSi
 /// What a hosting stream's engine end makes for each runtime it opens, on its reader: the runtime sending its widget's calls to `sink`, its widget built from `resources` (the hosting opening's).
 using HostedRuntimes = std::function<std::unique_ptr<HostedRuntime>(std::shared_ptr<SandboxRemoteSink> sink, std::shared_ptr<SandboxResources> resources)>;
 
-/// `SandboxRemoteEngineEnd::serve` with `hosted` empty (a `HostingOpening` refused as another first kind), `serveHosting` with its runtimes: one loop in remote_stream.cpp, which reaches a hosted runtime only through `hosted` and the interface above.
+/// `SandboxRemoteEngineEnd::serve` with `hosted` empty (a `HostingOpening` refused as another first kind), `serveHosting` with its runtimes: one loop in remote_stream_engine.cpp, which reaches a hosted runtime only through `hosted` and the interface above.
 std::string serveStream(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown, const HostedRuntimes& hosted);
 
 } // namespace twidget::detail

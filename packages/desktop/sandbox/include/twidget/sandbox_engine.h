@@ -391,6 +391,40 @@ private:
     struct HostedTag {};
     SandboxEngine(HostedTag, std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl);
 
+    /// The in-process halves of the entry points both modes share (sandbox_engine.cpp), each run from its entry point (sandbox_engine_shared.cpp) through `inProcess_` once the hosted and client checks passed.
+    void inProcessStart();
+    void inProcessTerminate();
+    void inProcessStop(const std::string& reason);
+    void inProcessEvent(const std::string& json);
+    void inProcessActivationEvent(const std::string& json, int gesture);
+    void inProcessFrame(double time);
+    void inProcessViewport(double innerWidth, double innerHeight, double dpr);
+    void inProcessResize(const std::string& entriesJson);
+    void inProcessTheme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams);
+    void inProcessContentSafeArea(const WidgetContentSafeArea& area);
+    void inProcessSetData(const WidgetData& data);
+    void inProcessSetVisible(bool visible);
+    std::string inProcessProbe(const std::string& code);
+    void inProcessChargeValidator(double ms);
+    /// Those halves as one table, constant-initialised in sandbox_engine.cpp (`kInProcess`): the shared entry points reach them only through it, so a program of client-mode engines links neither them nor QuickJS.
+    struct InProcess {
+        void (SandboxEngine::*start)();
+        void (SandboxEngine::*terminate)();
+        void (SandboxEngine::*stop)(const std::string& reason);
+        void (SandboxEngine::*event)(const std::string& json);
+        void (SandboxEngine::*activationEvent)(const std::string& json, int gesture);
+        void (SandboxEngine::*frame)(double time);
+        void (SandboxEngine::*viewport)(double innerWidth, double innerHeight, double dpr);
+        void (SandboxEngine::*resize)(const std::string& entriesJson);
+        void (SandboxEngine::*theme)(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams);
+        void (SandboxEngine::*contentSafeArea)(const WidgetContentSafeArea& area);
+        void (SandboxEngine::*setData)(const WidgetData& data);
+        void (SandboxEngine::*setVisible)(bool visible);
+        std::string (SandboxEngine::*probe)(const std::string& code);
+        void (SandboxEngine::*chargeValidator)(double ms);
+    };
+    static const InProcess kInProcess;
+
     void boot();
     void enqueue(const std::string& kind, const std::string& arg);
     /// The body of `enqueue`, on the engine thread: buffered before boot, a hidden frame dropped, else dispatched.
@@ -435,12 +469,15 @@ private:
     static double nowSeconds();
 
     JSThread thread_;
+    /// `&kInProcess`, set by the in-process constructor alone; null in client mode, whose entry points return before they would read it.
+    const InProcess* inProcess_ = nullptr;
     SandboxEngineDelegate* delegate_ = nullptr;
     std::string html_;
     SandboxConfig config_;
     std::shared_ptr<SandboxResources> resources_;
     std::shared_ptr<IntlProvider> intl_;
-    std::unique_ptr<QuickJSContext> js_;
+    /// The widget's runtime from `boot` until `release` or the destructor; `boot` sets the deleter with it (none before), so only sandbox_engine.cpp names the context's destructor.
+    std::unique_ptr<QuickJSContext, void (*)(QuickJSContext*)> js_{nullptr, nullptr};
     bool dead_ = false;
     bool started_ = false;
     SandboxStats stats_;
@@ -459,10 +496,10 @@ private:
     double wakeAt_ = 0;
     double hiddenTickAt_ = 0;
 
-    // CPU quota: decide before a task, record after it.
-    CpuBudget budget_;
+    // CPU quota: decide before a task, record after it. Both emplaced by the in-process constructor alone: a client-mode engine has none.
+    std::optional<CpuBudget> budget_;
     /// The main-thread window (`mainThreadQuotaMs`): layout queries and the cost of the ops, apart from the JS quota.
-    CpuBudget mainBudget_;
+    std::optional<CpuBudget> mainBudget_;
     double currentSliceMs_ = 0;
     std::string currentKind_ = "boot";
     double excludeMs_ = 0;

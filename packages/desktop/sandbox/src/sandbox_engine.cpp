@@ -1,3 +1,4 @@
+// The in-process engine: the widget's QuickJS runtime on `widget.sandbox`, its halves of the entry points both modes share (sandbox_engine_shared.cpp reaches them through `kInProcess`), `release`, and `make` with the channel factory slot, which pick the in-process or a client-mode engine.
 #include "twidget/sandbox_engine.h"
 
 #include "twidget/bundle_stamp.h"
@@ -13,6 +14,9 @@
 #include <cstring>
 #include <future>
 #include <limits>
+#include <mutex>
+#include <string_view>
+#include <utility>
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
 #include <stdlib.h>
@@ -31,9 +35,6 @@ static constexpr const char* kHideHostGlobals =
     "(function(g){for(const n of ['__host','__hostBinary','__hostCanvas','__hostOps','__twDispatch'])if(!delete g[n])throw new Error(n);})(globalThis);";
 static constexpr double kWallBackstopFactor = 10.0;
 static constexpr double kWallBackstopMinMs = 5000.0;
-
-double SandboxEngine::nowSeconds() { return QuickJSContext::now(); }
-double SandboxEngine::nowMs() { return QuickJSContext::now() * 1000; }
 
 static void randomBytes(uint8_t* buf, size_t n) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
@@ -99,55 +100,83 @@ static int countCanvasCommands(const std::string& json) {
 
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
+/// `js_`'s deleter, which `boot` sets with the context: only this source frees one.
+static void freeContext(QuickJSContext* js) { delete js; }
+
+namespace {
+
+struct FactorySlot {
+    std::mutex mutex;
+    SandboxRemoteChannelFactory factory;
+};
+
+FactorySlot& factorySlot() {
+    static FactorySlot slot;
+    return slot;
+}
+
+} // namespace
+
+constinit const SandboxEngine::InProcess SandboxEngine::kInProcess = {
+    &SandboxEngine::inProcessStart,
+    &SandboxEngine::inProcessTerminate,
+    &SandboxEngine::inProcessStop,
+    &SandboxEngine::inProcessEvent,
+    &SandboxEngine::inProcessActivationEvent,
+    &SandboxEngine::inProcessFrame,
+    &SandboxEngine::inProcessViewport,
+    &SandboxEngine::inProcessResize,
+    &SandboxEngine::inProcessTheme,
+    &SandboxEngine::inProcessContentSafeArea,
+    &SandboxEngine::inProcessSetData,
+    &SandboxEngine::inProcessSetVisible,
+    &SandboxEngine::inProcessProbe,
+    &SandboxEngine::inProcessChargeValidator,
+};
+
 SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
-    : SandboxEngine("widget.sandbox", std::move(html), std::move(config), std::move(resources), std::move(intl)) {}
-
-SandboxEngine::SandboxEngine(std::string threadName, std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl)
-    : thread_(std::move(threadName)), html_(std::move(html)), config_(config), resources_(std::move(resources)),
-      intl_(intl ? std::move(intl) : std::make_shared<BasicIntl>()), visible_(config.visible),
-      budget_(config.cpuLimitMs, config.cpuQuotaMs, config.cpuQuotaWindowMs, config.cpuKillAfterMs),
-      mainBudget_(config.cpuLimitMs, config.mainThreadQuotaMs, config.cpuQuotaWindowMs, 0) {
-    liveness_->engine = this;
-    // A preview (an inline result not sent yet) asks nothing whatever the flags say (docs/sdk-v1.md §2.16). Fixed from
-    // here on, so other threads may read config_ without a lock.
-    if (config_.context.preview) config_.context.isCopy = config_.context.canQuery = config_.context.backgroundQuery = false;
-    // The wallet only where the widget may ask the bot (docs/sdk-v1.md §2.18).
-    config_.context.wallet = config_.context.wallet && config_.context.canQuery;
+    : SandboxEngine("widget.sandbox", std::move(html), std::move(config), std::move(resources), std::move(intl)) {
+    // Only this constructor reaches the in-process halves and gives the runtime its two windows, from the caller's numbers (the delegated constructor changes only the config's context).
+    inProcess_ = &kInProcess;
+    budget_.emplace(config_.cpuLimitMs, config_.cpuQuotaMs, config_.cpuQuotaWindowMs, config_.cpuKillAfterMs);
+    mainBudget_.emplace(config_.cpuLimitMs, config_.mainThreadQuotaMs, config_.cpuQuotaWindowMs, 0);
 }
 
-SandboxEngine::~SandboxEngine() {
+std::unique_ptr<SandboxEngine> SandboxEngine::make(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl) {
+    SandboxRemoteChannelFactory factory;
     {
-        // A request's `respond` called from now on is ignored; one that holds the lock has posted its task, which runs before the thread stops.
-        std::lock_guard<std::mutex> l(liveness_->mutex);
-        liveness_->engine = nullptr;
+        FactorySlot& slot = factorySlot();
+        std::lock_guard<std::mutex> l(slot.mutex);
+        factory = slot.factory;
     }
-    thread_.join();
-    // The thread is gone: nothing else touches the context, so it can be freed here.
-    js_.reset();
-    // A platform request waiting on its caller's thread returns now, and every later one at once, so the channel's threads (a stream's `widget.answer`, a loopback's glue) are free as it closes.
-    if (client_) clientSettleWaiting();
-    // From the owner's thread: a disconnection the channel reports while it closes meets the null liveness record. A hosted client's channel is the same one.
-    if (remote_) remote_->close();
-    remote_.reset();
-    hosted_.reset();
+    if (factory) return std::make_unique<SandboxEngine>(std::move(html), std::move(config), factory(std::move(resources)), std::move(intl));
+#ifndef NDEBUG
+    // Debug only, for parity runs: without a factory every engine a host builds runs behind the in-process loopback.
+    if (const char* loopback = std::getenv("TW_ENGINE_LOOPBACK"); loopback && std::string_view(loopback) == "1")
+        return std::make_unique<SandboxEngine>(std::move(html), std::move(config), std::make_shared<SandboxLoopbackChannel>(std::move(resources)), std::move(intl));
+#endif
+    return std::make_unique<SandboxEngine>(std::move(html), std::move(config), std::move(resources), std::move(intl));
 }
 
-void SandboxEngine::setDelegate(SandboxEngineDelegate* delegate) {
-    if (client_) return clientSetDelegate(delegate);
-    delegate_ = delegate;
+void SandboxEngine::setRemoteChannelFactory(SandboxRemoteChannelFactory factory) {
+    FactorySlot& slot = factorySlot();
+    std::lock_guard<std::mutex> l(slot.mutex);
+    std::swap(slot.factory, factory);
+}
+
+bool SandboxEngine::remoteChannelFactorySet() {
+    FactorySlot& slot = factorySlot();
+    std::lock_guard<std::mutex> l(slot.mutex);
+    return bool(slot.factory);
 }
 
 // MARK: lifecycle
 
-// A hosted client takes none of the engine-only inputs (`start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded`, `chargeValidator`): no such call reaches its channel, records a grant or touches its haptic gate.
-void SandboxEngine::start() {
-    if (isHosted()) return;
-    if (client_) return clientStart();
+void SandboxEngine::inProcessStart() {
     thread_.async([this] { boot(); });
 }
 
-void SandboxEngine::terminate() {
-    if (client_) return clientKill("terminated", false);
+void SandboxEngine::inProcessTerminate() {
     thread_.async([this] { kill("terminated"); });
 }
 
@@ -158,8 +187,7 @@ void SandboxEngine::release() {
     js_.reset();
 }
 
-void SandboxEngine::stop(const std::string& reason) {
-    if (client_) return clientKill(reason, true);
+void SandboxEngine::inProcessStop(const std::string& reason) {
     auto body = [this, reason] {
         if (dead_) return;
         kill(reason);
@@ -174,7 +202,7 @@ void SandboxEngine::stop(const std::string& reason) {
 void SandboxEngine::boot() {
     if (started_) return;
     started_ = true;
-    js_ = std::make_unique<QuickJSContext>(config_.memoryLimitBytes, JSThread::kJSStackLimit);
+    js_ = {new QuickJSContext(config_.memoryLimitBytes, JSThread::kJSStackLimit), freeContext};
     js_->registerFunction("__host", [this](const std::vector<std::string>& args) {
         return hostCall(args.empty() ? "" : args[0], args.size() > 1 ? args[1] : "");
     });
@@ -276,124 +304,36 @@ void SandboxEngine::boot() {
 
 // MARK: inputs from the host (all asynchronous)
 
-// A preview takes no input (a tap on it selects the result, the client's); WidgetHost drops the renderer's events first.
-void SandboxEngine::event(const std::string& json) {
-    if (isHosted() || config_.context.preview) return;
-    if (client_) return forward([json](SandboxRemoteChannel& remote) { remote.event(json); });
+void SandboxEngine::inProcessEvent(const std::string& json) {
     enqueue("event", json);
 }
-void SandboxEngine::activationEvent(const std::string& json, int gesture) {
-    if (isHosted() || config_.context.preview) return;
-    if (client_) return clientActivationEvent(json, gesture);
+void SandboxEngine::inProcessActivationEvent(const std::string& json, int gesture) {
     enqueue(kActivationPrefix + std::to_string(gesture), json);
 }
 /// Widget clocks tick in 100 µs steps, like a browser's `performance.now()`, so they cannot time cache or pool effects of other widgets.
 static double coarseNowMs(double ms) { return std::floor(ms / 0.1) * 0.1; }
 
-void SandboxEngine::frame(double time) {
-    if (isHosted()) return;
-    if (client_) return forward([time](SandboxRemoteChannel& remote) { remote.frame(time); });
+void SandboxEngine::inProcessFrame(double time) {
     enqueue("frame", Json::number(coarseNowMs(time)));
 }
-void SandboxEngine::viewport(double innerWidth, double innerHeight, double dpr) {
-    if (isHosted()) return;
-    if (client_) return forward([innerWidth, innerHeight, dpr](SandboxRemoteChannel& remote) { remote.viewport(innerWidth, innerHeight, dpr); });
+void SandboxEngine::inProcessViewport(double innerWidth, double innerHeight, double dpr) {
     Json v = Json::object();
     v.set("innerWidth", innerWidth);
     v.set("innerHeight", innerHeight);
     v.set("dpr", dpr);
     enqueue("viewport", v.dump());
 }
-void SandboxEngine::resize(const std::string& entriesJson) {
-    if (isHosted()) return;
-    if (client_) return forward([entriesJson](SandboxRemoteChannel& remote) { remote.resize(entriesJson); });
+void SandboxEngine::inProcessResize(const std::string& entriesJson) {
     enqueue("resize", entriesJson);
 }
-void SandboxEngine::theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) {
-    if (isHosted()) return;
-    if (client_) return forward([colorScheme, themeParams](SandboxRemoteChannel& remote) { remote.theme(colorScheme, themeParams); });
+void SandboxEngine::inProcessTheme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) {
     Json t = Json::object();
     t.set("theme", colorScheme);
     t.set("themeParams", sdk::themeParamsJson(sdk::checkThemeParams(themeParams)));
     enqueue("theme", t.dump());
 }
 
-Json WidgetContentSafeArea::json() const {
-    Json out = Json::object();
-    auto put = [&](const char* name, double v) { out.set(name, std::isfinite(v) ? v : 0.0); };
-    put("top", top);
-    put("right", right);
-    put("bottom", bottom);
-    put("left", left);
-    put("cornerLeft", cornerLeft);
-    put("cornerRight", cornerRight);
-    return out;
-}
-
-namespace {
-
-/// A theme token's key and its member, a string or a number.
-template <class Tokens>
-struct ThemeToken {
-    const char* key;
-    std::optional<std::string> Tokens::*text;
-    std::optional<double> Tokens::*number;
-};
-
-/// The tokens in the order the renderer's theme message and the wire write them: the one list both the builders and the readers go through.
-constexpr ThemeToken<WidgetButtonTokens> kButtonTokens[] = {
-    {"bg", &WidgetButtonTokens::bg, nullptr},
-    {"text", &WidgetButtonTokens::text, nullptr},
-    {"radius", &WidgetButtonTokens::radius, nullptr},
-    {"font", &WidgetButtonTokens::font, nullptr},
-    {"padding", &WidgetButtonTokens::padding, nullptr},
-    {"height", &WidgetButtonTokens::height, nullptr},
-    {"pressedOpacity", nullptr, &WidgetButtonTokens::pressedOpacity},
-    {"disabledOpacity", nullptr, &WidgetButtonTokens::disabledOpacity},
-};
-constexpr ThemeToken<WidgetTextTokens> kTextTokens[] = {
-    {"fontSize", nullptr, &WidgetTextTokens::fontSize},
-    {"lineHeight", nullptr, &WidgetTextTokens::lineHeight},
-    {"padding", &WidgetTextTokens::padding, nullptr},
-};
-
-template <class Tokens, size_t N>
-Json tokensJson(const Tokens& tokens, const ThemeToken<Tokens> (&keys)[N]) {
-    Json out = Json::object();
-    for (const ThemeToken<Tokens>& token : keys) {
-        if (token.text) {
-            if (const std::optional<std::string>& v = tokens.*token.text) out.set(token.key, *v);
-        } else if (const std::optional<double>& v = tokens.*token.number; v && std::isfinite(*v)) {
-            out.set(token.key, *v);
-        }
-    }
-    return out;
-}
-
-template <class Tokens, size_t N>
-Tokens tokensFrom(const Json& object, const ThemeToken<Tokens> (&keys)[N]) {
-    Tokens tokens;
-    if (!object.isObject()) return tokens;
-    for (const ThemeToken<Tokens>& token : keys) {
-        const Json& v = object[token.key];
-        if (token.text) {
-            if (v.isString()) tokens.*token.text = v.asString();
-        } else if (v.isNumber() && std::isfinite(v.asNumber())) {
-            tokens.*token.number = v.asNumber();
-        }
-    }
-    return tokens;
-}
-
-} // namespace
-
-Json WidgetButtonTokens::json() const { return tokensJson(*this, kButtonTokens); }
-WidgetButtonTokens WidgetButtonTokens::from(const Json& object) { return tokensFrom(object, kButtonTokens); }
-Json WidgetTextTokens::json() const { return tokensJson(*this, kTextTokens); }
-WidgetTextTokens WidgetTextTokens::from(const Json& object) { return tokensFrom(object, kTextTokens); }
-
-void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
-    if (client_) return forward([area](SandboxRemoteChannel& remote) { remote.contentSafeArea(area); });
+void SandboxEngine::inProcessContentSafeArea(const WidgetContentSafeArea& area) {
     thread_.async([this, area] {
         if (dead_) return;
         if (!js_) { config_.contentSafeArea = area; return; }
@@ -401,8 +341,7 @@ void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
     });
 }
 
-void SandboxEngine::setData(const WidgetData& data) {
-    if (client_) return forward([data](SandboxRemoteChannel& remote) { remote.setData(data); });
+void SandboxEngine::inProcessSetData(const WidgetData& data) {
     sdk::CheckedWidgetData checked = sdk::checkWidgetData(data, config_.context.isCopy);
     thread_.async([this, checked] {
         if (dead_) return;
@@ -427,23 +366,7 @@ void SandboxEngine::putData(Json& event, const sdk::CheckedWidgetData& checked) 
     delegate_->onDiag(*this, "data-rejected", joinFields(checked.rejected) + ": not text of at most " + std::to_string(sdk::MAX_WIDGET_DATA_BYTES) + " bytes (UTF-8, no NUL); the widget sees null");
 }
 
-// The haptic gate's touch (v0.2.2): stamped on the caller's thread with the clock `decide` reads, applied in order
-// with the events the host sends after it (a tap's haptic sees its press). Gate state only: no task, never deferred.
-void SandboxEngine::pressBegan() {
-    if (isHosted()) return;
-    if (client_) return clientPress(true);
-    double at = nowMs();
-    thread_.async([this, at] { haptics_.press(at); });
-}
-void SandboxEngine::pressEnded() {
-    if (isHosted()) return;
-    if (client_) return clientPress(false);
-    double at = nowMs();
-    thread_.async([this, at] { haptics_.release(at); });
-}
-
-void SandboxEngine::setVisible(bool v) {
-    if (client_) return clientSetVisible(v);
+void SandboxEngine::inProcessSetVisible(bool v) {
     thread_.async([this, v] {
         if (dead_ || visible_ == v) return;
         visible_ = v;
@@ -463,8 +386,7 @@ void SandboxEngine::setVisible(bool v) {
     });
 }
 
-std::string SandboxEngine::probe(const std::string& code) {
-    if (client_) return clientProbe(code);
+std::string SandboxEngine::inProcessProbe(const std::string& code) {
     auto evaluate = [this, code]() -> std::string {
         if (!js_ || dead_) return "ERROR no runtime";
         try {
@@ -511,12 +433,12 @@ bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
     }
     double now = nowMs();
     // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
-    CpuDecision js = budget_.decide(kind, now);
-    CpuDecision main = mainBudget_.decide(kind, now);
+    CpuDecision js = budget_->decide(kind, now);
+    CpuDecision main = mainBudget_->decide(kind, now);
     if (!js.run || !main.run) {
-        if (budget_.shouldKill(now)) {
+        if (budget_->shouldKill(now)) {
             char buf[256];
-            snprintf(buf, sizeof buf, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget_.throttledFor(now) / 1000,
+            snprintf(buf, sizeof buf, "CPU quota: throttled for %.1f s (%d ms per %d ms, cpuKillAfterMs=%d)", budget_->throttledFor(now) / 1000,
                      int(config_.cpuQuotaMs), int(config_.cpuQuotaWindowMs), int(config_.cpuKillAfterMs));
             kill(buf);
             return true;
@@ -533,9 +455,9 @@ bool SandboxEngine::dispatch(const std::string& kind, const std::string& arg) {
             }
             throttledSinceDiag_.clear();
             std::string window = js.run
-                ? std::to_string(int(mainBudget_.used(now))) + " ms of the " + std::to_string(int(config_.mainThreadQuotaMs)) + " ms per " +
+                ? std::to_string(int(mainBudget_->used(now))) + " ms of the " + std::to_string(int(config_.mainThreadQuotaMs)) + " ms per " +
                       std::to_string(int(config_.cpuQuotaWindowMs)) + " ms main-thread budget used by layout queries and ops"
-                : std::to_string(int(budget_.used(now))) + " ms of the " + std::to_string(int(config_.cpuQuotaMs)) + " ms per " +
+                : std::to_string(int(budget_->used(now))) + " ms of the " + std::to_string(int(config_.cpuQuotaMs)) + " ms per " +
                       std::to_string(int(config_.cpuQuotaWindowMs)) + " ms budget used";
             if (delegate_) delegate_->onDiag(*this, "cpu-throttled", "deferred " + parts + ": " + window);
         }
@@ -1088,9 +1010,9 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;
     double end = nowMs();
-    budget_.record(kind, cpuMs, end);
-    mainBudget_.record(kind, taskQueryMs_ + taskOpsCostMs_, end); // what the task cost the host's main thread
-    stats_.cpuWindowMs = budget_.used(end);
+    budget_->record(kind, cpuMs, end);
+    mainBudget_->record(kind, taskQueryMs_ + taskOpsCostMs_, end); // what the task cost the host's main thread
+    stats_.cpuWindowMs = budget_->used(end);
     double now = nowSeconds();
     if (now - lastMemCheck_ > 1 && !dead_) {
         lastMemCheck_ = now;
@@ -1101,15 +1023,13 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     if (delegate_) delegate_->onTaskCompleted(*this);
 }
 
-void SandboxEngine::chargeValidator(double ms) {
-    if (isHosted() || !(ms > 0)) return;
-    if (client_) return forward([ms](SandboxRemoteChannel& remote) { remote.chargeValidator(ms); });
+void SandboxEngine::inProcessChargeValidator(double ms) {
     auto record = [this, ms] {
         if (dead_) return;
         double now = nowMs();
-        budget_.record("validator", ms, now);
+        budget_->record("validator", ms, now);
         stats_.validatorMs += ms;
-        stats_.cpuWindowMs = budget_.used(now);
+        stats_.cpuWindowMs = budget_->used(now);
         postStats(false);
     };
     if (thread_.isCurrent()) record();

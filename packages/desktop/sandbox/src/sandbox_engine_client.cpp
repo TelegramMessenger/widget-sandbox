@@ -10,7 +10,6 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <cstdlib>
 #include <future>
 #include <limits>
 #include <mutex>
@@ -61,16 +60,6 @@ private:
 };
 
 QueryAnswer deadQuery() { return {"{\"error\":\"dead\"}", std::nullopt}; }
-
-struct FactorySlot {
-    std::mutex mutex;
-    SandboxRemoteChannelFactory factory;
-};
-
-FactorySlot& factorySlot() {
-    static FactorySlot slot;
-    return slot;
-}
 
 } // namespace
 
@@ -559,34 +548,6 @@ std::unique_ptr<SandboxEngine> SandboxEngine::hostedClient(std::string html, San
 }
 
 bool SandboxEngine::isHosted() const { return client_ && client_->hosted(); }
-
-std::unique_ptr<SandboxEngine> SandboxEngine::make(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl) {
-    SandboxRemoteChannelFactory factory;
-    {
-        FactorySlot& slot = factorySlot();
-        std::lock_guard<std::mutex> l(slot.mutex);
-        factory = slot.factory;
-    }
-    if (factory) return std::make_unique<SandboxEngine>(std::move(html), std::move(config), factory(std::move(resources)), std::move(intl));
-#ifndef NDEBUG
-    // Debug only, for parity runs: without a factory every engine a host builds runs behind the in-process loopback.
-    if (const char* loopback = std::getenv("TW_ENGINE_LOOPBACK"); loopback && std::string_view(loopback) == "1")
-        return std::make_unique<SandboxEngine>(std::move(html), std::move(config), std::make_shared<SandboxLoopbackChannel>(std::move(resources)), std::move(intl));
-#endif
-    return std::make_unique<SandboxEngine>(std::move(html), std::move(config), std::move(resources), std::move(intl));
-}
-
-void SandboxEngine::setRemoteChannelFactory(SandboxRemoteChannelFactory factory) {
-    FactorySlot& slot = factorySlot();
-    std::lock_guard<std::mutex> l(slot.mutex);
-    std::swap(slot.factory, factory);
-}
-
-bool SandboxEngine::remoteChannelFactorySet() {
-    FactorySlot& slot = factorySlot();
-    std::lock_guard<std::mutex> l(slot.mutex);
-    return bool(slot.factory);
-}
 
 SandboxEngine::RemoteBacklog SandboxEngine::remoteBacklog() const { return client_ ? client_->backlog() : RemoteBacklog{}; }
 

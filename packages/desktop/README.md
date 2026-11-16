@@ -36,12 +36,16 @@ packages/desktop/
     intl.h                   IntlProvider; BasicIntl fallback (plug QLocale/ICU here)
     json.h                   small strict JSON (hostile input: bounded depth)
   sandbox/src/               the sources; remote_internal.h is what the remote transports share without making it public
-                             (twidget::detail: the loopback's sink, the remote Intl, the hosted runtime, the serving loop)
+                             (twidget::detail: the loopback's sink, the remote Intl, the hosted runtime, the serving loop),
+                             remote_wire.h the stream's frame codec both its ends use, steady_clock.h the engine's clock,
+                             widget_host_internal.h what both WidgetHost sources use; the host's side and the rest:
+                             "The host's side alone" below
   renderer/                  BlitzRenderer (twidget/blitz_renderer.h): the Renderer over ../renderer-blitz's C ABI; -DTW_BLITZ=ON only
                              LitehtmlRenderer (twidget/litehtml_renderer.h): the same over ../renderer-litehtml's C ABI; -DTW_LITEHTML=ON, macOS only
   harness/                   twidget-run + RecordingHost (fake host with canned layout answers) + png.h
                              + stream_peers.h (test byte streams and the TW_ENGINE_STREAM switch, not the library's)
                              + hosted_peers.h (the TW_ENGINE_HOSTED switch and the canned renderer, not the library's)
+                             + host_only.cpp (twidget-host-only, built from the host's side alone)
   tests/                     twidget-tests (XCTest suite ported) + fixtures/
   WidgetJS/                  bundles from `pnpm build:desktop` (committed)
 ```
@@ -55,7 +59,8 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 204 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine, its byte stream and the hosted mode); `./build/twidget-tests remote_` runs the remote engine's 98, `remote_stream_` the byte stream's 35 and `hosted_` the hosted mode's 19 of them
+./build/twidget-tests                             # 214 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine, its byte stream and the hosted mode); `./build/twidget-tests remote_` runs the remote engine's 102, `remote_stream_` the byte stream's 39 and `hosted_` the hosted mode's 29 of them
+./build/twidget-host-only                         # built from the host's side alone ("The host's side alone" below): prints `host-only: hosted=1 dead=the widget engine process ended kept=0` and exits 0
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
     --events '{"type":"click","targetId":5,"detail":1,"gesture":1}'   # SDK v1: prints `action …`, `storage …` and `resize anchor …`; "gesture" makes a trusted press (and the haptic gate's press, or its release for anything but pointerdown / mousedown)
@@ -64,11 +69,11 @@ cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
 ./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
 cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
-TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 204 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 214 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
-TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 204 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
+TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 214 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
 TW_ENGINE_STREAM=1 ./build-debug/twidget-run --attacks     # 133 attacks, 0 leaks, "133 of them over the stream"; a stream that ends before the run's own stop fails the run
-TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 204 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
+TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 214 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
 TW_ENGINE_HOSTED=stream ./build/twidget-tests      # the same over a hosting stream per widget; also fails when a kind that stays in the engine process crossed one
 TW_ENGINE_HOSTED=stream ./build/twidget-run --attacks      # 133 attacks, 0 leaks in the validated ops the run asked for, "133 hosted over the stream"; =loopback too, and --corpus ../../corpus/compat with either
 ```
@@ -1076,6 +1081,68 @@ bundle in the opening the engine process reads no file:
 a child process whose lockdown sets `RLIMIT_NOFILE` to {0, 0}, and its hosted
 widgets load, render and fill the tap.
 
+### The host's side alone
+
+A program whose `WidgetHost`s are all hosted ones links no `TrustedValidator`,
+no QuickJS, no in-process engine, no local glue and no engine end. The core's
+sources are divided by translation unit, never by a macro, and the public API
+is unchanged:
+
+- The host's side: `js_thread.cpp`, `sdk_policy.cpp`, `gesture_policy.cpp`,
+  `intl.cpp`, `resources.cpp`, `remote_coding.cpp` (`SandboxRemoteCoding`),
+  `remote_stream.cpp` (the stream's host end), `sandbox_engine_shared.cpp`
+  (what every `SandboxEngine` runs: its shared constructor and destructor, the
+  entry points both modes take, the clock, the value types' JSON),
+  `sandbox_engine_client.cpp` (the client mode) and `widget_host.cpp` (what
+  every `WidgetHost` runs, the hosted mode and `HostedKeptRenderer`).
+- The rest: `quickjs_context.cpp`, `cpu_budget.cpp`, `bundle_stamp.cpp`,
+  `trusted_validator.cpp`, `sandbox_engine.cpp` (the in-process engine,
+  `release`, `make` and the channel factory slot), `remote_engine.cpp`
+  (`SandboxRemoteServer` and the loopback), `remote_stream_engine.cpp` (the
+  stream's engine end: `serve`), `remote_hosted.cpp` and
+  `widget_host_local.cpp` (the local mode and the served host), with the
+  private headers `remote_internal.h`, `remote_wire.h` (the frame codec both
+  ends of a stream use), `steady_clock.h` (the one clock of the engine's
+  deadlines and of QuickJS's interrupt handler) and `widget_host_internal.h`
+  (what both `WidgetHost` sources use). A build that lists the sources by name
+  lists all of them.
+- `SandboxEngine` reaches the in-process halves of the entry points both modes
+  take through a private table that only its in-process constructor installs.
+- `WidgetHost` reaches its local glue (the six render calls and the local
+  halves of `start`, `setTheme`, `setContentSafeArea`, `onLoaded`, `onDied`
+  and `destroy`) through a private table that only its local and served
+  constructors install; a hosted host has none, and its client never makes
+  the render calls.
+- The members whose type is the engine side's are deleted through a function
+  their constructor installs (`SandboxEngine`'s QuickJS context, `WidgetHost`'s
+  validator, which clears its CPU sink first) or are a `std::optional` the
+  in-process constructor emplaces (the CPU budgets), so no host-side source
+  names their destructors. `WidgetHost` stays one class (`createdAt_` a direct
+  member).
+
+CMake builds the host's side as the object library `twidget-sandbox-host`, and
+`twidget-sandbox`, which every other program links as before, from the rest
+plus those objects. `twidget-host-only` (`harness/host_only.cpp`) is built from
+the host objects alone: a hosted `WidgetHost` that keeps its renderer, over the
+`hostedChannel()` of an end `SandboxRemoteHostEnd::startHosting` opened on a
+stream whose engine's end is gone (none can link there); it uses the keep API
+(null: the route ended) and passes when its widget ran hosted, died "the widget
+engine process ended" and kept nothing. Its link line holds the ten host
+objects and its own, no other object and no `libtwquickjs.a`, and the link of
+an executable leaves no symbol undefined, so no host-side source needs the
+rest; its symbols hold no member of `TrustedValidator`, `QuickJSContext`,
+`CpuBudget`, `BundleStamp` or the engine end's classes, no in-process engine or
+local glue function and nothing of QuickJS's C API, only weak `std::`
+instantiations of the type-erased members that name those types as template
+arguments. The hosted suites run the same objects. An engine process that calls
+only `serve` (tdesktop's helper) still links no `WidgetHost`, validator or
+hosted runtime, and no longer the stream's host end: `serve` is in
+`remote_stream_engine.cpp`. 2026-11-16, Debug: `twidget-host-only` exits 0;
+its symbols hold none of those (`nm -C` grep in CLAUDE.md: 0 lines, 3271 in
+`twidget-tests`); the suites in the five modes, `--attacks` and `--corpus
+../../corpus/compat` in process and under both hosted values give what they
+gave before the division, test for test and row for row.
+
 ### The hosted test switch
 
 `TW_ENGINE_HOSTED=loopback` or `=stream`, in twidget-tests and twidget-run of
@@ -1110,9 +1177,9 @@ runs every widget hosted with `CannedRenderer` (`ready` on load,
 `RecordingHost::cannedAnswer` for every query, no frames), scans the validated
 ops it asked for, and delivers `--events` as the renderer's (a numeric
 `gesture` makes one trusted, framed by `gesture` or `release`); it applies the
-same checks to its streams. 2026-11-16, Debug, with kept renderers: 214
-tests, 0 failures with either value, 19 of 19 fixture widgets hosted (over the
-stream on 19 streams, no frame of a kind that stays in the engine process on
+same checks to its streams. 2026-11-16, Debug, with kept renderers and the
+host's side divided: 214 tests, 0 failures with either value, 19 of 19
+fixture widgets hosted (over the stream on 19 streams, no frame of a kind that stays in the engine process on
 any, `ValidatedOps` only on the 2 whose widget asked); `--attacks` 133
 attacks, 0 leaks, 7 runtimes killed, the same files and reasons as in
 process, 133 hosted; `--corpus ../../corpus/compat` 19 / 19 loaded, every

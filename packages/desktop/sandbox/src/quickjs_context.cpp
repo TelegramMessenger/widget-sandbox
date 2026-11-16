@@ -1,5 +1,7 @@
 #include "twidget/quickjs_context.h"
 
+#include "steady_clock.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #if (defined(_M_IX86) || defined(_M_X64)) && !defined(_M_ARM64EC) // ARM64EC code defines _M_X64 too
@@ -10,7 +12,6 @@
 #include <time.h>
 #endif
 
-#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -80,10 +81,7 @@ struct QuickJSTrampoline {
     }
 };
 
-double QuickJSContext::now() {
-    using namespace std::chrono;
-    return duration<double>(steady_clock::now().time_since_epoch()).count();
-}
+double QuickJSContext::now() { return detail::steadySeconds(); }
 
 #ifdef _WIN32
 namespace {

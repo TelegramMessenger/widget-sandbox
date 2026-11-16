@@ -3,7 +3,7 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
-## Unreleased: a hosted widget's renderer kept past its engine (2026-11-16)
+## Unreleased: a hosted widget's renderer kept past its engine, the hosted client linked alone (2026-11-16)
 
 C++, desktop core only, part of the hosted mode below (no Swift twin: Swift and Kotlin have no hosted mode). Opt-in: a
 host that never keeps a renderer sees nothing new, a hosted widget destroyed without a keep included, and the local
@@ -61,6 +61,25 @@ mode and the engine mode keep their behaviour, their frames and their tests. No 
   `TW_ENGINE_STREAM=1`, `TW_ENGINE_HOSTED=loopback` and `=stream`), 0 failures; `twidget-run --attacks` 133 attacks, 0
   leaks, 7 runtimes killed, the same files and reasons in process and in both hosted modes, 133 hosted; `--corpus
   corpus/compat` 19 / 19 loaded in all three, every per-file status the same.
+- The host's side alone (no behaviour change; `packages/desktop/README.md`, "The host's side alone"): the core's sources
+  are divided by translation unit, never by a macro, so a program whose `WidgetHost`s are all hosted ones links no
+  `TrustedValidator`, QuickJS, in-process engine, local glue or engine end. New sources, which a build that lists them
+  by name adds (tdesktop's `lib_widget_sandbox.cmake`): `sandbox_engine_shared.cpp` (what every `SandboxEngine` runs,
+  out of `sandbox_engine.cpp`, which keeps the in-process engine and gains `make` and the channel factory slot),
+  `remote_coding.cpp` (`SandboxRemoteCoding`, out of `remote_engine.cpp`), `remote_stream_engine.cpp` (the stream's
+  engine end and `serve`, out of `remote_stream.cpp`, which keeps the host's end), `widget_host_local.cpp` (the local
+  mode and the served host, out of `widget_host.cpp`), and the private headers `remote_wire.h`, `steady_clock.h` and
+  `widget_host_internal.h`. The public headers keep every declaration and include (`&WidgetHost::createdAt_` still
+  compiles); `SandboxEngine` and `WidgetHost` reach their engine-side halves through private tables that only their
+  in-process, local and served constructors install. An engine process that calls only `serve` still links no
+  `WidgetHost`, validator or hosted runtime, and no longer the stream's host end.
+- CMake: `twidget-sandbox-host`, an object library of the host's side; `twidget-sandbox`, which every program links as
+  before, from the rest plus those objects; `twidget-host-only` (`harness/host_only.cpp`), built from the host objects
+  alone, runs a hosted `WidgetHost` that keeps its renderer over a hosting stream with no engine end and exits 0. Run
+  here after the division (Debug, 2026-11-16): the same 214 tests in each of the five modes, test for test;
+  `--attacks` and `--corpus corpus/compat` in process and under both hosted values, row for row; `twidget-host-only`
+  exits 0 and its symbols hold no member of the engine side's classes, no in-process engine or local glue function
+  and nothing of QuickJS's C API.
 
 ## Unreleased: the whole widget in the engine process (2026-11-16)
 

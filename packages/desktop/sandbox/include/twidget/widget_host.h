@@ -425,6 +425,40 @@ private:
     template <class F>
     auto validated(SandboxEngine& engine, F validate);
 
+    /// The local mode's halves of the calls both modes take (widget_host_local.cpp), each run from its call (widget_host.cpp) through `glue_`: the six render calls whole, then `start()`'s and `setTheme`'s past the hosted branch, `setContentSafeArea`'s renderer message, `onLoaded`'s validator mark (engine thread) and render acknowledgement (host thread), `onDied`'s once the death is recorded, `destroy()`'s before the engine stops and its renderer's end on the host thread.
+    void localOps(SandboxEngine& engine, const std::string& json);
+    QueryAnswer localQuery(SandboxEngine& engine, const std::string& json);
+    void localListen(SandboxEngine& engine, const std::string& json);
+    void localPreventDefault(SandboxEngine& engine, const std::string& json);
+    void localAnim(SandboxEngine& engine, const std::string& json);
+    void localRequestFrame(SandboxEngine& engine);
+    void localStart();
+    void localSetTheme();
+    void localSafeArea(const WidgetContentSafeArea& area);
+    void localLoaded();
+    void localRenderAck();
+    void localDied(const std::string& effective);
+    void localDestroying();
+    void localDestroyRenderer();
+    /// Those halves as one table, constant-initialised in widget_host_local.cpp (`kGlue`): the calls reach them only through it, so a program whose hosts are all hosted ones links neither them nor the validator.
+    struct Glue {
+        void (WidgetHost::*ops)(SandboxEngine& engine, const std::string& json);
+        QueryAnswer (WidgetHost::*query)(SandboxEngine& engine, const std::string& json);
+        void (WidgetHost::*listen)(SandboxEngine& engine, const std::string& json);
+        void (WidgetHost::*preventDefault)(SandboxEngine& engine, const std::string& json);
+        void (WidgetHost::*anim)(SandboxEngine& engine, const std::string& json);
+        void (WidgetHost::*requestFrame)(SandboxEngine& engine);
+        void (WidgetHost::*start)();
+        void (WidgetHost::*setTheme)();
+        void (WidgetHost::*safeArea)(const WidgetContentSafeArea& area);
+        void (WidgetHost::*loaded)();
+        void (WidgetHost::*renderAck)();
+        void (WidgetHost::*died)(const std::string& effective);
+        void (WidgetHost::*destroying)();
+        void (WidgetHost::*destroyRenderer)();
+    };
+    static const Glue kGlue;
+
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     static constexpr int kRenderAckQid = -1;
 
@@ -443,13 +477,15 @@ private:
     std::shared_ptr<SandboxResources> resources_;
     /// Fixed at construction: only `hosted` is read after it.
     Hosting hosting_;
+    /// `&kGlue`, set by the local and served constructors alone; null in hosted mode, whose client makes none of the render calls and whose other calls have no local half to run.
+    const Glue* glue_ = nullptr;
     /// The engine the validator works for in `validated`, under `validatingMutex_`; before the validator, which may report while it is built.
     std::mutex validatingMutex_;
     SandboxEngine* validating_ = nullptr;
     /// Before the validator, whose construction may report.
     const GlueReports reports_;
-    /// Null in hosted mode, as `renderer_` is.
-    std::unique_ptr<TrustedValidator> validator_;
+    /// Null in hosted mode, as `renderer_` is. The local constructors give it its deleter (widget_host_local.cpp: the CPU sink cleared, then deleted), so only that file names the validator's destructor; none without one.
+    std::unique_ptr<TrustedValidator, void (*)(TrustedValidator*)> validator_;
     std::unique_ptr<Renderer> renderer_;
     /// `SandboxEngine::make`'s: in process, or a client of an engine behind the host's channel factory; a hosted client (`SandboxEngine::hostedClient`) in hosted mode; the served host's own, in process.
     std::unique_ptr<SandboxEngine> engine_;

@@ -1,4 +1,4 @@
-// The engine process's side of a hosted widget (remote_hosted.h, desktop core only): SandboxHostedRuntime builds the widget's engine, a TrustedValidator and the embedder's renderer as a served WidgetHost and routes that engine's calls, keeps the renderer alone once that engine died until the host's `Close`, and the in-process loopback and the stream's `serveHosting` run over it. A translation unit of its own, so the engine-only transport (remote_engine.cpp, remote_stream.cpp) references no WidgetHost or validator.
+// The engine process's side of a hosted widget (remote_hosted.h, desktop core only): SandboxHostedRuntime builds the widget's engine, a TrustedValidator and the embedder's renderer as a served WidgetHost and routes that engine's calls, keeps the renderer alone once that engine died until the host's `Close`, and the in-process loopback and the stream's `serveHosting` run over it. A translation unit of its own, so the engine-only transport (remote_engine.cpp, remote_stream_engine.cpp) references no WidgetHost or validator.
 #include "twidget/remote_hosted.h"
 
 #include "remote_internal.h"

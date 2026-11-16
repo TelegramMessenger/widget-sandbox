@@ -4,6 +4,12 @@
 # ios/Sources/CQuickJS — one engine, one shim, one set of sources on every
 # platform. -DTW_BLITZ=ON adds the Blitz renderer prototype (the Rust crate in
 # ../../apps/renderer-blitz built by cargo; dev tooling, see docs/blitz-experiment.md).
+# Two libraries: twidget-sandbox-host, the host's side as objects (a hosted WidgetHost
+# with its client and kept renderers, the stream's host end, the coding, the SDK and
+# gesture policies, Intl, resources and threads; no QuickJS, validator, in-process
+# engine, local glue or engine end), and twidget-sandbox, the whole core: the engine
+# and local side plus those objects, which every other program links.
+# twidget-host-only links those objects alone, so its link proves the division.
 cmake_minimum_required(VERSION 3.22)
 project(twidget-desktop C CXX)
 
@@ -52,22 +58,38 @@ endif()
 
 find_package(Threads REQUIRED)
 
-add_library(twidget-sandbox STATIC
+# The host's side: each of these links with the others and the system's libraries alone.
+add_library(twidget-sandbox-host OBJECT
     sandbox/src/js_thread.cpp
-    sandbox/src/quickjs_context.cpp
-    sandbox/src/cpu_budget.cpp
     sandbox/src/sdk_policy.cpp
     sandbox/src/gesture_policy.cpp
-    sandbox/src/resources.cpp
-    sandbox/src/bundle_stamp.cpp
     sandbox/src/intl.cpp
+    sandbox/src/resources.cpp
+    sandbox/src/remote_coding.cpp
+    sandbox/src/remote_stream.cpp
+    sandbox/src/sandbox_engine_shared.cpp
+    sandbox/src/sandbox_engine_client.cpp
+    sandbox/src/widget_host.cpp)
+target_include_directories(twidget-sandbox-host PUBLIC sandbox/include)
+target_link_libraries(twidget-sandbox-host PUBLIC Threads::Threads)
+if(WIN32)
+    target_compile_definitions(twidget-sandbox-host PRIVATE NOMINMAX)
+endif()
+if(NOT MSVC)
+    target_compile_options(twidget-sandbox-host PRIVATE -Wall -Wextra)
+endif()
+
+add_library(twidget-sandbox STATIC
+    sandbox/src/quickjs_context.cpp
+    sandbox/src/cpu_budget.cpp
+    sandbox/src/bundle_stamp.cpp
     sandbox/src/trusted_validator.cpp
     sandbox/src/sandbox_engine.cpp
-    sandbox/src/sandbox_engine_client.cpp
     sandbox/src/remote_engine.cpp
+    sandbox/src/remote_stream_engine.cpp
     sandbox/src/remote_hosted.cpp
-    sandbox/src/remote_stream.cpp
-    sandbox/src/widget_host.cpp)
+    sandbox/src/widget_host_local.cpp
+    $<TARGET_OBJECTS:twidget-sandbox-host>)
 target_include_directories(twidget-sandbox PUBLIC sandbox/include)
 target_link_libraries(twidget-sandbox PUBLIC twquickjs Threads::Threads)
 if(WIN32)
@@ -153,6 +175,11 @@ set(TW_FIXTURES "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
 add_executable(twidget-run harness/main.cpp)
 target_link_libraries(twidget-run PRIVATE twidget-sandbox)
 target_compile_definitions(twidget-run PRIVATE TW_WIDGET_JS="${TW_WIDGET_JS}" TW_CORPUS="${TW_CORPUS}")
+
+# Built from the host's side alone: a hosted WidgetHost over a stream's host end with no engine end to reach.
+add_executable(twidget-host-only harness/host_only.cpp)
+target_link_libraries(twidget-host-only PRIVATE twidget-sandbox-host)
+target_compile_definitions(twidget-host-only PRIVATE TW_WIDGET_JS="${TW_WIDGET_JS}")
 
 add_executable(twidget-tests tests/test_main.cpp tests/test_remote.cpp tests/test_remote_bridge.cpp tests/test_remote_stream.cpp tests/test_remote_stream_hosted.cpp tests/test_hosted.cpp)
 target_link_libraries(twidget-tests PRIVATE twidget-sandbox)
