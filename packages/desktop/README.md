@@ -59,7 +59,7 @@ pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
 cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
-./build/twidget-tests                             # 214 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine, its byte stream and the hosted mode); `./build/twidget-tests remote_` runs the remote engine's 102, `remote_stream_` the byte stream's 39 and `hosted_` the hosted mode's 29 of them
+./build/twidget-tests                             # 223 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine, its byte stream and the hosted mode); `./build/twidget-tests remote_` runs the remote engine's 108, `remote_stream_` the byte stream's 45 and `hosted_` the hosted mode's 31 of them
 ./build/twidget-host-only                         # built from the host's side alone ("The host's side alone" below): prints `host-only: hosted=1 dead=the widget engine process ended kept=0` and exits 0
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
 ./build/twidget-run w.html --theme dark --theme-params '{"bg_color":"#212121"}' --locale ru --storage '{"local":{"n":"1"}}' \
@@ -69,11 +69,11 @@ cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
 ./build/twidget-run --corpus ../../corpus/compat     # loaded, alive, no uncaught errors; also generated/with-profile, generated/without-profile
 ./build/twidget-run --attacks                     # 133 files: nothing but data:/#fragment may reach the validated ops
 cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build-debug
-TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 214 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
+TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-tests   # the same 223 with every engine SandboxEngine::make builds behind the in-process loopback (the last lines count them)
 TW_ENGINE_LOOPBACK=1 ./build-debug/twidget-run --attacks   # 133 attacks, 0 leaks, "133 through a client-mode engine"; NDEBUG (the default RelWithDebInfo) compiles the switch out
-TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 214 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
+TW_ENGINE_STREAM=1 ./build-debug/twidget-tests     # the same 223 with every engine SandboxEngine::make builds over the byte stream (below), in any build type; fails unless every fixture engine went over it
 TW_ENGINE_STREAM=1 ./build-debug/twidget-run --attacks     # 133 attacks, 0 leaks, "133 of them over the stream"; a stream that ends before the run's own stop fails the run
-TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 214 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
+TW_ENGINE_HOSTED=loopback ./build/twidget-tests    # the same 223 with every fixture WidgetHost hosted (below): its engine, validator and glue behind a SandboxHostedLoopbackChannel, its renderer here; any build type; fails unless every fixture widget went hosted
 TW_ENGINE_HOSTED=stream ./build/twidget-tests      # the same over a hosting stream per widget; also fails when a kind that stays in the engine process crossed one
 TW_ENGINE_HOSTED=stream ./build/twidget-run --attacks      # 133 attacks, 0 leaks in the validated ops the run asked for, "133 hosted over the stream"; =loopback too, and --corpus ../../corpus/compat with either
 ```
@@ -703,6 +703,23 @@ engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`,
   thread first, never on the reader or their own thread. Frames are written
   whole under one lock; at the end the output is marked broken and the stream
   shut down before any lock is taken, so a write blocked inside it wakes.
+- A thread the OS refuses to start (`JSThread` throws `std::system_error`)
+  ends only what it would serve, never the process, and nothing waits for it.
+  On the host's end `start` and `startHosting` throw when one of their three
+  threads cannot start ("The owner's part" below), and a runtime whose
+  `widget.answer` cannot start is lost alone: its client hears why (the
+  refusal, which names the thread and the OS's error) as its death, then
+  `remoteDisconnected`, and its `Close` goes out. On the engine's end a
+  runtime whose `widget.sandbox` cannot start dies with why, what was kept for
+  it dropped (behind the in-process loopback too), and one whose
+  `widget.probe` cannot start is stopped with why as `Stop` stops it, that
+  probe answered "ERROR no runtime" at once (a later probe tries the thread
+  again). The stream and the other runtimes go on; a hosted widget's own
+  threads are in the hosted mode's "Threads" below. A `widget.reaper` that
+  cannot start ends serving with why, the closed runtime it could not take
+  left to the end. The end closes every runtime still open before it joins
+  anything, then destroys them on `serve`'s thread, so ending starts no
+  thread.
 
 ### The owner's part
 
@@ -724,8 +741,15 @@ engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`,
   cuts short delegate or provider code that already runs: `WidgetHost`'s
   `destroy()` answers its pending layout query dead, and a delegate of your own
   releases its own waits.
+- `start` and `startHosting` throw `std::system_error` when `widget.reader`,
+  `widget.writer` or `widget.monitor` cannot start: those already started are
+  joined, nothing was written to the stream, `Events` hear nothing, and the
+  stream stays the caller's to shut down.
 - `serve` returns once every runtime and thread it started is gone; a
-  `shutdown` of its stream from another thread ends it.
+  `shutdown` of its stream from another thread ends it. It returns why when
+  its `widget.reaper` cannot start (tdesktop's helper prints a non-empty
+  reason and exits 1); a runtime's own thread that cannot start is that
+  runtime's death, never the end of serving.
 
 ### The test switch
 
@@ -741,9 +765,9 @@ switch's own stop, or an engine's end that returns before it, fails the run
 133 attacks, 0 leaks, 7 runtimes killed, 133 of them over the stream, every
 per-file row the same as in process.
 
-`twidget-tests remote_stream_` runs 39 tests: the 25 described here and the
-hosted mode's fourteen `remote_stream_hosted_` (in its section below).
-The 25 check the wire against the tests' own reading of the tables above, both
+`twidget-tests remote_stream_` runs 45 tests: the 29 described here and the
+hosted mode's sixteen `remote_stream_hosted_` (in its section below).
+The 29 check the wire against the tests' own reading of the tables above, both
 ends against scripted bytes, a real `WidgetHost` over the stream (validated
 ops, layout answers, Intl through the host's provider, requests and wallet
 calls, the bytecode of the opening, several runtimes on one stream, the
@@ -753,10 +777,22 @@ openings it is never called for), 47 hostile inputs, a stuck layout query,
 closes and ends while a call waits, races, POSIX socket pairs whose reader
 stops in either direction, payload limits, and in a child process on an
 inherited socket the thread names: no `widget.sandbox` with three remote
-`WidgetHost`s, exactly one once an engine runs in process. With the switch on,
+`WidgetHost`s, exactly one once an engine runs in process; and, on macOS, in
+child processes that use up their thread allowance (every other thread made
+first), a host's end whose threads cannot start, a runtime whose
+`widget.answer` cannot start (on scripted engine and hosting streams and over
+both real ends), runtimes whose `widget.sandbox` (over the stream and behind
+the loopback) or `widget.probe` cannot start, and a `widget.reaper` that
+cannot start at a `Close` and at the end of a stream. With the switch on,
 the 24 of 2026-11-13 also ran under ASan and UBSan and under TSan: 0 failures,
 no report. 2026-11-14, Debug, in process: the 25 and the whole suite's 183
-tests, 0 failures.
+tests, 0 failures. 2026-11-17, Debug, with the threads that cannot start: the
+whole suite's 223 tests, 0 failures in each of the five modes (124 of 124
+fixture engines over the stream on 148 channels and 8 streams, 19 of 19
+widgets hosted on 19 streams, no early end) and in process under ASan and
+UBSan with no report; `--attacks` 133 attacks, 0 leaks, 7 runtimes killed in
+process, over the stream and hosted over the stream, every per-file row that
+of in process.
 
 ## The whole widget in the engine process (hosted mode, `twidget/remote_hosted.h`)
 
@@ -930,8 +966,11 @@ before, a death included.
   widget ended as `destroy()` ends it, when there is nothing to keep: a local
   host, a host never started, destroyed or kept already, a renderer that
   never announced itself, a route that ended (the stream, a flood, a lost
-  frame, a platform request unanswered or with no `onPlatformRequest`), or a
-  death reported without `keepsRenderer`.
+  frame, a platform request unanswered or with no `onPlatformRequest`), a
+  death reported without `keepsRenderer`, or a handle whose own
+  `twidget-host` cannot start (nothing is thrown: a live widget dies
+  "terminated" with `Stop` and `Close`, a dead one's route closes with
+  `Close`, and the engine process destroys its renderer).
 - The handle: `Observers{onPlatformMessage, onPlatformRequest(message,
   respond), onEnded(reason)}`, given at the keep and called in order on the
   handle's own `twidget-host` thread; `sendPlatform(message)`, `ended()`,
@@ -1046,16 +1085,24 @@ kept.reset(); // release(): Close, and the engine process destroys the renderer
   `widget.validator` and no `widget.sandbox` for a hosted widget: no QuickJS
   runtime in the host. A kept renderer has the handle's `twidget-host` (its
   observers) and its client's `widget.client` and `widget.answer`, until its
-  release.
+  release; a keep whose handle's thread cannot start keeps nothing ("Kept
+  renderers" above).
 - The engine process, per hosted widget: the served host's `twidget-host`
   (the glue and every renderer call), `widget.validator`, `widget.sandbox`,
   the renderer's own threads, and `widget.probe` from its first probe; per
   stream `serve`'s caller (the reader, which builds each widget at its start,
   the validator's construction included) and `widget.reaper`. Every library
   thread is a `JSThread`, and a widget's are made while it is built, inside
-  the catch that turns a failure into that widget's death. A kept renderer
-  keeps the glue's `twidget-host`, its own threads and a `widget.probe`
-  already made, no `widget.sandbox` and no `widget.validator`:
+  the catch that turns a failure into that widget's death: a widget whose
+  glue's `twidget-host`, `widget.validator`, renderer (a thread the factory's
+  renderer starts) or `widget.sandbox` cannot start dies with why, everything
+  it had started joined first, and a diagnostic its validator reported while
+  it was built (`bundle-mismatch`, `bytecode`) reaches the host before that
+  death. Its `widget.probe` and the stream's `widget.reaper` fail as an
+  engine's do ("Threads and order" above); one stopped for its probe thread
+  keeps its renderer until `Close`, as at any death of its engine. A kept
+  renderer keeps the glue's `twidget-host`, its own threads and a
+  `widget.probe` already made, no `widget.sandbox` and no `widget.validator`:
   `remote_stream_hosted_kept_engine_process_keeps_only_the_renderer` reads
   them in a child engine process (one of each while live, none while kept).
 - The glue's thread may wait for the platform: a renderer's `request` inside
@@ -1185,7 +1232,7 @@ attacks, 0 leaks, 7 runtimes killed, the same files and reasons as in
 process, 133 hosted; `--corpus ../../corpus/compat` 19 / 19 loaded, every
 row's status that of in process.
 
-`twidget-tests hosted_` (29) runs the hosted mode's own tests: the coders, the
+`twidget-tests hosted_` (31) runs the hosted mode's own tests: the coders, the
 hosted client's grants from delivered presses and its bounds against a fake
 channel, the client's kept route (only platform traffic crosses it, and the
 ends it decides: a flood, an unanswered request, the transport's end), the
@@ -1196,7 +1243,7 @@ validator thread fewer, what cannot be kept, waits on the glue's thread,
 build failures), a probe behind the safe area and theme that the engine's
 side's glue thread relays, over the loopback and a hosting stream, a probe
 that answers when its engine's thread stops under it, and
-`remote_stream_hosted_` (14): the wire against the tests' own reading of the
+`remote_stream_hosted_` (16): the wire against the tests' own reading of the
 tables, the hosting opening and the lockdown, the engine's end serving a
 widget, a real `WidgetHost` over the stream with a frame count (and an
 engine-mode control that shows `Ops` and `Query`), a lying engine end written
@@ -1204,7 +1251,11 @@ frame by frame, hostile frames, a platform flood within the bounds, an
 unanswered request that kills only its runtime among three, a stopped and a
 dead renderer kept on one stream (the runtime count, one `Close` at the
 release, the engine process's end), kept routes against a lying engine end,
-a glue-thread wait that holds up no other widget, and three child processes:
-an engine end that cannot open a file, a host's thread names (no
-`widget.validator` or `widget.sandbox` with three hosted widgets) and an
-engine end that keeps only a kept renderer.
+a glue-thread wait that holds up no other widget, three child processes (an
+engine end that cannot open a file, a host's thread names, no
+`widget.validator` or `widget.sandbox` with three hosted widgets, and an
+engine end that keeps only a kept renderer) and two more at the process's
+thread limit on macOS: hosted widgets whose served threads (`twidget-host`,
+`widget.validator`, the renderer's, `widget.sandbox`) or probe thread cannot
+start, and a keep whose handle's thread cannot start, of a live and of a dead
+widget.

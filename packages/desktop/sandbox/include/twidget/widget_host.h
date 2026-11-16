@@ -236,7 +236,7 @@ public:
     std::string probe(const std::string& code);
     /// Stops the engine and the renderer. Idempotent; not from the host thread. Storage commits already on their way reach `onStorageCommit` before it returns; no action and no storage commit comes after it. A platform request waiting for `onPlatformRequest` gets no answer and the widget dies "terminated".
     void destroy();
-    /// Hosted only, from the owner's thread (never the host thread): ends the widget as `destroy()` does (a live one dies "terminated") but keeps its route, so the engine process's renderer stays reachable through the handle after this host is destroyed (HostedKeptRenderer). Everything the client handed this host before the keep reaches its own observers before this returns, the platform traffic and a waiting platform request among it (`respond` still works after the keep); from then on the handle's observers get the rest. Null, with the widget ended as `destroy()` ends it, when there is nothing to keep: a local host, a host never started, destroyed or kept already, a renderer that never announced itself, a route that ended (the transport, a flood, a platform request unanswered or with no `onPlatformRequest`), or a death the engine process reported without `keepsRenderer`. This host's inputs do nothing afterwards.
+    /// Hosted only, from the owner's thread (never the host thread): ends the widget as `destroy()` does (a live one dies "terminated") but keeps its route, so the engine process's renderer stays reachable through the handle after this host is destroyed (HostedKeptRenderer). Everything the client handed this host before the keep reaches its own observers before this returns, the platform traffic and a waiting platform request among it (`respond` still works after the keep); from then on the handle's observers get the rest. Null, with the widget ended as `destroy()` ends it, when there is nothing to keep: a local host, a host never started, destroyed or kept already, a renderer that never announced itself, a route that ended (the transport, a flood, a platform request unanswered or with no `onPlatformRequest`), a death the engine process reported without `keepsRenderer`, or a handle whose thread cannot start (its `twidget-host`; nothing is thrown). This host's inputs do nothing afterwards.
     std::unique_ptr<HostedKeptRenderer> keepRenderer(HostedKeptRenderer::Observers observers);
 
     /// The renderer the factory built; its own API (touches, paints) is the owner's business. Throws `std::logic_error` in hosted mode, whose renderer is the engine process's.
@@ -462,10 +462,12 @@ private:
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     static constexpr int kRenderAckQid = -1;
 
-    // Before the threads and the validator: a diagnostic the validator reports while it is built (`bundle-mismatch`) reaches `diag` on the host thread at once, which may run it as late as its final join.
+    // Before the threads and the validator: a diagnostic the validator reports while it is built (`bundle-mismatch`, `bytecode`) reaches `diag` on the host thread at once, which may run it as late as its final join.
     mutable std::mutex mutex_;              // diagnostics_, waiters
     std::condition_variable cv_;
     WidgetDiagnostics diagnostics_;
+    /// Where the served host's `diag` reports too: the served constructor initializes it first.
+    const GlueReports reports_;
 
     JSThread hostThread_;
     std::string html_;
@@ -482,8 +484,6 @@ private:
     /// The engine the validator works for in `validated`, under `validatingMutex_`; before the validator, which may report while it is built.
     std::mutex validatingMutex_;
     SandboxEngine* validating_ = nullptr;
-    /// Before the validator, whose construction may report.
-    const GlueReports reports_;
     /// Null in hosted mode, as `renderer_` is. The local constructors give it its deleter (widget_host_local.cpp: the CPU sink cleared, then deleted), so only that file names the validator's destructor; none without one.
     std::unique_ptr<TrustedValidator, void (*)(TrustedValidator*)> validator_;
     std::unique_ptr<Renderer> renderer_;

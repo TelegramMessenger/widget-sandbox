@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <initializer_list>
 #include <limits>
 #include <map>
@@ -41,6 +42,8 @@ constexpr const char* kProbeTimeout = "ERROR timeout";
 constexpr const char* kHostStopped = "the host stopped the stream";
 constexpr const char* kEngineClosed = "the engine process closed the stream";
 constexpr const char* kWriteFailed = "a write to the stream failed";
+/// The death of a runtime whose `widget.answer` cannot start, before the refusal itself (which names the thread and the OS error).
+constexpr const char* kAnswerUnstarted = "the host could not start the thread that answers the widget";
 /// Bytes of one write to the stream: `Limits::writeStallMs` bounds each such write.
 constexpr size_t kWriteChunk = size_t(64) << 10;
 /// The longest bound `Limits` takes, a year: its duration still fits the clock's.
@@ -322,8 +325,8 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
         }
     }
 
-    /// A form of the host's that does not decode or fit a frame: the route goes as `close` lets it go, and its client hears that the stream is lost, as over the loopback.
-    void lose(const std::shared_ptr<HostRoute>& route) {
+    /// A form of the host's that does not decode or fit a frame, or a runtime whose `widget.answer` cannot start: the route goes as `close` lets it go, and its client hears that the stream is lost, as over the loopback, after `died` as its runtime's death when one is given.
+    void lose(const std::shared_ptr<HostRoute>& route, const std::optional<std::string>& died = std::nullopt) {
         std::shared_ptr<SandboxRemoteSink> sink;
         {
             std::lock_guard<std::mutex> l(mutex_);
@@ -331,6 +334,7 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
             removeLocked(*route);
             sink = route->sink;
         }
+        if (died) sink->remoteDied(*died);
         sink->remoteDisconnected();
         std::lock_guard<std::mutex> l(mutex_);
         route->state = HostRoute::State::Gone;
@@ -467,11 +471,20 @@ private:
         }
     }
 
-    /// A query, an Intl request or a platform request to the route's `widget.answer`, made at its first, so the reader goes on for the other runtimes while the client answers; dropped once the channel is destroyed. A platform request the client answers with none (it stopped the widget, which closes the runtime) gets no frame.
+    /// A query, an Intl request or a platform request to the route's `widget.answer`, made at its first, so the reader goes on for the other runtimes while the client answers; dropped once the channel is destroyed. A platform request the client answers with none (it stopped the widget, which closes the runtime) gets no frame. A route whose `widget.answer` cannot start is lost with why (`kAnswerUnstarted`, then the refusal), which its client hears as its runtime's death; the stream and the other routes go on.
     void post(const std::shared_ptr<HostRoute>& route, std::shared_ptr<SandboxRemoteSink> sink, uint32_t id, Kind kind, std::string request) {
-        std::lock_guard<std::mutex> l(route->answering);
+        std::unique_lock<std::mutex> l(route->answering);
         if (route->retired) return;
-        if (!route->answerer) route->answerer = std::make_unique<JSThread>("widget.answer");
+        if (!route->answerer) {
+            try {
+                route->answerer = std::make_unique<JSThread>("widget.answer");
+            } catch (const std::exception& e) {
+                // The client hears the loss outside every lock of this end.
+                l.unlock();
+                lose(route, std::string(kAnswerUnstarted) + ": " + e.what());
+                return;
+            }
+        }
         route->answerer->async([self = shared_from_this(), route, sink = std::move(sink), id, kind, request = std::move(request)] {
             std::optional<std::string> frame;
             bool lost = false;

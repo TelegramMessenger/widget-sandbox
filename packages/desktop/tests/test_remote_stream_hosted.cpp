@@ -1,4 +1,4 @@
-// A hosting stream's tests (remote_stream.h's hosted kinds, `SandboxRemoteEngineEnd::serveHosting` and `SandboxRemoteHostEnd::startHosting`: the wire, the engine process's end and a hosted widget on it, the host's end with hosted WidgetHosts over real and lying ends, hostile frames, a flood, an unanswered request, renderers kept past their engines over real and lying ends, waits on the glue's thread, an engine process that reads no file, one that keeps only a kept renderer and a host process whose widgets are all hosted), in the suite after the byte stream's other tests: `twidget-tests remote_stream_hosted_`.
+// A hosting stream's tests (remote_stream.h's hosted kinds, `SandboxRemoteEngineEnd::serveHosting` and `SandboxRemoteHostEnd::startHosting`: the wire, the engine process's end and a hosted widget on it, the host's end with hosted WidgetHosts over real and lying ends, hostile frames, a flood, an unanswered request, renderers kept past their engines over real and lying ends, waits on the glue's thread, an engine process that reads no file, one that keeps only a kept renderer, a host process whose widgets are all hosted, threads the OS refuses to start), in the suite after the byte stream's other tests: `twidget-tests remote_stream_hosted_`.
 #include "test_support.h"
 #include "test_remote_support.h"
 #include "test_remote_stream_support.h"
@@ -1632,7 +1632,6 @@ TEST(remote_stream_hosted_engine_process_reads_no_file) {
     }
 }
 
-#if defined(__APPLE__) || defined(__linux__)
 /// `name` as the thread inventory lists it: Linux keeps a thread name's first 15 bytes.
 static std::string listed(const std::string& name) {
 #ifdef __linux__
@@ -1641,7 +1640,6 @@ static std::string listed(const std::string& name) {
     return name;
 #endif
 }
-#endif
 
 /// The child of `remote_stream_hosted_thread_process`, a host whose widgets are all hosted, on the stream it inherited: three hosted WidgetHosts load and render with their Intl formatted here on `widget.client`; this process then has no `widget.validator` and no `widget.sandbox` thread, three `twidget-host`, three `widget.client`, three `widget.answer` and the transport's own, and one local WidgetHost adds exactly one of each of the first two (the inventory sees them when they exist). It prints its process id and both inventories of names.
 CHILD_CASE(remote_stream_hosted_host_process) {
@@ -1793,10 +1791,10 @@ TEST(remote_stream_hosted_kept_engine_process_keeps_only_the_renderer) {
             CHECK(handle);
         }
         if (handle) {
-            // The engine end's cut follows the keep's stop: ask until the report comes after it.
+            // The engine end's cut follows the keep's stop and joins the engine's thread, then the validator's: ask until a report comes after both left the inventory.
             CHECK_MSG(eventually([&] {
                           kept = threadsThrough([&](std::string m) { handle->sendPlatform(std::move(m)); }, [&] { return heard.messages(); });
-                          return !kept.empty() && countIn(kept, "widget.sandbox") == 0;
+                          return !kept.empty() && countIn(kept, "widget.sandbox") == 0 && countIn(kept, listed("widget.validator")) == 0;
                       }, 10),
                       kept);
             CHECK(!handle->ended());
@@ -1819,3 +1817,267 @@ TEST(remote_stream_hosted_kept_engine_process_keeps_only_the_renderer) {
 #endif
 }
 #endif
+
+// ───────────── threads the OS refuses to start (macOS: the per-process thread limit) ─────────────
+
+#ifdef __APPLE__
+/// How the engine's end words the death of a hosted widget it could not build, before why (here the refusal of one of its threads).
+static const std::string kNotBuilt = "the widget could not be built in the engine process";
+
+/// The engine's end of a hosting stream whose opening carries validator bytecode that does not load (each validator built reports `bytecode` and falls back to its source) while no thread can start but those a leg leaves: the reaper (runtime 1 opened and closed), B (runtime 2, its probe thread made) and D (runtime 3, never probed), each with its glue's, validator's, renderer's and engine's threads, and every worker are made before the fill. With 0, 1, 2 and 3 threads free a hosted start (runtimes 4 to 7) is refused at its served host's `twidget-host`, its `widget.validator`, its renderer's thread (the test renderer's `hosted.asker`, inside the renderer factory) and its engine's `widget.sandbox`: its one death names that thread within 2 s, after its validator's `bytecode` once the validator was built; the task's thread count comes back to what the leg left with the same named threads (a renderer it built is gone), and the allowance is filled again. Then D's first probe answers "ERROR no runtime" and D is stopped with the refusal of its `widget.probe` within 2 s, in either order, its renderer still carrying its platform messages until its `Close`, then gone. B's probe, platform message and platform request still go through after each, B's threads and the reaper are all that is left, and the engine's end goes on serving.
+static void hostedUnbuiltOnScriptedStream() {
+    const std::string leg = "hosting stream";
+    std::mutex m;
+    // Whether each renderer built was destroyed, in the order the reader built them.
+    std::vector<std::shared_ptr<std::atomic<bool>>> gone;
+    const auto goneAt = [&](size_t i) {
+        std::lock_guard<std::mutex> l(m);
+        return i < gone.size() && gone[i]->load();
+    };
+    BuiltRenderers built;
+    ScriptedHost host([](const ParsedFrame& f) -> std::optional<std::string> {
+        if (f.kind != wire::PlatformRequest) return std::nullopt;
+        return FrameBytes(f.runtime, wire::PlatformAnswer).str("answer:" + FieldsOf(f).str().value_or("")).bytes();
+    }, nullptr, built.factory([&](HostedTestRenderer& r) {
+        std::lock_guard<std::mutex> l(m);
+        r.gone = gone.emplace_back(std::make_shared<std::atomic<bool>>(false));
+    }));
+    const auto open = [](uint32_t runtime) { return FrameBytes(runtime, wire::Open).bytes(); };
+    const auto stale = [](const std::string& e) { return e.rfind("diag:bytecode:validator-bundle.js: falling back to source", 0) == 0; };
+    const auto staleOf = [&](uint32_t runtime) {
+        const std::vector<std::string> events = host.events(runtime);
+        return std::count_if(events.begin(), events.end(), stale);
+    };
+    CHECK(host.send(hostingOpeningOf(*RES, std::nullopt, "not bytecode")));
+    CHECK_MSG(eventually([&] { return host.events(0) == std::vector<std::string>{"ready:1"}; }), leg + ": " + joined(host.events(0)));
+    // Runtime 1 opened and closed makes the reaper; B is runtime 2 and D runtime 3.
+    CHECK(host.send(open(1) + FrameBytes(1, wire::Close).bytes() + open(2) + hostedStartFrame(2, "<p id='p'>b</p>") + open(3) + hostedStartFrame(3, "<p>d</p>")));
+    CHECK_MSG(eventually([&] { return host.saw(2, "rendered") && host.saw(3, "rendered"); }, 20), leg + ": " + joined(host.events(2)) + " / " + joined(host.events(3)));
+    CHECK_MSG(staleOf(2) == 1 && staleOf(3) == 1 && built.count() == 2, leg + ": " + joined(host.events(2)) + " / " + joined(host.events(3)));
+    int rounds = 0;
+    std::string heard;
+    // B's probe sets its text on its probe thread; its renderer sends a platform message and asks a platform request the host answers.
+    const auto bGoesOn = [&] {
+        const std::string n = std::to_string(++rounds);
+        const std::optional<std::string> probed = host.probe(2, "document.getElementById('p').textContent = 'b" + n + "'");
+        const bool sent = host.send(FrameBytes(2, wire::Platform).str("say:s" + n).bytes() + FrameBytes(2, wire::Platform).str("wait:w" + n).bytes());
+        const bool answered = eventually([&] { return host.saw(2, "platform:s" + n) && host.saw(2, "platform:waited:answer:w" + n); }, 2);
+        heard = "probed \"" + probed.value_or("nothing") + "\", " + (answered ? "its platform message and request answered" : joined(host.eventsWith(2, "platform")));
+        return probed == std::optional<std::string>("b" + n) && sent && answered;
+    };
+    CHECK_MSG(bGoesOn(), leg + ": B " + heard);
+    std::map<std::string, int> before;
+    CHECK_MSG(eventually([&] {
+        before = threadNames().value_or(std::map<std::string, int>());
+        return countOf(before, "widget.reaper") == 1 && countOf(before, "twidget-host") == 2 && countOf(before, "widget.validator") == 2 && countOf(before, "hosted.asker") == 2 &&
+               countOf(before, "widget.sandbox") == 2 && countOf(before, "widget.probe") == 1;
+    }), leg + ": " + namesText(before));
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) return;
+        struct Refused {
+            int free;
+            const char* thread;
+        };
+        // In the served host's order: its glue's thread, its validator (which reports `bytecode` as it is built), its renderer from the factory, its engine.
+        const Refused refused[] = {{0, "twidget-host"}, {1, "widget.validator"}, {2, "hosted.asker"}, {3, "widget.sandbox"}};
+        uint32_t runtime = 4;
+        for (const Refused& r : refused) {
+            const std::string what = leg + ", " + std::to_string(r.free) + " free";
+            const std::string left = allowance.leave(r.free);
+            CHECK_MSG(left.empty(), what + ": " + left);
+            if (!left.empty()) return;
+            const size_t renderers = built.count();
+            printf("    %s: runtime %u's hosted start, whose %s cannot start\n", what.c_str(), runtime, r.thread);
+            fflush(stdout);
+            const auto sent = std::chrono::steady_clock::now();
+            CHECK(host.send(open(runtime) + hostedStartFrame(runtime, "<p>a</p>")));
+            std::vector<std::string> died;
+            const bool dies = eventually([&] { return !(died = host.eventsWith(runtime, "died:")).empty(); }, 2);
+            const double ms = msSince(sent);
+            const int leftAt = allowance.full() - r.free;
+            const std::optional<int> after = threadsSettleAt(leftAt);
+            const std::map<std::string, int> names = threadNames().value_or(std::map<std::string, int>());
+            const std::vector<std::string> events = host.events(runtime);
+            printf("    %s: runtime %u heard %s in %.1f ms; the task back at %s threads (%d with %d free)\n", what.c_str(), runtime, whole(events).c_str(), ms, countText(after).c_str(), leftAt, r.free);
+            fflush(stdout);
+            CHECK_MSG(dies && died.size() == 1 && unstarted(died[0].substr(5), kNotBuilt, r.thread), what + ": " + whole(events));
+            // A validator that was built reported `bytecode` through its host's thread, which ran it before it was joined: before the death.
+            const auto diagAt = std::find_if(events.begin(), events.end(), stale);
+            const auto deathAt = std::find_if(events.begin(), events.end(), [](const std::string& e) { return e.rfind("died:", 0) == 0; });
+            CHECK_MSG(r.free >= 2 ? diagAt < deathAt && std::count_if(events.begin(), events.end(), stale) == 1 : diagAt == events.end(), what + ": " + whole(events));
+            CHECK_MSG(after == leftAt && namesText(names) == namesText(before), what + ": " + countText(after) + " threads, not " + std::to_string(leftAt) + "; " + namesText(names));
+            // Only the engine's refusal comes after the renderer was built, which went with the rest.
+            const size_t made = r.free == 3 ? 1 : 0;
+            CHECK_MSG(built.count() == renderers + made && (!made || goneAt(renderers)), what + ": " + std::to_string(built.count() - renderers) + " renderers built");
+            const std::string filled = allowance.fill();
+            CHECK_MSG(filled.empty(), what + ": " + filled);
+            if (!filled.empty()) return;
+            CHECK_MSG(bGoesOn(), what + ": B " + heard);
+            runtime++;
+        }
+
+        printf("    %s: D's first probe, whose widget.probe cannot start\n", leg.c_str());
+        fflush(stdout);
+        const auto asked = std::chrono::steady_clock::now();
+        const std::optional<std::string> probed = host.probe(3, "1 + 1");
+        const double answered = msSince(asked);
+        std::vector<std::string> stopped;
+        const bool stops = eventually([&] { return !(stopped = host.eventsWith(3, "died:")).empty(); }, 2);
+        const double ended = msSince(asked);
+        printf("    %s: D's probe answered \"%s\" in %.1f ms; D heard %s within %.1f ms\n", leg.c_str(), probed.value_or("nothing").c_str(), answered, whole(stopped).c_str(), ended);
+        fflush(stdout);
+        CHECK_MSG(probed == std::optional<std::string>("ERROR no runtime") && answered < 2000, leg + ": D's probe " + probed.value_or("unanswered") + " in " + std::to_string(answered) + " ms");
+        CHECK_MSG(stops && stopped.size() == 1 && unstarted(stopped[0].substr(5), kProbeUnstarted, "widget.probe"), leg + ": " + whole(stopped));
+        // Stopped as `Stop` stops it: its renderer stays, its platform traffic still crossing, until its `Close`.
+        CHECK(host.send(FrameBytes(3, wire::Platform).str("say:kept").bytes()));
+        CHECK_MSG(eventually([&] { return host.saw(3, "platform:kept"); }, 2), leg + ": " + joined(host.events(3)));
+        CHECK_MSG(!goneAt(1), leg + ": D's renderer went before its Close");
+        CHECK_MSG(bGoesOn(), leg + ": B " + heard);
+        CHECK(host.send(FrameBytes(3, wire::Close).bytes()));
+        CHECK_MSG(eventually([&] { return goneAt(1); }, 5), leg + ": D's renderer is still in the engine's end after its Close");
+        std::map<std::string, int> after;
+        CHECK_MSG(eventually([&] {
+            after = threadNames().value_or(std::map<std::string, int>());
+            return countOf(after, "twidget-host") == 1 && countOf(after, "widget.validator") == 1 && countOf(after, "hosted.asker") == 1 && countOf(after, "widget.sandbox") == 1;
+        }, 5), leg + ": " + namesText(after));
+        CHECK_MSG(countOf(after, "widget.probe") == 1 && countOf(after, "widget.reaper") == 1 && host.eventsWith(3, "died:") == stopped, leg + ": " + namesText(after) + "; " + whole(host.events(3)));
+        CHECK_MSG(bGoesOn(), leg + ": B " + heard);
+        printf("    %s: D's renderer carried its platform message until its Close, then went; B %s; after them %s\n", leg.c_str(), heard.c_str(), namesText(after).c_str());
+        fflush(stdout);
+        const std::optional<std::string> served = host.served(0);
+        CHECK_MSG(!served, leg + ": the engine's end stopped serving: " + served.value_or(""));
+    }
+}
+
+/// The child of `remote_stream_hosted_threads_that_cannot_start_stop_only_their_widget`, alone in a fresh process: `twidget-tests --child remote_stream_hosted_widgets_at_the_thread_limit`.
+CHILD_CASE(remote_stream_hosted_widgets_at_the_thread_limit) {
+    legsLeaveNoThread([] { hostedUnbuiltOnScriptedStream(); });
+}
+
+/// Both real ends of a hosting stream while no thread can start: the engine's end's reaper (a hosted channel opened and closed), live A (runtime 2), A2 (runtime 3, dead of its own CPU limit, `keepsRenderer`) and B (runtime 4, its probe thread and its host's `widget.answer` made by a probe and a `wait:` request) with all their threads, and every worker are made before the fill. A's `keepRenderer`, with no thread free for its handle's `twidget-host`, returns null within 1 s and throws nothing: A dies "terminated", the engine's end reads one `Stop` and one `Close` of A's, A's renderer there goes and its route no longer counts. With A's threads in the engine's end gone and the allowance filled again, A2's keep returns null the same way with one `Close` and no `Stop`, its death unchanged. Neither handle's observers hear anything, B's platform request and probe are still answered after each, and the stream goes on.
+static void keepUnstartedOverRealEnds() {
+    const std::string leg = "both ends, a keep";
+    // A's, A2's and B's renderers in the engine's end, built in that order: whether each was destroyed.
+    const std::vector<std::shared_ptr<std::atomic<bool>>> gone = {std::make_shared<std::atomic<bool>>(false), std::make_shared<std::atomic<bool>>(false),
+                                                                  std::make_shared<std::atomic<bool>>(false)};
+    std::atomic<size_t> made{0};
+    BuiltRenderers built;
+    StreamPeers peers(kBuild, *RES, nullptr, built.factory([&](HostedTestRenderer& r) {
+        if (const size_t i = made++; i < gone.size()) r.gone = gone[i];
+    }));
+    CountingStream& counted = *peers.counted;
+    {
+        auto sink = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxHostedChannel> channel = peers.end->hostedChannel();
+        channel->attach(sink);
+        channel->close();
+    }
+    CHECK_MSG(eventually([&] {
+        const std::optional<std::map<std::string, int>> names = threadNames();
+        return names && countOf(*names, "widget.reaper") == 1;
+    }), leg + ": no reaper after runtime 1 closed");
+    // One after the other, so A is runtime 2, A2 runtime 3 and B runtime 4, their renderers built in that order.
+    HostedStreamHost a(*peers.end, "<p>a</p>", WidgetHostOptions(), 300, "INTL");
+    CHECK(a.shown());
+    HostedStreamHost a2(*peers.end, kDiesSoon, WidgetHostOptions(), 300, "INTL", true, [](WidgetHost& h) { h.keepsRenderer = true; });
+    CHECK(a2.shown());
+    HostedStreamHost b(*peers.end, "<p>b</p>", WidgetHostOptions(), 300, "INTL");
+    CHECK(b.shown());
+    CHECK(a2.host->waitUntil(died, 10));
+    const std::string deathA2 = a2.host->diagnostics().dead.value_or("");
+    CHECK_MSG(deathA2.rfind("CPU limit exceeded", 0) == 0, leg + ": " + deathA2);
+    int rounds = 0;
+    // B's renderer asks a platform request its host answers (on the glue's thread, no thread of the test's), and B answers a probe.
+    const auto bAnswers = [&] {
+        const std::string n = "b" + std::to_string(++rounds);
+        b.host->sendPlatform("wait:" + n);
+        const bool probed = b.host->probe("1 + 1") == "2";
+        return eventually([&] { return has(b.messages(), "waited:answer:" + n); }, 2) && probed;
+    };
+    CHECK_MSG(bAnswers(), leg + ": B " + joined(b.messages()));
+    CHECK_MSG(eventually([&] { return peers.events.open() == 3; }), leg + ": " + joined(peers.events.all()));
+    std::map<std::string, int> before;
+    CHECK_MSG(eventually([&] {
+        before = threadNames().value_or(std::map<std::string, int>());
+        return countOf(before, "widget.sandbox") == 2 && countOf(before, "widget.validator") == 2 && countOf(before, "hosted.asker") == 3 && countOf(before, "twidget-host") == 6 &&
+               countOf(before, "widget.client") == 3 && countOf(before, "widget.probe") == 1 && countOf(before, "widget.answer") == 1 && countOf(before, "widget.reaper") == 1;
+    }), leg + ": " + namesText(before));
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) return;
+        KeptObservers heardA, heardA2;
+        printf("    %s: live A's keep, whose handle's twidget-host cannot start\n", leg.c_str());
+        fflush(stdout);
+        auto asked = std::chrono::steady_clock::now();
+        std::unique_ptr<HostedKeptRenderer> kept = a.host->keepRenderer(heardA.observers());
+        double ms = msSince(asked);
+        const bool diedA = a.host->waitUntil(died, 2);
+        const std::string deathA = a.host->diagnostics().dead.value_or("alive");
+        const bool closedA = eventually([&] { return counted.readOf(wire::Close, 2) == 1; }, 5);
+        const bool goneA = eventually([&] { return gone[0]->load(); }, 5);
+        printf("    %s: A's keep returned %s in %.1f ms; A %s; the engine's end read %zu Stop and %zu Close of A's, its renderer %s\n", leg.c_str(), kept ? "a handle" : "null", ms,
+               diedA ? ("died: " + deathA).c_str() : "lives", counted.readOf(wire::Stop, 2), counted.readOf(wire::Close, 2), goneA ? "gone" : "still there");
+        fflush(stdout);
+        CHECK_MSG(!kept && ms < 1000, leg + ": A's keep " + (kept ? "kept" : "returned null") + " in " + std::to_string(ms) + " ms");
+        CHECK_MSG(diedA && deathA == "terminated", leg + ": A " + deathA);
+        CHECK_MSG(closedA && counted.readOf(wire::Stop, 2) == 1, leg + ": " + std::to_string(counted.readOf(wire::Stop, 2)) + " stops, " + std::to_string(counted.readOf(wire::Close, 2)) + " closes");
+        CHECK_MSG(goneA, leg + ": A's renderer is still in the engine's end");
+        CHECK_MSG(eventually([&] { return peers.events.open() == 2; }), leg + ": " + joined(peers.events.all()));
+        // A's threads in the engine's end went with it: once they are gone the allowance is filled again for A2's keep.
+        std::map<std::string, int> freed;
+        CHECK_MSG(eventually([&] {
+            freed = threadNames().value_or(std::map<std::string, int>());
+            return countOf(freed, "widget.sandbox") == 1 && countOf(freed, "widget.validator") == 1 && countOf(freed, "hosted.asker") == 2 && countOf(freed, "twidget-host") == 5;
+        }, 5), leg + ": " + namesText(freed));
+        CHECK_MSG(bAnswers(), leg + ": B " + joined(b.messages()));
+        if (!filledFor(allowance, leg + ", A's keep settled", freed).empty()) return;
+
+        printf("    %s: dead A2's keep, whose handle's twidget-host cannot start\n", leg.c_str());
+        fflush(stdout);
+        asked = std::chrono::steady_clock::now();
+        kept = a2.host->keepRenderer(heardA2.observers());
+        ms = msSince(asked);
+        const bool closedA2 = eventually([&] { return counted.readOf(wire::Close, 3) == 1; }, 5);
+        const bool goneA2 = eventually([&] { return gone[1]->load(); }, 5);
+        printf("    %s: A2's keep returned %s in %.1f ms; A2 died: %s; the engine's end read %zu Stop and %zu Close of A2's, its renderer %s\n", leg.c_str(), kept ? "a handle" : "null", ms,
+               a2.host->diagnostics().dead.value_or("alive").c_str(), counted.readOf(wire::Stop, 3), counted.readOf(wire::Close, 3), goneA2 ? "gone" : "still there");
+        fflush(stdout);
+        CHECK_MSG(!kept && ms < 1000, leg + ": A2's keep " + (kept ? "kept" : "returned null") + " in " + std::to_string(ms) + " ms");
+        CHECK_MSG(closedA2 && counted.readOf(wire::Stop, 3) == 0, leg + ": " + std::to_string(counted.readOf(wire::Stop, 3)) + " stops, " + std::to_string(counted.readOf(wire::Close, 3)) + " closes");
+        CHECK_MSG(goneA2, leg + ": A2's renderer is still in the engine's end");
+        CHECK_MSG(a2.host->diagnostics().dead == std::optional<std::string>(deathA2), leg + ": A2 " + a2.host->diagnostics().dead.value_or("alive"));
+        CHECK_MSG(eventually([&] { return peers.events.open() == 1; }), leg + ": " + joined(peers.events.all()));
+        CHECK_MSG(heardA.count() == 0 && heardA2.count() == 0, leg + ": " + joined(heardA.events()) + " / " + joined(heardA2.events()));
+        CHECK_MSG(bAnswers(), leg + ": B " + joined(b.messages()));
+        CHECK_MSG(counted.readOf(wire::Stop, 4) == 0 && counted.readOf(wire::Close, 4) == 0 && !gone[2]->load() && !b.host->diagnostics().dead, leg + ": B was stopped");
+        CHECK_MSG(!peers.events.ended() && !peers.serving.within(0), leg + ": " + joined(peers.events.all()));
+        const std::map<std::string, int> after = threadNames().value_or(std::map<std::string, int>());
+        printf("    %s: B answered after both keeps; the host's end heard %s; after them %s\n", leg.c_str(), joined(peers.events.all()).c_str(), namesText(after).c_str());
+        fflush(stdout);
+    }
+}
+
+/// The child of `remote_stream_hosted_keep_whose_thread_cannot_start_keeps_nothing`, alone in a fresh process: `twidget-tests --child remote_stream_hosted_keeps_at_the_thread_limit`.
+CHILD_CASE(remote_stream_hosted_keeps_at_the_thread_limit) {
+    legsLeaveNoThread([] { keepUnstartedOverRealEnds(); });
+}
+#endif
+
+/// A hosted widget whose threads in the engine's end cannot start dies alone with the reason: a fresh child (`--child remote_stream_hosted_widgets_at_the_thread_limit`) uses up its thread allowance, every other thread made before, on a hosting stream whose validator bytecode does not load. With 0, 1, 2 and 3 threads free a hosted start is refused at its served host's `twidget-host`, `widget.validator`, its renderer's own thread (inside the renderer factory) and `widget.sandbox`: its one death names that thread within 2 s (the engine's end's context, `JSThread <thread>`, EAGAIN), after the validator's `bytecode` diagnostic once the validator was built, and nothing it built is left. A live widget's first probe, whose `widget.probe` cannot start, answers "ERROR no runtime" and stops it with the refusal, its renderer still carrying platform messages until its `Close`, then gone. Another widget's probe, platform message and platform request go through after each, and the engine's end goes on serving. The child exits 0 within 120 s, or it is killed and the test fails.
+TEST(remote_stream_hosted_threads_that_cannot_start_stop_only_their_widget) {
+#ifdef __APPLE__
+    childPasses("remote_stream_hosted_widgets_at_the_thread_limit", 120);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}
+
+/// A keep whose handle's thread cannot start keeps nothing: a fresh child (`--child remote_stream_hosted_keeps_at_the_thread_limit`) uses up its thread allowance, every other thread made before, with hosted WidgetHosts over both real ends. A live widget's `keepRenderer` returns null within 1 s and throws nothing, the widget dying "terminated" with one `Stop` and one `Close` and its renderer gone from the engine's end; then, with the allowance full again, a dead one's with `keepsRenderer` returns null with one `Close` and no `Stop`. Neither handle's observers hear anything, a third widget's platform request and probe are still answered, and the stream goes on. The child exits 0 within 60 s, or it is killed and the test fails.
+TEST(remote_stream_hosted_keep_whose_thread_cannot_start_keeps_nothing) {
+#ifdef __APPLE__
+    childPasses("remote_stream_hosted_keeps_at_the_thread_limit", 60);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}

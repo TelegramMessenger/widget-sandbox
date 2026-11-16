@@ -1,7 +1,8 @@
-// The framed byte transport's tests (remote_stream.h: the wire, the theme's coding, the streams the tests use, the engines' thread names, both ends and WidgetHost over them, the engine process's lockdown, hostile bytes, stuck and blocked work and teardown, a host process whose engines are all remote), in the suite after the remote engine's: `twidget-tests remote_stream_`.
+// The framed byte transport's tests (remote_stream.h: the wire, the theme's coding, the streams the tests use, the engines' thread names, both ends and WidgetHost over them, the engine process's lockdown, hostile bytes, stuck and blocked work and teardown, a host process whose engines are all remote, threads the OS refuses to start), in the suite after the remote engine's: `twidget-tests remote_stream_`.
 #include "test_support.h"
 #include "test_remote_support.h"
 #include "test_remote_stream_support.h"
+#include "test_thread_limit.h"
 
 #include "../harness/stream_peers.h"
 #include "twidget/bundle_stamp.h"
@@ -2235,3 +2236,492 @@ TEST(remote_stream_thread_process) {
 #endif
 }
 #endif
+
+// ───────────── threads the OS refuses to start (macOS: the per-process thread limit) ─────────────
+
+#ifdef __APPLE__
+/// The host's end on `stream` for engines that boot nothing (`smallResources`), opened by `startHosting` with `hosting`, else by `start`.
+static std::shared_ptr<SandboxRemoteHostEnd> openedEnd(bool hosting, std::shared_ptr<MemoryStream> stream, EndEvents& events) {
+    return hosting ? SandboxRemoteHostEnd::startHosting(std::move(stream), smallResources(), kBuild, events.events(), {})
+                   : SandboxRemoteHostEnd::start(std::move(stream), smallResources(), kBuild, events.events(), {});
+}
+
+/// The child of `remote_stream_host_end_whose_threads_cannot_start_fails_promptly`, alone in a fresh process: `twidget-tests --child remote_stream_host_end_at_the_thread_limit`.
+CHILD_CASE(remote_stream_host_end_at_the_thread_limit) {
+    const std::optional<int> alone = taskThreads();
+    CHECK_MSG(alone.has_value(), "the task's threads cannot be listed");
+    if (!alone) return;
+    {
+        ThreadAllowance allowance;
+        const auto start = std::chrono::steady_clock::now();
+        const std::string filled = allowance.fill();
+        CHECK_MSG(filled.empty(), filled);
+        if (!filled.empty()) return;
+        printf("    full: %d threads, %zu of them parked, in %.0f ms\n", allowance.full(), allowance.parked(), msSince(start));
+        fflush(stdout);
+        CHECK_MSG(allowance.parked() >= 3, std::to_string(allowance.parked()) + " threads parked");
+        if (allowance.parked() < 3) return;
+        const char* threads[] = {"widget.reader", "widget.writer", "widget.monitor"};
+        for (const bool hosting : {false, true}) {
+            const std::string opener = hosting ? "startHosting" : "start";
+            for (int k = 0; k < 3; k++) {
+                EndEvents events;
+                const MemoryStreamPair pair = memoryStreamPair(size_t(1) << 20);
+                std::shared_ptr<SandboxRemoteHostEnd> end;
+                const bool refused = expectNoStart(allowance, opener, k, threads[k], [&] { end = openedEnd(hosting, pair.host, events); });
+                // Closed, not shut down: what the end queued stays readable, and none of it may have been written.
+                pair.host->close();
+                std::string written;
+                char buffer[4096];
+                while (const size_t n = pair.engine->read(buffer, sizeof(buffer))) written.append(buffer, n);
+                printf("    %s, %d free: %zu bytes on the stream, %zu events\n", opener.c_str(), k, written.size(), events.all().size());
+                fflush(stdout);
+                CHECK_MSG(!end && written.empty() && events.all().empty(), opener + ", " + std::to_string(k) + " free: " + std::to_string(written.size()) + " bytes, events " + joined(events.all()));
+                if (!refused) return;
+            }
+        }
+        // The control: with three free each opener starts its three threads, writes its opening and stops as usual.
+        const std::string left = allowance.leave(3);
+        CHECK_MSG(left.empty(), left);
+        if (!left.empty()) return;
+        const int before = allowance.full() - 3;
+        for (const bool hosting : {false, true}) {
+            const std::string opener = hosting ? "startHosting" : "start";
+            EndEvents events;
+            const MemoryStreamPair pair = memoryStreamPair(size_t(1) << 20);
+            std::string failure;
+            std::optional<int> during;
+            std::string first = "none";
+            try {
+                const std::shared_ptr<SandboxRemoteHostEnd> end = openedEnd(hosting, pair.host, events);
+                during = taskThreads();
+                FrameStreamReader engineSide(*pair.engine);
+                if (const std::optional<ParsedFrame> frame = engineSide.next()) first = describeHost(*frame);
+                end->stop();
+            } catch (const std::exception& e) {
+                failure = e.what();
+            }
+            const std::optional<int> after = threadsSettleAt(before);
+            printf("    %s, 3 free: %s, first frame %s, events %s; %d threads before, %s while it lived, %s after\n", opener.c_str(),
+                   failure.empty() ? "started" : ("\"" + failure + "\"").c_str(), first.c_str(), joined(events.all()).c_str(), before, countText(during).c_str(), countText(after).c_str());
+            fflush(stdout);
+            CHECK_MSG(failure.empty(), opener + ": " + failure);
+            CHECK_MSG(during == before + 3, opener + ": " + std::to_string(before) + " threads before, " + countText(during) + " while it lived");
+            CHECK_MSG(first == (hosting ? "hosting-opening" : "opening"), opener + ": " + first);
+            CHECK_MSG(endsOnce(events.all(), "the host stopped the stream"), opener + ": " + joined(events.all()));
+            CHECK_MSG(after == before, opener + ": " + std::to_string(before) + " threads before, " + countText(after) + " after");
+        }
+    }
+    const std::optional<int> after = threadsSettleAt(*alone);
+    printf("    every parked thread ended: %s threads, %d before the fill\n", countText(after).c_str(), *alone);
+    fflush(stdout);
+    CHECK_MSG(after == alone, countText(after) + " threads, " + std::to_string(*alone) + " before the fill");
+}
+
+/// Runtime A's first synchronous request on a scripted engine's stream, a query (or with `hosting` a hosting stream's platform request), while no thread can start: B's `widget.answer`, A's waiting probe and every worker are made before the fill. A's client hears the refusal as its death, then the loss, its probe answers "ERROR no runtime" within 2 s, its `Close` goes out once and no answer of its; B answers its next request and an Intl request, no named thread came or went, and the stream goes on.
+static void answerUnstartedOnScriptedStream(bool hosting) {
+    const std::string leg = hosting ? "hosting stream, a platform request" : "engine stream, a query";
+    SandboxRemoteHostEnd::Limits limits;
+    // A's probe waits through the fill.
+    limits.probeWaitMs = 60000;
+    ScriptedEngine engine(limits, hosting);
+    auto a = std::make_shared<StreamSink>(), b = std::make_shared<StreamSink>();
+    const std::shared_ptr<SandboxRemoteChannel> channelA = hosting ? engine.host().hostedChannel() : engine.host().channel();
+    const std::shared_ptr<SandboxRemoteChannel> channelB = hosting ? engine.host().hostedChannel() : engine.host().channel();
+    channelA->attach(a);
+    channelB->attach(b);
+    CHECK_MSG(engine.ready() && eventually([&] { return engine.saw(1, "open") && engine.saw(2, "open") && engine.events().open() == 2; }), leg + ": " + joined(engine.events().all()));
+    const auto request = [&](uint32_t runtime) { return hosting ? FrameBytes(runtime, wire::PlatformRequest).str("asks").bytes() : queryFrame(runtime, kRectQuery); };
+    const std::string answer = hosting ? "platform-answer:ANSWER" : "query-answer:" + rectOf(77);
+    const auto answers = [&](uint32_t runtime, const std::string& frame) {
+        const std::vector<std::string> frames = engine.frames(runtime);
+        return std::count(frames.begin(), frames.end(), frame);
+    };
+    CHECK(engine.send(request(2)));
+    CHECK_MSG(eventually([&] { return answers(2, answer) == 1; }), leg + ": " + joined(engine.frames(2)));
+    Background<std::string> probing([&] {
+        const std::string answered = channelA->probe("held");
+        a->record("probed:" + answered);
+        return answered;
+    });
+    CHECK_MSG(eventually([&] { return engine.saw(1, "probe:1:held"); }), leg + ": " + joined(engine.frames(1)));
+    const std::map<std::string, int> before = threadNames().value_or(std::map<std::string, int>());
+    CHECK_MSG(countOf(before, "widget.answer") == 1, leg + ": " + namesText(before));
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) {
+            channelA->close();
+            return;
+        }
+        printf("    %s: A's first request, whose widget.answer cannot start\n", leg.c_str());
+        fflush(stdout);
+        const auto sent = std::chrono::steady_clock::now();
+        CHECK(engine.send(request(1)));
+        const std::optional<std::string> probed = probing.within(2);
+        const double ms = msSince(sent);
+        const std::vector<std::string> heard = a->events();
+        printf("    %s: A heard %s in %.1f ms\n", leg.c_str(), whole(heard).c_str(), ms);
+        fflush(stdout);
+        CHECK_MSG(probed == std::optional<std::string>("ERROR no runtime"), leg + ": the probe " + probed.value_or("still waits"));
+        CHECK_MSG(heard.size() == 3 && heard[0].rfind("died:", 0) == 0 && unstarted(heard[0].substr(5), kAnswerUnstarted, "widget.answer") && heard[1] == "disconnected" && heard[2] == "probed:ERROR no runtime",
+                  leg + ": " + whole(heard));
+        CHECK_MSG(eventually([&] { return engine.saw(1, "close"); }, 2), leg + ": " + joined(engine.frames(1)));
+        CHECK(engine.send(request(2)));
+        CHECK_MSG(eventually([&] { return answers(2, answer) == 2; }, 2), leg + ": " + joined(engine.frames(2)));
+        CHECK(engine.send(intlFrame(2, "{}")));
+        CHECK_MSG(eventually([&] { return engine.saw(2, "intl-answer:INTL"); }, 2), leg + ": " + joined(engine.frames(2)));
+        // A's Close was queued before B's answers.
+        CHECK_MSG((engine.frames(1) == std::vector<std::string>{"open", "probe:1:held", "close"}), leg + ": " + joined(engine.frames(1)));
+        const std::vector<std::string> done = hosting ? std::vector<std::string>{"platform-request:asks", "platform-request-done", "platform-request:asks", "platform-request-done", "intl:{}", "intl-done"}
+                                                      : std::vector<std::string>{"query:" + kRectQuery, "query-done", "query:" + kRectQuery, "query-done", "intl:{}", "intl-done"};
+        CHECK_MSG(b->events() == done && a->events() == heard, leg + ": B " + joined(b->events()) + " / A " + whole(a->events()));
+        CHECK_MSG(eventually([&] { return engine.events().open() == 1; }) && !engine.events().ended(), leg + ": " + joined(engine.events().all()));
+        const std::map<std::string, int> after = threadNames().value_or(std::map<std::string, int>());
+        printf("    %s: A's frames %s; B answered, the stream goes on; after it %s\n", leg.c_str(), joined(engine.frames(1)).c_str(), namesText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(namesText(after) == namesText(before), leg + ": " + namesText(before) + " before, " + namesText(after) + " after");
+    }
+}
+
+/// Runtime A's first layout query over both real ends, asked by its WidgetHost's probe while no thread can start: the engine's end's reaper, A's and B's `widget.probe`, B's `widget.answer` (its boot asked) and every worker are made before the fill, A's boot asked nothing. The probe answers "ERROR no runtime" within 2 s, A dies with the refusal, its `Close` reaches the engine's end once with no answer before it and its engine and probe threads are reaped; B's layout query and Intl request are still answered, and the stream goes on.
+static void answerUnstartedOverRealEnds() {
+    const std::string leg = "both ends, a WidgetHost's query";
+    StreamPeers peers;
+    {
+        auto sink = std::make_shared<StreamSink>();
+        const std::shared_ptr<SandboxRemoteChannel> channel = peers.end->channel();
+        channel->attach(sink);
+        channel->close();
+    }
+    const auto named = [](const std::string& name) {
+        const std::optional<std::map<std::string, int>> names = threadNames();
+        return names ? countOf(*names, name) : -1;
+    };
+    CHECK_MSG(eventually([&] { return named("widget.reaper") == 1; }), leg + ": no reaper after runtime 1 closed");
+    auto a = std::make_unique<StreamHost>(*peers.end, "<p id='p'>a</p>", WidgetHostOptions(), 20, "INTL-A");
+    CHECK_MSG(a->shown() && named("widget.answer") == 0, leg + ": A asked at its boot");
+    StreamHost b(*peers.end, kHostWidget, WidgetHostOptions(), 20, "INTL-B");
+    CHECK_MSG(b.shown() && b.renders("h:20") && b.renders("n:INTL-B"), b.rendered().substr(0, 500));
+    CHECK(a->host->probe("1 + 1") == "2" && b.host->probe("d.textContent") == "h:20");
+    const std::map<std::string, int> before = threadNames().value_or(std::map<std::string, int>());
+    CHECK_MSG(countOf(before, "widget.answer") == 1 && countOf(before, "widget.probe") == 2 && countOf(before, "widget.sandbox") == 2 && countOf(before, "widget.reaper") == 1,
+              leg + ": " + namesText(before));
+    CountingStream& counted = *peers.counted;
+    const auto dead = [](const WidgetDiagnostics& d) { return d.dead.has_value(); };
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) return;
+        printf("    %s: A's first request, whose widget.answer cannot start\n", leg.c_str());
+        fflush(stdout);
+        const auto asked = std::chrono::steady_clock::now();
+        const std::string got = a->host->probe("document.getElementById('p').getBoundingClientRect().width");
+        const double ms = msSince(asked);
+        const bool died = a->host->waitUntil(dead, 2);
+        const std::string reason = a->host->diagnostics().dead.value_or("alive");
+        printf("    %s: A's probe answered \"%s\" in %.1f ms; A %s\n", leg.c_str(), got.c_str(), ms, died ? ("died: " + reason).c_str() : "lives");
+        fflush(stdout);
+        CHECK_MSG(got == "ERROR no runtime" && ms < 2000, leg + ": " + got + " in " + std::to_string(ms) + " ms");
+        CHECK_MSG(died && unstarted(reason, kAnswerUnstarted, "widget.answer"), leg + ": " + reason);
+        CHECK_MSG(eventually([&] { return counted.readOf(wire::Close, 2) == 1; }, 2), leg + ": " + std::to_string(counted.readOf(wire::Close, 2)) + " closes");
+        std::map<std::string, int> after;
+        CHECK_MSG(eventually([&] {
+            after = threadNames().value_or(std::map<std::string, int>());
+            return countOf(after, "widget.sandbox") == 1 && countOf(after, "widget.probe") == 1;
+        }, 5), leg + ": " + namesText(after));
+        CHECK_MSG(countOf(after, "widget.answer") == 1 && countOf(after, "widget.reaper") == 1 && countOf(after, "widget.client") == countOf(before, "widget.client"), leg + ": " + namesText(after));
+        const size_t queries = counted.readOf(wire::QueryAnswer, 3), intl = counted.readOf(wire::IntlAnswer, 3);
+        const std::string again = b.host->probe("(d.textContent = 'again', d.offsetHeight + ' ' + (4321.5).toLocaleString())");
+        printf("    %s: the engine's end read %zu Close and %zu query answers of A's; B's probe answered \"%s\" (%zu query and %zu Intl answers before it, %zu and %zu after); after A %s\n", leg.c_str(),
+               counted.readOf(wire::Close, 2), counted.readOf(wire::QueryAnswer, 2), again.c_str(), queries, intl, counted.readOf(wire::QueryAnswer, 3), counted.readOf(wire::IntlAnswer, 3),
+               namesText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(again == "20 INTL-B" && counted.readOf(wire::QueryAnswer, 3) > queries && counted.readOf(wire::IntlAnswer, 3) > intl, leg + ": " + again);
+        CHECK_MSG(counted.readOf(wire::QueryAnswer, 2) == 0, leg + ": " + std::to_string(counted.readOf(wire::QueryAnswer, 2)) + " query answers for A");
+        CHECK_MSG(eventually([&] { return peers.events.open() == 1; }) && !peers.events.ended() && !peers.serving.within(0) && !b.host->diagnostics().dead, leg + ": " + joined(peers.events.all()));
+    }
+    a.reset();
+    CHECK(b.host->probe("'still'") == "still");
+    CHECK_MSG(counted.readOf(wire::Close, 2) == 1, leg + ": " + std::to_string(counted.readOf(wire::Close, 2)) + " closes once A was destroyed");
+}
+
+/// The child of `remote_stream_answer_thread_that_cannot_start_stops_only_its_runtime`, alone in a fresh process: `twidget-tests --child remote_stream_answers_at_the_thread_limit`.
+CHILD_CASE(remote_stream_answers_at_the_thread_limit) {
+    legsLeaveNoThread([] {
+        answerUnstartedOnScriptedStream(false);
+        answerUnstartedOnScriptedStream(true);
+        answerUnstartedOverRealEnds();
+    });
+}
+
+/// The engine's end on a scripted host's engine stream while no thread can start: the reaper (runtime 1 opened and closed), B's engine and probe thread (runtime 2), D's engine (runtime 4, never probed) and every worker are made before the fill. A's start (runtime 3, a safe area kept before it) is its death with the refusal of its `widget.sandbox` within 2 s, and an event and a second start after it are dropped with no second death, nothing of A's run or loaded; D's first probe answers "ERROR no runtime" and D dies with the refusal of its `widget.probe` within 2 s, in either order, and a second probe answers the same with no second death; B's probe still runs a layout query and an Intl request the host answers, no named thread came or went, and the engine's end goes on serving. With the threads free again, A's and D's `Close` reap D's engine and B goes on.
+static void engineUnstartedOnScriptedStream() {
+    const std::string leg = "engine stream";
+    ScriptedHost host(layoutAnswers());
+    const std::string coded = SandboxRemoteCoding::encodeConfig(testConfig());
+    const auto open = [](uint32_t runtime) { return FrameBytes(runtime, wire::Open).bytes(); };
+    const auto started = [&](uint32_t runtime, const char* html) { return FrameBytes(runtime, wire::Start).str(html).str(coded).bytes(); };
+    const char* widgetA = "<script>console.log('A ran')</script>";
+    std::string measured;
+    // B's probe asks a layout query and an Intl request, `number` a new one each time so the shim asks again: the next of runtime 2's widths and its Intl answer.
+    const auto measuresB = [&](const std::string& number) {
+        const size_t queries = host.eventsWith(2, "query:").size(), intl = host.eventsWith(2, "intl:").size();
+        measured = host.probe(2, "(p.textContent = '" + number + "', p.getBoundingClientRect().width + ' ' + (" + number + ").toLocaleString())").value_or("no answer");
+        return measured == std::to_string(33 + queries) + " INTL-B" && host.eventsWith(2, "query:").size() == queries + 1 && host.eventsWith(2, "intl:").size() == intl + 1;
+    };
+    CHECK(host.send(openingOf(*RES, true)));
+    CHECK_MSG(eventually([&] { return host.events(0) == std::vector<std::string>{"ready:1"}; }), leg + ": " + joined(host.events(0)));
+    // Runtime 1 opened and closed makes the reaper; B is runtime 2, A 3 and D 4.
+    CHECK(host.send(open(1) + FrameBytes(1, wire::Close).bytes() + open(2) + started(2, kQueriesB) + open(3) +
+                    FrameBytes(3, wire::SafeArea).str(SandboxRemoteCoding::encodeSafeArea(WidgetContentSafeArea{0, 0, 24, 0, 0, 64})).bytes() + open(4) + started(4, "<p>d</p>")));
+    CHECK_MSG(eventually([&] { return host.saw(2, "log:B 33 INTL-B") && host.saw(4, "loaded"); }, 20), leg + ": " + joined(host.events(2)) + " / " + joined(host.events(4)));
+    CHECK(host.probe(2, "p.textContent") == std::optional<std::string>("x"));
+    std::map<std::string, int> before;
+    CHECK_MSG(eventually([&] {
+        before = threadNames().value_or(std::map<std::string, int>());
+        return countOf(before, "widget.reaper") == 1 && countOf(before, "widget.sandbox") == 2 && countOf(before, "widget.probe") == 1;
+    }), leg + ": " + namesText(before));
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) return;
+        printf("    %s: A's start, whose widget.sandbox cannot start\n", leg.c_str());
+        fflush(stdout);
+        const auto sent = std::chrono::steady_clock::now();
+        CHECK(host.send(started(3, widgetA)));
+        std::vector<std::string> died;
+        const bool dies = eventually([&] { return !(died = host.eventsWith(3, "died:")).empty(); }, 2);
+        printf("    %s: A heard %s in %.1f ms\n", leg.c_str(), whole(died).c_str(), msSince(sent));
+        fflush(stdout);
+        CHECK_MSG(dies && died.size() == 1 && unstarted(died[0].substr(5), kEngineUnstarted, "widget.sandbox"), leg + ": " + whole(died));
+        // What comes for A after its death is dropped: the second start builds nothing, so it is refused nothing.
+        CHECK(host.send(FrameBytes(3, wire::Event).str(kTapOnButton).bytes() + started(3, widgetA)));
+        CHECK_MSG(measuresB("4321.5"), leg + ": B's probe " + measured);
+        CHECK_MSG(host.events(3) == died, leg + ": " + whole(host.events(3)));
+
+        printf("    %s: D's first probe, whose widget.probe cannot start\n", leg.c_str());
+        fflush(stdout);
+        const auto asked = std::chrono::steady_clock::now();
+        const std::optional<std::string> probed = host.probe(4, "1 + 1");
+        const double answered = msSince(asked);
+        std::vector<std::string> stopped;
+        const bool stops = eventually([&] { return !(stopped = host.eventsWith(4, "died:")).empty(); }, 2);
+        const double ended = msSince(asked);
+        const std::vector<std::string> framesD = host.events(4);
+        const auto answerAt = std::find(framesD.begin(), framesD.end(), "probe:1:" + probed.value_or("")), deathAt = std::find_if(framesD.begin(), framesD.end(), [](const std::string& e) {
+            return e.rfind("died:", 0) == 0;
+        });
+        printf("    %s: D's probe answered \"%s\" in %.1f ms; D heard %s within %.1f ms, %s\n", leg.c_str(), probed.value_or("nothing").c_str(), answered, whole(stopped).c_str(), ended,
+               answerAt < deathAt ? "after the answer" : "before the answer");
+        fflush(stdout);
+        CHECK_MSG(probed == std::optional<std::string>("ERROR no runtime") && answered < 2000, leg + ": D's probe " + probed.value_or("unanswered") + " in " + std::to_string(answered) + " ms");
+        CHECK_MSG(stops && stopped.size() == 1 && unstarted(stopped[0].substr(5), kProbeUnstarted, "widget.probe"), leg + ": " + whole(stopped));
+        // A second probe tries the thread again and answers as a dead runtime's, with no second death.
+        CHECK(host.probe(4, "2 + 2") == std::optional<std::string>("ERROR no runtime"));
+        CHECK_MSG(measuresB("5432.5"), leg + ": B's probe " + measured);
+        CHECK_MSG(host.eventsWith(4, "died:") == stopped && !host.saw(3, "loaded") && !host.saw(3, "log:A ran"), leg + ": D " + whole(host.eventsWith(4, "died:")) + " / A " + whole(host.events(3)));
+        const std::map<std::string, int> after = threadNames().value_or(std::map<std::string, int>());
+        printf("    %s: B's probe answered \"%s\"; after them %s\n", leg.c_str(), measured.c_str(), namesText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(namesText(after) == namesText(before), leg + ": " + namesText(before) + " before, " + namesText(after) + " after");
+        const std::optional<std::string> served = host.served(0);
+        CHECK_MSG(!served, leg + ": the engine's end stopped serving: " + served.value_or(""));
+    }
+    CHECK(host.send(FrameBytes(3, wire::Close).bytes() + FrameBytes(4, wire::Close).bytes()));
+    std::map<std::string, int> reaped;
+    CHECK_MSG(eventually([&] {
+        reaped = threadNames().value_or(std::map<std::string, int>());
+        return countOf(reaped, "widget.sandbox") == 1 && countOf(reaped, "widget.probe") == 1;
+    }), leg + ": " + namesText(reaped));
+    CHECK(host.probe(2, "'still'") == std::optional<std::string>("still"));
+}
+
+/// Behind the in-process loopback while no thread can start: A's and B's `widget.client` and B's engine are made before the fill, B loaded. A's start (its visibility kept before it) is its death with the refusal of its `widget.sandbox` within 2 s on its client's delegate, nothing of A's run or loaded, and its probe answers "ERROR no runtime"; B's probe still runs a layout query and an Intl request its client answers, and no named thread came or went.
+static void engineUnstartedBehindLoopback() {
+    const std::string leg = "loopback";
+    StreamDelegate delegateA, delegateB;
+    const auto intl = std::make_shared<StreamIntl>();
+    SandboxEngine b(kMeasureIntl, testConfig(), std::make_shared<SandboxLoopbackChannel>(RES), intl);
+    b.setDelegate(&delegateB);
+    b.start();
+    CHECK_MSG(eventually([&] { return delegateB.saw("log:w=77 INTL") && delegateB.saw("loaded"); }, 20), leg + ": " + joined(delegateB.events()));
+    SandboxEngine a("<script>console.log('A ran')</script>", testConfig(), std::make_shared<SandboxLoopbackChannel>(RES));
+    a.setDelegate(&delegateA);
+    a.setVisible(false);
+    a.thread().sync([] {});
+    const std::map<std::string, int> before = threadNames().value_or(std::map<std::string, int>());
+    CHECK_MSG(countOf(before, "widget.client") == 2 && countOf(before, "widget.sandbox") == 1, leg + ": " + namesText(before));
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) return;
+        printf("    %s: A's start, whose widget.sandbox cannot start\n", leg.c_str());
+        fflush(stdout);
+        const auto sent = std::chrono::steady_clock::now();
+        a.start();
+        std::vector<std::string> died;
+        const bool dies = eventually([&] { return !(died = delegateA.eventsWith("died:")).empty(); }, 2);
+        const double ms = msSince(sent);
+        const std::string probed = a.probe("1 + 1");
+        printf("    %s: A heard %s in %.1f ms; its probe answered \"%s\"\n", leg.c_str(), whole(died).c_str(), ms, probed.c_str());
+        fflush(stdout);
+        CHECK_MSG(dies && died.size() == 1 && unstarted(died[0].substr(5), kEngineUnstarted, "widget.sandbox"), leg + ": " + whole(died));
+        CHECK_MSG(probed == "ERROR no runtime" && delegateA.events() == died, leg + ": " + probed + " / " + whole(delegateA.events()));
+        const size_t queries = delegateB.eventsWith("query:").size(), formatted = intl->threads().size();
+        const std::string measured = b.probe("(document.getElementById('p').textContent = 'again', document.getElementById('p').getBoundingClientRect().width + ' ' + (4321.5).toLocaleString())");
+        const std::map<std::string, int> after = threadNames().value_or(std::map<std::string, int>());
+        printf("    %s: B's probe answered \"%s\"; after them %s\n", leg.c_str(), measured.c_str(), namesText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(measured == "77 INTL" && delegateB.eventsWith("query:").size() == queries + 1 && intl->threads().size() == formatted + 1, leg + ": B's probe " + measured);
+        CHECK_MSG(namesText(after) == namesText(before), leg + ": " + namesText(before) + " before, " + namesText(after) + " after");
+    }
+}
+
+/// The child of `remote_stream_engine_threads_that_cannot_start_stop_only_their_runtime`, alone in a fresh process: `twidget-tests --child remote_stream_engines_at_the_thread_limit`.
+CHILD_CASE(remote_stream_engines_at_the_thread_limit) {
+    legsLeaveNoThread([] {
+        engineUnstartedOnScriptedStream();
+        engineUnstartedBehindLoopback();
+    });
+}
+
+/// Both real ends while the engine's end has no reaper and no thread can start: A's and B's client engines (their channels on the host's end, A's kept), their engines and probe threads in the engine's end and every worker are made before the fill, and A's kept channel closes while A's client lives (destroying A would free its thread for the reaper). The engine's end stops serving within 2 s with why (its context, the refusal of `widget.reaper`, EAGAIN), every engine and probe thread of its gone; the host's end hears the engine process close the stream, and B dies of it.
+static void reaperUnstartedAtClose() {
+    const std::string leg = "a Close with no reaper";
+    StreamPeers peers;
+    StreamDelegate delegateA, delegateB;
+    const std::shared_ptr<SandboxRemoteChannel> channelA = peers.end->channel();
+    SandboxEngine a("<p>a</p>", testConfig(), channelA);
+    SandboxEngine b("<p>b</p>", testConfig(), peers.end->channel());
+    a.setDelegate(&delegateA);
+    b.setDelegate(&delegateB);
+    a.start();
+    b.start();
+    CHECK_MSG(eventually([&] { return delegateA.saw("loaded") && delegateB.saw("loaded"); }, 20), leg + ": " + joined(delegateA.events()) + " / " + joined(delegateB.events()));
+    CHECK(a.probe("1 + 1") == "2" && b.probe("2 + 2") == "4");
+    CHECK_MSG(eventually([&] { return peers.events.open() == 2; }), leg + ": " + joined(peers.events.all()));
+    const std::map<std::string, int> before = threadNames().value_or(std::map<std::string, int>());
+    CHECK_MSG(countOf(before, "widget.sandbox") == 2 && countOf(before, "widget.probe") == 2 && countOf(before, "widget.reaper") == 0 && countOf(before, "widget.answer") == 0,
+              leg + ": " + namesText(before));
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) return;
+        printf("    %s: A's channel closes, and the engine's end has no widget.reaper\n", leg.c_str());
+        fflush(stdout);
+        const auto closed = std::chrono::steady_clock::now();
+        channelA->close();
+        const std::optional<std::string> reason = peers.serving.within(2);
+        const double ms = msSince(closed);
+        std::map<std::string, int> after;
+        const bool gone = eventually([&] {
+            after = threadNames().value_or(std::map<std::string, int>());
+            return countOf(after, "widget.sandbox") == 0 && countOf(after, "widget.probe") == 0 && countOf(after, "widget.reaper") == 0;
+        }, 2);
+        printf("    %s: the engine's end stopped serving in %.1f ms: \"%s\"; after it %s\n", leg.c_str(), ms, reason.value_or("still serving").c_str(), namesText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(reason && unstarted(*reason, kReaperUnstarted, "widget.reaper"), leg + ": " + reason.value_or("still serving after 2 s"));
+        CHECK_MSG(gone, leg + ": " + namesText(after));
+        CHECK_MSG(eventually([&] { return peers.events.ended().has_value(); }, 2) && endsOnce(peers.events.all(), "the engine process closed the stream"), leg + ": " + joined(peers.events.all()));
+        CHECK_MSG(eventually([&] { return delegateB.saw("died:the widget engine process ended"); }, 2), leg + ": " + joined(delegateB.events()));
+        printf("    %s: the host's end heard %s; B %s\n", leg.c_str(), joined(peers.events.all()).c_str(), whole(delegateB.eventsWith("died:")).c_str());
+        fflush(stdout);
+    }
+}
+
+/// The child of `remote_stream_reaper_that_cannot_start_ends_serving_with_a_reason`'s first leg, alone in a fresh process: `twidget-tests --child remote_stream_reaper_at_the_thread_limit`.
+CHILD_CASE(remote_stream_reaper_at_the_thread_limit) {
+    legsLeaveNoThread([] { reaperUnstartedAtClose(); });
+}
+
+/// The end of the stream while the engine's end has no reaper, a probe waits for a layout query nobody answers and no thread can start: the host's side is the test's own (frames written and read on its thread, no worker of the test's that ends with the stream), the engine's end serves on a worker made before the fill, runtime 1's engine and probe thread and runtime 2's engine exist, and runtime 1's probe waits for its query. The host closes its endpoint: the engine's end stops serving within 5 s with "" (the end on a frame's boundary), every engine and probe thread of its gone, and it never needed a reaper.
+static void endWithNoReaper() {
+    const std::string leg = "the end with no reaper";
+    MemoryStreamPair pair = memoryStreamPair(size_t(1) << 20);
+    Background<std::string> serving([&] { return SandboxRemoteEngineEnd::serve(*pair.engine, kBuild); });
+    FrameStreamReader reader(*pair.host);
+    std::map<uint32_t, std::vector<std::string>> seen;
+    // Reads on until `runtime` sent a frame that `describe`s as starting with `prefix`; false once the stream ended before it.
+    const auto readUntil = [&](uint32_t runtime, const std::string& prefix) {
+        const auto came = [&] {
+            const std::vector<std::string>& frames = seen[runtime];
+            return std::any_of(frames.begin(), frames.end(), [&](const std::string& e) { return e.rfind(prefix, 0) == 0; });
+        };
+        while (!came()) {
+            const std::optional<ParsedFrame> frame = reader.next();
+            if (!frame) return false;
+            seen[frame->runtime].push_back(describe(*frame));
+        }
+        return true;
+    };
+    const std::string coded = SandboxRemoteCoding::encodeConfig(testConfig());
+    CHECK(pair.host->write(openingOf(*RES, true) + FrameBytes(1, wire::Open).bytes() + FrameBytes(1, wire::Start).str("<p id='p'>x</p>").str(coded).bytes() + FrameBytes(2, wire::Open).bytes() +
+                           FrameBytes(2, wire::Start).str("<p>y</p>").str(coded).bytes()));
+    CHECK_MSG(readUntil(0, "ready:") && readUntil(1, "loaded") && readUntil(2, "loaded"), leg + ": " + joined(seen[1]) + " / " + joined(seen[2]));
+    CHECK(pair.host->write(FrameBytes(1, wire::Probe).i64(1).str("document.getElementById('p').getBoundingClientRect().width").bytes()));
+    CHECK_MSG(readUntil(1, "query:"), leg + ": " + joined(seen[1]));
+    const std::map<std::string, int> before = threadNames().value_or(std::map<std::string, int>());
+    CHECK_MSG(countOf(before, "widget.sandbox") == 2 && countOf(before, "widget.probe") == 1 && countOf(before, "widget.reaper") == 0, leg + ": " + namesText(before));
+    {
+        ThreadAllowance allowance;
+        if (!filledFor(allowance, leg, before).empty()) {
+            pair.host->shutdown();
+            return;
+        }
+        printf("    %s: the host closes its endpoint while runtime 1's probe waits for its query\n", leg.c_str());
+        fflush(stdout);
+        const auto closed = std::chrono::steady_clock::now();
+        pair.host->close();
+        const std::optional<std::string> reason = serving.within(5);
+        const double ms = msSince(closed);
+        std::map<std::string, int> after;
+        const bool gone = eventually([&] {
+            after = threadNames().value_or(std::map<std::string, int>());
+            return countOf(after, "widget.sandbox") == 0 && countOf(after, "widget.probe") == 0 && countOf(after, "widget.reaper") == 0;
+        }, 2);
+        printf("    %s: the engine's end stopped serving in %.1f ms: %s; after it %s\n", leg.c_str(), ms, reason ? ("\"" + *reason + "\"").c_str() : "still serving",
+               after.empty() || namesText(after).empty() ? "no named thread" : namesText(after).c_str());
+        fflush(stdout);
+        CHECK_MSG(reason == std::optional<std::string>(""), leg + ": " + reason.value_or("still serving after 5 s"));
+        CHECK_MSG(gone, leg + ": " + namesText(after));
+    }
+}
+
+/// The child of `remote_stream_reaper_that_cannot_start_ends_serving_with_a_reason`'s second leg, alone in a fresh process: `twidget-tests --child remote_stream_end_at_the_thread_limit`.
+CHILD_CASE(remote_stream_end_at_the_thread_limit) {
+    legsLeaveNoThread([] { endWithNoReaper(); });
+}
+#endif
+
+/// A host's end whose threads cannot start fails at once and leaves nothing behind: a fresh child (`--child remote_stream_host_end_at_the_thread_limit`) uses up its thread allowance; `start` and `startHosting` with 0, 1 and 2 threads free (`widget.reader`, `widget.writer`, `widget.monitor` refused in turn) each throw std::system_error EAGAIN naming that thread within 1 s, the task's thread count comes back, nothing of the queued opening reaches the stream (its endpoint closed, not shut down, the other end reads 0 bytes) and `Events` hear nothing; with 3 free each opener writes its opening and stops as usual with its three threads joined. The child exits 0 within 30 s, or it is killed and the test fails.
+TEST(remote_stream_host_end_whose_threads_cannot_start_fails_promptly) {
+#ifdef __APPLE__
+    childPasses("remote_stream_host_end_at_the_thread_limit", 30);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}
+
+/// A runtime whose `widget.answer` cannot start dies alone with the reason: a fresh child (`--child remote_stream_answers_at_the_thread_limit`) uses up its thread allowance right before runtime A's first synchronous request, with B's answer thread, A's probe and every worker made before. On a scripted engine's stream (a query) and a hosting stream (a platform request) A's client hears the refusal (the host's context, `JSThread widget.answer`, EAGAIN) as its death, then the loss; its waiting probe answers "ERROR no runtime" within 2 s, its `Close` goes out once and no answer. Over both real ends a WidgetHost's probe that asks A's first layout query answers "ERROR no runtime" within 2 s, A dies with the refusal, and the engine's end reaps its engine and probe threads. B's requests are still answered and the stream goes on in each. The child exits 0 within 120 s, or it is killed and the test fails.
+TEST(remote_stream_answer_thread_that_cannot_start_stops_only_its_runtime) {
+#ifdef __APPLE__
+    childPasses("remote_stream_answers_at_the_thread_limit", 120);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}
+
+/// A runtime whose engine or probe thread cannot start dies alone with the reason: a fresh child (`--child remote_stream_engines_at_the_thread_limit`) uses up its thread allowance, every other thread made before. On a scripted host's engine stream runtime A's start is its death with the refusal (the engine's end's context, `JSThread widget.sandbox`, EAGAIN) within 2 s, what came for A before and after it dropped with no second death; D's first probe answers "ERROR no runtime" and D is stopped with the refusal of its `widget.probe` within 2 s, a second probe the same with no second death; B's probe still runs a layout query and an Intl request, and the engine's end goes on serving. Behind the in-process loopback A's start is its death with the same refusal within 2 s and its probe answers "ERROR no runtime", while B still runs a layout query and an Intl request. The child exits 0 within 120 s, or it is killed and the test fails.
+TEST(remote_stream_engine_threads_that_cannot_start_stop_only_their_runtime) {
+#ifdef __APPLE__
+    childPasses("remote_stream_engines_at_the_thread_limit", 120);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}
+
+/// A `widget.reaper` that cannot start ends serving with why, and the end of serving never needs one: fresh children use up their thread allowance, every other thread made before. In one (`--child remote_stream_reaper_at_the_thread_limit`) a `Close` over both real ends, with two live client engines and no reaper yet, ends serving within 2 s with the refusal (the engine's end's context, `JSThread widget.reaper`, EAGAIN), every engine and probe thread of the engine's end gone, the host's end hearing the engine process close the stream and the other runtime dying of it. In the other (`--child remote_stream_end_at_the_thread_limit`) the end of the stream, with a probe waiting for a query nobody answers and no reaper, ends serving within 5 s with "" and every engine and probe thread gone. Each child exits 0 within 60 s, or it is killed and the test fails.
+TEST(remote_stream_reaper_that_cannot_start_ends_serving_with_a_reason) {
+#ifdef __APPLE__
+    childPasses("remote_stream_reaper_at_the_thread_limit", 60);
+    childPasses("remote_stream_end_at_the_thread_limit", 60);
+#else
+    printf("  not run on this platform: this test uses macOS's per-process thread limit\n");
+#endif
+}

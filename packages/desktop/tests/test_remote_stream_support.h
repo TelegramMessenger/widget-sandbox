@@ -1,8 +1,9 @@
-// What test_remote_stream.cpp (the framed transport's tests), test_remote_stream_hosted.cpp (a hosting stream's) and test_hosted.cpp (the hosted mode's, for a probe over a hosting stream) share: the documented wire written by hand, both scripted peers and the real ends over a memory pair, the sinks, delegates and hosts on them, the hostile-frame run and a child case on a socket.
+// What test_remote_stream.cpp (the framed transport's tests), test_remote_stream_hosted.cpp (a hosting stream's) and test_hosted.cpp (the hosted mode's, for a probe over a hosting stream) share: the documented wire written by hand, both scripted peers and the real ends over a memory pair, the sinks, delegates and hosts on them, the hostile-frame run, a child case on a socket and, on macOS, the checks of a transport thread the OS refuses to start.
 #pragma once
 
 #include "test_support.h"
 #include "test_remote_support.h"
+#include "test_thread_limit.h"
 
 #include "../harness/stream_peers.h"
 #include "twidget/intl.h"
@@ -1219,5 +1220,61 @@ inline ChildRun runChildOn(const std::string& name, SocketStream& stream, double
     std::error_code ignored;
     std::filesystem::remove(log, ignored);
     return run;
+}
+#endif
+
+#ifdef __APPLE__
+// ───────────── a transport thread the OS refuses to start (macOS: the per-process thread limit) ─────────────
+
+/// How the host's end words the death of a runtime whose `widget.answer` cannot start, before the refusal itself.
+inline const std::string kAnswerUnstarted = "the host could not start the thread that answers the widget";
+/// How the engine's end words the death of a runtime whose engine cannot be built (its `widget.sandbox` cannot start), before the refusal itself.
+inline const std::string kEngineUnstarted = "the widget engine could not start";
+/// How the engine's end words the death of a runtime whose `widget.probe` cannot start, before the refusal itself.
+inline const std::string kProbeUnstarted = "the engine process could not start the widget's probe thread";
+/// How the engine's end words why it stops serving when its `widget.reaper` cannot start, before the refusal itself.
+inline const std::string kReaperUnstarted = "the engine process could not start the thread that destroys closed runtimes";
+
+/// Whether `reason` is `context`'s report of a refused `thread`: the context, then the refusal of that thread with the OS's EAGAIN.
+inline bool unstarted(const std::string& reason, const std::string& context, const std::string& thread) {
+    return reason.rfind(context + ": ", 0) == 0 && reason.find("JSThread " + thread + ": ") != std::string::npos &&
+           reason.find(std::generic_category().message(EAGAIN)) != std::string::npos;
+}
+
+/// `items` joined whole, for a row that must show a reason in full.
+inline std::string whole(const std::vector<std::string>& items) {
+    std::string out;
+    for (const std::string& item : items) out += (out.empty() ? "" : " | ") + item;
+    return out;
+}
+
+/// The thread allowance filled for one leg: empty, or what went wrong, printed with the named threads made before it.
+inline std::string filledFor(ThreadAllowance& allowance, const std::string& leg, const std::map<std::string, int>& before) {
+    const std::string filled = allowance.fill();
+    CHECK_MSG(filled.empty(), leg + ": " + filled);
+    if (filled.empty()) printf("    %s: full at %d threads, %zu of them parked; before it %s\n", leg.c_str(), allowance.full(), allowance.parked(), namesText(before).c_str());
+    fflush(stdout);
+    return filled;
+}
+
+/// A child case's legs, then the task's threads back at their count before them: every thread a leg made ended.
+inline void legsLeaveNoThread(const std::function<void()>& legs) {
+    const std::optional<int> alone = taskThreads();
+    CHECK_MSG(alone.has_value(), "the task's threads cannot be listed");
+    if (!alone) return;
+    legs();
+    const std::optional<int> after = threadsSettleAt(*alone);
+    printf("    every thread of the legs ended: %s threads, %d before them\n", countText(after).c_str(), *alone);
+    fflush(stdout);
+    CHECK_MSG(after == alone, countText(after) + " threads, " + std::to_string(*alone) + " before the legs");
+}
+
+/// Runs child case `name` in a fresh process (`runChild`) for at most `seconds` and prints what it printed: the test fails unless it exits 0.
+inline void childPasses(const std::string& name, int seconds) {
+    const ChildExit child = runChild(name, seconds);
+    printf("%s", child.output.c_str());
+    if (!child.output.empty() && child.output.back() != '\n') printf("\n");
+    fflush(stdout);
+    CHECK_MSG(child.ok, "the child (twidget-tests --child " + name + ") " + child.ending);
 }
 #endif

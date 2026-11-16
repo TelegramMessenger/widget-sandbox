@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -35,6 +36,10 @@ namespace {
 
 /// What a query that gets no answer returns to the engine, as a client's dead engine answers it.
 constexpr const char* kDeadQuery = "{\"error\":\"dead\"}";
+/// The death of a runtime whose `widget.probe` cannot start, before the refusal itself (which names the thread and the OS error): its server or hosted runtime is stopped with it, as the host's `Stop` stops one.
+constexpr const char* kProbeUnstarted = "the engine process could not start the widget's probe thread";
+/// Why serving ends when `widget.reaper` cannot start, before the refusal itself: a closed runtime cannot be destroyed off the reader.
+constexpr const char* kReaperUnstarted = "the engine process could not start the thread that destroys closed runtimes";
 /// Bytes of the host's text a refusal quotes.
 constexpr size_t kQuotedBytes = 64;
 
@@ -253,12 +258,25 @@ private:
     SyncSlot platformSlot_;
 };
 
-/// One runtime on the engine's side: its server (an engine stream's) or its hosted runtime (a hosting stream's), the sink it writes through and, once probed, the thread its probes run on. The reader opens and closes it; `widget.reaper` destroys it, its probes' thread first.
+/// One runtime on the engine's side: its server (an engine stream's) or its hosted runtime (a hosting stream's), the sink it writes through and, once probed, the thread its probes run on. The reader opens and closes it; `widget.reaper` destroys it, its probes' thread first, or the end of serving on the reader's thread once nothing waits for the reader.
 struct Route {
     std::shared_ptr<EngineSink> sink;
     std::unique_ptr<SandboxRemoteServer> server;
     std::unique_ptr<detail::HostedRuntime> hosted;
     std::unique_ptr<JSThread> probes;
+
+    /// A waiting request of either slot given up before the server or hosted runtime closes, so none of its threads waits for the reader any more. Idempotent.
+    void close() {
+        sink->kill();
+        if (hosted) hosted->close();
+        if (server) server->close();
+    }
+    /// After `close`, never on the runtime's own threads: the probes' thread joined, then the server or hosted runtime destroyed (joining theirs).
+    void destroy() {
+        probes.reset();
+        server.reset();
+        hosted.reset();
+    }
 };
 
 /// `SandboxRemoteEngineEnd::serve` and `serveHosting` on the thread that reads, which alone keeps the runtimes by id and the reaper; the opening decides whether every runtime is an engine's server or a hosted widget's runtime.
@@ -305,10 +323,12 @@ private:
         switch (f.kind) {
         case Kind::Probe: probe(route, f.i64, std::string(f.str[0])); return {};
         case Kind::IntlAnswer: route->sink->answer(SyncSlot::Wait::Intl, QueryAnswer{std::string(f.str[0]), std::nullopt}); return {};
-        case Kind::Close:
-            routes_.erase(it);
-            retire(route);
-            return {};
+        case Kind::Close: {
+            // A route the reaper could not take stays here for `end`.
+            std::string why = retire(route);
+            if (why.empty()) routes_.erase(it);
+            return why;
+        }
         default: break;
         }
         return hosting_ ? hostedInput(*route, f) : serverInput(*route, f);
@@ -409,32 +429,44 @@ private:
         return {};
     }
 
-    /// On the runtime's `widget.probe` thread, made at its first probe, so the reader goes on answering the queries the probe may wait for.
+    /// On the runtime's `widget.probe` thread, made at its first probe, so the reader goes on answering the queries the probe may wait for. A runtime whose `widget.probe` cannot start is stopped with why (`kProbeUnstarted`, then the refusal) as the host's `Stop` stops it, its renderer kept until `Close`, and the probe answered "ERROR no runtime" at once; a later probe tries the thread again.
     void probe(const std::shared_ptr<Route>& route, int64_t seq, std::string code) {
-        if (!route->probes) route->probes = std::make_unique<JSThread>("widget.probe");
+        if (!route->probes) {
+            try {
+                route->probes = std::make_unique<JSThread>("widget.probe");
+            } catch (const std::exception& e) {
+                const std::string why = std::string(kProbeUnstarted) + ": " + e.what();
+                if (route->hosted) route->hosted->stop(why);
+                else route->server->stop(why);
+                route->sink->probed(seq, "ERROR no runtime");
+                return;
+            }
+        }
         route->probes->async([route, seq, code = std::move(code)] { route->sink->probed(seq, route->hosted ? route->hosted->probe(code) : route->server->probe(code)); });
     }
 
-    /// In the host's order, a waiting request of either slot given up before the server or hosted runtime closes; `widget.reaper` joins the probes' thread, then destroys the server or runtime, never on the reader or the runtime's own threads.
-    void retire(std::shared_ptr<Route> route) {
-        route->sink->kill();
-        if (route->hosted) route->hosted->close();
-        if (route->server) route->server->close();
-        if (!reaper_) reaper_ = std::make_unique<JSThread>("widget.reaper");
-        reaper_->async([route = std::move(route)] {
-            route->probes.reset();
-            route->server.reset();
-            route->hosted.reset();
-        });
+    /// In the host's order, the route closed, then destroyed on `widget.reaper`, never on the reader or the runtime's own threads: "", or why serving cannot go on when the reaper cannot start (`kReaperUnstarted`, then the refusal), the route left to `end`.
+    std::string retire(std::shared_ptr<Route> route) {
+        route->close();
+        if (!reaper_) {
+            try {
+                reaper_ = std::make_unique<JSThread>("widget.reaper");
+            } catch (const std::exception& e) {
+                return std::string(kReaperUnstarted) + ": " + e.what();
+            }
+        }
+        reaper_->async([route = std::move(route)] { route->destroy(); });
+        return {};
     }
 
-    /// The writes stop and a blocked one wakes before any lock is taken, then every runtime is retired and the reaper drained.
+    /// The writes stop and a blocked one wakes before any lock is taken, then every runtime left is closed before anything is joined (none of their threads waits for the reader any more), the reaper drained if one was made, and the rest destroyed on this thread: the end starts no thread.
     void end() {
         output_->breakOff();
-        for (const auto& entry : routes_) retire(entry.second);
-        routes_.clear();
+        for (const auto& entry : routes_) entry.second->close();
         if (reaper_) reaper_->join();
         reaper_.reset();
+        for (const auto& entry : routes_) entry.second->destroy();
+        routes_.clear();
     }
 
     SandboxRemoteStream& stream_;

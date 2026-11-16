@@ -3,6 +3,39 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: a transport thread that cannot start ends its widget, not the process (2026-11-17)
+
+C++, desktop core only, the remote transport of the engine and hosted modes. No frame kind, wire rule or interface
+changes: what changes is what happens when one of the transport's threads cannot start (`JSThread` throws
+`std::system_error` with the OS's refusal), which ended the process with an uncaught exception (a host's answer
+thread, an engine process's engine, probe or reaper thread) or left a kept widget neither kept nor ended.
+
+- The host's end: `SandboxRemoteHostEnd::start` and `startHosting` throw `std::system_error` when `widget.reader`,
+  `widget.writer` or `widget.monitor` cannot start, those already started joined, nothing written and `Events` silent
+  (as before, now documented). A runtime whose `widget.answer` cannot start is lost alone: its client hears why (the
+  refusal, which names the thread and the OS's error) as its death, then `remoteDisconnected`, and its `Close` goes
+  out.
+- The engine's end: a runtime whose `widget.sandbox` cannot start dies with why (`SandboxRemoteServer::start` closes
+  and drops what it kept, behind `SandboxLoopbackChannel` too); one whose `widget.probe` cannot start is stopped with
+  why as `Stop` stops it, that probe answered "ERROR no runtime" (a hosted widget keeps its renderer until `Close`); a
+  `widget.reaper` that cannot start ends serving with why, which `serve` returns. The end of serving closes every
+  open runtime before it joins anything and destroys them on `serve`'s thread: it starts no thread. The stream and the
+  other runtimes go on in every per-runtime case.
+- Hosted widgets: a served widget whose threads cannot start already died alone; its `WidgetHost`'s glue reports are
+  now declared and built before its host thread, so a diagnostic its validator queued while it was built reaches the
+  host safely, before that death. `WidgetHost::keepRenderer` returns null when its handle's `twidget-host` cannot
+  start, the widget ended as `destroy()` ends it, where it threw with the widget neither kept nor ended.
+- Tests (macOS: a child process uses up its thread allowance, every other thread made first, and its exit status is
+  checked): `remote_stream_` gains six, four of the byte stream's (the host's end's threads, a runtime's answer
+  thread, its engine and probe threads over the stream and behind the loopback, the reaper at a `Close` and at the end
+  of a stream) and two `remote_stream_hosted_` (a hosted widget's threads refused in turn and its probe thread, a keep
+  whose handle's thread cannot start), so `remote_stream_` runs 45, `remote_` 108 and `hosted_` 31.
+  `remote_stream_hosted_kept_engine_process_keeps_only_the_renderer` now waits until a report lists neither the
+  engine's nor the validator's thread before it asserts both gone. Run here (Debug, 2026-11-17): 223 tests in each of
+  the five modes, 0 failures, and in process under ASan and UBSan with no report; `twidget-run --attacks` 133 attacks,
+  0 leaks, 7 runtimes killed in process, over the stream and hosted over the stream, every per-file row that of in
+  process; `twidget-host-only` exits 0 with none of the engine side's symbols.
+
 ## Unreleased: a hosted widget's renderer kept past its engine, the hosted client linked alone (2026-11-16)
 
 C++, desktop core only, part of the hosted mode below (no Swift twin: Swift and Kotlin have no hosted mode). Opt-in: a

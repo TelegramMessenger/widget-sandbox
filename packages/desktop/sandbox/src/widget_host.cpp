@@ -5,6 +5,7 @@
 #include "widget_host_internal.h"
 
 #include <cstdint>
+#include <exception>
 #include <stdexcept>
 
 namespace twidget {
@@ -448,9 +449,14 @@ std::unique_ptr<HostedKeptRenderer> WidgetHost::keepRenderer(HostedKeptRenderer:
     }
     keeping_ = true;
     if (destroyed_.exchange(true)) return nullptr;
-    std::unique_ptr<HostedKeptRenderer> kept(new HostedKeptRenderer(std::move(observers)));
-    if (!engine_->keepHosted(kept->delegate())) {
-        // Nothing to keep: the widget ends as destroy() ends it; the handle opens its gate before it joins its thread.
+    std::unique_ptr<HostedKeptRenderer> kept;
+    try {
+        kept.reset(new HostedKeptRenderer(std::move(observers)));
+    } catch (const std::exception&) {
+        // Its thread cannot start: nothing can be kept.
+    }
+    if (!kept || !engine_->keepHosted(kept->delegate())) {
+        // Nothing to keep: the widget ends as destroy() ends it; a handle that was built opens its gate before it joins its thread.
         engine_->terminate();
         hostThread_.sync([this] { callbacksClosed_ = true; });
         return nullptr;

@@ -137,7 +137,7 @@ public:
     SandboxRemoteServer(const SandboxRemoteServer&) = delete;
     SandboxRemoteServer& operator=(const SandboxRemoteServer&) = delete;
 
-    /// Builds the engine (directly, never through `SandboxEngine::make`), gives it the inputs that came before in their order for its own pre-boot rules, then starts it; once, never after `close`.
+    /// Builds the engine (directly, never through `SandboxEngine::make`), gives it the inputs that came before in their order for its own pre-boot rules, then starts it; once, never after `close`. An engine that cannot be built (its `widget.sandbox` cannot start) throws nothing: the server closes, the inputs kept for it dropped, and the sink hears the runtime's death with why (the refusal).
     void start(const std::string& html, const SandboxConfig& config);
     // The engine's inputs: kept until `start`, dropped after `close`.
     void event(const std::string& json);

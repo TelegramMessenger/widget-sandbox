@@ -126,14 +126,14 @@ WidgetHost::WidgetHost(std::string html, WidgetTheme theme, double width, Widget
 
 WidgetHost::WidgetHost(ServedTag, std::string html, WidgetTheme theme, SandboxConfig config, std::shared_ptr<SandboxResources> resources, RendererFactory renderers,
                        std::shared_ptr<IntlProvider> intl, SandboxEngineDelegate& engineDelegate, GlueReports reports)
-    : hostThread_("twidget-host"),
+    : reports_(std::move(reports)),
+      hostThread_("twidget-host"),
       html_(std::move(html)),
       theme_(theme.colorScheme == "dark" ? "dark" : "light"),
       widgetTheme_(normalized(std::move(theme))),
       config_(themed(std::move(config), widgetTheme_)),
       resources_(std::move(resources)),
       glue_(&kGlue),
-      reports_(std::move(reports)),
       validator_(new TrustedValidator(theme_, resources_, [this](const std::string& k, const std::string& d) { validatorDiag(k, d); }), freeValidator),
       renderer_(renderers(resources_, theme_, config_.innerWidth)),
       engine_(std::make_unique<SandboxEngine>(html_, config_, resources_, std::move(intl))),

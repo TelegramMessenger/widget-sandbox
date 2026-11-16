@@ -5,10 +5,18 @@
 #include "twidget/intl.h"
 #include "twidget/json.h"
 
+#include <exception>
 #include <limits>
 #include <utility>
 
 namespace twidget {
+
+namespace {
+
+/// The death of a runtime whose engine cannot be built (its `widget.sandbox` cannot start), before the refusal itself (which names the thread and the OS error).
+constexpr const char* kEngineUnstarted = "the widget engine could not start";
+
+} // namespace
 
 // MARK: the engine's side
 
@@ -32,7 +40,19 @@ void SandboxRemoteServer::start(const std::string& html, const SandboxConfig& co
         if (closed_ || started_) return;
         started_ = true;
     }
-    auto engine = std::make_unique<SandboxEngine>(html, config, resources_, std::make_shared<detail::RemoteIntl>(sink_));
+    std::unique_ptr<SandboxEngine> engine;
+    try {
+        engine = std::make_unique<SandboxEngine>(html, config, resources_, std::make_shared<detail::RemoteIntl>(sink_));
+    } catch (const std::exception& e) {
+        // Closed as `close` closes it (nothing is outstanding before an engine), then the death outside the lock.
+        {
+            std::lock_guard<std::mutex> l(mutex_);
+            closed_ = true;
+            waiting_.clear();
+        }
+        sink_->remoteDied(std::string(kEngineUnstarted) + ": " + e.what());
+        return;
+    }
     engine->setDelegate(this);
     SandboxEngine& built = *engine;
     std::vector<std::function<void(SandboxEngine&)>> waiting;

@@ -7,6 +7,7 @@
 // No test framework dependency: `twidget-tests [filter]`, exit code = failures.
 
 #include "test_support.h"
+#include "test_thread_limit.h"
 
 #include "../harness/hosted_peers.h"
 #include "../harness/recording_host.h"
@@ -54,10 +55,8 @@
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
-#include <deque>
 #include <mach/mach.h>
 #include <malloc/malloc.h>
-#include <pthread.h>
 #include <spawn.h>
 #include <sys/sysctl.h>
 #include <sys/wait.h>
@@ -3534,8 +3533,7 @@ TEST(validator_stylesheet_text_is_only_shipped_sanitized) {
 // ───────────── a thread the OS refuses to start (macOS: the per-process thread limit) ─────────────
 #ifdef __APPLE__
 
-/// The task's threads as Mach counts them, nullopt when they cannot be listed; every port and the array are given back.
-static std::optional<int> taskThreads() {
+std::optional<int> taskThreads() {
     thread_act_array_t threads = nullptr;
     mach_msg_type_number_t count = 0;
     if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS) return std::nullopt;
@@ -3544,8 +3542,7 @@ static std::optional<int> taskThreads() {
     return int(count);
 }
 
-/// Polls `taskThreads()` until it is `want`, for at most 2 s (a joined thread leaves the count a little later): the last count read.
-static std::optional<int> threadsSettleAt(int want) {
+std::optional<int> threadsSettleAt(int want) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     for (;;) {
         const std::optional<int> count = taskThreads();
@@ -3554,93 +3551,11 @@ static std::optional<int> threadsSettleAt(int want) {
     }
 }
 
-static std::string countText(const std::optional<int>& count) { return count ? std::to_string(*count) : std::string("?"); }
+std::string countText(const std::optional<int>& count) { return count ? std::to_string(*count) : std::string("?"); }
 
 static double msSince(std::chrono::steady_clock::time_point start) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); }
 
-/// This process's thread allowance taken up by parked threads on the smallest stacks: `leave(k)` frees exactly k of it, `fill()` takes it back, and every parked thread ends with this object.
-class ThreadAllowance {
-public:
-    ThreadAllowance() = default;
-    ThreadAllowance(const ThreadAllowance&) = delete;
-    ThreadAllowance& operator=(const ThreadAllowance&) = delete;
-    ~ThreadAllowance() {
-        // Wake them all, then join: waking and joining one at a time takes twice as long.
-        for (Slot& slot : slots_) wake(slot);
-        for (Slot& slot : slots_) pthread_join(slot.thread, nullptr);
-    }
-
-    /// Parks threads until `pthread_create` refuses one with EAGAIN (at most 65536): the first fill sets `full()`, a later one must reach it again. Empty, or what went wrong.
-    std::string fill() {
-        pthread_attr_t attributes;
-        if (const int error = pthread_attr_init(&attributes)) return std::string("pthread_attr_init: ") + std::strerror(error);
-        std::string failure;
-        if (const int error = pthread_attr_setstacksize(&attributes, PTHREAD_STACK_MIN)) failure = std::string("pthread_attr_setstacksize: ") + std::strerror(error);
-        int refused = 0;
-        for (int tries = 0; failure.empty() && !refused; tries++) {
-            if (tries == 65536) {
-                failure = "no thread refused in 65536";
-                break;
-            }
-            Slot& slot = slots_.emplace_back();
-            refused = pthread_create(&slot.thread, &attributes, &ThreadAllowance::park, &slot);
-            if (refused) slots_.pop_back();
-        }
-        pthread_attr_destroy(&attributes);
-        if (failure.empty() && refused != EAGAIN) failure = std::string("pthread_create refused a thread with ") + std::strerror(refused) + ", not EAGAIN";
-        if (!failure.empty()) return failure;
-        const std::optional<int> count = taskThreads();
-        if (!count) return "the task's threads cannot be listed";
-        if (!full_) full_ = *count;
-        else if (*count != full_) return "full at " + std::to_string(*count) + " threads, the first time at " + std::to_string(full_);
-        return {};
-    }
-
-    /// Ends the `k` threads parked last and waits until the task counts `full() - k` threads: empty, or what went wrong.
-    std::string leave(int k) {
-        if (k > int(slots_.size())) return "only " + std::to_string(slots_.size()) + " threads are parked";
-        for (int i = 0; i < k; i++) wake(slots_[slots_.size() - 1 - i]);
-        for (int i = 0; i < k; i++) {
-            pthread_join(slots_.back().thread, nullptr);
-            slots_.pop_back();
-        }
-        const std::optional<int> count = threadsSettleAt(full_ - k);
-        if (count != full_ - k) return "the task counts " + countText(count) + " threads, not " + std::to_string(full_ - k);
-        return {};
-    }
-
-    int full() const { return full_; }
-    size_t parked() const { return slots_.size(); }
-
-private:
-    struct Slot {
-        std::mutex mutex;
-        std::condition_variable cv;
-        bool stop = false;
-        pthread_t thread{};
-    };
-
-    static void* park(void* p) {
-        Slot& slot = *static_cast<Slot*>(p);
-        std::unique_lock<std::mutex> lock(slot.mutex);
-        slot.cv.wait(lock, [&] { return slot.stop; });
-        return nullptr;
-    }
-
-    static void wake(Slot& slot) {
-        {
-            std::lock_guard<std::mutex> lock(slot.mutex);
-            slot.stop = true;
-        }
-        slot.cv.notify_one();
-    }
-
-    std::deque<Slot> slots_;
-    int full_ = 0;
-};
-
-/// With `k` threads free, `construct` must throw std::system_error EAGAIN from the start of `thread` within 1 s and the task's count must come back; then the allowance is full again. False when the child cannot go on.
-static bool expectNoStart(ThreadAllowance& allowance, const std::string& owner, int k, const std::string& thread, const std::function<void()>& construct) {
+bool expectNoStart(ThreadAllowance& allowance, const std::string& owner, int k, const std::string& thread, const std::function<void()>& construct) {
     const std::string left = allowance.leave(k);
     CHECK_MSG(left.empty(), owner + ": " + left);
     if (!left.empty()) return false;
@@ -3741,20 +3656,8 @@ CHILD_CASE(owners_at_the_thread_limit) {
     CHECK_MSG(after == alone, countText(after) + " threads, " + std::to_string(*alone) + " before the fill");
 }
 
-namespace {
-
-/// How a child case run in a fresh process ended: `ok` when it exited with 0, else `ending` says how; `output` is what it printed.
-struct ChildRun {
-    bool ok = false;
-    std::string ending;
-    std::string output;
-};
-
-} // namespace
-
-/// `twidget-tests --child <name>` with its output in a temporary file and no `TW_ENGINE_` switch in its environment (its owners are the in-process ones in every mode the suite runs in), waited for at most `seconds`: past them it is killed and reaped.
-static ChildRun runChild(const std::string& name, int seconds) {
-    ChildRun run;
+ChildExit runChild(const std::string& name, int seconds) {
+    ChildExit run;
     const char* tmp = std::getenv("TMPDIR");
     std::string log = tmp && *tmp ? tmp : "/tmp";
     if (log.back() != '/') log += '/';
@@ -3825,7 +3728,7 @@ static ChildRun runChild(const std::string& name, int seconds) {
 /// A thread the OS refuses fails its owner promptly and leaves nothing running: a fresh child (`--child owners_at_the_thread_limit`) uses up its thread allowance; JSThread, SandboxEngine and TrustedValidator with no thread free and WidgetHost with 0, 1 and 2 free (each of its three threads refused in turn, once after its validator of another release posted a diagnostic to the host thread) each throw std::system_error EAGAIN naming that thread within 1 s, and the task's thread count comes back; with 3 free that host constructs and records one `bundle-mismatch`. The child exits 0 within 30 s, or it is killed and the test fails.
 TEST(a_thread_that_cannot_start_fails_its_owner_promptly) {
 #ifdef __APPLE__
-    const ChildRun child = runChild("owners_at_the_thread_limit", 30);
+    const ChildExit child = runChild("owners_at_the_thread_limit", 30);
     printf("%s", child.output.c_str());
     if (!child.output.empty() && child.output.back() != '\n') printf("\n");
     CHECK_MSG(child.ok, "the child (twidget-tests --child owners_at_the_thread_limit) " + child.ending);
@@ -3926,7 +3829,7 @@ CHILD_CASE(owners_of_a_broken_validator_bundle) {
 /// A validator bundle with this release's stamp that fails to evaluate makes its owners throw JSError and leave nothing behind: a fresh child (`--child owners_of_a_broken_validator_bundle`) constructs TrustedValidator and WidgetHost with no bytecode and with stale bytecode, twice; each throws the bundle's SyntaxError, the task's thread count comes back after each, and malloc holds no more after the second round than after the first (not checked under ASan). Before, the child ended on the uncaught JSError. The child exits 0 within 30 s, or it is killed and the test fails.
 TEST(a_validator_bundle_that_fails_to_evaluate_throws_from_its_owners) {
 #ifdef __APPLE__
-    const ChildRun child = runChild("owners_of_a_broken_validator_bundle", 30);
+    const ChildExit child = runChild("owners_of_a_broken_validator_bundle", 30);
     printf("%s", child.output.c_str());
     if (!child.output.empty() && child.output.back() != '\n') printf("\n");
     CHECK_MSG(child.ok, "the child (twidget-tests --child owners_of_a_broken_validator_bundle) " + child.ending);
