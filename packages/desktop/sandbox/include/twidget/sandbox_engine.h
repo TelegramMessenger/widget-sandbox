@@ -42,6 +42,48 @@ struct WidgetContentSafeArea {
     Json json() const;
 };
 
+/// The client's own `<button>` (docs/sdk-v1.md §2.4); every field optional, the template's defaults stand
+/// for the rest. Passed to the renderer as given: the renderer core keeps only values that match their
+/// grammar (`#rrggbb`, CSS lengths, a font shorthand with generic families only, opacities 0–1).
+struct WidgetButtonTokens {
+    std::optional<std::string> bg, text, radius, font, padding, height;
+    std::optional<double> pressedOpacity, disabledOpacity;
+    /// The `button` object of the renderer's theme message and of the wire's theme (docs/sdk-v1.md §3.4): each token that is set, in this order, a number only when finite.
+    Json json() const;
+    /// Such an object read back: a token of its type (a finite number) is set, anything else unset; not an object, none.
+    static WidgetButtonTokens from(const Json& object);
+};
+
+/// The client's message text (docs/sdk-v1.md §2.4); every field optional, the reference set stands for the rest
+/// (15, 1.35, "8px 12px"): the root's font size in CSS px (the chat's text-size setting), its unitless line height,
+/// the padding between the bubble's edge and the widget's content. The renderer keeps values that match the grammar.
+struct WidgetTextTokens {
+    std::optional<double> fontSize, lineHeight;
+    std::optional<std::string> padding;
+    /// The `text` object, as `WidgetButtonTokens::json` writes the button's.
+    Json json() const;
+    /// Read back as `WidgetButtonTokens::from` reads the button's.
+    static WidgetTextTokens from(const Json& object);
+};
+
+/// The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §4.3): the colour scheme
+/// ("light" | "dark"; anything but "dark" is light), that bubble's palette under the 15 Mini Apps keys as `#rrggbb`
+/// (others are dropped; an outgoing bubble's colours when the user sent or forwarded the widget), the button and
+/// text tokens.
+struct WidgetTheme {
+    std::string colorScheme = "light";
+    std::map<std::string, std::string> params;
+    WidgetButtonTokens button;
+    WidgetTextTokens text;
+};
+
+/// What a hosted widget's start carries beyond its `SandboxConfig` (remote_hosted.h, `SandboxEngine::startHosted`): the whole theme the engine process's renderer draws with (the config has only the scheme and the palette), the label its renderer shows over a stopped widget (WidgetHost's `stoppedLabel`), and whether the host asks for every validated batch (a harness's `onRenderOps` set before `start()`); without that ask it gets none.
+struct SandboxHostedStart {
+    WidgetTheme theme;
+    std::string stoppedLabel = "Widget stopped";
+    bool validatedOps = false;
+};
+
 /// Mirrors `SandboxConfig` / `LIMIT_DEFAULTS` in src/shared/protocol.ts (docs/decisions.md, "Strict limits from the start").
 struct SandboxConfig {
     size_t memoryLimitBytes = size_t(8) << 20;
@@ -181,9 +223,23 @@ public:
     /// A task of the engine began / ended (an event, a timer, a frame): the calls between are that task's; a death inside it comes before its end, and after a stop from `onTaskStarted` none of its code runs.
     virtual void onTaskStarted(SandboxEngine&) {}
     virtual void onTaskCompleted(SandboxEngine&) {}
+
+    /// The first of a hosted widget's reports (remote_hosted.h: its engine, validator and renderer in the engine process), which only a hosted client's delegate hears, on its dispatch thread, in transport order with the calls above, each sized and admitted against the client's bounds first (an engine-only client refuses them, `protocol-violation`): a message of the engine process's renderer for the host's platform (`SandboxHostedPlatform::send`), opaque, at most `kRemotePlatformLimit` bytes.
+    virtual void onHostedMessage(SandboxEngine&, const std::string& /*message*/) {}
+    /// The renderer's one waiting request (`SandboxHostedPlatform::request`), opaque, at most `kRemotePlatformLimit` bytes: synchronous like `onQuery`, so it may wait a bounded time but never for the dispatch thread; its answer goes back to the renderer, and nullopt (the default: no platform) kills the widget unless it died meanwhile.
+    virtual std::optional<std::string> onHostedRequest(SandboxEngine&, const std::string& /*message*/) { return std::nullopt; }
+    /// A batch the engine process's validator passed to its renderer, at most `kRemoteOpsLimit` bytes: only to a host that asked for them at its start (`SandboxHostedStart::validatedOps`); one it did not ask for is a `protocol-violation`.
+    virtual void onHostedOps(SandboxEngine&, const std::string& /*json*/) {}
+    /// The engine process's renderer announced itself (its `ready`).
+    virtual void onHostedRendererReady(SandboxEngine&) {}
+    /// The engine process's glue saw the first render of the loaded widget (its render acknowledgement).
+    virtual void onHostedRendered(SandboxEngine&) {}
+    /// The widget's node count after a batch the engine process's validator passed, within [0, INT_MAX].
+    virtual void onHostedNodes(SandboxEngine&, int /*nodes*/) {}
 };
 
 class SandboxRemoteChannel;
+class SandboxHostedChannel;
 
 /// What a host whose engines run in another process gives `SandboxEngine::setRemoteChannelFactory`: a channel to a new engine there, or null when it has none.
 using SandboxRemoteChannelFactory = std::function<std::shared_ptr<SandboxRemoteChannel>(std::shared_ptr<SandboxResources>)>;
@@ -204,7 +260,15 @@ public:
     static std::unique_ptr<SandboxEngine> make(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl = nullptr);
     /// For every later `make`, which calls it on its own thread; an empty one (the default) keeps engines in process.
     static void setRemoteChannelFactory(SandboxRemoteChannelFactory factory);
+    /// Whether a host set a non-empty factory (`setRemoteChannelFactory`), from any thread.
+    static bool remoteChannelFactorySet();
+    /// A hosted client (remote_hosted.h): the widget's engine, validator and renderer run behind `hosted`, attached now, while this engine keeps the client's checks, bounds and decisions, its privileged calls decided on the presses the host says it delivered (`pressDelivered`); its dispatch thread is named `widget.client`, a null channel gives an engine that died ("the widget engine process ended"), only `startHosted` starts it, the engine-only inputs (`start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded`, `chargeValidator`) do nothing on it, and the engine's side's render calls (ops, queries, listen, preventDefault, anim, frame requests) are protocol violations.
+    static std::unique_ptr<SandboxEngine> hostedClient(std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted,
+                                                       std::shared_ptr<IntlProvider> intl = nullptr);
+    /// A client-mode engine of either kind, a hosted one included.
     bool isRemote() const { return client_ != nullptr; }
+    /// A hosted client (`hostedClient`), also one built without a channel.
+    bool isHosted() const;
 
     /// Set before start(); the pointer must outlive the engine. A client-mode engine takes it on its dispatch thread, after the calls before, with a death reported before it (once).
     void setDelegate(SandboxEngineDelegate* delegate);
@@ -247,6 +311,17 @@ public:
     /// then `publicDataChanged`, for each that differs.
     void setData(const WidgetData& data);
 
+    /// The first of a hosted client's own inputs (`hostedClient`; on any other engine they do nothing), each asynchronous, on the dispatch thread in the host's order with the inputs above, none after the widget died: starts the widget behind the channel, once (`SandboxHostedChannel::startHosted` with the widget and its configuration), and decides whether it gets the validated batches (`onHostedOps`).
+    void startHosted(SandboxHostedStart start);
+    /// The chat's whole theme changed: for the engine process's renderer and the widget.
+    void hostedTheme(const WidgetTheme& theme);
+    /// An opaque message of the host's platform for the engine process's renderer, in order.
+    void platform(std::string message);
+    /// The embedder delivered a primary press to the widget's renderer, trusted input only, the only source of a hosted widget's grants: stamped on the caller's thread; on the dispatch thread, unless the widget died or is a preview, the haptic gate's touch begins (as `pressBegan` in process) and, while the widget is visible, the press allows one privileged call for `kRemoteGrantWindowMs` (the newest `kRemoteMaxGrants` kept, as a client-mode engine keeps delivered taps); nothing goes to the engine's side.
+    void pressDelivered();
+    /// That press ended (lifted or cancelled): the haptic gate's touch window follows it (as `pressEnded` in process), unless the widget died or is a preview; nothing goes to the engine's side.
+    void releaseDelivered();
+
     /// Evaluates trusted diagnostic code in the widget context (tests only): the string value or the error text; a client asks its channel after its earlier inputs, from no thread its engine's side may wait for.
     std::string probe(const std::string& code);
 
@@ -254,6 +329,8 @@ public:
     static constexpr size_t kRemoteMessageLimit = size_t(1) << 20;
     /// Bytes of one ops batch from a remote engine's side.
     static constexpr size_t kRemoteOpsLimit = size_t(32) << 20;
+    /// Bytes of one message or request of a hosted widget's renderer for the host's platform (`onHostedMessage`, `onHostedRequest`): one past it is a protocol violation, the message dropped and the request answered "".
+    static constexpr size_t kRemotePlatformLimit = kRemoteOpsLimit;
     /// A tap the host delivered to a client-mode engine allows one privileged call for this long.
     static constexpr double kRemoteGrantWindowMs = 2000;
     /// Taps a client-mode engine keeps for later privileged calls (the newest).
@@ -289,6 +366,9 @@ private:
 
     /// Both public constructors: the same engine on a thread named `threadName`.
     SandboxEngine(std::string threadName, std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl);
+    /// `hostedClient`'s: a tag rather than an overload, as a channel derived from `SandboxHostedChannel` converts to both channel pointers and the public client constructor's call would be ambiguous.
+    struct HostedTag {};
+    SandboxEngine(HostedTag, std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl);
 
     void boot();
     void enqueue(const std::string& kind, const std::string& arg);
@@ -411,6 +491,10 @@ private:
     /// `stop` (`atOnce`: inline on the dispatch thread) and `terminate`: the widget dies with `reason` and the engine's side is told.
     void clientKill(const std::string& reason, bool atOnce);
     void clientActivationEvent(const std::string& json, int gesture);
+    /// Both client constructors: the sink (`hosted`: a hosted client's), attached to `remote`, or a death at the first task without one.
+    void attachClient(std::shared_ptr<SandboxRemoteChannel> remote, bool hosted);
+    /// On the dispatch thread: a tap or press the host delivered on the visible widget becomes a grant unless it is spent or one already; the newest `kRemoteMaxGrants` are kept.
+    void grant(int gesture, double atMs);
     void clientSetVisible(bool visible);
     void clientPress(bool began);
     void clientSetDelegate(SandboxEngineDelegate* delegate);
@@ -438,6 +522,11 @@ private:
     RemoteHold remoteDelivering_;
     /// A death reported before the delegate was set, for the first one set.
     std::optional<std::string> pendingDeath_;
+    /// A hosted client's channel, `remote_` too; released with it.
+    std::shared_ptr<SandboxHostedChannel> hosted_;
+    /// Dispatch thread: the last press `pressDelivered` numbered, and whether the hosted start asked for the validated batches.
+    int hostedGesture_ = 0;
+    bool hostedOps_ = false;
 };
 
 } // namespace twidget

@@ -123,9 +123,10 @@ SandboxEngine::~SandboxEngine() {
     thread_.join();
     // The thread is gone: nothing else touches the context, so it can be freed here.
     js_.reset();
-    // From the owner's thread: a disconnection the channel reports while it closes meets the null liveness record.
+    // From the owner's thread: a disconnection the channel reports while it closes meets the null liveness record. A hosted client's channel is the same one.
     if (remote_) remote_->close();
     remote_.reset();
+    hosted_.reset();
 }
 
 void SandboxEngine::setDelegate(SandboxEngineDelegate* delegate) {
@@ -135,7 +136,9 @@ void SandboxEngine::setDelegate(SandboxEngineDelegate* delegate) {
 
 // MARK: lifecycle
 
+// A hosted client takes none of the engine-only inputs (`start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`, `pressBegan`, `pressEnded`, `chargeValidator`): no such call reaches its channel, records a grant or touches its haptic gate.
 void SandboxEngine::start() {
+    if (isHosted()) return;
     if (client_) return clientStart();
     thread_.async([this] { boot(); });
 }
@@ -265,12 +268,12 @@ void SandboxEngine::boot() {
 
 // A preview takes no input (a tap on it selects the result, the client's); WidgetHost drops the renderer's events first.
 void SandboxEngine::event(const std::string& json) {
-    if (config_.context.preview) return;
+    if (isHosted() || config_.context.preview) return;
     if (client_) return forward([json](SandboxRemoteChannel& remote) { remote.event(json); });
     enqueue("event", json);
 }
 void SandboxEngine::activationEvent(const std::string& json, int gesture) {
-    if (config_.context.preview) return;
+    if (isHosted() || config_.context.preview) return;
     if (client_) return clientActivationEvent(json, gesture);
     enqueue(kActivationPrefix + std::to_string(gesture), json);
 }
@@ -278,10 +281,12 @@ void SandboxEngine::activationEvent(const std::string& json, int gesture) {
 static double coarseNowMs(double ms) { return std::floor(ms / 0.1) * 0.1; }
 
 void SandboxEngine::frame(double time) {
+    if (isHosted()) return;
     if (client_) return forward([time](SandboxRemoteChannel& remote) { remote.frame(time); });
     enqueue("frame", Json::number(coarseNowMs(time)));
 }
 void SandboxEngine::viewport(double innerWidth, double innerHeight, double dpr) {
+    if (isHosted()) return;
     if (client_) return forward([innerWidth, innerHeight, dpr](SandboxRemoteChannel& remote) { remote.viewport(innerWidth, innerHeight, dpr); });
     Json v = Json::object();
     v.set("innerWidth", innerWidth);
@@ -290,10 +295,12 @@ void SandboxEngine::viewport(double innerWidth, double innerHeight, double dpr) 
     enqueue("viewport", v.dump());
 }
 void SandboxEngine::resize(const std::string& entriesJson) {
+    if (isHosted()) return;
     if (client_) return forward([entriesJson](SandboxRemoteChannel& remote) { remote.resize(entriesJson); });
     enqueue("resize", entriesJson);
 }
 void SandboxEngine::theme(const std::string& colorScheme, const std::map<std::string, std::string>& themeParams) {
+    if (isHosted()) return;
     if (client_) return forward([colorScheme, themeParams](SandboxRemoteChannel& remote) { remote.theme(colorScheme, themeParams); });
     Json t = Json::object();
     t.set("theme", colorScheme);
@@ -312,6 +319,68 @@ Json WidgetContentSafeArea::json() const {
     put("cornerRight", cornerRight);
     return out;
 }
+
+namespace {
+
+/// A theme token's key and its member, a string or a number.
+template <class Tokens>
+struct ThemeToken {
+    const char* key;
+    std::optional<std::string> Tokens::*text;
+    std::optional<double> Tokens::*number;
+};
+
+/// The tokens in the order the renderer's theme message and the wire write them: the one list both the builders and the readers go through.
+constexpr ThemeToken<WidgetButtonTokens> kButtonTokens[] = {
+    {"bg", &WidgetButtonTokens::bg, nullptr},
+    {"text", &WidgetButtonTokens::text, nullptr},
+    {"radius", &WidgetButtonTokens::radius, nullptr},
+    {"font", &WidgetButtonTokens::font, nullptr},
+    {"padding", &WidgetButtonTokens::padding, nullptr},
+    {"height", &WidgetButtonTokens::height, nullptr},
+    {"pressedOpacity", nullptr, &WidgetButtonTokens::pressedOpacity},
+    {"disabledOpacity", nullptr, &WidgetButtonTokens::disabledOpacity},
+};
+constexpr ThemeToken<WidgetTextTokens> kTextTokens[] = {
+    {"fontSize", nullptr, &WidgetTextTokens::fontSize},
+    {"lineHeight", nullptr, &WidgetTextTokens::lineHeight},
+    {"padding", &WidgetTextTokens::padding, nullptr},
+};
+
+template <class Tokens, size_t N>
+Json tokensJson(const Tokens& tokens, const ThemeToken<Tokens> (&keys)[N]) {
+    Json out = Json::object();
+    for (const ThemeToken<Tokens>& token : keys) {
+        if (token.text) {
+            if (const std::optional<std::string>& v = tokens.*token.text) out.set(token.key, *v);
+        } else if (const std::optional<double>& v = tokens.*token.number; v && std::isfinite(*v)) {
+            out.set(token.key, *v);
+        }
+    }
+    return out;
+}
+
+template <class Tokens, size_t N>
+Tokens tokensFrom(const Json& object, const ThemeToken<Tokens> (&keys)[N]) {
+    Tokens tokens;
+    if (!object.isObject()) return tokens;
+    for (const ThemeToken<Tokens>& token : keys) {
+        const Json& v = object[token.key];
+        if (token.text) {
+            if (v.isString()) tokens.*token.text = v.asString();
+        } else if (v.isNumber() && std::isfinite(v.asNumber())) {
+            tokens.*token.number = v.asNumber();
+        }
+    }
+    return tokens;
+}
+
+} // namespace
+
+Json WidgetButtonTokens::json() const { return tokensJson(*this, kButtonTokens); }
+WidgetButtonTokens WidgetButtonTokens::from(const Json& object) { return tokensFrom(object, kButtonTokens); }
+Json WidgetTextTokens::json() const { return tokensJson(*this, kTextTokens); }
+WidgetTextTokens WidgetTextTokens::from(const Json& object) { return tokensFrom(object, kTextTokens); }
 
 void SandboxEngine::contentSafeArea(const WidgetContentSafeArea& area) {
     if (client_) return forward([area](SandboxRemoteChannel& remote) { remote.contentSafeArea(area); });
@@ -351,11 +420,13 @@ void SandboxEngine::putData(Json& event, const sdk::CheckedWidgetData& checked) 
 // The haptic gate's touch (v0.2.2): stamped on the caller's thread with the clock `decide` reads, applied in order
 // with the events the host sends after it (a tap's haptic sees its press). Gate state only: no task, never deferred.
 void SandboxEngine::pressBegan() {
+    if (isHosted()) return;
     if (client_) return clientPress(true);
     double at = nowMs();
     thread_.async([this, at] { haptics_.press(at); });
 }
 void SandboxEngine::pressEnded() {
+    if (isHosted()) return;
     if (client_) return clientPress(false);
     double at = nowMs();
     thread_.async([this, at] { haptics_.release(at); });
@@ -1011,7 +1082,7 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
 }
 
 void SandboxEngine::chargeValidator(double ms) {
-    if (!(ms > 0)) return;
+    if (isHosted() || !(ms > 0)) return;
     if (client_) return forward([ms](SandboxRemoteChannel& remote) { remote.chargeValidator(ms); });
     auto record = [this, ms] {
         if (dead_) return;

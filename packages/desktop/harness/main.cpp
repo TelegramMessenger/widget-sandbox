@@ -30,6 +30,7 @@
 // validator and the limits — not pixels. With --blitz the validated ops go to
 // the Rust document and a fetch attempt from it is counted as a leak too.
 
+#include "hosted_peers.h"
 #include "png.h"
 #include "recording_host.h"
 #include "stream_peers.h"
@@ -39,9 +40,7 @@
 #ifdef TW_HAVE_LITEHTML
 #include "twidget/litehtml_renderer.h"
 #endif
-#if defined(TW_HAVE_BLITZ) || defined(TW_HAVE_LITEHTML)
 #include "twidget/widget_host.h"
-#endif
 
 #include <algorithm>
 #include <cctype>
@@ -92,6 +91,8 @@ struct Options {
     double dpr = 1;
     std::string png, pngDir;
     std::vector<std::pair<double, double>> clicks;
+    /// Under TW_ENGINE_HOSTED (harness/hosted_peers.h): every run is a hosted WidgetHost with the canned renderer (`runWidgetHosted`).
+    bool hosted = false;
 };
 
 struct RunOutcome {
@@ -99,6 +100,8 @@ struct RunOutcome {
     bool remote = false;
     /// Its channel came from the stream switch's factory (TW_ENGINE_STREAM=1).
     bool streamed = false;
+    /// It ran hosted through the hosted switch's hook (TW_ENGINE_HOSTED): its engine, validator and glue behind the switch's channel.
+    bool hosted = false;
     bool loaded = false;
     std::optional<std::string> died;
     int batches = 0, renderOps = 0, elements = 0, queries = 0, errors = 0;
@@ -267,6 +270,85 @@ static RunOutcome runWidgetNative(const std::string& html, const Options& opts, 
 }
 #endif
 
+/// The validated ops of a run's batches into its outcome: counted, scanned for leaks and kept as JSON.
+static void scanBatches(const std::vector<std::string>& batches, RunOutcome& out) {
+    for (const auto& b : batches) {
+        if (auto arr = Json::parse(b)) {
+            for (const auto& op : arr->arr()) {
+                out.renderOps++;
+                if (op["op"].asString() == "el") out.elements++;
+                scanForLeaks(op, out.leaks, out.notes);
+            }
+        }
+        out.renderOpsJson += b;
+    }
+}
+
+/// Under TW_ENGINE_HOSTED: a WidgetHost built with the canned renderer's factory, hosted through the switch's hook, so its engine, validator and glue run behind the switch's channel and the canned renderer answers their queries; the validated batches come through `onRenderOps` set before `start()` (the hosted start's ask), the rest from the diagnostics.
+static RunOutcome runWidgetHosted(const std::string& html, const Options& opts, std::shared_ptr<SandboxResources> res, const SandboxConfig& config) {
+    RunOutcome out;
+    WidgetHostOptions ho;
+    ho.policy = config.policy;
+    ho.locale = config.locale;
+    ho.storage = config.storage;
+    ho.data = config.data;
+    ho.context = config.context;
+    std::vector<std::string> batches;
+    CannedRenderer* canned = nullptr;
+    const size_t madeBefore = HostedSwitch::madeHere();
+    WidgetHost host(html, WidgetTheme{opts.theme, opts.themeParams, {}, {}}, opts.width, ho, res, [&canned](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> {
+        auto r = std::make_unique<CannedRenderer>();
+        canned = r.get();
+        return r;
+    });
+    out.hosted = host.isHosted() && HostedSwitch::madeHere() > madeBefore;
+    // On the host thread; read after destroy(), when the host thread has drained.
+    host.onRenderOps = [&](const std::string& clean) {
+        batches.push_back(clean);
+        if (opts.verbose) fprintf(stderr, "ops → %s\n", clean.size() > 2000 ? (clean.substr(0, 2000) + "…").c_str() : clean.c_str());
+    };
+    host.onStorageCommit = [&](const std::string& area, const StorageArea& values) { out.storageCommits.emplace_back(area, values); };
+    host.onRequest = [&](const WidgetRequest& request, std::function<void(const WidgetRequestOutcome&)> respond) {
+        out.requests.push_back(request);
+        respond(opts.answer);
+    };
+    host.onCopyText = [&](const std::string& text) { out.copiedTexts.push_back(text); };
+    host.onWatchPublicData = [&](bool on) { out.publicDataWatches.push_back(on); };
+    host.start();
+    host.waitLoaded(30);
+    host.waitRendered(5);
+    // As the renderer's own input: an event with a numeric `gesture` is trusted, framed by the renderer's press (`gesture` before a pointerdown or mousedown, `release` after anything else).
+    for (const auto& ev : canned ? opts.events : std::vector<std::string>()) {
+        auto parsed = Json::parse(ev);
+        const bool trusted = parsed && (*parsed)["gesture"].isNumber() && (*parsed)["gesture"].asInt() > 0;
+        const std::string type = parsed ? (*parsed)["type"].asString() : std::string();
+        const bool press = type == "pointerdown" || type == "mousedown";
+        if (trusted && press) canned->onMessage("{\"type\":\"gesture\",\"x\":false,\"hold\":false}");
+        canned->onMessage("{\"type\":\"event\",\"ev\":" + ev + (trusted ? ",\"trusted\":true}" : "}"));
+        if (trusted && !press) canned->onMessage("{\"type\":\"release\"}");
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(opts.waitMs));
+    if (opts.setData) host.setData(*opts.setData); // after the presses' answers; before the probes, which wait for it
+    for (const auto& p : opts.probes) out.probeResults.push_back(host.probe(p));
+    host.destroy();
+    WidgetDiagnostics d = host.diagnostics();
+
+    out.loaded = d.loaded;
+    out.died = d.dead;
+    if (out.died && *out.died == "terminated") out.died.reset();
+    out.batches = int(batches.size());
+    scanBatches(batches, out);
+    out.queries = d.stats.queries;
+    for (const auto& [kind, entry] : d.diags) out.diagCounts[kind] = entry.first;
+    for (const auto& lg : d.logs) if (lg.first == "error") out.errors++;
+    out.logs = d.logs;
+    out.actions = d.actions;
+    out.resizeAnchor = d.resizeAnchor;
+    out.watchesPublicData = d.watchesPublicData;
+    out.stats = d.stats;
+    return out;
+}
+
 static RunOutcome runWidget(const std::string& html, const Options& opts, std::shared_ptr<SandboxResources> res, SandboxConfig config) {
 #ifdef TW_HAVE_BLITZ
     if (opts.blitz) return runWidgetNative<BlitzRenderer>(html, opts, res);
@@ -274,6 +356,7 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
 #ifdef TW_HAVE_LITEHTML
     if (opts.litehtml) return runWidgetNative<LitehtmlRenderer>(html, opts, res);
 #endif
+    if (opts.hosted) return runWidgetHosted(html, opts, res, config);
     RunOutcome out;
     RecordingHost host(opts.theme, res, opts.verbose, config.policy);
     host.onRequest = [&](const WidgetRequest&, std::function<void(const WidgetRequestOutcome&)> respond) { respond(opts.answer); };
@@ -314,16 +397,7 @@ static RunOutcome runWidget(const std::string& html, const Options& opts, std::s
     out.died = host.died;
     if (out.died && *out.died == "terminated") out.died.reset();
     out.batches = int(host.ops.size());
-    for (const auto& b : host.renderOps) {
-        if (auto arr = Json::parse(b)) {
-            for (const auto& op : arr->arr()) {
-                out.renderOps++;
-                if (op["op"].asString() == "el") out.elements++;
-                scanForLeaks(op, out.leaks, out.notes);
-            }
-        }
-        out.renderOpsJson += b;
-    }
+    scanBatches(host.renderOps, out);
     out.queries = int(host.queries.size());
     for (const auto& d : host.diags) out.diagCounts[d.first]++;
     for (const auto& lg : host.logs) if (lg.first == "error") out.errors++;
@@ -541,23 +615,47 @@ int main(int argc, char** argv) {
     config.storage = opts.storage;
     config.data = opts.data;
     config.context = opts.context;
+    if (const std::string usage = HostedSwitch::usageError(); !usage.empty()) { fprintf(stderr, "%s\n", usage.c_str()); return 2; }
+    const HostedSwitch::Mode hostedMode = HostedSwitch::requested();
+    opts.hosted = hostedMode != HostedSwitch::Mode::Off;
+    if (opts.hosted && (opts.blitz || opts.litehtml)) { fprintf(stderr, "TW_ENGINE_HOSTED runs the canned renderer: --blitz and --litehtml run in process\n"); return 2; }
     std::optional<StreamSwitch> stream;
     if (StreamSwitch::requested()) {
         stream.emplace("twidget-run");
         SandboxEngine::setRemoteChannelFactory(stream->factory());
     }
-    // Every run ends here: the stream switch's streams stopped and joined, and one that ended before that fails the run.
-    const auto finished = [&stream](int status) {
-        if (!stream) return status;
-        const std::vector<std::string> unexpected = stream->finish();
-        for (const std::string& u : unexpected) fprintf(stderr, "the stream switch: %s\n", u.c_str());
-        return unexpected.empty() ? status : std::max(status, 1);
+    std::optional<HostedSwitch> hosted;
+    if (opts.hosted) {
+        hosted.emplace(hostedMode, "twidget-run");
+        WidgetHost::setHostedChannelFactory(hosted->factory());
+    }
+    // Every run ends here: the switches' streams stopped and joined; one that ended before that, or a hosted stream that carried what stays in the engine process, fails the run.
+    const auto finished = [&stream, &hosted](int status) {
+        if (stream) {
+            const std::vector<std::string> unexpected = stream->finish();
+            for (const std::string& u : unexpected) fprintf(stderr, "the stream switch: %s\n", u.c_str());
+            if (!unexpected.empty()) status = std::max(status, 1);
+        }
+        if (hosted) {
+            std::vector<std::string> faults = hosted->finish();
+            if (hosted->mode() == HostedSwitch::Mode::Stream) {
+                const std::vector<std::string> traffic = hosted->trafficFaults();
+                faults.insert(faults.end(), traffic.begin(), traffic.end());
+                printf("the hosted switch: %zu widgets on %zu streams; frames: %s\n", hosted->widgets(), hosted->streams(), hosted->trafficText().c_str());
+            } else {
+                printf("the hosted switch: %zu widgets behind the loopback\n", hosted->widgets());
+            }
+            for (const std::string& f : faults) fprintf(stderr, "the hosted switch: %s\n", f.c_str());
+            if (!faults.empty()) status = std::max(status, 1);
+        }
+        return status;
     };
+    const auto hostedCount = [&hostedMode](int n) { return n ? ", " + std::to_string(n) + " hosted " + HostedSwitch::where(hostedMode) : std::string(); };
 
     if (attacks) {
         fs::path dir = attacksDir.empty() ? fs::path(TW_CORPUS) / "attacks" : fs::path(attacksDir);
         auto files = htmlFiles(dir);
-        int leaks = 0, dead = 0, remote = 0, streamed = 0;
+        int leaks = 0, dead = 0, remote = 0, streamed = 0, hostedRuns = 0;
         printf("%-40s %-8s %s\n", "attack", "status", "diagnostics");
         for (const auto& f : files) {
             // One click so click-triggered vectors fire too (targetId 2 = <html>; events bubble from the document).
@@ -569,6 +667,7 @@ int main(int argc, char** argv) {
             if (r.died) dead++;
             if (r.remote) remote++;
             if (r.streamed) streamed++;
+            if (r.hosted) hostedRuns++;
             std::string extra = r.died ? " — " + r.died->substr(0, 90) : "";
             printf("%-40s %-8s %s%s\n", f.filename().string().c_str(), status.c_str(), diagSummary(r.diagCounts).c_str(), extra.c_str());
             for (const auto& leak : r.leaks) printf("    LEAK %s\n", leak.c_str());
@@ -576,16 +675,16 @@ int main(int argc, char** argv) {
             if (!opts.pngDir.empty()) writePng(r, (fs::path(opts.pngDir) / (f.stem().string() + ".png")).string());
             fflush(stdout);
         }
-        printf("\n%zu attacks, %d with URLs leaking into validated ops%s, %d runtimes killed by limits%s%s\n", files.size(), leaks,
+        printf("\n%zu attacks, %d with URLs leaking into validated ops%s, %d runtimes killed by limits%s%s%s\n", files.size(), leaks,
                (opts.blitz || opts.litehtml) ? " or fetched by the renderer" : "", dead,
                remote ? (", " + std::to_string(remote) + " through a client-mode engine").c_str() : "",
-               streamed ? (", " + std::to_string(streamed) + " of them over the stream").c_str() : "");
+               streamed ? (", " + std::to_string(streamed) + " of them over the stream").c_str() : "", hostedCount(hostedRuns).c_str());
         return finished(leaks ? 1 : 0);
     }
 
     if (!corpusDir.empty()) {
         auto files = htmlFiles(corpusDir);
-        int pass = 0;
+        int pass = 0, hostedRuns = 0;
         const bool native = opts.blitz || opts.litehtml;
         if (native) printf("%-32s %-6s %6s %6s %5s %4s %6s %6s %7s  %s\n", "widget", "status", "ops", "els", "qry", "err", "height", "paint", "loaded", "diagnostics");
         else printf("%-32s %-6s %6s %6s %5s %4s  %s\n", "widget", "status", "ops", "els", "qry", "err", "diagnostics");
@@ -593,6 +692,7 @@ int main(int argc, char** argv) {
             RunOutcome r = runWidget(readFile(f), opts, res, config);
             bool ok = r.loaded && !r.died && r.errors == 0 && r.leaks.empty();
             if (ok) pass++;
+            if (r.hosted) hostedRuns++;
             std::string status = !r.leaks.empty() ? "LEAK" : r.died ? "dead" : r.errors ? "errors" : "ok";
             if (native)
                 printf("%-32s %-6s %6d %6d %5d %4d %6.0f %5.1fms %5.0fms  %s%s\n", f.filename().string().c_str(), status.c_str(), r.renderOps, r.elements, r.queries, r.errors,
@@ -604,7 +704,7 @@ int main(int argc, char** argv) {
             if (opts.verbose) for (const auto& lg : r.logs) if (lg.first == "error") printf("    %s\n", lg.second.substr(0, 300).c_str());
             fflush(stdout);
         }
-        printf("\n%d / %zu loaded without errors\n", pass, files.size());
+        printf("\n%d / %zu loaded without errors%s\n", pass, files.size(), hostedCount(hostedRuns).c_str());
         return finished(pass == int(files.size()) ? 0 : 1);
     }
 

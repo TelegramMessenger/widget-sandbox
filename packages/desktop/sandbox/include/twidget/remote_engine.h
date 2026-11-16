@@ -113,6 +113,19 @@ public:
     virtual void remoteDied(const std::string& reason) = 0;
     /// The transport lost the engine's side or never reached it: the widget dies.
     virtual void remoteDisconnected() = 0;
+
+    /// The first of a hosted runtime's calls (remote_hosted.h: the widget's validator and renderer run on the engine's side too), which a client of an engine-only runtime refuses (`protocol-violation`) and a sink that does not carry them ignores: a message of the engine's side's renderer for the host's platform, opaque (`SandboxHostedPlatform::send`).
+    virtual void remotePlatformMessage(const std::string& /*message*/) {}
+    /// Synchronous like `remoteQuery`: the renderer's one waiting request (`SandboxHostedPlatform::request`) and the host's answer, nullopt when there is none (the runtime closed, the widget died, the transport ended).
+    virtual std::optional<std::string> remotePlatformRequest(const std::string& /*message*/) { return std::nullopt; }
+    /// A batch the engine's side's validator passed, for a host that asked for them at its hosted start.
+    virtual void remoteValidatedOps(const std::string& /*json*/) {}
+    /// The engine's side's renderer announced itself.
+    virtual void remoteRendererReady() {}
+    /// The engine's side's glue saw the loaded widget's first render.
+    virtual void remoteRendered() {}
+    /// The widget's node count after a validated batch, as the engine's side reports it (the client clamps it).
+    virtual void remoteNodes(int64_t /*nodes*/) {}
 };
 
 /// The engine's side of one client-mode engine: a real `SandboxEngine` built at `start` with this as its delegate, each delegate call sent on to `sink` from the engine's thread in order (an action only as its raw `remoteBridge`), requests and wallet calls numbered from one counter for `answer`. `start`, the inputs, `answer` and `close` come one at a time in the host's order (a channel's thread) and never wait for the engine, which may be waiting for the host's answer to a query or an Intl request; `probe`, the one synchronous call, may come from another thread but never from the one answering those. The owner destroys the server on its own thread (never the engine's) after its last call.
@@ -238,6 +251,14 @@ struct SandboxRemoteCoding {
     static std::string encodeThemeParams(const std::map<std::string, std::string>& params);
     /// An object of strings, or nullopt; a repeated key counts with its last value, as `decodeConfig` reads `themeParams`.
     static std::optional<std::map<std::string, std::string>> decodeThemeParams(std::string_view text);
+    /// A hosted widget's whole theme (`SandboxHostedChannel::hostedTheme`): `{"colorScheme": text, "params": {…}, "button": {"bg", "text", "radius", "font", "padding", "height": text, "pressedOpacity", "disabledOpacity": number}, "text": {"fontSize", "lineHeight": number, "padding": text}}`, a token that is unset or not finite left out (`WidgetButtonTokens::json`, `WidgetTextTokens::json`).
+    static std::string encodeTheme(const WidgetTheme& theme);
+    /// An object with a string `colorScheme`, or nullopt; any other member absent, of another type or a non-finite number is unset, and `params` is read as `decodeThemeParams` reads a palette (not an object of strings: none).
+    static std::optional<WidgetTheme> decodeTheme(std::string_view text);
+    /// A hosted start (`SandboxHostedChannel::startHosted`): `{"theme": encodeTheme's object, "stoppedLabel": text, "validatedOps": bool}`.
+    static std::string encodeHostedStart(const SandboxHostedStart& start);
+    /// An object whose `theme` decodes as `decodeTheme` reads one, or nullopt; `stoppedLabel` a string cut to `SandboxEngine::kRemoteTextLimit` bytes, else the default; `validatedOps` true only when it is true.
+    static std::optional<SandboxHostedStart> decodeHostedStart(std::string_view text);
     /// `{"answer": text | null}`, `{"failure": code}` (`sdk::walletFailureCode`) or `{"unsupported": true}`.
     static std::string encodeOutcome(const SandboxRemoteOutcome& outcome);
     /// An object, or nullopt: any `unsupported` member first, then a string `failure` (an unknown code is `NotAllowed`), then any `answer` (a result only when a string).

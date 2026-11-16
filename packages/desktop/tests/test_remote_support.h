@@ -1,4 +1,4 @@
-// What test_remote.cpp (the remote engine's tests), test_remote_bridge.cpp (the bridge calls a WidgetHost records from it) and test_remote_stream.cpp (the framed transport's) share: the fake channel, a WidgetHost over it, the tests' own workers, the recorders and the helpers they use.
+// What test_remote.cpp (the remote engine's tests), test_remote_bridge.cpp (the bridge calls a WidgetHost records from it), test_remote_stream.cpp and test_remote_stream_hosted.cpp (the framed transport's, through test_remote_stream_support.h too) and test_hosted.cpp (the hosted mode's) share: the fake channel, a WidgetHost over it, the tests' own workers, the recorders and the helpers they use.
 #pragma once
 
 #include "test_support.h"
@@ -6,6 +6,7 @@
 #include "twidget/intl.h"
 #include "twidget/json.h"
 #include "twidget/remote_engine.h"
+#include "twidget/remote_hosted.h"
 #include "twidget/sandbox_engine.h"
 #include "twidget/widget_host.h"
 
@@ -27,8 +28,8 @@
 #include <utility>
 #include <vector>
 
-/// Swift's RemoteEngineTests.Channel: the test is the engine's side; each call with its arguments and its thread, under a lock.
-class FakeRemoteChannel final : public SandboxRemoteChannel {
+/// Swift's RemoteEngineTests.Channel: the test is the engine's side; each call with its arguments and its thread, under a lock. A hosted channel too (`hostedStart:`, `hostedTheme:`, `platform:`), calls an engine-mode client never makes.
+class FakeRemoteChannel final : public SandboxHostedChannel {
 public:
     /// Called on the calling thread after a call is recorded, outside the lock; set it while no input is on its way.
     std::function<void(const std::string& call)> onCall;
@@ -71,6 +72,11 @@ public:
         record("probe:" + code);
         return probeAnswer;
     }
+    void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) override {
+        record("hostedStart:" + html + ":" + SandboxRemoteCoding::encodeConfig(config) + ":" + SandboxRemoteCoding::encodeHostedStart(start));
+    }
+    void hostedTheme(const WidgetTheme& theme) override { record("hostedTheme:" + SandboxRemoteCoding::encodeTheme(theme)); }
+    void platform(const std::string& message) override { record("platform:" + message); }
     void close() override {
         std::shared_ptr<SandboxRemoteSink> sink;
         {
@@ -342,6 +348,10 @@ public:
     std::function<void(SandboxEngine&)> atBegin;
     /// What `onQuery` answers; set it while no query is on its way.
     std::string queryAnswer = "{\"answer\":1}";
+    /// What `onHostedRequest` answers (nullopt: none); set it while no platform request is on its way.
+    std::optional<std::string> platformAnswer = "platform-answer";
+    /// Runs inside `onHostedRequest` after its event, before it answers; set it while no platform request is on its way.
+    std::function<void(SandboxEngine&)> duringPlatformRequest;
 
     void onOps(SandboxEngine& engine, const std::string&) override {
         record("ops");
@@ -396,6 +406,16 @@ public:
         if (atBegin) atBegin(engine);
     }
     void onTaskCompleted(SandboxEngine&) override { record("end"); }
+    void onHostedMessage(SandboxEngine&, const std::string& message) override { record("hosted-message:" + message); }
+    std::optional<std::string> onHostedRequest(SandboxEngine& engine, const std::string& message) override {
+        record("hosted-request:" + message);
+        if (duringPlatformRequest) duringPlatformRequest(engine);
+        return platformAnswer;
+    }
+    void onHostedOps(SandboxEngine&, const std::string&) override { record("hosted-ops"); }
+    void onHostedRendererReady(SandboxEngine&) override { record("renderer-ready"); }
+    void onHostedRendered(SandboxEngine&) override { record("rendered"); }
+    void onHostedNodes(SandboxEngine&, int nodes) override { record("nodes:" + std::to_string(nodes)); }
 
     /// An event of the test's own (a provider's call) among the delegate's, with its thread.
     void record(const std::string& event) {
@@ -510,6 +530,114 @@ inline const char* kRealEngineWidget =
     "  TelegramWidget.request('ask', { wallet: true }).then(function (a) { log.push('ok:' + a.result);"
     "    return TelegramWidget.wallet.signData({ type: 'text', text: 'sign' }, 'w'); })"
     "  .then(function (b) { log.push('signed:' + b.result); }, function (e) { log.push('err:' + e.code); }); };</script>";
+
+/// The engine process's renderer of the hosted tests (`hostedTest`), talking to the host's platform: as ScriptedRenderer it announces `ready` on load (unless `readyOnLoad` is false), answers every query with `queryResult` and keeps what the glue sent; it keeps its platform's messages too and acts on them: `say:<x>` sends x, `ask:<x>` asks x from a thread of its own (never the glue's) and then sends `got:<answer>` (`got:none` for none), `tap` frames a trusted click on the widget's first element (`kTapOnButton`) with a press as a native renderer does (`gesture`, the click, `release`), `untrusted-tap` sends that click alone and untrusted, `stall` holds the glue's thread (where its platform's messages come) for 200 ms; with `echoOps` it sends `ops:<n>` after its nth batch.
+struct HostedTestRenderer final : Renderer {
+    explicit HostedTestRenderer(std::shared_ptr<SandboxHostedPlatform> platform) : platform(std::move(platform)) {
+        this->platform->onMessage = [this](const std::string& message) { heard(message); };
+    }
+    /// Waits for a request it is still asking.
+    ~HostedTestRenderer() override { asker_.join(); }
+
+    void load() override {
+        if (readyOnLoad) onMessage("{\"type\":\"ready\"}");
+    }
+    void send(const std::string& json) override {
+        {
+            std::lock_guard<std::mutex> l(mutex);
+            messages.push_back(json);
+        }
+        std::optional<Json> m = Json::parse(json);
+        if (!m) return;
+        const std::string& type = (*m)["type"].asString();
+        if (type == "query") onMessage("{\"type\":\"result\",\"qid\":" + std::to_string((*m)["qid"].asInt()) + ",\"result\":" + queryResult + "}");
+        else if (type == "ops" && echoOps) platform->send("ops:" + std::to_string(++batches_));
+    }
+    void setTheme(const std::string& theme) override {
+        std::lock_guard<std::mutex> l(mutex);
+        themes.push_back(theme);
+    }
+    void setWidth(double) override {}
+    void destroy() override {}
+
+    /// The glue's messages of one type, in order.
+    std::vector<Json> sent(const std::string& type) {
+        std::lock_guard<std::mutex> l(mutex);
+        std::vector<Json> out;
+        for (const std::string& m : messages)
+            if (std::optional<Json> j = Json::parse(m); j && (*j)["type"].asString() == type) out.push_back(*j);
+        return out;
+    }
+    /// Whether a batch the glue sent has `text` in it.
+    bool drew(const std::string& text) {
+        for (const Json& ops : sent("ops"))
+            if (ops.dump().find(text) != std::string::npos) return true;
+        return false;
+    }
+    /// The platform's messages it got, in order, and what its requests got.
+    std::vector<std::string> platformMessages() {
+        std::lock_guard<std::mutex> l(mutex);
+        return heard_;
+    }
+    std::vector<std::optional<std::string>> answers() {
+        std::lock_guard<std::mutex> l(mutex);
+        return answers_;
+    }
+
+    const std::shared_ptr<SandboxHostedPlatform> platform;
+    /// Set before the host starts.
+    bool readyOnLoad = true;
+    std::string queryResult = "null";
+    bool echoOps = false;
+    std::mutex mutex;
+    std::vector<std::string> messages;
+    std::vector<std::string> themes;
+
+private:
+    void heard(const std::string& message) {
+        {
+            std::lock_guard<std::mutex> l(mutex);
+            heard_.push_back(message);
+        }
+        if (message.rfind("say:", 0) == 0) return platform->send(message.substr(4));
+        if (message.rfind("ask:", 0) == 0) {
+            return asker_.async([this, question = message.substr(4)] {
+                std::optional<std::string> answer = platform->request(question);
+                {
+                    std::lock_guard<std::mutex> l(mutex);
+                    answers_.push_back(answer);
+                }
+                platform->send("got:" + answer.value_or("none"));
+            });
+        }
+        if (message == "tap") {
+            onMessage("{\"type\":\"gesture\",\"x\":false,\"hold\":false}");
+            onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + ",\"trusted\":true}");
+            onMessage("{\"type\":\"release\"}");
+        } else if (message == "untrusted-tap") {
+            onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + "}");
+        } else if (message == "stall") {
+            sleepMs(200);
+        }
+    }
+
+    std::vector<std::string> heard_;
+    std::vector<std::optional<std::string>> answers_;
+    /// The glue's thread only.
+    int batches_ = 0;
+    /// Where its requests wait: never the glue's host thread, which their answers may need.
+    JSThread asker_{"hosted.asker"};
+};
+
+/// A HostedRendererFactory that builds a HostedTestRenderer (`configure` runs on it first) and points `out` at it; read `out` once the widget's renderer announced itself (`rendererReadyMs`). The renderer lives as long as its widget's runtime.
+inline HostedRendererFactory hostedTest(HostedTestRenderer*& out, std::function<void(HostedTestRenderer&)> configure = nullptr) {
+    return [&out, configure = std::move(configure)](std::shared_ptr<SandboxResources>, const std::string&, double, std::shared_ptr<SandboxHostedPlatform> platform) -> std::unique_ptr<Renderer> {
+        auto renderer = std::make_unique<HostedTestRenderer>(std::move(platform));
+        if (configure) configure(*renderer);
+        out = renderer.get();
+        return renderer;
+    };
+}
 
 /// The diagnostics a WidgetHost's observer saw, in order, under a lock (`onChange` runs on the host thread).
 struct ObservedChanges {

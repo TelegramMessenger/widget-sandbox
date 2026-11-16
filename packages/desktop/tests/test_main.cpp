@@ -8,6 +8,7 @@
 
 #include "test_support.h"
 
+#include "../harness/hosted_peers.h"
 #include "../harness/recording_host.h"
 #include "../harness/stream_peers.h"
 #include "twidget/bundle_stamp.h"
@@ -28,6 +29,7 @@
 #include "twidget/widget_host.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <clocale>
 #include <cmath>
@@ -115,6 +117,41 @@ bool remoteSwitch() { return streamSwitch() || loopbackSwitch(); }
 static SandboxRemoteChannelFactory g_baselineFactory;
 
 void restoreRemoteFactory() { SandboxEngine::setRemoteChannelFactory(g_baselineFactory); }
+
+/// Whether `TW_ENGINE_HOSTED` asks for the hosted switch, behind the loopback or over the stream.
+bool hostedSwitch() {
+    const HostedSwitch::Mode mode = HostedSwitch::requested();
+    return mode == HostedSwitch::Mode::Loopback || mode == HostedSwitch::Mode::Stream;
+}
+
+/// The hosted hook each test starts with and gets back when it ends: the hosted switch's, else none.
+static HostedChannelFactory g_baselineHostedFactory;
+
+void restoreHostedFactory() { WidgetHost::setHostedChannelFactory(g_baselineHostedFactory); }
+
+/// The fixture widgets: WidgetHosts whose renderer `scripted()` built while no engine channel factory was set, outside an `InProcessWidgets` scope; and how many of them the hosted switch ran behind the loopback and over the stream.
+static std::atomic<int> g_widgets{0};
+static std::atomic<int> g_loopbackWidgets{0};
+static std::atomic<int> g_streamWidgets{0};
+/// The test running now, and those that opened an `InProcessWidgets` scope (main's thread only).
+static const char* g_currentTest = "";
+static std::vector<std::string> g_inProcessTests;
+
+static bool& inProcessHere() {
+    thread_local bool scope = false;
+    return scope;
+}
+
+InProcessWidgets::InProcessWidgets() {
+    WidgetHost::setHostedChannelFactory(nullptr);
+    inProcessHere() = true;
+    if (std::find(g_inProcessTests.begin(), g_inProcessTests.end(), g_currentTest) == g_inProcessTests.end()) g_inProcessTests.push_back(g_currentTest);
+}
+
+InProcessWidgets::~InProcessWidgets() {
+    inProcessHere() = false;
+    restoreHostedFactory();
+}
 
 /// The real engines the fixtures built, how many of them ran over the loopback and how many over the stream switch's factory (printed with the totals).
 static int g_engines = 0;
@@ -1283,6 +1320,10 @@ TEST(user_gestures_are_numbered_per_physical_press) {
 
 RendererFactory scripted(ScriptedRenderer*& out) {
     return [&out](std::shared_ptr<SandboxResources>, const std::string&, double) -> std::unique_ptr<Renderer> {
+        if (!SandboxEngine::remoteChannelFactorySet() && !inProcessHere()) {
+            g_widgets++;
+            if (HostedSwitch::building()) (HostedSwitch::requested() == HostedSwitch::Mode::Stream ? g_streamWidgets : g_loopbackWidgets)++;
+        }
         auto r = std::make_unique<ScriptedRenderer>();
         out = r.get();
         return r;
@@ -1760,6 +1801,7 @@ TEST(sdk_locale_reaches_the_widget) {
 /// gesture report becomes onGesture with its x and hold (missing or not a boolean: false); `y` is false whatever the
 /// renderer sends (v0.1.3: vertical drags are the chat's), and a report with only `wants` claims nothing.
 TEST(sdk_widget_host_theme_locale_and_gestures) {
+    InProcessWidgets inProcess;
     ScriptedRenderer* renderer = nullptr;
     WidgetTheme theme;
     theme.colorScheme = "dark";
@@ -1865,6 +1907,7 @@ TEST(sdk_deprecated_host_api_forwards) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
+    InProcessWidgets inProcess;
     ScriptedRenderer* renderer = nullptr;
     WidgetHost host("<script>TelegramWidget.ready(); TelegramWidget.HapticFeedback.impactOccurred('soft');</script>", "dark", 300, WidgetHostOptions(), RES, scripted(renderer));
     std::mutex m;
@@ -1950,6 +1993,7 @@ struct GrowingRenderer final : Renderer {
 /// bridge call reaches the host state before the size report of the same task's ops); `top` again goes back; no action,
 /// no raw bridge call, no gesture needed, on a hidden widget too. An equal value changes nothing.
 TEST(sdk_resize_anchor_is_host_state_next_to_the_height) {
+    InProcessWidgets inProcess;
     std::mutex m;
     std::vector<std::pair<double, std::string>> heights; // each new height with the anchor of that moment
     int anchorChanges = 0;
@@ -2195,10 +2239,8 @@ TEST(sdk_watch_public_data_reaches_the_delegate) {
 /// onWatchPublicData only on a change: true, false, true, ending with true; a widget that never calls it: false, no
 /// callback; a preview: false, one `preview-blocked`.
 TEST(sdk_widget_host_watches_public_data) {
-    auto make = [](const std::string& html, WidgetHostOptions options) {
-        ScriptedRenderer* renderer = nullptr;
-        return std::make_unique<WidgetHost>(html, WidgetTheme{}, 300, options, RES, scripted(renderer));
-    };
+    ScriptedRenderer* renderer = nullptr;
+    auto make = [&renderer](const std::string& html, WidgetHostOptions options) { return std::make_unique<WidgetHost>(html, WidgetTheme{}, 300, options, RES, scripted(renderer)); };
     std::mutex m;
     std::vector<bool> changes;
     auto host = make("<button>b</button><script>TelegramWidget.watchPublicData(); TelegramWidget.watchPublicData();"
@@ -2208,7 +2250,8 @@ TEST(sdk_widget_host_watches_public_data) {
     host->start();
     CHECK(host->waitLoaded(20));
     CHECK(host->waitUntil([](const WidgetDiagnostics& d) { return d.watchesPublicData; }, 5));
-    host->event(kTapOnButton);
+    // The renderer's untrusted click, what `host->event(kTapOnButton)` gives in process, so a hosted host gets it too.
+    renderer->onMessage("{\"type\":\"event\",\"ev\":" + kTapOnButton + "}");
     CHECK(eventually([&] { std::lock_guard<std::mutex> l(m); return changes.size() >= 3; }));
     host->probe("0");
     host->onHostThread([] {});
@@ -3984,12 +4027,22 @@ int main(int argc, char** argv) {
         fprintf(stderr, "no child case %s\n", argv[2]);
         return 2;
     }
+    if (const std::string usage = HostedSwitch::usageError(); !usage.empty()) {
+        fprintf(stderr, "%s\n", usage.c_str());
+        return 2;
+    }
     std::optional<StreamSwitch> stream;
     if (streamSwitch()) {
         stream.emplace("twidget-tests");
         g_baselineFactory = stream->factory();
     }
     restoreRemoteFactory();
+    std::optional<HostedSwitch> hosted;
+    if (hostedSwitch()) {
+        hosted.emplace(HostedSwitch::requested(), "twidget-tests");
+        g_baselineHostedFactory = hosted->factory();
+    }
+    restoreHostedFactory();
     int ran = 0;
     for (const auto& t : registry()) {
         if (filter && std::strstr(t.name, filter) == nullptr) continue;
@@ -3997,13 +4050,38 @@ int main(int argc, char** argv) {
         auto t0 = std::chrono::steady_clock::now();
         printf("%s\n", t.name);
         fflush(stdout);
+        g_currentTest = t.name;
         t.fn();
         restoreRemoteFactory();
+        restoreHostedFactory();
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         printf("  %s (%.0f ms)\n", g_failures == before ? "ok" : "FAILED", ms);
         ran++;
     }
     printf("\n%d fixture engines from SandboxEngine::make, %d of them behind the loopback, %d over the stream\n", g_engines, g_loopbackEngines, g_streamEngines);
+    printf("%d fixture widgets from WidgetHost, %d hosted behind the loopback, %d over the stream\n", g_widgets.load(), g_loopbackWidgets.load(), g_streamWidgets.load());
+    std::string inProcess;
+    for (const std::string& name : g_inProcessTests) inProcess += (inProcess.empty() ? "" : ", ") + name;
+    printf("in process by their subject (InProcessWidgets): %s\n", inProcess.empty() ? "none" : inProcess.c_str());
+    if (hosted) {
+        const bool overStream = hosted->mode() == HostedSwitch::Mode::Stream;
+        const int went = overStream ? g_streamWidgets.load() : g_loopbackWidgets.load();
+        CHECK_MSG(went == g_widgets.load() && (overStream ? g_loopbackWidgets.load() : g_streamWidgets.load()) == 0, "every fixture widget runs hosted under its switch");
+        g_baselineHostedFactory = nullptr;
+        const std::vector<std::string> unexpected = hosted->finish();
+        std::string ends;
+        for (const std::string& u : unexpected) ends += (ends.empty() ? "" : "; ") + u;
+        CHECK_MSG(unexpected.empty(), "a stream of the hosted switch ended before its widget let it go: " + ends);
+        if (overStream) {
+            const std::vector<std::string> faults = hosted->trafficFaults();
+            std::string text;
+            for (const std::string& f : faults) text += (text.empty() ? "" : "; ") + f;
+            CHECK_MSG(faults.empty(), "what crossed a hosted stream: " + text);
+            printf("the hosted switch: %zu widgets on %zu streams, %zu ends before their stop; frames: %s\n", hosted->widgets(), hosted->streams(), unexpected.size(), hosted->trafficText().c_str());
+        } else {
+            printf("the hosted switch: %zu widgets behind the loopback\n", hosted->widgets());
+        }
+    }
     if (stream) {
         CHECK_MSG(g_streamEngines == g_engines && g_loopbackEngines == 0, "every fixture engine goes over the stream under its switch");
         g_baselineFactory = nullptr;

@@ -1,14 +1,16 @@
-// Client mode of SandboxEngine, the twin of SandboxEngine.swift's: no runtime here, the widget runs behind a SandboxRemoteChannel (remote_engine.h).
+// Client mode of SandboxEngine, the twin of SandboxEngine.swift's: no runtime here, the widget runs behind a SandboxRemoteChannel (remote_engine.h); a hosted client's widget runs with its validator and renderer behind a SandboxHostedChannel (remote_hosted.h, desktop core only).
 #include "twidget/sandbox_engine.h"
 
 #include "twidget/json.h"
 #include "twidget/remote_engine.h"
+#include "twidget/remote_hosted.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
 #include <future>
+#include <limits>
 #include <string_view>
 #include <utility>
 
@@ -18,6 +20,7 @@ namespace {
 
 constexpr const char* kEngineGone = "the widget engine process ended";
 constexpr const char* kEngineFlooded = "the widget engine process sent more than the host keeps queued";
+constexpr const char* kPlatformUnanswered = "the host answered no request of the widget's renderer";
 /// The levels the shim's `console` sends; any other is "log".
 constexpr std::array<std::string_view, 5> kLogLevels = {"log", "info", "warn", "error", "debug"};
 
@@ -67,11 +70,12 @@ FactorySlot& factorySlot() {
 
 // MARK: the sink
 
-/// What the channel calls back, also after the engine is gone: the liveness lock only covers seeing the engine and queueing work, never a wait or a call out. What it queues is admitted first against `kRemoteQueuedBytes` and `kRemoteQueuedCalls`, before anything of the message is copied, and stays counted while the work its delegate queued with it waits (`remoteHold`).
+/// What the channel calls back, also after the engine is gone: the liveness lock only covers seeing the engine and queueing work, never a wait or a call out. What it queues is admitted first against `kRemoteQueuedBytes` and `kRemoteQueuedCalls`, before anything of the message is copied, and stays counted while the work its delegate queued with it waits (`remoteHold`). A hosted client's engine's side keeps the render calls (ops, queries, listen, preventDefault, anim, frame requests) to itself, so each is a protocol violation here, refused before it is admitted; an engine-only client refuses a hosted runtime's calls the same way.
 class SandboxEngine::RemoteClient final : public SandboxRemoteSink {
 public:
-    explicit RemoteClient(std::shared_ptr<Liveness> life) : life_(std::move(life)) {}
+    RemoteClient(std::shared_ptr<Liveness> life, bool hosted) : life_(std::move(life)), hosted_(hosted) {}
 
+    bool hosted() const { return hosted_; }
     RemoteBacklog backlog() const { return {backlog_->bytes.load(), backlog_->calls.load()}; }
     /// A place for `bytes` of work a delegate made from the message being delivered (`remoteHold`), by `admit`'s rules.
     RemoteHold more(size_t bytes) { return admit(bytes); }
@@ -97,26 +101,31 @@ public:
 
     // What the delegate passes to the validator, as in process: only the size is checked here, before anything is copied.
     void remoteOps(const std::string& json) override {
+        if (hosted_) return violation("an ops batch from a hosted engine process");
         if (json.size() > kRemoteOpsLimit) return violation("an ops batch over 32 MB");
         if (Admitted admitted = admit(json.size())) deliver(std::move(admitted), [json](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onOps(engine, json); });
     }
 
     void remoteListen(const std::string& json) override {
+        if (hosted_) return violation("listen from a hosted engine process");
         if (json.size() > kRemoteMessageLimit) return violation("listen over 1 MB");
         if (Admitted admitted = admit(json.size())) deliver(std::move(admitted), [json](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onListen(engine, json); });
     }
 
     void remotePreventDefault(const std::string& json) override {
+        if (hosted_) return violation("preventDefault from a hosted engine process");
         if (json.size() > kRemoteMessageLimit) return violation("preventDefault over 1 MB");
         if (Admitted admitted = admit(json.size())) deliver(std::move(admitted), [json](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onPreventDefault(engine, json); });
     }
 
     void remoteAnim(const std::string& json) override {
+        if (hosted_) return violation("anim from a hosted engine process");
         if (json.size() > kRemoteMessageLimit) return violation("anim over 1 MB");
         if (Admitted admitted = admit(json.size())) deliver(std::move(admitted), [json](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onAnim(engine, json); });
     }
 
     void remoteRequestsFrame() override {
+        if (hosted_) return violation("a frame request from a hosted engine process");
         if (Admitted admitted = admit(0)) {
             submit(std::move(admitted), [](SandboxEngine& engine) {
                 if (!engine.dead_ && engine.visible_ && engine.delegate_) engine.delegate_->onRequestFrame(engine);
@@ -247,6 +256,10 @@ public:
     }
 
     QueryAnswer remoteQuery(const std::string& json) override {
+        if (hosted_) {
+            violation("a layout query from a hosted engine process");
+            return {"{\"error\":\"invalid query\"}", std::nullopt};
+        }
         if (json.size() > kRemoteMessageLimit) return {"{\"error\":\"invalid query\"}", std::nullopt};
         Admitted admitted = admit(json.size());
         if (!admitted) return deadQuery();
@@ -277,6 +290,62 @@ public:
 
     void remoteDisconnected() override {
         if (Admitted admitted = admit(0)) submit(std::move(admitted), [](SandboxEngine& engine) { engine.remoteKill(kEngineGone, false); });
+    }
+
+    // A hosted runtime's calls: sized first (a message past its bound is dropped, a request past it answered ""), then admitted as any other.
+    void remotePlatformMessage(const std::string& message) override {
+        if (!hosted_) return violation("a platform message from an engine-only runtime");
+        if (message.size() > kRemotePlatformLimit) return violation("a platform message over 32 MB");
+        if (Admitted admitted = admit(message.size()))
+            deliver(std::move(admitted), [message](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onHostedMessage(engine, message); });
+    }
+
+    // Waits for the delegate on the dispatch thread as a query does; no answer for a live widget ends it, unless the delegate's own stop already did.
+    std::optional<std::string> remotePlatformRequest(const std::string& message) override {
+        if (!hosted_) {
+            violation("a platform request from an engine-only runtime");
+            return std::nullopt;
+        }
+        if (message.size() > kRemotePlatformLimit) {
+            violation("a platform request over 32 MB");
+            return std::string();
+        }
+        Admitted admitted = admit(message.size());
+        if (!admitted) return std::nullopt;
+        return await<std::optional<std::string>>(std::move(admitted), [message](SandboxEngine& engine) -> std::optional<std::string> {
+            if (engine.dead_) return std::nullopt;
+            std::optional<std::string> answer = engine.delegate_ ? engine.delegate_->onHostedRequest(engine, message) : std::nullopt;
+            if (!answer) engine.remoteKill(kPlatformUnanswered, true);
+            return answer;
+        }).value_or(std::nullopt);
+    }
+
+    // Only for a host that asked at its hosted start (`hostedOps_`, set on the dispatch thread before anything after the start is delivered).
+    void remoteValidatedOps(const std::string& json) override {
+        if (!hosted_) return violation("validated ops from an engine-only runtime");
+        if (json.size() > kRemoteOpsLimit) return violation("validated ops over 32 MB");
+        Admitted admitted = admit(json.size());
+        if (!admitted) return;
+        submit(std::move(admitted), [json](SandboxEngine& engine) {
+            if (!engine.hostedOps_) return engine.clientReport(engine.rejectedBridgeReported_, "protocol-violation", "validated ops the host did not ask for");
+            if (!engine.dead_ && engine.delegate_) engine.delegate_->onHostedOps(engine, json);
+        });
+    }
+
+    void remoteRendererReady() override {
+        if (!hosted_) return violation("a renderer's ready from an engine-only runtime");
+        if (Admitted admitted = admit(0)) deliver(std::move(admitted), [](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onHostedRendererReady(engine); });
+    }
+
+    void remoteRendered() override {
+        if (!hosted_) return violation("a render report from an engine-only runtime");
+        if (Admitted admitted = admit(0)) deliver(std::move(admitted), [](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onHostedRendered(engine); });
+    }
+
+    void remoteNodes(int64_t nodes) override {
+        if (!hosted_) return violation("a node count from an engine-only runtime");
+        const int bounded = int(std::clamp<int64_t>(nodes, 0, std::numeric_limits<int>::max()));
+        if (Admitted admitted = admit(0)) deliver(std::move(admitted), [bounded](SandboxEngine& engine, SandboxEngineDelegate& delegate) { delegate.onHostedNodes(engine, bounded); });
     }
 
 private:
@@ -364,6 +433,7 @@ private:
     }
 
     std::shared_ptr<Liveness> life_;
+    const bool hosted_;
     const std::shared_ptr<Backlog> backlog_ = std::make_shared<Backlog>();
 };
 
@@ -371,12 +441,28 @@ private:
 
 SandboxEngine::SandboxEngine(std::string html, SandboxConfig config, std::shared_ptr<SandboxRemoteChannel> remote, std::shared_ptr<IntlProvider> intl)
     : SandboxEngine("widget.client", std::move(html), std::move(config), std::shared_ptr<SandboxResources>(), std::move(intl)) {
+    attachClient(std::move(remote), false);
+}
+
+SandboxEngine::SandboxEngine(HostedTag, std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl)
+    : SandboxEngine("widget.client", std::move(html), std::move(config), std::shared_ptr<SandboxResources>(), std::move(intl)) {
+    hosted_ = hosted;
+    attachClient(std::move(hosted), true);
+}
+
+void SandboxEngine::attachClient(std::shared_ptr<SandboxRemoteChannel> remote, bool hosted) {
     remote_ = std::move(remote);
-    client_ = std::make_shared<RemoteClient>(liveness_);
+    client_ = std::make_shared<RemoteClient>(liveness_, hosted);
     // A host's factory without a channel: dead from the first task, never in process.
     if (remote_) remote_->attach(client_);
     else thread_.async([this] { remoteKill(kEngineGone, false); });
 }
+
+std::unique_ptr<SandboxEngine> SandboxEngine::hostedClient(std::string html, SandboxConfig config, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl) {
+    return std::unique_ptr<SandboxEngine>(new SandboxEngine(HostedTag{}, std::move(html), std::move(config), std::move(hosted), std::move(intl)));
+}
+
+bool SandboxEngine::isHosted() const { return client_ && client_->hosted(); }
 
 std::unique_ptr<SandboxEngine> SandboxEngine::make(std::string html, SandboxConfig config, std::shared_ptr<SandboxResources> resources, std::shared_ptr<IntlProvider> intl) {
     SandboxRemoteChannelFactory factory;
@@ -398,6 +484,12 @@ void SandboxEngine::setRemoteChannelFactory(SandboxRemoteChannelFactory factory)
     FactorySlot& slot = factorySlot();
     std::lock_guard<std::mutex> l(slot.mutex);
     std::swap(slot.factory, factory);
+}
+
+bool SandboxEngine::remoteChannelFactorySet() {
+    FactorySlot& slot = factorySlot();
+    std::lock_guard<std::mutex> l(slot.mutex);
+    return bool(slot.factory);
 }
 
 SandboxEngine::RemoteBacklog SandboxEngine::remoteBacklog() const { return client_ ? client_->backlog() : RemoteBacklog{}; }
@@ -436,14 +528,17 @@ void SandboxEngine::clientActivationEvent(const std::string& json, int gesture) 
     const double at = nowMs();
     thread_.async([this, json, gesture, at] {
         if (dead_) return;
-        const auto same = [&](const Grant& grant) { return grant.gesture == gesture; };
-        if (visible_ && gesture > consumedGesture_ && std::none_of(grants_.begin(), grants_.end(), same)) {
-            const auto later = std::upper_bound(grants_.begin(), grants_.end(), gesture, [](int g, const Grant& grant) { return g < grant.gesture; });
-            grants_.insert(later, Grant{gesture, at});
-            if (grants_.size() > kRemoteMaxGrants) grants_.erase(grants_.begin(), grants_.end() - long(kRemoteMaxGrants));
-        }
+        grant(gesture, at);
         remote_->activationEvent(json, gesture);
     });
+}
+
+void SandboxEngine::grant(int gesture, double atMs) {
+    const auto same = [&](const Grant& kept) { return kept.gesture == gesture; };
+    if (!visible_ || gesture <= consumedGesture_ || std::any_of(grants_.begin(), grants_.end(), same)) return;
+    const auto later = std::upper_bound(grants_.begin(), grants_.end(), gesture, [](int g, const Grant& kept) { return g < kept.gesture; });
+    grants_.insert(later, Grant{gesture, atMs});
+    if (grants_.size() > kRemoteMaxGrants) grants_.erase(grants_.begin(), grants_.end() - long(kRemoteMaxGrants));
 }
 
 void SandboxEngine::clientSetVisible(bool v) {
@@ -479,6 +574,51 @@ void SandboxEngine::clientSetDelegate(SandboxEngineDelegate* delegate) {
     };
     if (thread_.isCurrent()) set();
     else thread_.async(set);
+}
+
+// MARK: a hosted client's own inputs (the host's order, on the dispatch thread)
+
+void SandboxEngine::startHosted(SandboxHostedStart start) {
+    if (!hosted_) return;
+    thread_.async([this, start = std::move(start)] {
+        if (dead_ || started_) return;
+        started_ = true;
+        hostedOps_ = start.validatedOps;
+        hosted_->startHosted(html_, config_, start);
+    });
+}
+
+void SandboxEngine::hostedTheme(const WidgetTheme& theme) {
+    if (!hosted_) return;
+    thread_.async([this, theme] {
+        if (!dead_) hosted_->hostedTheme(theme);
+    });
+}
+
+void SandboxEngine::platform(std::string message) {
+    if (!hosted_) return;
+    thread_.async([this, message = std::move(message)] {
+        if (!dead_) hosted_->platform(message);
+    });
+}
+
+// The press is the grant and the touch at once (packages/desktop/README.md, "Who decides"); stamped here with the clock the gates read, as `clientPress` does.
+void SandboxEngine::pressDelivered() {
+    if (!hosted_) return;
+    const double at = nowMs();
+    thread_.async([this, at] {
+        if (dead_ || config_.context.preview) return;
+        haptics_.press(at);
+        if (visible_) grant(++hostedGesture_, at);
+    });
+}
+
+void SandboxEngine::releaseDelivered() {
+    if (!hosted_) return;
+    const double at = nowMs();
+    thread_.async([this, at] {
+        if (!dead_ && !config_.context.preview) haptics_.release(at);
+    });
 }
 
 std::string SandboxEngine::clientProbe(const std::string& code) {

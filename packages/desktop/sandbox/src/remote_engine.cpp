@@ -1,5 +1,6 @@
 #include "twidget/remote_engine.h"
 
+#include "remote_internal.h"
 #include "twidget/intl.h"
 #include "twidget/json.h"
 
@@ -112,6 +113,25 @@ Json contextJson(const WidgetContext& c) {
     return o;
 }
 
+/// `SandboxRemoteCoding::encodeTheme`'s object: the scheme and the palette always, the tokens as the renderer's theme message has them.
+Json themeJson(const WidgetTheme& t) {
+    Json o = Json::object();
+    o.set("colorScheme", t.colorScheme).set("params", stringMapJson(t.params)).set("button", t.button.json()).set("text", t.text.json());
+    return o;
+}
+
+/// `SandboxRemoteCoding::decodeTheme`'s reading of a parsed value.
+std::optional<WidgetTheme> themeOf(const Json& o) {
+    std::optional<std::string> scheme = o.isObject() ? stringOf(o["colorScheme"]) : std::nullopt;
+    if (!scheme) return std::nullopt;
+    WidgetTheme t;
+    t.colorScheme = std::move(*scheme);
+    if (std::optional<std::map<std::string, std::string>> params = stringMap(o["params"])) t.params = std::move(*params);
+    t.button = WidgetButtonTokens::from(o["button"]);
+    t.text = WidgetTextTokens::from(o["text"]);
+    return t;
+}
+
 /// A fresh context, as Swift's decoder builds one: each flag a bool or false, the chat type a string or none, a viewer only with a usable `id`.
 WidgetContext contextOf(const Json& o) {
     WidgetContext c;
@@ -203,6 +223,32 @@ std::optional<std::map<std::string, std::string>> SandboxRemoteCoding::decodeThe
     return stringMap(*o);
 }
 
+std::string SandboxRemoteCoding::encodeTheme(const WidgetTheme& theme) { return themeJson(theme).dump(); }
+
+std::optional<WidgetTheme> SandboxRemoteCoding::decodeTheme(std::string_view text) {
+    std::optional<Json> o = parseObject(text);
+    if (!o) return std::nullopt;
+    return themeOf(*o);
+}
+
+std::string SandboxRemoteCoding::encodeHostedStart(const SandboxHostedStart& start) {
+    Json o = Json::object();
+    o.set("theme", themeJson(start.theme)).set("stoppedLabel", start.stoppedLabel).set("validatedOps", start.validatedOps);
+    return o.dump();
+}
+
+std::optional<SandboxHostedStart> SandboxRemoteCoding::decodeHostedStart(std::string_view text) {
+    std::optional<Json> o = parseObject(text);
+    if (!o) return std::nullopt;
+    std::optional<WidgetTheme> theme = themeOf((*o)["theme"]);
+    if (!theme) return std::nullopt;
+    SandboxHostedStart start;
+    start.theme = std::move(*theme);
+    if (std::optional<std::string> label = stringOf((*o)["stoppedLabel"])) start.stoppedLabel = label->substr(0, SandboxEngine::kRemoteTextLimit);
+    start.validatedOps = (*o)["validatedOps"].asBool();
+    return start;
+}
+
 std::string SandboxRemoteCoding::encodeOutcome(const SandboxRemoteOutcome& outcome) {
     Json o = Json::object();
     switch (outcome.kind) {
@@ -267,20 +313,6 @@ std::optional<SandboxStats> SandboxRemoteCoding::decodeStats(const std::vector<d
 
 // MARK: the engine's side
 
-namespace {
-
-/// The engine's IntlProvider on the engine's side: the host's provider formats each request through the synchronous `remoteIntl`.
-class RemoteIntl final : public IntlProvider {
-public:
-    explicit RemoteIntl(std::shared_ptr<SandboxRemoteSink> sink) : sink_(std::move(sink)) {}
-    std::string format(const Json& request) override { return sink_->remoteIntl(request.dump()); }
-
-private:
-    std::shared_ptr<SandboxRemoteSink> sink_;
-};
-
-} // namespace
-
 SandboxRemoteServer::SandboxRemoteServer(std::shared_ptr<SandboxRemoteSink> sink, std::shared_ptr<SandboxResources> resources)
     : sink_(std::move(sink)), resources_(std::move(resources)) {}
 
@@ -301,7 +333,7 @@ void SandboxRemoteServer::start(const std::string& html, const SandboxConfig& co
         if (closed_ || started_) return;
         started_ = true;
     }
-    auto engine = std::make_unique<SandboxEngine>(html, config, resources_, std::make_shared<RemoteIntl>(sink_));
+    auto engine = std::make_unique<SandboxEngine>(html, config, resources_, std::make_shared<detail::RemoteIntl>(sink_));
     engine->setDelegate(this);
     SandboxEngine& built = *engine;
     std::vector<std::function<void(SandboxEngine&)>> waiting;
@@ -452,9 +484,9 @@ void SandboxRemoteServer::onDied(SandboxEngine&, const std::string& reason) { si
 
 // MARK: the loopback
 
-namespace {
+namespace detail {
 
-/// The server's sink in a loopback: the client's, its stats coded on the way.
+/// The engine's side's sink in a loopback (`loopbackSink`): the client's, its stats coded on the way.
 class LoopbackSink final : public SandboxRemoteSink {
 public:
     explicit LoopbackSink(std::shared_ptr<SandboxRemoteSink> client) : client_(std::move(client)) {}
@@ -484,18 +516,26 @@ public:
     }
     void remoteDied(const std::string& reason) override { client_->remoteDied(reason); }
     void remoteDisconnected() override { client_->remoteDisconnected(); }
+    void remotePlatformMessage(const std::string& message) override { client_->remotePlatformMessage(message); }
+    std::optional<std::string> remotePlatformRequest(const std::string& message) override { return client_->remotePlatformRequest(message); }
+    void remoteValidatedOps(const std::string& json) override { client_->remoteValidatedOps(json); }
+    void remoteRendererReady() override { client_->remoteRendererReady(); }
+    void remoteRendered() override { client_->remoteRendered(); }
+    void remoteNodes(int64_t nodes) override { client_->remoteNodes(nodes); }
 
 private:
     const std::shared_ptr<SandboxRemoteSink> client_;
 };
 
-} // namespace
+std::shared_ptr<SandboxRemoteSink> loopbackSink(std::shared_ptr<SandboxRemoteSink> client) { return std::make_shared<LoopbackSink>(std::move(client)); }
+
+} // namespace detail
 
 SandboxLoopbackChannel::SandboxLoopbackChannel(std::shared_ptr<SandboxResources> resources) : resources_(std::move(resources)) {}
 
 void SandboxLoopbackChannel::attach(std::shared_ptr<SandboxRemoteSink> sink) {
     client_ = std::move(sink);
-    server_ = std::make_unique<SandboxRemoteServer>(std::make_shared<LoopbackSink>(client_), resources_);
+    server_ = std::make_unique<SandboxRemoteServer>(detail::loopbackSink(client_), resources_);
 }
 
 void SandboxLoopbackChannel::start(const std::string& html, const SandboxConfig& config) {

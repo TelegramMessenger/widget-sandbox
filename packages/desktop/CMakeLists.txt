@@ -65,6 +65,7 @@ add_library(twidget-sandbox STATIC
     sandbox/src/sandbox_engine.cpp
     sandbox/src/sandbox_engine_client.cpp
     sandbox/src/remote_engine.cpp
+    sandbox/src/remote_hosted.cpp
     sandbox/src/remote_stream.cpp
     sandbox/src/widget_host.cpp)
 target_include_directories(twidget-sandbox PUBLIC sandbox/include)
@@ -153,7 +154,7 @@ add_executable(twidget-run harness/main.cpp)
 target_link_libraries(twidget-run PRIVATE twidget-sandbox)
 target_compile_definitions(twidget-run PRIVATE TW_WIDGET_JS="${TW_WIDGET_JS}" TW_CORPUS="${TW_CORPUS}")
 
-add_executable(twidget-tests tests/test_main.cpp tests/test_remote.cpp tests/test_remote_bridge.cpp tests/test_remote_stream.cpp)
+add_executable(twidget-tests tests/test_main.cpp tests/test_remote.cpp tests/test_remote_bridge.cpp tests/test_remote_stream.cpp tests/test_remote_stream_hosted.cpp tests/test_hosted.cpp)
 target_link_libraries(twidget-tests PRIVATE twidget-sandbox)
 target_compile_definitions(twidget-tests PRIVATE TW_WIDGET_JS="${TW_WIDGET_JS}" TW_CORPUS="${TW_CORPUS}" TW_FIXTURES="${TW_FIXTURES}")
 

@@ -35,33 +35,7 @@
 
 namespace twidget {
 
-/// The client's own `<button>` (docs/sdk-v1.md §2.4); every field optional, the template's defaults stand
-/// for the rest. Passed to the renderer as given: the renderer core keeps only values that match their
-/// grammar (`#rrggbb`, CSS lengths, a font shorthand with generic families only, opacities 0–1).
-struct WidgetButtonTokens {
-    std::optional<std::string> bg, text, radius, font, padding, height;
-    std::optional<double> pressedOpacity, disabledOpacity;
-};
-
-/// The client's message text (docs/sdk-v1.md §2.4); every field optional, the reference set stands for the rest
-/// (15, 1.35, "8px 12px"): the root's font size in CSS px (the chat's text-size setting), its unitless line height,
-/// the padding between the bubble's edge and the widget's content. The renderer keeps values that match the grammar.
-struct WidgetTextTokens {
-    std::optional<double> fontSize, lineHeight;
-    std::optional<std::string> padding;
-};
-
-/// The chat's theme for the bubble the widget sits in (docs/sdk-v1.md §2.3, §2.4, §4.3): the colour scheme
-/// ("light" | "dark"; anything but "dark" is light), that bubble's palette under the 15 Mini Apps keys as `#rrggbb`
-/// (others are dropped; an outgoing bubble's colours when the user sent or forwarded the widget), the button and
-/// text tokens.
-struct WidgetTheme {
-    std::string colorScheme = "light";
-    std::map<std::string, std::string> params;
-    WidgetButtonTokens button;
-    WidgetTextTokens text;
-};
-
+// WidgetButtonTokens, WidgetTextTokens and WidgetTheme are in twidget/sandbox_engine.h (a hosted widget's start carries the theme).
 // WidgetStorage, WidgetAction and StorageArea, and WidgetData, WidgetViewer, WidgetContext, WidgetRequest,
 // WidgetRequestAnswer, WidgetRequestFailure and WidgetRequestOutcome are in twidget/sdk_policy.h (the engine checks with them).
 
@@ -165,11 +139,22 @@ private:
     std::string lastType_;
 };
 
+class SandboxHostedChannel;
+class SandboxHostedRuntime;
+class WidgetHost;
+
+/// What a test or a harness gives `WidgetHost::setHostedChannelFactory`: the hosted channel of `host`, a WidgetHost being built with a renderer factory (remote_hosted.h; null: a widget that dies, "the widget engine process ended"). Called on the constructing thread with that host not built yet: keep the reference, call nothing on it before its constructor returned; `renderers`, `theme` (the colour scheme) and `width` are what the host would have built its renderer with.
+using HostedChannelFactory = std::function<std::shared_ptr<SandboxHostedChannel>(WidgetHost& host, std::shared_ptr<SandboxResources> resources, const RendererFactory& renderers,
+                                                                                 const std::string& theme, double width)>;
+
+/// Local (the engine in process or behind `SandboxEngine::make`'s channel, the validator and the renderer here) or hosted (remote_hosted.h, desktop core only: the engine, the validator and the renderer in the engine process, a hosted client here that decides every privileged call on the presses the embedder delivered, `pressDelivered`, and carries the renderer's traffic with its platform, `sendPlatform` / `onPlatformMessage` / `onPlatformRequest`). In hosted mode `renderer()` throws, `event()`, `onGesture` and `onGestureClaim` do nothing, `height` and `firstContentMs` stay unset (the embedder's, from its renderer's platform traffic), and `onRenderOps` gets the engine process's validated batches only when set before `start()`.
 class WidgetHost final : public SandboxEngineDelegate {
 public:
-    /// Throws JSError if the validator bundle fails to load, std::system_error when one of its three threads cannot start (JSThread; those already started are joined first). Nothing runs until `start()`: set the observers and `stoppedLabel` before it; an engine behind a channel that failed while it was built (`SandboxEngine::make`) dies after it.
+    /// Throws JSError if the validator bundle fails to load, std::system_error when one of its threads cannot start (JSThread; those already started are joined first). Nothing runs until `start()`: set the observers and `stoppedLabel` before it; an engine behind a channel that failed while it was built (`SandboxEngine::make`) dies after it. Hosted, with neither validator nor renderer here, when a hook is set (`setHostedChannelFactory`) and no engine channel factory is (`SandboxEngine::remoteChannelFactorySet`).
     WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
                RendererFactory rendererFactory, std::shared_ptr<IntlProvider> intl = nullptr);
+    /// Hosted (remote_hosted.h): no validator and no renderer here, a hosted client over `hosted` (`SandboxEngine::hostedClient`; null: a widget that dies, "the widget engine process ended"), whatever the hook and the engine channel factory say; `intl` answers the widget's Intl requests on the client's dispatch thread.
+    WidgetHost(std::string html, WidgetTheme theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxHostedChannel> hosted, std::shared_ptr<IntlProvider> intl = nullptr);
     /// The API before SDK v1: a colour scheme only (the scheme's default palette, no button tokens).
     [[deprecated("pass a WidgetTheme (SDK v1)")]]
     WidgetHost(std::string html, std::string theme, double width, WidgetHostOptions options, std::shared_ptr<SandboxResources> resources,
@@ -179,10 +164,9 @@ public:
     WidgetHost(const WidgetHost&) = delete;
     WidgetHost& operator=(const WidgetHost&) = delete;
 
-    /// Loads the renderer; the engine boots once the renderer announced itself (`ready`).
+    /// Loads the renderer; the engine boots once the renderer announced itself (`ready`). Hosted: the hosted start, once, with the theme, `stoppedLabel` and whether `onRenderOps` is set (the ask for the validated batches); the engine process loads its renderer.
     void start();
-    /// The chat's theme changed: stylesheets are re-sanitised against the scheme, the renderer gets the
-    /// scheme and the variables, the widget gets `colorScheme`, `themeParams` and `themeChanged` in one task.
+    /// The chat's theme changed: stylesheets are re-sanitised against the scheme, the renderer gets the scheme and the variables, the widget gets `colorScheme`, `themeParams` and `themeChanged` in one task. Hosted: the whole theme to the engine process, which does all of that there.
     void setTheme(const WidgetTheme& theme);
     [[deprecated("pass a WidgetTheme (SDK v1)")]]
     void setTheme(const std::string& theme) { setTheme(WidgetTheme{theme, {}, {}, {}}); }
@@ -196,16 +180,27 @@ public:
     /// added or removed by an edit, an "edited" mark that widens the time. The renderer gets the root variables and the
     /// widget `contentSafeAreaInset` and `contentSafeAreaChanged`, from this one call; never per frame.
     void setContentSafeArea(const WidgetContentSafeArea& area);
-    /// A DOM event for the widget that did not come from the renderer (the harness's `--events`).
+    /// A DOM event for the widget that did not come from the renderer (the harness's `--events`); nothing in hosted mode, whose input is the engine process's renderer's.
     void event(const std::string& json);
     /// Trusted diagnostic code evaluated in the widget context (tests / harness only).
     std::string probe(const std::string& code);
-    /// Stops the engine and the renderer. Idempotent; not from the host thread. Storage commits already on
-    /// their way reach `onStorageCommit` before it returns; no action and no storage commit comes after it.
+    /// Stops the engine and the renderer. Idempotent; not from the host thread. Storage commits already on their way reach `onStorageCommit` before it returns; no action and no storage commit comes after it. A platform request waiting for `onPlatformRequest` gets no answer and the widget dies "terminated".
     void destroy();
 
-    /// The renderer the factory built; its own API (touches, paints) is the owner's business.
-    Renderer& renderer() { return *renderer_; }
+    /// The renderer the factory built; its own API (touches, paints) is the owner's business. Throws `std::logic_error` in hosted mode, whose renderer is the engine process's.
+    Renderer& renderer();
+    /// Whether the widget runs hosted (remote_hosted.h), fixed at construction.
+    bool isHosted() const { return hosting_.hosted; }
+    /// For every later WidgetHost built with a renderer factory while no engine channel factory is set (`SandboxEngine::remoteChannelFactorySet`): it runs hosted over the channel this gives (tests and harnesses); an empty one (the default) builds local hosts. From any thread.
+    static void setHostedChannelFactory(HostedChannelFactory factory);
+    /// Hosted only (else nothing): an opaque message of the embedder's platform for the engine process's renderer, in order with the other inputs; none after the widget died.
+    void sendPlatform(std::string message);
+    /// Hosted only (else nothing): the embedder delivered a primary press to the widget's renderer (`SandboxEngine::pressDelivered`), the only source of the widget's grants and of its haptic touch: one privileged call within 2 s while visible.
+    void pressDelivered();
+    /// Hosted only (else nothing): that press ended (lifted or cancelled), the haptic touch window follows it (`SandboxEngine::releaseDelivered`).
+    void releaseDelivered();
+    /// How long a platform request of the engine process's renderer waits for `onPlatformRequest`'s `respond`: then diagnostic `platform-timeout` and the widget dies.
+    static constexpr double kPlatformAnswerSeconds = 3;
     /// Snapshot of the diagnostics (any thread).
     WidgetDiagnostics diagnostics() const;
     /// Runs `fn` on the host thread and waits for it (inline when already there).
@@ -220,14 +215,14 @@ public:
     static constexpr size_t kMaxDiagKinds = 64;
 
     bool waitLoaded(double timeoutSeconds = 20);
-    /// True once the post-load ack query came back from the renderer (or the widget died).
+    /// True once the post-load ack query came back from the renderer (or the widget died); hosted, once the engine process's glue reported it.
     bool waitRendered(double timeoutSeconds = 5);
     /// Polls `pred` on a diagnostics snapshot until true or timeout.
     bool waitUntil(const std::function<bool(const WidgetDiagnostics&)>& pred, double timeoutSeconds = 3);
 
     // Observers, all on the host thread.
     std::function<void(const WidgetDiagnostics&)> onChange;
-    /// Every validated batch on its way to the renderer (what the harness scans for leaks).
+    /// Every validated batch on its way to the renderer (what the harness scans for leaks). Hosted: the engine process's batches, only when set before `start()` (the hosted start asks for them then); set later, or unset, none.
     std::function<void(const std::string& renderOpsJson)> onRenderOps;
     /// What the widget asked the client to do, checked (URL rules, user activation, the haptic rate limit;
     /// docs/sdk-v1.md §3.2, §5.2, §5.3). At most one link action per pointer press.
@@ -265,6 +260,10 @@ public:
     /// Whether the widget watches its shared `public_data` changed (round 7): poll it only while true and the widget is on
     /// screen. Called only on a change, after `diagnostics().watchesPublicData` took the new value. Not an action.
     std::function<void(bool on)> onWatchPublicData;
+    /// Hosted only: an opaque message of the engine process's renderer for the embedder's platform (at most `SandboxEngine::kRemotePlatformLimit` bytes), in the order it sent them and in order with the widget's other reports; none after `destroy()`.
+    std::function<void(const std::string& message)> onPlatformMessage;
+    /// Hosted only: a request the engine process's renderer waits for (one at a time); call `respond` once, from any thread, within `kPlatformAnswerSeconds`, else the widget dies (diagnostic `platform-timeout`) and later calls are ignored. Read when the request arrives: unset then, the widget dies at once. Never wait for the widget in it: its dispatch thread waits for the answer, so a `probe` from inside waits the 3 s out.
+    std::function<void(const std::string& message, std::function<void(std::string answer)> respond)> onPlatformRequest;
     /// Deprecated since v0.1.2 (`onGesture`): the claim's `x` and `y` (always false), right after `onGesture`.
     [[deprecated("use onGesture (v0.1.2)")]]
     std::function<void(bool x, bool y)> onGestureClaim;
@@ -296,11 +295,54 @@ public:
     void onLoaded(SandboxEngine&) override;
     void onStats(SandboxEngine&, const SandboxStats& stats) override;
     void onDied(SandboxEngine&, const std::string& reason) override;
+    // A hosted client's reports (its dispatch thread): platform messages and requests, the asked-for batches, the engine process's renderer ready, rendered and its node count.
+    void onHostedMessage(SandboxEngine&, const std::string& message) override;
+    std::optional<std::string> onHostedRequest(SandboxEngine&, const std::string& message) override;
+    void onHostedOps(SandboxEngine&, const std::string& json) override;
+    void onHostedRendererReady(SandboxEngine&) override;
+    void onHostedRendered(SandboxEngine&) override;
+    void onHostedNodes(SandboxEngine&, int nodes) override;
 
     /// Renderer events that count as a user gesture: clicks and presses of Enter or Space (not a repeat, not a Command shortcut).
     static bool isUserActivation(const Json& ev) { return GestureCounter::isUserActivation(ev); }
 
 private:
+    /// Builds the served WidgetHost of a hosted widget in the engine process (remote_hosted.cpp) and routes its engine's calls.
+    friend class SandboxHostedRuntime;
+    /// What the served host's glue reports as it happens (each a call when set; empty in the local and hosted modes): a diagnostic it recorded, the renderer's first `ready`, the first render acknowledgement, the node count after a batch when it changed.
+    struct GlueReports {
+        std::function<void(const std::string& kind, const std::string& detail)> diag;
+        std::function<void()> rendererReady;
+        std::function<void()> rendered;
+        std::function<void(int nodes)> nodes;
+    };
+    struct ServedTag {};
+    /// The served host (the engine process's, SandboxHostedRuntime's): local, from the host's `config` as its hosted start carried it (`innerWidth` the renderer's width) with the scheme and the palette of `theme`, its engine built here directly (never `SandboxEngine::make`) with `engineDelegate` as its delegate, its glue's reports to `reports`.
+    WidgetHost(ServedTag, std::string html, WidgetTheme theme, SandboxConfig config, std::shared_ptr<SandboxResources> resources, RendererFactory renderers,
+               std::shared_ptr<IntlProvider> intl, SandboxEngineDelegate& engineDelegate, GlueReports reports);
+    /// Whether the widget is hosted, and the hook's channel until the constructor hands it to the engine (which then holds the only reference).
+    struct Hosting {
+        bool hosted = false;
+        std::shared_ptr<SandboxHostedChannel> channel;
+    };
+    /// The renderer factory constructor's mode: hosted over the hook's channel while a hook is set and no engine channel factory is, else local.
+    static Hosting hostingFor(WidgetHost& host, const std::shared_ptr<SandboxResources>& resources, const RendererFactory& renderers, const std::string& theme, double width);
+    /// The local and served constructors' body: the validator's policy and CPU sink, the engine's delegate (an engine in process now), the renderer's callbacks.
+    void wire(SandboxEngineDelegate& engineDelegate);
+    /// One platform request waiting for `onPlatformRequest` on the dispatch thread; `respond` holds only this, so a late one needs no WidgetHost.
+    struct PendingPlatform {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool settled = false;
+        /// Settled without an observer to ask, or for a destroyed host.
+        bool unanswered = false;
+        std::optional<std::string> answer;
+        /// Once: false when it was settled already.
+        bool settle(std::optional<std::string> value, bool none);
+    };
+    /// Settles the waiting platform request, if any, with no answer (`destroy`).
+    void resolvePlatform();
+
     /// Fed only the events the renderer marks `trusted`.
     GestureCounter gestures_;
     struct PendingQuery {
@@ -341,7 +383,7 @@ private:
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     static constexpr int kRenderAckQid = -1;
 
-    // Before the threads: the validator's constructor already posts `diag()` to the host thread, which may run it as late as its final join.
+    // Before the threads and the validator: a diagnostic the validator reports while it is built (`bundle-mismatch`) reaches `diag` on the host thread at once, which may run it as late as its final join.
     mutable std::mutex mutex_;              // diagnostics_, waiters
     std::condition_variable cv_;
     WidgetDiagnostics diagnostics_;
@@ -351,15 +393,20 @@ private:
     /// The colour scheme ("light" | "dark") and the whole theme with its palette checked (host thread after start).
     std::string theme_;
     WidgetTheme widgetTheme_;
-    WidgetHostOptions options_;
+    /// What the engine boots with, made from the options (a served host's from its hosted start's): the host reads its policy and preview flag here.
     SandboxConfig config_;
     std::shared_ptr<SandboxResources> resources_;
+    /// Fixed at construction: only `hosted` is read after it.
+    Hosting hosting_;
     /// The engine the validator works for in `validated`, under `validatingMutex_`; before the validator, which may report while it is built.
     std::mutex validatingMutex_;
     SandboxEngine* validating_ = nullptr;
-    TrustedValidator validator_;
+    /// Before the validator, whose construction may report.
+    const GlueReports reports_;
+    /// Null in hosted mode, as `renderer_` is.
+    std::unique_ptr<TrustedValidator> validator_;
     std::unique_ptr<Renderer> renderer_;
-    /// `SandboxEngine::make`'s: in process, or a client of an engine behind the host's channel factory.
+    /// `SandboxEngine::make`'s: in process, or a client of an engine behind the host's channel factory; a hosted client (`SandboxEngine::hostedClient`) in hosted mode; the served host's own, in process.
     std::unique_ptr<SandboxEngine> engine_;
 
     // Host-thread state.
@@ -384,6 +431,9 @@ private:
     std::mutex queryMutex_;
     std::condition_variable queryCv_;
     std::shared_ptr<PendingQuery> pendingQuery_;
+    /// The platform request waiting on the dispatch thread, for `destroy` to settle.
+    std::mutex platformMutex_;
+    std::shared_ptr<PendingPlatform> pendingPlatform_;
     const std::chrono::steady_clock::time_point createdAt_ = std::chrono::steady_clock::now();
 };
 

@@ -1,8 +1,9 @@
-// The remote engine over one byte stream per engine process, the byte-level twin of the loopback (remote_engine.h): the stream a host supplies, the frames on it, the host's end with a channel per runtime and the engine process's end.
+// The remote engine over one byte stream per engine process, the byte-level twin of the loopback (remote_engine.h): the stream a host supplies, the frames on it, the host's end with a channel per runtime and the engine process's end; a hosting stream carries hosted widgets (remote_hosted.h) the same way.
 #pragma once
 
 #include "twidget/js_thread.h"
 #include "twidget/remote_engine.h"
+#include "twidget/remote_hosted.h"
 #include "twidget/resources.h"
 #include "twidget/sandbox_engine.h"
 
@@ -31,18 +32,18 @@ public:
 struct SandboxRemoteWire {
     /// The stream's version, in `Opening` and `Ready`.
     static constexpr int64_t kVersion = 1;
-    /// The size any frame but `Opening` may give, in both directions: an ops batch with room for its frame.
+    /// The size any frame but an opening (`Opening`, `HostingOpening`) may give, in both directions: an ops batch with room for its frame.
     static constexpr size_t kMaxFrameBytes = SandboxEngine::kRemoteOpsLimit + (size_t(64) << 10);
-    /// The size `Opening` may give: the sandbox bundle and its bytecode.
+    /// The size `Opening` and `HostingOpening` may give: the sandbox bundle and its bytecode, a hosting stream's validator bundle and its bytecode too.
     static constexpr size_t kMaxOpeningBytes = size_t(16) << 20;
-    /// Bytes of a stamp line in `Opening` (`BundleStamp`): a longer one is refused, never cut.
+    /// Bytes of a stamp line in `Opening` and `HostingOpening` (`BundleStamp`): a longer one is refused, never cut.
     static constexpr size_t kMaxStampBytes = 4096;
 
-    /// Host to engine from 1, engine to host from 64: a kind of the other direction is an unknown one. Each kind's fields in order.
+    /// Host to engine from 1, engine to host from 64, a hosting stream's own kinds from 32 and 96: a kind of the other direction is refused as the other side's. Each kind's fields in order.
     enum class Kind : uint8_t {
         /// On the connection, first: i64 version, str build, str sandboxBundle, str sandboxBytecode, str validatorStamp, str rendererStamp (each stamp the bundle's first line, "" for no renderer bundle).
         Opening = 1,
-        /// A new runtime, its id above every earlier one's: no fields.
+        /// A new runtime, its id above every earlier one's: no fields. The opening decides what it is, an engine after `Opening`, a hosted widget after `HostingOpening`.
         Open = 2,
         /// str html, str config (`SandboxRemoteCoding::encodeConfig`).
         Start = 3,
@@ -82,6 +83,16 @@ struct SandboxRemoteWire {
         IntlAnswer = 20,
         /// The runtime closed: no fields.
         Close = 21,
+        /// On the connection, first, opening a hosting stream (its runtimes are hosted widgets): i64 version, str build, str sandboxBundle, str sandboxBytecode, str validatorBundle, str validatorBytecode, str rendererStamp (the renderer bundle's first line, "" for none).
+        HostingOpening = 32,
+        /// str html, str config (`SandboxRemoteCoding::encodeConfig`), str hosted (`SandboxRemoteCoding::encodeHostedStart`).
+        HostedStart = 33,
+        /// str theme (`SandboxRemoteCoding::encodeTheme`).
+        HostedTheme = 34,
+        /// str message, for the widget's renderer (`SandboxHostedPlatform::onMessage`).
+        Platform = 35,
+        /// str answer, to the runtime's `PlatformRequest`.
+        PlatformAnswer = 36,
         /// On the connection, the answer to `Opening`: i64 version.
         Ready = 64,
         /// On the connection, the answer to `Opening`: str reason.
@@ -130,10 +141,22 @@ struct SandboxRemoteWire {
         Died = 86,
         /// i64 seq (from 1), str text.
         ProbeAnswer = 87,
+        /// str message of the widget's renderer for the host's platform (`SandboxHostedPlatform::send`).
+        PlatformMessage = 96,
+        /// str message; synchronous, answered by `PlatformAnswer` (`SandboxHostedPlatform::request`).
+        PlatformRequest = 97,
+        /// str json, a batch the widget's validator passed, only after a `HostedStart` that asked for them.
+        ValidatedOps = 98,
+        /// The widget's renderer announced itself: no fields.
+        RendererReady = 99,
+        /// The loaded widget's first render: no fields.
+        Rendered = 100,
+        /// i64 nodes after a validated batch.
+        Nodes = 101,
     };
 };
 
-/// The host's end of one stream: it opens the stream with the sandbox bundle, hands out a channel per runtime for `SandboxEngine::setRemoteChannelFactory` and gives each frame of the engine process to its runtime's sink. A frame it cannot accept ends the whole stream, and every open runtime's client hears `remoteDisconnected` once. Its threads: `widget.reader` reads, `widget.writer` alone blocks in writes, `widget.monitor` bounds those writes and reports to the owner, and each channel's `widget.answer` answers its runtime's queries and Intl requests through the client.
+/// The host's end of one stream: it opens the stream with the sandbox bundle, hands out a channel per runtime for `SandboxEngine::setRemoteChannelFactory` (or, opened for hosted widgets, per hosted widget) and gives each frame of the engine process to its runtime's sink. A frame it cannot accept ends the whole stream, and every open runtime's client hears `remoteDisconnected` once: on an engine stream any frame of a runtime but a probe's answer while its query or Intl request is in the host's hands, and a hosted runtime's kinds; on a hosting stream a runtime's render frames (`Ops`, `Query`, `Listen`, `PreventDefault`, `Anim`, `RequestsFrame`), a second Intl request or a second platform request while the first is in the host's hands (its other frames are delivered meanwhile, as its engine, glue and renderer send on their own). Its threads: `widget.reader` reads, `widget.writer` alone blocks in writes, `widget.monitor` bounds those writes and reports to the owner, and each channel's `widget.answer` answers its runtime's queries, Intl requests and a hosted renderer's platform requests through the client, one at a time in the order they came.
 class SandboxRemoteHostEnd {
 public:
     /// What the owner hears, from `widget.monitor` and outside every lock of this end; an empty one is skipped. Each returns at once and posts what it does, never stopping, destroying or calling into this end.
@@ -155,18 +178,24 @@ public:
 
     /// Starts this end's threads on `stream` and queues the opening: `resources`' sandbox bundle and its bytecode, and only the stamp lines of its validator and renderer bundles, which stay in the host. `build` is the host's build, which the engine process's end must share.
     static std::shared_ptr<SandboxRemoteHostEnd> start(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits);
+    /// `start` for hosted widgets (remote_hosted.h), served by `SandboxRemoteEngineEnd::serveHosting`: the opening (`HostingOpening`) carries `resources`' sandbox and validator bundles with their bytecode and only the stamp line of its renderer bundle, every runtime is a hosted widget on `hostedChannel`, and `channel` refuses.
+    static std::shared_ptr<SandboxRemoteHostEnd> startHosting(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits);
     /// `stop`, on the owner's thread: the last reference is never dropped on a thread of this end's (inside `Events`).
     ~SandboxRemoteHostEnd();
     SandboxRemoteHostEnd(const SandboxRemoteHostEnd&) = delete;
     SandboxRemoteHostEnd& operator=(const SandboxRemoteHostEnd&) = delete;
 
-    /// A channel to a new runtime on this stream, which runs the opening's bundles whatever resources the factory was given; from any thread, without waiting. Once the stream ended, one whose `attach` reports `remoteDisconnected`.
+    /// A channel to a new runtime on this stream, which runs the opening's bundles whatever resources the factory was given; from any thread, without waiting. Once the stream ended, one whose `attach` reports `remoteDisconnected`; on an end `startHosting` opened, `refusing("the stream was opened for hosted widgets")`.
     std::shared_ptr<SandboxRemoteChannel> channel();
+    /// A hosted widget's channel to a new runtime on a stream `startHosting` opened (WidgetHost's hosted constructor, `SandboxEngine::hostedClient`), as `channel` gives one; on an end `start` opened, `refusingHosted("the stream was opened for engines only")`.
+    std::shared_ptr<SandboxHostedChannel> hostedChannel();
     /// Ends the stream at once (what is queued is dropped, and the engine process may see a cut frame), joins `widget.reader`, `widget.writer` and `widget.monitor`, then lets the stream go; `ended` came before it returns. Idempotent, on the owner's thread. A channel joins its `widget.answer` when it is destroyed; no delegate or provider code that already runs is cut short.
     void stop();
 
     /// A channel for a host that has no engine process: `attach` reports `remoteDied(reason)` from inside, `probe` answers "ERROR no runtime" and every other call does nothing.
     static std::shared_ptr<SandboxRemoteChannel> refusing(std::string reason);
+    /// `refusing` for a hosted client: its hosted calls do nothing too.
+    static std::shared_ptr<SandboxHostedChannel> refusingHosted(std::string reason);
 
 private:
     struct Connection;
@@ -180,8 +209,10 @@ private:
 
 /// The engine process's end of one stream: no Qt, no file read, so a host may run it before Qt starts.
 struct SandboxRemoteEngineEnd {
-    /// Serves `stream` from the calling thread, its reader: checks the opening (a malformed one, another version or another build than `build` is refused), builds the runtimes' resources from its bundles, keeps a `SandboxRemoteServer` per runtime id on its own `widget.sandbox` thread and writes their frames under one lock; a runtime's probes run on its `widget.probe` thread and closed runtimes are destroyed on `widget.reaper`. Returns why the stream ended, "" at its end on a frame's boundary, once every runtime and thread it started is gone; a `shutdown` of `stream` from another thread ends it. A set `lockdown` is called once on this thread after the opening is accepted and the resources are built, before `Ready` and before any runtime exists (never for a refused opening or a stream that ends before one): "" goes on serving, any other text refuses the stream with it, and an exception refuses it with "the engine process could not lock itself down".
+    /// Serves `stream` from the calling thread, its reader: checks the opening (a malformed one, another version or another build than `build` is refused, a `HostingOpening` too), builds the runtimes' resources from its bundles, keeps a `SandboxRemoteServer` per runtime id on its own `widget.sandbox` thread and writes their frames under one lock; a runtime's probes run on its `widget.probe` thread and closed runtimes are destroyed on `widget.reaper`. Returns why the stream ended, "" at its end on a frame's boundary, once every runtime and thread it started is gone; a `shutdown` of `stream` from another thread ends it. A set `lockdown` is called once on this thread after the opening is accepted and the resources are built, before `Ready` and before any runtime exists (never for a refused opening or a stream that ends before one): "" goes on serving, any other text refuses the stream with it, and an exception refuses it with "the engine process could not lock itself down".
     static std::string serve(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown = {});
+    /// `serve`, also for a hosting stream: a first `HostingOpening` is checked as `Opening` is (version, build, the renderer's stamp) and gives the runtimes' resources its sandbox and validator bundles with their bytecode, no file read, with `lockdown` called at the same point; every runtime of such a stream is a hosted widget, whose engine (on `widget.sandbox`), `TrustedValidator` (on `widget.validator`), glue (on `twidget-host`) and renderer from `renderers` are built at its `HostedStart` on this thread, which the factory must never make wait for the host (no `SandboxHostedPlatform::request` inside it). On a hosting stream the engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`, `Viewport`, `Resize`, `Theme`, `PressBegan`, `PressEnded`, `ChargeValidator`, `QueryAnswer`) end serving, as the hosted kinds do on an engine stream. Defined in remote_hosted.cpp, so a helper that calls only `serve` links no WidgetHost or validator.
+    static std::string serveHosting(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown, HostedRendererFactory renderers);
 };
 
 } // namespace twidget

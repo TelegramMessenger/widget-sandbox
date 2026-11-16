@@ -3,6 +3,95 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: the whole widget in the engine process (2026-11-16)
+
+C++, desktop core only, opt-in: a second remote mode, the hosted mode (`twidget/remote_hosted.h`), in which the engine
+process hosts a widget's engine, a `TrustedValidator` and a renderer its embedder builds, so ops batches, layout queries,
+events and frame requests never leave it. Swift and Kotlin have no hosted mode (Swift's remote engine is the
+engine-only split), and nothing changes for a host that does not use it: tdesktop does not yet, and the engine mode
+below keeps its frames, their shapes and bounds, its rules, its tests and its switches. This adds the contract, an
+in-process loopback, the hosting stream's frames on the existing transport and a test switch; it supplies no renderer,
+display list or font protocol.
+
+- The contract (`remote_hosted.h`): `SandboxHostedChannel` is a `SandboxRemoteChannel` with `startHosted(html,
+  config, SandboxHostedStart)`, `hostedTheme(WidgetTheme)` and `platform(message)`; a hosted client makes those and
+  `attach`, `contentSafeArea`, `setData`, `setVisible`, `stop`, `answer`, `probe` and `close`, never an engine-only
+  call. `SandboxHostedStart` (`sandbox_engine.h`, next to `WidgetTheme`, which moved there from `widget_host.h` in the
+  same namespace) carries the whole theme, `stoppedLabel` and the ask for validated batches. In the engine process a
+  `HostedRendererFactory` builds a widget's renderer as a `RendererFactory` does, plus a `SandboxHostedPlatform`:
+  `send`, a `request` that waits for the host's answer (one at a time; nullopt once the runtime closed or the stream
+  ended) and `onMessage` for the host's messages on the glue's thread. `SandboxHostedLoopbackChannel` puts both halves
+  in one process and passes the config, the hosted start, the theme, data, safe areas and outcomes through
+  `SandboxRemoteCoding` (new: `encodeTheme`/`decodeTheme`, `encodeHostedStart`/`decodeHostedStart`, with the existing
+  1 MiB and depth bounds; their button and text tokens are those of the renderer's theme message, one list behind the
+  new `WidgetButtonTokens::json`/`from` and `WidgetTextTokens::json`/`from`, which leave a non-finite number out: the
+  theme message sent a non-finite button opacity as null, which the renderer core ignored as it ignores a missing
+  one). The sink gains six defaulted calls (`remotePlatformMessage`, `remotePlatformRequest`, `remoteValidatedOps`,
+  `remoteRendererReady`, `remoteRendered`, `remoteNodes`), `SandboxEngineDelegate` six defaulted callbacks a hosted
+  client's delegate hears: existing sinks and delegates compile unchanged.
+- The host (`WidgetHost`): `WidgetHost(html, theme, width, options, std::shared_ptr<SandboxHostedChannel>, intl)` is
+  a hosted host: no validator, renderer or QuickJS runtime in the host, its engine `SandboxEngine::hostedClient` over
+  the channel. `WidgetHost::setHostedChannelFactory` makes every later host built with a renderer factory hosted while
+  no engine channel factory is set (`SandboxEngine::remoteChannelFactorySet()`), for tests and harnesses. Everything an
+  embedder uses stays; new are `sendPlatform`, `onPlatformMessage`, `onPlatformRequest(message, respond)` (3 s,
+  `kPlatformAnswerSeconds`), `pressDelivered`, `releaseDelivered` and `isHosted`. Hosted, `renderer()` throws,
+  `event()`, `onGesture` and `onGestureClaim` do nothing, `height` stays 0 and `firstContentMs` unset (the embedder's,
+  from its renderer's traffic); `rendererReadyMs`, `rendered`/`renderedMs` and `nodes` come from the engine process's
+  glue, the rest of the diagnostics as over a remote engine. `onRenderOps` set before `start()` asks for every
+  validated batch; set later, or unset, none comes, and an unasked batch is a `protocol-violation`. tdesktop's
+  seven-argument constructor, `createdAt_` and `kRenderAckQid` are unchanged, and a local host's behaviour too.
+- The client's decisions are the remote engine's code with one change of source: a grant is a primary press the
+  embedder delivered to the visible widget (`pressDelivered`: one privileged call within 2 s, the newest 32 kept, in
+  the existing list; also the haptic gate's press, which `releaseDelivered` ends), nothing the engine process sends.
+  A hosted client's engine-only inputs (`start`, `event`, `activationEvent`, `frame`, `viewport`, `resize`, `theme`,
+  `pressBegan`, `pressEnded`, `chargeValidator`) do nothing, and the render calls (ops, queries, listen,
+  preventDefault, anim, frame requests) that reach it are `protocol-violation`s, refused before they are admitted; an
+  engine-only client refuses the hosted calls the same way.
+- Platform traffic and its bounds: messages each way in order, opaque, at most `SandboxEngine::kRemotePlatformLimit`
+  (32 MiB; past it a message is a `protocol-violation`, dropped, a request answered "" with one), admitted against
+  the client's queued bytes and calls until the embedder took them (a flood kills the widget once, as any flood
+  does). One platform request waits per widget, answered on its runtime's `widget.answer`; 3 s without `respond`, or
+  no `onPlatformRequest`, kills that widget only (`platform-timeout`), a late `respond` changes nothing, and
+  `destroy()` settles a waiting one at once. `Nodes` is clamped to [0, `INT_MAX`].
+- The engine process: `SandboxRemoteEngineEnd::serveHosting(stream, build, lockdown, HostedRendererFactory)`, defined
+  in the new `remote_hosted.cpp` (so `serve` and the engine-only helpers link no `WidgetHost` or validator), serves
+  either opening; per hosted widget a served `WidgetHost` (the same glue, run there: the validated ops, the 3 s layout
+  query, theme re-sanitising, `frozen`) with its engine, validator and renderer, built at its `HostedStart` on the
+  reader thread; a build that throws or returns no renderer ends only that widget. The lockdown callback is called at
+  the same point for either opening, and the engine process still reads no file: `HostingOpening` carries the
+  validator bundle and its bytecode with the sandbox's (about 1.9 MB of the 16 MiB bound).
+- The wire (`remote_stream.h`): host kinds 32 to 36 (`HostingOpening`, `HostedStart`, `HostedTheme`, `Platform`,
+  `PlatformAnswer`) and engine kinds 96 to 101 (`PlatformMessage`, `PlatformRequest`, `ValidatedOps`, `RendererReady`,
+  `Rendered`, `Nodes`); the version stays 1 and no existing kind changes. A stream's mode is its opening's:
+  `SandboxRemoteHostEnd::startHosting` opens a hosting stream whose `hostedChannel()` serves (its `channel()` refuses,
+  and an engine stream's `hostedChannel()` refuses; `refusingHosted(reason)` is the hosted `refusing`). Each end ends
+  the stream on the other mode's kinds; on a hosting stream the host's end ends it on a runtime's render frames and
+  on a second Intl or platform request while the first is unanswered, and delivers that runtime's other frames
+  meanwhile; strings of the platform kinds are cut at both ends as the others are.
+- Threads: a hosted widget has `twidget-host`, `widget.client` and `widget.answer` in the host and no
+  `widget.validator` or `widget.sandbox` there; in the engine process the served host's `twidget-host`,
+  `widget.validator`, `widget.sandbox` and `widget.probe`, with the stream's reader and `widget.reaper`. Every new
+  library thread is a `JSThread`, made while its widget is built.
+- The switch: `TW_ENGINE_HOSTED=loopback|stream`, in twidget-tests and twidget-run of any build type
+  (`harness/hosted_peers.h`, test and harness code), runs every fixture `WidgetHost` hosted behind the loopback or a
+  hosting stream of its own, the fixture's renderer here behind a proxy and its input through `pressDelivered`,
+  `releaseDelivered` and `sendPlatform`; the tests fail unless every fixture widget went hosted and, over the stream,
+  when a kind that stays in the engine process crossed a hosted stream. Three tests whose subject is the in-process
+  renderer boundary (gesture claims, the height) run in process in an `InProcessWidgets` scope; the engine fixtures
+  have no renderer and stay in process. twidget-run runs every widget hosted with a canned-answer renderer and scans
+  the validated ops it asked for.
+- Tests: `twidget-tests hosted_` (19): the coders, the hosted client against a fake channel (grants only from delivered
+  presses, its refusals and bounds), the loopback (a whole widget, the tap, privileged calls, platform traffic and the
+  3 s rule, build failures), a probe behind the safe area and theme the engine's side relays, over the loopback and a
+  hosting stream, and `remote_stream_hosted_` (10, so `remote_stream_` runs 35 and `remote_` 98): the wire, the hosting
+  opening and the lockdown, the engine's end, a real `WidgetHost` over the stream with a frame count, a lying engine
+  end, hostile frames, a platform flood, an unanswered request among three runtimes, an engine process that cannot open
+  a file and a hosted host's thread names in child processes. Run here (Debug, 2026-11-16): 204 tests in process, with
+  `TW_ENGINE_HOSTED=loopback` and with `=stream`, 0 failures, 19 of 19 fixture widgets hosted (19 streams, none of the
+  17 engine-only kinds on any, `ValidatedOps` only on the 2 that asked); `twidget-run --attacks` 133 attacks, 0 leaks, 7
+  runtimes killed, the same files and reasons in process and in both hosted modes, 133 hosted; `--corpus corpus/compat`
+  19 / 19 loaded, every per-file status the same.
+
 ## Unreleased: the desktop engine in another process (2026-11-13)
 
 C++, opt-in: the desktop core's engine can run in another process, the twin of the Swift remote engine

@@ -42,6 +42,17 @@ bool loopbackSwitch();
 bool streamSwitch();
 bool remoteSwitch();
 void restoreRemoteFactory();
+/// Whether `TW_ENGINE_HOSTED` (loopback or stream, harness/hosted_peers.h) runs the fixture widgets hosted.
+bool hostedSwitch();
+/// The hosted hook each test starts with and gets back when it ends (`WidgetHost::setHostedChannelFactory`): the hosted switch's, else none.
+void restoreHostedFactory();
+/// For a test whose subject is the in-process glue's own renderer boundary (the renderer's gesture claims, its height): while it lives no hook is set and the WidgetHosts this thread builds are no fixture widgets; the baseline hook comes back at its end.
+struct InProcessWidgets {
+    InProcessWidgets();
+    ~InProcessWidgets();
+    InProcessWidgets(const InProcessWidgets&) = delete;
+    InProcessWidgets& operator=(const InProcessWidgets&) = delete;
+};
 Json expandRepeat(const Json& v);
 extern const char* kRequester;
 extern const std::string kTapOnButton;

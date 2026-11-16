@@ -1,5 +1,6 @@
 #include "twidget/remote_stream.h"
 
+#include "remote_internal.h"
 #include "twidget/json.h"
 
 #include <algorithm>
@@ -45,7 +46,7 @@ struct Shape {
 
 /// One frame's fields, checked against its kind's shape: the strings in order, then the numbers; no kind has more than one `i64` or `bool`.
 struct Frame {
-    static constexpr size_t kStrings = 5;
+    static constexpr size_t kStrings = 6;
     uint32_t runtime = 0;
     Kind kind = Kind::Opening;
     std::array<std::string_view, kStrings> str;
@@ -99,6 +100,11 @@ struct Codec {
         case Kind::QueryAnswer: return {true, H, false, "sbs"};
         case Kind::IntlAnswer: return {true, H, false, "s"};
         case Kind::Close: return {true, H, false, ""};
+        case Kind::HostingOpening: return {true, H, true, "issssss"};
+        case Kind::HostedStart: return {true, H, false, "sss"};
+        case Kind::HostedTheme: return {true, H, false, "s"};
+        case Kind::Platform: return {true, H, false, "s"};
+        case Kind::PlatformAnswer: return {true, H, false, "s"};
         case Kind::Ready: return {true, E, true, "i"};
         case Kind::Refused: return {true, E, true, "s"};
         case Kind::TaskStarted: return {true, E, false, ""};
@@ -123,6 +129,12 @@ struct Codec {
         case Kind::Stats: return {true, E, false, "fffffffffff"};
         case Kind::Died: return {true, E, false, "s"};
         case Kind::ProbeAnswer: return {true, E, false, "is"};
+        case Kind::PlatformMessage: return {true, E, false, "s"};
+        case Kind::PlatformRequest: return {true, E, false, "s"};
+        case Kind::ValidatedOps: return {true, E, false, "s"};
+        case Kind::RendererReady: return {true, E, false, ""};
+        case Kind::Rendered: return {true, E, false, ""};
+        case Kind::Nodes: return {true, E, false, "i"};
         }
         return {};
     }
@@ -362,12 +374,15 @@ std::string kindOn(const Frame& f) { return "kind " + std::to_string(int(f.kind)
 
 std::string undecodable(const Frame& f) { return kindOn(f) + " with a form that does not decode"; }
 
-/// Why the engine's end refuses a first frame, "" for an opening it serves: another kind, another version or build, a stamp past `kMaxStampBytes` or of more than one line (never cut into another stamp).
-std::string refusalOf(const Frame& f, const std::string& build) {
-    if (f.kind != Kind::Opening) return "kind " + std::to_string(int(f.kind)) + " first, not the opening";
+/// Why the engine's end refuses a first frame, "" for an opening it serves: another kind (`HostingOpening` too unless `hosting`), another version or build, a stamp past `kMaxStampBytes` or of more than one line (never cut into another stamp); a hosting opening's only stamp is the renderer's, its validator checks the whole bundle's own.
+std::string refusalOf(const Frame& f, const std::string& build, bool hosting) {
+    const bool hosted = hosting && f.kind == Kind::HostingOpening;
+    if (f.kind != Kind::Opening && !hosted) return "kind " + std::to_string(int(f.kind)) + " first, not the opening";
     if (f.i64 != SandboxRemoteWire::kVersion) return "stream version " + std::to_string(f.i64) + ", this end's is " + std::to_string(SandboxRemoteWire::kVersion);
     if (f.str[0] != build) return "build " + inQuotes(f.str[0]) + ", this end's is " + inQuotes(build);
-    for (const auto& [name, stamp] : {std::pair<std::string_view, std::string_view>{"validator", f.str[3]}, {"renderer", f.str[4]}}) {
+    using Stamp = std::pair<std::string_view, std::string_view>;
+    const std::vector<Stamp> stamps = hosted ? std::vector<Stamp>{{"renderer", f.str[5]}} : std::vector<Stamp>{{"validator", f.str[3]}, {"renderer", f.str[4]}};
+    for (const auto& [name, stamp] : stamps) {
         if (stamp.size() > SandboxRemoteWire::kMaxStampBytes)
             return "a " + std::string(name) + " stamp of " + std::to_string(stamp.size()) + " bytes, past the bound of " + std::to_string(SandboxRemoteWire::kMaxStampBytes);
         if (stamp.find('\n') != std::string_view::npos) return "a " + std::string(name) + " stamp of more than one line";
@@ -375,14 +390,38 @@ std::string refusalOf(const Frame& f, const std::string& build) {
     return {};
 }
 
-/// The runtimes' resources from the opening alone, no file read: the sandbox bundle and its bytecode, and the validator's and renderer's stamp lines for `BundleStamp`'s checks at boot.
+/// The runtimes' resources from the opening alone, no file read: the sandbox bundle and its bytecode, then the validator's and renderer's stamp lines for `BundleStamp`'s checks at boot, or a hosting opening's whole validator bundle with its bytecode and the renderer's stamp line.
 std::shared_ptr<SandboxResources> resourcesOf(const Frame& f) {
     auto resources = std::make_shared<SandboxResources>();
     resources->sandboxBundle = std::string(f.str[1]);
     resources->sandboxBytecode.assign(f.str[2].begin(), f.str[2].end());
     resources->validatorBundle = std::string(f.str[3]);
-    resources->rendererBundle = std::string(f.str[4]);
+    if (f.kind == Kind::HostingOpening) {
+        resources->validatorBytecode.assign(f.str[4].begin(), f.str[4].end());
+        resources->rendererBundle = std::string(f.str[5]);
+    } else {
+        resources->rendererBundle = std::string(f.str[4]);
+    }
     return resources;
+}
+
+/// The host kinds only a hosting stream takes: a hosted widget's start, its whole theme and its renderer's platform traffic.
+bool hostedKind(Kind kind) { return kind == Kind::HostedStart || kind == Kind::HostedTheme || kind == Kind::Platform || kind == Kind::PlatformAnswer; }
+
+/// The host kinds a hosting stream takes on a runtime: its own and those a hosted widget shares with an engine; the engine's start, input, theme, presses, validator time and query answers are made inside the engine process.
+bool hostingTakes(Kind kind) {
+    switch (kind) {
+    case Kind::Open:
+    case Kind::SafeArea:
+    case Kind::Data:
+    case Kind::Visible:
+    case Kind::Stop:
+    case Kind::Answer:
+    case Kind::Probe:
+    case Kind::IntlAnswer:
+    case Kind::Close: return true;
+    default: return hostedKind(kind);
+    }
 }
 
 /// The engine's writes: whole frames, one at a time under one lock; `breakOff` takes no lock, so the end of the stream never waits for a write blocked inside it.
@@ -413,10 +452,10 @@ private:
     std::atomic<bool> broken_{false};
 };
 
-/// One runtime's synchronous request at a time: marked before it is written, filled by the reader with an answer of its kind only, given up once killed (the runtime closed or the stream ended). Its lock is never held across a write or a call out.
+/// One synchronous request of a runtime's at a time (its engine's query or Intl request; a hosted renderer's platform request in a slot of its own): marked before it is written, filled by the reader with an answer of its kind only, given up once killed (the runtime closed or the stream ended). Its lock is never held across a write or a call out.
 class SyncSlot {
 public:
-    enum class Wait : uint8_t { None, Query, Intl };
+    enum class Wait : uint8_t { None, Query, Intl, Platform };
 
     /// Before the request is written: false once killed.
     bool begin(Wait kind) {
@@ -466,7 +505,7 @@ private:
 
 static_assert(SandboxRemoteCoding::kStatsFields == 11);
 
-/// A runtime's sink on the engine's side: each call of its server's goes out as its frame, every string cut to its limit and one byte more; a query or an Intl request waits for its answer in its slot, and once killed nothing more goes out.
+/// A runtime's sink on the engine's side: each call of its server's or hosted runtime's goes out as its frame, every string cut to its limit and one byte more; a query or an Intl request waits for its answer in its slot, a hosted renderer's platform request in the second one (the two may wait at once, from their own threads), and once killed nothing more goes out.
 class EngineSink final : public SandboxRemoteSink {
 public:
     EngineSink(uint32_t runtime, std::shared_ptr<Output> output) : runtime_(runtime), output_(std::move(output)) {}
@@ -474,9 +513,9 @@ public:
     void remoteTaskStarted() override { send(Kind::TaskStarted, {}); }
     void remoteTaskCompleted() override { send(Kind::TaskCompleted, {}); }
     void remoteOps(const std::string& json) override { send(Kind::Ops, {cut(json, SandboxEngine::kRemoteOpsLimit)}); }
-    QueryAnswer remoteQuery(const std::string& json) override { return request(SyncSlot::Wait::Query, Kind::Query, json).value_or(QueryAnswer{kDeadQuery, std::nullopt}); }
+    QueryAnswer remoteQuery(const std::string& json) override { return request(slot_, SyncSlot::Wait::Query, Kind::Query, message(json)).value_or(QueryAnswer{kDeadQuery, std::nullopt}); }
     std::string remoteIntl(const std::string& requestJson) override {
-        std::optional<QueryAnswer> answer = request(SyncSlot::Wait::Intl, Kind::Intl, requestJson);
+        std::optional<QueryAnswer> answer = request(slot_, SyncSlot::Wait::Intl, Kind::Intl, message(requestJson));
         return answer ? std::move(answer->json) : std::string();
     }
     void remoteListen(const std::string& json) override { send(Kind::Listen, {message(json)}); }
@@ -500,49 +539,69 @@ public:
     void remoteDied(const std::string& reason) override { send(Kind::Died, {message(reason)}); }
     /// No frame: a server never reports one, and the host's end tells its clients of a lost stream itself.
     void remoteDisconnected() override {}
+    void remotePlatformMessage(const std::string& text) override { send(Kind::PlatformMessage, {platform(text)}); }
+    std::optional<std::string> remotePlatformRequest(const std::string& text) override {
+        std::optional<QueryAnswer> answer = request(platformSlot_, SyncSlot::Wait::Platform, Kind::PlatformRequest, platform(text));
+        if (!answer) return std::nullopt;
+        return std::move(answer->json);
+    }
+    void remoteValidatedOps(const std::string& json) override { send(Kind::ValidatedOps, {cut(json, SandboxEngine::kRemoteOpsLimit)}); }
+    void remoteRendererReady() override { send(Kind::RendererReady, {}); }
+    void remoteRendered() override { send(Kind::Rendered, {}); }
+    void remoteNodes(int64_t nodes) override { send(Kind::Nodes, {nodes}); }
 
     /// The reader's: the host's answer to a request of `kind`, for the one this runtime waits for.
     void answer(SyncSlot::Wait kind, QueryAnswer answer) { slot_.fill(kind, std::move(answer)); }
+    /// The reader's: the host's answer to the platform request this runtime's renderer waits for.
+    void answerPlatform(std::string text) { platformSlot_.fill(SyncSlot::Wait::Platform, QueryAnswer{std::move(text), std::nullopt}); }
     /// A probe thread's: the server's answer to probe `seq`.
     void probed(int64_t seq, const std::string& text) { send(Kind::ProbeAnswer, {seq, message(text)}); }
-    /// The runtime closed or the stream ended: a waiting request gets no answer, and nothing more goes out.
-    void kill() { slot_.kill(); }
+    /// The runtime closed or the stream ended: a waiting request of either slot gets no answer, and nothing more goes out.
+    void kill() {
+        slot_.kill();
+        platformSlot_.kill();
+    }
 
 private:
+    static std::string_view platform(const std::string& s) { return cut(s, SandboxEngine::kRemotePlatformLimit); }
+
     bool send(Kind kind, std::initializer_list<Field> fields) { return !slot_.killed() && output_->send(runtime_, kind, fields); }
 
-    /// Marked waiting before its frame is written, so the reader finds it whenever the answer comes; nullopt once the runtime or the stream is gone.
-    std::optional<QueryAnswer> request(SyncSlot::Wait wait, Kind kind, const std::string& text) {
-        if (!slot_.begin(wait)) return std::nullopt;
-        if (!send(kind, {message(text)})) {
-            slot_.cancel();
+    /// Marked waiting in `slot` before its frame is written, so the reader finds it whenever the answer comes; nullopt once the runtime or the stream is gone.
+    std::optional<QueryAnswer> request(SyncSlot& slot, SyncSlot::Wait wait, Kind kind, std::string_view text) {
+        if (!slot.begin(wait)) return std::nullopt;
+        if (!send(kind, {text})) {
+            slot.cancel();
             return std::nullopt;
         }
-        return slot_.wait();
+        return slot.wait();
     }
 
     const uint32_t runtime_;
     const std::shared_ptr<Output> output_;
     SyncSlot slot_;
+    SyncSlot platformSlot_;
 };
 
-/// One runtime on the engine's side: its server, the sink the server writes through and, once probed, the thread its probes run on. The reader opens and closes it; `widget.reaper` destroys it, its probes' thread first.
+/// One runtime on the engine's side: its server (an engine stream's) or its hosted runtime (a hosting stream's), the sink it writes through and, once probed, the thread its probes run on. The reader opens and closes it; `widget.reaper` destroys it, its probes' thread first.
 struct Route {
     std::shared_ptr<EngineSink> sink;
     std::unique_ptr<SandboxRemoteServer> server;
+    std::unique_ptr<detail::HostedRuntime> hosted;
     std::unique_ptr<JSThread> probes;
 };
 
-/// `SandboxRemoteEngineEnd::serve` on the thread that reads, which alone keeps the runtimes by id and the reaper.
+/// `SandboxRemoteEngineEnd::serve` and `serveHosting` on the thread that reads, which alone keeps the runtimes by id and the reaper; the opening decides whether every runtime is an engine's server or a hosted widget's runtime.
 class Serving {
 public:
-    Serving(SandboxRemoteStream& stream, std::string build, const std::function<std::string()>& lockdown)
-        : stream_(stream), build_(std::move(build)), lockdown_(lockdown), output_(std::make_shared<Output>(stream)) {}
+    Serving(SandboxRemoteStream& stream, std::string build, const std::function<std::string()>& lockdown, detail::HostedRuntimes hosted)
+        : stream_(stream), build_(std::move(build)), lockdown_(lockdown), hosted_(std::move(hosted)), output_(std::make_shared<Output>(stream)) {}
 
     std::string run() {
         FrameReader reader(stream_, Side::Host);
         if (!reader.next(SandboxRemoteWire::kMaxOpeningBytes)) return refuse(reader.failure());
-        if (std::string why = refusalOf(reader.frame(), build_); !why.empty()) return refuse(why);
+        if (std::string why = refusalOf(reader.frame(), build_, bool(hosted_)); !why.empty()) return refuse(why);
+        hosting_ = reader.frame().kind == Kind::HostingOpening;
         resources_ = resourcesOf(reader.frame());
         if (lockdown_) {
             std::string why;
@@ -564,14 +623,30 @@ private:
         return why;
     }
 
-    /// One frame for the runtimes, in the host's order: why it cannot be accepted, "" when it was (a closed runtime's is dropped).
+    /// One frame for the runtimes, in the host's order: why it cannot be accepted, "" when it was (a closed runtime's is dropped); a kind of the other mode ends serving whatever its runtime.
     std::string dispatch(const Frame& f) {
-        if (f.kind == Kind::Opening) return "kind 1 after the opening";
+        if (f.kind == Kind::Opening || f.kind == Kind::HostingOpening) return "kind " + std::to_string(int(f.kind)) + " after the opening";
+        if (hosting_ && !hostingTakes(f.kind)) return kindOn(f) + ", which a hosting stream does not take";
+        if (!hosting_ && hostedKind(f.kind)) return kindOn(f) + ", which only a hosting stream takes";
         if (f.kind == Kind::Open) return open(f.runtime);
         const auto it = routes_.find(f.runtime);
         if (it == routes_.end()) return f.runtime > lastOpened_ ? kindOn(f) + ", which was never opened" : std::string();
         const std::shared_ptr<Route> route = it->second;
-        SandboxRemoteServer& server = *route->server;
+        switch (f.kind) {
+        case Kind::Probe: probe(route, f.i64, std::string(f.str[0])); return {};
+        case Kind::IntlAnswer: route->sink->answer(SyncSlot::Wait::Intl, QueryAnswer{std::string(f.str[0]), std::nullopt}); return {};
+        case Kind::Close:
+            routes_.erase(it);
+            retire(route);
+            return {};
+        default: break;
+        }
+        return hosting_ ? hostedInput(*route, f) : serverInput(*route, f);
+    }
+
+    /// An engine stream's input for its runtime's server, which keeps what comes before its start.
+    std::string serverInput(Route& route, const Frame& f) {
+        SandboxRemoteServer& server = *route.server;
         const auto text = [&](size_t i) { return std::string(f.str[i]); };
         switch (f.kind) {
         case Kind::Start:
@@ -604,30 +679,62 @@ private:
             if (std::optional<SandboxRemoteOutcome> outcome = SandboxRemoteCoding::decodeOutcome(f.str[0])) server.answer(f.i64, *outcome);
             else return undecodable(f);
             break;
-        case Kind::Probe: probe(route, f.i64, text(0)); break;
         case Kind::QueryAnswer: {
             std::optional<std::vector<uint8_t>> binary;
             if (f.flag) binary.emplace(f.str[1].begin(), f.str[1].end());
-            route->sink->answer(SyncSlot::Wait::Query, QueryAnswer{text(0), std::move(binary)});
+            route.sink->answer(SyncSlot::Wait::Query, QueryAnswer{text(0), std::move(binary)});
             break;
         }
-        case Kind::IntlAnswer: route->sink->answer(SyncSlot::Wait::Intl, QueryAnswer{text(0), std::nullopt}); break;
-        case Kind::Close:
-            routes_.erase(it);
-            retire(route);
+        default: break;
+        }
+        return {};
+    }
+
+    /// A hosting stream's input for its runtime, which keeps what comes before its start; the start builds the widget's engine, validator and renderer here, on the reader.
+    std::string hostedInput(Route& route, const Frame& f) {
+        detail::HostedRuntime& runtime = *route.hosted;
+        const auto text = [&](size_t i) { return std::string(f.str[i]); };
+        switch (f.kind) {
+        case Kind::HostedStart: {
+            std::optional<SandboxConfig> config = SandboxRemoteCoding::decodeConfig(f.str[1]);
+            std::optional<SandboxHostedStart> start = SandboxRemoteCoding::decodeHostedStart(f.str[2]);
+            if (!config || !start) return undecodable(f);
+            runtime.start(text(0), *config, *start);
+            break;
+        }
+        case Kind::HostedTheme:
+            if (std::optional<WidgetTheme> theme = SandboxRemoteCoding::decodeTheme(f.str[0])) runtime.theme(*theme);
+            else return undecodable(f);
+            break;
+        case Kind::Platform: runtime.platform(text(0)); break;
+        case Kind::PlatformAnswer: route.sink->answerPlatform(text(0)); break;
+        case Kind::SafeArea:
+            if (std::optional<WidgetContentSafeArea> area = SandboxRemoteCoding::decodeSafeArea(f.str[0])) runtime.contentSafeArea(*area);
+            else return undecodable(f);
+            break;
+        case Kind::Data:
+            if (std::optional<WidgetData> data = SandboxRemoteCoding::decodeData(f.str[0])) runtime.setData(*data);
+            else return undecodable(f);
+            break;
+        case Kind::Visible: runtime.setVisible(f.flag); break;
+        case Kind::Stop: runtime.stop(text(0)); break;
+        case Kind::Answer:
+            if (std::optional<SandboxRemoteOutcome> outcome = SandboxRemoteCoding::decodeOutcome(f.str[0])) runtime.answer(f.i64, *outcome);
+            else return undecodable(f);
             break;
         default: break;
         }
         return {};
     }
 
-    /// A runtime whose id is above every earlier one, its server not started.
+    /// A runtime whose id is above every earlier one, its server or hosted runtime not started.
     std::string open(uint32_t runtime) {
         if (runtime <= lastOpened_) return "kind 2 on runtime " + std::to_string(runtime) + ", not above the last opened runtime " + std::to_string(lastOpened_);
         lastOpened_ = runtime;
         auto route = std::make_shared<Route>();
         route->sink = std::make_shared<EngineSink>(runtime, output_);
-        route->server = std::make_unique<SandboxRemoteServer>(route->sink, resources_);
+        if (hosting_) route->hosted = hosted_(route->sink, resources_);
+        else route->server = std::make_unique<SandboxRemoteServer>(route->sink, resources_);
         routes_.emplace(runtime, std::move(route));
         return {};
     }
@@ -635,17 +742,19 @@ private:
     /// On the runtime's `widget.probe` thread, made at its first probe, so the reader goes on answering the queries the probe may wait for.
     void probe(const std::shared_ptr<Route>& route, int64_t seq, std::string code) {
         if (!route->probes) route->probes = std::make_unique<JSThread>("widget.probe");
-        route->probes->async([route, seq, code = std::move(code)] { route->sink->probed(seq, route->server->probe(code)); });
+        route->probes->async([route, seq, code = std::move(code)] { route->sink->probed(seq, route->hosted ? route->hosted->probe(code) : route->server->probe(code)); });
     }
 
-    /// In the host's order, a waiting request given up before the server closes; `widget.reaper` joins the probes' thread, then destroys the server, never on the reader or the runtime's own thread.
+    /// In the host's order, a waiting request of either slot given up before the server or hosted runtime closes; `widget.reaper` joins the probes' thread, then destroys the server or runtime, never on the reader or the runtime's own threads.
     void retire(std::shared_ptr<Route> route) {
         route->sink->kill();
-        route->server->close();
+        if (route->hosted) route->hosted->close();
+        if (route->server) route->server->close();
         if (!reaper_) reaper_ = std::make_unique<JSThread>("widget.reaper");
         reaper_->async([route = std::move(route)] {
             route->probes.reset();
             route->server.reset();
+            route->hosted.reset();
         });
     }
 
@@ -661,8 +770,12 @@ private:
     SandboxRemoteStream& stream_;
     const std::string build_;
     const std::function<std::string()>& lockdown_;
+    /// Empty for `serve`, which refuses a hosting opening.
+    const detail::HostedRuntimes hosted_;
     const std::shared_ptr<Output> output_;
     std::shared_ptr<SandboxResources> resources_;
+    /// Whether the opening was `HostingOpening`.
+    bool hosting_ = false;
     std::map<uint32_t, std::shared_ptr<Route>> routes_;
     uint32_t lastOpened_ = 0;
     std::unique_ptr<JSThread> reaper_;
@@ -670,7 +783,11 @@ private:
 
 } // namespace
 
-std::string SandboxRemoteEngineEnd::serve(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown) { return Serving(stream, build, lockdown).run(); }
+std::string detail::serveStream(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown, const HostedRuntimes& hosted) {
+    return Serving(stream, build, lockdown, hosted).run();
+}
+
+std::string SandboxRemoteEngineEnd::serve(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown) { return detail::serveStream(stream, build, lockdown, {}); }
 
 // MARK: the host's end
 
@@ -701,8 +818,34 @@ double boundMs(double ms, double fallback) { return std::isfinite(ms) && ms > 0 
 
 Clock::duration durationOf(double ms) { return std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double, std::milli>(ms)); }
 
-/// The synchronous sink call a runtime's `widget.answer` makes.
-enum class Pending : uint8_t { None, Query, Intl };
+/// The synchronous sink call a runtime's `widget.answer` makes: an engine's query or Intl request, or a hosted renderer's platform request.
+enum class Pending : uint8_t { None, Query, Intl, Platform };
+
+/// The engine kinds of the render glue, which a hosted runtime keeps inside the engine process.
+bool renderKind(Kind kind) {
+    switch (kind) {
+    case Kind::Ops:
+    case Kind::Query:
+    case Kind::Listen:
+    case Kind::PreventDefault:
+    case Kind::Anim:
+    case Kind::RequestsFrame: return true;
+    default: return false;
+    }
+}
+
+/// The engine kinds only a hosted runtime sends: its renderer's platform traffic, the batches its host asked for and its glue's reports.
+bool hostedReport(Kind kind) {
+    switch (kind) {
+    case Kind::PlatformMessage:
+    case Kind::PlatformRequest:
+    case Kind::ValidatedOps:
+    case Kind::RendererReady:
+    case Kind::Rendered:
+    case Kind::Nodes: return true;
+    default: return false;
+    }
+}
 
 /// One runtime on the host's side, made with its channel: the connection's mutex guards every field but the answer thread's three, which `answering` guards.
 struct HostRoute {
@@ -712,13 +855,15 @@ struct HostRoute {
     State state = State::New;
     uint32_t id = 0;
     std::shared_ptr<SandboxRemoteSink> sink;
-    /// A query or an Intl request in the host's hands: until its answer is queued, the runtime may send nothing but a probe's answer.
+    /// A query or an Intl request in the host's hands, until its answer is queued: an engine runtime may send nothing but a probe's answer meanwhile, a hosted one no second Intl request.
     Pending pending = Pending::None;
+    /// A hosted renderer's platform request in the host's hands, until its answer is queued or the client gave none: a second one meanwhile ends the stream.
+    bool platformPending = false;
     /// The last probe sequence sent; the one `probe` waits for (0: none) and its answer.
     int64_t lastProbe = 0;
     int64_t waiting = 0;
     std::optional<std::string> probed;
-    /// That answer when it came while `pending`: published once the sink's answer was queued, dropped when it cannot be.
+    /// That answer when it came while `pending` or `platformPending`: published once neither is and the sinks' answers were queued, dropped when one cannot be.
     std::optional<std::string> deferred;
     std::condition_variable settled;
 
@@ -728,14 +873,17 @@ struct HostRoute {
     bool retired = false;
 };
 
-/// `SandboxRemoteHostEnd::refusing`'s channel: its client dies with the reason at `attach`, and no call reaches an engine.
-class RefusingChannel final : public SandboxRemoteChannel {
+/// `SandboxRemoteHostEnd::refusing`'s and `refusingHosted`'s channel: its client dies with the reason at `attach`, and no call reaches an engine.
+class RefusingChannel final : public SandboxHostedChannel {
 public:
     explicit RefusingChannel(std::string reason) : reason_(std::move(reason)) {}
 
     void attach(std::shared_ptr<SandboxRemoteSink> sink) override {
         if (sink) sink->remoteDied(reason_);
     }
+    void startHosted(const std::string&, const SandboxConfig&, const SandboxHostedStart&) override {}
+    void hostedTheme(const WidgetTheme&) override {}
+    void platform(const std::string&) override {}
     void start(const std::string&, const SandboxConfig&) override {}
     void event(const std::string&) override {}
     void activationEvent(const std::string&, int) override {}
@@ -764,10 +912,13 @@ private:
 struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRemoteHostEnd::Connection> {
     class Channel;
 
-    Connection(std::shared_ptr<SandboxRemoteStream> stream, Events events, const Limits& limits)
+    /// `hosting`: opened for hosted widgets (`startHosting`), every runtime of the stream a hosted one.
+    Connection(std::shared_ptr<SandboxRemoteStream> stream, Events events, const Limits& limits, bool hosting)
         : stream_(*stream), events_(std::move(events)), probeWait_(durationOf(boundMs(limits.probeWaitMs, Limits{}.probeWaitMs))),
           stallMs_(boundMs(limits.writeStallMs, Limits{}.writeStallMs)), stall_(durationOf(stallMs_)), queueBytes_(limits.queuedBytes ? limits.queuedBytes : Limits{}.queuedBytes),
-          held_(std::move(stream)) {}
+          hosting_(hosting), held_(std::move(stream)) {}
+
+    bool hosting() const { return hosting_; }
 
     /// `widget.reader`'s loop: each frame checked, then given to its runtime in order, until the stream ends; then every open runtime's client hears it.
     void read() {
@@ -845,11 +996,14 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
         }
     }
 
-    /// The opening, the first frame queued: the sandbox bundle and its bytecode, and only the other bundles' stamps.
+    /// The opening, the first frame queued: the sandbox bundle and its bytecode, and only the other bundles' stamps; a hosting stream's (`HostingOpening`) the validator bundle and its bytecode too, the renderer's stamp alone.
     void open(const SandboxResources& r, const std::string& build) {
-        const std::string_view bytecode(reinterpret_cast<const char*>(r.sandboxBytecode.data()), r.sandboxBytecode.size());
-        std::optional<std::string> opening = Codec::encode(0, Kind::Opening, SandboxRemoteWire::kMaxOpeningBytes,
-                                                           {SandboxRemoteWire::kVersion, build, r.sandboxBundle, bytecode, stampOf(r.validatorBundle), stampOf(r.rendererBundle)});
+        const auto bytes = [](const std::vector<uint8_t>& code) { return std::string_view(reinterpret_cast<const char*>(code.data()), code.size()); };
+        constexpr int64_t version = SandboxRemoteWire::kVersion;
+        constexpr size_t bound = SandboxRemoteWire::kMaxOpeningBytes;
+        std::optional<std::string> opening =
+            hosting_ ? Codec::encode(0, Kind::HostingOpening, bound, {version, build, r.sandboxBundle, bytes(r.sandboxBytecode), r.validatorBundle, bytes(r.validatorBytecode), stampOf(r.rendererBundle)})
+                     : Codec::encode(0, Kind::Opening, bound, {version, build, r.sandboxBundle, bytes(r.sandboxBytecode), stampOf(r.validatorBundle), stampOf(r.rendererBundle)});
         std::lock_guard<std::mutex> l(mutex_);
         if (opening) queueLocked(std::move(*opening));
         else endLocked("an opening past the bound of " + std::to_string(SandboxRemoteWire::kMaxOpeningBytes) + " bytes");
@@ -960,11 +1114,13 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
     }
 
 private:
-    /// One checked frame of the engine's, in its order: why the stream cannot go on, "" when it was given to its runtime or dropped (its runtime closed).
+    /// One checked frame of the engine's, in its order: why the stream cannot go on, "" when it was given to its runtime or dropped (its runtime closed); a kind of the other mode ends the stream whatever its runtime.
     std::string accept(const Frame& f) {
         // What a synchronous call or a probe keeps is copied before the lock, cut as the engine's end cuts it.
         std::string kept;
         if (f.kind == Kind::Query || f.kind == Kind::Intl || f.kind == Kind::ProbeAnswer) kept = std::string(cut(f.str[0], SandboxEngine::kRemoteMessageLimit));
+        if (f.kind == Kind::PlatformRequest) kept = std::string(cut(f.str[0], SandboxEngine::kRemotePlatformLimit));
+        const bool synchronous = f.kind == Kind::Query || f.kind == Kind::Intl || f.kind == Kind::PlatformRequest;
         std::shared_ptr<HostRoute> route;
         std::shared_ptr<SandboxRemoteSink> sink;
         uint32_t id = 0;
@@ -974,18 +1130,32 @@ private:
             if (ending_) return reason_;
             if (!f.runtime) return connectionLocked(f);
             if (!ready_) return kindOn(f) + " before the opening was answered";
+            if (hosting_ && renderKind(f.kind)) return kindOn(f) + ", which a hosted runtime never sends";
+            if (!hosting_ && hostedReport(f.kind)) return kindOn(f) + ", which only a hosted runtime sends";
             const auto it = routes_.find(f.runtime);
             if (it == routes_.end()) return f.runtime > lastId_ ? kindOn(f) + ", which was never opened" : std::string();
             route = it->second;
             if (f.kind == Kind::ProbeAnswer) return probedLocked(*route, f, std::move(kept));
-            if (route->pending != Pending::None) return kindOn(f) + (route->pending == Pending::Query ? " while its query is unanswered" : " while its Intl request is unanswered");
+            if (std::string why = pendingLocked(*route, f); !why.empty()) return why;
             if (f.kind == Kind::Query) route->pending = Pending::Query;
             if (f.kind == Kind::Intl) route->pending = Pending::Intl;
+            if (f.kind == Kind::PlatformRequest) route->platformPending = true;
             sink = route->sink;
             id = route->id;
         }
-        if (f.kind == Kind::Query || f.kind == Kind::Intl) post(route, std::move(sink), id, f.kind, std::move(kept));
+        if (synchronous) post(route, std::move(sink), id, f.kind, std::move(kept));
         else deliver(*sink, f);
+        return {};
+    }
+
+    /// Why `f` cannot come while a request of its runtime is in the host's hands, "" when it can: an engine's one producer waits for its answer, so it sends nothing then; a hosted runtime's engine, glue and renderer send on their own, so only a second request of the same kind is refused.
+    std::string pendingLocked(const HostRoute& route, const Frame& f) const {
+        if (!hosting_) {
+            if (route.pending == Pending::None) return {};
+            return kindOn(f) + (route.pending == Pending::Query ? " while its query is unanswered" : " while its Intl request is unanswered");
+        }
+        if (f.kind == Kind::Intl && route.pending == Pending::Intl) return kindOn(f) + " while its Intl request is unanswered";
+        if (f.kind == Kind::PlatformRequest && route.platformPending) return kindOn(f) + " while its platform request is unanswered";
         return {};
     }
 
@@ -998,11 +1168,11 @@ private:
         return {};
     }
 
-    /// A probe's answer: for a sequence never sent the stream ends; a late or repeated one is dropped and answers no other wait; one that comes while a synchronous call is in the host's hands waits for it.
+    /// A probe's answer: for a sequence never sent the stream ends; a late or repeated one is dropped and answers no other wait; one that comes while a synchronous call is in the host's hands waits for it (for both, while a hosted runtime has two).
     std::string probedLocked(HostRoute& route, const Frame& f, std::string answer) {
         if (f.i64 > route.lastProbe) return kindOn(f) + " for probe " + std::to_string(f.i64) + ", which was never sent";
         if (f.i64 != route.waiting || route.probed || route.deferred) return {};
-        if (route.pending != Pending::None) {
+        if (route.pending != Pending::None || route.platformPending) {
             route.deferred = std::move(answer);
             return {};
         }
@@ -1036,43 +1206,61 @@ private:
             if (std::optional<SandboxStats> stats = SandboxRemoteCoding::decodeStats(std::vector<double>(f.f64.begin(), f.f64.end()))) sink.remoteStats(*stats);
             break;
         case Kind::Died: sink.remoteDied(text(0)); break;
+        case Kind::PlatformMessage: sink.remotePlatformMessage(std::string(cut(f.str[0], SandboxEngine::kRemotePlatformLimit))); break;
+        case Kind::ValidatedOps: sink.remoteValidatedOps(std::string(cut(f.str[0], SandboxEngine::kRemoteOpsLimit))); break;
+        case Kind::RendererReady: sink.remoteRendererReady(); break;
+        case Kind::Rendered: sink.remoteRendered(); break;
+        case Kind::Nodes: sink.remoteNodes(f.i64); break;
         default: break;
         }
     }
 
-    /// A query or an Intl request to the route's `widget.answer`, made at its first, so the reader goes on for the other runtimes while the client answers; dropped once the channel is destroyed.
+    /// A query, an Intl request or a platform request to the route's `widget.answer`, made at its first, so the reader goes on for the other runtimes while the client answers; dropped once the channel is destroyed. A platform request the client answers with none (it stopped the widget, which closes the runtime) gets no frame.
     void post(const std::shared_ptr<HostRoute>& route, std::shared_ptr<SandboxRemoteSink> sink, uint32_t id, Kind kind, std::string request) {
         std::lock_guard<std::mutex> l(route->answering);
         if (route->retired) return;
         if (!route->answerer) route->answerer = std::make_unique<JSThread>("widget.answer");
         route->answerer->async([self = shared_from_this(), route, sink = std::move(sink), id, kind, request = std::move(request)] {
             std::optional<std::string> frame;
+            bool lost = false;
+            Pending pending = Pending::Query;
             if (kind == Kind::Query) {
                 const QueryAnswer answer = sink->remoteQuery(request);
                 const std::string_view binary = answer.binary ? std::string_view(reinterpret_cast<const char*>(answer.binary->data()), answer.binary->size()) : std::string_view();
                 frame = Codec::encode(id, Kind::QueryAnswer, SandboxRemoteWire::kMaxFrameBytes, {answer.json, answer.binary.has_value(), binary});
-            } else {
+                lost = !frame;
+            } else if (kind == Kind::Intl) {
+                pending = Pending::Intl;
                 frame = Codec::encode(id, Kind::IntlAnswer, SandboxRemoteWire::kMaxFrameBytes, {sink->remoteIntl(request)});
+                lost = !frame;
+            } else {
+                pending = Pending::Platform;
+                if (const std::optional<std::string> answer = sink->remotePlatformRequest(request)) {
+                    frame = Codec::encode(id, Kind::PlatformAnswer, SandboxRemoteWire::kMaxFrameBytes, {*answer});
+                    lost = !frame;
+                }
             }
-            self->answered(route, std::move(frame));
+            self->answered(route, pending, std::move(frame), lost);
         });
     }
 
-    /// The sink's answer queued and the request settled in one step, then a probe's answer that waited for it, only once that answer was queued; an answer past the frame bound loses the route.
-    void answered(const std::shared_ptr<HostRoute>& route, std::optional<std::string> frame) {
+    /// The sink's answer to a request of `kind` queued (none: no frame) and the request settled in one step, then a probe's answer that waited, only once neither request is in the host's hands and every answer was queued; an answer past the frame bound (`lost`) loses the route.
+    void answered(const std::shared_ptr<HostRoute>& route, Pending kind, std::optional<std::string> frame, bool lost) {
         {
             std::lock_guard<std::mutex> l(mutex_);
-            route->pending = Pending::None;
-            std::optional<std::string> deferred = std::move(route->deferred);
-            route->deferred.reset();
-            if (frame) {
+            if (kind == Pending::Platform) route->platformPending = false;
+            else route->pending = Pending::None;
+            if (!lost) {
                 // Not queued (the route closed, lost or leaving with the stream, or an answer the stream cannot take): the probe's answer is dropped, and the probe answers as the route's end does, once its client heard any loss.
-                if (route->state == HostRoute::State::Live && queueLocked(std::move(*frame)) && deferred) {
-                    route->probed = std::move(deferred);
+                const bool queued = route->state == HostRoute::State::Live && (!frame || queueLocked(std::move(*frame)));
+                if (!queued) route->deferred.reset();
+                else if (route->deferred && route->pending == Pending::None && !route->platformPending) {
+                    route->probed = std::exchange(route->deferred, std::nullopt);
                     route->settled.notify_all();
                 }
                 return;
             }
+            route->deferred.reset();
         }
         lose(route);
     }
@@ -1150,6 +1338,8 @@ private:
     const double stallMs_;
     const Clock::duration stall_;
     const size_t queueBytes_;
+    /// Opened for hosted widgets: every runtime is a hosted one, and `accept` takes its kinds.
+    const bool hosting_;
 
     std::mutex mutex_;
     /// The writer waits on it for frames, the monitor for the rest.
@@ -1172,8 +1362,8 @@ private:
     bool timing_ = false;
 };
 
-/// A runtime's channel on the stream: each call goes out as its frame, its forms coded as the loopback codes them (one that does not decode again, or a frame past the bound, loses the runtime); the destructor, on the owner's thread, closes and joins `widget.answer`.
-class SandboxRemoteHostEnd::Connection::Channel final : public SandboxRemoteChannel {
+/// A runtime's channel on the stream, an engine's or a hosted widget's (the opening decides which, so no call checks it): each call goes out as its frame, its forms coded as the loopback codes them (one that does not decode again, or a frame past the bound, loses the runtime); the destructor, on the owner's thread, closes and joins `widget.answer`.
+class SandboxRemoteHostEnd::Connection::Channel final : public SandboxHostedChannel {
 public:
     explicit Channel(std::shared_ptr<Connection> connection) : connection_(std::move(connection)) {}
     ~Channel() override {
@@ -1228,6 +1418,17 @@ public:
     }
     std::string probe(const std::string& code) override { return connection_->probe(route_, code); }
     void close() override { connection_->close(*route_); }
+    void startHosted(const std::string& html, const SandboxConfig& config, const SandboxHostedStart& start) override {
+        const std::string coded = SandboxRemoteCoding::encodeConfig(config), hosted = SandboxRemoteCoding::encodeHostedStart(start);
+        if (SandboxRemoteCoding::decodeConfig(coded) && SandboxRemoteCoding::decodeHostedStart(hosted)) send(Kind::HostedStart, {html, coded, hosted});
+        else connection_->lose(route_);
+    }
+    void hostedTheme(const WidgetTheme& theme) override {
+        const std::string coded = SandboxRemoteCoding::encodeTheme(theme);
+        if (SandboxRemoteCoding::decodeTheme(coded)) send(Kind::HostedTheme, {coded});
+        else connection_->lose(route_);
+    }
+    void platform(const std::string& message) override { send(Kind::Platform, {message}); }
 
 private:
     /// Encoded outside the lock once the route is live, then admitted only if it still is.
@@ -1252,14 +1453,28 @@ SandboxRemoteHostEnd::SandboxRemoteHostEnd(std::shared_ptr<Connection> connectio
 }
 
 std::shared_ptr<SandboxRemoteHostEnd> SandboxRemoteHostEnd::start(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits) {
-    auto connection = std::make_shared<Connection>(std::move(stream), std::move(events), limits);
+    auto connection = std::make_shared<Connection>(std::move(stream), std::move(events), limits, false);
+    connection->open(resources, build);
+    return std::shared_ptr<SandboxRemoteHostEnd>(new SandboxRemoteHostEnd(std::move(connection)));
+}
+
+std::shared_ptr<SandboxRemoteHostEnd> SandboxRemoteHostEnd::startHosting(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits) {
+    auto connection = std::make_shared<Connection>(std::move(stream), std::move(events), limits, true);
     connection->open(resources, build);
     return std::shared_ptr<SandboxRemoteHostEnd>(new SandboxRemoteHostEnd(std::move(connection)));
 }
 
 SandboxRemoteHostEnd::~SandboxRemoteHostEnd() { stop(); }
 
-std::shared_ptr<SandboxRemoteChannel> SandboxRemoteHostEnd::channel() { return std::make_shared<Connection::Channel>(connection_); }
+std::shared_ptr<SandboxRemoteChannel> SandboxRemoteHostEnd::channel() {
+    if (connection_->hosting()) return refusing("the stream was opened for hosted widgets");
+    return std::make_shared<Connection::Channel>(connection_);
+}
+
+std::shared_ptr<SandboxHostedChannel> SandboxRemoteHostEnd::hostedChannel() {
+    if (!connection_->hosting()) return refusingHosted("the stream was opened for engines only");
+    return std::make_shared<Connection::Channel>(connection_);
+}
 
 void SandboxRemoteHostEnd::stop() {
     connection_->end(kHostStopped);
@@ -1270,5 +1485,7 @@ void SandboxRemoteHostEnd::stop() {
 }
 
 std::shared_ptr<SandboxRemoteChannel> SandboxRemoteHostEnd::refusing(std::string reason) { return std::make_shared<RefusingChannel>(std::move(reason)); }
+
+std::shared_ptr<SandboxHostedChannel> SandboxRemoteHostEnd::refusingHosted(std::string reason) { return std::make_shared<RefusingChannel>(std::move(reason)); }
 
 } // namespace twidget
