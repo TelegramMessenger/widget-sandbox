@@ -1541,6 +1541,7 @@ TEST(paint_limit_stops_the_widget) {
         int count = code == WidgetPaintLimit::Paint ? 17 : 3;
         renderer->limitExceeded(code, count);
         CHECK(host.waitUntil([](const WidgetDiagnostics& d) { return d.dead.has_value(); }, 5));
+        host.onHostThread([] {});   // and the closure that published it sent frozen
         WidgetDiagnostics d = host.diagnostics();
         CHECK_MSG(d.dead == std::optional<std::string>(paintLimitMessage(code, count)), d.dead.value_or("alive"));
         CHECK(d.countDiag(paintLimitCode(code)) == 1);
