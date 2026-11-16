@@ -302,7 +302,6 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         #endif
         validator.useNativeModel(engine.runtimeFeatures.contains("binaryOps"))
-        engine.delegate = self
         // The validator's time on the widget's messages counts against its JS quota (docs/decisions.md, "The validator's time counts").
         validator.setCpuSink { [weak engine] ms in engine?.chargeValidator(ms: ms) }
         let channels = sideChannels
@@ -343,6 +342,8 @@ public final class WidgetHost: SandboxEngineDelegate {
         toRenderer(options.safeArea.rendererMessage)
         // Under strict the renderer counts heavy boxes and reports `limit` past them (docs/decisions.md "Heavy boxes"); compat counts nothing.
         toRenderer("{\"type\":\"policy\",\"policy\":\"\(options.policy.rawValue)\"}")
+        publish()
+        engine.delegate = self
         renderer.onMessage = { [weak self] json in self?.onRenderer(json) }
         (renderer as? ParsedMessageRenderer)?.onParsedMessage = { [weak self] msg, encoded in self?.onRenderer(message: msg, encoded: encoded) }
         if let timed = renderer as? MainTimedRenderer {
@@ -351,7 +352,6 @@ public final class WidgetHost: SandboxEngineDelegate {
             timed.mainMeter = meter
             mainMeter = meter
         }
-        publish()
         if !rendererLoaded && !executor.isMain && !executor.isCurrent {
             rendererLoaded = true
             let loading = renderer
