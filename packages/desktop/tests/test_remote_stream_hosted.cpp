@@ -996,10 +996,11 @@ TEST(remote_stream_hosted_platform_flood_stays_within_the_bounds) {
     size_t heldBytes = 0;
     for (size_t i = 1; i <= SandboxEngine::kRemoteQueuedCalls; i++) heldBytes += 1 + std::to_string(i).size();
     CHECK_MSG(backlogIs(host, heldBytes, SandboxEngine::kRemoteQueuedCalls), backlogText(host));
-    // Sampled while the reader admits, the backlog passes it by at most the one message the client counts while it checks it and gives back at once.
+    // Sampled while the reader admits, the backlog passes it by at most the one message the client counts while it checks it and gives back at once. The samples bound it from above only: the watcher need not run between the fill and its stop, so the fill is the exact reading above.
     const size_t tried = 1 + std::to_string(SandboxEngine::kRemoteQueuedCalls + 1).size();
-    CHECK_MSG(maxCalls >= SandboxEngine::kRemoteQueuedCalls && maxCalls <= SandboxEngine::kRemoteQueuedCalls + 1 && maxBytes <= heldBytes + tried && heldBytes + tried < SandboxEngine::kRemoteQueuedBytes,
+    CHECK_MSG(maxCalls <= SandboxEngine::kRemoteQueuedCalls + 1 && maxBytes <= heldBytes + tried && heldBytes + tried < SandboxEngine::kRemoteQueuedBytes,
               std::to_string(maxBytes) + " bytes, " + std::to_string(maxCalls) + " calls");
+    printf("    sampled while the reader admitted: at most %zu calls, %zu bytes\n", maxCalls.load(), maxBytes.load());
     CHECK(held.release());
     CHECK_MSG(eventually([&] { return backlogIs(host, 0, 0); }, 10), backlogText(host));
     CHECK(host.waitUntil(died, 5) && host.diagnostics().dead == std::optional<std::string>(flooded));
