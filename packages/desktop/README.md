@@ -483,11 +483,28 @@ int serveEngines(twidget::SandboxRemoteStream& stream) {
   Never `close` a descriptor that another call may still be in (its number can
   be reused): close it once both returned.
 
+On macOS a blocking `recv` can miss the end of its stream (seen there; other
+systems were not measured): when it starts to wait just as the end comes, the
+peer's `SHUT_WR` or this end's own `SHUT_RD`, now and then it sleeps on with
+the end already in its socket, so the engine process never sees the host stop,
+or a host's `stop` waits on its own reader. A `select` or `poll` that waits
+for the socket sees that end. So a macOS adapter's `read` calls
+`recv(fd, out, size, MSG_DONTWAIT)` and, on `EAGAIN`, waits with no timeout
+until the socket is readable, then calls it again. Bytes and the end (0)
+return as they came, `EINTR` from the call or the wait tries again, and any
+other error ends the read with 0. It waits in `select` while the descriptor
+is below `FD_SETSIZE` (`FD_SET` past it writes outside the set, so never hand
+it a larger one) and in `poll` past it: `poll` fails with `EINVAL` in a
+process whose `RLIMIT_NOFILE` is 0, which an engine process that locks itself
+down may set, and `select` still works there. A receive timeout
+(`SO_RCVTIMEO`) is no way out: `SHUT_RD` clears it.
+
 One reader and one writer at a time; the owner destroys the stream only after
 both returned. The host's end holds the stream until `stop` has joined its
 threads, then lets it go. The test peers are in `harness/stream_peers.h`, test
 and harness code, not the library's: an in-memory pair, and on POSIX a socket
-pair whose writes really block and which shuts each direction on its own.
+pair whose writes really block, which shuts each direction on its own and
+reads as above (`SocketStream::read`, on every POSIX system).
 
 ### Frames
 

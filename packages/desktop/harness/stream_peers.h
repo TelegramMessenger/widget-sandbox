@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <poll.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -280,14 +281,17 @@ public:
     SocketStream(const SocketStream&) = delete;
     SocketStream& operator=(const SocketStream&) = delete;
 
+    /// Waits for bytes outside `recv`: on macOS a blocking `recv` that starts to wait as the end comes (the peer's SHUT_WR, this end's own SHUT_RD) can sleep on with the end in its socket.
     size_t read(char* out, size_t size) override {
         if (shut_ || !size) return 0;
         Running running(readers_);
         for (;;) {
-            const ssize_t n = ::recv(fd_, out, size, 0);
+            const ssize_t n = ::recv(fd_, out, size, MSG_DONTWAIT);
             if (n > 0) return size_t(n);
-            if (n < 0 && errno == EINTR && !shut_) continue;
-            return 0;
+            if (n == 0 || shut_) return 0;
+            if (errno == EINTR) continue;
+            if (errno != EAGAIN && errno != EWOULDBLOCK) return 0;
+            if (!waitReadable() || shut_) return 0;
         }
     }
 
@@ -339,6 +343,22 @@ private:
 #else
     static constexpr int kSendFlags = 0;
 #endif
+
+    /// Until the socket has bytes or its end, with no timeout: true then and when a signal cut the wait, so `read` tries again; false when the wait failed or the descriptor is gone. `select` while the descriptor fits an `fd_set` (it still works where RLIMIT_NOFILE is 0, which fails every `poll`), `poll` past FD_SETSIZE.
+    bool waitReadable() const {
+        const int fd = fd_;
+        if (fd < 0) return false;
+        if (fd < FD_SETSIZE) {
+            fd_set set;
+            FD_ZERO(&set);
+            FD_SET(fd, &set);
+            if (::select(fd + 1, &set, nullptr, nullptr, nullptr) >= 0) return true;
+        } else {
+            pollfd p{fd, POLLIN, 0};
+            if (::poll(&p, 1, -1) >= 0) return true;
+        }
+        return errno == EINTR;
+    }
 
     /// Counts a call of this end while it runs.
     struct Running {

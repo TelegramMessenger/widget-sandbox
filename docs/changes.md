@@ -3,6 +3,24 @@
 What a host that upgrades from 862eec8 sees, per platform. "Opt-in" items change
 nothing until the host lists them; "default" items apply to every host.
 
+## Unreleased: a socket read that sees the end of its stream on macOS (2026-11-17)
+
+C++, desktop core: the tests' harness and the stream adapter guidance only. No library code, frame kind, wire rule or
+interface changes. On macOS a blocking `recv` that starts to wait just as the end of its stream comes (the peer's
+`SHUT_WR`, or its own end's `SHUT_RD`) can sleep on with the end already in its socket. The tests' socket peer read
+that way, and about once in 100 runs `remote_stream_hosted_kept_engine_process_keeps_only_the_renderer`'s engine
+process never saw the host's `stop` and was killed at its 60 s deadline. A host whose own adapter reads a socket with a
+blocking `recv` on macOS shares the cause and reads as the README now says.
+
+- `harness/stream_peers.h`: `SocketStream::read` calls `recv` with `MSG_DONTWAIT` and, while the socket is empty, waits
+  with no timeout until it is readable, in `select` below `FD_SETSIZE` (it works under `RLIMIT_NOFILE` 0, where every
+  `poll` fails) and in `poll` past it, then reads again; bytes, the end, errors and `shutdown` read as before.
+- `packages/desktop/README.md`, "The stream a host supplies": the race, and how a macOS adapter reads past it.
+- Tests: `remote_stream_` gains `remote_stream_socket_read_sees_an_end_that_comes_as_it_starts_to_wait` (POSIX only:
+  2000 reads, each of a fresh socket pair and met 0 to 1000 ns after its start by the peer's shutdown or its own end's,
+  a round still reading after 2 s failing the run), so on macOS `remote_stream_` runs 46, `remote_` 109 and the suite
+  224 (Windows unchanged).
+
 ## Unreleased: a transport thread that cannot start ends its widget, not the process (2026-11-17)
 
 C++, desktop core only, the remote transport of the engine and hosted modes. No frame kind, wire rule or interface

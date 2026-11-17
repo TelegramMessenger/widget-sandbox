@@ -2056,6 +2056,52 @@ TEST(remote_stream_engine_blocked_write_shutdown) {
         pair.host->shutdown();
     }
 }
+
+/// A socket end's read that starts to wait just as its end comes returns 0 all the same: in 2000 rounds, each on a fresh pair, a reader thread starts a read of the engine's end and, 0 to 1000 ns later (the same series every run), the host's end shuts down (odd rounds) or the engine's end itself (even rounds), as a host end's stop ends the engine process's read and wakes its own reader. A blocking `recv` on macOS slept through such an end now and then; a round still reading after 2 s stops the run.
+TEST(remote_stream_socket_read_sees_an_end_that_comes_as_it_starts_to_wait) {
+    constexpr int kRounds = 2000;
+    constexpr uint64_t kLongestDelayNs = 1000;
+    std::atomic<SocketStream*> reading{nullptr};
+    std::atomic<int> started{0};
+    std::atomic<int> finished{0};
+    std::atomic<size_t> got{0};
+    std::atomic<bool> over{false};
+    Background<bool> reader([&] {
+        char b[64];
+        for (int round = 1;; round++) {
+            while (started < round && !over) {}
+            if (over) return true;
+            got = reading.load()->read(b, sizeof(b));
+            finished = round;
+        }
+    });
+    uint64_t seed = 88172645463325252ull;
+    for (int round = 1; round <= kRounds; round++) {
+        SocketStreamPair pair = socketStreamPair();
+        CHECK(pair.host && pair.engine);
+        if (!pair.host) break;
+        const bool peer = round % 2;
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        const auto delay = std::chrono::nanoseconds(seed % (kLongestDelayNs + 1));
+        reading = pair.engine.get();
+        started = round;
+        const auto until = std::chrono::steady_clock::now() + delay;
+        while (std::chrono::steady_clock::now() < until) {}
+        if (peer) pair.host->shutdown();
+        else pair.engine->shutdown();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (finished != round && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+        const std::string name = "round " + std::to_string(round) + " (" + (peer ? "the peer's" : "its own") + " shutdown " + std::to_string(delay.count()) + " ns after the reader's start): ";
+        const bool ended = finished == round;
+        CHECK_MSG(ended, name + "the read still waits 2 s later");
+        if (!ended) stopTheRun(2, std::source_location::current());
+        CHECK_MSG(got.load() == 0, name + std::to_string(got.load()) + " bytes read");
+    }
+    over = true;
+    CHECK(reader.finish(5));
+}
 #endif
 
 /// A widget whose media query is past the message limit (the shim sends it uncut) next to one within it.
