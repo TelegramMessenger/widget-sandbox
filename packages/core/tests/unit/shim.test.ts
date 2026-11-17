@@ -102,6 +102,13 @@ describe('shim: runtime limits', () => {
     assert.equal(r.diags.filter((d) => d.kind === 'timer-limit-enforced').length, 0, JSON.stringify(r.diags));
     assert.equal(r.probes[0], '1');
   });
+  it('clamps a timer nested past 5 levels to 4 ms (HTML), in its promise jobs too', async () => {
+    const r = await runWidget(`<script>var delays = [], orig = JSON.stringify, depth = 0;
+      JSON.stringify = function (v) { if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'number') delays.push(v[1]); return orig.apply(JSON, arguments); };
+      function f() { depth++; if (depth < 8) setTimeout(f, 0); else if (depth === 8) Promise.resolve().then(function () { setTimeout(f, 0); }); }
+      setTimeout(f, 0);</script>`, { timerRounds: 12, probes: ['delays.join()', 'depth'] });
+    assert.deepEqual(r.probes, ['0,0,0,0,0,0,4,4,4', '9']);
+  });
   it('frees a slot when a timer fires or is cleared', async () => {
     const r = await runWidget(`<script>var ok = 0; var a = setTimeout(function () {}, 1); var b = setTimeout(function () {}, 1); clearTimeout(a);
       try { setTimeout(function () { ok++; }, 1); } catch (e) { ok = -1; }</script>`, { maxTimers: 2, timerRounds: 1, probes: ['ok'] });

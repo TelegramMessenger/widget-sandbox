@@ -97,6 +97,8 @@ public final class SandboxRemoteServer: SandboxEngineDelegate {
     private var nextRequest = 0
     private var pending: [Int: WidgetRequestCompletion] = [:]
     private var closed = false
+    private var taskDepth = 0
+    private var announcedDepth = 0
 
     public init(sink: SandboxRemoteSink, features: Set<String>, resources: SandboxResources = .shared, backend: QuickJSBackend = .default) {
         self.sink = sink
@@ -140,34 +142,54 @@ public final class SandboxRemoteServer: SandboxEngineDelegate {
         engine.terminate()
     }
 
-    public func engineTaskStarted(_ engine: SandboxEngine) { sink.remoteTaskStarted() }
-    public func engineTaskCompleted(_ engine: SandboxEngine) { sink.remoteTaskCompleted() }
-    public func engine(_ engine: SandboxEngine, ops json: String) { sink.remoteOps(json, canvas: [:]) }
-    public func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) { sink.remoteOps(json, canvas: canvas) }
-    public func engine(_ engine: SandboxEngine, binaryOps payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) { sink.remoteBinaryOps(payload, canvas: canvas) }
-    public func engine(_ engine: SandboxEngine, query json: String) -> (json: String, binary: Data?) { sink.remoteQuery(json) }
-    public func engine(_ engine: SandboxEngine, listen json: String) { sink.remoteListen(json) }
-    public func engine(_ engine: SandboxEngine, preventDefault json: String) { sink.remotePreventDefault(json) }
-    public func engine(_ engine: SandboxEngine, anim json: String) { sink.remoteAnim(json) }
-    public func engineRequestsFrame(_ engine: SandboxEngine) { sink.remoteRequestsFrame() }
-    public func engine(_ engine: SandboxEngine, log level: String, text: String) { sink.remoteLog(level: level, text: text) }
-    public func engine(_ engine: SandboxEngine, diag kind: String, detail: String) { sink.remoteDiag(kind: kind, detail: detail) }
-    public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) { sink.remoteBridge(method: method, argsJson: argsJson) }
+    public func engineTaskStarted(_ engine: SandboxEngine) { taskDepth += 1 }
+    public func engineTaskCompleted(_ engine: SandboxEngine) {
+        guard taskDepth > 0 else { return }
+        defer { taskDepth -= 1 }
+        guard announcedDepth == taskDepth else { return }
+        announcedDepth -= 1
+        sink.remoteTaskCompleted()
+    }
+    public func engine(_ engine: SandboxEngine, ops json: String) { announce(); sink.remoteOps(json, canvas: [:]) }
+    public func engine(_ engine: SandboxEngine, ops json: String, canvas: [Int: WidgetCanvasBatch]) { announce(); sink.remoteOps(json, canvas: canvas) }
+    public func engine(_ engine: SandboxEngine, binaryOps payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) { announce(); sink.remoteBinaryOps(payload, canvas: canvas) }
+    public func engine(_ engine: SandboxEngine, query json: String) -> (json: String, binary: Data?) {
+        announce()
+        return sink.remoteQuery(json)
+    }
+    public func engine(_ engine: SandboxEngine, listen json: String) { announce(); sink.remoteListen(json) }
+    public func engine(_ engine: SandboxEngine, preventDefault json: String) { announce(); sink.remotePreventDefault(json) }
+    public func engine(_ engine: SandboxEngine, anim json: String) { announce(); sink.remoteAnim(json) }
+    public func engineRequestsFrame(_ engine: SandboxEngine) { announce(); sink.remoteRequestsFrame() }
+    public func engine(_ engine: SandboxEngine, log level: String, text: String) { announce(); sink.remoteLog(level: level, text: text) }
+    public func engine(_ engine: SandboxEngine, diag kind: String, detail: String) { announce(); sink.remoteDiag(kind: kind, detail: detail) }
+    public func engine(_ engine: SandboxEngine, bridge method: String, argsJson: String) { announce(); sink.remoteBridge(method: method, argsJson: argsJson) }
     public func engine(_ engine: SandboxEngine, action: WidgetAction) {}
-    public func engine(_ engine: SandboxEngine, copyText: String) { sink.remoteCopyText(copyText) }
-    public func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) { sink.remoteStorage(SandboxRemoteCoding.storageJson(storageCommit)) }
-    public func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) { sink.remoteResizeAnchor(resizeAnchor.rawValue) }
-    public func engine(_ engine: SandboxEngine, watchesPublicData: Bool) { sink.remoteWatchesPublicData(watchesPublicData) }
-    public func engineLoaded(_ engine: SandboxEngine) { sink.remoteLoaded() }
-    public func engine(_ engine: SandboxEngine, stats: SandboxStats) { sink.remoteStats(stats) }
-    public func engine(_ engine: SandboxEngine, died reason: String) { sink.remoteDied(reason) }
+    public func engine(_ engine: SandboxEngine, copyText: String) { announce(); sink.remoteCopyText(copyText) }
+    public func engine(_ engine: SandboxEngine, storageCommit: SdkPolicy.StorageCommit) { announce(); sink.remoteStorage(SandboxRemoteCoding.storageJson(storageCommit)) }
+    public func engine(_ engine: SandboxEngine, resizeAnchor: WidgetResizeAnchor) { announce(); sink.remoteResizeAnchor(resizeAnchor.rawValue) }
+    public func engine(_ engine: SandboxEngine, watchesPublicData: Bool) { announce(); sink.remoteWatchesPublicData(watchesPublicData) }
+    public func engineLoaded(_ engine: SandboxEngine) { announce(); sink.remoteLoaded() }
+    public func engine(_ engine: SandboxEngine, stats: SandboxStats) { announce(); sink.remoteStats(stats) }
+    public func engine(_ engine: SandboxEngine, died reason: String) { announce(); sink.remoteDied(reason) }
 
     public func engine(_ engine: SandboxEngine, request: WidgetRequest, respond: WidgetRequestCompletion) {
+        announce()
         forward(respond) { sink.remoteRequest(id: $0, data: request.data, wallet: request.wallet) }
     }
 
     public func engine(_ engine: SandboxEngine, wallet: WalletCall, respond: WidgetRequestCompletion) {
+        announce()
         forward(respond) { sink.remoteWallet(id: $0, payload: SandboxRemoteCoding.encode(wallet: wallet)) }
+    }
+
+    /// A task's boundaries reach the client with its first callback: a task that says nothing (a timer that changes
+    /// nothing) costs the client no callbacks.
+    private func announce() {
+        while announcedDepth < taskDepth {
+            announcedDepth += 1
+            sink.remoteTaskStarted()
+        }
     }
 
     private func forward(_ respond: WidgetRequestCompletion, send: (Int) -> Void) {

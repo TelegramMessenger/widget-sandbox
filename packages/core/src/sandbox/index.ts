@@ -545,6 +545,7 @@ Object.defineProperty(G, '__twDispatch', {
   value: (kind: string, arg: string) => {
     const h = Object.prototype.hasOwnProperty.call(handlers, kind) ? handlers[kind] : null;
     if (!h) return;
+    if (kind !== 'endTick' && kind !== 'nextScript' && kind !== 'scriptDone') globals.beginTask();
     try {
       return h(arg);
     } catch (e) {

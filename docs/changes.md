@@ -5,6 +5,23 @@ nothing until the host lists them; "default" items apply to every host.
 
 ## Unreleased
 
+### One limit per task, idle tasks a remote client never hears of (Swift glue and the shim)
+
+- **A task's scripts share one limit.** Each inline script keeps its own 500 ms slice, but one task stops within 2 s
+  of the thread's CPU and 5 s of uptime in all (`SandboxEngine.taskCpuLimitMs`, `taskWallLimitMs`; a longer configured
+  slice wins). 25 scripts of 400 ms each made a 10.2 s task, past the 8 s watchdog of the macOS engine service, which
+  ended the service and every widget in it; the widget now stops with `CPU limit exceeded: more than 2000 ms of scripts
+  in one task`.
+- **Pending promise jobs go on.** `settle` runs a bounded number of jobs per task; what is left now runs in a follow-up
+  `jobs` task that waits for the JS quota like a timer, so `for (…8000) await null` finishes while the widget is idle
+  and an endless job loop is throttled instead of stalling.
+- **Nested timers clamp to 4 ms** past five levels (HTML), in the shim for every host: a `setTimeout(f, 0)` chain runs
+  at most 250 tasks a second.
+- **A remote client hears a task only when it says something.** `SandboxRemoteServer` sends a task's start with its
+  first callback (nesting kept), so a timer that changes nothing costs the client no callbacks; 12 `setTimeout(f, 0)`
+  chains had made ~34 000 callbacks a second and tripped the client's 8192-a-second callback budget.
+- Not ported yet: the per-task limit and the `jobs` follow-up in the web worker, the Node harness, Kotlin and C++.
+
 ### The boxed QuickJS engine (opt-in, macOS, Swift)
 
 Opt-in. The native engine stays the default on every platform, and a host that does not ask for the box sees no

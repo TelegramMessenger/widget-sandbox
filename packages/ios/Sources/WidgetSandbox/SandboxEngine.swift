@@ -243,6 +243,10 @@ public final class SandboxEngine {
     /// Slice given to the running task in ms (for the kill message); the boot task gets cpuLimitMs.
     private var currentSliceMs = 0.0
     private var currentKind = "boot"
+    /// Where the running task's JS must stop in all, whatever its inline scripts' own slices (thread CPU and uptime, s).
+    private var taskCpuEnd = Double.infinity
+    private var taskWallEnd = Double.infinity
+    private var jobsScheduled = false
     /// JS time of the current task that is ours, not the widget's (evaluating the sandbox bundle), ms.
     private var excludeMs = 0.0
     private var taskQueryMs = 0.0
@@ -836,10 +840,11 @@ public final class SandboxEngine {
         }
         let now = Self.nowMs()
         // A deferrable task waits for both windows (the JS quota and the main thread's); the slice is the JS quota's.
-        let js = budget.decide(kind, now: now)
-        let main = mainBudget.decide(kind, now: now)
+        let quotaKind = kind == Self.jobsKind ? "timer" : kind
+        let js = budget.decide(quotaKind, now: now)
+        let main = mainBudget.decide(quotaKind, now: now)
         if case .run(let sliceMs) = js, case .run = main {
-            task(kind, sliceMs: sliceMs) { self.callTw(kind, arg) }
+            task(kind, sliceMs: sliceMs) { if kind != Self.jobsKind { self.callTw(kind, arg) } }
             return true
         }
         if budget.shouldKill(now) {
@@ -871,6 +876,7 @@ public final class SandboxEngine {
     private func defer_(_ kind: String, _ arg: String) {
         if kind == "frame", let i = deferred.firstIndex(where: { $0.kind == "frame" }) { deferred[i].arg = arg; return }
         if kind == "timer", deferred.contains(where: { $0.kind == "timer" && $0.arg == arg }) { return } // intervals do not accumulate missed ticks
+        if kind == Self.jobsKind, deferred.contains(where: { $0.kind == Self.jobsKind }) { return }
         deferred.append(Deferred(kind: kind, arg: arg))
     }
 
@@ -1205,6 +1211,7 @@ public final class SandboxEngine {
         let (answer, binary) = delegate.engine(self, query: json)
         let dt = CACurrentMediaTime() - t0
         js.deadline += dt // time spent waiting is not widget CPU time
+        taskWallEnd += dt
         stats.queries += 1
         stats.queryMs += dt * 1000
         taskQueryMs += dt * 1000
@@ -1245,6 +1252,9 @@ public final class SandboxEngine {
         if case .engineFault(let reason)? = error as? QuickJSError { return kill("Engine fault: \(reason) (\(location))") }
         if js?.interrupted == true, let hit = queryLimitHit {
             return kill("\(CpuBudget.queryLimitReason(hit, kind: currentKind)) (\(location))")
+        }
+        if js?.interrupted == true, QuickJSContext.threadCPUTime() >= taskCpuEnd || ProcessInfo.processInfo.systemUptime >= taskWallEnd {
+            return kill("CPU limit exceeded: more than \(Int(max(Self.taskCpuLimitMs, currentSliceMs))) ms of scripts in one task (\(location))")
         }
         if js?.interrupted == true {
             return kill("CPU limit exceeded: more than \(Int(currentSliceMs)) ms of continuous execution (\(location))")
@@ -1328,15 +1338,21 @@ public final class SandboxEngine {
     }
 
     /// The slice is measured in the JS thread's CPU time, so a busy machine does not
-    /// kill widgets; wall-clock time is only a backstop for a thread that never runs.
+    /// kill widgets; wall-clock time is only a backstop for a thread that never runs. Each inline script gets a slice
+    /// of its own, all of them within the task's `taskCpuLimitMs` / `taskWallLimitMs`: a task of many scripts cannot
+    /// hold the engine's thread past the service watchdog.
     private func resetDeadline() {
         js.interrupted = false
-        js.cpuDeadline = QuickJSContext.threadCPUTime() + currentSliceMs / 1000
-        js.deadline = ProcessInfo.processInfo.systemUptime + max(currentSliceMs * Self.wallBackstopFactor, Self.wallBackstopMinMs) / 1000
+        js.cpuDeadline = min(QuickJSContext.threadCPUTime() + currentSliceMs / 1000, taskCpuEnd)
+        js.deadline = min(ProcessInfo.processInfo.systemUptime + max(currentSliceMs * Self.wallBackstopFactor, Self.wallBackstopMinMs) / 1000, taskWallEnd)
     }
 
     static let wallBackstopFactor = 10.0
     static let wallBackstopMinMs = 5000.0
+    static let taskCpuLimitMs = 2000.0
+    static let taskWallLimitMs = 5000.0
+    /// The task that goes on with promise jobs one task left pending (`settle` runs a bounded number per task).
+    static let jobsKind = "jobs"
 
     /// One task of `kind` with `sliceMs` of continuous execution; its JS time is recorded against the quota.
     private func task(_ kind: String, sliceMs: Double, _ body: () -> Void) {
@@ -1351,10 +1367,13 @@ public final class SandboxEngine {
         taskOpsCostMs = 0
         queryLimitHit = nil
         let c0 = QuickJSContext.threadCPUTime()
+        taskCpuEnd = c0 + max(Self.taskCpuLimitMs, sliceMs) / 1000
+        taskWallEnd = ProcessInfo.processInfo.systemUptime + max(Self.taskWallLimitMs, sliceMs * Self.wallBackstopFactor) / 1000
         resetDeadline()
         body()
         if !dead { settle() }
         if !dead { pumpScripts() }
+        if !dead, js.hasPendingJob { scheduleJobs() }
         // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
         if !dead, let hit = queryLimitHit { kill(CpuBudget.queryLimitReason(hit, kind: kind)) }
         stats.tasks += 1
@@ -1370,6 +1389,16 @@ public final class SandboxEngine {
             stats.memoryBytes = js.memoryUsed
         }
         postStats(force: false)
+    }
+
+    private func scheduleJobs() {
+        guard !jobsScheduled else { return }
+        jobsScheduled = true
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.jobsScheduled = false
+            if !self.dead { self.enqueueNow(Self.jobsKind, "") }
+        }
     }
 
     /// The validator's CPU time for this widget's messages (TrustedValidator's CPU sink, ms of its thread's clock):

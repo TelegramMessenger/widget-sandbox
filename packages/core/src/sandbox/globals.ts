@@ -64,9 +64,12 @@ function installConsole() {
 
 // ───────────────────────── timers & frames ─────────────────────────
 
-interface Timer { fn: any; args: any[]; interval: boolean; delay: number }
+interface Timer { fn: any; args: any[]; interval: boolean; delay: number; nesting: number }
 const timers = new Map<number, Timer>();
 let timerSeq = 1;
+/** The running task's timer nesting level (HTML: a timer set from a timer task nests one deeper; past 5 levels a delay under 4 ms is 4 ms). */
+let timerNesting = 0;
+export function beginTask() { timerNesting = 0; }
 /** Live timers allowed (from `config.maxTimers` at boot). The glue enforces the same cap as a backstop; this one gives the widget an error instead of a silent hang. */
 let maxTimers = 64;
 let timerLimitReported = false;
@@ -81,8 +84,8 @@ function setTimer(fn: any, delay: any, args: any[], interval: boolean): number {
     throw new RangeError(`too many timers (max ${maxTimers})`);
   }
   const id = timerSeq++;
-  const ms = Math.max(Number(delay) || 0, interval ? 4 : 0);
-  timers.set(id, { fn, args, interval, delay: ms });
+  const ms = Math.max(Number(delay) || 0, interval || timerNesting > 5 ? 4 : 0);
+  timers.set(id, { fn, args, interval, delay: ms, nesting: timerNesting + 1 });
   host('timer', JSON.stringify([id, ms]));
   return id;
 }
@@ -91,7 +94,7 @@ function clearTimer(id: any) {
 }
 export function hostTimer(fn: () => void, ms: number): number {
   const id = timerSeq++;
-  timers.set(id, { fn, args: [], interval: false, delay: ms });
+  timers.set(id, { fn, args: [], interval: false, delay: ms, nesting: 0 });
   host('timer', JSON.stringify([id, ms]));
   return id;
 }
@@ -101,6 +104,7 @@ export function fireTimer(id: number) {
   if (!t) return;
   if (t.interval) host('timer', JSON.stringify([id, t.delay]));
   else timers.delete(id);
+  timerNesting = t.nesting;
   try {
     if (typeof t.fn === 'function') t.fn(...t.args);
     else (0, eval)(String(t.fn));
