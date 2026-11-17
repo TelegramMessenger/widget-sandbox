@@ -686,6 +686,7 @@ static const char* kDepthProbe ="(function(){ var n = 0; function r(){ n++; r();
 /// quickjs-ng needs a few hundred bytes per JS call, so this must comfortably exceed
 /// what css-tree and chart libraries recurse to.
 TEST(pinned_thread_gives_deep_recursion) {
+    if (!quickjsAvailable()) return; // quickjs-ng itself: not in a build without it
     JSThread t("test.js");
     double depth = t.sync([&] {
         QuickJSContext js(size_t(16) << 20, JSThread::kJSStackLimit);
@@ -715,6 +716,7 @@ TEST(pinned_thread_gives_deep_recursion) {
 /// The runtime re-reads the stack top on every entry, so a call from another thread
 /// (whose stack lives elsewhere) is measured correctly, not as a bogus overflow.
 TEST(stack_check_follows_the_calling_thread) {
+    if (!quickjsAvailable()) return; // quickjs-ng itself: not in a build without it
     JSThread t("creator");
     std::unique_ptr<QuickJSContext> js;
     double depthOnCreator = t.sync([&] {
@@ -731,6 +733,23 @@ TEST(stack_check_follows_the_calling_thread) {
 
 /// QuickJSBackend::Nova behind the same QuickJSContext: values in and out, host functions, the limits, promise jobs,
 /// a bundle from code compiled once. A build without Nova (no -DTW_NOVA=ON) checks that such a context fails closed.
+/// A build without quickjs-ng (-DTW_QUICKJS=OFF, Android): a Native context fails closed, and what names no
+/// engine gets Nova.
+TEST(a_native_context_fails_closed_without_quickjs) {
+    if (quickjsAvailable()) return;
+    CHECK(quickjsDefaultBackend() == QuickJSBackend::Nova);
+    JSThread t("test.js");
+    t.sync([&] {
+        QuickJSContext js(size_t(16) << 20, JSThread::kJSStackLimit, QuickJSBackend::Native);
+        CHECK(!js.available());
+        CHECK(js.unavailableReason().find("QuickJS") != std::string::npos);
+        bool threw = false;
+        try { js.evaluate("1 + 1", "t.js"); } catch (const JSError&) { threw = true; }
+        CHECK(threw);
+        return 0;
+    });
+}
+
 TEST(the_nova_engine_runs_behind_the_same_context) {
     JSThread t("test.nova");
     t.sync([&] {
@@ -826,6 +845,7 @@ TEST(the_nova_engine_runs_behind_the_same_context) {
 }
 
 TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
+    if (!quickjsAvailable()) return; // quickjs-ng itself: not in a build without it
     JSThread t("test.js");
     int calls = 0;
     std::string error = t.sync([&]() -> std::string {
@@ -844,6 +864,7 @@ TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
 }
 
 TEST(an_exception_from_a_host_function_stops_the_script) {
+    if (!quickjsAvailable()) return; // quickjs-ng itself: not in a build without it
     JSThread t("test.js");
     int after = 0;
     auto outcome = [&](const std::string& which) {
@@ -873,6 +894,7 @@ TEST(an_exception_from_a_host_function_stops_the_script) {
 }
 
 TEST(a_result_that_cannot_be_copied_is_an_error) {
+    if (!quickjsAvailable()) return; // quickjs-ng itself: not in a build without it
     JSThread t("test.js");
     auto outcome = [&](bool byCall) {
         return t.sync([&]() -> std::string {
@@ -3151,6 +3173,7 @@ TEST(engine_create_and_teardown_churn) {
 // ───────────── precompiled bundles ─────────────
 
 TEST(bytecode_round_trip_and_stale_blob_refused) {
+    if (!quickjsAvailable()) return; // quickjs-ng itself: not in a build without it
     QuickJSContext js(size_t(16) << 20);
     auto blob = js.compileBytecode("globalThis.answer = 6 * 7;", "t.js");
     CHECK(blob.size() > 24);

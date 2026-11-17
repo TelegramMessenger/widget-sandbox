@@ -97,6 +97,11 @@ A client with its own build (Android) links `libnova_embed_ffi.a` itself and def
 sandbox sources. Build the library with `cargo rustc -p nova_embed_ffi --release --crate-type staticlib`: a plain
 `cargo build` also makes the crate's rlib and then leaves the profile's fat LTO out. 64-bit targets only.
 
+`-DTW_QUICKJS=OFF` (with `TW_NOVA`) leaves quickjs-ng out: Nova is then the one engine and the default backend, a
+`QuickJSBackend::Native` context fails closed (`quickjsAvailable()` is false), and the `.qbc` bundles are not used. A
+client with its own build gets the same by not compiling the QuickJS sources and defining `TW_NO_QUICKJS` for the
+core's sources; Android does since 2026-11-17.
+
 What differs from QuickJS, all of it in `tests/test_main.cpp` (`onNova()`):
 
 - Our bundles run from code compiled once per process (`nova_script_compile`), never from the `.qbc`: the boot

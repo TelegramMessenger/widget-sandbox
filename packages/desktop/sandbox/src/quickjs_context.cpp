@@ -14,9 +14,13 @@
 #include <cstring>
 #include <new>
 
+// TW_NO_QUICKJS: a build without quickjs-ng (Android: Nova is the one engine there). A Native context then fails
+// closed, as a Nova one does where Nova is not linked, and the default backend is Nova.
+#ifndef TW_NO_QUICKJS
 extern "C" {
 #include "qjs_shim.h"
 }
+#endif
 
 namespace twidget {
 
@@ -24,6 +28,7 @@ namespace twidget {
 
 namespace {
 
+#ifndef TW_NO_QUICKJS
 class NativeQuickJS final : public QuickJSEngine {
 public:
     NativeQuickJS(QuickJSContext& owner, size_t memoryLimitBytes, size_t maxStackBytes) : owner_(owner) {
@@ -248,6 +253,8 @@ private:
     std::vector<Captured*> captured_;
 };
 
+#endif // TW_NO_QUICKJS
+
 /// The engine of a context whose backend this build cannot run: nothing evaluates, every call fails with the reason.
 class UnavailableEngine final : public QuickJSEngine {
 public:
@@ -270,13 +277,24 @@ private:
 
 } // namespace
 
+#ifndef TW_NO_QUICKJS
 std::unique_ptr<QuickJSEngine> makeNativeQuickJS(QuickJSContext& owner, size_t memoryLimitBytes, size_t maxStackBytes) {
     return std::make_unique<NativeQuickJS>(owner, memoryLimitBytes, maxStackBytes);
+}
+#endif
+
+bool quickjsAvailable() {
+#ifdef TW_NO_QUICKJS
+    return false;
+#else
+    return true;
+#endif
 }
 
 // ───────────── QuickJSContext ─────────────
 
 QuickJSBackend quickjsDefaultBackend() {
+    if (!quickjsAvailable()) return QuickJSBackend::Nova;
     static const QuickJSBackend backend = [] {
         const char* name = std::getenv("WIDGET_SANDBOX_ENGINE");
         return name && std::strcmp(name, "nova") == 0 ? QuickJSBackend::Nova : QuickJSBackend::Native;
@@ -310,7 +328,14 @@ QuickJSContext::QuickJSContext(size_t memoryLimitBytes, size_t maxStackBytes, Qu
             engine_ = std::make_unique<UnavailableEngine>(unavailableReason_);
         }
     } else {
+#ifdef TW_NO_QUICKJS
+        (void)memoryLimitBytes;
+        (void)maxStackBytes;
+        unavailableReason_ = "QuickJS is not in this build";
+        engine_ = std::make_unique<UnavailableEngine>(unavailableReason_);
+#else
         engine_ = makeNativeQuickJS(*this, memoryLimitBytes, maxStackBytes);
+#endif
     }
 }
 

@@ -58,8 +58,13 @@ enum class QuickJSBackend {
 };
 
 /// The backend of engines and validators that do not name one: Native, unless
-/// `WIDGET_SANDBOX_ENGINE=nova` is in the environment (read once).
+/// `WIDGET_SANDBOX_ENGINE=nova` is in the environment (read once) or this build has no QuickJS.
 QuickJSBackend quickjsDefaultBackend();
+
+/// Whether quickjs-ng is in this build (not with TW_NO_QUICKJS: -DTW_QUICKJS=OFF, or a client that
+/// compiles the core without the QuickJS sources, as Android does). Without it a Native context
+/// fails closed like a Nova one without Nova, and the default backend is Nova.
+bool quickjsAvailable();
 
 /// Whether this build can run Nova: the library is linked and enforces its interrupt, heap limit
 /// and stack guard (`nova_embed_limits`). A Nova context on a build where this is false fails closed.
@@ -93,8 +98,8 @@ public:
     double cpuDeadline = std::numeric_limits<double>::infinity();
 
     QuickJSBackend backend() const { return backend_; }
-    /// False when a Nova context could not be created (this build has no Nova, or its library does not enforce its
-    /// limits): every evaluation and call then throws JSError with `unavailableReason()`.
+    /// False when the context's engine is not in this build (Nova not linked or not enforcing its limits; QuickJS
+    /// left out) or could not be created: every evaluation and call then throws JSError with `unavailableReason()`.
     bool available() const { return unavailableReason_.empty(); }
     const std::string& unavailableReason() const { return unavailableReason_; }
     /// "native QuickJS", or Nova's version with the commit it was built from.

@@ -34,7 +34,8 @@ public:
     virtual bool executePendingJob(const std::function<void(const JSError&)>& onError) = 0;
 };
 
-/// The native engine (quickjs_context.cpp): quickjs-ng compiled into this process.
+/// The native engine (quickjs_context.cpp): quickjs-ng compiled into this process. Not in a build with
+/// TW_NO_QUICKJS.
 std::unique_ptr<QuickJSEngine> makeNativeQuickJS(QuickJSContext& owner, size_t memoryLimitBytes, size_t maxStackBytes);
 
 /// Nova (nova_engine.cpp). Returns nullptr and sets `reason` when this build cannot run it: not

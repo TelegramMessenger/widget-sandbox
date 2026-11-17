@@ -16,9 +16,14 @@ endif()
 
 option(TW_BLITZ "Build the Blitz renderer prototype (needs rustup's cargo)" OFF)
 option(TW_NOVA "Link the Nova JavaScript engine (QuickJSBackend::Nova; needs rustup's cargo and TW_NOVA_DIR)" OFF)
+option(TW_QUICKJS "Compile quickjs-ng in (QuickJSBackend::Native). OFF needs TW_NOVA: Nova is then the one engine, as on Android" ON)
+if(NOT TW_QUICKJS AND NOT TW_NOVA)
+    message(FATAL_ERROR "TW_QUICKJS=OFF leaves no JavaScript engine: turn TW_NOVA on")
+endif()
 
 set(TW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(QJS "${TW_ROOT}/ios/Sources/CQuickJS")
+if(TW_QUICKJS)
 if(NOT EXISTS "${QJS}/quickjs/quickjs.c")
     message(FATAL_ERROR "quickjs-ng sources not found at ${QJS}; packages/desktop must sit next to packages/ios")
 endif()
@@ -40,6 +45,7 @@ endif()
 if(NOT WIN32)
     target_link_libraries(twquickjs PUBLIC m)
 endif()
+endif() # TW_QUICKJS
 
 find_package(Threads REQUIRED)
 
@@ -57,7 +63,12 @@ add_library(twidget-sandbox STATIC
     sandbox/src/sandbox_engine.cpp
     sandbox/src/widget_host.cpp)
 target_include_directories(twidget-sandbox PUBLIC sandbox/include)
-target_link_libraries(twidget-sandbox PUBLIC twquickjs Threads::Threads)
+target_link_libraries(twidget-sandbox PUBLIC Threads::Threads)
+if(TW_QUICKJS)
+    target_link_libraries(twidget-sandbox PUBLIC twquickjs)
+else()
+    target_compile_definitions(twidget-sandbox PUBLIC TW_NO_QUICKJS=1)
+endif()
 if(WIN32)
     # Intl on the system's ICU (icu.dll, Windows 10 1903 and later).
     target_sources(twidget-sandbox PRIVATE sandbox/src/icu_intl.cpp)
