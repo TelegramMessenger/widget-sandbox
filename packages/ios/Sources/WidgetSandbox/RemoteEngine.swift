@@ -254,6 +254,7 @@ public enum SandboxRemoteCoding {
         var context: [String: Any] = [
             "isCopy": config.context.isCopy, "canQuery": config.context.canQuery,
             "backgroundQuery": config.context.backgroundQuery, "preview": config.context.preview, "wallet": config.context.wallet,
+            "surface": config.context.surface.rawValue,
         ]
         if let chatType = config.context.chatType { context["chatType"] = chatType.rawValue }
         if let viewer = config.context.viewer { context["viewer"] = viewer.json }
@@ -300,6 +301,7 @@ public enum SandboxRemoteCoding {
             context.preview = c["preview"] as? Bool ?? false
             context.wallet = c["wallet"] as? Bool ?? false
             context.chatType = (c["chatType"] as? String).flatMap(WidgetChatType.init(rawValue:))
+            context.surface = (c["surface"] as? String).flatMap(WidgetSurface.init(rawValue:)) ?? .message
             if let v = c["viewer"] as? [String: Any], let id = (v["id"] as? NSNumber)?.int64Value {
                 context.viewer = WidgetViewer(id: id, firstName: v["first_name"] as? String, lastName: v["last_name"] as? String, username: v["username"] as? String, isPremium: v["is_premium"] as? Bool ?? false)
             }

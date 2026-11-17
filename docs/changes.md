@@ -63,7 +63,7 @@ client that shows widgets only in messages passes nothing new and keeps v0.6.5's
   `profile.json` (`PROFILE_SURFACES`): a bubble is 50–600 px tall, a page at least the viewport and at most the page
   ceiling of 4000 px (provisional), with no width cap. Every host reports a page's height in those bounds and ignores
   the resize anchor there (the shim checks the call and drops it, and the native engines drop it too). The counted caps
-  are unchanged.
+  are unchanged. The macOS XPC engine preserves the host profile surface when it starts the widget.
 - **The device's edges, a second safe-area layer.** `--tg-safe-area-inset-top|right|bottom|left` on the root,
   `TelegramWidget.safeAreaInset` and the event `safeAreaChanged`, `safeArea` at creation and `setSafeArea` on every
   host. Always 0 in a bubble. The content layer (`contentSafeArea`) is the client's chrome inside them: the time's band

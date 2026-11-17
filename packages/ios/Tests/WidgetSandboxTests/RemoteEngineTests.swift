@@ -412,6 +412,14 @@ final class RemoteEngineTests: QuickJSTestCase {
         XCTAssertEqual(decoded?.theme, "dark")
     }
 
+    func testProfileSurfaceSurvivesRemoteConfiguration() {
+        var config = SandboxConfig(innerWidth: 320, innerHeight: 240, devicePixelRatio: 2, theme: "dark")
+        config.context = WidgetContext(canQuery: true, surface: .profile)
+
+        let decoded = SandboxRemoteCoding.decodeConfig(SandboxRemoteCoding.encode(config: config))
+        XCTAssertEqual(decoded?.context, config.context)
+    }
+
     func testOutcomeAndStatsRoundTrip() {
         for outcome: SandboxRemoteOutcome in [.answer("x"), .answer(nil), .failure(.timeout), .failure(.rateLimited), .failure(.failed), .failure(.notAllowed), .failure(.rejected), .failure(.badRequest), .unsupported] {
             XCTAssertEqual(SandboxRemoteCoding.decodeOutcome(SandboxRemoteCoding.encode(outcome: outcome)), outcome)
