@@ -14,6 +14,18 @@ import AppKit
 #endif
 
 public struct WidgetDiagnostics {
+    public static let maxLogBytes = 4 << 20
+    public static let maxDiagnosticBytes = 1 << 20
+
+    static func boundedText(_ text: String, bytes: Int = 4000) -> String {
+        guard text.utf8.count > bytes else { return text }
+        var end = text.utf8.index(text.utf8.startIndex, offsetBy: bytes)
+        while end.samePosition(in: text.unicodeScalars) == nil {
+            text.utf8.formIndex(before: &end)
+        }
+        return String(text[..<end])
+    }
+
     public var logs: [(level: String, text: String)] = []
     public var diags: [String: (count: Int, details: [String])] = [:]
     /// The raw bridge calls that passed the glue's checks (the deprecated `onBridge` view of `actions`).
@@ -128,6 +140,8 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     public let view: PlatformView
     private var state = WidgetDiagnostics()
+    private var retainedLogBytes = 0
+    private var retainedDiagnosticBytes = 0
     private let publishLock = NSLock()
     private var published = WidgetDiagnostics()
     public var diagnostics: WidgetDiagnostics {
@@ -201,7 +215,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         case beginTask
         case endTask
     }
-    private var pendingToRenderer: [Outgoing] = []
+    private var pendingToRenderer: [() -> Void] = []
     private let typedOps: Bool
     private var destroyed = false
     private var viewport: (w: Double, h: Double, dpr: Double)
@@ -387,7 +401,12 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
     }
 
+    private func preservingCallback(_ block: @escaping () -> Void) -> () -> Void {
+        return engine.isRemote ? RemoteCallbackBudget.preserving(block) : block
+    }
+
     private func onMain(_ block: @escaping () -> Void) {
+        let block = preservingCallback(block)
         if Thread.isMainThread {
             metered(block)
         } else {
@@ -529,6 +548,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         destroyed = true
         engine.terminate()
         sideChannels.forEach { $0.destroy() }
+        pendingToRenderer.removeAll()
         renderer.onMessage = nil
         (renderer as? ParsedMessageRenderer)?.onParsedMessage = nil
         renderer.onDiag = nil
@@ -554,6 +574,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     private var validatorReleased = false
 
     private func validate(_ work: @escaping () -> Void) {
+        let work = preservingCallback(work)
         let guarded = { [weak self] in
             guard let self = self else { return }
             self.validatorLock.lock()
@@ -569,6 +590,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     }
 
     private func deliver(_ block: @escaping () -> Void) {
+        let block = preservingCallback(block)
         if options.asyncValidation {
             executor.paced { [weak self] in
                 guard let self = self else { return block() }
@@ -783,11 +805,17 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
     }
     public func engineRequestsFrame(_ engine: SandboxEngine) {
-        executor.paced { self.toRenderer("{\"type\":\"requestFrame\"}") }
+        executor.paced(preservingCallback { self.toRenderer("{\"type\":\"requestFrame\"}") })
     }
     public func engine(_ engine: SandboxEngine, log level: String, text: String) {
         inOrder {
-            if self.state.logs.count < 5000 { self.state.logs.append((level, text)) }
+            let level = WidgetDiagnostics.boundedText(level, bytes: 64)
+            let text = WidgetDiagnostics.boundedText(text)
+            let bytes = level.utf8.count + text.utf8.count
+            if self.state.logs.count < 5000, bytes <= WidgetDiagnostics.maxLogBytes - self.retainedLogBytes {
+                self.state.logs.append((level, text))
+                self.retainedLogBytes += bytes
+            }
             if level == "error", text.hasPrefix("Uncaught ") {
                 self.state.lastError = text
                 self.tasksAtError = self.state.stats.tasks
@@ -885,6 +913,7 @@ public final class WidgetHost: SandboxEngineDelegate {
         validate { [self] in
             validator.markLoaded() // after the loading tasks' ops: text changes are rate-limited from here on
             let deliver = {
+                guard !self.state.loaded else { return }
                 self.state.loaded = true
                 self.state.loadedMs = loadedMs
                 self.changed()
@@ -897,6 +926,7 @@ public final class WidgetHost: SandboxEngineDelegate {
     private static let renderAckQid = -1
 
     private func askForRenderAck() {
+        guard renderAcksInFlight.isEmpty else { return }
         renderAcksInFlight.append(opsSent)
         toRenderer("{\"type\":\"query\",\"qid\":\(Self.renderAckQid),\"query\":{\"q\":\"viewport\"}}")
     }
@@ -924,14 +954,14 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
     }
     public func engine(_ engine: SandboxEngine, stats: SandboxStats) {
-        executor.async {
+        executor.async(preservingCallback {
             self.state.stats = stats
             if self.state.lastError != nil, stats.tasks > self.tasksAtError + 1 { self.state.lastError = nil }
             self.changed()
-        }
+        })
     }
     public func engine(_ engine: SandboxEngine, died reason: String) {
-        executor.paced { self.die(reason) }
+        executor.paced(preservingCallback { self.die(reason) })
     }
 
     /// The runtime is gone (memory, CPU, a counted cap): the reason goes into the diagnostics, the renderer keeps the last
@@ -977,7 +1007,7 @@ public final class WidgetHost: SandboxEngineDelegate {
             state.rendererReadyMs = Date().timeIntervalSince(createdAt) * 1000
             let queued = pendingToRenderer
             pendingToRenderer = []
-            queued.forEach(deliver)
+            queued.forEach { $0() }
             startEngine()
         case "event":
             // A preview takes no input: a tap on it selects the result (the client's), and the widget gets nothing.
@@ -1074,7 +1104,11 @@ public final class WidgetHost: SandboxEngineDelegate {
 
     private func toRenderer(_ message: Outgoing) {
         if destroyed { return }
-        if rendererReady { deliver(message) } else { pendingToRenderer.append(message) }
+        if rendererReady {
+            deliver(message)
+        } else {
+            pendingToRenderer.append(preservingCallback { [weak self] in self?.deliver(message) })
+        }
     }
 
     private func deliver(_ message: Outgoing) {
@@ -1102,10 +1136,19 @@ public final class WidgetHost: SandboxEngineDelegate {
         }
         diagsInWindow += 1
         guard diagsInWindow <= Self.maxDiagsPerSecond else { return }
+        let kind = WidgetDiagnostics.boundedText(kind, bytes: 64)
+        let detail = WidgetDiagnostics.boundedText(detail)
         guard state.diags[kind] != nil || state.diags.count < Self.maxDiagKinds else { return }
+        if state.diags[kind] == nil {
+            guard kind.utf8.count <= WidgetDiagnostics.maxDiagnosticBytes - retainedDiagnosticBytes else { return }
+            retainedDiagnosticBytes += kind.utf8.count
+        }
         var entry = state.diags[kind] ?? (0, [])
         entry.count += 1
-        if entry.details.count < 50 { entry.details.append(detail) }
+        if entry.details.count < 50, detail.utf8.count <= WidgetDiagnostics.maxDiagnosticBytes - retainedDiagnosticBytes {
+            entry.details.append(detail)
+            retainedDiagnosticBytes += detail.utf8.count
+        }
         state.diags[kind] = entry
         changed()
     }

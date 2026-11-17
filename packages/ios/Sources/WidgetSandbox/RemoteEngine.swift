@@ -271,9 +271,16 @@ public enum SandboxRemoteCoding {
     }
 
     public static func decodeConfig(_ data: Data) -> SandboxConfig? {
-        guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        guard data.count <= 1 << 20, let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
         let number = { (key: String) -> Double? in (o[key] as? NSNumber)?.doubleValue }
-        guard let width = number("innerWidth"), let height = number("innerHeight"), let dpr = number("devicePixelRatio"), let theme = o["theme"] as? String else { return nil }
+        guard let width = number("innerWidth"), let height = number("innerHeight"), let dpr = number("devicePixelRatio"), let theme = o["theme"] as? String,
+              width.isFinite, height.isFinite, dpr.isFinite, width > 0, width <= 4096,
+              height > 0, height <= 16384, dpr >= 1, dpr <= 4, theme.utf8.count <= 64 else { return nil }
+        for key in ["cpuLimitMs", "cpuQuotaMs", "cpuQuotaWindowMs", "cpuKillAfterMs", "mainThreadQuotaMs"] {
+            if let value = number(key), !value.isFinite || value < 0 || value > 1e9 { return nil }
+        }
+        if let value = number("memoryLimitBytes"), !value.isFinite || value < 1 || value > Double(512 << 20) || value != value.rounded() { return nil }
+        if let value = number("maxTimers"), !value.isFinite || value < 0 || value > 4096 || value != value.rounded() { return nil }
         var config = SandboxConfig(innerWidth: width, innerHeight: height, devicePixelRatio: dpr, theme: theme)
         if let v = number("memoryLimitBytes") { config.memoryLimitBytes = Int(v) }
         if let v = number("cpuLimitMs") { config.cpuLimitMs = v }

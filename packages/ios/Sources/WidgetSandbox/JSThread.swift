@@ -25,6 +25,7 @@ public final class JSThread {
         var runLoop: CFRunLoop?
         var early: [() -> Void] = []
         var stopped = false
+        var operationWatchdog: (() -> (() -> Void))?
 
         func enter() {
             // A port keeps the run loop alive while there is nothing scheduled.
@@ -58,18 +59,41 @@ public final class JSThread {
         thread.start()
     }
 
+    public var operationWatchdog: (() -> (() -> Void))? {
+        get {
+            state.lock.lock()
+            defer { state.lock.unlock() }
+            return state.operationWatchdog
+        }
+        set {
+            state.lock.lock()
+            state.operationWatchdog = newValue
+            state.lock.unlock()
+        }
+    }
+
     public var isCurrent: Bool { Thread.current === thread }
 
     /// Runs `block` on the thread, after everything queued before it.
     public func async(_ block: @escaping () -> Void) {
         state.lock.lock()
+        let guarded: () -> Void
+        if let watchdog = state.operationWatchdog {
+            guarded = {
+                let finish = watchdog()
+                defer { finish() }
+                block()
+            }
+        } else {
+            guarded = block
+        }
         guard let runLoop = state.runLoop else {
-            state.early.append(block)
+            state.early.append(guarded)
             state.lock.unlock()
             return
         }
         state.lock.unlock()
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, block)
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, guarded)
         CFRunLoopWakeUp(runLoop)
     }
 
@@ -106,10 +130,23 @@ public final class JSThread {
     public func after(_ delay: TimeInterval, _ block: @escaping () -> Void) -> Scheduled {
         let handle = Scheduled()
         handle.owner = self
-        async {
+        async { [state] in
             if handle.cancelled { return }
+            state.lock.lock()
+            let watchdog = state.operationWatchdog
+            state.lock.unlock()
+            let action: () -> Void
+            if let watchdog = watchdog {
+                action = {
+                    let finish = watchdog()
+                    defer { finish() }
+                    block()
+                }
+            } else {
+                action = block
+            }
             let t = Timer(timeInterval: max(0, delay), repeats: false) { _ in
-                if !handle.cancelled { block() }
+                if !handle.cancelled { action() }
             }
             handle.timer = t
             CFRunLoopAddTimer(CFRunLoopGetCurrent(), t, CFRunLoopMode.defaultMode)

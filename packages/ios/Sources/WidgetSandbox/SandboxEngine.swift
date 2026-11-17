@@ -157,6 +157,8 @@ public extension SandboxEngineDelegate {
 
 public final class SandboxEngine {
     /// Everything below runs on this thread (see JSThread for why not a DispatchQueue).
+    private var decodingRemoteCallback = false
+    private let remoteCallbacks = RemoteCallbackBudget()
     public let queue = JSThread(name: "widget.sandbox")
     private let delegateLock = NSLock()
     private weak var _delegate: SandboxEngineDelegate?
@@ -1489,21 +1491,49 @@ public final class SandboxEngine {
 // MARK: - Client mode (RemoteEngine.swift)
 
 extension SandboxEngine {
+    public static func preservingRemoteCallback(_ block: @escaping () -> Void) -> () -> Void {
+        return RemoteCallbackBudget.preserving(block)
+    }
+
     static let remoteGrantWindowMs = 2000.0
     static let remoteTextLimit = 4000
     static let remoteMessageLimit = 1 << 20
     static let remoteOpsLimit = 32 << 20
     static let remoteLevels: Set<String> = ["log", "info", "warn", "error", "debug"]
 
-    private func clientDeliver(_ block: @escaping (SandboxEngineDelegate) -> Void) {
-        queue.async {
+    private func admitCallback(_ bytes: Int) -> Bool {
+        let admission = remoteCallbacks.take(bytes)
+        if admission.firstFailure {
+            queue.async { self.remoteKill("the widget engine callback budget was exceeded", tellRemote: true) }
+        }
+        return admission.allowed
+    }
+
+    fileprivate func clientDecode(bytes: Int, _ decode: @escaping () -> Void) {
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(bytes)) {
+            guard !self.dead else { return }
+            self.decodingRemoteCallback = true
+            defer { self.decodingRemoteCallback = false }
+            decode()
+        }
+    }
+
+    private func clientEnqueue(bytes: Int = 256, _ block: @escaping () -> Void) {
+        if queue.isCurrent, decodingRemoteCallback { return block() }
+        guard admitCallback(bytes) else { return }
+        let lease = RemoteCallbackBudget.Lease(remoteCallbacks, bytes: bytes)
+        queue.async { lease.perform(block) }
+    }
+
+    private func clientDeliver(bytes: Int = 256, _ block: @escaping (SandboxEngineDelegate) -> Void) {
+        clientEnqueue(bytes: bytes) {
             guard !self.dead, let delegate = self.delegate else { return }
             block(delegate)
         }
     }
 
-    private func clientViolation(_ detail: String) {
-        queue.async {
+    private func clientViolation(_ detail: String, bytes: Int = 256) {
+        clientEnqueue(bytes: max(bytes, RemoteCallbackBudget.cost(detail.utf8.count))) {
             guard !self.dead, self.rejectedBridgeReported < 20 else { return }
             self.rejectedBridgeReported += 1
             self.delegate?.engine(self, diag: "protocol-violation", detail: detail)
@@ -1515,7 +1545,7 @@ extension SandboxEngine {
     private func remoteKill(_ reason: String, tellRemote: Bool) {
         if dead { return }
         dead = true
-        let reason = String(reason.prefix(Self.remoteTextLimit))
+        let reason = WidgetDiagnostics.boundedText(reason, bytes: Self.remoteTextLimit)
         guard let delegate else {
             pendingDeath = reason
             if tellRemote { remote?.stop(reason: reason) }
@@ -1568,7 +1598,7 @@ extension SandboxEngine {
     }
 
     func clientTaskStarted() {
-        queue.async {
+        clientEnqueue {
             guard !self.dead else { return }
             self.remoteTaskOpen = true
             self.delegate?.engineTaskStarted(self)
@@ -1576,7 +1606,7 @@ extension SandboxEngine {
     }
 
     func clientTaskCompleted() {
-        queue.async {
+        clientEnqueue {
             guard self.remoteTaskOpen else { return }
             self.remoteTaskOpen = false
             self.delegate?.engineTaskCompleted(self)
@@ -1584,63 +1614,70 @@ extension SandboxEngine {
     }
 
     func clientOps(_ json: String, canvas: [Int: WidgetCanvasBatch]) {
-        guard json.utf8.count <= Self.remoteOpsLimit else { return clientViolation("an ops batch over \(Self.remoteOpsLimit >> 20) MB") }
-        clientDeliver { $0.engine(self, ops: json, canvas: canvas) }
+        guard json.utf8.count <= Self.remoteOpsLimit else { return clientViolation("an ops batch over \(Self.remoteOpsLimit >> 20) MB", bytes: RemoteCallbackBudget.cost(json.utf8.count)) }
+        clientDeliver(bytes: RemoteCallbackBudget.cost(json.utf8.count, RemoteCallbackBudget.canvasCost(canvas))) { $0.engine(self, ops: json, canvas: canvas) }
     }
 
     func clientBinaryOps(_ payload: BinaryOpsPayload, canvas: [Int: WidgetCanvasBatch]) {
-        clientDeliver { $0.engine(self, binaryOps: payload, canvas: canvas) }
+        clientDeliver(bytes: RemoteCallbackBudget.cost(payload.words.count * 4, payload.strings.count, RemoteCallbackBudget.canvasCost(canvas))) { $0.engine(self, binaryOps: payload, canvas: canvas) }
     }
 
     func clientQuery(_ json: String) -> (json: String, binary: Data?) {
+        let bytes = RemoteCallbackBudget.cost(json.utf8.count)
+        guard admitCallback(bytes) else { return ("{\"error\":\"overload\"}", nil) }
+        let lease = RemoteCallbackBudget.Lease(remoteCallbacks, bytes: bytes)
         guard json.utf8.count <= Self.remoteMessageLimit else { return ("{\"error\":\"invalid query\"}", nil) }
         return queue.sync { () -> (json: String, binary: Data?) in
             guard !self.dead, let delegate = self.delegate else { return ("{\"error\":\"dead\"}", nil) }
-            return delegate.engine(self, query: json)
+            return lease.perform { delegate.engine(self, query: json) }
         }
     }
 
     func clientListen(_ json: String) {
-        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("listen over 1 MB") }
-        clientDeliver { $0.engine(self, listen: json) }
+        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("listen over 1 MB", bytes: RemoteCallbackBudget.cost(json.utf8.count)) }
+        clientDeliver(bytes: RemoteCallbackBudget.cost(json.utf8.count)) { $0.engine(self, listen: json) }
     }
 
     func clientPreventDefault(_ json: String) {
-        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("preventDefault over 1 MB") }
-        clientDeliver { $0.engine(self, preventDefault: json) }
+        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("preventDefault over 1 MB", bytes: RemoteCallbackBudget.cost(json.utf8.count)) }
+        clientDeliver(bytes: RemoteCallbackBudget.cost(json.utf8.count)) { $0.engine(self, preventDefault: json) }
     }
 
     func clientAnim(_ json: String) {
-        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("anim over 1 MB") }
-        clientDeliver { $0.engine(self, anim: json) }
+        guard json.utf8.count <= Self.remoteMessageLimit else { return clientViolation("anim over 1 MB", bytes: RemoteCallbackBudget.cost(json.utf8.count)) }
+        clientDeliver(bytes: RemoteCallbackBudget.cost(json.utf8.count)) { $0.engine(self, anim: json) }
     }
 
     func clientRequestsFrame() {
-        queue.async {
+        clientEnqueue {
             guard !self.dead, self.visible else { return }
             self.delegate?.engineRequestsFrame(self)
         }
     }
 
     func clientLog(level: String, text: String) {
-        let level = Self.remoteLevels.contains(level) ? level : "log"
-        let text = String(text.prefix(Self.remoteTextLimit))
-        clientDeliver { $0.engine(self, log: level, text: text) }
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(level.utf8.count, text.utf8.count)) {
+            guard !self.dead, let delegate = self.delegate else { return }
+            let level = Self.remoteLevels.contains(level) ? level : "log"
+            delegate.engine(self, log: level, text: WidgetDiagnostics.boundedText(text, bytes: Self.remoteTextLimit))
+        }
     }
 
     func clientDiag(kind: String, detail: String) {
-        let kind = String(kind.prefix(64)), detail = String(detail.prefix(Self.remoteTextLimit))
-        clientDeliver { $0.engine(self, diag: kind, detail: detail) }
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(kind.utf8.count, detail.utf8.count)) {
+            guard !self.dead else { return }
+            self.delegate?.engine(self, diag: WidgetDiagnostics.boundedText(kind, bytes: 64), detail: WidgetDiagnostics.boundedText(detail, bytes: Self.remoteTextLimit))
+        }
     }
 
     func clientBridge(method: String, argsJson: String) {
-        queue.async {
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(method.utf8.count, argsJson.utf8.count)) {
             guard !self.dead else { return }
             guard method.utf8.count <= 64, argsJson.utf8.count <= Self.remoteMessageLimit, let args = Self.parse(argsJson) as? [Any],
                   let checked = SdkPolicy.checkBridgeCall(method, args), let action = WidgetAction(checked) else {
                 if self.rejectedBridgeReported < 20 {
                     self.rejectedBridgeReported += 1
-                    self.delegate?.engine(self, diag: "bridge-rejected", detail: "\(method.prefix(64)): rejected by the host (unknown method or malformed arguments)")
+                    self.delegate?.engine(self, diag: "bridge-rejected", detail: "\(WidgetDiagnostics.boundedText(method, bytes: 64)): rejected by the host (unknown method or malformed arguments)")
                 }
                 return
             }
@@ -1655,7 +1692,7 @@ extension SandboxEngine {
     }
 
     func clientCopyText(_ text: String) {
-        queue.async {
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(text.utf8.count)) {
             guard !self.dead, !self.config.context.preview else { return }
             guard case .copyText(let checked)? = SdkPolicy.checkBridgeCall("copyText", [text]) else {
                 if self.rejectedBridgeReported < 20 {
@@ -1674,12 +1711,12 @@ extension SandboxEngine {
         case wallet(WalletCall)
     }
 
-    fileprivate func clientRequest(id: Int, request: ClientRequest?) {
-        queue.async {
+    fileprivate func clientRequest(id: Int, bytes: Int, request: @escaping () -> ClientRequest?) {
+        clientEnqueue(bytes: bytes) {
             guard !self.dead, let remote = self.remote else { return }
             let refuse = { (failure: WidgetRequestFailure) in remote.answer(request: id, outcome: .failure(failure)) }
             let context = self.config.context.effective
-            guard let request, !context.preview, context.canQuery, !self.requests.busy else { return refuse(.notAllowed) }
+            guard let request = request(), !context.preview, context.canQuery, !self.requests.busy else { return refuse(.notAllowed) }
             let now = Self.nowMs()
             let pressed = self.config.policy == .compat || self.liveGrants()
             let verdict: SdkPolicy.RequestVerdict
@@ -1717,7 +1754,7 @@ extension SandboxEngine {
     }
 
     func clientStorage(_ json: String) {
-        queue.async {
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(json.utf8.count)) {
             guard !self.dead, !self.config.context.preview else { return }
             guard json.utf16.count <= Self.maxStorageCommitChars, let commit = SdkPolicy.checkStorageCommit(Self.parse(json)), !commit.isEmpty else {
                 if self.rejectedStorageReported < 20 {
@@ -1731,12 +1768,21 @@ extension SandboxEngine {
     }
 
     func clientResizeAnchor(_ edge: String) {
-        guard let anchor = WidgetResizeAnchor(rawValue: edge) else { return clientViolation("resize anchor \(edge.prefix(16))") }
-        clientDeliver { $0.engine(self, resizeAnchor: anchor) }
+        clientEnqueue(bytes: RemoteCallbackBudget.cost(edge.utf8.count)) {
+            guard !self.dead else { return }
+            guard let anchor = WidgetResizeAnchor(rawValue: edge) else {
+                if self.rejectedBridgeReported < 20 {
+                    self.rejectedBridgeReported += 1
+                    self.delegate?.engine(self, diag: "protocol-violation", detail: "invalid resize anchor")
+                }
+                return
+            }
+            self.delegate?.engine(self, resizeAnchor: anchor)
+        }
     }
 
     func clientWatchesPublicData(_ on: Bool) {
-        queue.async {
+        clientEnqueue {
             guard !self.dead, !self.config.context.preview else { return }
             self.delegate?.engine(self, watchesPublicData: on)
         }
@@ -1744,8 +1790,8 @@ extension SandboxEngine {
 
     func clientLoaded() { clientDeliver { $0.engineLoaded(self) } }
     func clientStats(_ stats: SandboxStats) { clientDeliver { $0.engine(self, stats: stats) } }
-    func clientDied(_ reason: String) { queue.async { self.remoteKill(reason, tellRemote: false) } }
-    func clientDisconnected() { queue.async { self.remoteKill("the widget engine process ended", tellRemote: false) } }
+    func clientDied(_ reason: String) { clientEnqueue(bytes: RemoteCallbackBudget.cost(reason.utf8.count)) { self.remoteKill(reason, tellRemote: false) } }
+    func clientDisconnected() { clientEnqueue { self.remoteKill("the widget engine process ended", tellRemote: false) } }
 }
 
 /// The client engine's ear on its channel; holds the engine weakly so the channel never keeps it alive.
@@ -1754,6 +1800,10 @@ public final class SandboxRemoteClient: SandboxRemoteSink {
 
     init(_ engine: SandboxEngine) {
         self.engine = engine
+    }
+
+    public func remoteDecode(bytes: Int, _ decode: @escaping () -> Void) {
+        engine?.clientDecode(bytes: bytes, decode)
     }
 
     public func remoteTaskStarted() { engine?.clientTaskStarted() }
@@ -1770,12 +1820,15 @@ public final class SandboxRemoteClient: SandboxRemoteSink {
     public func remoteBridge(method: String, argsJson: String) { engine?.clientBridge(method: method, argsJson: argsJson) }
     public func remoteCopyText(_ text: String) { engine?.clientCopyText(text) }
     public func remoteRequest(id: Int, data: String, wallet: Bool) {
-        let request = SdkPolicy.checkRequestData(data).map { SandboxEngine.ClientRequest.bot(WidgetRequest(data: $0, wallet: wallet)) }
-        engine?.clientRequest(id: id, request: request)
+        engine?.clientRequest(id: id, bytes: RemoteCallbackBudget.cost(data.utf8.count)) {
+            SdkPolicy.checkRequestData(data).map { SandboxEngine.ClientRequest.bot(WidgetRequest(data: $0, wallet: wallet)) }
+        }
     }
 
     public func remoteWallet(id: Int, payload: Data) {
-        engine?.clientRequest(id: id, request: SandboxRemoteCoding.decodeWallet(payload).map(SandboxEngine.ClientRequest.wallet))
+        engine?.clientRequest(id: id, bytes: RemoteCallbackBudget.cost(payload.count)) {
+            SandboxRemoteCoding.decodeWallet(payload).map(SandboxEngine.ClientRequest.wallet)
+        }
     }
     public func remoteStorage(_ commitJson: String) { engine?.clientStorage(commitJson) }
     public func remoteResizeAnchor(_ edge: String) { engine?.clientResizeAnchor(edge) }
