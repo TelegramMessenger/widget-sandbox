@@ -865,14 +865,15 @@ TEST(an_exception_from_a_sync_task_reaches_its_caller) {
     t.stop();
 }
 
-TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
+/// The limit counts a string's bytes: 5 M code units of two bytes each never exist under 8 MB, so none reaches a host function.
+TEST(a_string_past_the_memory_limit_never_reaches_a_host_function) {
     JSThread t("test.js");
     int calls = 0;
     std::string error = t.sync([&]() -> std::string {
         NovaContext js(size_t(8) << 20, JSThread::kJSStackLimit);
         js.registerFunction("__probe", [&](const std::vector<std::string>&) { calls++; return HostReturn::undefined(); });
         try {
-            js.evaluate("var s = '\\u00e9'.repeat(5 << 20); __probe('fits'); __probe(s); __probe('after');", "t.js");
+            js.evaluate("__probe('fits'); var s; try { s = '\\u00e9'.repeat(5 << 20); } catch (e) {} __probe(s); __probe('after');", "t.js");
         } catch (const JSError& e) {
             return e.what();
         }
@@ -1016,11 +1017,10 @@ TEST(an_uncatchable_error_stops_the_widget_whatever_its_text) {
         CHECK_MSG(r.host.died && r.host.died->find(reason) != std::string::npos, script + " → " + r.host.died.value_or("alive: " + r.logsText()));
         CHECK_MSG(!r.host.hasLog("getter ran") && !r.host.hasLog("went on"), script + " → " + r.logsText());
     };
-    stopped("Object.defineProperty(InternalError.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
+    stopped("Object.defineProperty(Error.prototype, 'name', { get: function () { console.log('getter ran'); this.message = 'renamed'; return 'Quiet'; } });" + flood,
             "Memory limit exceeded (8 MB)");
-    stopped("throw new InternalError('made by the widget');", "Engine error: InternalError: made by the widget");
-    stopped("var e = new InternalError('own'); Object.defineProperty(e, 'message', { get: function () { console.log('getter ran'); return 'read'; } }); throw e;",
-            "Engine error: InternalError: ");
+    stopped("try { " + flood + " } catch (e) { console.log('getter ran'); } finally { console.log('getter ran'); }", "Memory limit exceeded (8 MB)");
+    stopped("Promise.resolve().then(function () { try { " + flood + " } catch (e) { console.log('getter ran'); } });", "Memory limit exceeded (8 MB)");
     stopped("throw { get name() { " + flood + " }, message: Symbol('m') };", "Memory limit exceeded (8 MB)");
 }
 
@@ -1038,6 +1038,9 @@ TEST(an_ordinary_uncaught_error_is_logged_and_the_widget_goes_on) {
     logged("throw { name: 'Custom', message: 'text' };", "Uncaught Custom: text");
     logged("throw 'a string';", "Uncaught a string");
     logged("throw { get name() { throw new Error('inner'); }, message: 'm' };", "Uncaught Error: ");
+    // The engine's own failures are not errors a script can make: one that names itself after them is an ordinary error.
+    logged("throw { name: 'InternalError', message: 'made by the widget' };", "Uncaught InternalError: made by the widget");
+    logged("var e = new Error('interrupted'); e.name = 'InternalError'; throw e;", "Uncaught InternalError: interrupted");
 }
 
 TEST(layout_query_round_trip) {

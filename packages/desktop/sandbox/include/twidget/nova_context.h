@@ -96,8 +96,6 @@ private:
     nova_engine* engine_ = nullptr;
     size_t memoryLimit_ = 0;
     std::vector<HostFunction> functions_;
-    /// The RangeError a host function asked for, until the script's side of the function throws it.
-    std::optional<std::string> thrown_;
     /// A host function threw: nothing more reaches the host and the running script is ended.
     Failure failure_ = Failure::None;
     std::string failureText_;

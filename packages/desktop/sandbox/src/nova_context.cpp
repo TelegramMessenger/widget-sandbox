@@ -26,8 +26,6 @@
 namespace twidget {
 namespace {
 
-constexpr uint32_t kThrownId = 0xFFFFFFFFu;
-constexpr const char* kThrownName = "__twHostThrown";
 constexpr size_t kMaxCompiledPerBundle = 4;
 
 const uint8_t* bytesOf(const std::string& s) { return reinterpret_cast<const uint8_t*>(s.data()); }
@@ -111,18 +109,6 @@ CompiledBundles& compiledBundles() {
     return *result;
 }
 
-std::string wrapperScript(const std::string& name) {
-    return "(function(g){const raw=g." + name + ",thrown=g." + kThrownName + ",Failure=RangeError;"
-        "if(typeof raw!=='function'||typeof thrown!=='function'||!delete g." + kThrownName + ")throw new Error('host function');"
-        "g." + name + "=function(a,b,c,d,e,f,h,i){'use strict';let r;"
-        "switch(arguments.length){"
-        "case 0:r=raw();break;case 1:r=raw(a);break;case 2:r=raw(a,b);break;case 3:r=raw(a,b,c);break;"
-        "case 4:r=raw(a,b,c,d);break;case 5:r=raw(a,b,c,d,e);break;case 6:r=raw(a,b,c,d,e,f);break;"
-        "case 7:r=raw(a,b,c,d,e,f,h);break;default:r=raw(a,b,c,d,e,f,h,i);}"
-        "if(r===null){const m=thrown();if(m!==undefined)throw new Failure(m);}"
-        "return r;};})(globalThis);";
-}
-
 } // namespace
 
 struct NovaTrampoline {
@@ -130,12 +116,6 @@ struct NovaTrampoline {
     static void call(void* context, uint32_t id, const nova_arg* args, size_t argc, nova_return* ret) {
         auto* self = static_cast<NovaContext*>(context);
         if (!self) return;
-        if (id == kThrownId) {
-            if (self->thrown_) nova_return_string(ret, bytesOf(*self->thrown_), self->thrown_->size());
-            self->thrown_.reset();
-            return;
-        }
-        self->thrown_.reset();
         if (self->failure_ != NovaContext::Failure::None || size_t(id) >= self->functions_.size()) return;
         try {
             std::vector<std::string> list;
@@ -165,10 +145,7 @@ struct NovaTrampoline {
             case HostReturn::Kind::String: nova_return_string(ret, bytesOf(r.str), r.str.size()); break;
             case HostReturn::Kind::Number: nova_return_number(ret, r.num); break;
             case HostReturn::Kind::ArrayBuffer: nova_return_bytes(ret, r.bytes.data(), r.bytes.size()); break;
-            case HostReturn::Kind::RangeError:
-                self->thrown_ = std::move(r.str);
-                nova_return_null(ret);
-                break;
+            case HostReturn::Kind::RangeError: nova_return_range_error(ret, bytesOf(r.str), r.str.size()); break;
             }
         } catch (const std::bad_alloc&) {
             self->failure_ = NovaContext::Failure::Memory;
@@ -346,6 +323,11 @@ NovaContext::NovaContext(size_t memoryLimitBytes, size_t maxStackBytes) : memory
     const std::string why = textOf(error);
     nova_result_free(&error);
     if (!engine_) throw JSError(why.empty() ? "the Nova engine could not be created" : why);
+    // Out of memory ends the script wherever it happens: caught, a script would go on just under its limit.
+    if (nova_engine_set_out_of_memory_fatal(engine_, true) != NOVA_OK) {
+        nova_engine_free(engine_);
+        throw JSError("the Nova engine did not take its out-of-memory mode");
+    }
     // No module loader exists: `import` of anything fails inside the sandbox.
     nova_engine_set_time_zone(engine_, &NovaTrampoline::timeZone);
 }
@@ -360,22 +342,15 @@ void NovaContext::registerFunction(const std::string& name, HostFunction fn) {
     if (!isIdentifier(name)) throw JSError("a host function's name must be an identifier of at most 64 characters");
     const uint32_t id = uint32_t(functions_.size());
     functions_.push_back(std::move(fn));
-    auto define = [&](const std::string& global, uint32_t as, uint32_t length) {
-        nova_result result{};
-        const int status = nova_engine_register(engine_, bytesOf(global), global.size(), as, length, NOVA_ARGS_VALUES, &result);
-        const std::string why = textOf(result);
-        nova_result_free(&result);
-        if (status != NOVA_OK) throw JSError("host function " + name + ": " + why);
-    };
-    define(name, id, 2);
-    define(kThrownName, kThrownId, 0);
-    // The engine's host functions cannot throw: the script's side of each one throws the RangeError its host side asked for, calling nothing a script could replace.
-    evaluate(wrapperScript(name), "host-function.js");
+    nova_result result{};
+    const int status = nova_engine_register(engine_, bytesOf(name), name.size(), id, 2, NOVA_ARGS_VALUES, &result);
+    const std::string why = textOf(result);
+    nova_result_free(&result);
+    if (status != NOVA_OK) throw JSError("host function " + name + ": " + why);
 }
 
 void NovaContext::enter() {
     uncatchable = false;
-    thrown_.reset();
 }
 
 JSResult NovaContext::finish(int status, void* opaque) {

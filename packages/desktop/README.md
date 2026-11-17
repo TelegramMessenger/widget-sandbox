@@ -56,7 +56,11 @@ The engine is Nova (github.com/TelegramMessenger/nova-safe: its engine crates
 forbid `unsafe` code), linked as the static library of its `nova_embed_ffi`
 crate: `-DTW_NOVA_ROOT=<a nova-safe checkout>` builds it with cargo, or
 `-DTW_NOVA_LIBRARY=<the library> -DTW_NOVA_INCLUDE=<the directory of nova_engine.h>`
-links a built one (tdesktop links it inside its one Rust archive). The bundles
+links a built one (tdesktop builds it from its own nova-safe submodule, for its
+widget helper). It needs nova-safe from the commit that added
+`nova_engine_set_out_of_memory_fatal` and `nova_return_range_error`: out of
+memory ends a script wherever it happens, a host function throws its RangeError
+itself, and strings go into the engine as WTF-8, as they come out. The bundles
 run from code compiled once per process (`NovaContext::evaluateBundle`): there
 is no bytecode file. Besides it the library links only the C++ standard library,
 pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.

@@ -39,7 +39,7 @@ elseif(EXISTS "${TW_NOVA_ROOT}/nova_embed_ffi/include/nova_engine.h")
     set(TW_NOVA_BUILT "${TW_NOVA_TARGET_DIR}/release/${CMAKE_STATIC_LIBRARY_PREFIX}nova_embed_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
     file(GLOB_RECURSE TW_NOVA_SOURCES CONFIGURE_DEPENDS "${TW_NOVA_ROOT}/nova_embed_ffi/src/*.rs" "${TW_NOVA_ROOT}/nova_embed/src/*.rs" "${TW_NOVA_ROOT}/nova_vm/src/*.rs")
     add_custom_command(OUTPUT "${TW_NOVA_BUILT}"
-        COMMAND "${TW_CARGO}" build --release --locked --package nova_embed_ffi --target-dir "${TW_NOVA_TARGET_DIR}"
+        COMMAND "${TW_CARGO}" rustc --release --locked --package nova_embed_ffi --lib --crate-type staticlib --target-dir "${TW_NOVA_TARGET_DIR}"
         WORKING_DIRECTORY "${TW_NOVA_ROOT}"
         DEPENDS ${TW_NOVA_SOURCES} "${TW_NOVA_ROOT}/Cargo.toml" "${TW_NOVA_ROOT}/Cargo.lock"
         COMMENT "cargo build nova_embed_ffi (the first build takes about a minute)"
