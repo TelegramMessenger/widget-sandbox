@@ -819,7 +819,9 @@ TEST(the_nova_engine_runs_behind_the_same_context) {
         std::string memory;
         try { small.evaluate(std::string("try { ") + kFlood + " } catch (e) { 'caught' }", "t.js"); } catch (const JSError& e) { memory = e.what(); }
         CHECK_MSG(memory == "InternalError: out of memory" && small.uncatchable, memory);
-        CHECK(small.memoryUsed() <= (size_t(4) << 20) + (size_t(1) << 20));
+        // Nova's limit is the context's plus 3 MB for what it holds of our bundle (NovaEngine::memoryLimit), counted
+        // in the bytes its allocations hold: the script ends within a megabyte of it.
+        CHECK(small.memoryUsed() <= (size_t(4) << 20) + (size_t(3) << 20) + (size_t(1) << 20));
     });
 }
 

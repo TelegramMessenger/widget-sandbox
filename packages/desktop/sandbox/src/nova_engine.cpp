@@ -135,6 +135,15 @@ public:
     /// of it, so the frames between two of the engine's checks and the host's own stay inside the thread's stack.
     static size_t stackLimit(size_t maxStackBytes) { return maxStackBytes / 4 * 3; }
 
+    /// The bytes Nova may allocate for a context whose QuickJS limit is `memoryLimitBytes`. Nova counts every byte its
+    /// allocations hold (nova_engine.h), and with our bundle evaluated and nothing of a widget's yet it holds about
+    /// 3 MB more than QuickJS does (4.7-5.2 MB against 1.9-2.0 MB on arm64; what a widget then adds costs the same on
+    /// both). The limit is for what a widget builds, so Nova gets that difference on top; no limit stays no limit.
+    static size_t memoryLimit(size_t memoryLimitBytes) {
+        static constexpr size_t kBundleOverheadBytes = size_t(3) << 20;
+        return memoryLimitBytes == 0 ? 0 : memoryLimitBytes + kBundleOverheadBytes;
+    }
+
     static std::unique_ptr<QuickJSEngine> create(QuickJSContext& owner, size_t memoryLimitBytes, size_t maxStackBytes, std::string& reason) {
         if (!enforcesLimits()) {
             reason = "this build of the Nova engine does not enforce its limits (" + std::to_string(nova_embed_limits()) + " of 7)";
@@ -143,7 +152,7 @@ public:
         // The engine keeps the callbacks' context for its whole life: the NovaEngine object, made first.
         auto self = std::unique_ptr<NovaEngine>(new NovaEngine(owner, nullptr));
         nova_result error{};
-        self->engine_ = nova_engine_new(memoryLimitBytes, stackLimit(maxStackBytes), &hostCall, &interrupt, self.get(), &error);
+        self->engine_ = nova_engine_new(memoryLimit(memoryLimitBytes), stackLimit(maxStackBytes), &hostCall, &interrupt, self.get(), &error);
         std::string why = text(error);
         nova_result_free(&error);
         if (!self->engine_) {
