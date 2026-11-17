@@ -1,4 +1,4 @@
-// The engine's clock, one definition for the engine's deadlines (`SandboxEngine::nowSeconds`, sandbox_engine_shared.cpp) and the QuickJS interrupt handler that enforces them (`QuickJSContext::now`, quickjs_context.cpp), so the two never disagree; inline, so the host's side reads it without linking QuickJS. Library sources only; nothing under include/ names it.
+// The engine's clock, one definition for the engine's deadlines (`SandboxEngine::nowSeconds`, sandbox_engine_shared.cpp) and the Nova interrupt handler that enforces them (`NovaContext::now`, nova_context.cpp), so the two never disagree; inline, so the host's side reads it without linking Nova. Library sources only; nothing under include/ names it.
 #pragma once
 
 #include <chrono>

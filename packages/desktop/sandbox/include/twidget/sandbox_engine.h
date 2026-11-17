@@ -1,5 +1,5 @@
 // The sandbox engine: the C++ counterpart of src/host/worker.ts and of
-// ios SandboxEngine.swift / android SandboxEngine.kt. Owns one QuickJS runtime
+// ios SandboxEngine.swift / android SandboxEngine.kt. Owns one Nova runtime
 // per widget on its own JSThread, exposes exactly one capability to the
 // untrusted code (`__host(kind, arg)` + `__hostBinary()`), enforces CPU and
 // memory limits, and drives timers / frames / scripts.
@@ -14,7 +14,7 @@
 #include "twidget/cpu_budget.h"
 #include "twidget/intl.h"
 #include "twidget/js_thread.h"
-#include "twidget/quickjs_context.h"
+#include "twidget/nova_context.h"
 #include "twidget/resources.h"
 #include "twidget/sdk_policy.h"
 
@@ -330,7 +330,7 @@ public:
 
     void start();
     void terminate();
-    /// In process only (a client-mode engine does nothing), never from the engine's own thread, for an engine that died: its runtime goes, the thread ending once what it queued ran and then its QuickJS context freed; every later input is dropped (a probe answers "ERROR no runtime") and the object stays valid (a hosted widget's served engine, whose glue keeps the renderer, remote_hosted.h).
+    /// In process only (a client-mode engine does nothing), never from the engine's own thread, for an engine that died: its runtime goes, the thread ending once what it queued ran and then its Nova context freed; every later input is dropped (a probe answers "ERROR no runtime") and the object stays valid (a hosted widget's served engine, whose glue keeps the renderer, remote_hosted.h).
     void release();
     /// The host stops the widget (a counted cap of the validator passed under strict, its diagnostic `limit`): the
     /// runtime dies with `reason` as it does for memory or CPU (`onDied(reason)`). From the engine thread (a delegate
@@ -448,7 +448,7 @@ private:
     void inProcessSetVisible(bool visible);
     std::string inProcessProbe(const std::string& code);
     void inProcessChargeValidator(double ms);
-    /// Those halves as one table, constant-initialised in sandbox_engine.cpp (`kInProcess`): the shared entry points reach them only through it, so a program of client-mode engines links neither them nor QuickJS.
+    /// Those halves as one table, constant-initialised in sandbox_engine.cpp (`kInProcess`): the shared entry points reach them only through it, so a program of client-mode engines links neither them nor Nova.
     struct InProcess {
         void (SandboxEngine::*start)();
         void (SandboxEngine::*terminate)();
@@ -500,9 +500,8 @@ private:
     std::optional<std::string> callTw(const std::string& kind, const std::string& arg);
     void settle();
     void evalScript(const std::string& code, const std::string& filename, bool asModule = false);
-    /// One of our own bundles: the precompiled `.qbc` when shipped and matching the source,
-    /// else the source. Returns "bytecode" or "source" for the diag.
-    std::string evalBundle(const std::string& source, const std::vector<uint8_t>& bytecode, const std::string& filename);
+    /// One of our own bundles, from code compiled once per process when it can be shared, else from the source. Returns "compiled", "source" or "failed" for the diag.
+    std::string evalBundle(const std::string& source, const std::string& filename);
     void pumpScripts();
     void resetDeadline();
     void task(const std::string& kind, double sliceMs, const std::function<void()>& body);
@@ -519,7 +518,7 @@ private:
     std::shared_ptr<SandboxResources> resources_;
     std::shared_ptr<IntlProvider> intl_;
     /// The widget's runtime from `boot` until `release` or the destructor; `boot` sets the deleter with it (none before), so only sandbox_engine.cpp names the context's destructor.
-    std::unique_ptr<QuickJSContext, void (*)(QuickJSContext*)> js_{nullptr, nullptr};
+    std::unique_ptr<NovaContext, void (*)(NovaContext*)> js_{nullptr, nullptr};
     bool dead_ = false;
     bool started_ = false;
     SandboxStats stats_;

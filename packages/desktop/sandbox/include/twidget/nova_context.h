@@ -1,7 +1,4 @@
-// Thin C++ wrapper over quickjs-ng through the same qjs_shim.c that iOS and
-// Android use (quickjs.h's JSValue macros are compound literals, not C++).
-// One runtime, one context, string-based host functions. All methods must be
-// called from the JSThread that owns the context.
+// Thin C++ wrapper over the Nova engine (TelegramMessenger/nova-safe) through the C interface of its nova_embed_ffi crate (nova_engine.h): one engine, one realm, string-based host functions; scripts, arguments and results cross as copies, and all methods must be called from the JSThread that owns the context.
 #pragma once
 
 #include <cstdint>
@@ -12,8 +9,7 @@
 #include <string>
 #include <vector>
 
-struct JSRuntime;
-struct JSContext;
+struct nova_engine;
 
 namespace twidget {
 
@@ -44,22 +40,24 @@ struct JSResult {
     std::optional<double> number;
 };
 
-class QuickJSContext {
+class NovaContext {
 public:
     using HostFunction = std::function<HostReturn(const std::vector<std::string>&)>;
 
-    /// `maxStackBytes` must stay below the real stack of the thread that enters
-    /// JS (JSThread: 8 MB). QuickJS only *detects* overflow against this limit.
-    explicit QuickJSContext(size_t memoryLimitBytes, size_t maxStackBytes = size_t(384) << 10);
-    ~QuickJSContext();
-    QuickJSContext(const QuickJSContext&) = delete;
-    QuickJSContext& operator=(const QuickJSContext&) = delete;
+    /// "nova_embed <version> (nova <commit>)".
+    static std::string engineVersion();
+
+    /// `maxStackBytes` must stay below the real stack of the thread that enters JS (JSThread: 8 MB); the engine's JavaScript gets three quarters of it, counted from each call into the engine. Throws JSError when the engine cannot be created or does not enforce its interrupt, heap and stack limits.
+    explicit NovaContext(size_t memoryLimitBytes, size_t maxStackBytes = size_t(384) << 10);
+    ~NovaContext();
+    NovaContext(const NovaContext&) = delete;
+    NovaContext& operator=(const NovaContext&) = delete;
 
     /// Interrupt deadline in `now()` seconds; +inf disables it.
     double deadline = std::numeric_limits<double>::infinity();
     /// Set by the interrupt handler when the deadline fired; reset by the caller.
     bool interrupted = false;
-    /// Whether the error the last call threw is one script cannot catch (out of memory, the interrupt, any InternalError).
+    /// Whether the error the last call threw is one script cannot catch (out of memory, the interrupt, a host function's failure, an engine fault).
     bool uncatchable = false;
 
     /// Interrupt deadline in `threadCpuTime()` seconds of the thread running JS; +inf disables it.
@@ -72,16 +70,12 @@ public:
 
     size_t memoryUsed() const;
 
-    /// Exposes `name(...)` to the sandbox. Arguments arrive as strings (numbers are formatted).
+    /// Exposes `name(...)` to the sandbox, `name` an identifier. Arguments arrive as strings (numbers are formatted), at most eight of them.
     void registerFunction(const std::string& name, HostFunction fn);
 
     JSResult evaluate(const std::string& code, const std::string& filename, bool asModule = false);
-    /// Runs one of our own precompiled bundles (`.qbc`, see qjs_shim.h), checked against
-    /// the source it was built from; throws JSError on any mismatch so the caller can
-    /// fall back to `evaluate`. Never for widget code: bytecode is not verified.
-    JSResult evaluateBytecode(const std::vector<uint8_t>& blob, const std::string& source);
-    /// Compiles `code` into the same container the build ships (tests).
-    std::vector<uint8_t> compileBytecode(const std::string& code, const std::string& filename);
+    /// Runs one of our own bundles from code compiled once per process and shared by every context; false when it could not be shared and was evaluated from `source` instead. Never for widget code.
+    bool evaluateBundle(const std::string& source, const std::string& filename);
     /// Calls the global function `name` with string arguments.
     JSResult call(const std::string& name, const std::vector<std::string>& args = {});
 
@@ -93,15 +87,21 @@ public:
     bool executePendingJob(const std::function<void(const JSError&)>& onError);
 
 private:
-    void enter();
-    JSError takeException();
+    enum class Failure { None, Memory, Other };
 
-    JSRuntime* runtime_;
-    JSContext* context_;
+    void enter();
+    /// The value of a finished call, or its error thrown as JSError; frees `result`.
+    JSResult finish(int status, void* result);
+
+    nova_engine* engine_ = nullptr;
+    size_t memoryLimit_ = 0;
     std::vector<HostFunction> functions_;
-    struct Captured;
-    std::vector<Captured*> captured_;
-    friend struct QuickJSTrampoline;
+    /// The RangeError a host function asked for, until the script's side of the function throws it.
+    std::optional<std::string> thrown_;
+    /// A host function threw: nothing more reaches the host and the running script is ended.
+    Failure failure_ = Failure::None;
+    std::string failureText_;
+    friend struct NovaTrampoline;
 };
 
 } // namespace twidget

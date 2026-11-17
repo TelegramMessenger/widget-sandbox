@@ -119,7 +119,7 @@ static std::vector<std::pair<uint8_t, std::string>> hostedOnlyFrames(uint32_t ru
     };
 }
 
-/// The hosting stream's kinds are the documented table's: the eleven numbers, the host's below 64; the engine's end serving a hosting stream still reads 0, 22, 63, 88 and 255 as unknown and the engine's new kinds as the other side's; `HostingOpening`'s fields read back by hand in their order, and a hosted widget's validator is built from its fifth and sixth (a bundle of another stamp is refused at its build, bytecode that does not load falls back to the source).
+/// The hosting stream's kinds are the documented table's: the eleven numbers, the host's below 64; the engine's end serving a hosting stream still reads 0, 22, 63, 88 and 255 as unknown and the engine's new kinds as the other side's; `HostingOpening`'s fields read back by hand in their order, and a hosted widget's validator is built from its fourth (a bundle of another stamp is refused at its build).
 TEST(remote_stream_hosted_wire_follows_the_documented_table) {
     using K = SandboxRemoteWire::Kind;
     const std::vector<std::pair<K, uint8_t>> kinds = {
@@ -145,18 +145,18 @@ TEST(remote_stream_hosted_wire_follows_the_documented_table) {
         CHECK_MSG(host.frameCount() == 1, reason + ": " + std::to_string(host.frameCount()) + " frames");
     }
 
-    const std::string opening = hostingOpeningBytes(1, kBuild, "sandbox", std::string("\0\1", 2), "validator", "\2", "stamp");
+    const std::string opening = hostingOpeningBytes(1, kBuild, std::string("sand\0box", 8), std::string("valid\1ator", 10), "stamp");
     const std::optional<ParsedFrame> frame = frameAt(opening, uint32_t(wire::little(std::string_view(opening).substr(0, 4))));
     CHECK(frame && frame->runtime == 0 && frame->kind == 32 && wire::little(std::string_view(opening).substr(0, 4)) == opening.size() - 4);
     if (frame) {
         FieldsOf in(*frame);
-        CHECK(in.i64() == 1 && in.str() == kBuild && in.str() == "sandbox" && in.str() == std::string("\0\1", 2) && in.str() == "validator" && in.str() == "\2" && in.str() == "stamp" && in.done());
+        CHECK(in.i64() == 1 && in.str() == kBuild && in.str() == std::string("sand\0box", 8) && in.str() == std::string("valid\1ator", 10) && in.str() == "stamp" && in.done());
     }
 
     const std::string other = BundleStamp{"9.9.9", 99, 1, 1}.line();
     const std::string refusal = BundleStamp::refusal(other, "validator-bundle.js").value_or("");
     const std::string restamped = other + RES->validatorBundle.substr(RES->validatorBundle.find('\n'));
-    CHECK(!refusal.empty() && !RES->validatorBytecode.empty());
+    CHECK(!refusal.empty());
     struct Validator {
         const char* name;
         std::string opening;
@@ -166,8 +166,7 @@ TEST(remote_stream_hosted_wire_follows_the_documented_table) {
         std::string outcome;
     };
     const std::vector<Validator> validators = {
-        {"another stamp", hostingOpeningOf(*RES, restamped, ""), "diag:bundle-mismatch:" + refusal, "died:sandbox bundle failed to load"},
-        {"bytecode that does not load", hostingOpeningOf(*RES, std::nullopt, "not bytecode"), "diag:bytecode:validator-bundle.js: falling back to source", "rendered"},
+        {"another stamp", hostingOpeningOf(*RES, restamped), "diag:bundle-mismatch:" + refusal, "died:sandbox bundle failed to load"},
         {"the shipped validator", hostingOpeningOf(*RES), "", "rendered"},
     };
     for (const Validator& v : validators) {
@@ -177,7 +176,7 @@ TEST(remote_stream_hosted_wire_follows_the_documented_table) {
         CHECK_MSG(eventually([&] { return (v.diag.empty() || !host.eventsWith(1, v.diag).empty()) && host.saw(1, v.outcome); }, 20), std::string(v.name) + ": " + joined(host.events(1)));
         const bool renders = v.outcome == "rendered", rendered = eventually([&] { return renderers.at(0) && renderers.at(0)->drew("checked"); }, renders ? 5 : 0.3);
         CHECK_MSG(rendered == renders, std::string(v.name) + (rendered ? ": rendered" : ": rendered nothing"));
-        if (v.diag.empty()) CHECK_MSG(host.eventsWith(1, "diag:bytecode:").empty() && host.eventsWith(1, "diag:bundle-mismatch:").empty(), joined(host.events(1)));
+        if (v.diag.empty()) CHECK_MSG(host.eventsWith(1, "diag:bundle-mismatch:").empty(), joined(host.events(1)));
         host.close();
         CHECK(host.served(5) == std::string());
     }
@@ -190,7 +189,7 @@ TEST(remote_stream_hosted_engine_opening_and_lockdown) {
     const std::string opening = hostingOpeningOf(*RES);
     const std::optional<ParsedFrame> sent = frameAt(opening, uint32_t(opening.size() - 4));
     const std::string queued = opening + FrameBytes(1, wire::Open).bytes() + hostedStartFrame(1, "<script>console.log('ran')</script>");
-    CHECK(opening.size() < Wire::kMaxOpeningBytes && opening.size() > RES->validatorBundle.size() + RES->validatorBytecode.size());
+    CHECK(opening.size() < Wire::kMaxOpeningBytes && opening.size() > RES->sandboxBundle.size() + RES->validatorBundle.size());
     {
         Gate held;
         std::atomic<int> calls{0};
@@ -244,15 +243,15 @@ TEST(remote_stream_hosted_engine_opening_and_lockdown) {
     };
     const std::vector<Refused> refused = {
         {"plain serve", opening, "kind 32 first, not the opening", false},
-        {"another version", hostingOpeningBytes(2, kBuild, "s", "", "v", "", ""), "stream version 2, this end's is 1", true},
-        {"another build", hostingOpeningBytes(1, "other", "s", "", "v", "", ""), "build \"other\", this end's is \"twidget-tests\"", true},
+        {"another version", hostingOpeningBytes(2, kBuild, "s", "v", ""), "stream version 2, this end's is 1", true},
+        {"another build", hostingOpeningBytes(1, "other", "s", "v", ""), "build \"other\", this end's is \"twidget-tests\"", true},
         {"another kind first", FrameBytes(1, wire::Open).bytes(), "kind 2 first, not the opening", true},
-        {"the opening on a runtime", FrameBytes(3, wire::HostingOpening).i64(1).str(kBuild).str("s").str("").str("v").str("").str("").bytes(), "kind 32 on runtime 3, not the connection", true},
-        {"a trailing byte", FrameBytes(0, wire::HostingOpening).i64(1).str(kBuild).str("s").str("").str("v").str("").str("").raw("x").bytes(), "kind 32 with bytes after its fields", true},
-        {"a missing field", FrameBytes(0, wire::HostingOpening).i64(1).str(kBuild).str("s").str("").str("v").str("").bytes(), "kind 32 with a field past the frame's end", true},
+        {"the opening on a runtime", FrameBytes(3, wire::HostingOpening).i64(1).str(kBuild).str("s").str("v").str("").bytes(), "kind 32 on runtime 3, not the connection", true},
+        {"a trailing byte", FrameBytes(0, wire::HostingOpening).i64(1).str(kBuild).str("s").str("v").str("").raw("x").bytes(), "kind 32 with bytes after its fields", true},
+        {"a missing field", FrameBytes(0, wire::HostingOpening).i64(1).str(kBuild).str("s").str("v").bytes(), "kind 32 with a field past the frame's end", true},
         {"a size past the opening's bound, no body", wire::u32(uint32_t(Wire::kMaxOpeningBytes + 1)), "a frame of 16777217 bytes, past the bound of 16777216", true},
-        {"a renderer stamp past its bound", hostingOpeningBytes(1, kBuild, "s", "", "v", "", longStamp), "a renderer stamp of 4097 bytes, past the bound of 4096", true},
-        {"a renderer stamp of two lines", hostingOpeningBytes(1, kBuild, "s", "", "v", "", "r\nr"), "a renderer stamp of more than one line", true},
+        {"a renderer stamp past its bound", hostingOpeningBytes(1, kBuild, "s", "v", longStamp), "a renderer stamp of 4097 bytes, past the bound of 4096", true},
+        {"a renderer stamp of two lines", hostingOpeningBytes(1, kBuild, "s", "v", "r\nr"), "a renderer stamp of more than one line", true},
     };
     for (const Refused& v : refused) {
         calls = 0;
@@ -268,7 +267,7 @@ TEST(remote_stream_hosted_engine_opening_and_lockdown) {
     }
 
     // A validator bundle is no stamp, so its first line may pass the stamps' bound; the renderer's stamp at its bound and none pass.
-    for (const std::string& accepted : {hostingOpeningBytes(1, kBuild, "s", "", std::string(Wire::kMaxStampBytes + 1, 'v'), "", std::string(Wire::kMaxStampBytes, 'r')), smallHostingOpening()}) {
+    for (const std::string& accepted : {hostingOpeningBytes(1, kBuild, "s", std::string(Wire::kMaxStampBytes + 1, 'v'), std::string(Wire::kMaxStampBytes, 'r')), smallHostingOpening()}) {
         calls = 0;
         ScriptedHost host(nullptr, [&] {
             calls++;
@@ -343,7 +342,7 @@ TEST(remote_stream_hosted_engine_opening_and_lockdown) {
         calls++;
         return std::string();
     }, none.factory());
-    CHECK(host.send(openingOf(*RES, true) + open1 + FrameBytes(1, wire::Start).str(kQueriesB).str(config).bytes()));
+    CHECK(host.send(openingOf(*RES) + open1 + FrameBytes(1, wire::Start).str(kQueriesB).str(config).bytes()));
     CHECK_MSG(eventually([&] { return host.saw(1, "log:B 77 INTL-A") && host.saw(1, "loaded"); }, 20), joined(host.events(1)));
     CHECK_MSG(host.events(0) == std::vector<std::string>{"ready:1"} && calls == 1 && none.count() == 0, joined(host.events(0)));
     host.close();
@@ -372,7 +371,7 @@ static std::vector<std::string> renderTraffic(ScriptedHost& host, uint32_t runti
     return out;
 }
 
-/// The engine's end serves a hosted widget whole: from `Open` and `HostedStart` (the safe area and data kept before it) its engine boots from the opening's bytecode, its renderer (built from the opening's resources, the scheme and the width) announces itself, and the host hears `RendererReady`, then `Loaded`, then `Rendered`, its node counts and the batches it asked for, while every op, layout query, listener, preventDefault, animation and frame request stays with the engine end's renderer (control: the same widget as an engine on the same end sends them as frames). Platform messages cross both ways in order; the renderer's request is a `PlatformRequest` answered by a hand-written `PlatformAnswer`, a second one from another thread waits in the renderer (never a second frame), and the engine's Intl request and a platform request wait at once, each for its own answer. A second runtime that did not ask gets no batch, takes its theme, data and visibility and freezes with its label at a stop; `Close` makes a waiting request return nullopt and sends nothing more for its runtime. A platform message or request past its bound goes out cut to it and one byte more.
+/// The engine's end serves a hosted widget whole: from `Open` and `HostedStart` (the safe area and data kept before it) its engine boots from the opening's sandbox bundle, compiled, its renderer (built from the opening's resources, the scheme and the width) announces itself, and the host hears `RendererReady`, then `Loaded`, then `Rendered`, its node counts and the batches it asked for, while every op, layout query, listener, preventDefault, animation and frame request stays with the engine end's renderer (control: the same widget as an engine on the same end sends them as frames). Platform messages cross both ways in order; the renderer's request is a `PlatformRequest` answered by a hand-written `PlatformAnswer`, a second one from another thread waits in the renderer (never a second frame), and the engine's Intl request and a platform request wait at once, each for its own answer. A second runtime that did not ask gets no batch, takes its theme, data and visibility and freezes with its label at a stop; `Close` makes a waiting request return nullopt and sends nothing more for its runtime. A platform message or request past its bound goes out cut to it and one byte more.
 TEST(remote_stream_hosted_engine_end_serves_a_widget) {
     using Asked = Background<std::optional<std::string>>;
     // Before the host, so a request that a failed check left waiting ends with the host before its worker is finished.
@@ -398,11 +397,10 @@ TEST(remote_stream_hosted_engine_end_serves_a_widget) {
     CHECK_MSG(!nodes.empty() && std::atol(nodes.back().c_str() + 6) > 0, joined(nodes));
     CHECK(!host.eventsWith(1, "validated-ops").empty());
     const std::vector<std::string> boots = host.eventsWith(1, "diag:boot:sandbox bundle eval ");
-    CHECK_MSG(boots.size() == 1 && boots[0].size() > 10 && boots[0].compare(boots[0].size() - 10, 10, "(bytecode)") == 0, joined(boots));
-    CHECK_MSG(host.eventsWith(1, "diag:bytecode:").empty() && host.eventsWith(1, "diag:protocol-violation:").empty(), joined(events));
+    CHECK_MSG(boots.size() == 1 && boots[0].size() > 10 && boots[0].compare(boots[0].size() - 10, 10, "(compiled)") == 0, joined(boots));
+    CHECK_MSG(host.eventsWith(1, "diag:protocol-violation:").empty(), joined(events));
     const std::shared_ptr<SandboxResources> res = built.resources();
-    CHECK(res && res->sandboxBundle == RES->sandboxBundle && res->sandboxBytecode == RES->sandboxBytecode && res->validatorBundle == RES->validatorBundle &&
-          res->validatorBytecode == RES->validatorBytecode && res->rendererBundle == firstLine(RES->rendererBundle));
+    CHECK(res && res->sandboxBundle == RES->sandboxBundle && res->validatorBundle == RES->validatorBundle && res->rendererBundle == firstLine(RES->rendererBundle));
     CHECK(built.theme() == "light" && built.width() == 400);
     for (const char* type : {"ops", "query", "listen", "anim", "requestFrame"}) CHECK_MSG(!r->sent(type).empty(), type);
     CHECK(r->drew("hosted"));
@@ -499,7 +497,7 @@ TEST(remote_stream_hosted_engine_end_serves_a_widget) {
     {
         BuiltRenderers none;
         ScriptedHost engine(layoutAnswers(), nullptr, none.factory());
-        CHECK(engine.send(openingOf(*RES, true) + FrameBytes(1, wire::Open).bytes() + FrameBytes(1, wire::Start).str(kHostedWidget).str(SandboxRemoteCoding::encodeConfig(animatedConfig())).bytes()));
+        CHECK(engine.send(openingOf(*RES) + FrameBytes(1, wire::Open).bytes() + FrameBytes(1, wire::Start).str(kHostedWidget).str(SandboxRemoteCoding::encodeConfig(animatedConfig())).bytes()));
         CHECK_MSG(eventually([&] { return engine.saw(1, "loaded"); }, 20), joined(engine.events(1)));
         CHECK(engine.send(FrameBytes(1, wire::Event).str(kTapOnButton).bytes()));
         const auto sends = [&] {
@@ -657,13 +655,11 @@ private:
     std::vector<std::function<void(std::string)>> unanswered_;
 };
 
-/// A hosted WidgetHost over real ends (`startHosting`, `serveHosting` with a HostedTestRenderer): the hosting opening carries the sandbox and validator bundles with their bytecode and the renderer's stamp; the widget loads and renders in the engine end (its boot from the bytecode, its layout answer and the host's Intl, formatted here on `widget.client`, in the batches it asked for, its renderer ready and node count reported), a probe sees its state, a tap after `pressDelivered` gets the host's request callback and then the wallet's, platform messages cross both ways in order and the renderer's request gets the host's answer, and a theme reaches the widget. The counted stream carried the hosting kinds and none of `Start`, `Event`, `Activation`, `AnimationFrame`, `Viewport`, `Resize`, `Theme`, `PressBegan`, `PressEnded`, `ChargeValidator`, `QueryAnswer`, `Ops`, `Query`, `Listen`, `PreventDefault`, `Anim` or `RequestsFrame` (control: an engine-mode WidgetHost through the same counting sends `Start`, `Ops` and `Query` and gets `QueryAnswer`). Each end refuses the other mode's channel: a hosting end's `channel()` and an engine end's `hostedChannel()` kill their client with why, as `refusingHosted` does.
+/// A hosted WidgetHost over real ends (`startHosting`, `serveHosting` with a HostedTestRenderer): the hosting opening carries the sandbox and validator bundles and the renderer's stamp; the widget loads and renders in the engine end (its boot from the bundle's compiled code, its layout answer and the host's Intl, formatted here on `widget.client`, in the batches it asked for, its renderer ready and node count reported), a probe sees its state, a tap after `pressDelivered` gets the host's request callback and then the wallet's, platform messages cross both ways in order and the renderer's request gets the host's answer, and a theme reaches the widget. The counted stream carried the hosting kinds and none of `Start`, `Event`, `Activation`, `AnimationFrame`, `Viewport`, `Resize`, `Theme`, `PressBegan`, `PressEnded`, `ChargeValidator`, `QueryAnswer`, `Ops`, `Query`, `Listen`, `PreventDefault`, `Anim` or `RequestsFrame` (control: an engine-mode WidgetHost through the same counting sends `Start`, `Ops` and `Query` and gets `QueryAnswer`). Each end refuses the other mode's channel: a hosting end's `channel()` and an engine end's `hostedChannel()` kill their client with why, as `refusingHosted` does.
 TEST(remote_stream_hosted_widget_host) {
     WidgetHostOptions privileged;
     privileged.context = messageContext(false, true, false, "private");
     privileged.context.wallet = true;
-    const std::string bytecode(RES->sandboxBytecode.begin(), RES->sandboxBytecode.end()), checker(RES->validatorBytecode.begin(), RES->validatorBytecode.end());
-    CHECK(!bytecode.empty() && !checker.empty());
     {
         BuiltRenderers built;
         StreamPeers peers(kBuild, *RES, nullptr, built.factory(tall));
@@ -678,13 +674,13 @@ TEST(remote_stream_hosted_widget_host) {
         CHECK_MSG(d.loaded && d.rendered && d.rendererReadyMs && d.nodes > 0 && d.height == 0 && !d.dead, d.dead.value_or("alive"));
         CHECK_MSG(d.countDiag("protocol-violation") == 0, joined(diagsOf(d, "protocol-violation")));
         CHECK_MSG(h.renders("h:20") && h.renders("n:INTL-H"), h.rendered().substr(0, 2000));
-        CHECK_MSG(bootedFrom(d, "(bytecode)"), joined(bootsOf(d)));
+        CHECK_MSG(bootedFrom(d, "(compiled)"), joined(bootsOf(d)));
         CHECK_MSG(h.intl->processes() == std::vector<long>{processId()}, std::to_string(h.intl->processes().size()) + " requests");
 #if defined(__APPLE__) || defined(__linux__)
         CHECK_MSG(h.intl->threads() == std::vector<std::string>{"widget.client"}, joined(h.intl->threads()));
 #endif
         const std::vector<std::string> opening = hostingOpeningFields(peers.engineSide->firstFrame());
-        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, RES->sandboxBundle, bytecode, RES->validatorBundle, checker, firstLine(RES->rendererBundle)}), std::to_string(opening.size()) + " fields");
+        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, RES->sandboxBundle, RES->validatorBundle, firstLine(RES->rendererBundle)}), std::to_string(opening.size()) + " fields");
         CHECK(host.probe("d.textContent + ' ' + document.getElementById('n').textContent") == "h:20 n:INTL-H");
         HostedTestRenderer* r = built.at(0);
         CHECK(r && built.count() == 1 && built.width() == 300);
@@ -906,7 +902,7 @@ static std::vector<Hostile> hostedHostileInputs() {
     add("a node count cut short", FrameBytes(1, wire::Nodes).raw(std::string(4, '\0')).bytes(), "kind 101 with a field past the frame's end", true);
     add("a byte after renderer ready", FrameBytes(1, wire::RendererReady).raw("x").bytes(), "kind 99 with bytes after its fields", true);
     add("a platform request longer than its frame", FrameBytes(1, wire::PlatformRequest).raw(wire::u32(1000)).raw("abc").bytes(), "kind 97 with a field past the frame's end", true);
-    add("the host's hosting opening", hostingOpeningBytes(1, kBuild, "s", "", "v", "", ""), "kind 32 from the other side", true);
+    add("the host's hosting opening", hostingOpeningBytes(1, kBuild, "s", "v", ""), "kind 32 from the other side", true);
     add("the host's platform message", FrameBytes(1, wire::Platform).str("x").bytes(), "kind 35 from the other side", true);
     add("ops while a platform request is unanswered", FrameBytes(1, wire::Ops).str("[]").bytes(), "kind 68 on runtime 1" + never, true, platformRequestFrame(1, "first"));
     add("ops on a runtime never opened", FrameBytes(3, wire::Ops).str("[]").bytes(), "kind 68 on runtime 3" + never, true);
@@ -1965,7 +1961,7 @@ TEST(remote_stream_hosted_kept_engine_process_keeps_only_the_renderer) {
 /// How the engine's end words the death of a hosted widget it could not build, before why (here the refusal of one of its threads).
 static const std::string kNotBuilt = "the widget could not be built in the engine process";
 
-/// The engine's end of a hosting stream whose opening carries validator bytecode that does not load (each validator built reports `bytecode` and falls back to its source) while no thread can start but those a leg leaves: the reaper (runtime 1 opened and closed), B (runtime 2, its probe thread made) and D (runtime 3, never probed), each with its glue's, validator's, renderer's and engine's threads, and every worker are made before the fill. With 0, 1, 2 and 3 threads free a hosted start (runtimes 4 to 7) is refused at its served host's `twidget-host`, its `widget.validator`, its renderer's thread (the test renderer's `hosted.asker`, inside the renderer factory) and its engine's `widget.sandbox`: its one death names that thread within 2 s, after its validator's `bytecode` once the validator was built; the task's thread count comes back to what the leg left with the same named threads (a renderer it built is gone), and the allowance is filled again. Then D's first probe answers "ERROR no runtime" and D is stopped with the refusal of its `widget.probe` within 2 s, in either order, its renderer still carrying its platform messages until its `Close`, then gone. B's probe, platform message and platform request still go through after each, B's threads and the reaper are all that is left, and the engine's end goes on serving.
+/// The engine's end of a hosting stream while no thread can start but those a leg leaves: the reaper (runtime 1 opened and closed), B (runtime 2, its probe thread made) and D (runtime 3, never probed), each with its glue's, validator's, renderer's and engine's threads, and every worker are made before the fill. With 0, 1, 2 and 3 threads free a hosted start (runtimes 4 to 7) is refused at its served host's `twidget-host`, its `widget.validator`, its renderer's thread (the test renderer's `hosted.asker`, inside the renderer factory) and its engine's `widget.sandbox`: its one death names that thread within 2 s; the task's thread count comes back to what the leg left with the same named threads (a renderer it built is gone), and the allowance is filled again. Then D's first probe answers "ERROR no runtime" and D is stopped with the refusal of its `widget.probe` within 2 s, in either order, its renderer still carrying its platform messages until its `Close`, then gone. B's probe, platform message and platform request still go through after each, B's threads and the reaper are all that is left, and the engine's end goes on serving.
 static void hostedUnbuiltOnScriptedStream() {
     const std::string leg = "hosting stream";
     std::mutex m;
@@ -1984,17 +1980,12 @@ static void hostedUnbuiltOnScriptedStream() {
         r.gone = gone.emplace_back(std::make_shared<std::atomic<bool>>(false));
     }));
     const auto open = [](uint32_t runtime) { return FrameBytes(runtime, wire::Open).bytes(); };
-    const auto stale = [](const std::string& e) { return e.rfind("diag:bytecode:validator-bundle.js: falling back to source", 0) == 0; };
-    const auto staleOf = [&](uint32_t runtime) {
-        const std::vector<std::string> events = host.events(runtime);
-        return std::count_if(events.begin(), events.end(), stale);
-    };
-    CHECK(host.send(hostingOpeningOf(*RES, std::nullopt, "not bytecode")));
+    CHECK(host.send(hostingOpeningOf(*RES)));
     CHECK_MSG(eventually([&] { return host.events(0) == std::vector<std::string>{"ready:1"}; }), leg + ": " + joined(host.events(0)));
     // Runtime 1 opened and closed makes the reaper; B is runtime 2 and D runtime 3.
     CHECK(host.send(open(1) + FrameBytes(1, wire::Close).bytes() + open(2) + hostedStartFrame(2, "<p id='p'>b</p>") + open(3) + hostedStartFrame(3, "<p>d</p>")));
     CHECK_MSG(eventually([&] { return host.saw(2, "rendered") && host.saw(3, "rendered"); }, 20), leg + ": " + joined(host.events(2)) + " / " + joined(host.events(3)));
-    CHECK_MSG(staleOf(2) == 1 && staleOf(3) == 1 && built.count() == 2, leg + ": " + joined(host.events(2)) + " / " + joined(host.events(3)));
+    CHECK_MSG(built.count() == 2, leg + ": " + joined(host.events(2)) + " / " + joined(host.events(3)));
     int rounds = 0;
     std::string heard;
     // B's probe sets its text on its probe thread; its renderer sends a platform message and asks a platform request the host answers.
@@ -2020,7 +2011,7 @@ static void hostedUnbuiltOnScriptedStream() {
             int free;
             const char* thread;
         };
-        // In the served host's order: its glue's thread, its validator (which reports `bytecode` as it is built), its renderer from the factory, its engine.
+        // In the served host's order: its glue's thread, its validator, its renderer from the factory, its engine.
         const Refused refused[] = {{0, "twidget-host"}, {1, "widget.validator"}, {2, "hosted.asker"}, {3, "widget.sandbox"}};
         uint32_t runtime = 4;
         for (const Refused& r : refused) {
@@ -2043,10 +2034,6 @@ static void hostedUnbuiltOnScriptedStream() {
             printf("    %s: runtime %u heard %s in %.1f ms; the task back at %s threads (%d with %d free)\n", what.c_str(), runtime, whole(events).c_str(), ms, countText(after).c_str(), leftAt, r.free);
             fflush(stdout);
             CHECK_MSG(dies && died.size() == 1 && unstarted(died[0].substr(5), kNotBuilt, r.thread), what + ": " + whole(events));
-            // A validator that was built reported `bytecode` through its host's thread, which ran it before it was joined: before the death.
-            const auto diagAt = std::find_if(events.begin(), events.end(), stale);
-            const auto deathAt = std::find_if(events.begin(), events.end(), [](const std::string& e) { return e.rfind("died:", 0) == 0; });
-            CHECK_MSG(r.free >= 2 ? diagAt < deathAt && std::count_if(events.begin(), events.end(), stale) == 1 : diagAt == events.end(), what + ": " + whole(events));
             CHECK_MSG(after == leftAt && namesText(names) == namesText(before), what + ": " + countText(after) + " threads, not " + std::to_string(leftAt) + "; " + namesText(names));
             // Only the engine's refusal comes after the renderer was built, which went with the rest.
             const size_t made = r.free == 3 ? 1 : 0;
@@ -2205,7 +2192,7 @@ CHILD_CASE(remote_stream_hosted_keeps_at_the_thread_limit) {
 }
 #endif
 
-/// A hosted widget whose threads in the engine's end cannot start dies alone with the reason: a fresh child (`--child remote_stream_hosted_widgets_at_the_thread_limit`) uses up its thread allowance, every other thread made before, on a hosting stream whose validator bytecode does not load. With 0, 1, 2 and 3 threads free a hosted start is refused at its served host's `twidget-host`, `widget.validator`, its renderer's own thread (inside the renderer factory) and `widget.sandbox`: its one death names that thread within 2 s (the engine's end's context, `JSThread <thread>`, EAGAIN), after the validator's `bytecode` diagnostic once the validator was built, and nothing it built is left. A live widget's first probe, whose `widget.probe` cannot start, answers "ERROR no runtime" and stops it with the refusal, its renderer still carrying platform messages until its `Close`, then gone. Another widget's probe, platform message and platform request go through after each, and the engine's end goes on serving. The child exits 0 within 120 s, or it is killed and the test fails.
+/// A hosted widget whose threads in the engine's end cannot start dies alone with the reason: a fresh child (`--child remote_stream_hosted_widgets_at_the_thread_limit`) uses up its thread allowance, every other thread made before, on a hosting stream. With 0, 1, 2 and 3 threads free a hosted start is refused at its served host's `twidget-host`, `widget.validator`, its renderer's own thread (inside the renderer factory) and `widget.sandbox`: its one death names that thread within 2 s (the engine's end's context, `JSThread <thread>`, EAGAIN), and nothing it built is left. A live widget's first probe, whose `widget.probe` cannot start, answers "ERROR no runtime" and stops it with the refusal, its renderer still carrying platform messages until its `Close`, then gone. Another widget's probe, platform message and platform request go through after each, and the engine's end goes on serving. The child exits 0 within 120 s, or it is killed and the test fails.
 TEST(remote_stream_hosted_threads_that_cannot_start_stop_only_their_widget) {
 #ifdef __APPLE__
     childPasses("remote_stream_hosted_widgets_at_the_thread_limit", 120);

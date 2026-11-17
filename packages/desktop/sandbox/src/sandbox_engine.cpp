@@ -1,4 +1,4 @@
-// The in-process engine: the widget's QuickJS runtime on `widget.sandbox`, its halves of the entry points both modes share (sandbox_engine_shared.cpp reaches them through `kInProcess`), `release`, and `make` with the channel factory slot, which pick the in-process or a client-mode engine.
+// The in-process engine: the widget's Nova runtime on `widget.sandbox`, its halves of the entry points both modes share (sandbox_engine_shared.cpp reaches them through `kInProcess`), `release`, and `make` with the channel factory slot, which pick the in-process or a client-mode engine.
 #include "twidget/sandbox_engine.h"
 
 #include "twidget/bundle_stamp.h"
@@ -101,7 +101,7 @@ static int countCanvasCommands(const std::string& json) {
 static std::string truncate(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n); }
 
 /// `js_`'s deleter, which `boot` sets with the context: only this source frees one.
-static void freeContext(QuickJSContext* js) { delete js; }
+static void freeContext(NovaContext* js) { delete js; }
 
 namespace {
 
@@ -202,7 +202,7 @@ void SandboxEngine::inProcessStop(const std::string& reason) {
 void SandboxEngine::boot() {
     if (started_) return;
     started_ = true;
-    js_ = {new QuickJSContext(config_.memoryLimitBytes, JSThread::kJSStackLimit), freeContext};
+    js_ = {new NovaContext(config_.memoryLimitBytes, JSThread::kJSStackLimit), freeContext};
     js_->registerFunction("__host", [this](const std::vector<std::string>& args) {
         return hostCall(args.empty() ? "" : args[0], args.size() > 1 ? args[1] : "");
     });
@@ -217,7 +217,7 @@ void SandboxEngine::boot() {
         // Generous one-off budget for our own bundle; its time is ours, not the widget's.
         js_->deadline = nowSeconds() + std::max(config_.cpuLimitMs, 5000.0) / 1000;
         js_->cpuDeadline = kInf;
-        std::string how = evalBundle(resources_->sandboxBundle, resources_->sandboxBytecode, "sandbox-bundle.js");
+        std::string how = evalBundle(resources_->sandboxBundle, "sandbox-bundle.js");
         excludeMs_ = nowMs() - t0;
         // Fail closed: a runtime whose shim did not load completely (its network
         // stubs and DOM capture may be missing) never runs widget code.
@@ -925,28 +925,18 @@ void SandboxEngine::settle() {
     }
 }
 
-std::string SandboxEngine::evalBundle(const std::string& source, const std::vector<uint8_t>& bytecode, const std::string& filename) {
-    // Bundles of another release are refused before anything runs, as a stale `.qbc` is (bundle_stamp.h).
+std::string SandboxEngine::evalBundle(const std::string& source, const std::string& filename) {
+    // Bundles of another release are refused before anything runs (bundle_stamp.h).
     if (auto refusal = BundleStamp::refusal(*resources_)) {
         if (delegate_) delegate_->onDiag(*this, "bundle-mismatch", *refusal);
         return "failed";
     }
-    if (!bytecode.empty()) {
-        try {
-            js_->evaluateBytecode(bytecode, source);
-            return "bytecode";
-        } catch (const JSError& e) {
-            std::string msg = e.what();
-            if (delegate_) delegate_->onDiag(*this, "bytecode", filename + ": falling back to source — " + msg.substr(0, msg.find('\n')));
-        }
-    }
     try {
-        js_->evaluate(source, filename, false);
+        return js_->evaluateBundle(source, filename) ? "compiled" : "source";
     } catch (const JSError& e) {
         handleError(e.what(), filename);
         return "failed";
     }
-    return "source";
 }
 
 void SandboxEngine::evalScript(const std::string& code, const std::string& filename, bool asModule) {
@@ -980,7 +970,7 @@ void SandboxEngine::pumpScripts() {
 /// kill widgets; wall-clock time is only a backstop for a thread that never runs.
 void SandboxEngine::resetDeadline() {
     js_->interrupted = false;
-    js_->cpuDeadline = QuickJSContext::threadCpuTime() + currentSliceMs_ / 1000;
+    js_->cpuDeadline = NovaContext::threadCpuTime() + currentSliceMs_ / 1000;
     js_->deadline = nowSeconds() + std::max(currentSliceMs_ * kWallBackstopFactor, kWallBackstopMinMs) / 1000;
 }
 
@@ -1001,7 +991,7 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     taskQueries_ = 0;
     taskOpsCostMs_ = 0;
     queryLimitHit_ = {};
-    double c0 = QuickJSContext::threadCpuTime();
+    double c0 = NovaContext::threadCpuTime();
     resetDeadline();
     body();
     if (!dead_) settle();
@@ -1009,7 +999,7 @@ void SandboxEngine::task(const std::string& kind, double sliceMs, const std::fun
     // Past the limit but done before the interrupt landed (a loop that ended on the error answers): stopped all the same.
     if (!dead_ && !queryLimitHit_.empty()) kill(CpuBudget::queryLimitReason(queryLimitHit_, kind));
     stats_.tasks++;
-    double cpuMs = (QuickJSContext::threadCpuTime() - c0) * 1000 - excludeMs_;
+    double cpuMs = (NovaContext::threadCpuTime() - c0) * 1000 - excludeMs_;
     stats_.jsMs += cpuMs;
     double end = nowMs();
     budget_->record(kind, cpuMs, end);

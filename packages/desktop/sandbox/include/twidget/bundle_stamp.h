@@ -1,8 +1,7 @@
 // The stamp packages/core/scripts/build-native-bundles.ts writes on the first line of every
 // bundle, from VERSION.json (packages/core/scripts/version.ts): this glue runs only bundles of
-// its own protocol, profile and sdk (twidget/version.h, generated from the same file), the
-// way it runs only a `.qbc` compiled from the source next to it. The release itself is not
-// compared. Twins: BundleStamp.swift, BundleStamp.kt; the format's tests: version.test.ts.
+// its own protocol, profile and sdk (twidget/version.h, generated from the same file). The
+// release itself is not compared. Twins: BundleStamp.swift, BundleStamp.kt; the format's tests: version.test.ts.
 #pragma once
 
 #include <optional>

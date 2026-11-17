@@ -56,7 +56,7 @@ std::string refusalOf(const Frame& f, const std::string& build, bool hosting) {
     if (f.i64 != SandboxRemoteWire::kVersion) return "stream version " + std::to_string(f.i64) + ", this end's is " + std::to_string(SandboxRemoteWire::kVersion);
     if (f.str[0] != build) return "build " + inQuotes(f.str[0]) + ", this end's is " + inQuotes(build);
     using Stamp = std::pair<std::string_view, std::string_view>;
-    const std::vector<Stamp> stamps = hosted ? std::vector<Stamp>{{"renderer", f.str[5]}} : std::vector<Stamp>{{"validator", f.str[3]}, {"renderer", f.str[4]}};
+    const std::vector<Stamp> stamps = hosted ? std::vector<Stamp>{{"renderer", f.str[3]}} : std::vector<Stamp>{{"validator", f.str[2]}, {"renderer", f.str[3]}};
     for (const auto& [name, stamp] : stamps) {
         if (stamp.size() > SandboxRemoteWire::kMaxStampBytes)
             return "a " + std::string(name) + " stamp of " + std::to_string(stamp.size()) + " bytes, past the bound of " + std::to_string(SandboxRemoteWire::kMaxStampBytes);
@@ -65,18 +65,12 @@ std::string refusalOf(const Frame& f, const std::string& build, bool hosting) {
     return {};
 }
 
-/// The runtimes' resources from the opening alone, no file read: the sandbox bundle and its bytecode, then the validator's and renderer's stamp lines for `BundleStamp`'s checks at boot, or a hosting opening's whole validator bundle with its bytecode and the renderer's stamp line.
+/// The runtimes' resources from the opening alone, no file read: the sandbox bundle, then the validator's and renderer's stamp lines for `BundleStamp`'s checks at boot, or a hosting opening's whole validator bundle and the renderer's stamp line.
 std::shared_ptr<SandboxResources> resourcesOf(const Frame& f) {
     auto resources = std::make_shared<SandboxResources>();
     resources->sandboxBundle = std::string(f.str[1]);
-    resources->sandboxBytecode.assign(f.str[2].begin(), f.str[2].end());
-    resources->validatorBundle = std::string(f.str[3]);
-    if (f.kind == Kind::HostingOpening) {
-        resources->validatorBytecode.assign(f.str[4].begin(), f.str[4].end());
-        resources->rendererBundle = std::string(f.str[5]);
-    } else {
-        resources->rendererBundle = std::string(f.str[4]);
-    }
+    resources->validatorBundle = std::string(f.str[2]);
+    resources->rendererBundle = std::string(f.str[3]);
     return resources;
 }
 

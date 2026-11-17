@@ -1,5 +1,5 @@
 // The validator / sanitizer (src/host/validator.ts) compiled into
-// validator-bundle.js and run in a TRUSTED QuickJS context — a separate
+// validator-bundle.js and run in a TRUSTED Nova context — a separate
 // runtime that never executes widget code. One instance per widget. Calls are
 // synchronous from the caller's point of view but execute on the validator's
 // own JSThread (css-tree needs the 8 MB stack). Input and output are JSON.
@@ -11,7 +11,7 @@
 #pragma once
 
 #include "twidget/js_thread.h"
-#include "twidget/quickjs_context.h"
+#include "twidget/nova_context.h"
 #include "twidget/resources.h"
 
 #include <functional>
@@ -62,7 +62,7 @@ private:
     std::string metered(const char* name, const std::vector<std::string>& args);
 
     JSThread thread_;
-    std::unique_ptr<QuickJSContext> js_;
+    std::unique_ptr<NovaContext> js_;
     DiagSink onDiag_;
     mutable std::mutex stoppedMutex_;
     std::optional<std::string> stopped_;

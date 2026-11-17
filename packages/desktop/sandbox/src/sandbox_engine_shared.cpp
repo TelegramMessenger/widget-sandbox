@@ -1,4 +1,4 @@
-// What every SandboxEngine runs, in process and in client mode: the constructor's shared part and the destructor, the entry points both modes take (each branching on the mode: a hosted client's refusal, the client's call, else the in-process half through `inProcess_`, sandbox_engine.cpp), the haptic gate's presses, the clock and the value types' JSON. The in-process halves are reached only through that table, which the in-process constructor alone installs, so a program whose engines are all client-mode ones links neither them nor QuickJS.
+// What every SandboxEngine runs, in process and in client mode: the constructor's shared part and the destructor, the entry points both modes take (each branching on the mode: a hosted client's refusal, the client's call, else the in-process half through `inProcess_`, sandbox_engine.cpp), the haptic gate's presses, the clock and the value types' JSON. The in-process halves are reached only through that table, which the in-process constructor alone installs, so a program whose engines are all client-mode ones links neither them nor Nova.
 #include "twidget/sandbox_engine.h"
 
 #include "twidget/json.h"

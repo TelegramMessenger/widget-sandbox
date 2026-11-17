@@ -1,21 +1,13 @@
-# twidget desktop core: the QuickJS sandbox engine, trusted validator, CPU
-# budget and WidgetHost as a Qt-free C++20 library (for tdesktop or any Qt/C++
-# host), plus a console harness and tests. quickjs-ng comes from
-# ios/Sources/CQuickJS — one engine, one shim, one set of sources on every
-# platform. -DTW_BLITZ=ON adds the Blitz renderer prototype (the Rust crate in
-# ../../apps/renderer-blitz built by cargo; dev tooling, see docs/blitz-experiment.md).
-# Two libraries: twidget-sandbox-host, the host's side as objects (a hosted WidgetHost
-# with its client and kept renderers, the stream's host end, the coding, the SDK and
-# gesture policies, Intl, resources and threads; no QuickJS, validator, in-process
-# engine, local glue or engine end), and twidget-sandbox, the whole core: the engine
-# and local side plus those objects, which every other program links.
+# twidget desktop core: the Nova sandbox engine, trusted validator, CPU budget and WidgetHost as a Qt-free C++20 library (for tdesktop or any Qt/C++ host), plus a console harness and tests.
+# The engine is Nova (github.com/TelegramMessenger/nova-safe) behind the C interface of its nova_embed_ffi crate: -DTW_NOVA_ROOT=<a nova-safe checkout> builds it with cargo, or -DTW_NOVA_LIBRARY=<its static library> with -DTW_NOVA_INCLUDE=<the directory of nova_engine.h> links a built one.
+# -DTW_BLITZ=ON adds the Blitz renderer prototype (the Rust crate in ../../apps/renderer-blitz built by cargo; dev tooling, see docs/blitz-experiment.md).
+# Two libraries: twidget-sandbox-host, the host's side as objects (a hosted WidgetHost with its client and kept renderers, the stream's host end, the coding, the SDK and gesture policies, Intl, resources and threads; no engine, validator, in-process engine, local glue or engine end), and twidget-sandbox, the whole core: the engine and local side plus those objects, which every other program links.
 # twidget-host-only links those objects alone, so its link proves the division.
 cmake_minimum_required(VERSION 3.22)
-project(twidget-desktop C CXX)
+project(twidget-desktop CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_C_STANDARD 11)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
@@ -27,33 +19,43 @@ endif()
 option(TW_BLITZ "Build the Blitz renderer prototype (needs rustup's cargo)" OFF)
 
 set(TW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
-set(QJS "${TW_ROOT}/ios/Sources/CQuickJS")
-if(NOT EXISTS "${QJS}/quickjs/quickjs.c")
-    message(FATAL_ERROR "quickjs-ng sources not found at ${QJS}; packages/desktop must sit next to packages/ios")
-endif()
 
-add_library(twquickjs STATIC
-    "${QJS}/quickjs/quickjs.c"
-    "${QJS}/quickjs/dtoa.c"
-    "${QJS}/quickjs/libregexp.c"
-    "${QJS}/quickjs/libunicode.c"
-    "${QJS}/shim/qjs_shim.c")
-target_include_directories(twquickjs PUBLIC "${QJS}/include" "${QJS}/quickjs")
-target_compile_definitions(twquickjs PRIVATE QUICKJS_NG_BUILD)
-if(NOT MSVC)
-    target_compile_definitions(twquickjs PRIVATE _GNU_SOURCE)
-    # Always optimise the interpreter, also in debug builds: an -O0 quickjs-ng spends
-    # ~10 KB of C stack per JS call and is several times slower.
-    target_compile_options(twquickjs PRIVATE -O2 -fno-strict-aliasing -Wno-unused-parameter -Wno-sign-compare -Wno-implicit-fallthrough)
+set(TW_NOVA_ROOT "" CACHE PATH "A checkout of github.com/TelegramMessenger/nova-safe, built here with cargo")
+set(TW_NOVA_LIBRARY "" CACHE FILEPATH "A built nova_embed_ffi static library, in place of TW_NOVA_ROOT")
+set(TW_NOVA_INCLUDE "" CACHE PATH "The directory of nova_engine.h, with TW_NOVA_LIBRARY")
+add_library(twnova STATIC IMPORTED)
+if(TW_NOVA_LIBRARY)
+    if(NOT EXISTS "${TW_NOVA_INCLUDE}/nova_engine.h")
+        message(FATAL_ERROR "TW_NOVA_LIBRARY needs TW_NOVA_INCLUDE, the directory of nova_engine.h")
+    endif()
+    set_target_properties(twnova PROPERTIES IMPORTED_LOCATION "${TW_NOVA_LIBRARY}")
+    target_include_directories(twnova INTERFACE "${TW_NOVA_INCLUDE}")
+elseif(EXISTS "${TW_NOVA_ROOT}/nova_embed_ffi/include/nova_engine.h")
+    find_program(TW_CARGO cargo HINTS /opt/homebrew/opt/rustup/bin "$ENV{HOME}/.cargo/bin")
+    if(NOT TW_CARGO)
+        message(FATAL_ERROR "TW_NOVA_ROOT needs cargo (rustup); none found in PATH, /opt/homebrew/opt/rustup/bin or ~/.cargo/bin")
+    endif()
+    set(TW_NOVA_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/nova-target")
+    set(TW_NOVA_BUILT "${TW_NOVA_TARGET_DIR}/release/${CMAKE_STATIC_LIBRARY_PREFIX}nova_embed_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    file(GLOB_RECURSE TW_NOVA_SOURCES CONFIGURE_DEPENDS "${TW_NOVA_ROOT}/nova_embed_ffi/src/*.rs" "${TW_NOVA_ROOT}/nova_embed/src/*.rs" "${TW_NOVA_ROOT}/nova_vm/src/*.rs")
+    add_custom_command(OUTPUT "${TW_NOVA_BUILT}"
+        COMMAND "${TW_CARGO}" build --release --locked --package nova_embed_ffi --target-dir "${TW_NOVA_TARGET_DIR}"
+        WORKING_DIRECTORY "${TW_NOVA_ROOT}"
+        DEPENDS ${TW_NOVA_SOURCES} "${TW_NOVA_ROOT}/Cargo.toml" "${TW_NOVA_ROOT}/Cargo.lock"
+        COMMENT "cargo build nova_embed_ffi (the first build takes about a minute)"
+        VERBATIM)
+    add_custom_target(twnova-cargo DEPENDS "${TW_NOVA_BUILT}")
+    add_dependencies(twnova twnova-cargo)
+    set_target_properties(twnova PROPERTIES IMPORTED_LOCATION "${TW_NOVA_BUILT}")
+    target_include_directories(twnova INTERFACE "${TW_NOVA_ROOT}/nova_embed_ffi/include")
 else()
-    # twquickjs is the only C target; keep C++ Debug checks while optimising the interpreter.
-    foreach(flag /Od /Ob0 /RTC1)
-        string(REPLACE "${flag}" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
-    endforeach()
-    target_compile_options(twquickjs PRIVATE $<$<CONFIG:Debug>:/O2>)
+    message(FATAL_ERROR "The Nova engine is not set: pass -DTW_NOVA_ROOT=<a checkout of github.com/TelegramMessenger/nova-safe>, or -DTW_NOVA_LIBRARY and -DTW_NOVA_INCLUDE for a built nova_embed_ffi")
 endif()
-if(NOT WIN32)
-    target_link_libraries(twquickjs PUBLIC m)
+# What `cargo rustc -- --print native-static-libs` lists for the crate.
+if(WIN32)
+    set_property(TARGET twnova APPEND PROPERTY INTERFACE_LINK_LIBRARIES advapi32 bcrypt kernel32 ntdll userenv ws2_32)
+elseif(NOT APPLE)
+    set_property(TARGET twnova APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${CMAKE_DL_LIBS} m)
 endif()
 
 find_package(Threads REQUIRED)
@@ -80,7 +82,7 @@ if(NOT MSVC)
 endif()
 
 add_library(twidget-sandbox STATIC
-    sandbox/src/quickjs_context.cpp
+    sandbox/src/nova_context.cpp
     sandbox/src/cpu_budget.cpp
     sandbox/src/bundle_stamp.cpp
     sandbox/src/trusted_validator.cpp
@@ -91,7 +93,7 @@ add_library(twidget-sandbox STATIC
     sandbox/src/widget_host_local.cpp
     $<TARGET_OBJECTS:twidget-sandbox-host>)
 target_include_directories(twidget-sandbox PUBLIC sandbox/include)
-target_link_libraries(twidget-sandbox PUBLIC twquickjs Threads::Threads)
+target_link_libraries(twidget-sandbox PUBLIC twnova Threads::Threads)
 if(WIN32)
     # Intl on the system's ICU (icu.dll, Windows 10 1903 and later).
     target_sources(twidget-sandbox PRIVATE sandbox/src/icu_intl.cpp)

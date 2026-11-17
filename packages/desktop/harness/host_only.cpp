@@ -1,4 +1,4 @@
-// twidget-host-only, built from the host's side alone (CMakeLists.txt's twidget-sandbox-host objects: no QuickJS, TrustedValidator, in-process engine, local glue or engine end), so its link proves that no host-side source needs the rest; it runs a hosted WidgetHost that keeps its renderer over a hosting stream whose engine's end is gone (none can link here) and passes when that widget ran hosted, died "the widget engine process ended" and kept nothing, while the hosted suites prove the same objects' behaviour.
+// twidget-host-only, built from the host's side alone (CMakeLists.txt's twidget-sandbox-host objects: no engine, TrustedValidator, in-process engine, local glue or engine end), so its link proves that no host-side source needs the rest; it runs a hosted WidgetHost that keeps its renderer over a hosting stream whose engine's end is gone (none can link here) and passes when that widget ran hosted, died "the widget engine process ended" and kept nothing, while the hosted suites prove the same objects' behaviour.
 #include "stream_peers.h"
 #include "twidget/remote_stream.h"
 #include "twidget/resources.h"

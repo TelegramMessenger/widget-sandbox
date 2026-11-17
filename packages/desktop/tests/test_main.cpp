@@ -597,7 +597,7 @@ TEST(sdk_policy_shared_fixture) {
         CHECK_MSG((*root)[section].size() > 0, section);
 }
 
-/// What the fixture cannot carry: the strings of the bot's data and requests refuse a lone surrogate (its WTF-8 form, as QuickJS and the
+/// What the fixture cannot carry: the strings of the bot's data and requests refuse a lone surrogate (its WTF-8 form, as Nova and the
 /// engine's `Surrogates::Keep` parse give it) and invalid UTF-8 everywhere a string leaves the widget or enters it;
 /// lengths are UTF-8 bytes for the data and UTF-16 code units for copyText; out-of-range ids and viewers are none.
 TEST(sdk_request_strings_refuse_surrogates_and_invalid_utf8) {
@@ -789,16 +789,16 @@ TEST(gesture_policy_shared_fixture) {
 
 static const char* kDepthProbe ="(function(){ var n = 0; function r(){ n++; r(); } try { r(); } catch (e) { if (!(e instanceof RangeError)) throw e; } return n; })()";
 
-/// Product contexts live on a JSThread (8 MB stack, 6 MB QuickJS limit): a release
-/// quickjs-ng needs a few hundred bytes per JS call, so this must comfortably exceed
+/// Product contexts live on a JSThread (8 MB stack, three quarters of the 6 MB limit for the engine's JavaScript): a release
+/// Nova needs about 3 KB per JS call, so this must comfortably exceed
 /// what css-tree and chart libraries recurse to.
 TEST(pinned_thread_gives_deep_recursion) {
     JSThread t("test.js");
     double depth = t.sync([&] {
-        QuickJSContext js(size_t(16) << 20, JSThread::kJSStackLimit);
+        NovaContext js(size_t(16) << 20, JSThread::kJSStackLimit);
         return js.evaluate(kDepthProbe, "t.js").number.value_or(-1);
     });
-    printf("    quickjs recursion depth on JSThread: %.0f\n", depth);
+    printf("    recursion depth on JSThread: %.0f\n", depth);
     CHECK(depth > 300);
     // Timers and ordering: `after` fires on the thread, `cancel` prevents it.
     std::promise<bool> fired;
@@ -823,13 +823,13 @@ TEST(pinned_thread_gives_deep_recursion) {
 /// (whose stack lives elsewhere) is measured correctly, not as a bogus overflow.
 TEST(stack_check_follows_the_calling_thread) {
     JSThread t("creator");
-    std::unique_ptr<QuickJSContext> js;
+    std::unique_ptr<NovaContext> js;
     double depthOnCreator = t.sync([&] {
-        js = std::make_unique<QuickJSContext>(size_t(16) << 20);
+        js = std::make_unique<NovaContext>(size_t(16) << 20);
         return js->evaluate(kDepthProbe, "t.js").number.value_or(-1);
     });
     double depthHere = js->evaluate(kDepthProbe, "t.js").number.value_or(-1);
-    printf("    quickjs recursion depth at default stack limit: creator %.0f, here %.0f\n", depthOnCreator, depthHere);
+    printf("    recursion depth at default stack limit: creator %.0f, here %.0f\n", depthOnCreator, depthHere);
     CHECK(depthOnCreator > 20);
     CHECK(depthHere > 20);
     CHECK(std::fabs(depthHere - depthOnCreator) / depthOnCreator < 0.1);
@@ -869,7 +869,7 @@ TEST(a_host_call_fails_when_its_argument_cannot_be_copied) {
     JSThread t("test.js");
     int calls = 0;
     std::string error = t.sync([&]() -> std::string {
-        QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+        NovaContext js(size_t(8) << 20, JSThread::kJSStackLimit);
         js.registerFunction("__probe", [&](const std::vector<std::string>&) { calls++; return HostReturn::undefined(); });
         try {
             js.evaluate("var s = '\\u00e9'.repeat(5 << 20); __probe('fits'); __probe(s); __probe('after');", "t.js");
@@ -888,7 +888,7 @@ TEST(an_exception_from_a_host_function_stops_the_script) {
     int after = 0;
     auto outcome = [&](const std::string& which) {
         return t.sync([&]() -> std::string {
-            QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+            NovaContext js(size_t(8) << 20, JSThread::kJSStackLimit);
             js.registerFunction("__throws", [&](const std::vector<std::string>& args) -> HostReturn {
                 if (args[0] == "runtime") throw std::runtime_error("broken glue");
                 if (args[0] == "alloc") throw std::bad_alloc();
@@ -916,7 +916,7 @@ TEST(a_result_that_cannot_be_copied_is_an_error) {
     JSThread t("test.js");
     auto outcome = [&](bool byCall) {
         return t.sync([&]() -> std::string {
-            QuickJSContext js(size_t(8) << 20, JSThread::kJSStackLimit);
+            NovaContext js(size_t(8) << 20, JSThread::kJSStackLimit);
             try {
                 js.evaluate("function big() { return '\\u00e9'.repeat(5 << 20); }", "t.js");
                 JSResult r = byCall ? js.call("big") : js.evaluate("big()", "t.js");
@@ -934,7 +934,7 @@ TEST(a_result_that_cannot_be_copied_is_an_error) {
 // ───────────── engine ─────────────
 
 TEST(boots_and_emits_initial_tree) {
-    Run r("<p id=\"a\">hi</p><script>document.getElementById('a').textContent = 'changed by script'; console.log('hello from quickjs');</script>");
+    Run r("<p id=\"a\">hi</p><script>document.getElementById('a').textContent = 'changed by script'; console.log('hello from the sandbox');</script>");
     r.barrier();
     auto l = r.host.lock();
     CHECK(!r.host.died);
@@ -942,7 +942,7 @@ TEST(boots_and_emits_initial_tree) {
     CHECK_MSG(all.find("\"tag\":\"p\"") != std::string::npos, "initial tree should be sent");
     CHECK_MSG(all.find("changed by script") != std::string::npos, "script mutation should be sent");
     CHECK_MSG(r.host.allRenderOps().find("changed by script") != std::string::npos, "validated ops carry the mutation");
-    CHECK(r.host.hasLog("hello from quickjs"));
+    CHECK(r.host.hasLog("hello from the sandbox"));
     bool errors = false;
     for (auto& lg : r.host.logs) if (lg.first == "error") errors = true;
     CHECK_MSG(!errors, r.logsText());
@@ -993,7 +993,7 @@ TEST(memory_limit_kills_allocation_flood) {
         auto l = r.host.lock();
         CHECK_MSG(r.host.died && r.host.died->find("Memory limit exceeded (16 MB)") != std::string::npos, r.host.died.value_or("alive: " + r.logsText()));
     }
-    // The default is 8 MB of QuickJS heap (docs/decisions.md, "Strict limits from the start").
+    // The default is 8 MB of engine heap (docs/decisions.md, "Strict limits from the start").
     auto byDefault = testConfig();
     byDefault.cpuLimitMs = 10000;
     Run d("<script>var a = []; for (;;) a.push(new Array(100000).fill(1.5));</script>", byDefault);
@@ -1033,8 +1033,8 @@ TEST(an_ordinary_uncaught_error_is_logged_and_the_widget_goes_on) {
         CHECK_MSG(!r.host.died && r.host.hasLog("went on"), script + " → " + r.host.died.value_or("alive") + ": " + r.logsText());
         CHECK_MSG(r.host.countLogPrefix("Uncaught ") == 1 && r.host.hasLogPrefix(text), script + " → " + r.logsText());
     };
-    logged("throw new Error('plain');", "Uncaught Error: plain\n    at ");
-    logged("(function f() { f(); })();", "Uncaught RangeError: Maximum call stack size exceeded\n    at f (inline-script-1.js:1:");
+    logged("throw new Error('plain');", "Uncaught Error: plain");
+    logged("(function f() { f(); })();", "Uncaught RangeError: Maximum call stack size exceeded");
     logged("throw { name: 'Custom', message: 'text' };", "Uncaught Custom: text");
     logged("throw 'a string';", "Uncaught a string");
     logged("throw { get name() { throw new Error('inner'); }, message: 'm' };", "Uncaught Error: ");
@@ -3155,45 +3155,52 @@ TEST(engine_create_and_teardown_churn) {
 
 // ───────────── validator ─────────────
 
-// ───────────── precompiled bundles ─────────────
+// ───────────── compiled bundles ─────────────
 
-TEST(bytecode_round_trip_and_stale_blob_refused) {
-    QuickJSContext js(size_t(16) << 20);
-    auto blob = js.compileBytecode("globalThis.answer = 6 * 7;", "t.js");
-    CHECK(blob.size() > 24);
-    js.evaluateBytecode(blob, "globalThis.answer = 6 * 7;");
-    CHECK(js.evaluate("answer", "t.js").number == 42);
-    bool threw = false;
-    try { js.evaluateBytecode(blob, "globalThis.answer = 6 * 8;"); } catch (const JSError& e) { threw = std::string(e.what()).find("different source") != std::string::npos; }
-    CHECK_MSG(threw, "a blob compiled from another source must be refused");
-    auto bad = blob;
-    bad[0] = 'X';
-    threw = false;
-    try { js.evaluateBytecode(bad, "globalThis.answer = 6 * 7;"); } catch (const JSError&) { threw = true; }
-    CHECK(threw);
-    threw = false;
-    try { js.evaluateBytecode({}, ""); } catch (const JSError&) { threw = true; }
-    CHECK(threw);
+/// One of our own bundles runs from code compiled once per process, in the context that compiled it and in any other; another source under the same name runs as itself, never as the code compiled before; one that does not compile is evaluated from its source and throws its SyntaxError.
+TEST(bundle_is_compiled_once_and_a_broken_one_throws_its_syntax_error) {
+    const std::string source = "globalThis.answer = (globalThis.answer || 0) + 6 * 7;";
+    NovaContext first(size_t(16) << 20);
+    CHECK(first.evaluateBundle(source, "test-shared-bundle.js"));
+    CHECK(first.evaluate("answer", "t.js").number == 42);
+    NovaContext second(size_t(16) << 20);
+    CHECK(second.evaluateBundle(source, "test-shared-bundle.js"));
+    CHECK(second.evaluate("answer", "t.js").number == 42);
+    CHECK(first.evaluateBundle(source, "test-shared-bundle.js"));
+    CHECK(first.evaluate("answer", "t.js").number == 84);
+    CHECK(second.evaluate("answer", "t.js").number == 42);
+    CHECK(second.evaluateBundle("globalThis.answer = 6 * 8;", "test-shared-bundle.js"));
+    CHECK_MSG(second.evaluate("answer", "t.js").number == 48, "another source under the same name must run as itself");
+    for (int round = 0; round < 2; round++) {
+        std::string error = "evaluated";
+        try { second.evaluateBundle("globalThis.answer = 6 * ;", "test-broken-bundle.js"); } catch (const JSError& e) { error = e.what(); }
+        CHECK_MSG(error.rfind("SyntaxError", 0) == 0, error);
+    }
+    CHECK(second.evaluate("answer", "t.js").number == 48);
 }
 
 // A CDN script is an external script like any other: profile 1 bundles no libraries.
-TEST(shipped_bytecode_is_used_and_no_library_is_bundled) {
-    CHECK_MSG(!RES->sandboxBytecode.empty() && !RES->validatorBytecode.empty(), "pnpm build:desktop ships .qbc next to the bundles");
-    Run r("<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>");
-    r.barrier();
-    auto l = r.host.lock();
-    CHECK(!r.host.died);
-    bool bootFromBytecode = false, skipped = false, fallback = false;
-    for (auto& d : r.host.diags) {
-        if (d.first == "boot" && d.second.find("(bytecode)") != std::string::npos) bootFromBytecode = true;
-        if (d.first == "script-skipped" && d.second.find("chart.js") != std::string::npos) skipped = true;
-        if (d.first == "bytecode") fallback = true;
+TEST(bundles_boot_compiled_and_no_library_is_bundled) {
+    {
+        Run r("<canvas id=\"c\"></canvas><script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script><script>console.log(typeof Chart);</script>");
+        r.barrier();
+        auto l = r.host.lock();
+        CHECK(!r.host.died);
+        bool bootCompiled = false, skipped = false;
+        for (auto& d : r.host.diags) {
+            if (d.first == "boot" && d.second.find("(compiled)") != std::string::npos) bootCompiled = true;
+            if (d.first == "script-skipped" && d.second.find("chart.js") != std::string::npos) skipped = true;
+        }
+        CHECK_MSG(bootCompiled && skipped, r.diagsText());
+        CHECK(r.host.hasLog("undefined"));
     }
-    CHECK_MSG(bootFromBytecode && skipped && !fallback, r.diagsText());
-    CHECK(r.host.hasLog("undefined"));
-    std::vector<std::pair<std::string, std::string>> diags;
-    TrustedValidator v("light", RES, [&](const std::string& k, const std::string& d) { diags.emplace_back(k, d); });
-    for (auto& d : diags) CHECK_MSG(d.first != "bytecode", d.second);
+    // A second engine's context boots from the same compiled code.
+    Run again("<p>x</p>");
+    again.barrier();
+    auto l = again.host.lock();
+    bool againCompiled = false;
+    for (auto& d : again.host.diags) if (d.first == "boot" && d.second.find("(compiled)") != std::string::npos) againCompiled = true;
+    CHECK_MSG(!again.host.died && againCompiled, again.diagsText());
 }
 
 // ───────────── VERSION.json's stamp on the bundles (bundle_stamp.h) ─────────────
@@ -3300,16 +3307,14 @@ static std::optional<std::filesystem::path> newTempDirectory(const std::string& 
     return std::nullopt;
 }
 
-/// Bundles checked out with CRLF line ends load as their LF sources and boot from the shipped bytecode; stale bytecode and another release's stamp are still refused.
-TEST(crlf_bundles_load_as_lf_and_boot_from_bytecode) {
-    CHECK_MSG(!RES->sandboxBytecode.empty() && !RES->validatorBytecode.empty(), "pnpm build:desktop ships .qbc next to the bundles");
+/// Bundles checked out with CRLF line ends load as their LF sources and boot as those do; another release's stamp is still refused.
+TEST(crlf_bundles_load_as_lf_and_boot_compiled) {
     for (const std::string* source : {&RES->sandboxBundle, &RES->validatorBundle, &RES->rendererBundle}) CHECK_MSG(source->find('\r') == std::string::npos, source->substr(0, 80));
     const std::optional<std::filesystem::path> reserved = newTempDirectory("twidget-tests-crlf-");
     if (!reserved) return;
     const std::filesystem::path& root = *reserved;
     bool written = true;
-    auto directory = [&](const std::string& label, const std::string& sandbox, const std::string& validator, const std::string& renderer,
-                         const std::vector<uint8_t>& sandboxBytecode, const std::vector<uint8_t>& validatorBytecode) {
+    auto directory = [&](const std::string& label, const std::string& sandbox, const std::string& validator, const std::string& renderer) {
         const std::filesystem::path dir = root / label;
         if (!written) return dir.string();
         std::error_code error;
@@ -3327,8 +3332,6 @@ TEST(crlf_bundles_load_as_lf_and_boot_from_bytecode) {
         write("sandbox-bundle.js", sandbox.data(), sandbox.size());
         write("validator-bundle.js", validator.data(), validator.size());
         if (!renderer.empty()) write("renderer-bundle.js", renderer.data(), renderer.size());
-        write("sandbox-bundle.qbc", sandboxBytecode.data(), sandboxBytecode.size());
-        write("validator-bundle.qbc", validatorBytecode.data(), validatorBytecode.size());
         return dir.string();
     };
     auto withCrlf = [](const std::string& lf) {
@@ -3341,12 +3344,11 @@ TEST(crlf_bundles_load_as_lf_and_boot_from_bytecode) {
     };
     auto mine = BundleStamp::glue();
     const std::string otherRelease = restamped(RES->sandboxBundle, BundleStamp{"9.9.9", mine.protocol + 1, mine.profile, mine.sdk}.line());
-    const std::vector<uint8_t> crlfBytes = {'\r', '\n'};
-    const std::string lfDir = directory("lf", RES->sandboxBundle, RES->validatorBundle, RES->rendererBundle, RES->sandboxBytecode, RES->validatorBytecode);
-    const std::string crlfDir = directory("crlf", withCrlf(RES->sandboxBundle), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle), RES->sandboxBytecode, RES->validatorBytecode);
-    const std::string ruleDir = directory("rule", "a\r\nb\rc\r\r\nd\r", "\r\n\r\n", "", crlfBytes, {});
-    const std::string staleDir = directory("stale", withCrlf(RES->sandboxBundle) + "\r", withCrlf(RES->validatorBundle) + "\r", withCrlf(RES->rendererBundle), RES->sandboxBytecode, RES->validatorBytecode);
-    const std::string stampDir = directory("stamp", withCrlf(otherRelease), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle), RES->sandboxBytecode, RES->validatorBytecode);
+    const std::string lfDir = directory("lf", RES->sandboxBundle, RES->validatorBundle, RES->rendererBundle);
+    const std::string crlfDir = directory("crlf", withCrlf(RES->sandboxBundle), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle));
+    const std::string ruleDir = directory("rule", "a\r\nb\rc\r\r\nd\r", "\r\n\r\n", "");
+    const std::string loneDir = directory("lone", withCrlf(RES->sandboxBundle) + "\r", withCrlf(RES->validatorBundle) + "\r", withCrlf(RES->rendererBundle));
+    const std::string stampDir = directory("stamp", withCrlf(otherRelease), withCrlf(RES->validatorBundle), withCrlf(RES->rendererBundle));
     if (!written) {
         std::error_code error;
         std::filesystem::remove_all(root, error);
@@ -3361,17 +3363,11 @@ TEST(crlf_bundles_load_as_lf_and_boot_from_bytecode) {
     CHECK(crlf->sandboxBundle == lf->sandboxBundle);
     CHECK(crlf->validatorBundle == lf->validatorBundle);
     CHECK(crlf->rendererBundle == lf->rendererBundle);
-    for (const auto& res : {lf, crlf}) {
-        CHECK(res->sandboxBytecode == RES->sandboxBytecode);
-        CHECK(res->validatorBytecode == RES->validatorBytecode);
-    }
 
     auto rule = SandboxResources::fromDirectory(ruleDir);
     CHECK(rule->sandboxBundle == "a\nb\rc\r\nd\r");
     CHECK(rule->validatorBundle == "\n\n");
     CHECK(rule->rendererBundle.empty());
-    CHECK(rule->sandboxBytecode == crlfBytes);
-    CHECK(rule->validatorBytecode.empty());
 
     const std::string widget = "<p>x</p><script>TelegramWidget.ready(); console.log('widget ran');</script>";
     auto boot = [&](const std::shared_ptr<SandboxResources>& res, bool alive, const std::function<void(RecordingHost&)>& check) {
@@ -3393,31 +3389,21 @@ TEST(crlf_bundles_load_as_lf_and_boot_from_bytecode) {
 
     boot(crlf, true, [&](RecordingHost& host) {
         CHECK_MSG(!host.died, host.died.value_or(""));
-        bool fromBytecode = false;
-        for (auto& d : host.diags) if (d.first == "boot" && d.second.find("(bytecode)") != std::string::npos) fromBytecode = true;
-        CHECK_MSG(fromBytecode, diagsOf(host));
-        for (const char* kind : {"bytecode", "validator:bytecode", "bundle-mismatch", "validator:bundle-mismatch"}) CHECK_MSG(!host.hasDiag(kind), kind + std::string("\n") + diagsOf(host));
+        bool compiled = false;
+        for (auto& d : host.diags) if (d.first == "boot" && d.second.find("(compiled)") != std::string::npos) compiled = true;
+        CHECK_MSG(compiled, diagsOf(host));
+        for (const char* kind : {"bundle-mismatch", "validator:bundle-mismatch"}) CHECK_MSG(!host.hasDiag(kind), kind + std::string("\n") + diagsOf(host));
         CHECK(host.hasLog("widget ran"));
     });
 
-    auto stale = SandboxResources::fromDirectory(staleDir);
-    CHECK(stale->sandboxBundle == lf->sandboxBundle + "\r");
-    CHECK(stale->validatorBundle == lf->validatorBundle + "\r");
-    CHECK(stale->rendererBundle == lf->rendererBundle);
-    boot(stale, true, [&](RecordingHost& host) {
+    // A lone CR after the last line stays, so these are other sources with the same stamp: they boot as themselves.
+    auto lone = SandboxResources::fromDirectory(loneDir);
+    CHECK(lone->sandboxBundle == lf->sandboxBundle + "\r");
+    CHECK(lone->validatorBundle == lf->validatorBundle + "\r");
+    CHECK(lone->rendererBundle == lf->rendererBundle);
+    boot(lone, true, [&](RecordingHost& host) {
         CHECK_MSG(!host.died, host.died.value_or(""));
-        auto refused = [](const std::string& detail) {
-            return detail.find("falling back to source") != std::string::npos && detail.find("different source") != std::string::npos;
-        };
-        int fallback = -1, fromSource = -1;
-        for (size_t i = 0; i < host.diags.size(); i++) {
-            const auto& [kind, detail] = host.diags[i];
-            if (kind == "bytecode" && refused(detail)) fallback = int(i);
-            if (kind == "boot" && detail.find("(source)") != std::string::npos) fromSource = int(i);
-        }
-        CHECK_MSG(host.countDiag("bytecode") == 1 && fallback >= 0 && fromSource > fallback, diagsOf(host));
-        CHECK_MSG(host.countDiag("validator:bytecode") == 1, diagsOf(host));
-        for (auto& d : host.diags) if (d.first == "validator:bytecode") CHECK_MSG(refused(d.second), d.second);
+        CHECK_MSG(host.countDiag("boot") == 1, diagsOf(host));
         CHECK_MSG(!host.hasDiag("bundle-mismatch") && !host.hasDiag("validator:bundle-mismatch"), diagsOf(host));
         CHECK(host.hasLog("widget ran"));
     });
@@ -3745,11 +3731,10 @@ TEST(a_thread_that_cannot_start_fails_its_owner_promptly) {
 #endif
 #endif
 
-/// The shipped validator bundle cut in half: this release's stamp still on its first line, then JavaScript that ends in the middle (a SyntaxError); with no bytecode, or with the shipped bytecode, which no longer matches it.
-static std::shared_ptr<SandboxResources> truncatedValidator(bool staleBytecode) {
+/// The shipped validator bundle cut in half: this release's stamp still on its first line, then JavaScript that ends in the middle (a SyntaxError).
+static std::shared_ptr<SandboxResources> truncatedValidator() {
     auto res = std::make_shared<SandboxResources>(*RES);
     res->validatorBundle.resize(res->validatorBundle.size() / 2);
-    if (!staleBytecode) res->validatorBytecode.clear();
     return res;
 }
 
@@ -3780,7 +3765,7 @@ static void expectJSError(const std::string& owner, int alone, bool print, const
         fflush(stdout);
     }
     CHECK_MSG(jsError, owner + ": " + what);
-    CHECK_MSG(what.rfind("SyntaxError: ", 0) == 0 && what.find("validator-bundle.js") != std::string::npos, owner + ": " + what);
+    CHECK_MSG(what.rfind("SyntaxError: ", 0) == 0, owner + ": " + what);
     CHECK_MSG(after == alone, owner + ": " + std::to_string(alone) + " threads before, " + countText(after) + " after");
 }
 
@@ -3788,27 +3773,19 @@ static void expectJSError(const std::string& owner, int alone, bool print, const
 CHILD_CASE(owners_of_a_broken_validator_bundle) {
     const std::optional<int> alone = taskThreads();
     CHECK_MSG(alone.has_value(), "the task's threads cannot be listed");
-    CHECK_MSG(!RES->validatorBytecode.empty(), "no shipped validator bytecode to go stale");
-    if (!alone || RES->validatorBytecode.empty()) return;
-    for (const bool stale : {false, true}) {
-        const std::optional<std::string> refusal = BundleStamp::refusal(*truncatedValidator(stale));
-        CHECK_MSG(!refusal, refusal.value_or(""));
-        if (refusal) return;
-    }
+    if (!alone) return;
+    const std::optional<std::string> refusal = BundleStamp::refusal(*truncatedValidator());
+    CHECK_MSG(!refusal, refusal.value_or(""));
+    if (refusal) return;
     const auto round = [&](bool print) {
-        for (const bool stale : {false, true}) {
-            const auto resources = truncatedValidator(stale);
-            const std::string mode = stale ? "stale bytecode" : "no bytecode";
-            int fallbacks = 0;
-            expectJSError("TrustedValidator, " + mode, *alone, print, [&] {
-                TrustedValidator validator("light", resources, [&](const std::string& kind, const std::string&) { if (kind == "bytecode") fallbacks++; });
-            });
-            CHECK_MSG(fallbacks == (stale ? 1 : 0), "TrustedValidator, " + mode + ": " + std::to_string(fallbacks) + " bytecode diagnostics");
-            expectJSError("WidgetHost, " + mode, *alone, print, [&] {
-                ScriptedRenderer* renderer = nullptr;
-                WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), resources, scripted(renderer));
-            });
-        }
+        const auto resources = truncatedValidator();
+        expectJSError("TrustedValidator", *alone, print, [&] {
+            TrustedValidator validator("light", resources, [](const std::string&, const std::string&) {});
+        });
+        expectJSError("WidgetHost", *alone, print, [&] {
+            ScriptedRenderer* renderer = nullptr;
+            WidgetHost host("<p>x</p>", WidgetTheme{}, 300, WidgetHostOptions(), resources, scripted(renderer));
+        });
     };
     round(true);
     const size_t first = mallocInUse();
@@ -3826,7 +3803,7 @@ CHILD_CASE(owners_of_a_broken_validator_bundle) {
 #undef TW_TESTS_UNDER_ASAN
 #endif
 
-/// A validator bundle with this release's stamp that fails to evaluate makes its owners throw JSError and leave nothing behind: a fresh child (`--child owners_of_a_broken_validator_bundle`) constructs TrustedValidator and WidgetHost with no bytecode and with stale bytecode, twice; each throws the bundle's SyntaxError, the task's thread count comes back after each, and malloc holds no more after the second round than after the first (not checked under ASan). Before, the child ended on the uncaught JSError. The child exits 0 within 30 s, or it is killed and the test fails.
+/// A validator bundle with this release's stamp that fails to evaluate makes its owners throw JSError and leave nothing behind: a fresh child (`--child owners_of_a_broken_validator_bundle`) constructs TrustedValidator and WidgetHost, twice (the bundle's failed compile is remembered, so the second round evaluates its source at once); each throws the bundle's SyntaxError, the task's thread count comes back after each, and malloc holds no more after the second round than after the first (not checked under ASan). Before, the child ended on the uncaught JSError. The child exits 0 within 30 s, or it is killed and the test fails.
 TEST(a_validator_bundle_that_fails_to_evaluate_throws_from_its_owners) {
 #ifdef __APPLE__
     const ChildExit child = runChild("owners_of_a_broken_validator_bundle", 30);

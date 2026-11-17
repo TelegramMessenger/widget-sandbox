@@ -67,7 +67,7 @@ struct Codec {
     static constexpr Shape shape(uint8_t kind) {
         constexpr Side H = Side::Host, E = Side::Engine;
         switch (Kind(kind)) {
-        case Kind::Opening: return {true, H, true, "isssss"};
+        case Kind::Opening: return {true, H, true, "issss"};
         case Kind::Open: return {true, H, false, ""};
         case Kind::Start: return {true, H, false, "ss"};
         case Kind::Event: return {true, H, false, "s"};
@@ -88,7 +88,7 @@ struct Codec {
         case Kind::QueryAnswer: return {true, H, false, "sbs"};
         case Kind::IntlAnswer: return {true, H, false, "s"};
         case Kind::Close: return {true, H, false, ""};
-        case Kind::HostingOpening: return {true, H, true, "issssss"};
+        case Kind::HostingOpening: return {true, H, true, "issss"};
         case Kind::HostedStart: return {true, H, false, "sss"};
         case Kind::HostedTheme: return {true, H, false, "s"};
         case Kind::Platform: return {true, H, false, "s"};

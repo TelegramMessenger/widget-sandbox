@@ -8,7 +8,7 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
     : thread_("widget.validator"), onDiag_(std::move(onDiag)) {
     thread_.sync([&] {
         // Kept local until the boot is over: a boot that throws frees the context here, on the thread it is pinned to.
-        auto js = std::make_unique<QuickJSContext>(size_t(256) << 20, JSThread::kJSStackLimit);
+        auto js = std::make_unique<NovaContext>(size_t(256) << 20, JSThread::kJSStackLimit);
         js->registerFunction("__diag", [this](const std::vector<std::string>& args) {
             std::string kind = args.empty() ? "" : args[0], detail = args.size() > 1 ? args[1] : "";
             if (kind == "limit") {
@@ -26,14 +26,8 @@ TrustedValidator::TrustedValidator(const std::string& theme, std::shared_ptr<San
             js_ = std::move(js);
             return;
         }
-        // Precompiled when shipped and matching the source, else the source (same rule as the engine).
-        bool fromBytecode = false;
-        if (!resources->validatorBytecode.empty()) {
-            try { js->evaluateBytecode(resources->validatorBytecode, resources->validatorBundle); fromBytecode = true; }
-            catch (const JSError& e) { if (onDiag_) onDiag_("bytecode", std::string("validator-bundle.js: falling back to source — ") + e.what()); }
-        }
-        if (!fromBytecode) js->evaluate(resources->validatorBundle, "validator-bundle.js");
-        // Flatten the API into globals so QuickJSContext::call can reach it.
+        js->evaluateBundle(resources->validatorBundle, "validator-bundle.js");
+        // Flatten the API into globals so NovaContext::call can reach it.
         js->evaluate(
             "globalThis.__v_processOps = (j) => __twValidator.processOps(j);"
             "globalThis.__v_validateQuery = (j) => __twValidator.validateQuery(j);"
@@ -75,9 +69,9 @@ void TrustedValidator::setCpuSink(CpuSink sink) {
 std::string TrustedValidator::metered(const char* name, const std::vector<std::string>& args) {
     return thread_.sync([&]() -> std::string {
         if (!cpuSink_) return str(name, args);
-        double t0 = QuickJSContext::threadCpuTime();
+        double t0 = NovaContext::threadCpuTime();
         std::string out = str(name, args);
-        cpuSink_((QuickJSContext::threadCpuTime() - t0) * 1000);
+        cpuSink_((NovaContext::threadCpuTime() - t0) * 1000);
         return out;
     });
 }

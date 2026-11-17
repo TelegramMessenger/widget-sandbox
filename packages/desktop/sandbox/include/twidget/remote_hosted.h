@@ -38,7 +38,7 @@ public:
     std::function<void(const std::string& message)> onMessage;
 };
 
-/// What the engine process's embedder gives `SandboxRemoteEngineEnd::serveHosting`: one hosted widget's renderer, as `RendererFactory` builds one, plus its platform; `resources` are the opening's (the sandbox and validator bundles with their bytecode, of the renderer bundle only its stamp line), `theme` the colour scheme, `width` the bubble's in CSS px. Called on the engine process's reader thread at the widget's hosted start; a factory that throws or returns nothing ends only that widget, its death reported to the host.
+/// What the engine process's embedder gives `SandboxRemoteEngineEnd::serveHosting`: one hosted widget's renderer, as `RendererFactory` builds one, plus its platform; `resources` are the opening's (the sandbox and validator bundles, of the renderer bundle only its stamp line), `theme` the colour scheme, `width` the bubble's in CSS px. Called on the engine process's reader thread at the widget's hosted start; a factory that throws or returns nothing ends only that widget, its death reported to the host.
 using HostedRendererFactory = std::function<std::unique_ptr<Renderer>(std::shared_ptr<SandboxResources> resources, const std::string& theme, double width,
                                                                       std::shared_ptr<SandboxHostedPlatform> platform)>;
 

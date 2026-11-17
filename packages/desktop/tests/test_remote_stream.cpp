@@ -243,7 +243,7 @@ TEST(remote_stream_engine_opening) {
     using Wire = SandboxRemoteWire;
     const std::string stamp = firstLine(RES->validatorBundle);
     CHECK(BundleStamp::parse(stamp) && stamp.find('\n') == std::string::npos && RES->validatorBundle.size() > stamp.size());
-    const auto opening = [](int64_t version, std::string_view build, std::string_view validator, std::string_view renderer) { return openingBytes(version, build, "s", "", validator, renderer); };
+    const auto opening = [](int64_t version, std::string_view build, std::string_view validator, std::string_view renderer) { return openingBytes(version, build, "s", validator, renderer); };
     struct Vector {
         const char* name;
         std::string bytes;
@@ -257,9 +257,9 @@ TEST(remote_stream_engine_opening) {
         {"a long build", opening(1, longBuild, stamp, ""), "build \"" + std::string(64, 'b') + "...\", this end's is \"twidget-tests\""},
         {"another kind first", FrameBytes(1, wire::Open).bytes(), "kind 2 first, not the opening"},
         {"the engine's kind first", FrameBytes(0, wire::Ready).i64(1).bytes(), "kind 64 from the other side"},
-        {"the opening on a runtime", FrameBytes(3, wire::Opening).i64(1).str(kBuild).str("s").str("").str(stamp).str("").bytes(), "kind 1 on runtime 3, not the connection"},
-        {"a trailing byte", FrameBytes(0, wire::Opening).i64(1).str(kBuild).str("s").str("").str(stamp).str("").raw("x").bytes(), "kind 1 with bytes after its fields"},
-        {"a missing field", FrameBytes(0, wire::Opening).i64(1).str(kBuild).str("s").str("").str(stamp).bytes(), "kind 1 with a field past the frame's end"},
+        {"the opening on a runtime", FrameBytes(3, wire::Opening).i64(1).str(kBuild).str("s").str(stamp).str("").bytes(), "kind 1 on runtime 3, not the connection"},
+        {"a trailing byte", FrameBytes(0, wire::Opening).i64(1).str(kBuild).str("s").str(stamp).str("").raw("x").bytes(), "kind 1 with bytes after its fields"},
+        {"a missing field", FrameBytes(0, wire::Opening).i64(1).str(kBuild).str("s").str(stamp).bytes(), "kind 1 with a field past the frame's end"},
         {"a size past the opening's bound, no body", wire::u32(uint32_t(Wire::kMaxOpeningBytes + 1)), "a frame of 16777217 bytes, past the bound of 16777216"},
         {"a frame's bound for the opening, no body", wire::u32(uint32_t(Wire::kMaxFrameBytes)), "a frame of 33619968 bytes, past the bound of 16777216"},
         {"the largest size, no body", wire::u32(UINT32_MAX), "a frame of 4294967295 bytes, past the bound of 16777216"},
@@ -341,7 +341,7 @@ TEST(remote_stream_engine_opening) {
     }
 }
 
-/// The engine's end runs real runtimes from the opening's bytes alone: two ids on one stream, several frames in one read and one frame over several, inputs before the start kept in order (a safe area, data, a palette coded for the wire), each runtime's layout queries and Intl requests answered by the host for it alone (an answer with binary bytes, with empty ones, with none), probes by sequence, and one runtime closed while the other goes on; without bytecode it boots from the source, and a validator stamp of another release is refused at boot as in process.
+/// The engine's end runs real runtimes from the opening's bytes alone: two ids on one stream, several frames in one read and one frame over several, inputs before the start kept in order (a safe area, data, a palette coded for the wire), each runtime's layout queries and Intl requests answered by the host for it alone (an answer with binary bytes, with empty ones, with none), probes by sequence, and one runtime closed while the other goes on; each boots from the bundle's compiled code, as a second stream's runtime does from an opening with no renderer stamp, and a validator stamp of another release is refused at boot as in process.
 TEST(remote_stream_engine_scripted_host) {
     SandboxConfig config = testConfig();
     config.data = WidgetData{std::string("chat1"), std::nullopt};
@@ -351,10 +351,9 @@ TEST(remote_stream_engine_scripted_host) {
         const std::vector<std::string> boots = host.eventsWith(runtime, "diag:boot:sandbox bundle eval ");
         return boots.size() == 1 && boots[0].size() > how.size() && boots[0].compare(boots[0].size() - how.size(), how.size(), how) == 0;
     };
-    CHECK(!RES->sandboxBytecode.empty());
     {
         ScriptedHost host(layoutAnswers());
-        CHECK(host.send(openingOf(*RES, true)));
+        CHECK(host.send(openingOf(*RES)));
         CHECK_MSG(eventually([&] { return host.events(0) == std::vector<std::string>{"ready:1"}; }), joined(host.events(0)));
         WatchedStream& engine = host.engineSide();
         CHECK(eventually([&] { return engine.bytesRead() == host.sent(); }));
@@ -377,7 +376,7 @@ TEST(remote_stream_engine_scripted_host) {
 
         CHECK_MSG(eventually([&] { return host.saw(1, "log:A 24 77,78,79 INTL-A"); }, 20), joined(host.events(1)));
         CHECK_MSG(eventually([&] { return host.saw(2, "log:B 33 INTL-B"); }, 20), joined(host.events(2)));
-        for (const uint32_t runtime : {1u, 2u}) CHECK_MSG(booted(host, runtime, "(bytecode)") && host.eventsWith(runtime, "intl:").size() == 1, joined(host.events(runtime)));
+        for (const uint32_t runtime : {1u, 2u}) CHECK_MSG(booted(host, runtime, "(compiled)") && host.eventsWith(runtime, "intl:").size() == 1, joined(host.events(runtime)));
         CHECK_MSG(host.eventsWith(1, "query:{\"q\":\"rect\"").size() == 3 && host.eventsWith(2, "query:{\"q\":\"rect\"").size() == 1, joined(host.events(1)) + " / " + joined(host.events(2)));
         CHECK(eventually([&] { return host.probe(1, "TelegramWidget.colorScheme + ' ' + TelegramWidget.themeParams.bg_color") == "dark #112233"; }));
         CHECK(eventually([&] { return host.probe(2, "TelegramWidget.chatData") == "chat2"; }));
@@ -396,9 +395,9 @@ TEST(remote_stream_engine_scripted_host) {
     }
     {
         ScriptedHost host(layoutAnswers());
-        CHECK(host.send(openingBytes(1, kBuild, RES->sandboxBundle, "", firstLine(RES->validatorBundle), "") + FrameBytes(1, wire::Open).bytes() + started(1, kQueriesB)));
+        CHECK(host.send(openingBytes(1, kBuild, RES->sandboxBundle, firstLine(RES->validatorBundle), "") + FrameBytes(1, wire::Open).bytes() + started(1, kQueriesB)));
         CHECK_MSG(eventually([&] { return host.saw(1, "log:B 77 INTL-A"); }, 20), joined(host.events(1)));
-        CHECK_MSG(booted(host, 1, "(source)"), joined(host.events(1)));
+        CHECK_MSG(booted(host, 1, "(compiled)"), joined(host.events(1)));
         host.close();
         CHECK(host.served(5) == std::string());
     }
@@ -406,7 +405,7 @@ TEST(remote_stream_engine_scripted_host) {
         const std::string other = BundleStamp{"9.9.9", 99, 1, 1}.line();
         const std::string refusal = BundleStamp::refusal(other, "validator-bundle.js").value_or("");
         ScriptedHost host;
-        CHECK(host.send(openingBytes(1, kBuild, RES->sandboxBundle, "", other, firstLine(RES->rendererBundle)) + FrameBytes(1, wire::Open).bytes() + started(1, "<p>x</p>")));
+        CHECK(host.send(openingBytes(1, kBuild, RES->sandboxBundle, other, firstLine(RES->rendererBundle)) + FrameBytes(1, wire::Open).bytes() + started(1, "<p>x</p>")));
         CHECK_MSG(eventually([&] { return host.saw(1, "died:sandbox bundle failed to load"); }, 20), joined(host.events(1)));
         CHECK_MSG(!refusal.empty() && host.saw(1, "diag:bundle-mismatch:" + refusal) && host.eventsWith(1, "diag:boot:").empty(), joined(host.events(1)));
         host.close();
@@ -537,7 +536,7 @@ TEST(remote_stream_host_bounds_each_write) {
 /// The widget the host's round trip runs for real: a layout query and an Intl request at boot.
 static const char* kMeasureIntl = "<p id='p'>x</p><script>var w = document.getElementById('p').getBoundingClientRect().width; console.log('w=' + w + ' ' + (1234.5).toLocaleString());</script>";
 
-/// A client-mode engine over the host's end runs a real engine behind the engine process's end: the opening's bundles boot it from their bytecode, its layout query and Intl request are answered in the host (the delegate, and the host's provider on the client's `widget.client`), a probe sees what it set, and the owner hears the count of runtimes, then at the stop the end once and last, all on `widget.monitor`.
+/// A client-mode engine over the host's end runs a real engine behind the engine process's end: the opening's sandbox bundle boots it from its compiled code, its layout query and Intl request are answered in the host (the delegate, and the host's provider on the client's `widget.client`), a probe sees what it set, and the owner hears the count of runtimes, then at the stop the end once and last, all on `widget.monitor`.
 TEST(remote_stream_host_round_trip) {
     auto intl = std::make_shared<StreamIntl>();
     StreamDelegate delegate;
@@ -551,7 +550,7 @@ TEST(remote_stream_host_round_trip) {
         CHECK(eventually([&] { return delegate.saw("loaded"); }));
         CHECK(engine.probe("w + 1") == "78");
         const std::vector<std::string> boots = delegate.eventsWith("diag:boot:");
-        CHECK_MSG(boots.size() == 1 && boots[0].find("(bytecode)") != std::string::npos && delegate.eventsWith("query:").size() == 1, joined(delegate.events()));
+        CHECK_MSG(boots.size() == 1 && boots[0].find("(compiled)") != std::string::npos && delegate.eventsWith("query:").size() == 1, joined(delegate.events()));
         CHECK_MSG(eventually([&] { return peers.events.all() == std::vector<std::string>{"runtimes:1"}; }), joined(peers.events.all()));
 #if defined(__APPLE__) || defined(__linux__)
         CHECK_MSG(intl->threads() == std::vector<std::string>{"widget.client"}, joined(intl->threads()));
@@ -636,7 +635,7 @@ TEST(remote_stream_host_refusals) {
 
 /// The engine process's lockdown runs once between the accepted opening and `Ready`: while it is held, the opening was read whole and the runtime's open and start queued with it neither get the answer nor boot, which both come once it returns ""; a reason it returns, or the fixed one for an exception it throws, refuses the stream and boots nothing, and over a real host's end the stream ends with that refusal and a client attached while it was held dies with the lost stream, never loaded; a malformed opening, another build and a stream that ends before or inside the opening never call it.
 TEST(remote_stream_engine_lockdown) {
-    const std::string opening = openingOf(*RES, true);
+    const std::string opening = openingOf(*RES);
     const std::optional<ParsedFrame> sent = frameAt(opening, uint32_t(opening.size() - 4));
     const std::string queued = opening + FrameBytes(1, wire::Open).bytes() +
                                FrameBytes(1, wire::Start).str("<script>console.log('ran')</script>").str(SandboxRemoteCoding::encodeConfig(testConfig())).bytes();
@@ -715,8 +714,8 @@ TEST(remote_stream_engine_lockdown) {
     };
     const std::string stamp = firstLine(RES->validatorBundle);
     const std::vector<Uncalled> uncalled = {
-        {"a malformed opening", FrameBytes(0, wire::Opening).i64(1).str(kBuild).str("s").str("").str(stamp).bytes(), "kind 1 with a field past the frame's end"},
-        {"another build", openingBytes(1, "other", "s", "", stamp, ""), "build \"other\", this end's is \"twidget-tests\""},
+        {"a malformed opening", FrameBytes(0, wire::Opening).i64(1).str(kBuild).str("s").str(stamp).bytes(), "kind 1 with a field past the frame's end"},
+        {"another build", openingBytes(1, "other", "s", stamp, ""), "build \"other\", this end's is \"twidget-tests\""},
         {"the end before the opening", "", ""},
         {"the end inside the opening", smallOpening().substr(0, 30), "the stream ended inside a frame"},
     };
@@ -1041,14 +1040,13 @@ TEST(remote_stream_carries_calls) {
     CHECK(peers.serving.within(5).has_value());
 }
 
-/// A real WidgetHost over the stream: its engine runs from the opening's bytes, which carry the sandbox bundle and its bytecode and only the stamp lines of the validator and renderer bundles that stay in the host; the widget's validated ops carry its layout answer and the host's Intl, formatted by the host's provider in this process on the client's `widget.client`; a tapped request and the wallet call on its grant reach the host's callbacks, and their answers the widget's state. Without bytecode it boots from the source, and a sandbox bundle of another release is refused at boot with the in-process verdict. The fixture destroyed while its WidgetHost runs one of its callbacks waits for that callback, which ends on the fixture's own storage.
+/// A real WidgetHost over the stream: its engine runs from the opening's bytes, which carry the sandbox bundle and only the stamp lines of the validator and renderer bundles that stay in the host; the widget's validated ops carry its layout answer and the host's Intl, formatted by the host's provider in this process on the client's `widget.client`; a tapped request and the wallet call on its grant reach the host's callbacks, and their answers the widget's state. A sandbox bundle of another release is refused at boot with the in-process verdict. The fixture destroyed while its WidgetHost runs one of its callbacks waits for that callback, which ends on the fixture's own storage.
 TEST(remote_stream_widget_host) {
     WidgetHostOptions privileged;
     privileged.context = messageContext(false, true, false, "private");
     privileged.context.wallet = true;
-    const std::string bytecode(RES->sandboxBytecode.begin(), RES->sandboxBytecode.end());
     const std::string validatorStamp = firstLine(RES->validatorBundle), rendererStamp = firstLine(RES->rendererBundle);
-    CHECK(!bytecode.empty() && validatorStamp.size() < 200 && rendererStamp.size() < 200 && RES->validatorBundle.size() > 100000 && RES->rendererBundle.size() > 10000);
+    CHECK(validatorStamp.size() < 200 && rendererStamp.size() < 200 && RES->validatorBundle.size() > 100000 && RES->rendererBundle.size() > 10000);
     {
         StreamPeers peers;
         StreamHost h(*peers.end, kHostWidget, privileged, 20, "INTL");
@@ -1059,13 +1057,13 @@ TEST(remote_stream_widget_host) {
         CHECK_MSG(d.loaded && d.rendered && !d.dead, d.dead.value_or("alive"));
         CHECK_MSG(h.renders("h:20") && h.renders("n:INTL"), h.rendered().substr(0, 2000));
         CHECK(!h.renderer->sent("query").empty());
-        CHECK_MSG(bootedFrom(d, "(bytecode)"), joined(bootsOf(d)));
+        CHECK_MSG(bootedFrom(d, "(compiled)"), joined(bootsOf(d)));
         CHECK_MSG(h.intl->processes() == std::vector<long>{processId()}, std::to_string(h.intl->processes().size()) + " requests");
 #if defined(__APPLE__) || defined(__linux__)
         CHECK_MSG(h.intl->threads() == std::vector<std::string>{"widget.client"}, joined(h.intl->threads()));
 #endif
         const std::vector<std::string> opening = openingFields(peers.engineSide->firstFrame());
-        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, RES->sandboxBundle, bytecode, validatorStamp, rendererStamp}), std::to_string(opening.size()) + " fields");
+        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, RES->sandboxBundle, validatorStamp, rendererStamp}), std::to_string(opening.size()) + " fields");
         CHECK(eventually([&] { return peers.events.open() == 1; }));
 
         h.tap();
@@ -1076,18 +1074,6 @@ TEST(remote_stream_widget_host) {
         CHECK(h.respond(1, answered(std::string("s"))));
         CHECK_MSG(probeUntil(host, "log.join(' ')", "ok:r signed:s") == "ok:r signed:s", host.probe("log.join(' ')"));
         CHECK_MSG(!host.diagnostics().dead && !peers.events.ended(), joined(peers.events.all()));
-    }
-    {
-        SandboxResources source = *RES;
-        source.sandboxBytecode.clear();
-        StreamPeers peers(kBuild, source);
-        StreamHost h(*peers.end, kHostWidget, privileged, 20, "INTL");
-        CHECK(h.shown());
-        const WidgetDiagnostics d = h.host->diagnostics();
-        CHECK_MSG(h.renders("h:20") && h.renders("n:INTL") && !d.dead, h.rendered().substr(0, 2000));
-        CHECK_MSG(bootedFrom(d, "(source)"), joined(bootsOf(d)));
-        const std::vector<std::string> opening = openingFields(peers.engineSide->firstFrame());
-        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, RES->sandboxBundle, "", validatorStamp, rendererStamp}), std::to_string(opening.size()) + " fields");
     }
     {
         const BundleStamp mine = BundleStamp::glue();
@@ -1104,7 +1090,7 @@ TEST(remote_stream_widget_host) {
         CHECK_MSG(d.dead == std::optional<std::string>("sandbox bundle failed to load") && !d.loaded && !d.hasLog("ran here") && d.countDiag("boot") == 0, d.dead.value_or("alive"));
         CHECK_MSG(mismatch != d.diags.end() && mismatch->second.first == 1 && mismatch->second.second == std::vector<std::string>{refusal}, refusal);
         const std::vector<std::string> opening = openingFields(peers.engineSide->firstFrame());
-        CHECK_MSG(opening.size() == 6 && opening[2] == other.sandboxBundle, std::to_string(opening.size()) + " fields");
+        CHECK_MSG(opening.size() == 5 && opening[2] == other.sandboxBundle, std::to_string(opening.size()) + " fields");
     }
     {
         StreamPeers peers;
@@ -1332,7 +1318,7 @@ static std::vector<Hostile> hostileInputs() {
     const std::vector<Hostile> rest = {
         {.name = "the host's event", .bytes = FrameBytes(1, wire::Event).str("{}").bytes(), .reason = "kind 4 from the other side"},
         {.name = "the host's close", .bytes = bare(1, wire::Close), .reason = "kind 21 from the other side"},
-        {.name = "the host's opening", .bytes = openingBytes(1, kBuild, "s", "", "", ""), .reason = "kind 1 from the other side"},
+        {.name = "the host's opening", .bytes = openingBytes(1, kBuild, "s", "", ""), .reason = "kind 1 from the other side"},
         {.name = "Ready on a runtime", .bytes = FrameBytes(1, wire::Ready).i64(1).bytes(), .reason = "kind 64 on runtime 1, not the connection"},
         {.name = "a log on the connection", .bytes = logFrame(0, "x"), .reason = "kind 75 on the connection, not a runtime"},
         {.name = "loaded on the connection", .bytes = bare(0, wire::Loaded), .reason = "kind 84 on the connection, not a runtime"},
@@ -2042,7 +2028,7 @@ TEST(remote_stream_engine_blocked_write_shutdown) {
         CHECK(pair.host && pair.engine);
         if (!pair.host) continue;
         Background<std::string> serving([&] { return SandboxRemoteEngineEnd::serve(*pair.engine, kBuild); });
-        CHECK(pair.host->write(openingOf(*RES, true)));
+        CHECK(pair.host->write(openingOf(*RES)));
         FrameStreamReader hostSide(*pair.host);
         const std::optional<ParsedFrame> ready = hostSide.next();
         CHECK(ready && describe(*ready) == "ready:1");
@@ -2514,7 +2500,7 @@ static void engineUnstartedOnScriptedStream() {
         measured = host.probe(2, "(p.textContent = '" + number + "', p.getBoundingClientRect().width + ' ' + (" + number + ").toLocaleString())").value_or("no answer");
         return measured == std::to_string(33 + queries) + " INTL-B" && host.eventsWith(2, "query:").size() == queries + 1 && host.eventsWith(2, "intl:").size() == intl + 1;
     };
-    CHECK(host.send(openingOf(*RES, true)));
+    CHECK(host.send(openingOf(*RES)));
     CHECK_MSG(eventually([&] { return host.events(0) == std::vector<std::string>{"ready:1"}; }), leg + ": " + joined(host.events(0)));
     // Runtime 1 opened and closed makes the reaper; B is runtime 2, A 3 and D 4.
     CHECK(host.send(open(1) + FrameBytes(1, wire::Close).bytes() + open(2) + started(2, kQueriesB) + open(3) +
@@ -2697,7 +2683,7 @@ static void endWithNoReaper() {
         return true;
     };
     const std::string coded = SandboxRemoteCoding::encodeConfig(testConfig());
-    CHECK(pair.host->write(openingOf(*RES, true) + FrameBytes(1, wire::Open).bytes() + FrameBytes(1, wire::Start).str("<p id='p'>x</p>").str(coded).bytes() + FrameBytes(2, wire::Open).bytes() +
+    CHECK(pair.host->write(openingOf(*RES) + FrameBytes(1, wire::Open).bytes() + FrameBytes(1, wire::Start).str("<p id='p'>x</p>").str(coded).bytes() + FrameBytes(2, wire::Open).bytes() +
                            FrameBytes(2, wire::Start).str("<p>y</p>").str(coded).bytes()));
     CHECK_MSG(readUntil(0, "ready:") && readUntil(1, "loaded") && readUntil(2, "loaded"), leg + ": " + joined(seen[1]) + " / " + joined(seen[2]));
     CHECK(pair.host->write(FrameBytes(1, wire::Probe).i64(1).str("document.getElementById('p').getBoundingClientRect().width").bytes()));

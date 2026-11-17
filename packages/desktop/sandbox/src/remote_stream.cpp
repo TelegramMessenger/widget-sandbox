@@ -244,14 +244,13 @@ struct SandboxRemoteHostEnd::Connection : std::enable_shared_from_this<SandboxRe
         }
     }
 
-    /// The opening, the first frame queued: the sandbox bundle and its bytecode, and only the other bundles' stamps; a hosting stream's (`HostingOpening`) the validator bundle and its bytecode too, the renderer's stamp alone.
+    /// The opening, the first frame queued: the sandbox bundle, and only the other bundles' stamps; a hosting stream's (`HostingOpening`) the validator bundle too, the renderer's stamp alone.
     void open(const SandboxResources& r, const std::string& build) {
-        const auto bytes = [](const std::vector<uint8_t>& code) { return std::string_view(reinterpret_cast<const char*>(code.data()), code.size()); };
         constexpr int64_t version = SandboxRemoteWire::kVersion;
         constexpr size_t bound = SandboxRemoteWire::kMaxOpeningBytes;
         std::optional<std::string> opening =
-            hosting_ ? Codec::encode(0, Kind::HostingOpening, bound, {version, build, r.sandboxBundle, bytes(r.sandboxBytecode), r.validatorBundle, bytes(r.validatorBytecode), stampOf(r.rendererBundle)})
-                     : Codec::encode(0, Kind::Opening, bound, {version, build, r.sandboxBundle, bytes(r.sandboxBytecode), stampOf(r.validatorBundle), stampOf(r.rendererBundle)});
+            hosting_ ? Codec::encode(0, Kind::HostingOpening, bound, {version, build, r.sandboxBundle, r.validatorBundle, stampOf(r.rendererBundle)})
+                     : Codec::encode(0, Kind::Opening, bound, {version, build, r.sandboxBundle, stampOf(r.validatorBundle), stampOf(r.rendererBundle)});
         std::lock_guard<std::mutex> l(mutex_);
         if (opening) queueLocked(std::move(*opening));
         else endLocked("an opening past the bound of " + std::to_string(SandboxRemoteWire::kMaxOpeningBytes) + " bytes");

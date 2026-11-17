@@ -71,10 +71,13 @@ await emit('validator-bundle.js', validatorBuildOptions(pkgRoot));
 // a web view and has none). The compiler is built from the vendored quickjs-ng, so the bytecode
 // always matches the engine the apps link; each blob carries the source's length and hash and is
 // refused at load time if the .js next to it changed (see qjs_shim.h).
-const qjsc = buildQjsc();
-for (const name of ['sandbox-bundle.js', 'validator-bundle.js']) {
-  const out = name.replace(/\.js$/, '.qbc');
-  execFileSync(qjsc, [path.join(res, name), path.join(res, out), path.basename(name)], { stdio: 'inherit' });
+// The desktop core runs the Nova engine, which compiles the bundles once per process and takes no bytecode.
+if (targetName !== 'desktop') {
+  const qjsc = buildQjsc();
+  for (const name of ['sandbox-bundle.js', 'validator-bundle.js']) {
+    const out = name.replace(/\.js$/, '.qbc');
+    execFileSync(qjsc, [path.join(res, name), path.join(res, out), path.basename(name)], { stdio: 'inherit' });
+  }
 }
 
 /** Builds packages/tools/qjsc from packages/ios/Sources/CQuickJS (the fork submodule + shim) into .cache/ (gitignored) when it is missing or older than its sources. */

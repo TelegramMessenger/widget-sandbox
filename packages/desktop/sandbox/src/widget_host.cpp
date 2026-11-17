@@ -1,4 +1,4 @@
-// What every WidgetHost runs (twidget/widget_host.h): the hosted constructor and the destructor, the inputs, the delegate calls both modes take, the hosted client's reports, the keep and HostedKeptRenderer. The local mode's halves (widget_host_local.cpp) are reached only through `glue_`, which the local and served constructors alone install, so a program whose hosts are all hosted ones links neither them, the validator nor QuickJS.
+// What every WidgetHost runs (twidget/widget_host.h): the hosted constructor and the destructor, the inputs, the delegate calls both modes take, the hosted client's reports, the keep and HostedKeptRenderer. The local mode's halves (widget_host_local.cpp) are reached only through `glue_`, which the local and served constructors alone install, so a program whose hosts are all hosted ones links neither them, the validator nor Nova.
 #include "twidget/widget_host.h"
 
 #include "twidget/json.h"

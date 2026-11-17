@@ -248,32 +248,29 @@ inline const std::string kBuild = "twidget-tests";
 /// A bundle's first line without its newline, all of it when it has none: what an opening carries of the validator and renderer bundles.
 inline std::string firstLine(const std::string& bundle) { return bundle.substr(0, bundle.find('\n')); }
 
-inline std::string openingBytes(int64_t version, std::string_view build, std::string_view bundle, std::string_view bytecode, std::string_view validatorStamp, std::string_view rendererStamp) {
-    return FrameBytes(0, wire::Opening).i64(version).str(build).str(bundle).str(bytecode).str(validatorStamp).str(rendererStamp).bytes();
+inline std::string openingBytes(int64_t version, std::string_view build, std::string_view bundle, std::string_view validatorStamp, std::string_view rendererStamp) {
+    return FrameBytes(0, wire::Opening).i64(version).str(build).str(bundle).str(validatorStamp).str(rendererStamp).bytes();
 }
 
-/// The opening a host writes for `res`: its sandbox bundle with its bytecode (or without), the first lines of its validator and renderer bundles.
-inline std::string openingOf(const SandboxResources& res, bool bytecode) {
-    const std::string code(res.sandboxBytecode.begin(), res.sandboxBytecode.end());
-    return openingBytes(1, kBuild, res.sandboxBundle, bytecode ? code : std::string(), firstLine(res.validatorBundle), firstLine(res.rendererBundle));
+/// The opening a host writes for `res`: its sandbox bundle, the first lines of its validator and renderer bundles.
+inline std::string openingOf(const SandboxResources& res) {
+    return openingBytes(1, kBuild, res.sandboxBundle, firstLine(res.validatorBundle), firstLine(res.rendererBundle));
 }
 
 /// An opening for cases that boot no runtime: a sandbox bundle of one byte, the validator's stamp and no renderer.
-inline std::string smallOpening() { return openingBytes(1, kBuild, "s", "", firstLine(RES->validatorBundle), ""); }
+inline std::string smallOpening() { return openingBytes(1, kBuild, "s", firstLine(RES->validatorBundle), ""); }
 
-inline std::string hostingOpeningBytes(int64_t version, std::string_view build, std::string_view bundle, std::string_view bytecode, std::string_view validatorBundle,
-                                       std::string_view validatorBytecode, std::string_view rendererStamp) {
-    return FrameBytes(0, wire::HostingOpening).i64(version).str(build).str(bundle).str(bytecode).str(validatorBundle).str(validatorBytecode).str(rendererStamp).bytes();
+inline std::string hostingOpeningBytes(int64_t version, std::string_view build, std::string_view bundle, std::string_view validatorBundle, std::string_view rendererStamp) {
+    return FrameBytes(0, wire::HostingOpening).i64(version).str(build).str(bundle).str(validatorBundle).str(rendererStamp).bytes();
 }
 
-/// The opening a host writes for `res`'s hosted widgets: its sandbox and validator bundles with their bytecode (a given validator bundle or bytecode in their place), the first line of its renderer bundle.
-inline std::string hostingOpeningOf(const SandboxResources& res, std::optional<std::string> validator = std::nullopt, std::optional<std::string> validatorCode = std::nullopt) {
-    const std::string code(res.sandboxBytecode.begin(), res.sandboxBytecode.end()), checker(res.validatorBytecode.begin(), res.validatorBytecode.end());
-    return hostingOpeningBytes(1, kBuild, res.sandboxBundle, code, validator.value_or(res.validatorBundle), validatorCode.value_or(checker), firstLine(res.rendererBundle));
+/// The opening a host writes for `res`'s hosted widgets: its sandbox and validator bundles (a given validator bundle in its place), the first line of its renderer bundle.
+inline std::string hostingOpeningOf(const SandboxResources& res, std::optional<std::string> validator = std::nullopt) {
+    return hostingOpeningBytes(1, kBuild, res.sandboxBundle, validator.value_or(res.validatorBundle), firstLine(res.rendererBundle));
 }
 
-/// A hosting opening for cases that build no widget: bundles of one byte, no bytecode and no renderer.
-inline std::string smallHostingOpening() { return hostingOpeningBytes(1, kBuild, "s", "", "v", "", ""); }
+/// A hosting opening for cases that build no widget: bundles of one byte and no renderer.
+inline std::string smallHostingOpening() { return hostingOpeningBytes(1, kBuild, "s", "v", ""); }
 
 inline std::string rectOf(int width) {
     const std::string w = std::to_string(width);
@@ -996,20 +993,20 @@ inline std::vector<std::string> bootsOf(const WidgetDiagnostics& d) {
     return it == d.diags.end() ? std::vector<std::string>() : it->second.second;
 }
 
-/// Whether the one boot of `d` evaluated the sandbox bundle `how` ("(bytecode)", "(source)").
+/// Whether the one boot of `d` evaluated the sandbox bundle `how` ("(compiled)", "(source)").
 inline bool bootedFrom(const WidgetDiagnostics& d, const std::string& how) {
     const std::vector<std::string> boots = bootsOf(d);
     return d.countDiag("boot") == 1 && boots.size() == 1 && boots[0].rfind("sandbox bundle eval ", 0) == 0 && boots[0].size() > how.size() &&
            boots[0].compare(boots[0].size() - how.size(), how.size(), how) == 0;
 }
 
-/// The opening's fields as the engine's end read them, by the documented layout: version, build, the sandbox bundle and its bytecode, the validator's and the renderer's stamps; empty when it is not a whole opening on the connection with nothing after its fields.
+/// The opening's fields as the engine's end read them, by the documented layout: version, build, the sandbox bundle, the validator's and the renderer's stamps; empty when it is not a whole opening on the connection with nothing after its fields.
 inline std::vector<std::string> openingFields(const std::optional<ParsedFrame>& frame) {
     if (!frame || frame->runtime != 0 || frame->kind != wire::Opening) return {};
     FieldsOf in(*frame);
     const std::optional<int64_t> version = in.i64();
     std::vector<std::string> out = {version ? std::to_string(*version) : "?"};
-    for (int i = 0; i < 5; i++) out.push_back(in.str().value_or("?"));
+    for (int i = 0; i < 4; i++) out.push_back(in.str().value_or("?"));
     return in.done() ? out : std::vector<std::string>();
 }
 
@@ -1041,13 +1038,13 @@ struct Hostile {
     bool hosting = false;
 };
 
-/// A hosting opening's fields as the engine's end read them, by the documented layout: version, build, the sandbox bundle and its bytecode, the validator bundle and its bytecode, the renderer's stamp; empty when it is not a whole hosting opening on the connection with nothing after its fields.
+/// A hosting opening's fields as the engine's end read them, by the documented layout: version, build, the sandbox bundle, the validator bundle, the renderer's stamp; empty when it is not a whole hosting opening on the connection with nothing after its fields.
 inline std::vector<std::string> hostingOpeningFields(const std::optional<ParsedFrame>& frame) {
     if (!frame || frame->runtime != 0 || frame->kind != wire::HostingOpening) return {};
     FieldsOf in(*frame);
     const std::optional<int64_t> version = in.i64();
     std::vector<std::string> out = {version ? std::to_string(*version) : "?"};
-    for (int i = 0; i < 6; i++) out.push_back(in.str().value_or("?"));
+    for (int i = 0; i < 4; i++) out.push_back(in.str().value_or("?"));
     return in.done() ? out : std::vector<std::string>();
 }
 
@@ -1069,10 +1066,10 @@ inline void hostileRun(const Hostile& v) {
     CHECK_MSG(eventually([&] { return engine.saw(1, "open") && engine.saw(2, "open"); }), name + joined(engine.frames(0)));
     if (v.hosting) {
         const std::vector<std::string> opening = hostingOpeningFields(engine.first());
-        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, "s", "", RES->validatorBundle, "", ""}), name + joined(opening));
+        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, "s", RES->validatorBundle, ""}), name + joined(opening));
     } else {
         const std::vector<std::string> opening = openingFields(engine.first());
-        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, "s", "", firstLine(RES->validatorBundle), ""}), name + joined(opening));
+        CHECK_MSG((opening == std::vector<std::string>{"1", kBuild, "s", firstLine(RES->validatorBundle), ""}), name + joined(opening));
     }
     std::vector<std::string> heard, told;
     if (!v.first) {

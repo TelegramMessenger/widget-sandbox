@@ -1,6 +1,8 @@
 # widget-sandbox desktop core (C++)
 
-The QuickJS sandbox for Telegram Desktop–class hosts (Qt/C++): the engine,
+The sandbox for Telegram Desktop–class hosts (Qt/C++), on the Nova engine
+since 2026-11-17 on this branch (`nova-safe`; every record below dated before
+that was measured on QuickJS, and names its build's parts as they were): the engine,
 the trusted validator, the CPU budget and the WidgetHost glue as a **Qt-free
 C++20 static library**, plus a console harness and a test suite. It is the
 fourth copy of the host glue (web Worker, Swift, Kotlin, C++) over the same
@@ -21,7 +23,7 @@ packages/desktop/
                              boundary a host supplies), SandboxRemoteWire, SandboxRemoteHostEnd, SandboxRemoteEngineEnd
     remote_hosted.h          the whole widget in the engine process (desktop core only): SandboxHostedChannel,
                              SandboxHostedPlatform, HostedRendererFactory, SandboxHostedLoopbackChannel
-    trusted_validator.h      validator-bundle.js in a second, trusted QuickJS runtime
+    trusted_validator.h      validator-bundle.js in a second, trusted Nova engine
     widget_host.h            WidgetHost: engine + validator + Renderer, one widget (= WidgetHost.swift / .kt)
     renderer.h               Renderer seam + RendererFactory (= Renderer.swift / .kt)
     cpu_budget.h             CpuBudget (fixture: packages/core/tests/fixtures/cpu-budget.json)
@@ -31,7 +33,7 @@ packages/desktop/
     gesture_policy.h         the widget or the bubble: claimOf + GestureArbiter for the client's recognizers
                              (= GesturePolicy.swift / .kt; fixture: packages/core/tests/fixtures/gesture-policy.json)
     js_thread.h              one dedicated thread per runtime, 8 MB stack, timers
-    quickjs_context.h        thin wrapper over quickjs-ng via packages/ios/Sources/CQuickJS/shim
+    nova_context.h           thin wrapper over the Nova engine via nova_embed_ffi's C interface (nova_engine.h)
     resources.h              WidgetJS/ loader + CDN URL → bundled library
     intl.h                   IntlProvider; BasicIntl fallback (plug QLocale/ICU here)
     json.h                   small strict JSON (hostile input: bounded depth)
@@ -50,15 +52,20 @@ packages/desktop/
   WidgetJS/                  bundles from `pnpm build:desktop` (committed)
 ```
 
-quickjs-ng is not copied: CMake compiles `../ios/Sources/CQuickJS` (the same
-sources Android builds). The library links only the C++ standard library,
+The engine is Nova (github.com/TelegramMessenger/nova-safe: its engine crates
+forbid `unsafe` code), linked as the static library of its `nova_embed_ffi`
+crate: `-DTW_NOVA_ROOT=<a nova-safe checkout>` builds it with cargo, or
+`-DTW_NOVA_LIBRARY=<the library> -DTW_NOVA_INCLUDE=<the directory of nova_engine.h>`
+links a built one (tdesktop links it inside its one Rust archive). The bundles
+run from code compiled once per process (`NovaContext::evaluateBundle`): there
+is no bytecode file. Besides it the library links only the C++ standard library,
 pthreads and `m`; on Windows `bcrypt` (CSPRNG) and `_beginthreadex`.
 
 ## Build and run
 
 ```bash
 corepack pnpm build:desktop                       # bundles → packages/desktop/WidgetJS, fixture → packages/desktop/tests/fixtures
-cd packages/desktop && cmake -S . -B build -G Ninja && cmake --build build
+cd packages/desktop && cmake -S . -B build -G Ninja -DTW_NOVA_ROOT=<a nova-safe checkout> && cmake --build build
 ./build/twidget-tests                             # 235 tests (engine, limits, validator, JSThread, CpuBudget, SDK and gesture fixtures, SDK v1, JSON, the remote engine, its byte stream and the hosted mode); `./build/twidget-tests remote_` runs the remote engine's 112, `remote_stream_` the byte stream's 49 and `hosted_` the hosted mode's 41 of them
 ./build/twidget-host-only                         # built from the host's side alone ("The host's side alone" below): prints `host-only: hosted=1 dead=the widget engine process ended kept=0` and exits 0
 ./build/twidget-run ../corpus/compat/tabs.html --wait-ms 500 [--verbose] [--ops] [--probe 'document.title']
@@ -521,7 +528,7 @@ a lost stream is told to the clients by the host's end itself.
 
 | # | Host to engine | Runtime | Fields | Channel call |
 | --- | --- | --- | --- | --- |
-| 1 | `Opening` | 0 | i64 version, str build, str sandboxBundle, str sandboxBytecode, str validatorStamp, str rendererStamp | `SandboxRemoteHostEnd::start` |
+| 1 | `Opening` | 0 | i64 version, str build, str sandboxBundle, str validatorStamp, str rendererStamp | `SandboxRemoteHostEnd::start` |
 | 2 | `Open` | id | none | `attach` |
 | 3 | `Start` | id | str html, str config (`encodeConfig`) | `start` |
 | 4 | `Event` | id | str json | `event` |
@@ -542,7 +549,7 @@ a lost stream is told to the clients by the host's end itself.
 | 19 | `QueryAnswer` | id | str json, bool hasBinary, str binary ("" unless hasBinary) | what the sink's `remoteQuery` returned |
 | 20 | `IntlAnswer` | id | str text | what the sink's `remoteIntl` returned |
 | 21 | `Close` | id | none | `close` |
-| 32 | `HostingOpening` | 0 | i64 version, str build, str sandboxBundle, str sandboxBytecode, str validatorBundle, str validatorBytecode, str rendererStamp | `SandboxRemoteHostEnd::startHosting` |
+| 32 | `HostingOpening` | 0 | i64 version, str build, str sandboxBundle, str validatorBundle, str rendererStamp | `SandboxRemoteHostEnd::startHosting` |
 | 33 | `HostedStart` | id | str html, str config (`encodeConfig`), str hosted (`encodeHostedStart`) | `startHosted` |
 | 34 | `HostedTheme` | id | str theme (`encodeTheme`) | `hostedTheme` |
 | 35 | `Platform` | id | str message | `platform` |
@@ -596,8 +603,7 @@ connection, a field runs past the frame or bytes are left after the last, a
 ### The opening
 
 The first frame, on the connection: the stream's version
-(`SandboxRemoteWire::kVersion`, 1), the host's build, the sandbox bundle and
-its bytecode (without one the engine boots from source), and of the validator
+(`SandboxRemoteWire::kVersion`, 1), the host's build, the sandbox bundle, and of the validator
 and renderer bundles, which stay in the host, only their stamp lines. The engine
 needs those because its boot checks the stamps of all three bundles
 (`BundleStamp`), so a bundle of another release is refused with the same
@@ -611,7 +617,7 @@ host's end queues the runtimes' frames behind the opening without waiting for
 the answer, and accepts nothing of a runtime's before `Ready`.
 
 A hosting stream opens with `HostingOpening` instead: the sandbox bundle and
-its bytecode, the whole validator bundle and its bytecode, which a hosted
+the whole validator bundle, which a hosted
 widget's validator runs in the engine process, and the renderer bundle's stamp
 line, within the same 16 MiB (about 1.9 MB today), so the engine process still
 reads no file. It is checked as `Opening` is (version, build, the renderer's
@@ -1246,7 +1252,7 @@ is unchanged:
   entry points both modes take, the clock, the value types' JSON),
   `sandbox_engine_client.cpp` (the client mode) and `widget_host.cpp` (what
   every `WidgetHost` runs, the hosted mode and `HostedKeptRenderer`).
-- The rest: `quickjs_context.cpp`, `cpu_budget.cpp`, `bundle_stamp.cpp`,
+- The rest: `nova_context.cpp`, `cpu_budget.cpp`, `bundle_stamp.cpp`,
   `trusted_validator.cpp`, `sandbox_engine.cpp` (the in-process engine,
   `release`, `make` and the channel factory slot), `remote_engine.cpp`
   (`SandboxRemoteServer` and the loopback), `remote_stream_engine.cpp` (the

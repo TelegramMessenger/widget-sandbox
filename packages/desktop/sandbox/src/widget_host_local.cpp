@@ -2,7 +2,7 @@
 #include "twidget/widget_host.h"
 
 #include "twidget/json.h"
-#include "twidget/quickjs_context.h"
+#include "twidget/nova_context.h"
 #include "widget_host_internal.h"
 
 #include <algorithm>
@@ -406,7 +406,7 @@ void WidgetHost::localAnim(SandboxEngine& engine, const std::string& json) {
     if (!hold) return;
     engineWork([this, anims] {
         char now[64];
-        std::snprintf(now, sizeof now, "%.17g", QuickJSContext::now() * 1000);
+        std::snprintf(now, sizeof now, "%.17g", NovaContext::now() * 1000);
         engineToRenderer(std::string("{\"type\":\"anim\",\"now\":") + now + ",\"anims\":" + anims + "}");
     }, std::move(*hold));
 }

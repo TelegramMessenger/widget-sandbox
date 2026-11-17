@@ -7,7 +7,7 @@
 // TS only: the renderer core builds them from the host's `theme` message.
 //
 // Strings. Everything here is UTF-8 bytes. A JS string may hold a lone
-// surrogate; QuickJS hands it to C++ in its 3-byte WTF-8 form (ED A0..BF xx),
+// surrogate; the engine hands it to C++ in its 3-byte WTF-8 form (ED A0..BF xx),
 // and the engine parses bridge calls and storage commits with
 // `Json::parse(…, Json::Surrogates::Keep)` so that the JSON route gives the
 // same bytes. `utf8Length` is the byte length, which is what the TS

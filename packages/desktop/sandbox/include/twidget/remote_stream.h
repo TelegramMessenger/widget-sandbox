@@ -34,14 +34,14 @@ struct SandboxRemoteWire {
     static constexpr int64_t kVersion = 1;
     /// The size any frame but an opening (`Opening`, `HostingOpening`) may give, in both directions: an ops batch with room for its frame.
     static constexpr size_t kMaxFrameBytes = SandboxEngine::kRemoteOpsLimit + (size_t(64) << 10);
-    /// The size `Opening` and `HostingOpening` may give: the sandbox bundle and its bytecode, a hosting stream's validator bundle and its bytecode too.
+    /// The size `Opening` and `HostingOpening` may give: the sandbox bundle, a hosting stream's validator bundle too.
     static constexpr size_t kMaxOpeningBytes = size_t(16) << 20;
     /// Bytes of a stamp line in `Opening` and `HostingOpening` (`BundleStamp`): a longer one is refused, never cut.
     static constexpr size_t kMaxStampBytes = 4096;
 
     /// Host to engine from 1, engine to host from 64, a hosting stream's own kinds from 32 and 96: a kind of the other direction is refused as the other side's. Each kind's fields in order.
     enum class Kind : uint8_t {
-        /// On the connection, first: i64 version, str build, str sandboxBundle, str sandboxBytecode, str validatorStamp, str rendererStamp (each stamp the bundle's first line, "" for no renderer bundle).
+        /// On the connection, first: i64 version, str build, str sandboxBundle, str validatorStamp, str rendererStamp (each stamp the bundle's first line, "" for no renderer bundle).
         Opening = 1,
         /// A new runtime, its id above every earlier one's: no fields. The opening decides what it is, an engine after `Opening`, a hosted widget after `HostingOpening`.
         Open = 2,
@@ -83,7 +83,7 @@ struct SandboxRemoteWire {
         IntlAnswer = 20,
         /// The runtime closed: no fields.
         Close = 21,
-        /// On the connection, first, opening a hosting stream (its runtimes are hosted widgets): i64 version, str build, str sandboxBundle, str sandboxBytecode, str validatorBundle, str validatorBytecode, str rendererStamp (the renderer bundle's first line, "" for none).
+        /// On the connection, first, opening a hosting stream (its runtimes are hosted widgets): i64 version, str build, str sandboxBundle, str validatorBundle, str rendererStamp (the renderer bundle's first line, "" for none).
         HostingOpening = 32,
         /// str html, str config (`SandboxRemoteCoding::encodeConfig`), str hosted (`SandboxRemoteCoding::encodeHostedStart`).
         HostedStart = 33,
@@ -176,9 +176,9 @@ public:
         size_t queuedBytes = size_t(64) << 20;
     };
 
-    /// Starts this end's threads on `stream` and queues the opening: `resources`' sandbox bundle and its bytecode, and only the stamp lines of its validator and renderer bundles, which stay in the host. `build` is the host's build, which the engine process's end must share. Throws std::system_error when one of its threads cannot start (JSThread): those already started are joined, nothing was written to the stream and `Events` hear nothing.
+    /// Starts this end's threads on `stream` and queues the opening: `resources`' sandbox bundle, and only the stamp lines of its validator and renderer bundles, which stay in the host. `build` is the host's build, which the engine process's end must share. Throws std::system_error when one of its threads cannot start (JSThread): those already started are joined, nothing was written to the stream and `Events` hear nothing.
     static std::shared_ptr<SandboxRemoteHostEnd> start(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits);
-    /// `start` for hosted widgets (remote_hosted.h), served by `SandboxRemoteEngineEnd::serveHosting`: the opening (`HostingOpening`) carries `resources`' sandbox and validator bundles with their bytecode and only the stamp line of its renderer bundle, every runtime is a hosted widget on `hostedChannel`, and `channel` refuses. Throws as `start` does.
+    /// `start` for hosted widgets (remote_hosted.h), served by `SandboxRemoteEngineEnd::serveHosting`: the opening (`HostingOpening`) carries `resources`' sandbox and validator bundles and only the stamp line of its renderer bundle, every runtime is a hosted widget on `hostedChannel`, and `channel` refuses. Throws as `start` does.
     static std::shared_ptr<SandboxRemoteHostEnd> startHosting(std::shared_ptr<SandboxRemoteStream> stream, const SandboxResources& resources, std::string build, Events events, Limits limits);
     /// `stop`, on the owner's thread: the last reference is never dropped on a thread of this end's (inside `Events`).
     ~SandboxRemoteHostEnd();
@@ -211,7 +211,7 @@ private:
 struct SandboxRemoteEngineEnd {
     /// Serves `stream` from the calling thread, its reader: checks the opening (a malformed one, another version or another build than `build` is refused, a `HostingOpening` too), builds the runtimes' resources from its bundles, keeps a `SandboxRemoteServer` per runtime id on its own `widget.sandbox` thread and writes their frames under one lock; a runtime's probes run on its `widget.probe` thread and closed runtimes are destroyed on `widget.reaper`. A runtime whose `widget.sandbox` cannot start dies with why (`SandboxRemoteServer::start`), and one whose `widget.probe` cannot start is stopped with why as `Stop` stops it, that probe answered "ERROR no runtime"; the stream and the other runtimes go on. A `widget.reaper` that cannot start ends serving with why. At the end every runtime still open is closed before any thread is joined, then destroyed on this thread, so ending needs no thread. Returns why the stream ended, "" at its end on a frame's boundary, once every runtime and thread it started is gone; a `shutdown` of `stream` from another thread ends it. A set `lockdown` is called once on this thread after the opening is accepted and the resources are built, before `Ready` and before any runtime exists (never for a refused opening or a stream that ends before one): "" goes on serving, any other text refuses the stream with it, and an exception refuses it with "the engine process could not lock itself down".
     static std::string serve(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown = {});
-    /// `serve`, also for a hosting stream: a first `HostingOpening` is checked as `Opening` is (version, build, the renderer's stamp) and gives the runtimes' resources its sandbox and validator bundles with their bytecode, no file read, with `lockdown` called at the same point; every runtime of such a stream is a hosted widget, whose engine (on `widget.sandbox`), `TrustedValidator` (on `widget.validator`), glue (on `twidget-host`) and renderer from `renderers` are built at its `HostedStart` on this thread, which the factory must never make wait for the host (no `SandboxHostedPlatform::request` inside it). Its probe and reaper threads, and what their refusals do, are `serve`'s: a hosted widget stopped because its `widget.probe` cannot start keeps its renderer until `Close`, as at any death of its engine. On a hosting stream the engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`, `Viewport`, `Resize`, `Theme`, `PressBegan`, `PressEnded`, `ChargeValidator`, `QueryAnswer`) end serving, as the hosted kinds do on an engine stream. Defined in remote_hosted.cpp, so a helper that calls only `serve` links no WidgetHost or validator.
+    /// `serve`, also for a hosting stream: a first `HostingOpening` is checked as `Opening` is (version, build, the renderer's stamp) and gives the runtimes' resources its sandbox and validator bundles, no file read, with `lockdown` called at the same point; every runtime of such a stream is a hosted widget, whose engine (on `widget.sandbox`), `TrustedValidator` (on `widget.validator`), glue (on `twidget-host`) and renderer from `renderers` are built at its `HostedStart` on this thread, which the factory must never make wait for the host (no `SandboxHostedPlatform::request` inside it). Its probe and reaper threads, and what their refusals do, are `serve`'s: a hosted widget stopped because its `widget.probe` cannot start keeps its renderer until `Close`, as at any death of its engine. On a hosting stream the engine's host kinds (`Start`, `Event`, `Activation`, `AnimationFrame`, `Viewport`, `Resize`, `Theme`, `PressBegan`, `PressEnded`, `ChargeValidator`, `QueryAnswer`) end serving, as the hosted kinds do on an engine stream. Defined in remote_hosted.cpp, so a helper that calls only `serve` links no WidgetHost or validator.
     static std::string serveHosting(SandboxRemoteStream& stream, const std::string& build, const std::function<std::string()>& lockdown, HostedRendererFactory renderers);
 };
 

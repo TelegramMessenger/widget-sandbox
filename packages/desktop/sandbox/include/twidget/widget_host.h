@@ -1,4 +1,4 @@
-// WidgetHost: one widget = one SandboxEngine (QuickJS on its own JSThread) +
+// WidgetHost: one widget = one SandboxEngine (Nova on its own JSThread) +
 // one TrustedValidator + one Renderer (whatever the factory builds — the
 // Blitz prototype here, the Web App window on tdesktop). The only place where
 // the three meet; nothing from the engine reaches the renderer without passing
@@ -40,7 +40,7 @@ namespace twidget {
 // WidgetStorage, WidgetAction and StorageArea, and WidgetData, WidgetViewer, WidgetContext, WidgetRequest,
 // WidgetRequestAnswer, WidgetRequestFailure and WidgetRequestOutcome are in twidget/sdk_policy.h (the engine checks with them).
 
-/// Limits for the widget's QuickJS runtime (see SandboxConfig); mirrors WidgetHost.Options on iOS/Android.
+/// Limits for the widget's Nova runtime (see SandboxConfig); mirrors WidgetHost.Options on iOS/Android.
 struct WidgetHostOptions {
     size_t memoryLimitBytes = size_t(8) << 20;
     double cpuLimitMs = 500;
@@ -398,7 +398,7 @@ private:
     static Hosting hostingFor(WidgetHost& host, const std::shared_ptr<SandboxResources>& resources, const RendererFactory& renderers, const std::string& theme, double width);
     /// The local and served constructors' body: the validator's policy and CPU sink, the engine's delegate (an engine in process now), the renderer's callbacks.
     void wire(SandboxEngineDelegate& engineDelegate);
-    /// The served host's cut once its engine died (SandboxHostedRuntime), on the host thread after the death's reports, once and never after `destroy()`: from then on the renderer's messages, the engine's queued work and every input stop at the glue, a waiting layout query answers "dead", the engine is released (`SandboxEngine::release`: its thread and QuickJS context go) and the validator destroyed (its thread and context), so only the renderer, its platform and this thread stay.
+    /// The served host's cut once its engine died (SandboxHostedRuntime), on the host thread after the death's reports, once and never after `destroy()`: from then on the renderer's messages, the engine's queued work and every input stop at the glue, a waiting layout query answers "dead", the engine is released (`SandboxEngine::release`: its thread and Nova context go) and the validator destroyed (its thread and context), so only the renderer, its platform and this thread stay.
     void keepRendererOnly();
     /// Host thread: the platform observers get nothing more; while keeping, only once `keepRenderer` handed the route over, so what came before the keep still reaches them.
     bool platformClosed() const { return keeping_ ? callbacksClosed_ : bool(destroyed_); }
@@ -491,7 +491,7 @@ private:
     /// qid of the host's own post-load ack query; engine queries count up from 1.
     static constexpr int kRenderAckQid = -1;
 
-    // Before the threads and the validator: a diagnostic the validator reports while it is built (`bundle-mismatch`, `bytecode`) reaches `diag` on the host thread at once, which may run it as late as its final join.
+    // Before the threads and the validator: a diagnostic the validator reports while it is built (`bundle-mismatch`) reaches `diag` on the host thread at once, which may run it as late as its final join.
     mutable std::mutex mutex_;              // diagnostics_, waiters
     std::condition_variable cv_;
     WidgetDiagnostics diagnostics_;

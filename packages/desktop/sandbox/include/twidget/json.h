@@ -179,7 +179,7 @@ public:
     }
 
     /// What a `\uD800`-style escape of a lone surrogate becomes: U+FFFD (the default), or the
-    /// surrogate's own 3-byte WTF-8 form (ED A0..BF xx), which is how QuickJS hands a JS string with
+    /// surrogate's own 3-byte WTF-8 form (ED A0..BF xx), which is how the engine hands a JS string with
     /// a lone surrogate to C++ outside JSON. `Keep` is for the SDK checks (sdk_policy.h): a URL with a
     /// lone surrogate must stay refusable, and Web Storage values must round-trip unchanged.
     enum class Surrogates { Replace, Keep };
